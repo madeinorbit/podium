@@ -15,7 +15,7 @@ import {
 } from './installed-restart'
 
 describe('parentAvailable', () => {
-  it('does not treat child or legacy process markers as a registered parent', () => {
+  it('does not treat child or legacy process markers as an open supervisor line', () => {
     const prior = {
       underParent: process.env.PODIUM_UNDER_PARENT,
       invocationId: process.env.INVOCATION_ID,
@@ -55,8 +55,8 @@ describe('createInstalledCoordinatorRestart', () => {
     ).toBeUndefined()
   })
 
-  it('asks the supervising parent to self-handover onto the pending version', () => {
-    const requestHandover = vi.fn(() => ({ ok: true as const, pid: 99 }))
+  it('asks the supervising parent to self-handover onto the pending version', async () => {
+    const requestHandover = vi.fn(async () => ({ ok: true as const, pid: 99 }))
     const restart = createInstalledCoordinatorRestart({
       instanceId: 'default',
       port: () => 19001,
@@ -66,17 +66,17 @@ describe('createInstalledCoordinatorRestart', () => {
       pendingVersion: () => '0.4.2',
     })
 
-    restart?.()
+    await restart?.()
 
     expect(requestHandover).toHaveBeenCalledWith('0.4.2')
   })
 
-  it('asks once per successful request, and does NOT latch on a failed one', () => {
+  it('asks once per successful request, and does NOT latch on a failed one', async () => {
     const results: Array<{ ok: true; pid: number } | { ok: false; reason: string }> = [
       { ok: false, reason: 'no-parent' },
       { ok: true, pid: 7 },
     ]
-    const requestHandover = vi.fn(() => results.shift() as { ok: true; pid: number })
+    const requestHandover = vi.fn(async () => results.shift() as { ok: true; pid: number })
     const restart = createInstalledCoordinatorRestart({
       instanceId: 'default',
       port: () => 19001,
@@ -88,9 +88,9 @@ describe('createInstalledCoordinatorRestart', () => {
 
     // A latch set BEFORE the ask meant this step reported "Restarting the
     // server…" forever: every re-ensure() returned silently without re-asking.
-    expect(() => restart?.()).toThrow(/machine-cannot-restart/)
-    restart?.()
-    restart?.()
+    await expect(restart?.()).rejects.toThrow(/machine-cannot-restart/)
+    await restart?.()
+    await restart?.()
     expect(requestHandover).toHaveBeenCalledTimes(2)
   })
 })

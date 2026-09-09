@@ -11,8 +11,8 @@ import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
-  SERVER_MOVE_CAPABILITY,
   type PeerBuild,
+  SERVER_MOVE_CAPABILITY,
   type UpdateStatusMessage,
   type UpdateTarget,
   wireSchemaDigest,
@@ -44,7 +44,10 @@ export interface LocalUpdateParticipantDeps {
   updates: { onStatus(machineId: MachineId, message: UpdateStatusMessage): Promise<void> }
   installTarget?: (target: UpdateTarget) => Promise<{ releaseHadMigrations?: boolean }>
   writePending?: Parameters<typeof createGrantRunner>[0]['writePending']
-  restart?: (expectedVersion: string, handover: { releaseHadMigrations?: boolean }) => void
+  restart?: (
+    expectedVersion: string,
+    handover: { releaseHadMigrations?: boolean },
+  ) => void | Promise<void>
   connected?: (machineId: MachineId) => void
   now?: () => number
 }
@@ -66,8 +69,8 @@ export function startLocalUpdateParticipant(deps: LocalUpdateParticipantDeps): {
       }))
   const restart =
     deps.restart ??
-    ((expectedVersion: string, handover: { releaseHadMigrations?: boolean }) => {
-      const result = requestParentHandover({ expectedVersion, ...handover })
+    (async (expectedVersion: string, handover: { releaseHadMigrations?: boolean }) => {
+      const result = await requestParentHandover({ expectedVersion, ...handover })
       if (!result.ok) {
         throw new Error(
           'machine-cannot-restart: no supervising parent to hand over to (' + result.reason + ')',

@@ -151,7 +151,6 @@ function channelChild(
   })
 }
 
-
 const healthy = (version: string): HandoverHealthProbe => ({
   serverRunning: true,
   serverVersion: version,
@@ -349,9 +348,9 @@ describe('ParentProcess', () => {
         },
         // Its own children start but never come up — no ready frame, ever.
         spawn: ((_cmd, args) =>
-          new FakeChild(args[0] === 'server' ? 801 : 802) as unknown as ReturnType<
-            SpawnChildFn
-          >) as SpawnChildFn,
+          new FakeChild(
+            args[0] === 'server' ? 801 : 802,
+          ) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         // The predecessor's stack, indistinguishable over HTTP from a successful one.
         probeHealth: async () => {
           probes++
@@ -590,7 +589,11 @@ describe('ParentProcess', () => {
         children: ['daemon'],
         env: { PODIUM_APP_VERSION: '1.0.0' },
         spawn: ((_cmd, args, options) =>
-          channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+          channelChild(
+            nextPid++,
+            args,
+            options,
+          ) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         // A daemon-only host has no local server. Reaching this probe would
         // recreate the production timeout this regression guards.
         probeHealth: async () => {
@@ -1416,7 +1419,8 @@ describe('delayed successor boot ownership', () => {
         env: { PODIUM_APP_VERSION: '1.0.0' },
         runningIdentity: { version: '1.0.0', digest: 'old' },
         spawn: ((_cmd, args, options) => {
-          if (args[0] !== 'parent') return channelChild(111, args, options) as unknown as ReturnType<SpawnChildFn>
+          if (args[0] !== 'parent')
+            return channelChild(111, args, options) as unknown as ReturnType<SpawnChildFn>
           expect(Number(options.env?.[PARENT_HANDOVER_DEADLINE_ENV])).toBe(91_000)
           incoming = track(
             new ParentProcess({
@@ -1668,7 +1672,8 @@ describe('ceding the fleet socket across a handover', () => {
         children: ['server'],
         env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
         spawn: ((_cmd, args, options) => {
-          if (args[0] !== 'parent') return channelChild(701, args, options) as unknown as ReturnType<SpawnChildFn>
+          if (args[0] !== 'parent')
+            return channelChild(701, args, options) as unknown as ReturnType<SpawnChildFn>
           opts.onSpawnParent?.()
           return new FakeChild(opts.successorPid) as unknown as ReturnType<SpawnChildFn>
         }) as SpawnChildFn,
@@ -1743,7 +1748,6 @@ describe('ceding the fleet socket across a handover', () => {
     expect(fleet.open, 'nothing was handed over, so nothing was given up').toBe(true)
   })
 })
-
 
 /** A parent whose children each get a lifecycle line, plus the spawn options it used. */
 function channelParent(
@@ -1956,5 +1960,177 @@ describe('supervised child persistence (POD-3790)', () => {
       expect((options.stdio as unknown[])[3]).toBe('ipc')
       expect(options.detached).toBe(true)
     }
+  })
+})
+
+/**
+ * THE SECOND INLET (POD-3763): a supervised child asking on the line it was
+ * given, instead of writing a file and signalling a pid read off disk.
+ *
+ * What has to hold is that the SAME code runs either way and the answer comes
+ * back on the asking child's own line — and that a supervisor already busy says
+ * so at once, which is the case that used to leave the caller polling a result
+ * file until its own twenty-minute deadline.
+ */
+describe('control requests on a child line', () => {
+  function controlRequest(request: Record<string, unknown>): unknown {
+    return encodeLifecycle({ type: 'control-request', requestId: 'req-1', request })
+  }
+
+  /** The `control-result` frames the parent put on this child's line. */
+  function answers(child: FakeChild): Array<Record<string, unknown>> {
+    return child.sent
+      .map((frame) => decodeParentMessage(frame))
+      .filter((message) => message?.type === 'control-result')
+      .map((message) => (message as { result: Record<string, unknown> }).result)
+  }
+
+  async function parentWithChild(
+    deps: Partial<ConstructorParameters<typeof ParentProcess>[0]> = {},
+  ): Promise<{ parent: ParentProcess; server: FakeChild }> {
+    const children: FakeChild[] = []
+    let nextPid = 300
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: ((_cmd, args, options) => {
+          const child = channelChild(nextPid++, args, options)
+          children.push(child)
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('1.0.0'),
+        probeServerReady: async () => true,
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+        ...deps,
+      }),
+    )
+    await parent.start()
+    const server = children[0]
+    if (!server) throw new Error('expected a spawned server child')
+    return { parent, server }
+  }
+
+  it('runs the same swap for a request that arrived on the line, and answers on it', async () => {
+    const swapped: string[] = []
+    const { server } = await parentWithChild({
+      performUpdateSwap: async (target) => {
+        const version = String((target as { version: string }).version)
+        swapped.push(version)
+        return { version, swapped: true, releaseHadMigrations: true }
+      },
+    })
+
+    server.deliver(
+      controlRequest({
+        requestId: 'req-1',
+        kind: 'swap',
+        expectedVersion: '2.0.0',
+        requestedAt: '2026-09-09T00:00:00.000Z',
+        target: { version: '2.0.0', artifacts: {} },
+      }),
+    )
+
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(1))
+    expect(swapped, 'the channel inlet runs the parent’s real swap').toEqual(['2.0.0'])
+    expect(answers(server)[0]).toMatchObject({
+      requestId: 'req-1',
+      kind: 'swap',
+      ok: true,
+      releaseHadMigrations: true,
+    })
+  })
+
+  it('sends the parent’s own failure sentence back down the line', async () => {
+    const { server } = await parentWithChild({
+      performUpdateSwap: async () => {
+        throw new Error('cannot converge: schema-advanced — this build cannot open this database')
+      },
+    })
+
+    server.deliver(
+      controlRequest({
+        requestId: 'req-1',
+        kind: 'swap',
+        expectedVersion: '2.0.0',
+        requestedAt: '2026-09-09T00:00:00.000Z',
+        target: { version: '2.0.0', artifacts: {} },
+      }),
+    )
+
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(1))
+    expect(answers(server)[0]).toMatchObject({ ok: false })
+    expect(String(answers(server)[0]?.error)).toMatch(/schema-advanced/)
+  })
+
+  it('answers BUSY at once rather than leaving a second asker waiting', async () => {
+    let releaseFirst: (() => void) | undefined
+    let firstRunning = false
+    const finish = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const { server } = await parentWithChild({
+      performUpdateSwap: async (target) => {
+        firstRunning = true
+        await finish
+        return {
+          version: String((target as { version: string }).version),
+          swapped: true,
+          releaseHadMigrations: false,
+        }
+      },
+    })
+
+    const ask = (requestId: string): void => {
+      server.deliver(
+        encodeLifecycle({
+          type: 'control-request',
+          requestId,
+          request: {
+            requestId,
+            kind: 'swap',
+            expectedVersion: '2.0.0',
+            requestedAt: '2026-09-09T00:00:00.000Z',
+            target: { version: '2.0.0', artifacts: {} },
+          },
+        }),
+      )
+    }
+
+    ask('first')
+    await vi.waitFor(() => expect(firstRunning).toBe(true))
+    ask('second')
+
+    // The refusal arrives while the first swap is STILL RUNNING. That is the
+    // whole point: silence here is what a caller could not tell from a hang.
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(1))
+    expect(answers(server)[0]).toMatchObject({ requestId: 'second', ok: false })
+    expect(String(answers(server)[0]?.error)).toMatch(/already running another control request/)
+
+    releaseFirst?.()
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(2))
+    expect(answers(server)[1]).toMatchObject({ requestId: 'first', ok: true })
+  })
+
+  it('ignores a control frame it cannot read rather than acting on half of one', async () => {
+    const swapped: string[] = []
+    const { server } = await parentWithChild({
+      performUpdateSwap: async (target) => {
+        const version = String((target as { version: string }).version)
+        swapped.push(version)
+        return { version, swapped: true, releaseHadMigrations: undefined }
+      },
+    })
+
+    server.deliver(controlRequest({ kind: 'swap' }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(swapped).toEqual([])
+    expect(answers(server)).toEqual([])
   })
 })

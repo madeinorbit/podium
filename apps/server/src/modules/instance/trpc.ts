@@ -32,7 +32,7 @@ const instanceService = (state: {
   }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readiness?: (() => ServerReadiness) | undefined
-  requestCoordinatorRestart?: (() => void) | undefined
+  requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
   modules?:
     | {

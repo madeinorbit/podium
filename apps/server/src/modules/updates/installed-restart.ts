@@ -22,12 +22,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
-import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import { resolveInstallDir, stateDir } from '@podium/runtime/config'
 import { readMachineUpdateJournal, updateFingerprint } from '@podium/runtime/machine-update'
-import { stateDir } from '@podium/runtime/config'
-import { resolveInstallDir } from '@podium/runtime/config'
-import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
-import { liveRecord } from '@podium/runtime/run-registry'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import {
+  requestParentHandover,
+  requestParentSwap,
+  supervisorLineOpen,
+} from '@podium/runtime/parent-control'
 
 /**
  * THE TWO ASKS THE SERVER MAKES OF ITS OWN PARENT, ON THE RECORD (POD-3224).
@@ -81,7 +83,10 @@ export interface InstalledRestartDeps {
   /** Injectable ask — production is {@link requestParentHandover}. */
   requestHandover?: (
     expectedVersion: string,
-  ) => { ok: true; pid: number } | { ok: false; reason: string }
+  ) =>
+    | { ok: true; pid?: number }
+    | { ok: false; reason: string }
+    | Promise<{ ok: true; pid?: number } | { ok: false; reason: string }>
   /** Injectable capability probe; production reads the run registry. */
   hasParent?: () => boolean
   /** The version the update step installed, for the handover's health gate. */
@@ -91,20 +96,28 @@ export interface InstalledRestartDeps {
 /**
  * Is there a supervising parent to hand this work to?
  *
- * The live run-registry record is the contract. `PODIUM_UNDER_PARENT=1` only
- * says how this server was spawned; it cannot prove that the parent is still
- * discoverable, and treating it as proof advertises an update that the later
- * parent-control request must refuse.
+ * THE OPEN LINE IS THE CONTRACT (POD-3763). This server either holds the private
+ * channel the supervisor gave it when it spawned it, or it has no supervisor —
+ * and the line cannot go stale, because a supervisor that dies closes it.
  *
- * The legacy installed markers (`INVOCATION_ID`, `PODIUM_RUN_MODE=detached`) are
- * deliberately NOT enough any more: a section-4 migration host has
- * `INVOCATION_ID` set by its old server unit and no parent anywhere, and
- * treating that as "can restart" is what advertised a capability whose only
- * behaviour was to throw.
+ * It used to be a run-registry lookup, and that is the false negative POD-2721
+ * filed: an aborted handover left the parent's pid record missing while the
+ * parent was still running, so this server reported that it could not be
+ * restarted at all. The pid lookup survives only for a caller that never had a
+ * line and never can — the operator subcommands — under its own name,
+ * `registeredParentPid`. The two questions LOOK alike and are not; do not unify
+ * them, or POD-2721 comes back.
+ *
+ * `PODIUM_UNDER_PARENT=1` was never enough either: it says how this server was
+ * spawned, not whether the supervisor is still there. Nor are the legacy
+ * installed markers (`INVOCATION_ID`, `PODIUM_RUN_MODE=detached`) — a section-4
+ * migration host has `INVOCATION_ID` set by its old server unit and no parent
+ * anywhere, and treating that as "can restart" is what advertised a capability
+ * whose only behaviour was to throw.
  */
 export function parentAvailable(): boolean {
   try {
-    return liveRecord('parent') !== undefined
+    return supervisorLineOpen()
   } catch {
     return false
   }
@@ -168,8 +181,10 @@ export function createInstalledCoordinatorUpdate(
             // Never infer authority from whichever same-version journal happens
             // to be present after the asynchronous database verification.
             const current = readMachineUpdateJournal(runtimeDir)
-            if (current?.grant.grantId !== grant.grantId ||
-                current.fingerprint !== updateFingerprint({ target, repair: grant.repair === true }))
+            if (
+              current?.grant.grantId !== grant.grantId ||
+              current.fingerprint !== updateFingerprint({ target, repair: grant.repair === true })
+            )
               throw new Error('Coordinator preparation authority was replaced.')
             await requestMachineUpdate(runtimeDir, '/activate', { grantId: grant.grantId })
           },
@@ -231,7 +246,7 @@ export function createInstalledCoordinatorRestart(
   let requested = false
   const pending = deps.pendingVersion
 
-  return () => {
+  return async () => {
     if (env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor' && !deps.requestHandover) {
       throw new Error('Supervisor updates require operation-owned snapshot activation.')
     }
@@ -245,7 +260,7 @@ export function createInstalledCoordinatorRestart(
       log.error('cannot ask for a handover without an expected version', {})
       throw new Error('parent handover requires an expected version')
     }
-    const result = requestHandover(expectedVersion)
+    const result = await requestHandover(expectedVersion)
     if (!result.ok) {
       log.error('the parent refused the handover', { expectedVersion, reason: result.reason })
       throw new Error(

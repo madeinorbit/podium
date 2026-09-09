@@ -13,9 +13,20 @@
  * What travels on it is LIFECYCLE ONLY:
  *   child → parent   ready {role, pid, version, digest?, port?}
  *                    degraded {reason} · heartbeat · stopping {reason}
+ *                    control-request {requestId, request}
  *   parent → child   identity {generation, machineId?, assignment?} at connect
- *                    stop {reason}
+ *                    stop {reason} · control-result {requestId, result}
  * Fleet-plane facts (grants, update status, presence, build) stay on /machine.
+ *
+ * REPORTS FLOW UP; ONE PAIR OF FRAMES FLOWS BOTH WAYS. `control-request` is a
+ * child ASKING its supervisor to swap the bundle, hand over, or change which
+ * children run — the asks that used to be a file plus a signal to a pid read off
+ * disk (POD-3763). Its answer comes back on the same line as `control-result`,
+ * correlated by `requestId`; there is deliberately no second transport and no
+ * timeout, because a supervisor that dies mid-request closes the line and the
+ * close rejects every request still in flight. The bodies stay opaque here —
+ * parent-control.ts owns those shapes, and the transport should not have to know
+ * what an update target is.
  *
  * CONTAINMENT. Bun passes the channel by descriptor inheritance alone: it is
  * outside the default stdio set and there is no environment variable that
@@ -37,6 +48,7 @@
  */
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
+import { type ParentControlLink, parentControlLink, setParentControlLink } from './parent-control'
 import type { IntervalScheduler } from './supervisor'
 
 const log = createLogger('runtime:lifecycle-channel')
@@ -67,6 +79,13 @@ export const ChildMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('degraded'), reason: z.string() }),
   z.object({ type: z.literal('heartbeat') }),
   z.object({ type: z.literal('stopping'), reason: z.string() }),
+  z.object({
+    type: z.literal('control-request'),
+    /** Correlates this ask with the one `control-result` that answers it. */
+    requestId: z.string().min(1),
+    /** A `ParentRequest`. Opaque here on purpose — see the header. */
+    request: z.record(z.unknown()),
+  }),
 ])
 export type ChildMessage = z.infer<typeof ChildMessage>
 
@@ -88,6 +107,12 @@ export type ParentIdentity = z.infer<typeof ParentIdentity>
 export const ParentMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('identity'), ...ParentIdentity.shape }),
   z.object({ type: z.literal('stop'), reason: z.string() }),
+  z.object({
+    type: z.literal('control-result'),
+    requestId: z.string().min(1),
+    /** A `ParentResult`. Opaque here on purpose — see the header. */
+    result: z.record(z.unknown()),
+  }),
 ])
 export type ParentMessage = z.infer<typeof ParentMessage>
 
@@ -124,8 +149,13 @@ export function decodeParentMessage(raw: unknown): ParentMessage | undefined {
  */
 export interface ChannelPeer {
   connected?: boolean
-  /** Method syntax on purpose: `ChildProcess.send` takes `Serializable`, and our frames are objects. */
-  send?(message: object): boolean
+  /**
+   * Method syntax on purpose: `ChildProcess.send` takes `Serializable`, and our
+   * frames are objects. The callback is the FLUSH: it fires once the frame has
+   * left this process, which is what lets a child report a control request as
+   * posted even though the next thing that happens to it is being replaced.
+   */
+  send?(message: object, callback?: (error: Error | null) => void): boolean
   on(event: 'message', listener: (message: unknown) => void): unknown
   on(event: 'disconnect', listener: () => void): unknown
   removeListener(event: 'message', listener: (message: unknown) => void): unknown
@@ -137,11 +167,15 @@ function hasChannel(peer: ChannelPeer): boolean {
 }
 
 /** Send one frame; a closed pipe is a `false`, never a throw into the caller. */
-function trySend(peer: ChannelPeer, frame: object): boolean {
+function trySend(
+  peer: ChannelPeer,
+  frame: object,
+  onFlush?: (error: Error | null) => void,
+): boolean {
   const send = peer.send
   if (typeof send !== 'function' || peer.connected === false) return false
   try {
-    return send.call(peer, frame) !== false
+    return send.call(peer, frame, onFlush) !== false
   } catch {
     return false
   }
@@ -191,6 +225,18 @@ export interface AttachChildChannelOptions {
   /** Every change to the report, for the parent to fold into its snapshot. */
   onReport?: (report: ChildLifecycleReport) => void
   onMessage?: (message: ChildMessage) => void
+  /**
+   * This child ASKING the supervisor to do something (POD-3763). `respond` puts
+   * the answer back on this child's own line, correlated for the caller; it
+   * returns `false` when the line has since closed, and may be left uncalled for
+   * a request that has no answer (a handover replaces the asking process). A
+   * supervisor that declares no handler simply never hears the ask, which is the
+   * right behaviour for a parent built without an update-swap capability.
+   */
+  onControlRequest?: (
+    request: Record<string, unknown>,
+    respond: (result: Record<string, unknown>) => boolean,
+  ) => void
 }
 
 /**
@@ -214,6 +260,16 @@ export function attachChildChannel(
   const onMessage = (raw: unknown): void => {
     const message = decodeChildMessage(raw)
     if (!message) return
+    if (message.type === 'control-request') {
+      // NOT a lifecycle report: it changes nothing about how this child is
+      // doing, so it never touches `report`. It is an ask, and the only thing
+      // owed back is the answer.
+      const { requestId } = message
+      options.onControlRequest?.(message.request, (result) =>
+        trySend(peer, encodeLifecycle({ type: 'control-result', requestId, result })),
+      )
+      return
+    }
     const atMs = now()
     switch (message.type) {
       case 'ready': {
@@ -261,6 +317,26 @@ export interface LifecycleClient {
   ready(extra?: { port?: number }): boolean
   degraded(reason: string): boolean
   stopping(reason: string): boolean
+  /** True while this process still holds its line to the supervisor that spawned it. */
+  open(): boolean
+  /**
+   * Ask the supervisor for something and DO NOT wait for an answer. Resolves
+   * when the frame has flushed out of this process — which is the strongest
+   * thing a handover can be told, because succeeding at a handover means this
+   * process is replaced and there is nobody left to answer. Rejects when the
+   * line will not take the frame.
+   */
+  postControl(requestId: string, request: Record<string, unknown>): Promise<void>
+  /**
+   * Ask the supervisor for something and wait for its answer on this same line.
+   * There is no timeout on purpose: a supervisor that dies mid-request closes
+   * the line, and the close rejects this promise at once (POD-3790/POD-3793 made
+   * that close uniform and trustworthy on every platform).
+   */
+  requestControl(
+    requestId: string,
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>
   /** The parent's identity, once it has arrived. */
   identity(): ParentIdentity | undefined
   onIdentity(listener: (identity: ParentIdentity) => void): void
@@ -310,12 +386,27 @@ export function connectLifecycleChannel(
   const goneListeners: Array<() => void> = []
   let closed = false
   let goneFired = false
+  /** In-flight control requests, by id. A close rejects every one of them. */
+  const pending = new Map<
+    string,
+    { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }
+  >()
 
   const send = (message: ChildMessage): boolean => trySend(transport, encodeLifecycle(message))
 
   const onMessage = (raw: unknown): void => {
     const message = decodeParentMessage(raw)
     if (!message) return
+    if (message.type === 'control-result') {
+      const waiter = pending.get(message.requestId)
+      // An answer to a request this process is not waiting for is not an error
+      // worth throwing: a retried supervisor, or an ask already rejected by a
+      // close, both land here and both are simply nothing left to do.
+      if (!waiter) return
+      pending.delete(message.requestId)
+      waiter.resolve(message.result)
+      return
+    }
     if (message.type === 'identity') {
       const { type: _type, ...received } = message
       identity = received
@@ -335,6 +426,16 @@ export function connectLifecycleChannel(
     stopHeartbeat()
     transport.removeListener('message', onMessage)
     transport.removeListener('disconnect', onDisconnect)
+    // Only if this process's link is still ours: a later `connect` (a test
+    // sharing one process across cases) has replaced it, and clearing it then
+    // would take away a line that is still open.
+    if (parentControlLink() === link) setParentControlLink(undefined)
+    // THE CLOSE IS THE FAILURE SIGNAL. Every ask still waiting is answered now,
+    // with the reason, rather than waiting for a reply that cannot come.
+    for (const [, waiter] of [...pending]) {
+      waiter.reject(new Error('the supervising parent closed the line before answering'))
+    }
+    pending.clear()
   }
   const onDisconnect = (): void => {
     // There is nobody left to heartbeat to.
@@ -347,7 +448,52 @@ export function connectLifecycleChannel(
   transport.on('message', onMessage)
   transport.on('disconnect', onDisconnect)
 
+  const open = (): boolean => !closed && transport.connected !== false
+
+  const postControl = (requestId: string, request: Record<string, unknown>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (!open()) {
+        reject(new Error('there is no open line to a supervising parent'))
+        return
+      }
+      const accepted = trySend(
+        transport,
+        encodeLifecycle({ type: 'control-request', requestId, request }),
+        (error) => (error ? reject(error) : resolve()),
+      )
+      if (!accepted) reject(new Error('the line to the supervising parent refused the request'))
+    })
+
+  const requestControl = async (
+    requestId: string,
+    request: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    const answer = new Promise<Record<string, unknown>>((resolve, reject) => {
+      pending.set(requestId, { resolve, reject })
+    })
+    try {
+      await postControl(requestId, request)
+    } catch (error) {
+      pending.delete(requestId)
+      throw error
+    }
+    return await answer
+  }
+
+  const link: ParentControlLink = { open, post: postControl, request: requestControl }
+  /**
+   * THIS PROCESS'S ONE LINE TO ITS SUPERVISOR, where the code that asks can
+   * reach it. `parent-control.ts` is called from deep inside the server's update
+   * step and the daemon's grant runner, neither of which is handed the client;
+   * threading it through every one of those signatures would be a wide change to
+   * say a thing that is true process-wide — a process has exactly one supervisor.
+   */
+  setParentControlLink(link)
+
   return {
+    open,
+    postControl,
+    requestControl,
     ready: (extra = {}) =>
       send({
         type: 'ready',

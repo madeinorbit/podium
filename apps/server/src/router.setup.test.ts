@@ -54,7 +54,7 @@ async function caller() {
  */
 async function activationHarness(opts: {
   readiness: () => ServerReadiness
-  requestCoordinatorRestart?: () => void
+  requestCoordinatorRestart?: () => void | Promise<void>
 }) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
@@ -132,7 +132,8 @@ describe('setup tRPC', () => {
   })
   it('returns the funnel command', async () => {
     expect(
-      (await (await caller()).setup.commandFor({ option: 'tailscale-funnel', port: 18787 })).command,
+      (await (await caller()).setup.commandFor({ option: 'tailscale-funnel', port: 18787 }))
+        .command,
     ).toBe('tailscale funnel 18787')
   })
   it('rejects a bad URL on complete', async () => {
@@ -198,11 +199,16 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
   })
   it('sets the login password when one is supplied (network-exposed install)', async () => {
-    await (await caller()).setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
+    await (await caller()).setup.complete({
+      publicUrl: 'https://box.ts.net',
+      password: 'launch-code',
+    })
     expect(await verifyPasswordHash('launch-code', await credentialHash())).toBe(true)
   })
   it('rejects a reachable setup without password acknowledgement', async () => {
-    await expect((await caller()).setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
+    await expect(
+      (await caller()).setup.complete({ publicUrl: 'https://box.ts.net' }),
+    ).rejects.toThrow()
     expect(await credentialHash()).toBe('')
   })
   it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
@@ -273,7 +279,10 @@ describe('setup tRPC', () => {
 
     it('connect records it for a client pointed at an API-only server', async () => {
       remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
-      await (await caller()).setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      await (await caller()).setup.connect({
+        mode: 'client',
+        serverUrl: 'https://api.meetpodium.com',
+      })
       expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
     })
 
@@ -285,7 +294,10 @@ describe('setup tRPC', () => {
 
     it('does not ask on behalf of a local mode, and clears a stale answer', async () => {
       const fetchMock = remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
-      await (await caller()).setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      await (await caller()).setup.connect({
+        mode: 'client',
+        serverUrl: 'https://api.meetpodium.com',
+      })
       fetchMock.mockClear()
       // Going back to a local all-in-one: there is no remote to ask, and the
       // previous deployment's app host must not survive the switch.
@@ -303,7 +315,10 @@ describe('setup tRPC', () => {
     })
   })
   it('reports the update channel (default stable)', async () => {
-    expect(await (await caller()).setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
+    expect(await (await caller()).setup.channel()).toMatchObject({
+      channel: 'stable',
+      envForced: false,
+    })
   })
   it('reports the dev shell endpoint from the deployment public URL', async () => {
     saveConfig({
@@ -327,7 +342,10 @@ describe('setup tRPC', () => {
       channel: 'edge',
       envForced: false,
     })
-    expect(await (await caller()).setup.channel()).toMatchObject({ channel: 'edge', envForced: false })
+    expect(await (await caller()).setup.channel()).toMatchObject({
+      channel: 'edge',
+      envForced: false,
+    })
     expect(loadConfig().updateChannel).toBe('edge')
   })
 })
@@ -432,10 +450,12 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
 
   it('restarts the process when the instance is activation-pending', async () => {
     const restart = vi.fn()
-    const result = await (await activationHarness({
-      readiness: () => pendingOn(['persistence']),
-      requestCoordinatorRestart: restart,
-    })).setup.activate()
+    const result = await (
+      await activationHarness({
+        readiness: () => pendingOn(['persistence']),
+        requestCoordinatorRestart: restart,
+      })
+    ).setup.activate()
     expect(restart).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ state: 'restarting', stale: ['persistence'] })
   })
@@ -443,12 +463,38 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
   it('refuses on a healthy instance, so it never becomes a remote bounce lever', async () => {
     const restart = vi.fn()
     await expect(
-      (await activationHarness({
-        readiness: () => READY,
-        requestCoordinatorRestart: restart,
-      })).setup.activate(),
+      (
+        await activationHarness({
+          readiness: () => READY,
+          requestCoordinatorRestart: restart,
+        })
+      ).setup.activate(),
     ).rejects.toThrow(/nothing to activate/i)
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  /**
+   * THE RESTART IS AN ASK NOW, AND ITS REFUSAL IS THIS CALL'S REFUSAL (POD-3763).
+   *
+   * The installed shape's restart asks its supervisor over the private line and
+   * reports machine-cannot-restart by rejecting. Left un-awaited — which it was
+   * while the closure was synchronous and this parameter was typed `() => void`
+   * — that rejection would escape as an unhandled rejection and this call would
+   * answer "restarting" to an operator whose server is not going anywhere.
+   */
+  it('surfaces a restart the supervisor refused, instead of answering restarting', async () => {
+    const restart = vi.fn(async () => {
+      throw new Error('machine-cannot-restart: no supervising parent to hand over to (no-parent)')
+    })
+    await expect(
+      (
+        await activationHarness({
+          readiness: () => pendingOn(['persistence']),
+          requestCoordinatorRestart: restart,
+        })
+      ).setup.activate(),
+    ).rejects.toThrow(/machine-cannot-restart/)
+    expect(restart).toHaveBeenCalledTimes(1)
   })
 
   it('says so, rather than pretending, when the installation cannot restart itself', async () => {

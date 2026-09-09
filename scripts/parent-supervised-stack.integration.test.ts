@@ -33,12 +33,12 @@ import { createServer } from 'node:net'
 import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { parentAvailable } from '../apps/server/src/modules/updates/installed-restart'
 import {
   ensureInstanceStateIdentity,
   instanceInstallDir,
   instanceStateDir,
 } from '../packages/runtime/src/instance'
+import { registeredParentPid } from '../packages/runtime/src/parent-control'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -264,8 +264,23 @@ async function waitHealthy(stack: Stack): Promise<VersionBody> {
   }, `stack healthy; log:\n${stack.output()}`)
 }
 
-/** Run the server participant's real capability probe against this named instance. */
-function participantCanResolveParent(stack: Stack): boolean {
+/**
+ * The CHANNEL-LESS caller's parent lookup, run against this named instance.
+ *
+ * THIS IS NOT THE SERVER'S OWN PROBE ANY MORE (POD-3763). The supervised server
+ * now answers "can I be restarted?" with "do I hold an open line to my
+ * supervisor?" (`supervisorLineOpen`), and that is a question only the server
+ * process itself can answer — this test process was never spawned by that
+ * parent, so asking it here could only ever produce a meaningless `false`. What
+ * an outside process CAN still ask is the operator subcommands' question: is
+ * there a parent record to signal? That is `registeredParentPid`, it is live
+ * production code on the file+signal inlet, and it is exactly the lookup this
+ * line has always performed.
+ *
+ * The server's own probe is proved in packages/runtime/src/parent-control.test.ts
+ * and end to end over a real pipe in lifecycle-control.integration.test.ts.
+ */
+function registeredParentVisible(stack: Stack): boolean {
   const prior = {
     home: process.env.HOME,
     instance: process.env.PODIUM_INSTANCE,
@@ -275,7 +290,11 @@ function participantCanResolveParent(stack: Stack): boolean {
   process.env.PODIUM_INSTANCE = stack.instanceId
   delete process.env.PODIUM_STATE_DIR
   try {
-    return parentAvailable()
+    try {
+      return registeredParentPid() !== undefined
+    } catch {
+      return false
+    }
   } finally {
     if (prior.home === undefined) delete process.env.HOME
     else process.env.HOME = prior.home
@@ -347,7 +366,7 @@ describe('parent-supervised stack', () => {
     expect(
       await readFile(join(stack.stateDir, 'run', 'janitor.pid'), 'utf8').catch(() => undefined),
     ).toBeUndefined()
-    expect(participantCanResolveParent(stack)).toBe(true)
+    expect(registeredParentVisible(stack)).toBe(true)
 
     const healthy = await waitHealthy(stack)
     expect(healthy.components?.janitor?.state).toBe('running')

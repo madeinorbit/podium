@@ -124,7 +124,10 @@ function reportReady(
   lifecycle: { ready: (extra?: { port?: number }) => boolean } | undefined,
   extra: { port?: number },
 ): void {
-  if (envForRole('NEVER_READY') === '1' || existsSync(join(runDir, `fixture-${role}-never-ready`))) {
+  if (
+    envForRole('NEVER_READY') === '1' ||
+    existsSync(join(runDir, `fixture-${role}-never-ready`))
+  ) {
     console.error(`[fixture:${role}] never reporting ready`)
     return
   }
@@ -137,6 +140,37 @@ function reportReady(
     console.error(`[fixture:${role}] reporting ready after ${delay}ms`)
     lifecycle?.ready(extra)
   }, delay).unref?.()
+}
+
+/**
+ * ASK THE SUPERVISOR FOR SOMETHING, THROUGH THE REAL PRODUCTION CODE (POD-3763).
+ *
+ * `parent-control` reaches the line through the process-level link that
+ * `connectLifecycleChannel` registered above — the same way the real server's
+ * update step reaches it — so this exercises the inlet choice, the frame, the
+ * correlation and the answer, over the descriptor the real spawn handed down.
+ * The outcome goes to a file because the line itself is what is under test.
+ */
+async function makeControlAsk(): Promise<void> {
+  const ask = envForRole('ASK')
+  if (!ask) return
+  const control = await import('../../packages/runtime/src/parent-control')
+  const note = (value: unknown): void =>
+    writeFileSync(join(runDir, `fixture-${role}-ask.json`), JSON.stringify(value))
+  try {
+    if (ask === 'swap') {
+      const result = await control.requestParentSwap({
+        expectedVersion: envForRole('ASK_VERSION') ?? '2.0.0',
+        target: { version: envForRole('ASK_VERSION') ?? '2.0.0', critical: false, artifacts: {} },
+      })
+      note({ ok: true, ...result })
+      return
+    }
+    await control.requestParentTopology({ children: ['server'], health: 'none' })
+    note({ ok: true })
+  } catch (error) {
+    note({ ok: false, error: error instanceof Error ? error.message : String(error) })
+  }
 }
 
 function installedVersion(): string {
@@ -194,6 +228,7 @@ async function runServer(): Promise<void> {
   console.error(`[fixture:server] pid ${process.pid} version ${version} port ${server.port}`)
   // Bound and serving: only now is this server's own line worth anything.
   reportReady(lifecycle, { port: server.port })
+  void makeControlAsk()
   const bye = (): void => {
     lifecycle?.stopping('signal')
     try {
@@ -279,6 +314,29 @@ async function runParent(): Promise<void> {
     claimRole: isSuccessor
       ? () => registerProcess('parent', { reclaimExisting: false, port }).then(() => undefined)
       : undefined,
+    // A swap the parent can actually run, so a `swap` ask on a child's line has
+    // a real answer to come back with. `FIXTURE_SWAP_DELAY_MS` holds it open,
+    // which is how a test can kill this parent with a request in flight.
+    ...(process.env.FIXTURE_SWAP === '1'
+      ? {
+          performUpdateSwap: async (target: unknown) => {
+            // WRITTEN BEFORE THE WAIT, so a test can observe the request is
+            // actually IN FLIGHT rather than guessing from a delay.
+            writeFileSync(
+              join(runDir, 'fixture-swap-started.json'),
+              JSON.stringify({ at: Date.now() }),
+            )
+            const delay = Number(process.env.FIXTURE_SWAP_DELAY_MS ?? 0)
+            if (delay) await new Promise((r) => setTimeout(r, delay))
+            if (process.env.FIXTURE_SWAP_ERROR) throw new Error(process.env.FIXTURE_SWAP_ERROR)
+            return {
+              version: String((target as { version: string }).version),
+              swapped: true,
+              releaseHadMigrations: process.env.FIXTURE_SWAP_MIGRATIONS === '1',
+            }
+          },
+        }
+      : {}),
     // What apps/cli/src/cli.ts passes, and what makes `successorReady` real: an
     // outgoing parent hands over only to a successor that PUBLISHED its own
     // readiness, which a successor does only once its own health gate passed.

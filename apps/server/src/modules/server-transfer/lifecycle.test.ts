@@ -4,17 +4,18 @@ import { retireSourceAfterTransfer } from './lifecycle'
 type Spawn = typeof import('node:child_process').spawn
 
 function scheduleHarness() {
-  const work: Array<{ callback: () => void; delayMs: number }> = []
+  const work: Array<{ callback: () => void | Promise<void>; delayMs: number }> = []
   return {
     work,
-    schedule: (callback: () => void, delayMs: number) => work.push({ callback, delayMs }),
+    schedule: (callback: () => void | Promise<void>, delayMs: number) =>
+      work.push({ callback, delayMs }),
   }
 }
 
 describe('retireSourceAfterTransfer', () => {
-  it('asks the live parent to retire the server and restart the daemon remotely', () => {
+  it('asks the live parent to retire the server and restart the daemon remotely', async () => {
     const harness = scheduleHarness()
-    const signalTopology = vi.fn(() => ({ ok: true as const, pid: 10, requestId: 'move' }))
+    const signalTopology = vi.fn(async () => ({ ok: true as const, pid: 10 }))
     const spawnProcess = vi.fn() as unknown as Spawn
     const exit = vi.fn()
 
@@ -26,7 +27,7 @@ describe('retireSourceAfterTransfer', () => {
     })
 
     expect(signalTopology).not.toHaveBeenCalled()
-    harness.work[0]?.callback()
+    await harness.work[0]?.callback()
     expect(signalTopology).toHaveBeenCalledWith({
       children: ['daemon'],
       restartDaemon: true,
@@ -36,7 +37,7 @@ describe('retireSourceAfterTransfer', () => {
     expect(exit).not.toHaveBeenCalled()
   })
 
-  it('lets the desktop supervisor own the replacement daemon', () => {
+  it('lets the desktop supervisor own the replacement daemon', async () => {
     const harness = scheduleHarness()
     const spawnMock = vi.fn()
     const spawnProcess = spawnMock as unknown as Spawn
@@ -44,7 +45,7 @@ describe('retireSourceAfterTransfer', () => {
 
     retireSourceAfterTransfer('wss://podium.example.com', {
       env: { PODIUM_DESKTOP_SUPERVISED: '1' },
-      signalTopology: () => ({ ok: false as const, reason: 'no-parent' }),
+      signalTopology: async () => ({ ok: false as const, reason: 'no-parent' }),
       spawnProcess,
       schedule: harness.schedule,
       exit,
@@ -52,12 +53,12 @@ describe('retireSourceAfterTransfer', () => {
 
     expect(harness.work).toHaveLength(1)
     expect(harness.work[0]?.delayMs).toBe(250)
-    harness.work[0]?.callback()
+    await harness.work[0]?.callback()
     expect(spawnMock).not.toHaveBeenCalled()
     expect(exit).toHaveBeenCalledWith(0)
   })
 
-  it('starts a lifecycle-aware takeover for a headless source after reply flush', () => {
+  it('starts a lifecycle-aware takeover for a headless source after reply flush', async () => {
     const harness = scheduleHarness()
     const child = { unref: vi.fn(), once: vi.fn() }
     const spawnMock = vi.fn((_command: string, _args: readonly string[]) => child)
@@ -66,13 +67,13 @@ describe('retireSourceAfterTransfer', () => {
 
     retireSourceAfterTransfer('wss://podium.example.com', {
       env: {},
-      signalTopology: () => ({ ok: false as const, reason: 'no-parent' }),
+      signalTopology: async () => ({ ok: false as const, reason: 'no-parent' }),
       spawnProcess,
       schedule: harness.schedule,
       exit,
     })
 
-    harness.work[0]?.callback()
+    await harness.work[0]?.callback()
     expect(spawnMock).toHaveBeenCalledOnce()
     expect(spawnMock.mock.calls[0]?.[1]).toEqual(
       expect.arrayContaining(['daemon', '--server', 'wss://podium.example.com', '--takeover']),

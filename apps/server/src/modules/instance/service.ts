@@ -100,7 +100,7 @@ export interface InstanceDeps {
    * without one (tests, the in-process MCP caller), and `activate` refuses rather
    * than pretending it restarted.
    */
-  readonly requestCoordinatorRestart?: (() => void) | undefined
+  readonly requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   /**
    * The stored "mirror transcripts to this server" toggle (PDM-26), or
    * `undefined` when nobody has set it. It is the BOTTOM layer under
@@ -108,21 +108,21 @@ export interface InstanceDeps {
    * the effective value together with the layer that decided it. Read through a
    * function because a Settings write must be followed without a restart.
    */
-  readonly transcriptMirrorSetting?: (() => boolean | undefined | Promise<boolean | undefined>) | undefined
+  readonly transcriptMirrorSetting?:
+    | (() => boolean | undefined | Promise<boolean | undefined>)
+    | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
   get(userId: UserId): { role: string } | undefined | Promise<{ role: string } | undefined>
-  credentialFor(userId: UserId):
+  credentialFor(
+    userId: UserId,
+  ):
     | { passwordHash: string | null }
     | undefined
     | Promise<{ passwordHash: string | null } | undefined>
-  setPasswordHash(
-    userId: UserId,
-    passwordHash: string,
-    updatedAt: string,
-  ): void | Promise<void>
+  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
 }
 
 /** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
@@ -164,7 +164,10 @@ export class InstanceService {
     const publicUrl = resolveSetting('publicUrl', c)
     const appUrl = resolveSetting('appUrl', c)
     const allowedOrigins = resolveSetting('allowedOrigins', c)
-    const transcriptLake = resolveTranscriptLakeSetting(await this.deps.transcriptMirrorSetting?.(), c)
+    const transcriptLake = resolveTranscriptLakeSetting(
+      await this.deps.transcriptMirrorSetting?.(),
+      c,
+    )
     return {
       mode: mode.value ?? null,
       modeSource: mode.source,
@@ -318,7 +321,11 @@ export class InstanceService {
     // later from Settings → Machines). It is only a mandatory choice on a fresh,
     // password-less instance.
     // "Already set" is now the CALLER having a credential, not a file existing.
-    if (!password && !input.acknowledgeNoPassword && !(await this.callerCredential())?.passwordHash) {
+    if (
+      !password &&
+      !input.acknowledgeNoPassword &&
+      !(await this.callerCredential())?.passwordHash
+    ) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
@@ -336,7 +343,11 @@ export class InstanceService {
     // Setup's optional password is the caller's own credential, same as auth.setPassword.
     if (password) {
       const { users, callerUserId } = this.requireAccountStore()
-      await users.setPasswordHash(callerUserId, await hashPassword(password), new Date().toISOString())
+      await users.setPasswordHash(
+        callerUserId,
+        await hashPassword(password),
+        new Date().toISOString(),
+      )
     }
     return cfg
   }
@@ -445,7 +456,11 @@ export class InstanceService {
           'the saved setup.',
       })
     }
-    restart()
+    // AWAITED. The installed shape's restart asks its supervisor over the private
+    // line and reports machine-cannot-restart by REJECTING (POD-3763). Left
+    // un-awaited, that refusal becomes an unhandled rejection and this call
+    // answers "restarting" to an operator whose server is not going anywhere.
+    await restart()
     // What the caller should now expect, and the identity being left behind — both
     // already public on /readiness, so this returns no new fact.
     return {
@@ -491,7 +506,11 @@ export class InstanceService {
     if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
-    await users.setPasswordHash(callerUserId, await hashPassword(input.next), new Date().toISOString())
+    await users.setPasswordHash(
+      callerUserId,
+      await hashPassword(input.next),
+      new Date().toISOString(),
+    )
     return { loginRequired: (await this.deps.loginRequired?.()) ?? true }
   }
 

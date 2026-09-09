@@ -175,17 +175,21 @@ async function startStack(
   }
 }
 
-function requestFixtureHandover(
+async function requestFixtureHandover(
   stack: Stack,
   request: { expectedVersion: string; releaseHadMigrations?: boolean },
 ): ReturnType<typeof requestParentHandover> {
   // Parent control resolves the live parent through the configured instance,
   // while its explicit stateDir selects the request channel. Point both reads
-  // at this isolated real-process stack for the duration of the synchronous ask.
+  // at this isolated real-process stack for the duration of the ask.
+  //
+  // `link: null` states the inlet under test: this test process was not spawned
+  // by that parent and can never hold a line to it, so it is the channel-less
+  // caller and takes the file+signal path (POD-3763).
   const previous = process.env.PODIUM_STATE_DIR
   process.env.PODIUM_STATE_DIR = stack.stateDir
   try {
-    return requestParentHandover(request, { stateDir: stack.stateDir })
+    return await requestParentHandover(request, { stateDir: stack.stateDir, link: null })
   } finally {
     if (previous === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = previous
@@ -501,16 +505,13 @@ describe('parent lifecycle (real processes)', () => {
    * the expected version and a connected daemon throughout. The gate must still
    * refuse, because no child of the successor ever proved itself.
    */
-  it('POD-3762 — a same-version handover waits for the successor\'s OWN server, not the port', async () => {
+  it("POD-3762 — a same-version handover waits for the successor's OWN server, not the port", async () => {
     const stack = await startStack({ FIXTURE_HANDOVER_TIMEOUT_MS: '8000' })
     await until(
       () => (stack.notifications().includes('READY=1') ? true : undefined),
       'old parent READY',
     )
-    const readyBefore = readFileSync(
-      join(stack.stateDir, 'run', 'supervisor-ready.json'),
-      'utf8',
-    )
+    const readyBefore = readFileSync(join(stack.stateDir, 'run', 'supervisor-ready.json'), 'utf8')
     expect(JSON.parse(readyBefore).pid, 'the outgoing parent published its own readiness').toBe(
       stack.parentPid,
     )
@@ -522,7 +523,7 @@ describe('parent lifecycle (real processes)', () => {
 
     // SAME VERSION: nothing on disk changes, so the version can distinguish
     // nothing and only the line can.
-    expect(requestFixtureHandover(stack, { expectedVersion: '1.0.0' })).toEqual({
+    expect(await requestFixtureHandover(stack, { expectedVersion: '1.0.0' })).toEqual({
       ok: true,
       pid: stack.parentPid,
     })
@@ -535,17 +536,21 @@ describe('parent lifecycle (real processes)', () => {
 
     // THE CONTROL. What the old probe looked at, while the gate is running: a
     // server on the port, serving the expected version, daemon connected.
-    const seen = await until(async () => {
-      try {
-        const body = (await (await fetch(`http://127.0.0.1:${stack.port}/version`)).json()) as {
-          appVersion: string
-          daemonConnected: boolean
+    const seen = await until(
+      async () => {
+        try {
+          const body = (await (await fetch(`http://127.0.0.1:${stack.port}/version`)).json()) as {
+            appVersion: string
+            daemonConnected: boolean
+          }
+          return body.appVersion === '1.0.0' && body.daemonConnected ? body : undefined
+        } catch {
+          return undefined
         }
-        return body.appVersion === '1.0.0' && body.daemonConnected ? body : undefined
-      } catch {
-        return undefined
-      }
-    }, `the port to answer as a healthy 1.0.0 stack; log:\n${stack.output()}`, 20_000)
+      },
+      `the port to answer as a healthy 1.0.0 stack; log:\n${stack.output()}`,
+      20_000,
+    )
     expect(seen).toMatchObject({ appVersion: '1.0.0', daemonConnected: true })
 
     // And yet: the successor never published readiness, so the handover expired
@@ -639,7 +644,7 @@ describe('parent lifecycle (real processes)', () => {
     writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
 
     expect(
-      requestFixtureHandover(stack, {
+      await requestFixtureHandover(stack, {
         // Nothing will ever serve this, so the gate expires and the abort runs.
         expectedVersion: '9.9.9-never-arrives',
         // The packaged daemon performed the swap. This fact therefore has to
@@ -696,7 +701,7 @@ describe('parent lifecycle (real processes)', () => {
     writeFileSync(join(stack.installDir, 'VERSION'), '2.0.0\n')
 
     expect(
-      requestFixtureHandover(stack, {
+      await requestFixtureHandover(stack, {
         expectedVersion: '9.9.9-never-arrives',
         releaseHadMigrations: true,
       }),

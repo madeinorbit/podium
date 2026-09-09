@@ -39,7 +39,16 @@ export interface GrantApplyDeps {
   refuse?(target: UpdateGrantMessage['target']): string | undefined
   releaseHadMigrations?(target: UpdateGrantMessage['target']): boolean | undefined
   writePending(grant: PendingGrant): void
-  restart(expectedVersion: string, handover: { releaseHadMigrations?: boolean }): void
+  /**
+   * Hand this process's replacement to whoever owns it. Awaited: a supervised
+   * participant asks its supervisor over the private line, and a request that
+   * cannot be posted must fail THIS grant rather than become a rejection nobody
+   * is holding (POD-3763).
+   */
+  restart(
+    expectedVersion: string,
+    handover: { releaseHadMigrations?: boolean },
+  ): void | Promise<void>
   report(status: UpdateStatusMessage): void
   /**
    * ONE LINE PER PHASE BOUNDARY, ON THE MACHINE DOING THE WORK (POD-3170).
@@ -255,7 +264,7 @@ export async function applyGrant(
     phase('update restarting into successor', { totalMs: sinceMs() })
     const releaseHadMigrations =
       parentResult?.releaseHadMigrations ?? deps.releaseHadMigrations?.(grant.target)
-    deps.restart(
+    await deps.restart(
       grant.target.version,
       releaseHadMigrations === undefined ? {} : { releaseHadMigrations },
     )

@@ -6,8 +6,9 @@
  * what it records, and what it does when the supervisor's end goes away.
  */
 import { EventEmitter } from 'node:events'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  type AttachChildChannelOptions,
   attachChildChannel,
   connectLifecycleChannel,
   decodeChildMessage,
@@ -25,9 +26,19 @@ import type { IntervalScheduler } from './supervisor'
 class FakePeer extends EventEmitter {
   sent: unknown[] = []
   connected = true
-  send(message: unknown): boolean {
+  /** Set to wire this end to the other one, so a frame really crosses. */
+  other?: FakePeer
+  /** Set to hold flush callbacks instead of firing them, to test a wedged flush. */
+  holdFlush = false
+  held: Array<(error: Error | null) => void> = []
+  send(message: unknown, onFlush?: (error: Error | null) => void): boolean {
     if (!this.connected) throw new Error('channel closed')
     this.sent.push(message)
+    if (onFlush) {
+      if (this.holdFlush) this.held.push(onFlush)
+      else queueMicrotask(() => onFlush(null))
+    }
+    if (this.other) queueMicrotask(() => this.other?.deliver(message))
     return true
   }
   deliver(message: unknown): void {
@@ -37,6 +48,15 @@ class FakePeer extends EventEmitter {
     this.connected = false
     this.emit('disconnect')
   }
+}
+
+/** Two ends of one line: what either sends is delivered to the other. */
+function wired(): { child: FakePeer; parent: FakePeer } {
+  const child = new FakePeer()
+  const parent = new FakePeer()
+  child.other = parent
+  parent.other = child
+  return { child, parent }
 }
 
 /** The client under test exists: this process's transport has a channel by construction. */
@@ -368,5 +388,114 @@ describe('withoutLifecycleChannel', () => {
     const env = withoutLifecycleChannel(source)
     expect(env).toEqual({ PODIUM_PORT: '1' })
     expect(source[NODE_CHANNEL_FD_ENV]).toBe('3')
+  })
+})
+
+/**
+ * CONTROL REQUESTS: the one pair of frames that flows both ways (POD-3763).
+ *
+ * These are the asks that used to be a file plus a signal to a pid read off
+ * disk. What has to hold on the wire is that an answer finds the ask that
+ * wanted it, that two asks in flight do not cross, and that a supervisor which
+ * dies mid-ask ends them rather than leaving them waiting for ever.
+ */
+describe('control requests', () => {
+  function line(
+    options: { onControlRequest?: AttachChildChannelOptions['onControlRequest'] } = {},
+  ) {
+    const peers = wired()
+    const parent = attachChildChannel(peers.parent, {
+      identity: { generation: 1 },
+      ...(options.onControlRequest ? { onControlRequest: options.onControlRequest } : {}),
+    })
+    const client = connected(
+      connectLifecycleChannel({
+        role: 'server',
+        version: '1.0.0',
+        transport: peers.child,
+        scheduler: manualScheduler(),
+      }),
+    )
+    return { childPeer: peers.child, parentPeer: peers.parent, parentChannel: parent, client }
+  }
+
+  it('carries an ask up and its answer back down, correlated by request id', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const { client } = line({
+      onControlRequest: (request, respond) => {
+        seen.push(request)
+        respond({ requestId: 'swap-1', kind: 'swap', ok: true, completedAt: 'now' })
+      },
+    })
+
+    await expect(
+      client.requestControl('swap-1', { kind: 'swap', expectedVersion: '2.0.0' }),
+    ).resolves.toEqual({ requestId: 'swap-1', kind: 'swap', ok: true, completedAt: 'now' })
+    expect(seen).toEqual([{ kind: 'swap', expectedVersion: '2.0.0' }])
+  })
+
+  it('does not cross two asks in flight', async () => {
+    const answer = new Map<string, (result: Record<string, unknown>) => boolean>()
+    const { client } = line({
+      onControlRequest: (request, respond) => {
+        answer.set(String(request.expectedVersion), respond)
+      },
+    })
+
+    const first = client.requestControl('a', { expectedVersion: '1' })
+    const second = client.requestControl('b', { expectedVersion: '2' })
+    // Answered out of order on purpose: correlation, not arrival order, decides.
+    await vi.waitFor(() => expect(answer.size).toBe(2))
+    answer.get('2')?.({ for: 'second' })
+    answer.get('1')?.({ for: 'first' })
+
+    expect(await first).toEqual({ for: 'first' })
+    expect(await second).toEqual({ for: 'second' })
+  })
+
+  it('ends every ask still in flight when the supervisor closes the line', async () => {
+    const { childPeer, client } = line({ onControlRequest: () => {} })
+    const pending = client.requestControl('never-answered', { kind: 'swap' })
+    const also = client.requestControl('also-never', { kind: 'topology' })
+
+    // THE CLOSE IS THE FAILURE SIGNAL. Not a timeout: a caller that waited for
+    // one polled a result file for twenty minutes for a parent already dead.
+    childPeer.disconnect()
+
+    await expect(pending).rejects.toThrow(/closed the line before answering/)
+    await expect(also).rejects.toThrow(/closed the line before answering/)
+    expect(client.open(), 'a closed line is not open').toBe(false)
+  })
+
+  it('reports an ask as posted only once the frame has flushed', async () => {
+    const { childPeer, client } = line()
+    childPeer.holdFlush = true
+    let posted = false
+    const pending = client.postControl('h1', { kind: 'handover' }).then(() => {
+      posted = true
+    })
+
+    await vi.waitFor(() => expect(childPeer.held).toHaveLength(1))
+    expect(posted, 'queued is not flushed').toBe(false)
+    childPeer.held[0]?.(null)
+    await pending
+    expect(posted).toBe(true)
+  })
+
+  it('refuses an ask when there is no line left to put it on', async () => {
+    const { childPeer, client } = line()
+    childPeer.disconnect()
+    await expect(client.postControl('h1', { kind: 'handover' })).rejects.toThrow(/no open line/)
+    await expect(client.requestControl('s1', { kind: 'swap' })).rejects.toThrow(/no open line/)
+  })
+
+  it('is not a lifecycle report: an ask changes nothing about how the child is doing', async () => {
+    const { client, parentChannel } = line({
+      onControlRequest: (_request, respond) => {
+        respond({ requestId: 'swap-1', kind: 'swap', ok: true, completedAt: 'now' })
+      },
+    })
+    await client.requestControl('swap-1', { kind: 'swap' })
+    expect(parentChannel.report()).toEqual({ channel: 'open' })
   })
 })

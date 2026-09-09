@@ -102,6 +102,34 @@ describe('applyGrant never leaves a grant unanswered', () => {
     expect(reports[0]?.detail).toBe('target schema is behind this install')
   })
 
+  /**
+   * THE ASK IS ASYNCHRONOUS NOW, SO ITS FAILURE IS THIS GRANT'S FAILURE (POD-3763).
+   *
+   * A supervised participant does not restart itself: it asks its supervisor on
+   * the private line, and that ask can be refused — no supervisor, or a line that
+   * closed under it. `deps.restart` used to be called and not awaited, so a
+   * refusal became a rejection nobody was holding: this grant reported
+   * `restarting`, the wave believed a machine was coming back, and the only trace
+   * of the truth was an unhandled rejection in the daemon's log.
+   *
+   * This is the same species of defect as POD-3787's StaleTransactionError on the
+   * live server ("a promise the body did not await is the usual cause") and as
+   * `fix(store): await the async append listener in announceEvent`, which is why
+   * it is asserted rather than left to the type.
+   */
+  it('reports the grant rejected when the restart ask cannot be posted', async () => {
+    const { deps: d, reports } = deps({
+      restart: async () => {
+        throw new Error('machine-cannot-restart: no supervising parent to hand over to (no-parent)')
+      },
+    })
+
+    await expect(applyGrant(grant, d)).resolves.toBeUndefined()
+
+    expect(reports.map((report) => report.state)).toEqual(['downloading', 'restarting', 'rejected'])
+    expect(reports.at(-1)?.detail).toContain('machine-cannot-restart')
+  })
+
   /** And a healthy grant still reports its progress in order. */
   it('still reports downloading then restarting on a healthy grant', async () => {
     const restart = vi.fn()

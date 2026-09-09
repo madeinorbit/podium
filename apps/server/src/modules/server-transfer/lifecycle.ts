@@ -7,7 +7,7 @@ interface SourceRetirementDeps {
   signalTopology?: typeof signalParentTopology
   env?: Readonly<Record<string, string | undefined>>
   spawnProcess?: typeof spawn
-  schedule?: (callback: () => void, delayMs: number) => void
+  schedule?: (callback: () => void | Promise<void>, delayMs: number) => void
   exit?: (code: number) => never | void
   flushDelayMs?: number
 }
@@ -24,8 +24,8 @@ export function retireSourceAfterTransfer(
   const spawnProcess = deps.spawnProcess ?? spawn
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
   const exit = deps.exit ?? process.exit
-  schedule(() => {
-    const posted = (deps.signalTopology ?? signalParentTopology)({
+  schedule(async () => {
+    const posted = await (deps.signalTopology ?? signalParentTopology)({
       children: ['daemon'],
       restartDaemon: true,
       health: 'daemon',

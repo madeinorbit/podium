@@ -33,14 +33,16 @@ import {
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
-import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
-import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import {
   SUPERVISOR_MACHINE_ID_ENV,
   SUPERVISOR_MACHINE_TOKEN_ENV,
   SUPERVISOR_UPDATE_PUBKEY_ENV,
 } from '@podium/runtime/machine-supervisor'
+import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
+import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
+import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
@@ -52,6 +54,7 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
+import { createDurable } from './control/durable'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   createSchemaGate,
@@ -64,13 +67,10 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
-import { createDurable } from './control/durable'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
-import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
-import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
@@ -734,8 +734,8 @@ export async function createDaemonHostRuntime(args: {
       }
     },
     writePending: (pending) => writePendingGrant(instance.runtimeDir, pending),
-    restart: (expectedVersion, handover) =>
-      restartAfterGrant(expectedVersion, handover, {
+    restart: async (expectedVersion, handover) =>
+      await restartAfterGrant(expectedVersion, handover, {
         ...(opts.restartAfterUpdate ? { provided: opts.restartAfterUpdate } : {}),
         parentManaged: process.env.PODIUM_UNDER_PARENT === '1',
         requestHandover: (request) => requestParentHandover(request),

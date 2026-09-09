@@ -40,7 +40,8 @@ import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
-  type ParentRequest,
+  ParentRequest,
+  type ParentResult,
   parentOutcomePath,
   readParentRequest,
   writeParentOutcome,
@@ -712,11 +713,90 @@ export class ParentProcess {
     else process.exit(0)
   }
 
+  /**
+   * THE CHANNEL-LESS INLET (POD-3763). SIGUSR1 means "there is a request file";
+   * the caller is a process this supervisor never spawned, so it has no line and
+   * a result file is the only way to answer it. See the two-inlet note in
+   * parent-control.ts for why this is structural rather than legacy.
+   */
   private async onHandoverSignal(): Promise<void> {
-    if (this.handoverInFlight) return
     const request = readParentRequest()
     if (!request) {
       log.warn('parent signalled but no request file present')
+      return
+    }
+    await this.handleParentRequest(
+      request,
+      (result) => {
+        writeParentResult(result)
+      },
+      clearParentRequest,
+    )
+  }
+
+  /**
+   * THE LINE INLET (POD-3763). A child asking on the private channel its
+   * supervisor gave it. Same request shape, same dispatch, same code — the only
+   * difference is where the answer goes.
+   */
+  private onChannelControlRequest(
+    child: SupervisedChild,
+    raw: Record<string, unknown>,
+    respond: (result: Record<string, unknown>) => boolean,
+  ): void {
+    const parsed = ParentRequest.safeParse(raw)
+    if (!parsed.success) {
+      log.error('child sent a control request this parent cannot read', { child })
+      return
+    }
+    void this.handleParentRequest(
+      parsed.data,
+      (result) => {
+        // `false` means the child's line closed while we worked. Nothing is
+        // owed to a process that is gone, and the work itself already happened.
+        if (!respond(result as unknown as Record<string, unknown>)) {
+          log.warn('the child that asked had gone before its answer could be sent', {
+            child,
+            requestId: result.requestId,
+          })
+        }
+      },
+      // No file was written, so there is nothing to consume.
+      () => {},
+    )
+  }
+
+  /**
+   * Run one control request, whichever inlet it arrived on.
+   *
+   * `respond` answers the caller; `consume` retires whatever the inlet left
+   * behind. A `handover` is answered by being carried out — by the time it
+   * succeeds the asking process has been replaced — so it never calls `respond`.
+   */
+  private async handleParentRequest(
+    request: ParentRequest,
+    respond: (result: ParentResult) => void,
+    consume: () => void,
+  ): Promise<void> {
+    /**
+     * BUSY IS AN ANSWER (POD-3763). This used to `return` silently, which left
+     * the caller polling a result file that would never appear until its own
+     * twenty-minute deadline. One supervisor runs one of these at a time; saying
+     * so immediately is the difference between a refusal and a hang.
+     */
+    if (this.handoverInFlight) {
+      log.warn('refusing a control request: this parent is already running one', {
+        requestId: request.requestId,
+        kind: request.kind,
+      })
+      respond({
+        requestId: request.requestId,
+        kind: request.kind,
+        ok: false,
+        error: 'the supervising parent is already running another control request',
+        completedAt: new Date(this.deps.now()).toISOString(),
+      })
+      consume()
       return
     }
     /**
@@ -740,11 +820,13 @@ export class ParentProcess {
     this.handoverInFlight = (async () => {
       try {
         if (request.kind === 'swap') {
-          await this.runSwapRequest(request)
+          await this.runSwapRequest(request, respond)
+          consume()
           return
         }
         if (request.kind === 'topology') {
-          await this.runTopologyRequest(request)
+          await this.runTopologyRequest(request, respond)
+          consume()
           return
         }
         // A remote packaged daemon performs its own artifact swap, so this old
@@ -754,11 +836,13 @@ export class ParentProcess {
         if (request.releaseHadMigrations !== undefined) {
           this.deps.releaseHadMigrations = request.releaseHadMigrations
         }
-        clearParentRequest()
+        // BEFORE the handover, not after: a handover that succeeds never returns
+        // here, and a request file left behind would be re-run by the successor.
+        consume()
         await this.handover(request.expectedVersion)
       } catch (error) {
         log.error('parent request failed', { kind: request.kind, err: error })
-        clearParentRequest()
+        consume()
       } finally {
         this.handoverInFlight = undefined
       }
@@ -766,16 +850,18 @@ export class ParentProcess {
     await this.handoverInFlight
   }
 
-  private async runTopologyRequest(request: ParentRequest): Promise<void> {
+  private async runTopologyRequest(
+    request: ParentRequest,
+    respond: (result: ParentResult) => void,
+  ): Promise<void> {
     const answer = (ok: boolean, error?: string): void => {
-      writeParentResult({
+      respond({
         requestId: request.requestId,
         kind: request.kind,
         ok,
         ...(error ? { error } : {}),
         completedAt: new Date(this.deps.now()).toISOString(),
       })
-      clearParentRequest()
     }
     try {
       if (!request.children) throw new Error('topology request carried no child set')
@@ -873,13 +959,16 @@ export class ParentProcess {
    * `server` step is blocked on the result, so a failure here must come back as a
    * sentence rather than as silence.
    */
-  private async runSwapRequest(request: ParentRequest): Promise<void> {
+  private async runSwapRequest(
+    request: ParentRequest,
+    respond: (result: ParentResult) => void,
+  ): Promise<void> {
     const answer = (result: {
       ok: boolean
       error?: string
       releaseHadMigrations?: boolean
     }): void => {
-      writeParentResult({
+      respond({
         requestId: request.requestId,
         kind: request.kind,
         ok: result.ok,
@@ -889,7 +978,6 @@ export class ParentProcess {
           : {}),
         completedAt: new Date(this.deps.now()).toISOString(),
       })
-      clearParentRequest()
     }
     try {
       if (!this.deps.performUpdateSwap) {
@@ -1279,6 +1367,7 @@ export class ParentProcess {
         if (message.type === 'heartbeat') return
         log.info('child lifecycle report', { child, ...message })
       },
+      onControlRequest: (request, reply) => this.onChannelControlRequest(child, request, reply),
     })
     this.childChannels.set(child, channel)
     this.snap = { ...this.snap, lifecycle: { ...this.snap.lifecycle, [child]: channel.report() } }

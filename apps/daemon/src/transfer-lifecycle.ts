@@ -7,7 +7,7 @@ export interface TargetLifecycleDeps {
 export interface TargetRetirementDeps extends TargetLifecycleDeps {
   signalTopology?: typeof signalParentTopology
   /** Injected by tests; production uses a short response-flush delay. */
-  schedule?: (callback: () => void, delayMs: number) => void
+  schedule?: (callback: () => void | Promise<void>, delayMs: number) => void
   flushDelayMs?: number
 }
 
@@ -36,9 +36,8 @@ export async function restartAsServer(
 export function retireTargetDaemonAfterAcknowledgement(deps: TargetRetirementDeps = {}): void {
   const signal = deps.signalTopology ?? signalParentTopology
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
-  schedule(() => {
-    const posted = signal({ children: ['server'], health: 'none' })
-    if (!posted.ok)
-      console.error('podium: target daemon remains live because no parent supervisor is registered')
+  schedule(async () => {
+    const posted = await signal({ children: ['server'], health: 'none' })
+    if (!posted.ok) console.error(`podium: target daemon remains live because ${posted.reason}`)
   }, deps.flushDelayMs ?? 50)
 }

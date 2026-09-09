@@ -6,8 +6,8 @@ import {
   MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
   refuseSchemaRegression,
-  restartAfterGrant,
   resolveOnBoot,
+  restartAfterGrant,
   shouldClearPendingGrantOnBoot,
 } from './convergence'
 
@@ -159,9 +159,9 @@ describe('refuseConvergence', () => {
 })
 
 describe('restartAfterGrant', () => {
-  it('asks a supervising parent to hand over to the granted version', () => {
-    const requestHandover = vi.fn(() => ({ ok: true as const, pid: 42 }))
-    restartAfterGrant(
+  it('asks a supervising parent to hand over to the granted version', async () => {
+    const requestHandover = vi.fn(async () => ({ ok: true as const, pid: 42 }))
+    await restartAfterGrant(
       '2.0.0',
       { releaseHadMigrations: false },
       {
@@ -176,9 +176,9 @@ describe('restartAfterGrant', () => {
     })
   })
 
-  it('exits a direct daemon for its shell or service manager to respawn', () => {
+  it('exits a direct daemon for its shell or service manager to respawn', async () => {
     const exit = vi.fn()
-    restartAfterGrant(
+    await restartAfterGrant(
       '2.0.0',
       {},
       {
@@ -190,18 +190,18 @@ describe('restartAfterGrant', () => {
     expect(exit).toHaveBeenCalledWith(0)
   })
 
-  it('reports a vanished parent instead of pretending to restart', () => {
-    expect(() =>
+  it('reports a vanished parent instead of pretending to restart', async () => {
+    await expect(
       restartAfterGrant(
         '2.0.0',
         {},
         {
           parentManaged: true,
-          requestHandover: () => ({ ok: false, reason: 'no-parent' }),
+          requestHandover: async () => ({ ok: false as const, reason: 'no-parent' }),
           exit: vi.fn(),
         },
       ),
-    ).toThrow(/machine-cannot-restart/)
+    ).rejects.toThrow(/machine-cannot-restart/)
   })
 })
 

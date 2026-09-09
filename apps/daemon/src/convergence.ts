@@ -110,7 +110,7 @@ export interface GrantRestartDeps {
   requestHandover(request: {
     expectedVersion: string
     releaseHadMigrations?: boolean
-  }): { ok: true; pid: number } | { ok: false; reason: string }
+  }): Promise<{ ok: true; pid?: number } | { ok: false; reason: string }>
   exit(code: number): void
 }
 
@@ -122,11 +122,11 @@ export interface GrantRestartDeps {
  * daemon-only desktop remains a direct shell child and takes the ordinary exit
  * path; the shell respawns it from the external payload home.
  */
-export function restartAfterGrant(
+export async function restartAfterGrant(
   expectedVersion: string,
   handover: { releaseHadMigrations?: boolean },
   deps: GrantRestartDeps,
-): void {
+): Promise<void> {
   if (deps.provided) {
     deps.provided()
     return
@@ -135,7 +135,7 @@ export function restartAfterGrant(
     deps.exit(0)
     return
   }
-  const result = deps.requestHandover({ expectedVersion, ...handover })
+  const result = await deps.requestHandover({ expectedVersion, ...handover })
   if (!result.ok) {
     throw new Error(
       `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,
@@ -206,8 +206,10 @@ export function shouldClearPendingGrantOnBoot(input: {
   verdict: BootVerdict
   parentHasServer: boolean
 }): boolean {
-  return input.verdict.action !== 'retry' &&
+  return (
+    input.verdict.action !== 'retry' &&
     !(input.parentHasServer && input.verdict.action === 'confirm')
+  )
 }
 
 export function resolveOnBoot(ctx: {

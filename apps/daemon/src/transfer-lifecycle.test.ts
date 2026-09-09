@@ -26,10 +26,10 @@ describe('target transfer lifecycle parent seam', () => {
     ).rejects.toThrow('health gate timed out')
   })
 
-  it('removes the target daemon only after the acknowledgement flush delay', () => {
-    const signalTopology = vi.fn(() => ({ ok: true as const, pid: 100, requestId: 'r1' }))
-    let scheduled: (() => void) | undefined
-    const schedule = vi.fn((callback: () => void, delayMs: number) => {
+  it('removes the target daemon only after the acknowledgement flush delay', async () => {
+    const signalTopology = vi.fn(async () => ({ ok: true as const, pid: 100 }))
+    let scheduled: (() => void | Promise<void>) | undefined
+    const schedule = vi.fn((callback: () => void | Promise<void>, delayMs: number) => {
       expect(delayMs).toBe(50)
       scheduled = callback
     })
@@ -37,7 +37,7 @@ describe('target transfer lifecycle parent seam', () => {
     retireTargetDaemonAfterAcknowledgement({ signalTopology, schedule })
 
     expect(signalTopology).not.toHaveBeenCalled()
-    scheduled?.()
+    await scheduled?.()
     expect(signalTopology).toHaveBeenCalledWith({ children: ['server'], health: 'none' })
   })
 })
