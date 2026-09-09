@@ -170,7 +170,8 @@ describe('machine supervisor socket, after the handshake', () => {
     expect(outgoing.terminated).toBe(true)
     // ...and that close still cannot evict the socket that holds the slot.
     await outgoing.emit('close')
-    expect(await reportedBy(registry)).toBe(undefined)
+    await successor.emit('message', machineReport('successor'))
+    expect(await reportedBy(registry)).toBe('successor')
 
     // The successor aborts its handover and goes away.
     await successor.emit('close')
