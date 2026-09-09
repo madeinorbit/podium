@@ -31,6 +31,20 @@
  *   FIXTURE_SERVER_REFUSE_START=1               — exit before binding
  *   FIXTURE_HANDOVER_TIMEOUT_MS                 — shorten the 90s successor gate
  *   FIXTURE_RELEASE_HAD_MIGRATIONS=1|0          — what the swap would have reported
+ *
+ * THE FLEET PLANE (POD-3767). With `FIXTURE_FLEET_SERVER_URL` set, the parent
+ * role also dials a real coordinator's `/machine` socket, wired the way
+ * apps/cli/src/cli.ts wires it: `loadSupervisorState` (which imports a legacy
+ * `daemon.json` credential), `claimSupervisorGeneration` before anything can
+ * speak for the machine, the incarnation in both the hello and the successor's
+ * environment, and `cedeFleetSocket`/`resumeFleetSocket` on the handover. That
+ * is what makes a fleet of these processes a fleet rather than a simulation.
+ *   FIXTURE_FLEET_SERVER_URL                    — coordinator to dial; unset = no fleet plane
+ *   FIXTURE_FLEET_PAIR_CODE                     — pair with this code when there is no token yet
+ *   FIXTURE_FLEET_LEGACY=1                      — a parent from BEFORE the fence: it claims no
+ *                                                 incarnation, sends no `supervisorGeneration`,
+ *                                                 and hands its successor none either
+ *   FIXTURE_FLEET_INSTALL_KIND                  — reported install kind (default `installed`)
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -265,6 +279,88 @@ async function runDaemon(): Promise<void> {
 }
 
 /**
+ * THIS PARENT'S END OF THE FLEET PLANE [POD-3767].
+ *
+ * Everything here is the production wiring from apps/cli/src/cli.ts, in the same
+ * ORDER, because the order is the contract:
+ *
+ *   1. `loadSupervisorState` — which is where a machine on the old stable gets
+ *      upgraded: it finds no `supervisor.json`, imports the credential out of
+ *      the legacy `daemon.json` a 0.1.0 install left behind, and writes the new
+ *      file. The machine keeps its identity across the upgrade or it is a new
+ *      machine to the coordinator, which is the lockout this issue exists to
+ *      rule out.
+ *   2. `claimSupervisorGeneration` — BEFORE anything can speak for the machine,
+ *      and claimed even when this process never attaches, so the counter cannot
+ *      repeat.
+ *   3. The incarnation rides in the hello AND in `ParentProcess`, which hands
+ *      the successor its own number.
+ *
+ * `FIXTURE_FLEET_LEGACY=1` omits all of step 2 and 3 rather than faking a zero:
+ * a parent built before the fence does not know the field exists, so it neither
+ * claims an incarnation nor passes one on. That is the mixed-fleet peer, and it
+ * has to be built by ABSENCE — a hard-coded `supervisorGeneration: 0` would
+ * exercise a wire shape no shipped build ever sends.
+ */
+async function openFleetPlane(): Promise<
+  | undefined
+  | {
+      generation?: number
+      cede: () => void
+      resume: () => void
+      report: () => void
+      start: (snapshot: () => unknown) => void
+    }
+> {
+  const serverUrl = process.env.FIXTURE_FLEET_SERVER_URL
+  if (!serverUrl) return undefined
+  const {
+    claimSupervisorGeneration,
+    createMachineSupervisorConnection,
+    fallbackAssignment,
+    loadSupervisorState,
+  } = await import('../../packages/runtime/src/machine-supervisor')
+  const { machineServiceReport } = await import('../../packages/runtime/src/parent-supervisor')
+  const legacy = process.env.FIXTURE_FLEET_LEGACY === '1'
+  const state = loadSupervisorState(stateDir)
+  const generation = legacy ? undefined : claimSupervisorGeneration(state, stateDir)
+  const assignment = fallbackAssignment('all-in-one')
+  let connection: ReturnType<typeof createMachineSupervisorConnection> | undefined
+  return {
+    ...(generation === undefined ? {} : { generation }),
+    cede: () => connection?.close(),
+    resume: () => connection?.reconfigure(),
+    report: () => connection?.report(),
+    start: (snapshot) => {
+      connection = createMachineSupervisorConnection({
+        serverUrl,
+        stateDir,
+        state,
+        ...(process.env.FIXTURE_FLEET_PAIR_CODE
+          ? { pairCode: process.env.FIXTURE_FLEET_PAIR_CODE }
+          : {}),
+        build: {
+          appVersion: installedVersion(),
+          installKind: (process.env.FIXTURE_FLEET_INSTALL_KIND ?? 'installed') as 'installed',
+          ...(generation === undefined ? {} : { supervisorGeneration: generation }),
+        },
+        deliveryCaps: ['update.delivery.feed'],
+        report: () =>
+          machineServiceReport({
+            snap: snapshot() as never,
+            assignment,
+            running: assignment,
+          }),
+        onGrant: () => {
+          /* this fixture never installs a payload; the update lanes own that */
+        },
+      })
+      connection.start()
+    },
+  }
+}
+
+/**
  * A successor parent, wired the way apps/cli/src/cli.ts wires the real one:
  * handlers first, then (because it is a successor) NO reclaim of the pidfile
  * until its own health gate passes.
@@ -277,6 +373,7 @@ async function runParent(): Promise<void> {
   const { registerProcess } = await import('../../packages/runtime/src/run-registry')
   const { sdNotify } = await import('../../packages/runtime/src/sd-notify')
   const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
+  const fleet = await openFleetPlane()
   const children = (process.env.FIXTURE_PARENT_CHILDREN?.split(',') ?? [
     'server',
     'daemon',
@@ -341,10 +438,27 @@ async function runParent(): Promise<void> {
     // outgoing parent hands over only to a successor that PUBLISHED its own
     // readiness, which a successor does only once its own health gate passed.
     runningIdentity: { version: installedVersion() },
+    // THE FLEET PLANE, all four of the deps cli.ts passes together or none of
+    // them. `supervisorGeneration` is what stamps the successor's environment;
+    // omitting it (a pre-fence parent) must leave the successor unstamped too.
+    ...(fleet
+      ? {
+          ...(fleet.generation === undefined ? {} : { supervisorGeneration: fleet.generation }),
+          onSnapshot: () => fleet.report(),
+          cedeFleetSocket: () => fleet.cede(),
+          resumeFleetSocket: () => fleet.resume(),
+        }
+      : {}),
   })
   parent.installSignalHandlers()
   if (!isSuccessor) await registerProcess('parent', { port })
-  console.error(`[fixture:parent] pid ${process.pid} successor=${isSuccessor}`)
+  console.error(
+    `[fixture:parent] pid ${process.pid} successor=${isSuccessor} generation=${fleet?.generation ?? 'none'}`,
+  )
+  // STARTED BEFORE THE HEALTH GATE, exactly as cli.ts starts it: a successor is
+  // on the coordinator's fleet socket from the moment it boots, long before it
+  // is healthy, which is the whole reason the incarnation fence has to exist.
+  fleet?.start(() => parent.snapshot())
   await parent.start()
   console.error('[fixture:parent] READY')
 }
