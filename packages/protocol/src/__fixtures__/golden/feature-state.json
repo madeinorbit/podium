@@ -734,7 +734,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -754,7 +754,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -774,7 +774,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -794,7 +794,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -814,7 +814,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -834,7 +834,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -854,7 +854,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -874,7 +874,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -894,7 +894,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -914,7 +914,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -934,7 +934,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -954,7 +954,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -974,7 +974,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -994,7 +994,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1014,7 +1014,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1034,7 +1034,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1054,7 +1054,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1074,7 +1074,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1094,7 +1094,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1114,7 +1114,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1134,7 +1134,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1154,7 +1154,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1174,7 +1174,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1194,7 +1194,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": true,
@@ -1214,7 +1214,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1234,7 +1234,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1254,7 +1254,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1274,7 +1274,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1294,7 +1294,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1314,7 +1314,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1334,7 +1334,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1354,7 +1354,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1374,7 +1374,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1394,7 +1394,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1414,7 +1414,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
@@ -1434,7 +1434,7 @@
       "wire": {
         "id": "runtime-drivers",
         "name": "Headless session drivers",
-        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "description": "Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.",
         "visibility": "stable",
         "listed": true,
         "enabled": false,
