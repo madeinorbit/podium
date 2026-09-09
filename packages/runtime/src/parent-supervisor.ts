@@ -14,6 +14,7 @@ import type {
   MachineServiceReport,
   MachineServiceStatus,
 } from '@podium/model'
+import type { ChildLifecycleReport } from './lifecycle-channel'
 
 /** Children the parent owns as OS processes. Janitor is a server worker, not a child. */
 export type SupervisedChild = 'server' | 'daemon'
@@ -68,6 +69,13 @@ export interface ParentSnapshot {
    * post-update window closes or the rollback actually happens.
    */
   rollbackUnavailable?: string
+  /**
+   * What each child has said on its private line to this parent (POD-3761):
+   * ready with its version and port, degraded, stopping, and when it last
+   * heartbeat. Absent for a child spawned before its channel attached. The
+   * handover gate does not read this yet — POD-3762 replaces the port probe.
+   */
+  lifecycle?: Partial<Record<SupervisedChild, ChildLifecycleReport>>
 }
 
 export function emptyParentSnapshot(phase: ParentPhase = 'booting'): ParentSnapshot {

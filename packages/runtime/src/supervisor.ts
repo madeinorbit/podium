@@ -31,6 +31,7 @@
  */
 import { createLogger } from '@podium/logger'
 import { existsSync } from 'node:fs'
+import { withoutLifecycleChannel } from './lifecycle-channel'
 import { isAlive } from './run-registry'
 
 const log = createLogger('runtime:supervisor')
@@ -180,12 +181,17 @@ export function watchSupervisor(
  * inherits our supervisor and takes itself down when the shell dies — which is
  * the opposite of what detaching it was for.
  *
+ * The same rule strips the parent-child lifecycle line (POD-3761): a process
+ * meant to outlive us must not be able to speak to OUR supervisor as us. Under
+ * Bun that line is a bare descriptor no spawn hands down; under Node it is also
+ * named in the environment, and that name goes here.
+ *
  * `PODIUM_DESKTOP_SUPERVISED` deliberately stays: it says how this machine's
  * backend is being run (log sink, setup defaults, transfer routing), which is
  * still true of the successor. Only the pid-to-die-with is inapplicable.
  */
 export function unsupervisedEnv<T extends Record<string, string | undefined>>(env: T): T {
-  const copy = { ...env }
+  const copy = withoutLifecycleChannel(env)
   delete copy[SUPERVISOR_PID_ENV]
   delete copy[SUPERVISOR_SHUTDOWN_FILE_ENV]
   return copy

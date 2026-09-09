@@ -35,6 +35,7 @@
     "./process-safety": "./src/process-safety.ts",
     "./sd-notify": "./src/sd-notify.ts",
     "./supervisor": "./src/supervisor.ts",
+    "./lifecycle-channel": "./src/lifecycle-channel.ts",
     "./parent-supervisor": "./src/parent-supervisor.ts",
     "./machine-update-headless": "./src/machine-update-headless.ts",
     "./machine-update-control": "./src/machine-update-control.ts",

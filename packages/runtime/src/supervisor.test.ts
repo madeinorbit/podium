@@ -174,6 +174,10 @@ describe('unsupervisedEnv', () => {
     expect(env.PODIUM_PORT).toBe('18787')
   })
 
+  it("drops node's channel descriptor name: a detached process must not reach our supervisor", () => {
+    expect(unsupervisedEnv({ NODE_CHANNEL_FD: '3' }).NODE_CHANNEL_FD).toBeUndefined()
+  })
+
   it('keeps PODIUM_DESKTOP_SUPERVISED: it describes the machine, not a pid to die with', () => {
     expect(unsupervisedEnv({ PODIUM_DESKTOP_SUPERVISED: '1' }).PODIUM_DESKTOP_SUPERVISED).toBe('1')
   })

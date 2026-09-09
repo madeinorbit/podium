@@ -31,6 +31,13 @@ import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } fro
 import { readDaemonHealth } from './daemon-health'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
+  attachChildChannel,
+  type ChildChannel,
+  type ChildLifecycleReport,
+  NODE_CHANNEL_FD_ENV,
+  type ParentIdentity,
+} from './lifecycle-channel'
+import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
   type ParentRequest,
@@ -138,6 +145,18 @@ export interface ParentProcessDeps {
   daemonLocal?: boolean
   /** Refresh parent-owned assignment/endpoint before changed children are spawned. */
   onTopology?: (children: readonly SupervisedChild[]) => void
+  /**
+   * Who this parent is, sent to every child the moment it is spawned
+   * (POD-3761). Evaluated per spawn so a topology change reaches the next
+   * child. `generation` may be omitted: the parent then uses {@link generation}.
+   */
+  identity?: () => Partial<ParentIdentity>
+  /**
+   * This supervisor's incarnation number. Default: the parent's boot time on
+   * its own clock, which orders incarnations on one machine; POD-3752's fence
+   * supplies the real one through this dep once it exists.
+   */
+  generation?: number
   env?: NodeJS.ProcessEnv
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
@@ -244,6 +263,18 @@ function defaultInstallBinary(installDir: string, env: NodeJS.ProcessEnv): strin
   if (existsSync(named)) return named
   // Source / test fallback: the running binary, still invoked with install-dir env.
   return env.PODIUM_PARENT_BIN || process.execPath
+}
+
+/**
+ * The child's stdio plus its lifecycle line (POD-3761). `'ipc'` is a fourth
+ * descriptor the runtime turns into `process.send` on the child side and
+ * `proc.send` / `'message'` on ours. Only the parent's own children get it; a
+ * successor parent is spawned without one, and grandchildren inherit nothing.
+ */
+export function withLifecycleChannel(stdio: SpawnOptions['stdio']): SpawnOptions['stdio'] {
+  if (Array.isArray(stdio)) return [...stdio, 'ipc']
+  const each = stdio ?? 'pipe'
+  return [each, each, each, 'ipc']
 }
 
 function childArgs(child: SupervisedChild, localDaemon: boolean): string[] {
@@ -354,6 +385,9 @@ const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout
 export class ParentProcess {
   private snap: ParentSnapshot
   private readonly childProcs = new Map<SupervisedChild, ChildProcess>()
+  /** The parent's end of each live child's lifecycle line (POD-3761). */
+  private readonly childChannels = new Map<SupervisedChild, ChildChannel>()
+  private readonly generation: number
   private readonly topologyStops = new Set<SupervisedChild>()
   private childOrder: SupervisedChild[]
   private daemonLocal: boolean
@@ -419,6 +453,7 @@ export class ParentProcess {
       sleep: deps.sleep ?? sleep,
     }
     this.petIntervalMs = deps.watchdogPetMs ?? watchdogPetIntervalMs(this.env.WATCHDOG_USEC)
+    this.generation = deps.generation ?? this.deps.now()
     // Inherited from the predecessor that ran the swap. An explicit dep wins:
     // the composition root may know better, and a test must be able to say so.
     if (deps.releaseHadMigrations === undefined) {
@@ -476,6 +511,17 @@ export class ParentProcess {
 
   snapshot(): ParentSnapshot {
     return this.snap
+  }
+
+  /** What `child` has reported on its lifecycle line; undefined before its first spawn. */
+  lifecycle(child: SupervisedChild): ChildLifecycleReport | undefined {
+    return this.snap.lifecycle?.[child]
+  }
+
+  /** The identity every child is told at spawn. */
+  private childIdentity(): ParentIdentity {
+    const { generation, ...rest } = this.deps.identity?.() ?? {}
+    return { generation: generation ?? this.generation, ...rest }
   }
 
   /** True when the boot health gate (disposition 24) passed. */
@@ -709,6 +755,9 @@ export class ParentProcess {
     if (proc && proc.exitCode === null) {
       this.topologyStops.add(child)
       try {
+        // Told on its line first, then signalled: the line is what a Windows
+        // child can act on, and on POSIX both routes reach the same shutdown.
+        this.childChannels.get(child)?.stop('topology: this role is no longer assigned here')
         proc.kill('SIGTERM')
         const deadline = this.deps.now() + 5_000
         while (this.deps.now() < deadline && this.childProcs.has(child)) {
@@ -1044,19 +1093,42 @@ export class ParentProcess {
     delete childEnv[PARENT_HANDOVER_EXPECTED_VERSION_ENV]
     delete childEnv[PARENT_POST_UPDATE_ENV]
     delete childEnv[PARENT_RELEASE_MIGRATIONS_ENV]
+    // Nor a channel descriptor a Node-hosted parent was itself handed: the
+    // child's line is the one spawned below, and it must be the only one it has.
+    delete childEnv[NODE_CHANNEL_FD_ENV]
 
     log.info('spawning child', { child, command, args })
     const proc = this.deps.spawn(command, args, {
       env: childEnv,
-      stdio: this.childStdio(child),
+      stdio: withLifecycleChannel(this.childStdio(child)),
     })
     this.childProcs.set(child, proc)
     if (proc.pid) {
       this.snap = applyChildRunning(this.snap, child, proc.pid)
       this.publish()
     }
+    this.childChannels.get(child)?.detach()
+    const channel = attachChildChannel(proc, {
+      identity: this.childIdentity(),
+      now: this.deps.now,
+      onReport: (report) => {
+        this.snap = { ...this.snap, lifecycle: { ...this.snap.lifecycle, [child]: report } }
+        this.publish()
+      },
+      onMessage: (message) => {
+        if (message.type === 'heartbeat') return
+        log.info('child lifecycle report', { child, ...message })
+      },
+    })
+    this.childChannels.set(child, channel)
+    this.snap = { ...this.snap, lifecycle: { ...this.snap.lifecycle, [child]: channel.report() } }
+    this.publish()
     proc.once('exit', (code, signal) => {
       this.childProcs.delete(child)
+      if (this.childChannels.get(child) === channel) {
+        channel.detach()
+        this.childChannels.delete(child)
+      }
       if (this.stopping || this.terminating || this.topologyStops.has(child)) return
       // Outgoing handover: the successor reclaims children via --takeover. Do not
       // treat those exits as crashes or schedule restarts that race the new parent.
@@ -1348,6 +1420,8 @@ export class ParentProcess {
           if (this.tickTimer) clearInterval(this.tickTimer)
           // Successor owns children; do not SIGTERM them — just exit.
           this.childProcs.clear()
+          for (const channel of this.childChannels.values()) channel.detach()
+          this.childChannels.clear()
           this.successor = undefined
           log.info('handover complete; old parent exiting', { successorPid, expectedVersion })
           await this.deps.onExit?.(0)
@@ -1534,6 +1608,7 @@ export class ParentProcess {
       const proc = this.childProcs.get(child)
       if (!proc || proc.exitCode !== null) continue
       try {
+        this.childChannels.get(child)?.stop('parent stopping')
         proc.kill('SIGTERM')
       } catch {
         /* already gone */

@@ -1526,5 +1526,135 @@ describe('ceding the fleet socket across a handover', () => {
 
     expect(openWhenSuccessorSpawned).toBe(false)
     expect(fleet.open, 'nothing was handed over, so nothing was given up').toBe(true)
+||||||| parent of d60ce4b18 (Give each supervised child a private lifecycle line to its parent)
+
+/** A child spawned WITH its lifecycle line: what the parent sent it, and a way to answer. */
+class ChannelChild extends FakeChild {
+  connected = true
+  sent: unknown[] = []
+  send(message: unknown): boolean {
+    if (!this.connected) throw new Error('channel closed')
+    this.sent.push(message)
+    return true
+  }
+  deliver(message: unknown): void {
+    this.emit('message', message)
+  }
+}
+
+describe('ParentProcess lifecycle channel (POD-3761)', () => {
+  function channelParent(opts: {
+    children?: Array<'server' | 'daemon'>
+    identity?: () => { generation?: number; machineId?: string }
+    generation?: number
+  } = {}) {
+    const spawned: Array<{ role: string; child: ChannelChild; options: Parameters<SpawnChildFn>[2] }> =
+      []
+    let nextPid = 300
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        children: opts.children ?? ['server', 'daemon'],
+        env: { PODIUM_APP_VERSION: '1.0.0', NODE_CHANNEL_FD: '3' },
+        spawn: ((_cmd, args, options) => {
+          const child = new ChannelChild(nextPid++)
+          spawned.push({ role: args[0] as string, child, options })
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('1.0.0'),
+        probeDaemonHealth: async () => daemonHealthy('1.0.0'),
+        probeServerReady: async () => true,
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+        ...(opts.identity ? { identity: opts.identity } : {}),
+        ...(opts.generation !== undefined ? { generation: opts.generation } : {}),
+      }),
+    )
+    return { parent, spawned }
+  }
+
+  it('spawns every child with the ipc descriptor and without an inherited channel name', async () => {
+    const { parent, spawned } = channelParent()
+    await parent.start()
+    expect(spawned).toHaveLength(2)
+    for (const { options } of spawned) {
+      // stdin/stdout/stderr stay whatever `childStdio` chose for this host (a
+      // TTY inherits, a file sink appends); the line is always the fourth slot.
+      const stdio = options.stdio as unknown[]
+      expect(stdio).toHaveLength(4)
+      expect(stdio[3]).toBe('ipc')
+      expect(options.env?.NODE_CHANNEL_FD).toBeUndefined()
+    }
+  })
+
+  it('tells each child who its parent is the moment it is spawned', async () => {
+    const { parent, spawned } = channelParent({
+      identity: () => ({ machineId: 'machine-a' }),
+      generation: 42,
+    })
+    await parent.start()
+    for (const { child } of spawned) {
+      expect(child.sent[0]).toEqual({
+        podium: 'podium-lifecycle/1',
+        type: 'identity',
+        generation: 42,
+        machineId: 'machine-a',
+      })
+    }
+  })
+
+  it('records what a child reports on its line in the snapshot', async () => {
+    const { parent, spawned } = channelParent({ children: ['server'] })
+    await parent.start()
+    const server = spawned[0]!.child
+    expect(parent.lifecycle('server')).toEqual({ channel: 'open' })
+    server.deliver({
+      podium: 'podium-lifecycle/1',
+      type: 'ready',
+      role: 'server',
+      pid: server.pid,
+      version: '1.0.0',
+      port: 19099,
+    })
+    server.deliver({ podium: 'podium-lifecycle/1', type: 'degraded', reason: 'recovery-only' })
+    expect(parent.lifecycle('server')).toEqual({
+      channel: 'open',
+      ready: { role: 'server', pid: server.pid, version: '1.0.0', port: 19099, atMs: 1_000 },
+      degraded: { reason: 'recovery-only', atMs: 1_000 },
+    })
+    expect(parent.snapshot().lifecycle?.server).toEqual(parent.lifecycle('server'))
+  })
+
+  it('asks a retired child to stop on its line before signalling it', async () => {
+    const { parent, spawned } = channelParent()
+    await parent.start()
+    const daemon = spawned.find((s) => s.role === 'daemon')!.child
+    await parent.reconcileTopology(['server'], 'none')
+    expect(daemon.sent[1]).toMatchObject({ type: 'stop' })
+    expect(daemon.signalsReceived).toEqual(['SIGTERM'])
+  })
+
+  it('records a child spawned without a line as having none, and does not fail on it', async () => {
+    let nextPid = 400
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: (() => new FakeChild(nextPid++) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        probeHealth: async () => healthy('1.0.0'),
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    expect(parent.lifecycle('server')).toEqual({ channel: 'none' })
+    await parent.reconcileTopology([], 'none')
   })
 })
