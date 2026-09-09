@@ -1396,3 +1396,135 @@ describe('delayed successor boot ownership', () => {
     expect(exit).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * CEDING THE FLEET SOCKET (POD-3765), belt-and-braces over the incarnation
+ * fence (POD-3752).
+ *
+ * The fence refuses a superseded parent's HELLO, which fixes the state the
+ * fleet settles on and leaves two windows open in between. A fresh server has
+ * an empty supervisor map, so it cannot tell an outgoing parent from a
+ * successor and admits whichever hello lands first — the old build then sits
+ * on the machine row until the successor's arrives. And a socket that
+ * established while it WAS newest keeps writing: `machineReport` and
+ * `updateStatus` are never re-fenced after the handshake, so for the whole
+ * ~18 s gate the outgoing parent's service report is recorded against the
+ * successor's build.
+ *
+ * Both windows close if the process on its way out simply stops speaking. The
+ * cede is not a fence and must never be mistaken for one — it is the outgoing
+ * parent declining to race a socket it has already handed on.
+ */
+describe('ceding the fleet socket across a handover', () => {
+  /**
+   * The machine-supervisor connection as the composition root wires it: a
+   * report only reaches the coordinator while the socket is open, `close()`
+   * stops it (and the dialer behind it), `reconfigure()` brings it back.
+   * `frames` is what the fleet actually SEES.
+   */
+  class FakeFleetSocket {
+    open = true
+    frames: string[] = []
+    report(phase: string): void {
+      if (this.open) this.frames.push(phase)
+    }
+    close(): void {
+      this.open = false
+    }
+    reconfigure(): void {
+      this.open = true
+    }
+  }
+
+  function handingOver(opts: {
+    fleet: FakeFleetSocket
+    successorPid: number
+    healthyOn?: string
+    onSpawnParent?: () => void
+  }): ParentProcess {
+    const { install, state } = installDirs('2.0.0')
+    const clock = fakeClock()
+    return track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: join(install, 'podium'),
+        children: ['server'],
+        env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+        spawn: ((_cmd, args) => {
+          if (args[0] !== 'parent') return new FakeChild(701) as unknown as ReturnType<SpawnChildFn>
+          opts.onSpawnParent?.()
+          return new FakeChild(opts.successorPid) as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy(opts.healthyOn ?? '2.0.0'),
+        onSnapshot: (snap) => opts.fleet.report(snap.phase),
+        cedeFleetSocket: () => opts.fleet.close(),
+        resumeFleetSocket: () => opts.fleet.reconfigure(),
+        handoverTimeoutMs: 1_000,
+        notify: () => {},
+        sleep: async (ms) => clock.advance(ms),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+  }
+
+  it('goes quiet BEFORE the successor exists, so the two never overlap on the fleet', async () => {
+    const fleet = new FakeFleetSocket()
+    let openWhenSuccessorSpawned: boolean | undefined
+    const parent = handingOver({
+      fleet,
+      successorPid: 702,
+      healthyOn: '9.9.9',
+      onSpawnParent: () => {
+        openWhenSuccessorSpawned = fleet.open
+      },
+    })
+    await parent.start()
+    fleet.frames.length = 0
+
+    await parent.handover('9.9.9')
+
+    expect(
+      openWhenSuccessorSpawned,
+      'the socket has to be ceded before the successor can dial, not after',
+    ).toBe(false)
+    expect(fleet.frames, 'a parent on its way out announces nothing').toEqual([])
+    expect(fleet.open, 'a handover that SUCCEEDED never gives the socket back').toBe(false)
+  })
+
+  it('comes back on the fleet when the handover is abandoned, on the phase it returns to', async () => {
+    const fleet = new FakeFleetSocket()
+    const parent = handingOver({ fleet, successorPid: 703, healthyOn: '2.0.0' })
+    await parent.start()
+    fleet.frames.length = 0
+
+    await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+
+    expect(fleet.open, 'the predecessor is the supervisor again and must say so').toBe(true)
+    expect(fleet.frames).toContain('running')
+    expect(
+      fleet.frames,
+      'the socket was down for the whole of handover_outgoing, so the fleet never saw it',
+    ).not.toContain('handover_outgoing')
+  })
+
+  it('comes back when the successor never got a pid', async () => {
+    const fleet = new FakeFleetSocket()
+    let openWhenSuccessorSpawned: boolean | undefined
+    const parent = handingOver({
+      fleet,
+      successorPid: 0,
+      onSpawnParent: () => {
+        openWhenSuccessorSpawned = fleet.open
+      },
+    })
+    await parent.start()
+
+    await expect(parent.handover('9.9.9')).rejects.toThrow(/without a pid/)
+
+    expect(openWhenSuccessorSpawned).toBe(false)
+    expect(fleet.open, 'nothing was handed over, so nothing was given up').toBe(true)
+  })
+})

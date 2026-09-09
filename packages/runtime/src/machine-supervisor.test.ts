@@ -292,6 +292,117 @@ describe('supervisor refused as superseded', () => {
   })
 })
 
+/**
+ * POD-3765. The parent cedes this socket for the length of an outgoing handover
+ * and takes it back if the handover is abandoned, so three things are
+ * load-bearing in a way they were not when `close()` only ever ran on the way
+ * out of the process: a ceded connection must put NOTHING on a socket the
+ * transport has not torn down yet, must not dial again on its own, and must
+ * come all the way back when the handover is abandoned.
+ */
+describe('supervisor socket ceded and taken back', () => {
+  class Socket extends EventTarget {
+    static OPEN = 1
+    static all: Socket[] = []
+    readyState = 1
+    sent: Array<Record<string, any>> = []
+    constructor(readonly url: string) {
+      super()
+      Socket.all.push(this)
+    }
+    send(raw: string) {
+      this.sent.push(JSON.parse(raw))
+    }
+    /** The real transport delivers the close much later, if at all. */
+    close() {}
+    open() {
+      this.dispatchEvent(new Event('open'))
+    }
+    message(value: unknown) {
+      this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) }))
+    }
+    accept() {
+      this.open()
+      this.message({ type: 'peerHelloOk', v: this.sent[0]!.v, caps: [] })
+    }
+    drop() {
+      this.dispatchEvent(new Event('close'))
+    }
+  }
+
+  function cededConnection(): ReturnType<typeof createMachineSupervisorConnection> {
+    Socket.all = []
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir()
+    const service = {
+      policy: 'enabled' as const,
+      state: 'available' as const,
+      observedAt: new Date().toISOString(),
+    }
+    return createMachineSupervisorConnection({
+      serverUrl: 'ws://coordinator.example',
+      bootstrapToken: () => 'secret',
+      stateDir: dir,
+      state: loadSupervisorState(dir),
+      build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest(), supervisorGeneration: 7 },
+      deliveryCaps: ['update.delivery.feed'],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+  }
+
+  it('puts nothing on a live socket once it has been ceded', () => {
+    vi.useFakeTimers()
+    const connection = cededConnection()
+    try {
+      connection.start()
+      const live = Socket.all[0]!
+      live.accept()
+      const spokenWhileAttached = live.sent.length
+      expect(spokenWhileAttached, 'hello and the first report').toBe(2)
+
+      connection.close()
+      connection.report()
+      connection.send({
+        type: 'updateStatus',
+        grantId: 'grant-1',
+        targetVersion: '9.9.9',
+        version: 'test',
+        state: 'restarting',
+      })
+
+      expect(
+        live.sent.length,
+        'the successor owns this machine now; the socket is open but must stay silent',
+      ).toBe(spokenWhileAttached)
+    } finally {
+      connection.close()
+    }
+  })
+
+  it('stops dialing on close and says hello again on reconfigure', () => {
+    vi.useFakeTimers()
+    const connection = cededConnection()
+    try {
+      connection.start()
+      Socket.all[0]!.open()
+      // The server goes away mid-handover; ordinarily this arms a retry.
+      Socket.all[0]!.drop()
+
+      connection.close()
+      vi.advanceTimersByTime(60_000)
+      expect(Socket.all, 'a ceded socket never dials again on its own').toHaveLength(1)
+
+      connection.reconfigure()
+      expect(Socket.all, 'the abandoned handover has to put it back').toHaveLength(2)
+      Socket.all[1]!.accept()
+      expect(Socket.all[1]!.sent[0]!.build.supervisorGeneration).toBe(7)
+    } finally {
+      connection.close()
+    }
+  })
+})
+
 describe('supervisor endpoint reconfiguration', () => {
   it('renews same-endpoint credentials and rejects stale socket events after endpoint changes', () => {
     vi.useFakeTimers()

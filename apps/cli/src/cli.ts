@@ -1650,6 +1650,13 @@ export async function main(
             : {}),
         }),
         onSnapshot: () => supervisorConnection?.report(),
+        // POD-3765: from the moment a successor is spawned until the handover
+        // is abandoned, this process says nothing to the coordinator — the
+        // socket is closed and the dialer stops. `reconfigure()` is what brings
+        // it back, and it renews the handshake rather than reusing a socket the
+        // server may already have refused as a superseded incarnation.
+        cedeFleetSocket: () => supervisorConnection?.close(),
+        resumeFleetSocket: () => supervisorConnection?.reconfigure(),
         finalizePendingGrant: (expectedVersion) =>
           finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion),
         env: {
