@@ -119,7 +119,8 @@ function childrenOf(pid: number): number[] {
 
 async function until<T>(
   read: () => T | undefined | Promise<T | undefined>,
-  label: string,
+  /** A thunk when the description is expensive or only true at failure time. */
+  label: string | (() => string),
   ms = 20_000,
 ): Promise<T> {
   const deadline = Date.now() + ms
@@ -133,7 +134,11 @@ async function until<T>(
     }
     await new Promise((r) => setTimeout(r, 50))
   }
-  throw new Error(`timed out waiting for ${label}${last ? `: ${String(last)}` : ''}`)
+  throw new Error(
+    `timed out waiting for ${typeof label === 'function' ? label() : label}${
+      last ? `: ${String(last)}` : ''
+    }`,
+  )
 }
 
 async function freePort(): Promise<number> {
@@ -513,23 +518,57 @@ async function stopParent(parent: FleetParent): Promise<void> {
  * defect this arm is about is a row that reaches the new version and then goes
  * BACK, which only a timeline can see.
  */
+interface VersionTimeline {
+  /**
+   * Every change the row went through, in order, since sampling began.
+   *
+   * The INCARNATION HOLDING THE SLOT is recorded beside the version, because
+   * "the row says 2.0.0" does not say who put it there, and on this path there
+   * are always two candidates. A change in either field is a change.
+   */
+  changes: Array<{ at: number; appVersion: string | null; generation: number | undefined }>
+  /**
+   * HOW MANY TIMES THE ROW WAS ACTUALLY READ, and what went wrong if anything.
+   *
+   * A sampler that dies quietly produces a timeline that looks like a row which
+   * stopped changing, which is indistinguishable from the defect being asserted
+   * against and would report it falsely. The poll count is what tells the two
+   * apart: a live sampler over a twenty-second arm has hundreds.
+   */
+  polls: number
+  errors: string[]
+  sampledForMs: number
+}
+
 function recordVersions(
   coordinator: Coordinator,
   machineId: MachineId,
-): { stop: () => Array<{ at: number; appVersion: string | null }> } {
-  const timeline: Array<{ at: number; appVersion: string | null }> = []
+): { stop: () => Promise<VersionTimeline> } {
+  const timeline: Array<{ at: number; appVersion: string | null; generation: number | undefined }> =
+    []
+  const errors: string[] = []
+  let polls = 0
   let running = true
   const origin = Date.now()
+  const sample = async (): Promise<void> => {
+    const row = await coordinator.row(machineId)
+    polls += 1
+    const appVersion = row?.appVersion ?? null
+    const generation = coordinator.machines.attachedSupervisorGeneration(machineId)
+    const last = timeline.at(-1)
+    if (last?.appVersion !== appVersion || last.generation !== generation) {
+      timeline.push({ at: Date.now() - origin, appVersion, generation })
+    }
+  }
   const tick = async (): Promise<void> => {
     while (running) {
       try {
-        const row = await coordinator.row(machineId)
-        const appVersion = row?.appVersion ?? null
-        if (timeline.at(-1)?.appVersion !== appVersion) {
-          timeline.push({ at: Date.now() - origin, appVersion })
-        }
-      } catch {
-        /* the row is briefly unreadable during a store write; the next tick sees it */
+        await sample()
+      } catch (error) {
+        // The row is briefly unreadable during a store write; the next tick sees
+        // it. Kept, and reported, because a sampler that is erroring on every
+        // poll must not be mistaken for a row that stopped changing.
+        if (errors.length < 5) errors.push(String(error))
       }
       // 100ms, against a regression whose smallest window is the dialer's
       // 500ms minimum backoff: fast enough to catch the shortest flap the
@@ -540,9 +579,24 @@ function recordVersions(
   }
   void tick()
   return {
-    stop: () => {
+    /**
+     * TAKES ONE LAST READING BEFORE IT STOPS, and that final sample is not a
+     * nicety. A poll loop's last recorded change is whatever its last poll
+     * happened to catch, so a transition that lands between the final poll and
+     * the caller's own assertion is simply absent from the timeline. Measured
+     * on ARM D: the outgoing parent reattached 31ms after the sampler's last
+     * 100ms tick, the assertions on the live row all passed, and the timeline
+     * still ended on the aborted release — a red that described the sampler's
+     * cadence rather than anything the coordinator did.
+     */
+    stop: async () => {
       running = false
-      return timeline
+      try {
+        await sample()
+      } catch (error) {
+        if (errors.length < 5) errors.push(String(error))
+      }
+      return { changes: timeline, polls, errors, sampledForMs: Date.now() - origin }
     },
   }
 }
@@ -614,9 +668,12 @@ afterEach(async () => {
 async function awaitPersistedCredential(parent: FleetParent): Promise<void> {
   await until(
     () => parent.supervisorState().token,
-    `the machine to persist its coordinator-issued token; state dir holds ${readdirSync(
-      parent.stateDir,
-    ).join(', ')} | supervisor.json: ${readJsonAt(join(parent.stateDir, 'supervisor.json'))}`,
+    () =>
+      `the machine to persist its coordinator-issued token; state dir holds ${readdirSync(
+        parent.stateDir,
+      ).join(', ')} | supervisor.json: ${readJsonAt(
+        join(parent.stateDir, 'supervisor.json'),
+      )}\npeer log:\n${parent.output()}`,
     15_000,
   )
 }
@@ -965,8 +1022,12 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // redialled several times, had it been going to. Then read the whole
     // timeline: this is the assertion, not the end state.
     await new Promise((r) => setTimeout(r, 5_000))
-    const timeline = versions.stop()
-    const seen = timeline.map((entry) => entry.appVersion)
+    const timeline = await versions.stop()
+    expect(
+      timeline.polls,
+      `the sampler must have been alive throughout: ${JSON.stringify(timeline)}`,
+    ).toBeGreaterThan(10)
+    const seen = timeline.changes.map((entry) => entry.appVersion)
     expect(seen.at(-1), 'the row ends on the version that is running').toBe('2.0.0')
     expect(
       seen.indexOf('1.0.0') === -1 || seen.lastIndexOf('1.0.0') < seen.indexOf('2.0.0'),
@@ -1157,9 +1218,13 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     )
     expect(settled).toBe(true)
 
-    const timeline = versions.stop()
+    const timeline = await versions.stop()
     expect(
-      timeline.at(-1)?.appVersion,
+      timeline.polls,
+      `the sampler must have been alive throughout: ${JSON.stringify(timeline)}`,
+    ).toBeGreaterThan(10)
+    expect(
+      timeline.changes.at(-1)?.appVersion,
       `the aborted release must not be left on the row: ${JSON.stringify(timeline)}`,
     ).toBe('1.0.0')
     expect(
