@@ -99,6 +99,14 @@ for (const mode of ["node-ipc", "node-ipc-detached", "bun-ipc"]) {
   console.log(r.out);
 }
 
+function readBeat(f: string): { n: number } | null {
+  try {
+    return JSON.parse(fs.readFileSync(f, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 // --- does the child notice its supervisor dying? --------------------------
 // The property a handover turns on. Run the parent in `orphan` mode: it starts one
 // child over a channel, then exits without killing it. The child writes a file from
@@ -109,10 +117,17 @@ for (const mode of ["node-ipc", "node-ipc-detached", "bun-ipc"]) {
   try {
     fs.rmSync(flag, { force: true });
   } catch {}
+  const beatFile = `${flag}.heartbeat`;
+  try {
+    fs.rmSync(beatFile, { force: true });
+  } catch {}
   const r = await sh(bins.parent, ["orphan", bins.child, bins.grandchild], outDir);
   const spoke = /"childSpoke":true/.test(r.out);
+  const parentGoneAt = Date.now();
+  const beatAtParentExit = readBeat(beatFile);
+
   let detected: Record<string, unknown> | null = null;
-  const deadline = Date.now() + 15_000;
+  const deadline = parentGoneAt + 12_000;
   while (Date.now() < deadline) {
     if (fs.existsSync(flag)) {
       try {
@@ -122,7 +137,24 @@ for (const mode of ["node-ipc", "node-ipc-detached", "bun-ipc"]) {
     }
     await Bun.sleep(100);
   }
-  results.supervisorDeath = { childSpoke: spoke, disconnectSeen: detected !== null, detail: detected };
+  // If disconnect never fired, the heartbeat says WHY: still beating means the child
+  // was alive and simply not told; stopped at the parent's exit means it was killed.
+  const finalBeat = readBeat(beatFile);
+  const beatsAfterParentExit = (finalBeat?.n ?? 0) - (beatAtParentExit?.n ?? 0);
+  results.supervisorDeath = {
+    childSpoke: spoke,
+    disconnectSeen: detected !== null,
+    detail: detected,
+    heartbeat: {
+      atParentExit: beatAtParentExit?.n ?? 0,
+      final: finalBeat?.n ?? 0,
+      beatsAfterParentExit,
+      childOutlivedParent: beatsAfterParentExit > 0,
+      // Zero here means the child never wrote its synchronous first beat: the
+      // instrument, not the platform, is what failed.
+      instrumentArmed: (beatAtParentExit?.n ?? 0) >= 1,
+    },
+  };
   console.log(`\n=== supervisor death === ${JSON.stringify(results.supervisorDeath)}`);
 }
 
@@ -170,11 +202,16 @@ const md = [
   "",
   `Env probe calibrated: **${probeCalibration.armed ? "yes" : `NO — misclassified ${probeCalibration.misclassified.join(", ")}`}**`,
   "",
-  `Child sees its supervisor die: **${
-    (results.supervisorDeath as { disconnectSeen: boolean }).disconnectSeen
-      ? "yes, 'disconnect' fired"
-      : "NO"
-  }**`,
+  `Child sees its supervisor die: **${(() => {
+    const d = results.supervisorDeath as {
+      disconnectSeen: boolean;
+      heartbeat: { childOutlivedParent: boolean; beatsAfterParentExit: number };
+    };
+    if (d.disconnectSeen) return "yes, 'disconnect' fired";
+    return d.heartbeat.childOutlivedParent
+      ? `NO — child stayed alive for ${d.heartbeat.beatsAfterParentExit} more heartbeats and was never told`
+      : "no disconnect, and the child did not outlive the parent (it was killed, not silent)";
+  })()}**`,
   "",
   "| mode | bidirectional JSON channel | grandchild containment | containment probe armed |",
   "| --- | --- | --- | --- |",
