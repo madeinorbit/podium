@@ -64,7 +64,11 @@ const state = {
   accountId: '' as string,
   sessions: [] as unknown[],
   installed: ['claude-code', 'codex', 'grok'] as string[],
-  runtimeDrivers: [] as Array<{ harness: 'opencode'; id: string; family: 'server' }>,
+  runtimeDrivers: [] as Array<{
+    harness: 'claude-code' | 'opencode'
+    id: string
+    family: 'terminal' | 'server' | 'embedded'
+  }>,
 }
 
 const uiValues = new Map<string, string>()
@@ -251,7 +255,48 @@ describe('cold-start runtime driver choice', () => {
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({ runtimeContract: expect.anything() }))
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'opencode-server' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentKind: 'opencode', runtimeContract: 'opencode-server' }),
+    )
+  })
+
+  it('offers contract-headed, legacy-headed, and headless choices', async () => {
+    feature.enabled = true
+    state.accountId = 'native:opencode'
+    state.installed = ['opencode']
+    state.runtimeDrivers = [
+      { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
+      { harness: 'opencode', id: 'opencode-server', family: 'server' },
+    ]
+    render(<ColdStartComposer first={false} />)
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+        'Headed (driver contract)',
+      ),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    expect(await screen.findByRole('menuitem', { name: 'Headed (driver contract)' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Headed (legacy PTY)' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Headed (driver contract)' }))
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentKind: 'opencode', runtimeContract: 'generic-pty' }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Headed (legacy PTY)' }))
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ runtimeContract: expect.anything() }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ agentKind: 'opencode', runtimeContract: 'opencode-server' }),
@@ -265,7 +310,7 @@ describe('cold-start runtime driver choice', () => {
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
     const view = render(<ColdStartComposer first={false} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'opencode-server' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     state.runtimeDrivers = []
     view.rerender(<ColdStartComposer first={false} />)
     expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')

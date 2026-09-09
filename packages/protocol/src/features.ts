@@ -34,7 +34,7 @@ export const FEATURES = [
     id: 'runtime-drivers',
     name: 'Headless session drivers',
     description:
-      'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+      'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
     visibility: 'stable',
   },
   {

@@ -24,3 +24,14 @@ export function runtimeDriverLabel(id: string): string {
   if (id === 'opencode2-server') return 'OpenCode 2 (headless)'
   return id
 }
+
+/** Return the harness-specific terminal driver reported by the selected machine. */
+export function terminalRuntimeDriver(
+  machine: MachineWire | undefined,
+  harness?: AgentKind,
+): HeadlessRuntimeDriver | undefined {
+  return (machine?.inventory?.runtimeDrivers ?? []).find(
+    (driver) =>
+      driver.family === 'terminal' && (harness === undefined || driver.harness === harness),
+  )
+}
