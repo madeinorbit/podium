@@ -135,12 +135,19 @@ const log = createLogger('daemon:opencode-attach')
 export const WARM_TTL_MS = 30 * 60_000
 
 /**
- * The size the client is BORN at, not the size it stays.
+ * THE LAST-RESORT BIRTH SIZE, and by POD-3809 the rarest one.
  *
- * No viewer has told us its grid: the attach request carries no geometry, and
- * the viewer signal that creates the client may arrive before its resize. So
- * this is a readable birth size; the daemon applies the latest pending geometry
- * immediately after attach.
+ * A client terminal is now opened at {@link OpencodeClientTerminalPorts.birthGeometry}
+ * — the viewport request this session has been holding, else the grid the daemon
+ * last applied to it — so the first frame is already the viewer's size instead
+ * of being corrected a beat later. This constant is what remains when neither is
+ * known: a session nobody has ever asked about, painted behind the startup
+ * overlay.
+ *
+ * IT IS STILL AN APPLY, AND IT IS STILL REPORTED. The fallback is the case most
+ * likely to be forgotten, and forgetting it is the bug: whatever grid the client
+ * is born at, the daemon put it there and the server must be told (MODEL rule 1,
+ * amended). The one operation that records it reports it.
  */
 const DEFAULT_GEOMETRY: Geometry = { cols: 120, rows: 40 }
 
@@ -352,6 +359,21 @@ export interface OpencodeClientTerminalPorts {
    * without a daemon behind it.
    */
   appliedGeometry?: AppliedGeometryRecord
+  /**
+   * THE SIZE TO OPEN THIS SESSION'S CLIENT TERMINAL AT (POD-3809).
+   *
+   * Being born right beats being corrected. The viewer's first ask routinely
+   * arrives BEFORE the client terminal exists — there is no pty bridge on a
+   * server-family session, so the resize handler holds it — and opening the
+   * terminal at {@link DEFAULT_GEOMETRY} and resizing afterwards is what made
+   * the first paint a small top-left quadrant for a second or two.
+   *
+   * The daemon answers with the held request if there is one, else the grid it
+   * last applied to this session; `undefined` when it knows neither, which is
+   * the one case that falls back to the default.
+   */
+  birthGeometry?(sessionId: SessionId): Geometry | undefined
+  /** The per-daemon last resort, when {@link birthGeometry} knows nothing. */
   geometry?: Geometry
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
@@ -556,13 +578,17 @@ export function createOpencodeClientTerminals(
     driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_spawn_requested', {
       command: launch.cmd,
     })
+    // BORN AT THE VIEWER'S SIZE WHEN THERE IS ONE (POD-3809). Read here rather
+    // than at `attach()` because this is the only path that creates a terminal:
+    // a warm reattach reuses the client that exists and applies nothing.
+    const birth = ports.birthGeometry?.(record.streamId) ?? geometry
     const session = await spawn({
       label: record.label,
       cmd: launch.cmd,
       args: launch.args,
       cwd: launch.cwd,
-      cols: geometry.cols,
-      rows: geometry.rows,
+      cols: birth.cols,
+      rows: birth.rows,
       /**
        * A CLIENT TERMINAL IS SIZED AS ONE (POD-2413). Its scope gets the attach
        * budget — a terminal's worth of memory and tasks, not an agent's — so a
@@ -636,16 +662,23 @@ export function createOpencodeClientTerminals(
       ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
     }
     /**
-     * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts`.
+     * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts` —
+     * and until POD-3809 the SILENT one. A client terminal being born is the
+     * moment a headed session first has a grid at all, and nothing told the
+     * server, so W stayed at the row's 80x24 while the client painted 80x24 and
+     * the view only reflowed on a later ask.
      *
-     * A CREATED client terminal really is opened at `geometry`, so the daemon
-     * has put this session at a grid and any later report may say so. An ADOPTED
-     * master is the opposite case and is deliberately excluded: it survived this
-     * daemon at a size of its own, and recording `geometry` for it would invent
-     * exactly the 120x40 that the server-family binds used to announce.
+     * A CREATED client terminal really is opened at `birth`, so the daemon has
+     * put this session at a grid and the one operation that records it also
+     * reports it. No dispatch callback: the terminal was created at the size,
+     * so there is nothing left to send it.
+     *
+     * An ADOPTED master is the opposite case and is deliberately excluded: it
+     * survived this daemon at a size of its own, and recording a size for it
+     * would invent exactly the 120x40 that the server-family binds used to
+     * announce.
      */
-    if (!session.adopted)
-      ports.appliedGeometry?.apply(record.streamId, geometry.cols, geometry.rows)
+    if (!session.adopted) ports.appliedGeometry?.apply(record.streamId, birth.cols, birth.rows)
     record.preserveReplayOnRelaunch = false
     session.onFrame((frame) => {
       driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {

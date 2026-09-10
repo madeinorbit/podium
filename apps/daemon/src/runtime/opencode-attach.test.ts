@@ -20,6 +20,7 @@ import { STRIPPED_CODEX_CREDENTIALS } from '@podium/agent-runtime'
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, AgentSession } from '@podium/pty'
 import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -134,6 +135,9 @@ interface HarnessOptions {
   /** The daemon's applied-size record (POD-3290), when a test cares what this
    *  attach wrote into it. */
   appliedGeometry?: AppliedGeometryRecord
+  /** The daemon's answer to "what size should this session's client open at?"
+   *  (POD-3809) — the held viewport request, else the last applied grid. */
+  birthGeometry?: (sessionId: SessionId) => { cols: number; rows: number } | undefined
 }
 
 interface Harness {
@@ -141,6 +145,8 @@ interface Harness {
     label: string
     cmd: string
     args: string[]
+    cols?: number
+    rows?: number
     env?: Record<string, string>
     stripEnv?: readonly string[]
   }[]
@@ -166,6 +172,7 @@ function harness(opts: HarnessOptions = {}) {
   }
   const terminals = createOpencodeClientTerminals({
     ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
+    ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     releaseStream: (streamId) => state.released.push(streamId),
     spawn: async (o) => {
@@ -173,6 +180,8 @@ function harness(opts: HarnessOptions = {}) {
         label: o.label,
         cmd: o.cmd,
         args: o.args ?? [],
+        ...(o.cols !== undefined ? { cols: o.cols } : {}),
+        ...(o.rows !== undefined ? { rows: o.rows } : {}),
         ...(o.env ? { env: o.env } : {}),
         ...(o.stripEnv ? { stripEnv: o.stripEnv } : {}),
       })
@@ -1543,7 +1552,7 @@ describe('the session’s lifecycle owns its attachment', () => {
  */
 describe('opening a client terminal is what records an applied size', () => {
   it('records the size it OPENED the client at', async () => {
-    const appliedGeometry = new AppliedGeometryRecord()
+    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
     const { terminals } = harness({ appliedGeometry })
     // ARMED: nothing is recorded until the attach actually spawns.
     expect(appliedGeometry.applied(SESSION)).toBeUndefined()
@@ -1556,8 +1565,52 @@ describe('opening a client terminal is what records an applied size', () => {
     expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })
   })
 
+  it('is BORN at the size the daemon answers with, not at the default', async () => {
+    // The viewer's ask reached a session with no terminal, so the daemon is
+    // holding it. Opening the client at 120x40 and resizing a beat later is
+    // exactly the "small top-left quadrant for a couple of seconds" this issue
+    // is about (POD-3809): the first frame is the wrong size by construction.
+    const sent: DaemonMessage[] = []
+    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
+    const { terminals, state } = harness({
+      appliedGeometry,
+      birthGeometry: () => ({ cols: 203, rows: 51 }),
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
+    expect({ cols: spawn.cols, rows: spawn.rows }).toEqual({ cols: 203, rows: 51 })
+    // And the size it was born at is REPORTED, which is the half that was
+    // missing: the record and the wire say the same thing, in one operation.
+    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 203, rows: 51 })
+    expect(sent).toEqual([
+      {
+        type: 'geometryApplied',
+        sessionId: SESSION,
+        geometry: { cols: 203, rows: 51 },
+        cause: 'request',
+      },
+    ])
+  })
+
+  it('reports the LAST-RESORT default too, when the daemon knows no size', async () => {
+    // The case most likely to be forgotten, and the one the old code got wrong:
+    // a birth at `DEFAULT_GEOMETRY` is still the daemon putting the session at a
+    // grid, so it is still a report.
+    const sent: DaemonMessage[] = []
+    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
+    const { terminals, state } = harness({ appliedGeometry, birthGeometry: () => undefined })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
+    expect({ cols: spawn.cols, rows: spawn.rows }).toEqual({ cols: 120, rows: 40 })
+    expect(sent).toMatchObject([{ type: 'geometryApplied', geometry: { cols: 120, rows: 40 } }])
+  })
+
   it('records NOTHING when it adopted a master that was already running', async () => {
-    const appliedGeometry = new AppliedGeometryRecord()
+    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
     const { terminals } = harness({ appliedGeometry, adopted: true })
 
     await terminals.attach({ sessionId: SESSION, target })
@@ -1568,7 +1621,7 @@ describe('opening a client terminal is what records an applied size', () => {
   })
 
   it('forgets the size when the terminal it belonged to is closed', async () => {
-    const appliedGeometry = new AppliedGeometryRecord()
+    const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
     const { terminals } = harness({ appliedGeometry })
     await terminals.attach({ sessionId: SESSION, target })
     expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 120, rows: 40 })

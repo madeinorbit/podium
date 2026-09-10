@@ -931,6 +931,21 @@ export async function createDaemonHostRuntime(args: {
     // terminal is a real apply, and this is the only wiring that lets that fact
     // reach the frames which report a grid.
     appliedGeometry: appliedGeometryFor(ctx),
+    /**
+     * WHAT SIZE TO OPEN IT AT (POD-3809). The viewer's first ask reaches a
+     * server-family session before it has any terminal, so the resize handler
+     * parks it in `pendingResizes`; that held request is the best answer there
+     * is and it is what the client is born at. Failing that, the grid this
+     * daemon last applied to the session — its own last-known W. Failing both,
+     * the port answers nothing and the client host uses its default.
+     *
+     * PEEKED, NOT CONSUMED. The request stays held until the attach that used it
+     * comes back through the native reconcile, which sees the record already at
+     * that grid and retires it without a second SIGWINCH. A start that FAILS
+     * therefore still leaves the request for the next attempt.
+     */
+    birthGeometry: (sessionId) =>
+      ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
     // One session-addressed relay for engine terminals and on-demand harness
     // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),

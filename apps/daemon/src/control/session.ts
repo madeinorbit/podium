@@ -56,7 +56,7 @@ import {
 import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
-import { appliedGeometryFor, bindFrame, geometryAppliedFrame } from './applied-geometry'
+import { appliedGeometryFor, bindFrame } from './applied-geometry'
 import { type Durable, type DurableAttachment, durableFor } from './durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
@@ -268,12 +268,28 @@ export function reconcileNativeClientTerminal(
         // Attached: the request is honoured, so nothing is owed a retry.
         ctx.nativeClientRetries?.delete(sessionId)
         const pending = ctx.pendingResizes.get(sessionId)
-        if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
-          // AN APPLY SITE (POD-3290). The held request has just reached a real
-          // client terminal, so it stops being a request and becomes this
-          // daemon's applied grid for the session.
-          appliedGeometryFor(ctx).apply(sessionId, pending.cols, pending.rows)
-          ctx.pendingResizes.delete(sessionId)
+        if (pending) {
+          const record = appliedGeometryFor(ctx)
+          const already = record.applied(sessionId)
+          if (already?.cols === pending.cols && already.rows === pending.rows) {
+            // BORN AT IT (POD-3809). The client terminal was opened at this very
+            // request — see `birthGeometry` — so it is already applied and
+            // already reported. Re-dispatching the same winsize would cost a
+            // SIGWINCH and a TUI repaint for no change; the request is simply
+            // no longer held.
+            ctx.pendingResizes.delete(sessionId)
+          } else if (
+            // AN APPLY SITE (POD-3290), and one of the two that used to be
+            // SILENT (POD-3809). The held request has just reached a real client
+            // terminal, so it stops being a request and becomes this daemon's
+            // applied grid — and the one operation that records it is the one
+            // that reports it.
+            record.apply(sessionId, pending.cols, pending.rows, (cols, rows) =>
+              ctx.clientTerminals?.resize(sessionId, cols, rows) === true,
+            )
+          ) {
+            ctx.pendingResizes.delete(sessionId)
+          }
         }
       } else {
         // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
@@ -426,23 +442,6 @@ function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): vo
  * 80x24 when we just sized it to the client's fitted grid (POD-628).
  */
 /**
- * Tell the server the grid we just dispatched to this session's pty (POD-3239
- * B7 / MODEL rule 5).
- *
- * Sent SYNCHRONOUSLY, inside the handler that dispatched the resize, so no
- * output the daemon produces afterwards can overtake it. Honest label:
- * dispatched, not acknowledged — see the ordering note in the `resize` handler.
- */
-function reportGeometryApplied(ctx: DaemonContext, sessionId: SessionId): void {
-  // READ, NEVER STATED (POD-3290). The caller has just recorded the grid it
-  // dispatched; this reads that record back. It cannot be handed a size, so it
-  // cannot report one nothing applied — and a session with nothing in the
-  // record produces no frame at all rather than an invented one.
-  const frame = geometryAppliedFrame(appliedGeometryFor(ctx), sessionId)
-  if (frame) ctx.send(frame)
-}
-
-/**
  * WHAT THIS RETURNS IS WHAT THE DAEMON APPLIED (MODEL rule 1, POD-3279).
  *
  * `reported` is the size this bridge is being stood up at, when there is one: a
@@ -503,16 +502,20 @@ export function wireBridge(
   if (pending) {
     // AN APPLY SITE (POD-3290): the held request is dispatched here, so here is
     // where it becomes an applied grid. Recorded BEFORE the bind that follows
-    // reads the record, which is what makes that bind's geometry a report.
-    session.resize(pending.cols, pending.rows)
-    record.apply(sessionId, pending.cols, pending.rows)
+    // reads the record, which is what makes that bind's geometry a report — and
+    // the apply itself reports too (POD-3809), so this site is covered whether
+    // or not its caller remembers to bind.
+    record.apply(sessionId, pending.cols, pending.rows, (cols, rows) => {
+      session.resize(cols, rows)
+      return true
+    })
     ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
   } else if (reported) {
     // AN APPLY SITE TOO, and the one that is easy to misread. `reported` is the
     // size a SPAWN created this pty at — the child is born at it and the first
     // attach's packet moves it there — so the daemon really did put it at that
-    // grid. A reattach passes `undefined` and records nothing, because a
-    // size-neutral attach applies nothing.
+    // grid. No dispatch: it is already there. A reattach passes `undefined` and
+    // records nothing, because a size-neutral attach applies nothing.
     record.apply(sessionId, reported.cols, reported.rows)
   }
   session.onFrame((frame) => {
@@ -2059,6 +2062,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // IS at — so the bind after a restart reports it and the `unknown` window
     // closes at reattach. abduco's attach reports nothing here.
     const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
+    // No dispatch: the attach itself announced and applied the size, so the
+    // session is already at it and this call only records and reports it.
     if (downgraded) appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
     const applied = held ?? downgraded
     rememberDurableSeq(ctx, msg.sessionId, found.session)
@@ -2377,10 +2382,10 @@ export const sessionHandlers: Pick<
     ),
   resize: (ctx, msg) => {
     const bridge = ctx.bridges.get(msg.sessionId)
-    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5).
-    //
-    // Order is the whole point, and all of it happens before this handler
-    // yields:
+    // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5) — and since
+    // POD-3809 those are ONE operation, `record.apply`, which flushes,
+    // dispatches, records and reports in that order before it returns. This
+    // handler no longer owns the ordering; it only says WHAT the dispatch is:
     //
     //   1. FLUSH what the scheduler is holding for this session. Those bytes
     //      were produced at the OLD grid; a P2/P3 session can sit on up to
@@ -2398,36 +2403,37 @@ export const sessionHandlers: Pick<
     // resize — see MODEL.md "Accepted residuals". What this ordering DOES buy is
     // the half the daemon owns: nothing it was holding lands after the report.
     //
-    // The three-way branch below keeps today's order exactly (0b C7): a
-    // driver-owned (server-family) session takes the resize through
-    // `clientTerminals` and never touches `pendingResizes`; only a session with
-    // no bridge and no client terminal holds. A HELD request gets no report —
-    // there is no applied grid to report yet. `wireBridge` applies it at bind
-    // and `bind` carries the effective geometry, which is that session's report.
-    if (bridge) {
-      ctx.outputScheduler.flushNow(msg.sessionId)
-      bridge.resize(msg.cols, msg.rows)
-      // AN APPLY SITE (POD-3290): the TIOCSWINSZ has gone out, so this is the
-      // daemon's own record of the grid this session is at, and the report
-      // below is only a reading of it.
-      appliedGeometryFor(ctx).apply(msg.sessionId, msg.cols, msg.rows)
-      reportGeometryApplied(ctx, msg.sessionId)
-    } else if (ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows)) {
-      // A driver-owned (server-family) session took it. Its output travels
-      // through the same scheduler, and its W has to move for the same reason,
-      // so it flushes and reports exactly as a bridged session does.
-      ctx.outputScheduler.flushNow(msg.sessionId)
-      // THE SAME APPLY SITE BY THE OTHER ROAD: the client terminal took the
-      // resize (it answered `true`), so the daemon put this session at that
-      // grid just as surely as the branch above did.
-      appliedGeometryFor(ctx).apply(msg.sessionId, msg.cols, msg.rows)
-      reportGeometryApplied(ctx, msg.sessionId)
-    } else {
-      // No bridge yet = the spawn this resize belongs to is still in flight. Hold the
-      // request for wireBridge instead of dropping it: the server has already moved
-      // its own geometry (and told the browser), so a drop here is what leaves the
-      // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
-      // — an in-flight session has no screen to reflow, only a size to be born at.
+    // The branch below keeps today's order exactly (0b C7): a driver-owned
+    // (server-family) session takes the resize through `clientTerminals` and
+    // never touches `pendingResizes`; only a session with no bridge and no
+    // client terminal holds. A HELD request still gets no report — nothing was
+    // applied, so there is nothing to report, which is the one thing this file
+    // and the record agree on without either having to remember it.
+    const record = appliedGeometryFor(ctx)
+    const applied = bridge
+      ? record.apply(msg.sessionId, msg.cols, msg.rows, (cols, rows) => {
+          bridge.resize(cols, rows)
+          return true
+        })
+      : // A driver-owned (server-family) session takes it through the client
+        // terminal instead. Its output travels through the same scheduler, and
+        // its W has to move for the same reason, so it flushes and reports
+        // exactly as a bridged session does — because it is the same operation.
+        record.apply(
+          msg.sessionId,
+          msg.cols,
+          msg.rows,
+          (cols, rows) => ctx.clientTerminals?.resize(msg.sessionId, cols, rows) === true,
+        )
+    if (!applied) {
+      // Nothing to put at the size yet — no bridge and no client terminal, so the
+      // spawn this resize belongs to is still in flight. Hold the request instead
+      // of dropping it: the server has already moved its own geometry (and told
+      // the browser), so a drop here is what leaves the PTY at 80x24 under a
+      // client rendering a fitted grid (POD-628). Last one wins — an in-flight
+      // session has no screen to reflow, only a size to be BORN at, and being
+      // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
+      // a pty session, and a client terminal is opened at it.
       ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
     }
     ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)

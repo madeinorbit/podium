@@ -136,7 +136,7 @@ const FAMILIES = ['opencode', 'codex', 'grok', 'claude-sdk'] as const
 
 describe('a server-family bind reports a grid only when the daemon applied one', () => {
   it.each(FAMILIES)('%s: a launch opens no terminal, so the bind is BARE', async (family) => {
-    const bind = await launchBind(family, new AppliedGeometryRecord())
+    const bind = await launchBind(family, new AppliedGeometryRecord({ send: () => {} }))
     // ABSENT, not `geometry: undefined`: the server reads absence as "W is
     // unknown to me" and waits for the first viewer's ask.
     expect(bind).not.toHaveProperty('geometry')
@@ -148,7 +148,7 @@ describe('a server-family bind reports a grid only when the daemon applied one',
   it.each(
     FAMILIES,
   )('%s: with a client terminal open at 120x40, the SAME bind reports it', async (family) => {
-    const record = new AppliedGeometryRecord()
+    const record = new AppliedGeometryRecord({ send: () => {} })
     // What `clientTerminals` writes when it really opens a harness client at
     // its birth size. Here it stands for that; the write itself is covered in
     // `opencode-attach.test.ts`.
@@ -159,7 +159,7 @@ describe('a server-family bind reports a grid only when the daemon applied one',
   })
 
   it.each(FAMILIES)('%s: reports the record, whatever is in it', async (family) => {
-    const record = new AppliedGeometryRecord()
+    const record = new AppliedGeometryRecord({ send: () => {} })
     record.apply(SESSION, 200, 60)
     // ARMS the 120x40 case above against a bind that reverted to a hardcoded
     // default: this one can only pass by reading.

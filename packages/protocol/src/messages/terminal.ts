@@ -676,13 +676,33 @@ export const GeometryAppliedMessage = z.object({
   sessionId: SessionIdField,
   geometry: Geometry,
   /**
-   * What caused the apply. ONE MEMBER ON PURPOSE: a viewer's request is the only
-   * thing that produces this frame. The other report — birth and reattach —
-   * travels on `bind`, which carries a geometry when the daemon applied one, so
-   * a `cause: 'bind'` here would be a second name for a frame that exists and a
-   * wire value nothing sends.
+   * WHAT CAUSED THE APPLY — AND, TODAY, A FIELD YOU MAY NOT TRUST TO SAY SO
+   * (POD-3809). Read this before branching on it: nothing does, and nothing
+   * should until the second value ships.
+   *
+   * It used to read "one member on purpose: a viewer's request is the only
+   * thing that produces this frame", and that was true while applying and
+   * reporting were two statements a daemon site wrote separately. POD-3809 made
+   * them ONE operation, so every apply reports here — including a BIRTH, where
+   * the daemon opens a client terminal (or a pty) at a grid. A birth is not a
+   * request, and it still sends `request`.
+   *
+   * WHY THE TRUE VALUE IS WITHHELD, deliberately and temporarily. Daemon and
+   * server compile this schema separately and meet across version skew (remote
+   * machines, staged rollouts). An older server DROPS a frame it cannot parse —
+   * `daemon-socket.ts` hands the parse failure to `warnDroppedFrame` and keeps
+   * the connection — and that warning is THROTTLED, so a rejected frame can
+   * vanish without even a log line. A newer daemon shipping a new cause value
+   * would therefore be answered by exactly the silent, invisible dropped report
+   * that POD-3809 exists to remove.
+   *
+   * SO THE WIDENING COMES FIRST AND THE VALUE LATER. `.catch` makes an
+   * unrecognised (or absent) cause read as `request` rather than failing the
+   * whole frame, so once every server carries this line a daemon may send
+   * `birth` and be understood. The geometry — the only part anything acts on —
+   * is never guessed.
    */
-  cause: z.enum(['request']),
+  cause: z.enum(['request']).catch('request'),
 })
 export type GeometryAppliedMessage = z.infer<typeof GeometryAppliedMessage>
 
