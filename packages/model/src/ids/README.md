@@ -6,6 +6,8 @@ from every layer, and that reachability is the whole reason the entity schemas c
 these until POD-361 moved them out of `@podium/protocol`.
 
 - **`brands.ts`** — the brand set, and the reasoned list of what is *deliberately* not branded.
+- **`ksuid.ts`** — the 27-character sortable id the new brands are minted from.
+- **`branded-ksuid.ts`** — the prefix rule, the mint and the parser: `mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv`.
 - **`keys.ts`** — the escaping core and the four key shapes.
 - Old import paths still work: `@podium/protocol` keeps re-export shims at `ids.ts` (the seven
   original brands + the two legacy key helpers) and at `planes/principal.ts` (`UserId`).
@@ -58,6 +60,59 @@ defaults are gone, and the boundary schema `MachineId` **refuses** the two liter
 Every machine-id field in `entities/` is bound to `MachineIdField`, and `brands.test.ts` scans the
 entity sources by field-name *shape* (plus `MachineWire`'s own `id`) and fails if any of them is
 left unbranded — the same ratchet, pointed the other way.
+
+### Branded KSUIDs — the new id scheme, and the two brands that use it
+
+New rows get a **Stripe-style prefix, an underscore, and a KSUID**: four big-endian
+bytes of epoch seconds, sixteen random bytes, base62, left-padded to a fixed 27 characters
+(hosted sign-in spec §9.1). `mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv`.
+
+```ts
+mintBrandedId('mem_')            // 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv'
+parseBrandedId('mem_', id)       // { prefix, ksuid, at } — throws on an inv_ id
+splitBrandedId(id)               // { prefix, ksuid } | null — for an id of unknown kind
+newMemberId() / newInviteId()    // the branded mints, in brands.ts
+```
+
+What it buys, and what each property costs if it is broken:
+
+1. **Lexicographic order is creation order**, so `ORDER BY id` is `ORDER BY created_at` and
+   rows minted together stay together in the index. It holds only because the alphabet is in
+   ASCII order *and* the width is fixed — an encoder that prints a value's natural length
+   round-trips perfectly and sorts wrong, which is why `ksuid.test.ts` pins the padding case.
+2. **The id says what it is.** The prefix is part of the stored value, so an id in a log, a
+   URL or a support ticket names its table, and an id from the wrong table is refused at the
+   boundary instead of selecting nothing three layers down. Two 27-character bodies are
+   indistinguishable; `mem_` and `inv_` are not.
+3. **The prefix rule** is two or three lowercase letters, four for the rare ones, then the
+   underscore — enforced at the mint, so a prefix arriving as data cannot reach a column.
+
+**The encoding is ours, not a library's**, because this package may depend on nothing but zod.
+`ksuid.test.ts` therefore pins it against the reference implementation's own published vector
+(`0669F7EF…` → `0ujtsYcgvSTl8PAuAdqWYSMnLOv`); a hand-rolled base62 that is only
+self-consistent is the failure that test exists to catch.
+
+**These two brands ship ONE schema, not two** — `MemberIdField` *is* `MemberId`. §1's split
+protects fields that already parse bare strings; `mem_` and `inv_` name tables that do not
+exist yet (A2 adds the member column, A4 adds `member_invites`), so there is no such payload,
+and a permissive field schema would only invite binding the unchecked one at the fields the
+prefix exists to protect.
+
+**`UserId` is not tightened to this shape**, and must not be: it is adopted across the codebase
+over a column that still holds pre-migration values. `MemberId` and `UserId` name the same rows
+once A2 migrates them, bridged by `userIdFromMemberId` (a cast — every `mem_` id is a valid
+`UserId`) and `memberIdFromUserId` (a **parse**, because a cast would launder `user:sole` into
+something the type system swore was a branded KSUID). Same asymmetry-with-a-reason as
+`MachineId`'s sentinel refusal above.
+
+**Machines keep their UUIDs**, on purpose: a machine id lives in that machine's own local file
+(`<stateDir>/machine.id`, `~/.podium/daemon.json`), so a rename would have to touch every
+machine. Existing ids elsewhere are not rewritten either — new tables get branded ids.
+
+§9.1's table spans both stores and is authoritative; `ID_PREFIXES` holds only the two this repo
+mints (`mem_`, `inv_`). The Postgres-side prefixes (`acct_`, `org_`, `ws_`, …) belong to
+podium-cloud's platform package, which builds them from these same two functions rather than a
+second id scheme.
 
 ---
 
