@@ -17,6 +17,13 @@
 import type { ThreadId } from '@podium/model'
 import { makeRelayIssueClient } from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import {
+  declareFlags,
+  type FlagDeclaration,
+  flagTable,
+  parseFlags,
+  withUnknownFlagAs,
+} from './argv'
 import { makeOperatorIssueClient } from './operator-client'
 
 type MailProc = {
@@ -37,9 +44,31 @@ export interface MailClient {
 
 export class MailCliError extends Error {}
 
-// 'worktree' is `podium agent spawn`'s boolean flag (agent-cli reuses this parser).
-// 'expect-response' [POD-835] arms a reply request on `mail send`.
-const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help', 'worktree', 'expect-response'])
+/** Flags the dispatcher owns, valid on every mail (and agent) command. */
+export const MESSAGING_GLOBAL_FLAGS = declareFlags({
+  known: [],
+  booleans: ['json', 'outside-scope', 'help'],
+})
+
+/**
+ * What each `podium mail` command accepts (POD-3836).
+ *
+ * PER COMMAND. The set this replaced was shared by every mail command, so
+ * `podium mail inbox --to someone` passed the check and was then dropped on the
+ * floor — a flag on the wrong command reads exactly like a flag that worked.
+ */
+const MAIL_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
+  send: {
+    known: ['to', 'body', 'urgency', 'lifecycle', 'expires-in'],
+    // [POD-835] arms a reply request; takes no value.
+    booleans: ['expect-response'],
+  },
+  inbox: { known: ['issue'] },
+  show: {},
+  status: {},
+  dismiss: {},
+  reply: { known: ['body', 'kind'] },
+})
 
 /** Parse a human duration (`10m`, `30s`, `2h`, bare seconds) to milliseconds. */
 export function parseExpiresIn(raw: string): number {
@@ -52,33 +81,29 @@ export function parseExpiresIn(raw: string): number {
   return ms
 }
 
-export function parseMailArgs(argv: string[]): {
+/**
+ * Pure argv → { command, args, positionals }, refusing any flag `flagsFor` does
+ * not declare for the command. `podium agent` shares this parser and passes its
+ * own table.
+ */
+export function parseMailArgs(
+  argv: string[],
+  opts?: { tool?: string; flagsFor?: (command: string | undefined) => FlagDeclaration },
+): {
   command?: string
   args: Record<string, string | boolean>
   positionals: string[]
 } {
+  const tool = opts?.tool ?? 'mail'
   const [command, ...rest] = argv
-  const args: Record<string, string | boolean> = {}
-  const positionals: string[] = []
-  for (let i = 0; i < rest.length; i++) {
-    const token = rest[i]
-    if (!token?.startsWith('--')) {
-      if (token !== undefined) positionals.push(token)
-      continue
-    }
-    const eq = token.indexOf('=')
-    if (eq >= 0) {
-      args[token.slice(2, eq)] = token.slice(eq + 1)
-      continue
-    }
-    const key = token.slice(2)
-    const next = rest[i + 1]
-    if (BOOL_FLAGS.has(key) || next === undefined || next.startsWith('--')) args[key] = true
-    else {
-      args[key] = next
-      i++
-    }
-  }
+  const { args, positionals } = withUnknownFlagAs(
+    (m) => new MailCliError(m),
+    () =>
+      parseFlags(rest, (opts?.flagsFor ?? MAIL_FLAGS)(command), {
+        usage: `podium ${tool}${command ? ` ${command}` : ''}`,
+        keys: 'raw',
+      }),
+  )
   return { ...(command ? { command } : {}), args, positionals }
 }
 
@@ -221,24 +246,6 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
   const { command, args, positionals } = parseMailArgs(argv)
   if (!command || command === 'help') return helpText()
-  const known = new Set([
-    'to',
-    'body',
-    'urgency',
-    'lifecycle',
-    'issue',
-    'kind',
-    'expect-response',
-    'expires-in',
-    'json',
-    'outside-scope',
-  ])
-  const unknown = Object.keys(args).filter((k) => !known.has(k))
-  if (unknown.length) {
-    throw new MailCliError(
-      `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `--${k}`).join(', ')} (see \`podium mail --help\`)`,
-    )
-  }
   const asJson = args.json === true
   const done = (text: string, data: unknown): string =>
     asJson ? JSON.stringify({ command, ok: true, data }) : text

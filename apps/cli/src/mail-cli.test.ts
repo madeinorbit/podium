@@ -283,3 +283,62 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('--expires-in <duration>')
   })
 })
+
+/**
+ * POD-3836. `podium mail` already refused a flag no mail command declares, but
+ * against ONE set shared by every command — so a flag on the WRONG command
+ * (`inbox --to someone`) was accepted and then silently ignored, which is the
+ * same defect wearing a different hat.
+ */
+describe('unknown and misplaced flags on podium mail', () => {
+  const client = {
+    messages: {
+      send: { mutate: vi.fn(), query: vi.fn() },
+      inbox: { mutate: vi.fn(async () => []), query: vi.fn() },
+      show: { mutate: vi.fn(), query: vi.fn() },
+      status: { mutate: vi.fn(), query: vi.fn() },
+      dismiss: { mutate: vi.fn(), query: vi.fn() },
+      reply: { mutate: vi.fn(), query: vi.fn() },
+    },
+  }
+
+  it('refuses a flag that belongs to another mail command', async () => {
+    await expect(runMailCli(['inbox', '--to', 'someone'], client)).rejects.toThrow(
+      /unknown flag --to/,
+    )
+    expect(client.messages.inbox.mutate).not.toHaveBeenCalled()
+  })
+
+  it('names the nearest declared flag on a typo', async () => {
+    await expect(runMailCli(['send', '--to', '#1', '--bdy', 'hi'], client)).rejects.toThrow(
+      /unknown flag --bdy \(did you mean --body\?\)/,
+    )
+  })
+
+  it('still accepts every flag send declares', async () => {
+    const send = vi.fn(async () => ({ id: 'm1', ok: true, disposition: 'accepted' }))
+    const out = await runMailCli(
+      [
+        'send',
+        '--to',
+        '#1',
+        '--body',
+        'hi',
+        '--urgency',
+        'fyi',
+        '--lifecycle',
+        'wake',
+        '--expect-response',
+      ],
+      { messages: { ...client.messages, send: { mutate: send, query: vi.fn() } } },
+    )
+    expect(out).toContain('sent m1')
+    expect(send).toHaveBeenCalledWith({
+      to: '#1',
+      body: 'hi',
+      urgency: 'fyi',
+      lifecycle: 'wake',
+      expectResponse: true,
+    })
+  })
+})

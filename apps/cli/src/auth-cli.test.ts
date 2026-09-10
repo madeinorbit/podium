@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { authCliMain } from './auth-cli'
 
 let dir: string
@@ -119,4 +119,21 @@ it('revokes break-glass sessions by default, not browser logins', async () => {
 
 it('refuses an unknown subcommand rather than doing something else', async () => {
   await expect(authCliMain(['mint'], io)).rejects.toThrow(/unknown/)
+})
+
+describe('unknown flags on podium auth (POD-3836)', () => {
+  const io = { print: () => {}, printErr: () => {} }
+
+  it('refuses a flag no auth command declares', async () => {
+    await expect(authCliMain(['mint-session', '--forever'], io)).rejects.toThrow(
+      /unknown flag --forever/,
+    )
+  })
+
+  it('refuses a flag that belongs to another auth command', async () => {
+    // --label is revoke-sessions'; on mint-session it did nothing.
+    await expect(authCliMain(['mint-session', '--label', 'x'], io)).rejects.toThrow(
+      /unknown flag --label/,
+    )
+  })
 })

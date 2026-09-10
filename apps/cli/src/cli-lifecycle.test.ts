@@ -6,8 +6,10 @@ import { CRASH_MAX_EVENTS, type CrashEvent } from '@podium/runtime/crash-store'
 import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
 import {
+  exportCrashCommand,
   humanUptime,
   logFilesFor,
+  logsCommand,
   parseExportCrashArgs,
   parseLogsArgs,
   renderCrashBundle,
@@ -492,5 +494,54 @@ describe('statusCommand ignores a dead writer s link state (POD-3815)', () => {
     const out = await statusWith({ ...outgoingParentsLastWords, processId: process.pid })
     expect(out).toContain('server link')
     expect(out).toContain('disconnected')
+  })
+})
+
+describe('unknown flags on podium logs (POD-3836)', () => {
+  it('refuses a flag `podium logs` does not declare, naming the near miss', () => {
+    expect(() => parseLogsArgs(['--pety'])).toThrow(
+      /unknown flag --pety \(did you mean --pretty\?\)/,
+    )
+    expect(() => parseLogsArgs(['server', '-x'])).toThrow(/unknown flag -x/)
+  })
+
+  it('still takes components, -f and --pretty', () => {
+    expect(parseLogsArgs(['server', 'daemon', '-f', '--pretty'])).toEqual({
+      follow: true,
+      pretty: true,
+      components: ['server', 'daemon'],
+    })
+    expect(parseLogsArgs(['--follow'])).toEqual({ follow: true, pretty: false, components: [] })
+  })
+
+  it('refuses a flag export-crash does not declare', () => {
+    expect(() => parseExportCrashArgs(['--lmit', '5'])).toThrow(
+      /unknown flag --lmit \(did you mean --limit\?\)/,
+    )
+    expect(parseExportCrashArgs(['--limit', '5', '--out', '/tmp/x'])).toEqual({
+      limit: 5,
+      out: '/tmp/x',
+    })
+  })
+})
+
+describe('podium logs reports an unknown flag as a sentence, not a stack', () => {
+  it('prints one line and exits non-zero', async () => {
+    const errs: string[] = []
+    const original = console.error
+    const priorExit = process.exitCode
+    console.error = (s: unknown) => errs.push(String(s))
+    try {
+      await logsCommand(['--pety'])
+      exportCrashCommand(['--lmit', '5'])
+    } finally {
+      console.error = original
+    }
+    expect(process.exitCode).toBe(1)
+    process.exitCode = priorExit
+    expect(errs.join('\n')).toContain('podium logs: unknown flag --pety (did you mean --pretty?)')
+    expect(errs.join('\n')).toContain('podium logs export-crash: unknown flag --lmit')
+    // A stack would be many lines with `at `; this must be one sentence each.
+    expect(errs.join('\n')).not.toContain('    at ')
   })
 })

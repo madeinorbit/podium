@@ -80,7 +80,9 @@ describe('podium telemetry on/off', () => {
 
   it('rejects an unknown flag with exit 2', () => {
     expect(telemetryCliMain(['on', '--everything'], io)).toBe(2)
-    expect(err.join('\n')).toContain('unknown option --everything')
+    // POD-3836 moved the refusal to the shared argv parser, which names the
+    // command as well as the flag and points at its help.
+    expect(err.join('\n')).toContain('unknown flag --everything')
     expect(loadConfig().telemetry).toBeUndefined()
   })
 

@@ -11,6 +11,13 @@ import type {
   WorkflowWire,
 } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import {
+  declareFlags,
+  type FlagDeclaration,
+  flagTable,
+  parseFlags,
+  withUnknownFlagAs,
+} from './argv'
 import { requestApproval } from './approval-cli'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -30,34 +37,70 @@ export interface WorkflowCliDeps {
   newMutationId?(): string
 }
 
-export function parseWorkflowArgs(argv: string[]): {
+/**
+ * What each `podium workflow` command accepts (POD-3836).
+ *
+ * PER COMMAND. What this replaces was one tool-wide `KNOWN_FLAGS` set, which
+ * caught a flag that exists nowhere but waved through a flag on the WRONG
+ * command — `checkpoint --scope global` passed the check and was then ignored,
+ * which reads to the caller exactly like it worked.
+ */
+const WORKFLOW_FLAGS = flagTable(
+  declareFlags({ known: [], booleans: ['json', 'outside-scope', 'help'] }),
+  {
+    prime: {},
+    status: { known: ['run'] },
+    checkpoint: {
+      known: ['run', 'step', 'summary', 'tests', 'artifacts'],
+      booleans: ['no-git'],
+    },
+    'assign-step': { known: ['run'] },
+    skip: { known: ['run', 'reason'] },
+    retry: { known: ['run'] },
+    adopt: { known: ['run', 'start-step'] },
+    list: { known: ['scope', 'scope-ref'] },
+    show: {},
+    create: {
+      known: [
+        'scope',
+        'scope-ref',
+        'description',
+        'instructions',
+        'instructions-file',
+        'steps-json',
+        'steps-file',
+      ],
+    },
+    revise: {
+      known: ['instructions', 'instructions-file', 'steps-json', 'steps-file'],
+    },
+    fork: { known: ['scope', 'scope-ref', 'description'] },
+    publish: {},
+    assign: {},
+    default: {},
+    bindings: {},
+    profiles: {},
+    'profile-save': { known: ['account', 'harness', 'id', 'machine', 'model', 'effort'] },
+  },
+)
+
+export function parseWorkflowArgs(
+  argv: string[],
+  flagsFor: (command: string | undefined) => FlagDeclaration = WORKFLOW_FLAGS,
+): {
   command?: string
   args: Record<string, ArgValue>
   positionals: string[]
 } {
   const [command, ...rest] = argv
-  const args: Record<string, ArgValue> = {}
-  const positionals: string[] = []
-  const booleans = new Set(['json', 'outside-scope', 'no-git', 'help'])
-  for (let i = 0; i < rest.length; i++) {
-    const token = rest[i]
-    if (!token?.startsWith('--')) {
-      if (token !== undefined) positionals.push(token)
-      continue
-    }
-    const eq = token.indexOf('=')
-    if (eq >= 0) {
-      args[token.slice(2, eq)] = token.slice(eq + 1)
-      continue
-    }
-    const key = token.slice(2)
-    const next = rest[i + 1]
-    if (booleans.has(key) || next === undefined || next.startsWith('--')) args[key] = true
-    else {
-      args[key] = next
-      i++
-    }
-  }
+  const { args, positionals } = withUnknownFlagAs(
+    (m) => new WorkflowCliError(m),
+    () =>
+      parseFlags(rest, flagsFor(command), {
+        usage: `podium workflow${command ? ` ${command}` : ''}`,
+        keys: 'raw',
+      }),
+  )
   return { ...(command ? { command } : {}), args, positionals }
 }
 
@@ -98,32 +141,6 @@ export function workflowHelpText(): string {
     'operator approval. Workflow steps never run arbitrary enforcement commands.',
   ].join('\n')
 }
-
-const KNOWN_FLAGS = new Set([
-  'json',
-  'outside-scope',
-  'no-git',
-  'scope',
-  'scope-ref',
-  'description',
-  'instructions',
-  'instructions-file',
-  'steps-json',
-  'steps-file',
-  'run',
-  'step',
-  'summary',
-  'tests',
-  'artifacts',
-  'reason',
-  'start-step',
-  'id',
-  'account',
-  'machine',
-  'harness',
-  'model',
-  'effort',
-])
 
 function value(args: Record<string, ArgValue>, key: string): string | undefined {
   const candidate = args[key]
@@ -268,12 +285,6 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
   if (argv.includes('--help') || argv.includes('-h')) return workflowHelpText()
   const { command, args, positionals } = parseWorkflowArgs(argv)
   if (!command || command === 'help') return workflowHelpText()
-  const unknown = Object.keys(args).filter((key) => !KNOWN_FLAGS.has(key))
-  if (unknown.length) {
-    throw new WorkflowCliError(
-      `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown.map((key) => `--${key}`).join(', ')}`,
-    )
-  }
   const json = args.json === true
   let result: unknown
 

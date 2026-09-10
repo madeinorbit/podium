@@ -116,13 +116,21 @@ export function asQueuedGrant(res: IssueCommandResult): IssueCommandResult {
 }
 
 /** The `podium lock` commands. `--wait`/`--timeout` on acquire are handled by the
- *  CLI dispatcher (a poll loop over this same acquire body), not here. */
+ *  CLI dispatcher (a poll loop over this same acquire body), not here.
+ *
+ *  EVERY `args` IS `strictObject` (POD-3836), like ISSUE_COMMANDS and
+ *  SPEC_COMMANDS: these schemas validate argv, and a lock is the worst place in
+ *  the CLI to drop a flag silently. `lock acquire x --ttlx 1s` used to strip the
+ *  key and grant the two-minute default — a lease that expires under whoever
+ *  holds it, which is the one failure a mutex may never have. The CLI's argv
+ *  parser now refuses an undeclared flag before this schema is reached; strict
+ *  here is the second wall, and it is what `cli-strictness.test.ts` pins. */
 export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'acquire',
     summary:
       'Acquire (or renew) a named lease lock: acquire <name> [--ttl 10m] [--note "…"] [--wait [--timeout 30m]] [--allow-sibling]. Queued if held by someone else. --wait blocks in that queue until granted, however long the holder takes; add --timeout to bound it. Anything that stops the wait — the timeout expiring, Ctrl-C, SIGTERM — leaves the queue on the way out and says so, so a grant never lands on a command that is gone. Refuses when another session on the same issue or shared worktree already holds or is queued (pass --allow-sibling to override).',
-    args: z.object({
+    args: z.strictObject({
       ...nameArg,
       ...repoArg,
       ...ttlArg,
@@ -158,7 +166,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
     name: 'cancel',
     summary:
       "Leave a lock's wait queue: cancel <name>. Errors if you are not queued (a holder uses release).",
-    args: z.object({ ...nameArg, ...repoArg }),
+    args: z.strictObject({ ...nameArg, ...repoArg }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
       const r = (await c.lock.cancel.mutate({
@@ -171,7 +179,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'release',
     summary: 'Release a lock you hold: release <name>. The next queued waiter is granted.',
-    args: z.object({ ...nameArg, ...repoArg }),
+    args: z.strictObject({ ...nameArg, ...repoArg }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
       const r = (await c.lock.release.mutate({
@@ -187,7 +195,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'renew',
     summary: 'Extend the lease on a lock you hold: renew <name> [--ttl 10m].',
-    args: z.object({ ...nameArg, ...repoArg, ...ttlArg }),
+    args: z.strictObject({ ...nameArg, ...repoArg, ...ttlArg }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
       const r = (await c.lock.renew.mutate({
@@ -201,7 +209,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
   {
     name: 'status',
     summary: 'Show lock state: status [<name>]. Without a name, lists all locks in the repo.',
-    args: z.object({ name: z.string().optional(), ...repoArg }),
+    args: z.strictObject({ name: z.string().optional(), ...repoArg }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
       const r = (await c.lock.status.query({
@@ -224,7 +232,7 @@ export const LOCK_COMMANDS: IssueCommand[] = [
     name: 'steal',
     summary:
       'Force-take a lock regardless of holder (humans/stuck cases): steal <name> [--ttl 10m] [--note "…"]. Logged; previous holder is mailed.',
-    args: z.object({ ...nameArg, ...repoArg, ...ttlArg, note: z.string().optional() }),
+    args: z.strictObject({ ...nameArg, ...repoArg, ...ttlArg, note: z.string().optional() }),
     positionals: ['name'],
     async run(c, a): Promise<IssueCommandResult> {
       const r = (await c.lock.steal.mutate({

@@ -267,3 +267,28 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)(
     })
   },
 )
+
+describe('unknown and misplaced flags on podium agent (POD-3836)', () => {
+  const client = {
+    messages: { spawnAgent: { mutate: vi.fn() }, awaitAgent: { mutate: vi.fn() } },
+    sessions: { status: { query: vi.fn() } },
+  } as never
+
+  it('names the nearest declared flag on a spawn typo', async () => {
+    await expect(
+      runAgentCli(['spawn', '--issue', '#1', '--prompt', 'go', '--modle', 'opus'], client),
+    ).rejects.toThrow(/unknown flag --modle \(did you mean --model\?\)/)
+  })
+
+  it('refuses a spawn flag on await, where it does nothing', async () => {
+    await expect(runAgentCli(['await', 's1', '--prompt', 'go'], client)).rejects.toThrow(
+      /unknown flag --prompt/,
+    )
+  })
+
+  it('refuses a flag on status, which declares none', async () => {
+    await expect(runAgentCli(['status', 's1', '--timeout', '5'], client)).rejects.toThrow(
+      /unknown flag --timeout/,
+    )
+  })
+})

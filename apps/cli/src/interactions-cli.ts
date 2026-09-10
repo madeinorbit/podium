@@ -36,6 +36,7 @@ import type { IssueTrpc } from '@podium/issue-client'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { localServerUrl, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
+import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 
 /** `already-answered` / `expired` — a no-op, distinct from a real failure. */
 export const EXIT_SETTLED = 3
@@ -120,6 +121,12 @@ function flagValue(argv: string[], flag: string): string | undefined {
   return value
 }
 
+/** What each `podium interactions` command accepts (POD-3836). */
+const INTERACTIONS_FLAGS = flagTable(declareFlags({ known: [], booleans: ['json', 'help'] }), {
+  list: { known: ['session'] },
+  answer: {},
+})
+
 export async function runInteractionsCommand(
   argv: string[],
   client: IssueTrpc,
@@ -130,6 +137,17 @@ export async function runInteractionsCommand(
   if (command === undefined || command === 'help' || command === '--help') {
     return { text: USAGE, exitCode: 0 }
   }
+  // Parsed only to REFUSE an undeclared flag (POD-3836); the arms below read
+  // argv directly. `answer` takes its text as bare positionals, so the parse
+  // sees them as positionals and lets them through untouched.
+  withUnknownFlagAs(
+    (m) => new InteractionsCliError(m),
+    () =>
+      parseFlags(argv.slice(1), INTERACTIONS_FLAGS(command), {
+        usage: `podium interactions ${command}`,
+        keys: 'raw',
+      }),
+  )
 
   if (command === 'list') {
     const sessionId = flagValue(argv, '--session')

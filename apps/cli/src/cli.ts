@@ -69,6 +69,7 @@ import {
 import { machineServiceReport } from '@podium/runtime/parent-supervisor'
 import { consumePairCode } from '@podium/runtime/setup'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
+import { declareFlags, type FlagDeclaration, tryParseFlags } from './argv'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -81,6 +82,31 @@ export interface ModePlan {
 }
 
 const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server', 'supervisor']
+
+/** `podium update [--channel stable|edge] [--repair]` — see the dispatch below. */
+const UPDATE_FLAGS = declareFlags({ known: ['channel'], booleans: ['repair'] })
+
+/**
+ * The subcommands `resolvePlan` PARSES ITSELF, and what each accepts (POD-3836).
+ *
+ * Deliberately NOT every subcommand: `issue`, `machine`, `logs`, `telemetry` and
+ * the rest hand the rest of argv to a sub-CLI that owns its own flag table, and
+ * a second table here would be a copy that goes stale. What is left is the set
+ * this file answers on its own — and every one of them read only the tokens it
+ * cared about and dropped the rest, so `podium channel edge --force` switched
+ * the channel and said nothing.
+ */
+const SELF_PARSED_FLAGS: Readonly<Record<string, FlagDeclaration>> = {
+  update: UPDATE_FLAGS,
+  channel: declareFlags({ known: [] }),
+  status: declareFlags({ known: [] }),
+  stop: declareFlags({ known: [] }),
+  'join-config': declareFlags({ known: [] }),
+  'set-server': declareFlags({ known: [] }),
+  'server-transfer-promote': declareFlags({ known: [] }),
+  'server-transfer-retire-daemon': declareFlags({ known: [] }),
+  janitor: declareFlags({ known: [] }),
+}
 
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
@@ -549,7 +575,16 @@ export function resolvePlan(
           'podium approval only works inside a Podium-managed agent session (approvals are decided in the web UI)',
       }
     }
-    return argv[1] === 'status' && argv[2]
+    // `argv[3]` and beyond used to be dropped (POD-3836), so
+    // `podium approval status a1 --json` polled and said nothing about --json.
+    const stray = argv.slice(3).find((a) => a.startsWith('-'))
+    if (stray) {
+      return {
+        kind: 'usage-error',
+        message: `podium approval: unknown flag ${stray} — see \`podium approval status <id>\``,
+      }
+    }
+    return argv[1] === 'status' && argv[2] && argv.length === 3
       ? { kind: 'approval-status', id: argv[2] }
       : { kind: 'usage-error', message: 'usage: podium approval status <id>' }
   }
@@ -562,6 +597,21 @@ export function resolvePlan(
     }
     return automationSchedulePlan(argv)
   }
+  // A flag on one of the subcommands THIS function answers is refused here
+  // (POD-3836). It sits ABOVE the agent-session branch so both paths refuse the
+  // same argv — an agent typing `podium channel edge --force` would otherwise
+  // have raised an approval request for a command the operator path rejects.
+  // The delegating subcommands are absent from the table and untouched: each
+  // owns its own flags, and a second table here would be a copy that goes stale.
+  const selfParsed = argv[0] != null ? SELF_PARSED_FLAGS[argv[0]] : undefined
+  if (selfParsed !== undefined) {
+    const flags = tryParseFlags(argv.slice(1), selfParsed, {
+      usage: `podium ${argv[0]}`,
+      keys: 'raw',
+    })
+    if (flags.error != null) return { kind: 'usage-error', message: flags.error }
+  }
+
   if (agentSession) {
     if (argv[0] === 'update' && argv[1] === '--repair') {
       return {
@@ -570,7 +620,24 @@ export function resolvePlan(
           'podium update --repair is an explicit operator repair; run it outside a managed agent session',
       }
     }
-    if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
+    if (argv[0] === 'update') {
+      // The one-run `--channel` override is an OPERATOR spelling: the approval
+      // op carries no channel, so brokering the request would drop the flag and
+      // update from the configured channel instead — the POD-244 silence, moved
+      // one layer in. Say so, and name the brokered command that does switch it.
+      const requested = tryParseFlags(argv.slice(1), UPDATE_FLAGS, {
+        usage: 'podium update',
+      }).args.channel
+      if (requested !== undefined) {
+        return {
+          kind: 'usage-error',
+          message:
+            'podium update --channel is not brokered from a managed agent session — ' +
+            'use `podium channel <stable|edge>` (which is) or run the update outside one',
+        }
+      }
+      return { kind: 'approval-request', op: { kind: 'update' } }
+    }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     if (argv[0] === 'channel' && argv[1]) {
       // Validated against the WIRE enum, not a repeated literal list: the broker
@@ -623,9 +690,29 @@ export function resolvePlan(
             message: 'podium update --repair needs the paired server URL',
           }
     }
+    // `--channel <stable|edge>`: a ONE-RUN override of the resolved channel
+    // (POD-244, folded into POD-3836). It used to be dropped silently, so
+    // `podium update --channel edge` fetched the STABLE feed and reported its
+    // 404 — a confusing "no such release" for a flag that never applied.
+    // Supporting it rather than merely refusing it is the better half of that
+    // issue's "either support --channel or error": it is the flag people
+    // already type, and `podium channel edge` is the persistent spelling.
+    const flags = tryParseFlags(argv.slice(1), UPDATE_FLAGS, { usage: 'podium update' })
+    if (flags.error != null) return { kind: 'usage-error', message: flags.error }
+    const requested = flags.args.channel
+    if (requested !== undefined && requested !== 'stable' && requested !== 'edge') {
+      return {
+        kind: 'usage-error',
+        message:
+          typeof requested === 'string'
+            ? `podium update: unknown channel '${requested}' (use: stable | edge)`
+            : 'usage: podium update [--channel stable|edge]',
+      }
+    }
+    const resolved = resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge'
     return {
       kind: 'update',
-      channel: resolveUpdateChannel(config, env) === 'stable' ? 'stable' : 'edge',
+      channel: requested ?? resolved,
       feedOverride: resolveUpdateFeed(config, env),
     }
   }

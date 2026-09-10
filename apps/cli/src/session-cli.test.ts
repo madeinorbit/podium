@@ -467,3 +467,43 @@ describe('podium session handoff (additional coverage)', () => {
     expect(out).toContain('handoff <session-id> --to <machine>')
   })
 })
+
+describe('misplaced flags on podium session (POD-3836)', () => {
+  const sendText = { mutate: vi.fn() }
+  const client = {
+    sessions: {
+      sendText,
+      resumeAndSend: { mutate: vi.fn() },
+      continue: { mutate: vi.fn() },
+      status: { query: vi.fn() },
+      read: { query: vi.fn() },
+      recap: { query: vi.fn() },
+      ask: { mutate: vi.fn() },
+      title: { mutate: vi.fn() },
+      stop: { mutate: vi.fn() },
+      handoff: { mutate: vi.fn() },
+    },
+    machines: { list: { query: vi.fn() } },
+  } as never
+
+  it('refuses a flag that belongs to another session command', async () => {
+    // --turns is `read`'s; on `send` it did nothing.
+    await expect(
+      runSessionCli(['send', 's1', '--text', 'hi', '--turns', '5'], client),
+    ).rejects.toThrow(/unknown flag --turns/)
+    expect(sendText.mutate).not.toHaveBeenCalled()
+  })
+
+  it('names the nearest declared flag on a typo', async () => {
+    await expect(runSessionCli(['send', 's1', '--txt', 'hi'], client)).rejects.toThrow(
+      /unknown flag --txt \(did you mean --text\?\)/,
+    )
+  })
+
+  it('refuses --force on a command that cannot honour it', async () => {
+    // Only `stop` takes --force; `continue --force` used to be accepted and ignored.
+    await expect(runSessionCli(['continue', 's1', '--force'], client)).rejects.toThrow(
+      /unknown flag --force/,
+    )
+  })
+})

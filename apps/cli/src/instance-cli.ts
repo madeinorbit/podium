@@ -38,8 +38,19 @@ export function instanceCliMain(argv: string[], io: InstanceCliIo = defaultIo): 
     io.print(instanceHelpText())
     return 0
   }
-  if (argv[0] !== 'rekey' || argv.length !== 1) {
+  if (argv[0] !== 'rekey') {
     io.error('usage: podium instance rekey')
+    return 2
+  }
+  // Name what was extra rather than reprinting the usage and leaving the caller
+  // to spot the difference (POD-3836).
+  const extra = argv[1]
+  if (extra !== undefined) {
+    io.error(
+      extra.startsWith('-')
+        ? `podium instance rekey: unknown flag ${extra} (it takes none)`
+        : `podium instance rekey: unexpected argument '${extra}' (it takes none)`,
+    )
     return 2
   }
 

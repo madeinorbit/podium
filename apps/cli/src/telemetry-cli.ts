@@ -29,6 +29,7 @@ import {
   type TelemetryState,
   type TelemetryTier,
 } from '@podium/telemetry'
+import { declareFlags, flagTable, tryParseFlags } from './argv'
 
 export const TELEMETRY_USAGE = [
   'usage: podium telemetry [command]',
@@ -128,6 +129,14 @@ const realIO: TelemetryCliIO = {
   printErr: (s) => console.error(s),
 }
 
+/** What each `podium telemetry` command accepts (POD-3836). */
+const TELEMETRY_FLAGS = flagTable(declareFlags({ known: [] }), {
+  show: {},
+  'reset-id': {},
+  on: { booleans: ['usage', 'crash'] },
+  off: { booleans: ['usage', 'crash'] },
+})
+
 /** Returns the process exit code (0 ok, 2 usage error). */
 export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): number {
   const [command, ...rest] = argv
@@ -140,6 +149,19 @@ export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): n
   if (command === undefined) {
     io.print(statusText(readTelemetryState(loadConfig())))
     return 0
+  }
+
+  // A flag the command does not declare is refused rather than dropped
+  // (POD-3836): `show` and `reset-id` read nothing out of `rest`, so
+  // `podium telemetry show --usage` used to print the same thing and say nothing.
+  const flags = tryParseFlags(rest, TELEMETRY_FLAGS(command), {
+    usage: `podium telemetry ${command}`,
+    keys: 'raw',
+  })
+  if (flags.error != null) {
+    io.printErr(flags.error)
+    io.printErr(TELEMETRY_USAGE)
+    return 2
   }
 
   if (command === 'show') {

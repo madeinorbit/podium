@@ -32,6 +32,10 @@ export function updateKeyCliMain(args: readonly string[]): number {
       console.log('Restart the server to use it.')
       return 0
     }
+    // Name what did not fit rather than reprinting the usage and leaving the
+    // caller to spot the difference (POD-3836).
+    const stray = args.slice(1).find((a) => a.startsWith('-') && a !== '--confirm-no-pins')
+    if (stray) console.error(`podium update-key: unknown flag ${stray}`)
     console.error(USAGE)
     return 2
   } catch (error) {

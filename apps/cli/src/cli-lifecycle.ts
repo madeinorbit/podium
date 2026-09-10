@@ -16,6 +16,8 @@ import { type LiveConnectivity, readLiveConnectivity } from '@podium/runtime/con
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
+import { declareFlags, parseFlags, UnknownFlagError } from './argv'
+
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
   const started = Date.parse(startedAtIso)
@@ -288,13 +290,30 @@ export interface LogsOptions {
   components: string[]
 }
 
-/** PURE: `podium logs [component…] [-f] [--pretty]`. */
+/** What `podium logs` itself accepts; its sub-verbs parse their own (POD-3836). */
+const LOGS_FLAGS = declareFlags({
+  known: [],
+  booleans: ['follow', 'pretty'],
+  shorts: { f: 'follow' },
+})
+
+/**
+ * PURE: `podium logs [component…] [-f] [--pretty]`.
+ *
+ * A flag this does not declare is an error rather than a no-op (POD-3836): the
+ * old reader collected every `-`-prefixed token into a set and asked it two
+ * questions, so `--pety` simply produced un-prettied output and `-x` produced
+ * nothing at all.
+ */
 export function parseLogsArgs(argv: string[]): LogsOptions {
-  const flags = new Set(argv.filter((a) => a.startsWith('-')))
+  const { args, positionals } = parseFlags(argv, LOGS_FLAGS, {
+    usage: 'podium logs',
+    keys: 'raw',
+  })
   return {
-    follow: flags.has('-f') || flags.has('--follow'),
-    pretty: flags.has('--pretty'),
-    components: argv.filter((a) => !a.startsWith('-')),
+    follow: args.follow === true,
+    pretty: args.pretty === true,
+    components: positionals,
   }
 }
 
@@ -378,19 +397,20 @@ export interface ExportCrashOptions {
   out?: string
 }
 
+/** What `podium logs export-crash` accepts (POD-3836). */
+const EXPORT_CRASH_FLAGS = declareFlags({ known: ['limit', 'out'] })
+
 /** PURE: `podium logs export-crash [--limit N] [--out FILE]`. */
 export function parseExportCrashArgs(argv: string[]): ExportCrashOptions {
-  const value = (flag: string): string | undefined => {
-    const inline = argv.find((a) => a.startsWith(`${flag}=`))
-    if (inline) return inline.slice(flag.length + 1)
-    const at = argv.indexOf(flag)
-    return at >= 0 ? argv[at + 1] : undefined
-  }
-  const rawLimit = Number(value('--limit'))
-  const out = value('--out')
+  const { args } = parseFlags(argv, EXPORT_CRASH_FLAGS, {
+    usage: 'podium logs export-crash',
+    keys: 'raw',
+  })
+  const rawLimit = Number(args.limit)
+  const out = typeof args.out === 'string' ? args.out : undefined
   return {
     limit: Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : CRASH_MAX_EVENTS,
-    ...(out !== undefined && !out.startsWith('-') ? { out } : {}),
+    ...(out !== undefined ? { out } : {}),
   }
 }
 
@@ -438,7 +458,18 @@ export function renderCrashBundle(
  * not running.
  */
 export function exportCrashCommand(argv: string[]): void {
-  const { limit, out } = parseExportCrashArgs(argv)
+  // Same reason as `logsCommand`: this runs from `main()`'s switch, so an
+  // unknown flag has to be reported here or it prints as a stack (POD-3836).
+  let options: ExportCrashOptions
+  try {
+    options = parseExportCrashArgs(argv)
+  } catch (err) {
+    if (!(err instanceof UnknownFlagError)) throw err
+    console.error(`podium logs export-crash: ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+  const { limit, out } = options
   const store = createCrashStore()
   const events = store.list(limit)
   if (events.length === 0) {
@@ -528,7 +559,20 @@ export async function logsCommand(argv: string[]): Promise<void> {
     return
   }
   const config = loadConfig()
-  const { follow, pretty, components } = parseLogsArgs(argv)
+  // An unknown flag reaches the reader as a SENTENCE, not a stack (POD-3836):
+  // this command is called straight from `main()`'s switch, which has no catch
+  // of its own, so an escaping error would print the thrower's frames — the
+  // wrong shape of answer for "you typed --pety".
+  let options: LogsOptions
+  try {
+    options = parseLogsArgs(argv)
+  } catch (err) {
+    if (!(err instanceof UnknownFlagError)) throw err
+    console.error(`podium logs: ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+  const { follow, pretty, components } = options
   if (config.persistence === 'systemd') {
     const units = selectedUnits()
     const unitFlags = units.map((u) => `-u ${u}`).join(' ')

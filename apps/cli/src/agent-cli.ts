@@ -19,7 +19,8 @@
 import { makeRelayIssueClient } from '@podium/issue-client'
 import type { SessionId, IssueId } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
-import { MailCliError, parseMailArgs } from './mail-cli'
+import { flagTable } from './argv'
+import { MailCliError, MESSAGING_GLOBAL_FLAGS, parseMailArgs } from './mail-cli'
 import { makeOperatorIssueClient } from './operator-client'
 import { renderStatus, type StatusWire } from './session-cli'
 
@@ -63,9 +64,38 @@ function helpText(): string {
   ].join('\n')
 }
 
+/**
+ * What each `podium agent` command accepts (POD-3836). `spawn`'s list used to
+ * live inline in its own case arm and applied to spawn ALONE, so a spawn flag
+ * typed on `await` or `status` was accepted there and ignored.
+ */
+const AGENT_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
+  spawn: {
+    known: [
+      'harness',
+      'issue',
+      'new',
+      'repo',
+      'prompt',
+      'title',
+      'model',
+      'effort',
+      'workflow-run-id',
+      'workflow-step-id',
+      'execution-profile-id',
+    ],
+    booleans: ['worktree', 'force-unknown-model'],
+  },
+  await: { known: ['timeout'] },
+  status: {},
+})
+
 export async function runAgentCli(argv: string[], client: AgentClient): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
-  const { command, args, positionals } = parseMailArgs(argv)
+  const { command, args, positionals } = parseMailArgs(argv, {
+    tool: 'agent',
+    flagsFor: AGENT_FLAGS,
+  })
   if (!command || command === 'help') return helpText()
   const asJson = args.json === true
   const done = (text: string, data: unknown): string =>
@@ -73,29 +103,6 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
 
   switch (command) {
     case 'spawn': {
-      const known = new Set([
-        'harness',
-        'issue',
-        'new',
-        'repo',
-        'prompt',
-        'title',
-        'worktree',
-        'model',
-        'effort',
-        'force-unknown-model',
-        'workflow-run-id',
-        'workflow-step-id',
-        'execution-profile-id',
-        'json',
-        'outside-scope',
-      ])
-      const unknown = Object.keys(args).filter((k) => !known.has(k))
-      if (unknown.length) {
-        throw new MailCliError(
-          `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `--${k}`).join(', ')} (see \`podium agent --help\`)`,
-        )
-      }
       const prompt = args.prompt
       if (typeof prompt !== 'string' || !prompt) throw new MailCliError('spawn needs --prompt')
       if (typeof args.issue !== 'string' && typeof args.new !== 'string') {

@@ -11,6 +11,7 @@ import type {
   IssueId,
 } from '@podium/model'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 import { makeOperatorIssueClient } from './operator-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
@@ -177,34 +178,44 @@ function renderAsk(a: AskWire): string {
 
 export class SessionCliError extends Error {}
 
+/**
+ * What each `podium session` command accepts (POD-3836).
+ *
+ * PER COMMAND. The set this replaces was shared by all of them, so `session send
+ * --turns 5` and `session continue --force` were accepted and then ignored — and
+ * `--force` in particular reads like it did something, since on `stop` it
+ * overrides a refusal about unsaved work.
+ */
+const SESSION_FLAGS = flagTable(
+  declareFlags({ known: [], booleans: ['json', 'outside-scope', 'help'] }),
+  {
+    send: { known: ['text'], booleans: ['wake'] },
+    'resume-and-send': { known: ['text'] },
+    continue: {},
+    status: {},
+    read: { known: ['turns', 'cursor'] },
+    recap: { known: ['since'] },
+    ask: { known: ['question', 'timeout'] },
+    title: {},
+    handoff: { known: ['to'] },
+    stop: { booleans: ['force'] },
+  },
+)
+
 export function parseSessionArgs(argv: string[]): {
   command?: string
   args: Record<string, string | boolean>
   positionals: string[]
 } {
   const [command, ...rest] = argv
-  const args: Record<string, string | boolean> = {}
-  const positionals: string[] = []
-  const booleans = new Set(['json', 'outside-scope', 'wake', 'force', 'help'])
-  for (let i = 0; i < rest.length; i++) {
-    const token = rest[i]
-    if (!token?.startsWith('--')) {
-      if (token !== undefined) positionals.push(token)
-      continue
-    }
-    const eq = token.indexOf('=')
-    if (eq >= 0) {
-      args[token.slice(2, eq)] = token.slice(eq + 1)
-      continue
-    }
-    const key = token.slice(2)
-    const next = rest[i + 1]
-    if (booleans.has(key) || next === undefined || next.startsWith('--')) args[key] = true
-    else {
-      args[key] = next
-      i++
-    }
-  }
+  const { args, positionals } = withUnknownFlagAs(
+    (m) => new SessionCliError(m),
+    () =>
+      parseFlags(rest, SESSION_FLAGS(command), {
+        usage: `podium session${command ? ` ${command}` : ''}`,
+        keys: 'raw',
+      }),
+  )
   return { ...(command ? { command } : {}), args, positionals }
 }
 
@@ -258,26 +269,6 @@ export async function runSessionCli(
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
   const { command, args, positionals } = parseSessionArgs(argv)
   if (!command || command === 'help') return helpText()
-  // Unknown flags are an error, never silently dropped (#345).
-  const known = new Set([
-    'text',
-    'wake',
-    'json',
-    'outside-scope',
-    'force',
-    'turns',
-    'cursor',
-    'since',
-    'question',
-    'timeout',
-    'to',
-  ])
-  const unknown = Object.keys(args).filter((k) => !known.has(k))
-  if (unknown.length) {
-    throw new SessionCliError(
-      `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `--${k}`).join(', ')} (see \`podium session --help\`)`,
-    )
-  }
   // `podium session title "<title>"` (#490) — the ONLY session command that takes no
   // session id: it names the CALLING session, which the server binds from the relay
   // capability. Accepting an id here would be a lie (the server ignores it) and would

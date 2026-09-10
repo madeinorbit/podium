@@ -1,4 +1,5 @@
 import { resolveAgentRelay } from '@podium/runtime/config'
+import { declareFlags, flagTable, tryParseFlags } from './argv'
 
 /**
  * `podium workspace fetch <issue|session>` — materialize another agent's
@@ -45,6 +46,12 @@ async function relay(
   return (await res.json()) as { ok: boolean; result?: unknown; error?: string }
 }
 
+/** What each `podium workspace` command accepts (POD-3836): neither takes a flag. */
+const WORKSPACE_FLAGS = flagTable(declareFlags({ known: [], booleans: ['help'] }), {
+  fetch: {},
+  clean: {},
+})
+
 export async function runWorkspaceCli(
   argv: string[],
   opts: { relayEndpoint?: string | undefined; fetchImpl?: typeof fetch },
@@ -56,6 +63,13 @@ export async function runWorkspaceCli(
   if (command !== 'fetch' && command !== 'clean') {
     return { text: `podium workspace: unknown command ${command} (see --help)`, exitCode: 1 }
   }
+  // A flag neither command declares is refused rather than dropped (POD-3836):
+  // `fetch` took the first bare token as the ref and ignored everything else.
+  const flags = tryParseFlags(rest, WORKSPACE_FLAGS(command), {
+    usage: `podium workspace ${command}`,
+    keys: 'raw',
+  })
+  if (flags.error != null) return { text: `podium workspace: ${flags.error}`, exitCode: 1 }
   if (!opts.relayEndpoint) {
     return {
       text: 'podium workspace: PODIUM_AGENT_RELAY is not set — this command only works inside a Podium-managed agent session.',
@@ -76,7 +90,7 @@ export async function runWorkspaceCli(
         exitCode: 0,
       }
     }
-    const ref = rest.find((a) => !a.startsWith('--'))
+    const ref = flags.positionals[0]
     if (!ref)
       return { text: 'podium workspace fetch: an issue or session ref is required', exitCode: 1 }
     const body = await relay(opts.relayEndpoint, 'fetch', { ref }, doFetch)

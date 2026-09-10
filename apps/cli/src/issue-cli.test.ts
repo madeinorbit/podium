@@ -329,3 +329,48 @@ describe('resolveRepoArg', () => {
     expect(args.repoPath).toBeUndefined()
   })
 })
+
+/**
+ * POD-3836. `podium issue` already rejected an unknown flag LATE, through its
+ * strict zod schemas, with `unrecognized_keys`. Two things were still wrong and
+ * both are the same bug: the message named no alternative, and the parser's
+ * hand-maintained boolean list could disagree with the schema — a boolean the
+ * list forgot ate the next token as its value (POD-1545).
+ */
+describe('unknown flags on podium issue', () => {
+  const client = {} as never
+
+  it('names the nearest declared flag', async () => {
+    await expect(runIssueCli(['update', '--id', '5', '--priorty', '1'], client)).rejects.toThrow(
+      /unknown flag --priorty \(did you mean --priority\?\)/,
+    )
+  })
+
+  it('refuses before any request is made', async () => {
+    const query = vi.fn()
+    await expect(
+      runIssueCli(['show', '--id', '5', '--audience', 'human'], {
+        issues: { get: { query } },
+      } as never),
+    ).rejects.toThrow(/unknown flag --audience/)
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('reports an unknown COMMAND as such, not as an unknown flag on it', async () => {
+    await expect(runIssueCli(['bogus', '--id', '5'], client)).rejects.toThrow(
+      /unknown command: bogus/,
+    )
+  })
+
+  it('reads a boolean flag off the schema, so it never swallows the next token', () => {
+    // `recursive` is z.boolean() on `children`; the token after it is a positional.
+    const { args, positionals } = parseIssueArgs(['children', '--recursive', '7'])
+    expect(args).toMatchObject({ recursive: true })
+    expect(positionals).toEqual(['7'])
+  })
+
+  it('still accepts the dispatcher-owned globals on every command', () => {
+    const { args } = parseIssueArgs(['list', '--json', '--outside-scope'])
+    expect(args).toMatchObject({ json: true, outsideScope: true })
+  })
+})

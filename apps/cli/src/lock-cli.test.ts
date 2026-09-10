@@ -135,8 +135,7 @@ describe('mergeLockArgv', () => {
     expect(mergeLockArgv(['steal', '--branch=rel/1.0', '--note', 'stuck'])).toEqual([
       'steal',
       'merge:rel/1.0',
-      '--note',
-      'stuck',
+      '--note=stuck',
     ])
   })
 
@@ -163,8 +162,7 @@ describe('mergeLockArgv', () => {
       'acquire',
       'merge:dev/mw',
       '--wait',
-      '--ttl',
-      '30m',
+      '--ttl=30m',
     ])
     // Same normalisation as --branch: one branch, one lease (POD-672).
     expect(mergeLockArgv(['acquire', 'refs/heads/dev/mw'])).toEqual(['acquire', 'merge:dev/mw'])
@@ -175,14 +173,12 @@ describe('mergeLockArgv', () => {
     expect(mergeLockArgv(['steal', '--note', 'stuck'])).toEqual([
       'steal',
       'merge:main',
-      '--note',
-      'stuck',
+      '--note=stuck',
     ])
     expect(mergeLockArgv(['steal', 'dev/mw', '--note', 'stuck'])).toEqual([
       'steal',
       'merge:dev/mw',
-      '--note',
-      'stuck',
+      '--note=stuck',
     ])
     // A boolean flag consumes nothing, so the token after it is still the branch.
     expect(mergeLockArgv(['acquire', '--wait', 'dev/mw'])).toEqual([
@@ -723,5 +719,98 @@ describe('runLockCli', () => {
     )
     expect(out.exitCode).toBe(0)
     expect(mutate).toHaveBeenCalledWith({ repoPath: '/r', name: 'merge:develop' })
+  })
+})
+
+/**
+ * POD-3836's characterization cases, from the bug report. Each one used to
+ * SUCCEED with default behaviour and say nothing about the flag it dropped,
+ * which is the failure mode the issue exists to remove: the caller cannot tell
+ * a no-op from a success.
+ */
+describe('unknown flags are refused, never dropped', () => {
+  it('`lock status --branch dev/mw` errors instead of listing every lock', async () => {
+    // --branch is merge-lock's spelling; on plain `lock` nothing declares it, so
+    // this used to fall through to the nameless "list all locks in the repo".
+    const query = vi.fn()
+    const client = { lock: { status: { query } } } as never
+    await expect(
+      runLockCli(['status', '--branch', 'dev/mw', '--repoPath', '/r'], client),
+    ).rejects.toThrow(/unknown flag --branch/)
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('`lock acquire x --ttlx 1s` errors rather than granting the default TTL', async () => {
+    const mutate = vi.fn()
+    const client = { lock: { acquire: { mutate } } } as never
+    await expect(
+      runLockCli(['acquire', 'x', '--ttlx', '1s', '--repoPath', '/r'], client),
+    ).rejects.toThrow(/unknown flag --ttlx \(did you mean --ttl\?\)/)
+    // The lease is the point: a lock granted for 2 minutes when the caller asked
+    // for 1 second is a mutex that expires under whoever holds it.
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('names the nearest declared flag so the typo is visible', async () => {
+    const client = { lock: { acquire: { mutate: vi.fn() } } } as never
+    await expect(
+      runLockCli(['acquire', 'x', '--nte', 'stuck', '--repoPath', '/r'], client),
+    ).rejects.toThrow(/did you mean --note\?/)
+  })
+
+  it('still accepts every flag the command declares', async () => {
+    const mutate = vi.fn(async () => grantedWire('l'))
+    const client = { lock: { acquire: { mutate } } } as never
+    const out = await runLockCli(
+      ['acquire', 'l', '--ttl', '10m', '--note', 'stuck', '--allow-sibling', '--repoPath', '/r'],
+      client,
+    )
+    expect(out.exitCode).toBe(0)
+    expect(mutate).toHaveBeenCalledWith({
+      repoPath: '/r',
+      name: 'l',
+      ttlSeconds: 600,
+      note: 'stuck',
+      allowSibling: true,
+    })
+  })
+
+  it('accepts the dispatcher-owned global flags on every lock command', async () => {
+    const query = vi.fn(async () => [])
+    const client = { lock: { status: { query } } } as never
+    const out = await runLockCli(
+      ['status', '--json', '--outside-scope', '--repoPath', '/r'],
+      client,
+    )
+    expect(out.exitCode).toBe(0)
+    expect(query).toHaveBeenCalledWith({ repoPath: '/r' })
+  })
+
+  it('refuses an unknown flag on merge-lock too, without inventing a branch', () => {
+    expect(() => mergeLockArgv(['acquire', '--brnach', 'dev/mw'])).toThrow(
+      /unknown flag --brnach \(did you mean --branch\?\)/,
+    )
+  })
+})
+
+describe('merge-lock passes a value through whatever it holds', () => {
+  it('keeps a --note whose value looks like a flag', async () => {
+    // `--note=--urgent` is the only spelling that can carry such a value (the
+    // two-token form reads `--urgent` as the next flag, on every CLI). It used
+    // to be re-emitted as two tokens on the way to the lock command, which threw
+    // that away again: the lease was stolen with no note at all.
+    const mutate = vi.fn(async () => ({
+      lock: grantedWire('merge:main').lock,
+      previousHolder: null,
+    }))
+    const client = { lock: { steal: { mutate } } } as never
+    await runLockCli(mergeLockArgv(['steal', '--note=--urgent', '--repoPath', '/r']), client, {
+      group: 'merge-lock',
+    })
+    expect(mutate).toHaveBeenCalledWith({
+      repoPath: '/r',
+      name: 'merge:main',
+      note: '--urgent',
+    })
   })
 })

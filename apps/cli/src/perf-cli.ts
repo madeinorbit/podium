@@ -30,6 +30,7 @@ import type { LoopComponent } from '@podium/runtime/loop-accounting'
 import { loopMinutePath } from '@podium/runtime/loop-minute-sink'
 import { profileDir, writeProfileRequest } from '@podium/runtime/loop-profile-capture'
 import { liveRecord } from '@podium/runtime/run-registry'
+import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 
 export class PerfCliError extends Error {}
 
@@ -234,6 +235,13 @@ async function profileCommand(argv: string[], deps: PerfCliDeps): Promise<PerfCo
   }
 }
 
+/** What each `podium perf` command accepts (POD-3836). */
+const PERF_FLAGS = flagTable(declareFlags({ known: [], booleans: ['json', 'help'] }), {
+  level: {},
+  paths: {},
+  profile: { known: ['seconds'] },
+})
+
 export async function runPerfCli(
   argv: string[],
   deps: PerfCliDeps = defaultPerfDeps(),
@@ -242,6 +250,16 @@ export async function runPerfCli(
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     return { output: perfHelpText() }
   }
+  // Parsed only to REFUSE an undeclared flag: each command below reads argv
+  // directly, and rewriting those readers is not what this change is for.
+  withUnknownFlagAs(
+    (m) => new PerfCliError(m),
+    () =>
+      parseFlags(rest, PERF_FLAGS(command), {
+        usage: `podium perf ${command}`,
+        keys: 'raw',
+      }),
+  )
   switch (command) {
     case 'level':
       return levelCommand(rest, deps)

@@ -3,6 +3,7 @@ import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/
 import {
   IssueCliError,
   parseIssueArgs,
+  registryCommandOf,
   registryHelp,
   renderArgIssues,
   stripGlobalFlags,
@@ -33,7 +34,7 @@ export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<str
   // `-h` ≡ `--help`; a leading `--help` reads as the `help` command (no command to attach to).
   const mapped = argv.map((a) => (a === '-h' ? '--help' : a))
   if (mapped[0] === '--help') mapped[0] = 'help'
-  const parsedArgs = parseIssueArgs(mapped)
+  const parsedArgs = parseIssueArgs(mapped, { tool: 'spec', commands: SPEC_COMMANDS })
   const { command, args, positionals } = parsedArgs
   const help = registryHelp('spec', SPEC_COMMANDS, helpText, parsedArgs)
   if (help != null) return help
@@ -84,7 +85,7 @@ export async function specCliMain(argv: string[]): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (argv.includes('--json')) {
-      const { command } = parseIssueArgs(argv)
+      const command = registryCommandOf(argv)
       console.log(JSON.stringify({ ...(command ? { command } : {}), ok: false, error: msg }))
     } else {
       console.error(`podium spec: ${msg}`)

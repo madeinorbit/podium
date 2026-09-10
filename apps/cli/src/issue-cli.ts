@@ -1,64 +1,78 @@
 import { ISSUE_COMMANDS, type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import type { z } from 'zod'
+import {
+  declareFlags,
+  type FlagDeclaration,
+  flagsFromZodShape,
+  kebabFlag,
+  mergeFlags,
+  parseFlags,
+  withUnknownFlagAs,
+} from './argv'
 import { makeOperatorIssueClient } from './operator-client'
 
-/** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
-const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
+/**
+ * Flags valid on EVERY registry command, handled by the dispatcher itself and
+ * stripped before the (strict) per-command schema sees the args (#345).
+ */
+const REGISTRY_GLOBAL_FLAGS = declareFlags({
+  known: [],
+  booleans: ['json', 'help', 'outsideScope'],
+})
 
-/** Flags that never take a value; a following bare token is a positional, not their value. */
-const BOOL_FLAGS = new Set([
-  'json',
-  'start',
-  'outsideScope',
-  'recursive',
-  'clear',
-  'claim',
-  'nudge',
-  'notify',
-  'confirmRehome',
-  'force',
-  'terminalEvidence',
-  // Kebab in argv, camel after camelFlag — the schemas spelled it kebab, so it never
-  // matched and `issue start --force-unknown-model` died as an unknown flag (POD-1545).
-  'forceUnknownModel',
-  'help',
-])
+/**
+ * What one registry command accepts: its own zod shape plus the globals above.
+ *
+ * DERIVED, not listed (POD-3836). This file used to carry a hand-written
+ * `BOOL_FLAGS` set that had to name every value-less flag across every command,
+ * and a boolean it forgot silently ate the next token as its value — POD-1545
+ * was exactly that, `forceUnknownModel` spelled camel in the set and kebab in
+ * the schema, so it never matched. The schema already knows; asking it is the
+ * only spelling that cannot drift.
+ */
+export function registryFlags(cmd: { args: unknown } | undefined): FlagDeclaration {
+  return cmd
+    ? mergeFlags(flagsFromZodShape(cmd.args), REGISTRY_GLOBAL_FLAGS)
+    : // No such command: the caller is about to be told so by name, and refusing
+      // its flags first would bury that in a less useful error.
+      declareFlags({ known: [], open: true })
+}
 
 /** A CLI failure that should print as `podium issue: <message>` and exit non-zero. */
 export class IssueCliError extends Error {}
 
-/** Pure argv → { command, args, positionals }. `--flag value`/`--flag=value` become args;
- *  bare tokens after the command are positionals (mapped per command in runIssueCli). */
-export function parseIssueArgs(argv: string[]): {
+/**
+ * Pure argv → { command, args, positionals }. `--flag value`/`--flag=value`
+ * become args; bare tokens after the command are positionals (mapped per command
+ * in runIssueCli). A flag the command does not declare is an ERROR naming it and
+ * the nearest valid flag — never dropped (POD-3836).
+ */
+export function parseIssueArgs(
+  argv: string[],
+  opts?: { tool?: string; commands?: readonly { name: string; args: unknown }[] },
+): {
   command?: string
   args: Record<string, unknown>
   positionals: string[]
 } {
+  const tool = opts?.tool ?? 'issue'
+  const commands = opts?.commands ?? ISSUE_COMMANDS
   const [command, ...rest] = argv
-  const args: Record<string, unknown> = {}
-  const positionals: string[] = []
-  for (let i = 0; i < rest.length; i++) {
-    const t = rest[i]
-    if (!t?.startsWith('--')) {
-      if (t != null) positionals.push(t)
-      continue
-    }
-    const eq = t.indexOf('=')
-    if (eq >= 0) {
-      args[camelFlag(t.slice(2, eq))] = t.slice(eq + 1)
-    } else {
-      const key = camelFlag(t.slice(2))
-      const next = rest[i + 1]
-      if (BOOL_FLAGS.has(key) || next == null || next.startsWith('--')) {
-        args[key] = true
-      } else {
-        args[key] = next
-        i++
-      }
-    }
-  }
+  const { args, positionals } = withUnknownFlagAs(
+    (m) => new IssueCliError(m),
+    () =>
+      parseFlags(rest, registryFlags(commands.find((c) => c.name === command)), {
+        usage: `podium ${tool}${command ? ` ${command}` : ''}`,
+      }),
+  )
   return { ...(command ? { command } : {}), args, positionals }
+}
+
+/** The verb, without parsing flags — safe on argv that will not parse. */
+export function registryCommandOf(argv: readonly string[]): string | undefined {
+  const first = argv[0]
+  return first != null && !first.startsWith('-') ? first : undefined
 }
 
 function helpText(): string {
@@ -92,8 +106,8 @@ export function commandHelpText(tool: string, cmd: HelpableCommand): string {
     .join(' ')
   const rest = cmd.restKey ? ` [<${cmd.restKey}>…]` : ''
   const keys = Object.keys(shape)
-  const flag = (k: string): string =>
-    `--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}${BOOL_FLAGS.has(k) ? '' : ' <value>'}`
+  const booleans = flagsFromZodShape(cmd.args).booleans
+  const flag = (k: string): string => `--${kebabFlag(k)}${booleans.has(k) ? '' : ' <value>'}`
   const w = Math.max(0, ...keys.map((k) => flag(k).length))
   return [
     `Usage: podium ${tool} ${cmd.name}${pos ? ` ${pos}` : ''}${rest}${keys.length ? ' [--flags]' : ''}`,
@@ -259,7 +273,7 @@ export async function issueCliMain(argv: string[]): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (argv.includes('--json')) {
-      const { command } = parseIssueArgs(argv)
+      const command = registryCommandOf(argv)
       console.log(JSON.stringify({ ...(command ? { command } : {}), ok: false, error: msg }))
     } else {
       console.error(`podium issue: ${msg}`)

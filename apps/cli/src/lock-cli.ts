@@ -7,6 +7,15 @@ import {
 } from '@podium/issue-client'
 import { DEFAULT_MERGE_LOCK_BRANCH, MERGE_LOCK_PREFIX, mergeLockName } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import {
+  declareFlags,
+  type FlagDeclaration,
+  flagsFromZodShape,
+  kebabFlag,
+  mergeFlags,
+  parseFlags,
+  withUnknownFlagAs,
+} from './argv'
 import { makeOperatorIssueClient } from './operator-client'
 
 /**
@@ -93,11 +102,28 @@ export function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<vo
   })
 }
 
-/** Kebab-case flag → camelCase key. */
-const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
+/**
+ * Flags the dispatcher itself owns, valid on every lock command and stripped
+ * before the (strict) per-command schema sees the args — the same split
+ * issue-cli draws.
+ */
+const LOCK_GLOBAL_FLAGS = declareFlags({ known: [], booleans: ['json', 'help', 'outsideScope'] })
 
-/** Flags that never take a value. */
-const BOOL_FLAGS = new Set(['json', 'wait', 'outsideScope', 'allowSibling'])
+/** What `command` accepts: its zod shape plus the globals above (POD-3836). */
+function lockFlags(command: string | undefined): FlagDeclaration {
+  const cmd = LOCK_COMMANDS.find((c) => c.name === command)
+  return cmd
+    ? mergeFlags(flagsFromZodShape(cmd.args), LOCK_GLOBAL_FLAGS)
+    : // No such command: the caller is about to be told so by name, and
+      // refusing its flags first would bury that in a less useful error.
+      declareFlags({ known: [], open: true })
+}
+
+/** The verb, without parsing flags — safe on argv that will not parse. */
+function lockCommandOf(argv: readonly string[]): string | undefined {
+  const first = argv[0]
+  return first != null && !first.startsWith('-') ? first : undefined
+}
 
 /** `1800` → `30m`, `9999` → `2h46m39s` — how timeouts are spelled to callers. */
 export function fmtDuration(seconds: number): string {
@@ -123,35 +149,29 @@ export function resolveWaitTimeoutSeconds(raw: unknown): number | null {
   }
 }
 
-/** Pure argv → { command, args, positionals } (issue-cli parser, lock bool set). */
-export function parseLockArgs(argv: string[]): {
+/**
+ * Pure argv → { command, args, positionals }, refusing any flag the command does
+ * not declare (POD-3836). The declaration is derived from the command's own zod
+ * shape, so `--ttlx` cannot be mistaken for `--ttl` and `--branch` — merge-lock's
+ * spelling — is refused on a plain `lock status` instead of being dropped on the
+ * way to "list every lock in the repo".
+ */
+export function parseLockArgs(
+  argv: string[],
+  group: 'lock' | 'merge-lock' = 'lock',
+): {
   command?: string
   args: Record<string, unknown>
   positionals: string[]
 } {
   const [command, ...rest] = argv
-  const args: Record<string, unknown> = {}
-  const positionals: string[] = []
-  for (let i = 0; i < rest.length; i++) {
-    const t = rest[i]
-    if (!t?.startsWith('--')) {
-      if (t != null) positionals.push(t)
-      continue
-    }
-    const eq = t.indexOf('=')
-    if (eq >= 0) {
-      args[camelFlag(t.slice(2, eq))] = t.slice(eq + 1)
-    } else {
-      const key = camelFlag(t.slice(2))
-      const next = rest[i + 1]
-      if (BOOL_FLAGS.has(key) || next == null || next.startsWith('--')) {
-        args[key] = true
-      } else {
-        args[key] = next
-        i++
-      }
-    }
-  }
+  const { args, positionals } = withUnknownFlagAs(
+    (m) => new LockCliError(m),
+    () =>
+      parseFlags(rest, lockFlags(command), {
+        usage: `podium ${group}${command ? ` ${command}` : ''}`,
+      }),
+  )
   return { ...(command ? { command } : {}), args, positionals }
 }
 
@@ -195,48 +215,42 @@ function helpText(group: 'lock' | 'merge-lock'): string {
 export function mergeLockArgv(argv: string[]): string[] {
   const [verb, ...rest] = argv
   if (!verb || verb === 'help') return argv
-  let flagBranch: string | null = null
-  let positionalBranch: string | null = null
-  const passthrough: string[] = []
-  for (let i = 0; i < rest.length; i++) {
-    const t = rest[i]
-    if (t == null) continue
-    if (t === '--branch') {
-      const next = rest[i + 1]
-      if (next == null || next.startsWith('--')) throw new LockCliError('--branch needs a value')
-      flagBranch = next
-      i++
-      continue
-    }
-    if (t.startsWith('--branch=')) {
-      flagBranch = t.slice('--branch='.length)
-      if (!flagBranch) throw new LockCliError('--branch needs a value')
-      continue
-    }
-    if (!t.startsWith('--')) {
-      if (positionalBranch != null) {
-        throw new LockCliError(
-          `merge-lock takes one branch, but got '${positionalBranch}' and '${t}' — ` +
-            'the lock name is supplied for you.',
-        )
-      }
-      positionalBranch = t
-      continue
-    }
-    passthrough.push(t)
-    // Carry a flag's value across with its flag, so it is never left looking
-    // like the branch. Same value/boolean rule parseLockArgs applies below.
-    const next = rest[i + 1]
-    if (
-      !t.includes('=') &&
-      !BOOL_FLAGS.has(camelFlag(t.slice(2))) &&
-      next != null &&
-      !next.startsWith('--')
-    ) {
-      passthrough.push(next)
-      i++
-    }
+  // An unknown verb is passed through untouched: `runLockCli` names it, and
+  // refusing its flags first would bury the more useful error.
+  if (!LOCK_COMMANDS.some((c) => c.name === verb)) return argv
+  // `--branch` is merge-lock's own flag — it names the branch rather than
+  // reaching the lock command — so it is declared HERE and nowhere else. On a
+  // plain `podium lock` it stays unknown, which is the POD-3836 report's first
+  // case.
+  const { args, positionals, occurrences } = withUnknownFlagAs(
+    (m) => new LockCliError(m),
+    () =>
+      parseFlags(rest, mergeFlags(lockFlags(verb), declareFlags({ known: ['branch'] })), {
+        usage: `podium merge-lock ${verb}`,
+      }),
+  )
+  const branchArg = args.branch
+  if (branchArg === true) throw new LockCliError('--branch needs a value')
+  const flagBranch = typeof branchArg === 'string' && branchArg !== '' ? branchArg : null
+  if (branchArg === '') throw new LockCliError('--branch needs a value')
+  const [positionalBranch = null, extraBranch] = positionals
+  if (extraBranch != null) {
+    throw new LockCliError(
+      `merge-lock takes one branch, but got '${positionalBranch}' and '${extraBranch}' — ` +
+        'the lock name is supplied for you.',
+    )
   }
+  // Every flag but `--branch` rides through to the lock command. A value goes in
+  // the INLINE `--flag=value` form, which round-trips whatever it holds: the
+  // two-token spelling loses a value that itself begins with `--`, because the
+  // parser reading it back would take that for the next flag and leave the one
+  // before it looking like a boolean. `podium merge-lock steal --note "--urgent"`
+  // then stole the lease with no note at all.
+  const passthrough = occurrences
+    .filter((o) => o.key !== 'branch')
+    .map((o) =>
+      o.value === true ? `--${kebabFlag(o.key)}` : `--${kebabFlag(o.key)}=${String(o.value)}`,
+    )
   for (const [flag, raw] of [
     ['', positionalBranch],
     ['--branch ', flagBranch],
@@ -339,7 +353,7 @@ export async function runLockCli(
   },
 ): Promise<LockCliOutcome> {
   const group = opts?.group ?? 'lock'
-  const { command, args, positionals } = parseLockArgs(argv)
+  const { command, args, positionals } = parseLockArgs(argv, group)
   if (!command || command === 'help') return { text: helpText(group), exitCode: 0 }
   const cmd = LOCK_COMMANDS.find((c) => c.name === command)
   if (!cmd) throw new LockCliError(`unknown command: ${command}\n\n${helpText(group)}`)
@@ -357,7 +371,9 @@ export async function runLockCli(
       if (r.repoPath) args.repoPath = r.repoPath
     } catch {}
   }
-  const parsed = cmd.args.safeParse(args)
+  // The dispatcher's own flags never reach the (strict) command schema.
+  const { json: _json, help: _help, outsideScope: _outsideScope, ...forSchema } = args
+  const parsed = cmd.args.safeParse(forSchema)
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
@@ -503,8 +519,7 @@ function buildClient(argv: string[]): IssueTrpc {
 function waitAbortSignal(
   mapped: string[],
 ): { signal: AbortSignal; dispose: () => void } | undefined {
-  const { command, args } = parseLockArgs(mapped)
-  if (command !== 'acquire' || args.wait !== true) return undefined
+  if (lockCommandOf(mapped) !== 'acquire' || !mapped.includes('--wait')) return undefined
   const controller = new AbortController()
   const onSignal = (): void => {
     if (controller.signal.aborted) process.exit(EXIT_INTERRUPTED)
@@ -535,7 +550,7 @@ async function cliMain(argv: string[], group: 'lock' | 'merge-lock'): Promise<vo
       ...(interrupts ? { signal: interrupts.signal } : {}),
     })
     if (argv.includes('--json')) {
-      const { command } = parseLockArgs(mapped)
+      const command = lockCommandOf(mapped)
       console.log(
         JSON.stringify({
           ...(command ? { command } : {}),
@@ -552,7 +567,7 @@ async function cliMain(argv: string[], group: 'lock' | 'merge-lock'): Promise<vo
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (argv.includes('--json')) {
-      const { command } = parseLockArgs(mapped)
+      const command = lockCommandOf(mapped)
       console.log(JSON.stringify({ ...(command ? { command } : {}), ok: false, error: msg }))
     } else {
       console.error(`podium ${group}: ${msg}`)

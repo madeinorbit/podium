@@ -206,3 +206,16 @@ describe('podium perf discovery', () => {
     expect(listed.indexOf('perf <command>')).toBeLessThan(listed.indexOf('Access:'))
   })
 })
+
+describe('unknown flags on podium perf (POD-3836)', () => {
+  it('refuses a flag no perf command declares', async () => {
+    await expect(runPerfCli(['level', '--verbose'])).rejects.toThrow(/unknown flag --verbose/)
+  })
+
+  it('refuses --seconds where it does nothing, and names the near miss', async () => {
+    await expect(runPerfCli(['paths', '--seconds', '5'])).rejects.toThrow(/unknown flag --seconds/)
+    await expect(runPerfCli(['profile', 'server', '--second', '5'])).rejects.toThrow(
+      /unknown flag --second \(did you mean --seconds\?\)/,
+    )
+  })
+})

@@ -213,3 +213,29 @@ describe('podium workflow CLI', () => {
     ).rejects.toBeInstanceOf(WorkflowCliError)
   })
 })
+
+describe('misplaced flags on podium workflow (POD-3836)', () => {
+  const deps = {
+    client: { workflows: {} },
+    cwd: '/repo',
+  } as never
+
+  it('refuses a flag that belongs to another workflow command', async () => {
+    // --scope is create/fork/list's; on checkpoint it did nothing.
+    await expect(
+      runWorkflowCli(['checkpoint', 'active', '--scope', 'global'], deps),
+    ).rejects.toThrow(/unknown flag --scope/)
+  })
+
+  it('names the nearest declared flag on a typo', async () => {
+    await expect(runWorkflowCli(['checkpoint', 'active', '--sumary', 'x'], deps)).rejects.toThrow(
+      /unknown flag --sumary \(did you mean --summary\?\)/,
+    )
+  })
+
+  it('reports an unknown COMMAND as such, not as an unknown flag on it', async () => {
+    await expect(runWorkflowCli(['bogus', '--run', 'r1'], deps)).rejects.toThrow(
+      /unknown command: bogus/,
+    )
+  })
+})

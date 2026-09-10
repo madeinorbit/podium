@@ -9,7 +9,7 @@
 
 import type { IssueTrpc } from '@podium/issue-client'
 import type { PendingInteractionWire } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { EXIT_SETTLED, runInteractionsCommand } from './interactions-cli'
 
 const permissionRow = (over: Partial<PendingInteractionWire> = {}): PendingInteractionWire =>
@@ -239,5 +239,17 @@ describe('podium interactions help', () => {
   it('refuses an unknown command', async () => {
     const { trpc } = client({})
     await expect(runInteractionsCommand(['frobnicate'], trpc)).rejects.toThrow('unknown command')
+  })
+})
+
+describe('unknown flags on podium interactions (POD-3836)', () => {
+  it('refuses a flag the command does not declare, naming the near miss', async () => {
+    const client = { interactions: { list: { query: vi.fn() } } } as never
+    await expect(runInteractionsCommand(['list', '--sesion', 's1'], client)).rejects.toThrow(
+      /unknown flag --sesion \(did you mean --session\?\)/,
+    )
+    await expect(runInteractionsCommand(['list', '--limit', '5'], client)).rejects.toThrow(
+      /unknown flag --limit/,
+    )
   })
 })

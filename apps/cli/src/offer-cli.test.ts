@@ -196,3 +196,37 @@ describe('podium offer CLI (behavior)', () => {
     expect(help).toContain('first 3 items')
   })
 })
+
+describe('unknown flags on podium offer (POD-3836)', () => {
+  const client = { offer: { set: { mutate: vi.fn() }, clear: { mutate: vi.fn() } } } as never
+
+  it('names the nearest declared flag', async () => {
+    await expect(runOfferCli(['--mesage', 'hi'], client)).rejects.toThrow(
+      /unknown flag --mesage \(did you mean --message\?\)/,
+    )
+  })
+
+  it('refuses a set flag on clear, where it does nothing', async () => {
+    await expect(runOfferCli(['clear', '--message', 'hi'], client)).rejects.toThrow(
+      /unknown flag --message/,
+    )
+  })
+
+  it('still keeps repeated --action and --action-input in argv order', () => {
+    const parsed = parseOfferArgs([
+      '--message',
+      'ready',
+      '--action',
+      'Merge::go',
+      '--action-input',
+      'Send back::why',
+      '--action',
+      'Hold::wait',
+    ])
+    expect(parsed.actions).toEqual([
+      { token: 'Merge::go', input: false },
+      { token: 'Send back::why', input: true },
+      { token: 'Hold::wait', input: false },
+    ])
+  })
+})

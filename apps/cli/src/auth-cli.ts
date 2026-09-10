@@ -23,6 +23,7 @@ import {
   saveCachedSessionToken,
   sessionTokenPath,
 } from '@podium/runtime/session-mint'
+import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 
 export class AuthCliError extends Error {}
 
@@ -106,12 +107,29 @@ function revokeSessions(argv: string[], io: AuthCliIo): void {
   io.print(`revoked ${revokeSessionsByLabel(label)} '${label}' session(s)`)
 }
 
+/** What each `podium auth` command accepts (POD-3836). */
+const AUTH_FLAGS = flagTable(declareFlags({ known: [] }), {
+  'mint-session': { known: ['ttl'], booleans: ['print-only'] },
+  sessions: {},
+  'revoke-sessions': { known: ['label'] },
+})
+
 export async function authCliMain(argv: string[], io: AuthCliIo): Promise<void> {
   const sub = argv[0]
   if (sub === undefined || sub === 'help' || sub === '--help' || sub === '-h') {
     io.print(AUTH_USAGE)
     return
   }
+  // Parsed only to REFUSE an undeclared flag (POD-3836); the handlers below read
+  // argv directly through `flagValue`.
+  withUnknownFlagAs(
+    (m) => new AuthCliError(m),
+    () =>
+      parseFlags(argv.slice(1), AUTH_FLAGS(sub), {
+        usage: `podium auth ${sub}`,
+        keys: 'raw',
+      }),
+  )
   if (sub === 'mint-session') return mintSession(argv.slice(1), io)
   if (sub === 'sessions') return showSessions(io)
   if (sub === 'revoke-sessions') return revokeSessions(argv.slice(1), io)

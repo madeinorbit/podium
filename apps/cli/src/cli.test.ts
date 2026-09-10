@@ -415,6 +415,91 @@ describe('resolvePlan — utility subcommands', () => {
       }),
     ).toEqual({ kind: 'update', channel: 'stable', feedOverride: 'http://env' })
   })
+  /**
+   * POD-244, folded into POD-3836: `podium update --channel edge` used to be
+   * dropped on the floor and hit the STABLE feed, whose 404 read as "no such
+   * release" rather than "that flag did nothing". The flag now decides the run.
+   */
+  it('update --channel overrides the resolved channel for this run only', () => {
+    expect(plan({}, ['update', '--channel', 'edge'])).toEqual({
+      kind: 'update',
+      channel: 'edge',
+      feedOverride: undefined,
+    })
+    expect(plan({ updateChannel: 'edge' }, ['update', '--channel=stable'])).toEqual({
+      kind: 'update',
+      channel: 'stable',
+      feedOverride: undefined,
+    })
+    // The flag beats the env var, which is the whole point of typing it.
+    expect(
+      plan({}, ['update', '--channel', 'edge'], { PODIUM_UPDATE_CHANNEL: 'stable' }),
+    ).toMatchObject({ channel: 'edge' })
+  })
+
+  it('update --channel with a channel that does not exist is a usage error', () => {
+    expect(plan({}, ['update', '--channel', 'nightly'])).toMatchObject({
+      kind: 'usage-error',
+    })
+    expect(plan({}, ['update', '--channel'])).toMatchObject({ kind: 'usage-error' })
+  })
+
+  it('update refuses a flag it does not declare instead of ignoring it', () => {
+    const refused = plan({}, ['update', '--chanel', 'edge'])
+    expect(refused.kind).toBe('usage-error')
+    expect((refused as { message: string }).message).toMatch(
+      /unknown flag --chanel \(did you mean --channel\?\)/,
+    )
+  })
+
+  /**
+   * The subcommands `resolvePlan` parses ITSELF (as opposed to the ones whose
+   * argv it hands to a sub-CLI) used to read only the tokens they cared about
+   * and drop the rest — `podium channel edge --force` switched the channel and
+   * said nothing about a flag that does not exist.
+   */
+  it('refuses an unknown flag on the subcommands the launch path parses itself', () => {
+    for (const argv of [
+      ['channel', 'edge', '--force'],
+      ['status', '--json'],
+      ['stop', '--now'],
+      ['set-server', 'wss://h', '--pair'],
+      ['join-config', 'TOKEN', '--quiet'],
+    ]) {
+      expect(plan({}, argv), argv.join(' ')).toMatchObject({ kind: 'usage-error' })
+    }
+  })
+
+  it('refuses the same flag inside an agent session, before raising an approval', () => {
+    // The approval broker would otherwise ask the operator to approve a command
+    // the operator path itself rejects.
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    expect(plan({}, ['channel', 'edge', '--force'], agent)).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['stop', '--now'], agent)).toMatchObject({ kind: 'usage-error' })
+    // …and still brokers the well-formed spelling.
+    expect(plan({}, ['channel', 'edge'], agent)).toMatchObject({ kind: 'approval-request' })
+  })
+
+  it('refuses update --channel inside an agent session instead of dropping it', () => {
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    // The approval op carries no channel, so brokering this would update from
+    // the CONFIGURED channel and never mention the flag.
+    expect(plan({}, ['update', '--channel', 'edge'], agent)).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('podium channel'),
+    })
+    expect(plan({}, ['update'], agent)).toMatchObject({ kind: 'approval-request' })
+    expect(plan({}, ['update', '--chanel', 'edge'], agent)).toMatchObject({ kind: 'usage-error' })
+  })
+
+  it('leaves the subcommands that own their own argv alone', () => {
+    // These hand the rest of argv to a sub-CLI, which does the refusing; the
+    // launch path must not pre-judge flags it has no table for.
+    expect(plan({}, ['issue', 'list', '--stage', 'in_progress']).kind).toBe('issue')
+    expect(plan({}, ['machine', 'show', 'box', '--json']).kind).toBe('machine')
+    expect(plan({}, ['logs', 'server', '-f']).kind).toBe('logs')
+  })
+
   it('routes payload repair through the local or paired coordinator', () => {
     expect(plan({ mode: 'all-in-one', port: 19001 }, ['update', '--repair'])).toEqual({
       kind: 'repair-payload',

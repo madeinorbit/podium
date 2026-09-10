@@ -19,6 +19,7 @@
 
 import { makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay } from '@podium/runtime/config'
+import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 
 type OfferProc = {
   mutate(input?: unknown): Promise<unknown>
@@ -50,13 +51,22 @@ export interface ParsedAction {
   input?: boolean
 }
 
-const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help'])
+/** What each `podium offer` command accepts (POD-3836). No sub-command means `set`. */
+const OFFER_FLAGS = flagTable(
+  declareFlags({ known: [], booleans: ['json', 'outside-scope', 'help'] }),
+  {
+    set: { known: ['message', 'action', 'action-input', 'artifact'] },
+    clear: {},
+  },
+)
 
 /**
  * Parse `podium offer` argv. Unlike the mail parser, `--action` (and its
  * feedback-collecting twin `--action-input`) and `--artifact` REPEAT — each
  * occurrence appends, in argv order — while every other flag keeps last-wins
- * semantics.
+ * semantics. The shared parser records every occurrence, which is what lets the
+ * two action spellings interleave and still come out in the order typed; the
+ * first button renders primary, so that order is the offer's meaning.
  */
 export function parseOfferArgs(argv: string[]): {
   command?: string
@@ -65,33 +75,21 @@ export function parseOfferArgs(argv: string[]): {
   artifacts: string[]
   positionals: string[]
 } {
-  const args: Record<string, string | boolean> = {}
+  // A bare first token that isn't a flag is the sub-command (e.g. `clear`).
+  const rest = [...argv]
+  const command = rest[0] && !rest[0].startsWith('--') ? rest.shift() : undefined
+  const parsed = withUnknownFlagAs(
+    (m) => new OfferCliError(m),
+    () =>
+      parseFlags(rest, OFFER_FLAGS(command ?? 'set'), {
+        usage: `podium offer${command ? ` ${command}` : ''}`,
+        keys: 'raw',
+      }),
+  )
   const actions: { token: string; input: boolean }[] = []
   const artifacts: string[] = []
-  const positionals: string[] = []
-  // A bare first token that isn't a flag is the sub-command (e.g. `clear`).
-  let command: string | undefined
-  const rest = [...argv]
-  if (rest[0] && !rest[0].startsWith('--')) command = rest.shift()
-  for (let i = 0; i < rest.length; i++) {
-    const token = rest[i]
-    if (!token?.startsWith('--')) {
-      if (token !== undefined) positionals.push(token)
-      continue
-    }
-    const eq = token.indexOf('=')
-    const key = eq >= 0 ? token.slice(2, eq) : token.slice(2)
-    let value: string | boolean
-    if (eq >= 0) {
-      value = token.slice(eq + 1)
-    } else {
-      const next = rest[i + 1]
-      if (BOOL_FLAGS.has(key) || next === undefined || next.startsWith('--')) value = true
-      else {
-        value = next
-        i++
-      }
-    }
+  const args: Record<string, string | boolean> = {}
+  for (const { key, value } of parsed.occurrences) {
     if (key === 'action' || key === 'action-input') {
       if (typeof value === 'string') actions.push({ token: value, input: key === 'action-input' })
       continue
@@ -102,7 +100,13 @@ export function parseOfferArgs(argv: string[]): {
     }
     args[key] = value
   }
-  return { ...(command ? { command } : {}), args, actions, artifacts, positionals }
+  return {
+    ...(command ? { command } : {}),
+    args,
+    actions,
+    artifacts,
+    positionals: parsed.positionals,
+  }
 }
 
 /** Split a `Label::Prompt` token. The FIRST `::` separates them, so a prompt may
@@ -174,15 +178,6 @@ function helpText(): string {
 export async function runOfferCli(argv: string[], client: OfferClient): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
   const { command, args, actions, artifacts } = parseOfferArgs(argv)
-  const known = new Set(['message', 'json', 'outside-scope'])
-  const unknown = Object.keys(args).filter((k) => !known.has(k))
-  if (unknown.length) {
-    throw new OfferCliError(
-      `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown
-        .map((k) => `--${k}`)
-        .join(', ')} (see \`podium offer --help\`)`,
-    )
-  }
   const asJson = args.json === true
   const done = (text: string, data: unknown): string =>
     asJson ? JSON.stringify({ command: command ?? 'set', ok: true, data }) : text
