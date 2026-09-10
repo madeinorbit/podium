@@ -29,6 +29,7 @@
  * instead of closing over a connection.
  */
 
+import { queryCallerStacksEnabled } from '@podium/runtime/query-attribution'
 import type { SqlParam, SqlRunResult } from '@podium/runtime/sqlite'
 
 export type { SqlParam, SqlRunResult }
@@ -78,6 +79,21 @@ export interface Statement {
   readonly method: StatementMethod
   /** WRITE INTENT, declared rather than inferred. See {@link StatementIntent}. */
   readonly intent: StatementIntent
+  /**
+   * WHO ISSUED IT — a raw stack captured in the CALLER'S OWN TURN, present only
+   * while caller stacks are on (POD-3851).
+   *
+   * It rides on the statement because nothing else survives the trip. Between a
+   * repository and the driver's door the call crosses the scheduler's admission
+   * await and the executor's in-flight tracker, so a stack built at the door —
+   * or later, in a probe's `finally` — reconstructs to `driver.ts`,
+   * `scheduler.ts`, `executor.ts` and stops. {@link queryClientOver} is the last
+   * synchronous point at which the caller still exists, so that is where it is
+   * taken and this field is how it reaches {@link StatementObservation}.
+   *
+   * RAW AND UNPARSED: which frame is "the call site" is the consumer's question.
+   */
+  readonly issueStack?: string
 }
 
 export interface StatementResult {
@@ -268,31 +284,56 @@ export interface QueryClient {
   batch(statements: readonly Statement[]): Promise<readonly StatementResult[]>
 }
 
-/** Build a {@link QueryClient} over a router. Shared by every driver. */
-export function queryClientOver(route: StatementRouter, routeBatch: BatchRouter): QueryClient {
+/**
+ * Build a {@link QueryClient} over a router. Shared by every driver.
+ *
+ * IT IS ALSO WHERE {@link Statement.issueStack} IS TAKEN [POD-3851]. Every store
+ * statement passes through these six verbs, and they are the last frame the
+ * caller is still on: `run`/`get`/`all` are called synchronously by drizzle's
+ * remote callback, which is called synchronously by the repository's terminal.
+ * One step further down — the router, the scheduler, the driver's door — and the
+ * call has been awaited and the caller's frames are gone.
+ *
+ * `captureIssueSites` defaults to the resolved profile level but is a parameter
+ * for the reason `attributeQueries` takes `enabled`: a caller (and a test) can
+ * state the answer instead of inheriting it from the ambient environment.
+ */
+export function queryClientOver(
+  route: StatementRouter,
+  routeBatch: BatchRouter,
+  captureIssueSites: boolean = queryCallerStacksEnabled,
+): QueryClient {
+  // `{}` when off, so a statement carries no extra property and no Error is
+  // built: below `full` this client costs exactly what it did before.
+  const issuedHere = (): { issueStack?: string } =>
+    captureIssueSites ? { issueStack: new Error('statement issued').stack } : {}
   return {
     batch(statements) {
-      return routeBatch(statements)
+      if (!captureIssueSites) return routeBatch(statements)
+      // ONE stack for the batch, not one per member: a batch is one call from
+      // one call site, and n Errors would price the capture by batch size.
+      const site = issuedHere()
+      return routeBatch(statements.map((statement) => ({ ...statement, ...site })))
     },
     async run(sql, ...params) {
-      const result = await route({ sql, params, method: 'run', intent: 'write' })
+      const result = await route({ sql, params, method: 'run', intent: 'write', ...issuedHere() })
       if (!result.run) throw new Error(`driver returned no run result for: ${sql}`)
       return result.run
     },
     async get(sql, ...params) {
-      const result = await route({ sql, params, method: 'get', intent: 'read' })
+      const result = await route({ sql, params, method: 'get', intent: 'read', ...issuedHere() })
       return result.rows[0]
     },
     async all(sql, ...params) {
-      const result = await route({ sql, params, method: 'all', intent: 'read' })
+      const result = await route({ sql, params, method: 'all', intent: 'read', ...issuedHere() })
       return [...result.rows]
     },
     async writeGet(sql, ...params) {
-      const result = await route({ sql, params, method: 'get', intent: 'write' })
+      const result = await route({ sql, params, method: 'get', intent: 'write', ...issuedHere() })
       return result.rows[0]
     },
     async writeAll(sql, ...params) {
-      const result = await route({ sql, params, method: 'all', intent: 'write' })
+      const result = await route({ sql, params, method: 'all', intent: 'write', ...issuedHere() })
       return [...result.rows]
     },
   }

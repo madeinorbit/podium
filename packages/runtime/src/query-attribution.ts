@@ -59,8 +59,14 @@ export function queryKey(sql: string, maxLength = 120): string {
  * in {@link attributeQueries}, not here: a wrapper only exists when attribution is
  * on, so re-checking an ambient env var per execution would be a second source of
  * truth for the same question.
+ *
+ * `issueStack` is the caller's stack, captured by the seam that saw the statement
+ * ISSUED rather than built here — see {@link recordCallerStack} for why the
+ * difference is the whole value of the number. A seam that has no such capture
+ * omits it and this module falls back to its own stack, which is right for the
+ * synchronous `SqlDatabase` wrapper and wrong for anything that awaited.
  */
-export function recordQuery(sql: string, wallMs: number, rows: number): void {
+export function recordQuery(sql: string, wallMs: number, rows: number, issueStack?: string): void {
   const key = queryKey(sql)
   const cost = costs.get(key) ?? { count: 0, wallMs: 0, rows: 0 }
   cost.count++
@@ -78,7 +84,7 @@ export function recordQuery(sql: string, wallMs: number, rows: number): void {
   // figure that counted it again would claim far more of the minute was
   // explained than any seam actually explains.
   attribute('sql', wallMs)
-  if (STACKS) recordCallerStack(key)
+  if (STACKS) recordCallerStack(key, issueStack)
 }
 
 /**
@@ -109,26 +115,78 @@ export function queryAttributionTotals(): ReadonlyMap<string, QueryCost> {
  */
 const STACKS = atLeast('full')
 
-/** Source markers of the instruments themselves — see {@link recordCallerStack}. */
-const INSTRUMENT_FRAMES = ['query-attribution', 'statement-probe'] as const
+/**
+ * Whether caller stacks are being recorded, for the seams that have to CAPTURE
+ * one to make them worth anything (see {@link recordCallerStack}).
+ *
+ * It is exported for the same reason `attributeQueries` takes an `enabled`
+ * parameter: a capture site pays a real per-statement cost, so it must be able
+ * to ask the one resolved answer rather than re-reading the environment and
+ * becoming a second source of truth for it.
+ */
+export const queryCallerStacksEnabled = STACKS
+
+/**
+ * Frames that belong to the PLUMBING between a caller and this recorder, never
+ * to a caller — see {@link recordCallerStack}.
+ *
+ * Two instruments: this module's `SqlDatabase` wrapper
+ * (`sqlite/query-attribution.ts`) and the executor's driver seam
+ * (`store/executor/statement-probe.ts`), which is where a converted
+ * repository's statements are seen (POD-3281). Then the path a captured stack
+ * now starts in: the query client's verb (`store/executor/driver.ts`), the
+ * drizzle bridge that called it (`store/executor/sync-drizzle.ts`), and
+ * drizzle's own session frames, none of which name a caller.
+ *
+ * A marker missing from this list does not lose the stack, it just buries the
+ * caller one frame deeper — which is exactly how a stack stops answering "who".
+ * So the markers are as specific as the path allows: `driver.ts` alone would
+ * also swallow `packages/agent-runtime/src/driver.ts`, which CAN be a caller.
+ */
+const INSTRUMENT_FRAMES = [
+  'query-attribution',
+  'statement-probe',
+  'executor/driver.ts',
+  'executor/sync-drizzle.ts',
+  'node_modules/drizzle-orm',
+] as const
+
+/** How many caller frames a sample keeps. A stall line has to stay readable. */
+const CALLER_FRAME_CAP = 12
+
 const stacks = new Map<string, Map<string, number>>()
 
-function recordCallerStack(key: string): void {
-  const raw = new Error().stack ?? ''
-  const frames = raw
+/**
+ * The caller frames of a raw stack: plumbing dropped, capped.
+ *
+ * Exported because the dropping is the part that decides whether a dump answers
+ * "who ran this" or not, and it is a pure string transform — testable without a
+ * process that is actually profiling.
+ */
+export function callerFrames(raw: string, cap = CALLER_FRAME_CAP): string {
+  return raw
     .split('\n')
     .slice(1)
     .map((line) => line.trim())
-    // Drop the instrument's own frames so the top frame is the caller that
-    // issued the statement. There are two instruments now: this module's
-    // `SqlDatabase` wrapper (`sqlite/query-attribution.ts`) and the executor's
-    // driver seam (`store/executor/statement-probe.ts`), which is where a
-    // converted repository's statements are seen (POD-3281). A marker missing
-    // from this list does not lose the stack, it just buries the caller one
-    // frame deeper — which is exactly how a stack stops answering "who".
     .filter((line) => !INSTRUMENT_FRAMES.some((marker) => line.includes(marker)))
-    .slice(0, 12)
+    .slice(0, cap)
     .join('\n')
+}
+
+/**
+ * Record one sample of who issued `key`.
+ *
+ * `issued` IS THE WHOLE POINT (POD-3851). Building the stack here names nobody:
+ * this runs from the driver probe's `finally`, one await past the call, and the
+ * caller's frames are gone by then — a `full` dump on the live host showed only
+ * `driver.ts`, `scheduler.ts` and `executor.ts` for every hot statement. So the
+ * store-facing entry captures the stack synchronously, in the caller's own turn,
+ * and hands it down with the statement. The fallback below is still correct for
+ * the one seam that has no await between the caller and here — the synchronous
+ * `SqlDatabase` wrapper.
+ */
+function recordCallerStack(key: string, issued?: string): void {
+  const frames = callerFrames(issued ?? new Error().stack ?? '')
   const perKey = stacks.get(key) ?? new Map<string, number>()
   perKey.set(frames, (perKey.get(frames) ?? 0) + 1)
   stacks.set(key, perKey)

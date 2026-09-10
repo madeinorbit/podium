@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { addLoopAccounting, clearLoopAccounting } from './loop-accounting'
 import {
+  callerFrames,
   formatTopQueries,
   type QueryCost,
   queryKey,
@@ -73,5 +74,73 @@ describe('bucket attribution', () => {
     clearLoopAccounting()
     expect(() => recordQuery('SELECT 1', 5, 1)).not.toThrow()
     expect(formatTopQueries(1)).toContain('SELECT 1')
+  })
+})
+
+/**
+ * POD-3851. A `full` dump on the live host showed, for every one of the six
+ * hottest statements, nothing but the executor's own frames — so the stacks
+ * could not name the module that issued the query, which is the only reason
+ * they are collected. Two halves fixed that: the capture MOVED to the caller's
+ * turn (`queryClientOver`, tested at the seam in
+ * `apps/server/src/store/executor/statement-probe.test.ts`), and the frames of
+ * the path it is captured through are dropped here so the top frame is the
+ * caller. This pins the second half, which is a pure string transform.
+ */
+describe('callerFrames', () => {
+  /** A capture taken in `queryClientOver.get`, verbatim in shape. */
+  const captured = [
+    'Error: statement issued',
+    '    at issuedHere (/repo/apps/server/src/store/executor/driver.ts:309:43)',
+    '    at get (/repo/apps/server/src/store/executor/driver.ts:324:83)',
+    '    at <anonymous> (/repo/apps/server/src/store/executor/sync-drizzle.ts:175:42)',
+    '    at get (/repo/node_modules/drizzle-orm/sqlite-proxy/session.js:24:26)',
+    '    at get (/repo/node_modules/drizzle-orm/sqlite-core/async/session.js:120:36)',
+    '    at readUser (/repo/apps/server/src/modules/users/store-users.ts:412:20)',
+    '    at loadFrame (/repo/apps/server/src/modules/frames/frame.ts:88:5)',
+  ].join('\n')
+
+  it('drops the plumbing so the top frame is the module that issued the query', () => {
+    expect(callerFrames(captured).split('\n')).toEqual([
+      'at readUser (/repo/apps/server/src/modules/users/store-users.ts:412:20)',
+      'at loadFrame (/repo/apps/server/src/modules/frames/frame.ts:88:5)',
+    ])
+  })
+
+  it('drops the two instruments that record, whichever seam saw the statement', () => {
+    const raw = [
+      'Error',
+      '    at recordCallerStack (/repo/packages/runtime/src/query-attribution.ts:200:1)',
+      '    at execute (/repo/apps/server/src/store/executor/statement-probe.ts:325:13)',
+      '    at migrate (/repo/apps/server/src/migrations/run.ts:31:7)',
+    ].join('\n')
+    expect(callerFrames(raw)).toBe('at migrate (/repo/apps/server/src/migrations/run.ts:31:7)')
+  })
+
+  /**
+   * `driver.ts` on its own would also swallow `packages/agent-runtime/src/driver.ts`
+   * and `packages/composer/src/driver.ts`, either of which can be a caller. A
+   * marker that is too broad does not fail loudly: it buries the answer.
+   */
+  it('keeps a caller whose file is also named driver.ts', () => {
+    const raw = [
+      'Error: statement issued',
+      '    at get (/repo/apps/server/src/store/executor/driver.ts:324:83)',
+      '    at resume (/repo/packages/agent-runtime/src/driver.ts:77:9)',
+    ].join('\n')
+    expect(callerFrames(raw)).toBe('at resume (/repo/packages/agent-runtime/src/driver.ts:77:9)')
+  })
+
+  it('caps the sample so one stall line stays readable', () => {
+    const deep = [
+      'Error',
+      ...Array.from({ length: 40 }, (_, i) => `    at f${i} (/repo/a.ts:${i}:1)`),
+    ]
+    expect(callerFrames(deep.join('\n')).split('\n')).toHaveLength(12)
+  })
+
+  it('survives a stack that is only its message, or none at all', () => {
+    expect(callerFrames('Error: statement issued')).toBe('')
+    expect(callerFrames('')).toBe('')
   })
 })

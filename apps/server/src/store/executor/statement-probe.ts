@@ -45,7 +45,11 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { queryKey, recordQuery } from '@podium/runtime/query-attribution'
+import {
+  queryCallerStacksEnabled,
+  queryKey,
+  recordQuery,
+} from '@podium/runtime/query-attribution'
 import type {
   DriverSession,
   Statement,
@@ -98,18 +102,27 @@ export interface StatementObservation {
   /** Which execution seam saw it. */
   readonly seam: 'driver'
   /**
-   * The RAW stack captured where the statement entered the driver, present only
-   * while a probe asked for it ({@link StatementProbeHub.captureIssueSites}).
+   * The RAW stack of the call site, present only while a probe asked for it
+   * ({@link StatementProbeHub.captureIssueSites}) or the statement arrived
+   * carrying one.
    *
-   * WHY IT IS CAPTURED HERE AND NOT IN THE PROBE. A probe runs in the `finally`
-   * AFTER the driver call was awaited, and by then the caller's frames are gone:
-   * an audit that builds its own stack sees the executor and nothing above it.
-   * The entry to `execute` is still on the caller's synchronous frame, so this is
-   * the last place the call site exists at all.
+   * WHY IT IS NOT CAPTURED IN THE PROBE. A probe runs in the `finally` AFTER the
+   * driver call was awaited, and by then the caller's frames are gone: an audit
+   * that builds its own stack sees the executor and nothing above it.
+   *
+   * TWO CAPTURE POINTS, NEAREST WINS [POD-3851]. The entry to `execute` is
+   * synchronous with respect to whoever called the driver, but for a repository
+   * that is the SCHEDULER, not the repository: admission and the in-flight
+   * tracker are awaited in between, so a door capture reconstructs to
+   * `driver.ts`/`scheduler.ts`/`executor.ts` and stops. So the query client
+   * captures first ({@link Statement.issueStack}), in the caller's own turn, and
+   * that stack is preferred whenever it exists. The door capture stays for the
+   * statements that reach the driver without a query client — migrations,
+   * pragmas, the frame flusher — where it is the best stack that exists.
    *
    * IT IS RAW AND UNPARSED on purpose. Which frame is "the call site" is the
    * consumer's question — the intent audit wants the first frame outside
-   * `store/executor/`, a future profiler may want the repository method — and
+   * `store/executor/`, the profiler wants the frames above the plumbing — and
    * this module has no business deciding it for them.
    */
   readonly issueStack?: string
@@ -226,11 +239,17 @@ export function probeStatements(holder: StatementProbeHolder, probe: StatementPr
   return statementProbeHubFor(holder.db).attach(probe)
 }
 
-/** Install the process profiler exactly once on a connection's hub. */
+/**
+ * Install the process profiler exactly once on a connection's hub.
+ *
+ * It asks for issue sites only while caller stacks are on, which is the level
+ * that reads them ({@link queryCallerStacksEnabled}). Below that the hub keeps
+ * its cheap disabled path and no stack is built anywhere.
+ */
 export function installQueryAttributionProbe(hub: StatementProbeHub): void {
   if (attributionInstalled.has(hub)) return
   attributionInstalled.add(hub)
-  hub.attach(queryAttributionProbe)
+  hub.attach(queryAttributionProbe, { wantsIssueSite: queryCallerStacksEnabled })
 }
 
 /**
@@ -247,7 +266,12 @@ export function installQueryAttributionProbe(hub: StatementProbeHub): void {
  * batch's real cost instead of multiplying it.
  */
 export const queryAttributionProbe: StatementProbe = (observation) => {
-  recordQuery(observation.sql, observation.durationMs / observation.batchSize, observation.rows)
+  recordQuery(
+    observation.sql,
+    observation.durationMs / observation.batchSize,
+    observation.rows,
+    observation.issueStack,
+  )
 }
 
 /**
@@ -286,20 +310,27 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
   return {
     async execute(statement) {
       if (!hub.active) return await session.execute(statement)
-      // BEFORE the await: see StatementObservation.issueStack.
-      const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
+      // BEFORE the await, and only when the statement did not already arrive
+      // with a nearer one: see StatementObservation.issueStack.
+      const doorStack =
+        hub.captureIssueSites && statement.issueStack === undefined
+          ? new Error('statement issued').stack
+          : undefined
       const startedAt = performance.now()
       let result: StatementResult | undefined
       try {
         result = await session.execute(statement)
         return result
       } finally {
-        hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0, issueStack))
+        hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0, doorStack))
       }
     },
     async executeBatch(statements) {
       if (!hub.active) return await session.executeBatch(statements)
-      const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
+      const doorStack =
+        hub.captureIssueSites && statements.some((each) => each.issueStack === undefined)
+          ? new Error('statement issued').stack
+          : undefined
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
       try {
@@ -318,7 +349,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
               durationMs,
               statements.length,
               index,
-              issueStack,
+              doorStack,
             ),
           )
         })
@@ -340,8 +371,11 @@ function observationOf(
   durationMs: number,
   batchSize: number,
   batchIndex: number,
-  issueStack?: string,
+  doorStack?: string,
 ): StatementObservation {
+  // The nearer capture wins: the query client took its stack in the caller's
+  // turn, the door took its own one await later. See StatementObservation.
+  const issueStack = statement.issueStack ?? doorStack
   return {
     sql: statement.sql,
     key: queryKey(statement.sql),

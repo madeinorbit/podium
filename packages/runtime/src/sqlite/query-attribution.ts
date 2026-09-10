@@ -23,6 +23,7 @@ export {
   queryAttributionSnapshot,
   queryAttributionTotals,
   queryCallerStacks,
+  queryCallerStacksEnabled,
   queryKey,
   recordQuery,
   resetQueryAttribution,

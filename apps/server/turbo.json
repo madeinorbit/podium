@@ -630,6 +630,7 @@
         "src/store/events-golden.test.ts",
         "src/store/events.ts",
         "src/store/executor/bun-driver.ts",
+        "src/store/executor/caller-attribution.test.ts",
         "src/store/executor/context.ts",
         "src/store/executor/driver.ts",
         "src/store/executor/errors.ts",
