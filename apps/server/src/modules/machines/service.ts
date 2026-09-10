@@ -1195,6 +1195,12 @@ export class MachinesService {
     // this is a loop rather than one Promise.all up front: a machine whose
     // target cannot be resolved must degrade to `null` on its own row without
     // taking the rest of the fleet's listing with it.
+    // ONE resolution for the whole call (POD-3840). This is a config read —
+    // file, JSON parse, migration pass, schema validation, and a second read of
+    // instance.json behind it — and asking per machine put it on the wire path
+    // for every row of every listing. The answer cannot differ between two rows
+    // of the same listing, so there was never a reason to ask twice.
+    const fleetChannel = this.fleetChannel()
     const listings: MachineListing[] = []
     for (const m of await this.machineRecords()) {
       let target: string | undefined
@@ -1240,7 +1246,7 @@ export class MachinesService {
         ...(m.presenceSource ? { presenceSource: m.presenceSource } : {}),
         ...(services ? { services } : {}),
         serviceAssignment: m.serviceAssignment,
-        updateChannel: resolveMachineChannel(m.updateChannelOverride, this.fleetChannel()),
+        updateChannel: resolveMachineChannel(m.updateChannelOverride, fleetChannel),
         updateChannelOverride: m.updateChannelOverride,
         targetVersion: target ?? null,
         targetUnavailableReason: targetUnavailableReason ?? null,

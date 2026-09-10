@@ -97,8 +97,46 @@
  * observer and console output are off by default. Add ?switchTrace=1 to the browser URL,
  * or set device-local podium.switchTrace to 1, for a diagnostic session; remove the query
  * or clear that setting to disable the optional diagnostics.
+ *
+ * ---------------------------------------------------------------------------
+ * BOOT-PINNED OR LIVE — every field is one or the other (POD-3840)
+ * ---------------------------------------------------------------------------
+ *
+ * `loadConfig` is CACHED on the file's stat signature, so reading it is a
+ * `statSync` and reading it in a loop is no longer a reason to hoist the call.
+ * What the cache does NOT change is which fields a running process is allowed
+ * to notice changing, and that was never a property of the loader:
+ *
+ * - BOOT-PINNED: read ONCE, into a value that outlives the read. Changing the
+ *   file does nothing until the process restarts, by design — the value is
+ *   already committed to something (a bound socket, a chosen process shape, an
+ *   armed sampler, an open connection's trust decision).
+ * - LIVE: read THROUGH `loadConfig` at the moment the answer is needed, so an
+ *   external `podium channel` / `podium setup` / hand edit takes effect on the
+ *   next call. A live field must never be hoisted into a boot-time `const`;
+ *   that is the one way to turn a live field into a pinned one by accident, and
+ *   it does not announce itself.
+ *
+ * | Field                  | Kind  | Why / where it is read                          |
+ * |------------------------|-------|-------------------------------------------------|
+ * | port                   | BOOT  | the socket is already bound (`resolvePort`)     |
+ * | bindHost               | BOOT  | ditto — the listener's address                  |
+ * | mode                   | BOOT  | chooses the process shape at startup            |
+ * | allowedOrigins         | BOOT  | a trust decision; must not move under an open   |
+ * |                        |       | socket (apps/server/src/server.ts says so)      |
+ * | loopProfile            | BOOT  | the sampler is armed once, at startup           |
+ * | updateChannel          | LIVE  | every machine listing; `podium channel` writes  |
+ * |                        |       | it from another process entirely                |
+ * | publicUrl / appUrl     | LIVE  | thunks, per request (`serverIdentity`, the      |
+ * |                        |       | join command, /version)                         |
+ * | auth.openMode          | LIVE  | `credentialsRequired()` is a thunk, per gate    |
+ * | telemetry.*            | LIVE  | consent is re-read per decision                 |
+ * | feature overrides      | LIVE  | `getFeatureStates` defaults to a fresh load     |
+ *
+ * NO WATCHER AND NO TIMER back any of this. A live field is fresh because the
+ * reader asked, and the loader's stat saw a different file.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
@@ -513,9 +551,158 @@ export function inspectConfig(path = configPath()): ConfigInspection {
   }
 }
 
-/** Read + validate the config; a missing file yields {}. A CORRUPT file also yields {}
- *  (boot must not crash-loop on it) but is logged LOUDLY (#21) — it used to be silent. */
+// ---------------------------------------------------------------------------
+// The stat-invalidated load cache (POD-3840)
+// ---------------------------------------------------------------------------
+
+/**
+ * How many distinct config paths the loader remembers at once, least-recently
+ * used evicted first.
+ *
+ * A process reads ONE config path, or two while a transfer is in flight — the
+ * bound exists because `transfer-lifecycle` validates each new config by saving
+ * it to a temporary path carrying a fresh UUID, and an unbounded map keyed by
+ * path would accumulate one dead entry per transfer for the life of the server.
+ */
+export const CONFIG_CACHE_MAX_PATHS = 8
+
+/**
+ * How far in the past an mtime must lie before a signature can be trusted.
+ *
+ * THIS IS NOT A DEBOUNCE. The kernel stamps mtime from a coarse clock — 1 ms on
+ * this repository's Linux hosts (CONFIG_HZ=1000), and measurably coarser under
+ * load — so a file written at time W is stamped somewhere in (W - G, W]. Given a
+ * stat at time S, a LATER write can still land on the same stamp unless
+ * S - mtime >= G, and because `writeFileSync` truncates in place the inode and
+ * often the size do not move either. Six back-to-back same-size writes share one
+ * (mtimeNs, size, ino) triple, measured. So a signature is only evidence about
+ * content once it has aged past the granularity; inside the window the loader
+ * re-reads. Generous by two orders of magnitude, and it costs nothing that
+ * matters: a server's config was written at setup, not this millisecond.
+ */
+const CONFIG_SIGNATURE_SETTLE_MS = 10
+
+/** The signature of a path that does not exist — its own cacheable state. */
+const ABSENT_SIGNATURE = 'absent'
+
+interface ConfigCacheEntry {
+  signature: string
+  config: PodiumConfig
+  /**
+   * `write` = this process wrote these bytes and knows them without reading;
+   * `read` = parsed from the file. The two are trusted in opposite halves of
+   * the settle window — see {@link isTrustworthy}.
+   */
+  source: 'read' | 'write'
+}
+
+interface ConfigSignature {
+  signature: string
+  /** True once a later write is guaranteed to produce a different signature. */
+  settled: boolean
+}
+
+/** Insertion-ordered, so the first key is the least recently used. */
+const configCache = new Map<string, ConfigCacheEntry>()
+
+/**
+ * One `statSync` — the whole cost of a cached load.
+ *
+ * `bigint: true` takes the stamp at whatever resolution the filesystem kept it,
+ * for free. On this repository's hosts that turns out to be 1 ms and no finer —
+ * which is not a reason to drop it (another kernel or filesystem stamps finer),
+ * but IS the reason {@link CONFIG_SIGNATURE_SETTLE_MS} exists: precision in the
+ * field is not precision in the clock behind it.
+ *
+ * `undefined` means "do not use the cache for this call". A stat that fails for
+ * any reason OTHER than the file's absence is exactly the case
+ * {@link inspectConfig} documents — syscall-emulated Linux where `statx` is
+ * unavailable while `open`/`read` still work — so the loader falls through to
+ * reading the file directly rather than inventing an answer from a failed stat.
+ */
+function configSignature(path: string): ConfigSignature | undefined {
+  try {
+    const stat = statSync(path, { bigint: true })
+    const ageMs = Date.now() - Number(stat.mtimeNs / 1_000_000n)
+    return {
+      signature: `${stat.mtimeNs}:${stat.size}:${stat.ino}`,
+      settled: ageMs >= CONFIG_SIGNATURE_SETTLE_MS,
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return { signature: ABSENT_SIGNATURE, settled: true }
+    }
+    return undefined
+  }
+}
+
+/**
+ * Whether an entry may answer for the signature now on disk.
+ *
+ * A READ entry is trusted only once the signature has settled, for the reason
+ * {@link CONFIG_SIGNATURE_SETTLE_MS} gives. A WRITE entry is the mirror image:
+ * it is trusted only BEFORE the signature settles, which is precisely the
+ * window in which the file cannot have been re-stamped by anyone else either,
+ * and this process holds the bytes it wrote. Letting it expire at the settle
+ * boundary costs one read per save and buys back the guarantee that a config
+ * another process rewrote in the same millisecond is eventually seen.
+ */
+function isTrustworthy(entry: ConfigCacheEntry, stat: ConfigSignature): boolean {
+  if (entry.signature !== stat.signature) return false
+  return entry.source === 'read' ? stat.settled : !stat.settled
+}
+
+function rememberConfig(path: string, entry: ConfigCacheEntry): PodiumConfig {
+  // Re-insert to move the path to the most-recently-used end.
+  configCache.delete(path)
+  configCache.set(path, entry)
+  while (configCache.size > CONFIG_CACHE_MAX_PATHS) {
+    const oldest = configCache.keys().next()
+    if (oldest.done) break
+    configCache.delete(oldest.value)
+  }
+  return entry.config
+}
+
+/**
+ * Read + validate the config; a missing file yields {}. A CORRUPT file also yields {}
+ * (boot must not crash-loop on it) but is logged LOUDLY (#21) — it used to be silent.
+ *
+ * CACHED, KEYED ON THE FILE'S STAT SIGNATURE (POD-3840). This ran a `readFileSync`,
+ * a `JSON.parse`, the migration pass, a zod validation AND a second read of
+ * `instance.json` (through `assertInstanceStateIdentity`) on every call — and the
+ * server calls it once per machine per machine listing, which the first production
+ * loop profile put at two thirds of the main thread's time. Now a call that finds
+ * the same signature returns the SAME object for one `statSync`, and only a changed
+ * signature re-reads, re-parses, re-migrates, re-validates and re-asserts the
+ * instance identity.
+ *
+ * WHAT THE CALLER MAY DO WITH THE RESULT: read it. The object is shared between
+ * callers now, so it is effectively immutable — every writer in this repository
+ * already spreads into a fresh object before {@link saveConfig}, and that is now
+ * the rule rather than a habit.
+ *
+ * WHEN AN EXTERNAL WRITER IS SEEN: on the next call after its write lands, which
+ * is the semantics readers already had. Nothing watches the file and nothing
+ * polls it — the invalidation IS the stat every caller pays for anyway.
+ *
+ * ABSENCE AND CORRUPTION ARE CACHED TOO, each under its own signature, so a box
+ * with no config does not turn every read into a failed open, and a corrupt file
+ * is announced once per distinct version of itself rather than once per call.
+ */
 export function loadConfig(path = configPath()): PodiumConfig {
+  const stat = configSignature(path)
+  if (stat) {
+    const cached = configCache.get(path)
+    if (cached && isTrustworthy(cached, stat)) return rememberConfig(path, cached)
+    // A path that does not exist has nothing to open. `configSignature` has
+    // already separated this from the stat failures that mean "the stat is not
+    // to be believed", which still fall through to a direct read below.
+    if (stat.signature === ABSENT_SIGNATURE) {
+      return rememberConfig(path, { signature: ABSENT_SIGNATURE, config: {}, source: 'read' })
+    }
+  }
   const res = inspectConfig(path)
   if (res.state === 'corrupt') {
     log.error(
@@ -523,7 +710,53 @@ export function loadConfig(path = configPath()): PodiumConfig {
       { path, reason: res.error },
     )
   }
-  return res.config
+  if (!stat) return res.config
+  return rememberConfig(path, { signature: stat.signature, config: res.config, source: 'read' })
+}
+
+// ---------------------------------------------------------------------------
+// config.changed — the in-process subscribe seam (POD-3840)
+// ---------------------------------------------------------------------------
+
+/** What a {@link saveConfig} changed, for an in-process subscriber. */
+export interface ConfigChange {
+  /** The file written — a temporary path during a transfer, not always the live one. */
+  path: string
+  previous: PodiumConfig
+  next: PodiumConfig
+}
+
+export type ConfigChangedListener = (change: ConfigChange) => void
+
+const configChangedListeners = new Set<ConfigChangedListener>()
+
+/**
+ * Observe config writes made BY THIS PROCESS. Returns its own unsubscribe.
+ *
+ * Deliberately in-process and deliberately not an event bus: `@podium/runtime`
+ * is below the server's bus and is loaded by the CLI and the daemon too. The
+ * server bridges this onto its bus as `config.changed`, beside `settings.changed`
+ * — see `apps/server/src/modules/settings/service.ts`.
+ *
+ * A write by ANOTHER process does not arrive here. Nothing watches the file
+ * (no `fs.watch`, no timer); such a write is seen by the next {@link loadConfig},
+ * which is the freshness readers already had.
+ */
+export function onConfigChanged(listener: ConfigChangedListener): () => void {
+  configChangedListeners.add(listener)
+  return () => {
+    configChangedListeners.delete(listener)
+  }
+}
+
+function notifyConfigChanged(change: ConfigChange): void {
+  for (const listener of [...configChangedListeners]) {
+    try {
+      listener(change)
+    } catch (err) {
+      log.warn('config.changed listener threw', { err, path: change.path })
+    }
+  }
 }
 
 /** Validate + write the config (pretty JSON). Throws on an invalid config — including a
@@ -544,8 +777,28 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
         'would crash-loop at boot. Provide a server URL (join code) first.',
     )
   }
+  // BEFORE the write, and through the cache, so the pair this announces is the
+  // real one. On the hot path this is the one `statSync` a cached load costs.
+  const previous = loadConfig(path)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
+  // PRIME, so a process reads its own write without going back to disk. The
+  // entry is a `write` entry: it is believed for exactly as long as the file's
+  // signature cannot yet have been re-stamped by anyone else — see
+  // {@link isTrustworthy}. A stat that fails here leaves the cache alone rather
+  // than storing bytes under a signature nothing can invalidate.
+  const stat = configSignature(path)
+  if (stat && stat.signature !== ABSENT_SIGNATURE) {
+    rememberConfig(path, { signature: stat.signature, config: parsed, source: 'write' })
+  } else {
+    configCache.delete(path)
+  }
+  // Only on a real difference, for the reason `settings.changed` gives: several
+  // boot paths persist the config they just loaded, and an identical write must
+  // not make every subscriber re-run.
+  if (JSON.stringify(previous) !== JSON.stringify(parsed)) {
+    notifyConfigChanged({ path, previous, next: parsed })
+  }
 }
 
 /**

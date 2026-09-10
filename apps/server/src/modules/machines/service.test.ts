@@ -1284,3 +1284,41 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 })
+
+describe('listMachines resolves the fleet channel once per call (POD-3840)', () => {
+  test('a fleet of machines asks the config for its default channel once', async () => {
+    const store = await openTestStore(':memory:')
+    let resolved = 0
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      fleetUpdateChannel: () => {
+        resolved++
+        return 'stable'
+      },
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    } satisfies MachinesDeps)
+    for (const id of ['m-1', 'm-2', 'm-3']) {
+      await store.machines.upsertMachine({
+        id,
+        name: id,
+        hostname: `${id}.local`,
+        tokenHash: sha256(id),
+        ownerUserId: null,
+      })
+    }
+
+    const listed = await svc.listMachines()
+
+    // Every listing carries the fleet default, and the fleet default is ONE
+    // answer for the whole call: resolving it per machine is what put a config
+    // read — file, parse, migrate, validate, plus a second read of
+    // instance.json — on the wire path for each row.
+    expect(listed.length).toBeGreaterThanOrEqual(3)
+    expect(listed.every((machine) => machine.updateChannel === 'stable')).toBe(true)
+    expect(resolved).toBe(1)
+  })
+})

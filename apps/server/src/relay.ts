@@ -146,7 +146,11 @@ import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
-import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
+import {
+  bridgeConfigChanged,
+  SettingsService,
+  type TelegramSetupClient,
+} from './modules/settings/service'
 import { SuperagentDefaultSeeder } from './modules/settings/superagent-default'
 import {
   CompatibilityShippingPolicyResolver,
@@ -477,6 +481,8 @@ export class SessionRegistry {
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
   private adoptedSuperagent: { dispose(): void } | undefined
+  /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
+  private readonly configChangedBridge: () => void
 
   /**
    * THE BOOT STEPS, in the order the constructor ran them.
@@ -864,6 +870,11 @@ export class SessionRegistry {
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       defaultMachine: async () => await machines.defaultMachine(),
     })
+    // config.json writes made by THIS process, published beside settings.changed.
+    // Held so shutdown detaches it: the seam is a MODULE-level subscriber list in
+    // @podium/runtime, so a relay that came and went without unsubscribing would
+    // leave a listener holding a dead bus — visible in tests, which build several.
+    this.configChangedBridge = bridgeConfigChanged(this.bus)
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
       // The append-only settings trail (POD-421). Injected here so the transport
@@ -3532,6 +3543,7 @@ export class SessionRegistry {
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).
     this.steward.dispose()
+    this.configChangedBridge()
     await this.modules.sessions.dispose()
   }
 

@@ -13,6 +13,7 @@ import {
   type MachineId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import { configPath, onConfigChanged } from '@podium/runtime/config'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -244,6 +245,37 @@ export interface SettingsServiceOptions {
    *  Buffer) so constructing a service never creates a key file as a side
    *  effect — only a secret write does. */
   fingerprintKey?: () => Buffer
+}
+
+/**
+ * Put THIS PROCESS'S config.json writes on the bus as `config.changed` (POD-3840).
+ *
+ * Beside `settings.changed` because it is the same kind of announcement — a
+ * durable instance-wide setting moved, previous → next — and a subscriber that
+ * re-reads on one will want the other. It is a free function rather than a
+ * SettingsService member because the seam it bridges is a MODULE's, not an
+ * instance's: `@podium/runtime` is below this bus (the CLI and the daemon load
+ * it too), so the runtime offers a plain subscribe and the server decides what
+ * to do with it. Returns its own disposer; the relay owns the lifetime.
+ *
+ * SCOPED TO THE LIVE CONFIG PATH. `transfer-lifecycle` saves a candidate config
+ * to a temporary file to validate and fsync it before an atomic rename, and
+ * saves the OUTGOING config to a backup file. Republishing either would tell
+ * every subscriber this instance had been reconfigured — the backup, backwards —
+ * on a transfer that may still abort.
+ *
+ * KNOWN GAP, stated where the first subscriber will read it: the atomic rename
+ * at the end of a server-role transfer replaces config.json without going
+ * through `saveConfig`, so it publishes nothing. Readers are unaffected — the
+ * rename moves the file's stat signature and `loadConfig` re-reads on the next
+ * call — but a subscriber that reacts ONLY to this event will not see a role
+ * transfer. Announcing it belongs with the rename, in `transfer-lifecycle`.
+ */
+export function bridgeConfigChanged(bus: EventBus): () => void {
+  return onConfigChanged((change) => {
+    if (change.path !== configPath()) return
+    bus.emit('config.changed', { previous: change.previous, next: change.next })
+  })
 }
 
 /**

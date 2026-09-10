@@ -149,6 +149,22 @@ export interface EventMap {
     previous: import('@podium/runtime').PodiumSettings
     next: import('@podium/runtime').PodiumSettings
   }
+  /**
+   * THIS PROCESS wrote config.json (previous → next) — POD-3840.
+   *
+   * Bridged from `@podium/runtime`'s `onConfigChanged` seam, which is below this
+   * bus and therefore cannot reach it; see `modules/settings/service.ts`. Scoped
+   * to the LIVE config path: a transfer validates its candidate by saving to a
+   * temporary file first, and that is not a change to this instance's config.
+   *
+   * A config another PROCESS wrote does not arrive here — nothing watches the
+   * file. Readers stay fresh through `loadConfig`, which re-reads as soon as the
+   * file's stat signature moves.
+   */
+  'config.changed': {
+    previous: import('@podium/runtime').PodiumConfig
+    next: import('@podium/runtime').PodiumConfig
+  }
   /** Durable metadata oplog rows were appended (post-record, pre/post-fanout). */
   /** The ordered metadata feed published through `seq`; projections may advance. */
   'feed.published': { seq: number }
