@@ -596,6 +596,10 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     }
   }
   ws.on('message', (raw) => {
+    // A recovery-only server holds no supervisor and does nothing with this
+    // plane, so it queues nothing — and must therefore bound nothing. Read here
+    // as well as at the drain, because the fence can close after a frame queued.
+    if (recoveryTransportOnly(registry)) return
     if (principal !== undefined || failed) return receiveMachineMessage(raw)
     // The queue is what makes the report survive, so the queue is bounded: an
     // unauthenticated peer must not be able to make the server hold frames for it

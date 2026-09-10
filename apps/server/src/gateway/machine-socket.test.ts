@@ -86,6 +86,15 @@ async function registryWithMachine() {
   return { store, registry }
 }
 
+async function registryWithRecoveryOnlyServer() {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    recoveryOnly: true,
+  })
+  return { store, registry }
+}
+
 const row = async (registry: SessionRegistry) => (await registry.modules.machines.listMachines())[0]
 
 /** Whose machineReport the machine row is currently carrying. */
@@ -263,6 +272,29 @@ describe('machine supervisor socket, during the handshake', () => {
    * of this file terminates — a close is what every dialer already retries,
    * and a redial re-asks the handshake.
    */
+  /**
+   * A recovery-only server ignores this plane entirely (it holds a query-only
+   * database and has no supervisor to attach), so nothing queues on it and a
+   * chatty parent must be left alone rather than terminated: the bound exists to
+   * cap work the server agreed to hold, and here it agreed to hold none.
+   */
+  it('ignores frames on a recovery-only server without bounding them', async () => {
+    const { registry } = await registryWithRecoveryOnlyServer()
+    const ws = fakeWs()
+    wireMachineSocket(ws as never, registry)
+
+    // The same burst the bound is written for, so the two rules meet here.
+    const handshake = ws.emit('message', hello(SUCCESSOR))
+    const one = ws.emit('message', machineReport('one'))
+    const two = ws.emit('message', machineReport('two'))
+    await handshake
+    await one
+    await two
+
+    expect(ws.terminated).toBe(false)
+    expect(ws.sent).toEqual([])
+  })
+
   it('terminates a socket that piles frames up behind an unfinished handshake', async () => {
     const { registry } = await registryWithMachine()
     const ws = fakeWs()
