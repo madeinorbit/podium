@@ -54,6 +54,7 @@
  * | PODIUM_INSTANCE_UUID          | — (env-only)            | daemon-owned process identity (instance reaper)       |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | config.loopProfile      | `resolveLoopProfileLevel()` (level name; parent states it) |
+ * | VITEST / NODE_ENV=test        | — (env-only evidence)   | `resolveLoopProfileLevel()` (a test run defaults to `off`) |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |
  * | PODIUM_APP_VERSION            | — (BUILD-time --define) | server /version; must stay a literal `process.env.…`   |
  * | PODIUM_WEB_DIR                | — → bundled dist path   | apps/server static web (packaged bundle sets it)       |
@@ -708,6 +709,13 @@ function isLoopProfileLevel(value: string): value is LoopProfileLevel {
  * and only a checkout leaves it at `dev`. The literal read has to stay written
  * out (`process.env.PODIUM_APP_VERSION`) for the substitution to find it; the
  * injected `env` is consulted first so a test can state either answer.
+ *
+ * A TEST RUN is the one exception to that default, and it is `off` (POD-3827).
+ * The suite runs from source, so it would otherwise inherit the source-run
+ * answer and every file in the repository would install the SQL and scheduler
+ * seams — and write per-minute records under `<stateDir>/perf` — for a
+ * diagnostic none of them reads. The exception sits BELOW env and config, so a
+ * test that exercises the instrument states `PODIUM_LOOP_PROFILE` itself.
  */
 export function resolveLoopProfileLevel(
   config: PodiumConfig = loadConfig(),
@@ -723,6 +731,13 @@ export function resolveLoopProfileLevel(
   }
   const carry = warning ? { warning } : {}
   if (config.loopProfile) return { level: config.loopProfile, source: 'config', ...carry }
+  // Under a runner, nothing above named a level, so nothing asked to measure.
+  // The predicate is `inTestRunner()`'s, from apps/server/src/store-database.ts:
+  // `VITEST` present at ALL — presence is what the runner sets — or `NODE_ENV`
+  // exactly `test`, which is not the same as `NODE_ENV` being set.
+  if (env.VITEST !== undefined || env.NODE_ENV === 'test') {
+    return { level: 'off', source: 'default', ...carry }
+  }
   const appVersion = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
   const development = resolveUpdateChannel(config, env) === 'dev' || appVersion === 'dev'
   return { level: development ? 'attribution' : 'off', source: 'default', ...carry }

@@ -73,7 +73,11 @@ Order:
    names. Any other value, including the old `1`, is a startup warning naming the accepted
    values and falls through to the next step.
 2. `config.loopProfile` in `config.json`, a new optional field with the same enum.
-3. Default: `attribution` when `resolveUpdateChannel(config, env)` is `dev` or the process
+3. `off` when the process is under a test runner (`VITEST` set at all, or `NODE_ENV`
+   exactly `test`) — POD-3827, decided after this section was written. The suite runs from
+   source and would otherwise inherit step 4's answer for every file in the repository; a
+   test that exercises the instrument names its level at step 1.
+4. Default: `attribution` when `resolveUpdateChannel(config, env)` is `dev` or the process
    runs from source (`PODIUM_APP_VERSION` is the literal `dev`); otherwise `off`.
 
 `PODIUM_LOOP_PROFILE_STACKS` is removed; `full` is the only way to get stack capture.
@@ -320,8 +324,9 @@ Unit, in `packages/runtime/src`:
   minute rollup (percentiles from the reservoir, `coverage` and `nestedBuckets`), ring wrap
   at 120 and 60, and that level `off` registers nothing (spy on `setInterval`).
 - `loop-profile.test.ts`: the resolver's precedence table, rejection of non-level env values, the
-  channel default for `stable`, `edge`, `dev`, and the source-run sentinel, and the parent's
-  stated level winning inside a child.
+  channel default for `stable`, `edge`, `dev`, and the source-run sentinel, the test-run
+  default of `off` and both layers still outranking it, and the parent's stated level
+  winning inside a child.
 - `loop-minute-sink.test.ts`: rotation at the size threshold, one generation kept, directory
   created only above `off`.
 - Existing `loop-metrics.test.ts`, `task-attribution.test.ts`, `loop-stall.test.ts` keep

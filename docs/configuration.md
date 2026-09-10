@@ -196,6 +196,14 @@ where a layered key would fail the boot — this is a diagnostic, and it must no
 be able to take a server down. (`PODIUM_LOOP_PROFILE=1`, the boolean flag this
 replaced, is exactly that case.)
 
+A TEST RUN is the one exception to that default: with `VITEST` set, or
+`NODE_ENV` exactly `test`, and no level named anywhere, the level is `off`. The
+suite runs from source, so it would otherwise inherit the source-run answer and
+every test file in the repository would install the SQL and scheduler seams —
+and write per-minute records under `<stateDir>/perf` — for numbers none of them
+reads. The exception is checked below both layers, so a test that exercises the
+instrument names its level in `PODIUM_LOOP_PROFILE` and still gets it.
+
 The parent states the level it resolved to its server and daemon children, so
 the two processes cannot disagree about what they are measuring.
 

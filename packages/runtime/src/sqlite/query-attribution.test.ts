@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   attributeQueries,
-  queryAttributionEnabled,
   queryAttributionSnapshot,
   resetQueryAttribution,
 } from './query-attribution'
@@ -43,11 +45,6 @@ describe('attributeQueries', () => {
     expect(attributeQueries(db, false)).toBe(db)
   })
 
-  it('defaults to the PODIUM_LOOP_PROFILE flag when the caller says nothing', () => {
-    const db = fakeDatabase()
-    expect(attributeQueries(db) === db).toBe(!queryAttributionEnabled)
-  })
-
   it('preserves statement results and prepares against the real database once', () => {
     const db = fakeDatabase(3)
     const st = attributeQueries(db, true).prepare('SELECT * FROM podium_events WHERE id > ?')
@@ -86,5 +83,50 @@ describe('attributeQueries', () => {
     const st = attributeQueries(exploding, true).prepare('INSERT INTO t VALUES (?)')
     expect(() => st.run(1)).toThrow('constraint failed')
     expect(queryAttributionSnapshot().get('INSERT INTO t VALUES (?)')?.count).toBe(1)
+  })
+})
+
+/**
+ * The default `enabled` argument is the resolved profile level, which this
+ * wrapper and `../query-attribution` both read at IMPORT — so each direction is
+ * a re-import under a STATED environment. Reading whatever this runner carries
+ * would assert the environment instead of the wiring: `PODIUM_LOOP_PROFILE` is
+ * set in some shells on this host, and a test run that states nothing resolves
+ * `off` (POD-3827).
+ */
+describe('the default enabled argument', () => {
+  const KEYS = ['PODIUM_LOOP_PROFILE', 'PODIUM_STATE_DIR', 'PODIUM_APP_VERSION'] as const
+  const priorEnv: Record<string, string | undefined> = {}
+  let dir: string
+
+  beforeEach(() => {
+    for (const key of KEYS) priorEnv[key] = process.env[key]
+    dir = mkdtempSync(join(tmpdir(), 'podium-query-attribution-'))
+    process.env.PODIUM_STATE_DIR = dir
+    // A SOURCE run, so `off` below is the test-run rule answering and not the
+    // packaged default — which would make the first case pass either way.
+    process.env.PODIUM_APP_VERSION = 'dev'
+    vi.resetModules()
+  })
+  afterEach(() => {
+    for (const [key, value] of Object.entries(priorEnv)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('hands a test run its database back unwrapped, because a test run is off', async () => {
+    delete process.env.PODIUM_LOOP_PROFILE
+    const { attributeQueries: subject } = await import('./query-attribution')
+    const db = fakeDatabase()
+    expect(subject(db)).toBe(db)
+  })
+
+  it('wraps it when the environment states attribution', async () => {
+    process.env.PODIUM_LOOP_PROFILE = 'attribution'
+    const { attributeQueries: subject } = await import('./query-attribution')
+    const db = fakeDatabase()
+    expect(subject(db)).not.toBe(db)
   })
 })

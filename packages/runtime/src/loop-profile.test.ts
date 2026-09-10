@@ -103,6 +103,66 @@ describe('resolveLoopProfileLevel', () => {
       }),
     ).toEqual({ level: 'off', source: 'env' })
   })
+
+  /**
+   * POD-3827. A TEST RUN measures nothing unless it says so. The suite runs
+   * from source, so without this rule every file in the repository would
+   * inherit the source-run default and install the SQL and scheduler seams for
+   * a diagnostic none of them reads. The rule sits BELOW env and config: a test
+   * that exercises the instrument states the level it wants.
+   *
+   * The predicate is the one `inTestRunner()` already uses in
+   * apps/server/src/store-database.ts — `VITEST` present at all, or `NODE_ENV`
+   * exactly `test` — so the repository has one answer to "am I under a runner".
+   */
+  describe('under a test runner', () => {
+    it('defaults to off where a source run on the dev channel would say attribution', () => {
+      // `VITEST: ''` counts: presence is what a runner sets, and a variable
+      // that is there at all did not get there by itself.
+      for (const runner of [{ VITEST: 'true' }, { VITEST: '' }, { NODE_ENV: 'test' }]) {
+        expect(
+          resolveLoopProfileLevel({ updateChannel: 'dev' } as PodiumConfig, {
+            PODIUM_APP_VERSION: 'dev',
+            ...runner,
+          }),
+          JSON.stringify(runner),
+        ).toEqual({ level: 'off', source: 'default' })
+      }
+    })
+
+    it('reads NODE_ENV for the value test, not for being set at all', () => {
+      expect(
+        resolveLoopProfileLevel({} as PodiumConfig, {
+          PODIUM_APP_VERSION: 'dev',
+          NODE_ENV: 'production',
+        }),
+      ).toEqual({ level: 'attribution', source: 'default' })
+    })
+
+    it('still lets the environment, then config, name a level', () => {
+      expect(
+        resolveLoopProfileLevel({} as PodiumConfig, {
+          VITEST: 'true',
+          [LOOP_PROFILE_ENV]: 'full',
+        }),
+      ).toEqual({ level: 'full', source: 'env' })
+      expect(
+        resolveLoopProfileLevel({ loopProfile: 'attribution' } as PodiumConfig, {
+          VITEST: 'true',
+        }),
+      ).toEqual({ level: 'attribution', source: 'config' })
+    })
+
+    it('carries a refused environment value into the test-run default', () => {
+      const resolved = resolveLoopProfileLevel({ updateChannel: 'dev' } as PodiumConfig, {
+        VITEST: 'true',
+        [LOOP_PROFILE_ENV]: '1',
+        PODIUM_APP_VERSION: 'dev',
+      })
+      expect(resolved).toMatchObject({ level: 'off', source: 'default' })
+      expect(resolved.warning).toContain(LOOP_PROFILE_ENV)
+    })
+  })
 })
 
 /**
@@ -146,6 +206,16 @@ describe('@podium/runtime/loop-profile', () => {
     expect(mod.atLeast('accounting')).toBe(true)
     expect(mod.atLeast('attribution')).toBe(true)
     expect(mod.atLeast('full')).toBe(false)
+  })
+
+  it('is off in THIS process when nothing states a level (POD-3827)', async () => {
+    // The same source run outside a runner resolves `attribution`; the runner's
+    // own environment is what turns it off, so no suite pays for the seams.
+    delete process.env[LOOP_PROFILE_ENV]
+    process.env.PODIUM_APP_VERSION = 'dev'
+    const mod = await import('./loop-profile')
+    expect(mod.loopProfile).toEqual({ level: 'off', source: 'default' })
+    expect(mod.atLeast('accounting')).toBe(false)
   })
 
   it('says off is off, including for the weakest gate above it', async () => {

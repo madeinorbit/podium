@@ -147,6 +147,11 @@ turns it back off). `PODIUM_LOOP_PROFILE=full` adds the more expensive SQLite ca
 stacks only when needed. The four levels are `off`, `accounting`, `attribution` and
 `full`; the older `PODIUM_LOOP_PROFILE=1` is refused with a warning.
 
+One exception to that default matters here: a process under a test runner (`VITEST` set,
+or `NODE_ENV=test`) resolves `off`, and a Podium spawned from a harness inherits those
+variables. So a harness that wants the journals states `PODIUM_LOOP_PROFILE=attribution`
+in the environment it spawns with — an explicit level still outranks the rule.
+
 ## Setup gotchas
 
 - **Force the native terminal**: `await page.addInitScript(() => localStorage.setItem('podium.panelMode','native'))` **before** `goto` — else you land in chat view and `__podium`/the xterm isn't mounted.
