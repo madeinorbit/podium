@@ -307,6 +307,29 @@ describe('createProfileCapture', () => {
     expect(result.traceCount).toBe(3)
   })
 
+  it('refuses a request after stop, and does not resurrect the keep-clear timer', async () => {
+    const jsc = fakeJsc()
+    const capture = createProfileCapture({
+      component: 'server',
+      level: 'attribution',
+      dir: root,
+      jsc: jsc.api,
+      minIntervalMs: 0,
+      sleep: noWait,
+    })
+
+    await capture.request('signal', 10)
+    capture.stop()
+
+    // A stopped capture that still served requests would re-arm the drain timer
+    // it was just asked to give up — the daemon's signal handler can outlive
+    // close, and this is the second line of defence against that.
+    expect(await capture.request('signal', 10)).toEqual({ suppressed: true, reason: 'stopped' })
+    jsc.feed(400)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(jsc.buffered).toBe(400)
+  })
+
   describe('keep-clear timer', () => {
     beforeEach(() => {
       vi.useFakeTimers()

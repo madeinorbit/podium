@@ -60,6 +60,8 @@ export type ProfileSuppressedReason =
   | 'rate-limited'
   /** No `bun:jsc` sampling profiler in this runtime; a refusal record is written. */
   | 'unavailable'
+  /** {@link LoopProfileCapture.stop} has been called; this handle is finished. */
+  | 'stopped'
 
 /** Bun's sampler, as the two calls this module makes. Injected in tests. */
 export interface SamplingProfilerApi {
@@ -123,7 +125,15 @@ export interface LoopProfileCapture {
   readonly dir: string
   /** Main-thread ms this module has spent keeping the sampler's buffer clear. */
   readonly keepClearMs: number
-  /** Drop the keep-clear timer. The sampler itself cannot be stopped. */
+  /**
+   * Give up the keep-clear timer and refuse all further requests.
+   *
+   * The sampler thread itself cannot be stopped — Bun exposes no call for it —
+   * so this is only as final as the process allows. It is final for THIS handle
+   * though, which matters: the daemon's signal listener can outlive the close
+   * that stopped the capture, and a request served afterwards would re-arm the
+   * very timer `stop` was called to drop.
+   */
   stop(): void
 }
 
@@ -194,6 +204,7 @@ export function createProfileCapture(opts: LoopProfileCaptureOptions): LoopProfi
   const prefix = `${opts.component}-`
 
   let running = false
+  let stopped = false
   let lastFinishedAt: number | undefined
   let armed = false
   let keepClearTimer: ReturnType<typeof setInterval> | undefined
@@ -239,7 +250,7 @@ export function createProfileCapture(opts: LoopProfileCaptureOptions): LoopProfi
   }
 
   function startKeepClear(api: SamplingProfilerApi): void {
-    if (keepClearTimer !== undefined || keepClearMs <= 0) return
+    if (stopped || keepClearTimer !== undefined || keepClearMs <= 0) return
     keepClearTimer = setInterval(() => discard(api), keepClearMs)
     keepClearTimer.unref?.()
   }
@@ -291,10 +302,14 @@ export function createProfileCapture(opts: LoopProfileCaptureOptions): LoopProfi
     get keepClearMs() {
       return keepClearSpentMs
     },
-    stop: stopKeepClear,
+    stop() {
+      stopped = true
+      stopKeepClear()
+    },
 
     async request(trigger, seconds, context) {
       if (!atLeastAttribution(opts.level)) return { suppressed: true, reason: 'level' }
+      if (stopped) return { suppressed: true, reason: 'stopped' }
       if (running) return { suppressed: true, reason: 'running' }
       if (lastFinishedAt !== undefined && now() - lastFinishedAt < minIntervalMs) {
         return { suppressed: true, reason: 'rate-limited' }

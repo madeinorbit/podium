@@ -398,6 +398,8 @@ export async function createDaemonHostRuntime(args: {
   let loopAccounting: LoopAccountingHandle | undefined
   let loopMinuteSink: LoopMinuteFileSink | undefined
   let loopProfileCapture: LoopProfileCapture | undefined
+  /** THE daemon's SIGUSR2 listener, held so `close` can remove it. */
+  let onDumpSignal: (() => void) | undefined
   const perfDir = join(identityStateDir, 'perf')
   if (atLeast('accounting')) {
     loopMinuteSink = createLoopMinuteSink({
@@ -475,12 +477,24 @@ export async function createDaemonHostRuntime(args: {
           }
         : {}),
     })
-    // The daemon's SIGUSR2 (POD-3819; part B extends this handler rather than
-    // registering a second one — two listeners both fire). `podium perf profile
-    // daemon` leaves the duration in the request file; a signal sent by hand
-    // gets 10 s.
+    // THE daemon's SIGUSR2 — one listener for the whole process, held in a
+    // local so `close` can take it off again.
+    //
+    // Both halves of the dump hang off this one registration: the profile
+    // capture here, and the attribution totals POD-3817 adds beside it. A
+    // second `process.on('SIGUSR2')` would not replace this one, it would run
+    // alongside it, and the reader would have no way to tell which dump they
+    // were looking at — so anything new goes INSIDE this callback.
+    //
+    // Removing it on close matters because a daemon can be started and stopped
+    // repeatedly in one process (every integration test does): listeners would
+    // otherwise accumulate past Node's warning threshold, and a signal after
+    // close would call `requestProfile` on a capture that has already been
+    // stopped. `podium perf profile daemon` leaves the duration in the request
+    // file; a signal sent by hand gets 10 s.
     if (atLeast('attribution')) {
-      process.on('SIGUSR2', () => requestProfile('signal', takeProfileRequest(perfDir)))
+      onDumpSignal = () => requestProfile('signal', takeProfileRequest(perfDir))
+      process.on('SIGUSR2', onDumpSignal)
     }
     // POD-600's loop-stall classifier stays in loop-attribution.ts; boot merely
     // turns it on. Moving connection code must never absorb this instrumentation.
@@ -1401,6 +1415,10 @@ export async function createDaemonHostRuntime(args: {
     // closes a descriptor rather than draining anything.
     loopAccounting?.stop()
     loopProfileCapture?.stop()
+    if (onDumpSignal) {
+      process.removeListener('SIGUSR2', onDumpSignal)
+      onDumpSignal = undefined
+    }
     loopMinuteSink?.close()
     stopInventoryRefresh?.()
     workerClient.stop()
