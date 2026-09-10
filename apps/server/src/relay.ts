@@ -1869,11 +1869,15 @@ export class SessionRegistry {
     // carries a session-derived field, so the tail had nothing to reconcile — and
     // the one time the gate did open, boot reconciliation had already published
     // the same rows (modules/issues/service/index.ts).
+    // A LockSessionKey may be a documented non-session identity. System
+    // identities are handled before these callbacks; a lookup miss here is how
+    // the unknown-relay sentinel gets pruned from a queue (see LockSessionKey's
+    // note). So the map is probed as a plain key.
+    const lockSessionRow = (sessionId: string): { cwd?: string; status: string } | undefined =>
+      (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(sessionId)
     const sessionWorkspace = (sessionId: SessionId): string | null => {
       // LockSessionKey may be a sentinel; miss → null (no co-location key).
-      const s = (liveSessions as ReadonlyMap<string, { cwd?: string; status: string }>).get(
-        sessionId,
-      )
+      const s = lockSessionRow(sessionId)
       if (!s || s.status === 'exited' || !s.cwd) return null
       return s.cwd
     }
@@ -1883,13 +1887,18 @@ export class SessionRegistry {
       funnel,
       now: () => this.now(),
       resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
+      // HOLDER liveness: does the row still exist? A hibernated holder is
+      // parked, not dead, and keeps its lease (session-exit.test.ts).
       sessionAlive: (sessionId) => {
-        // `sessionId` is a LockSessionKey: it may be a documented non-session
-        // identity. System identities are handled before this callback; a lookup
-        // miss here is how the unknown-relay sentinel gets pruned from a queue
-        // (see LockSessionKey's note). So the map is probed as a plain key.
-        const s = (liveSessions as ReadonlyMap<string, { status: string }>).get(sessionId)
+        const s = lockSessionRow(sessionId)
         return !!s && s.status !== 'exited'
+      },
+      // WAITER liveness: can it take a grant? A hibernated session polls
+      // nothing, so it is pruned like an exited one (POD-3807) and re-queues
+      // itself when it wakes.
+      sessionRunning: (sessionId) => {
+        const s = lockSessionRow(sessionId)
+        return !!s && s.status !== 'exited' && s.status !== 'hibernated'
       },
       sessionWorkspace,
       // Grant/steal notifications ride agent mail; best-effort by contract

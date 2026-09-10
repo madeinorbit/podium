@@ -13,9 +13,15 @@ import { openTestStore } from '../../test-support/open-test-store'
 
 const REPO = '/repo'
 
-async function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }) {
+async function harness(opts?: {
+  alive?: Set<string>
+  /** Alive-but-parked: in `alive` (the row exists) yet never polling. */
+  hibernated?: Set<string>
+  workspace?: Map<string, string>
+}) {
   const store = await openTestStore(':memory:')
   const alive = opts?.alive ?? new Set<string>()
+  const hibernated = opts?.hibernated ?? new Set<string>()
   const workspace = opts?.workspace ?? new Map<string, string>()
   let nowMs = Date.parse('2026-07-13T12:00:00.000Z')
   const sendMail = vi.fn()
@@ -27,6 +33,7 @@ async function harness(opts?: { alive?: Set<string>; workspace?: Map<string, str
     now: () => nowMs,
     resolveRepoId: (repoPath) => asRepoId(`repo:${repoPath}`),
     sessionAlive: (sessionId) => alive.has(sessionId),
+    sessionRunning: (sessionId) => alive.has(sessionId) && !hibernated.has(sessionId),
     sessionWorkspace: (sessionId) => workspace.get(sessionId) ?? null,
     sendMail,
     appendEvent,
@@ -35,6 +42,7 @@ async function harness(opts?: { alive?: Set<string>; workspace?: Map<string, str
     svc,
     store,
     alive,
+    hibernated,
     workspace,
     sendMail,
     appendEvent,
@@ -412,6 +420,45 @@ describe('LockService', () => {
     expect(sendMail).toHaveBeenCalledTimes(1)
     const status = await svc.status({ repoPath: REPO, name: 'l' })
     expect(status[0]?.queue).toEqual([])
+  })
+
+  it('release prunes a hibernated waiter: a parked session is not a live waiter', async () => {
+    // POD-3807: `sessionAlive` was `status !== 'exited'`, so a session parked
+    // the previous day still won the grant, sat on the lease until it expired,
+    // and re-entered the queue on the next advance — the `test:heavy` queue
+    // never drained. A hibernated session does not poll, so it cannot use a
+    // grant; it re-queues itself when it wakes.
+    const { svc, alive, hibernated, sendMail } = await harness()
+    alive.add('sess_1').add('sess_2').add('sess_3')
+    hibernated.add('sess_2') // parked, not exited: still in the live map
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    await svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    // A queued parked session reads dead, so status is not misleading about
+    // who the next advance will actually grant to.
+    const queued = (await svc.status({ repoPath: REPO, name: 'l' }))[0]!.queue
+    expect(queued).toEqual([
+      expect.objectContaining({ sessionId: 'sess_2', alive: false }),
+      expect.objectContaining({ sessionId: 'sess_3', alive: true }),
+    ])
+    const r = await svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    expect(r.next?.label).toBe('issue:#3')
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    expect(sendMail).toHaveBeenCalledWith('iss_3', 'lock-manager', expect.any(String))
+    expect((await svc.status({ repoPath: REPO, name: 'l' }))[0]?.queue).toEqual([])
+  })
+
+  it('a hibernated HOLDER keeps its lease and still reads alive (a park is not a death)', async () => {
+    // The waiter rule does not travel to the holder: hibernation is an
+    // intentional park and must keep the leases (see session-exit.test.ts).
+    const { svc, alive, hibernated } = await harness()
+    alive.add('sess_1').add('sess_2')
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    hibernated.add('sess_1')
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    const status = (await svc.status({ repoPath: REPO, name: 'l' }))[0]!
+    expect(status.holder).toMatchObject({ sessionId: 'sess_1', alive: true })
+    expect(status.queue).toEqual([expect.objectContaining({ sessionId: 'sess_2', position: 1 })])
   })
 
   it('renew extends the lease for the holder only', async () => {

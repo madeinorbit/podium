@@ -60,13 +60,25 @@ export interface LockServiceDeps {
   now(): number
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
   resolveRepoId(repoPath: string): RepoId | Promise<RepoId>
-  /** Is the session still around (waiter pruning)? Unknown/exited → false. */
+  /** Does the session still EXIST (row present, not exited)? Holder liveness
+   *  keys on this, and hibernation is an intentional park that keeps the
+   *  leases — see the hibernation case in session-exit.test.ts. */
   /** `LockSessionKey`, not `SessionId`: `advanceQueue` DEPENDS on being able to
    *  look up `UNKNOWN_RELAY_SESSION` and get `false` — that miss is exactly how
    *  the unknown-relay sentinel gets pruned from a queue (see its doc in
    *  registry.ts). Narrowing this to `SessionId` would force a cast at the one
    *  call site and hide that mechanism. */
   sessionAlive(sessionId: LockHolderId): boolean
+  /**
+   * Is the session RUNNING — able to notice a grant and then release it?
+   * Waiter pruning keys on this, not on `sessionAlive` (POD-3807). A hibernated
+   * session is alive but parked: it polls nothing, so granting it the lease
+   * burns a full TTL and the queue behind it never drains — one waiter parked
+   * since the previous day kept the `test:heavy` queue cycling. A parked
+   * waiter is dropped like an exited one and re-queues itself when it wakes.
+   * Same key type, and the same sentinel rules, as `sessionAlive`.
+   */
+  sessionRunning(sessionId: LockHolderId): boolean
   /**
    * Live session workspace root (cwd) for addressability + co-location refuse.
    * Unknown / exited / sentinels → null. Same key type as sessionAlive.
@@ -98,14 +110,29 @@ export class LockService {
     return Math.max(0, Math.ceil((Date.parse(expiresAt) - this.deps.now()) / 1000))
   }
 
-  /** Liveness for a holder/waiter key: operator and in-process system jobs are
-   *  live for their lease; unknown-relay and missing sessions are dead (same
-   *  rule advanceQueue uses for pruning). */
-  private isAlive(sessionId: LockHolderId | null): boolean {
+  /** The sentinel rules both liveness questions share: operator and in-process
+   *  system jobs are live for their lease; unknown-relay is always dead. Only a
+   *  real session reaches `probe`. */
+  private principalLiveness(
+    sessionId: LockHolderId | null,
+    probe: (id: LockHolderId) => boolean,
+  ): boolean {
     if (sessionId == null || sessionId === OPERATOR_LOCK_SESSION || isSystemLockSession(sessionId))
       return true
     if (sessionId === 'unknown-session') return false
-    return this.deps.sessionAlive(sessionId)
+    return probe(sessionId)
+  }
+
+  /** Does this principal still exist? What a HOLDER is judged by: a parked
+   *  session keeps the lease it already holds. */
+  private isAlive(sessionId: LockHolderId | null): boolean {
+    return this.principalLiveness(sessionId, (id) => this.deps.sessionAlive(id))
+  }
+
+  /** Can this principal actually take a grant? What a WAITER is judged by, so
+   *  hibernated and exited are pruned alike (POD-3807). */
+  private isRunning(sessionId: LockHolderId | null): boolean {
+    return this.principalLiveness(sessionId, (id) => this.deps.sessionRunning(id))
   }
 
   private workspaceOf(sessionId: LockHolderId | null): string | null {
@@ -120,16 +147,19 @@ export class LockService {
     return normalizeWorkspace(this.deps.sessionWorkspace(sessionId))
   }
 
+  /** `role` picks the liveness question: a waiter that the next advance would
+   *  prune must read `alive: false` here, or status lies about who is next. */
   private principalWire(
     sessionId: LockHolderId | null,
     issueId: IssueId | null,
     label: string,
+    role: 'holder' | 'waiter',
   ): LockHolderWire {
     return {
       sessionId,
       issueId,
       label,
-      alive: this.isAlive(sessionId),
+      alive: role === 'holder' ? this.isAlive(sessionId) : this.isRunning(sessionId),
       workspace: this.workspaceOf(sessionId),
     }
   }
@@ -137,14 +167,19 @@ export class LockService {
   private async toWire(lock: LockRow): Promise<LockWire> {
     const queue = (await this.deps.locks.listWaiters(lock.repoId, lock.name)).map((w, i) => ({
       position: i + 1,
-      ...this.principalWire(w.sessionId, w.issueId, w.label),
+      ...this.principalWire(w.sessionId, w.issueId, w.label, 'waiter'),
       sessionId: w.sessionId,
       enqueuedAt: w.enqueuedAt,
     }))
     return {
       repoId: lock.repoId,
       name: lock.name,
-      holder: this.principalWire(lock.holderSessionId, lock.holderIssueId, lock.holderLabel),
+      holder: this.principalWire(
+        lock.holderSessionId,
+        lock.holderIssueId,
+        lock.holderLabel,
+        'holder',
+      ),
       note: lock.note,
       acquiredAt: lock.acquiredAt,
       expiresAt: lock.expiresAt,
@@ -281,20 +316,19 @@ export class LockService {
 
   /**
    * Advance the FIFO queue after the holder is gone (release / expiry /
-   * session-exit / steal-of-free): prune dead waiters, grant to the first live
-   * one (with a grant-notification mail), or delete the lock row when the
-   * queue is empty. Returns the new holder row, or null when the lock is free.
+   * session-exit / steal-of-free): prune waiters that cannot take the grant,
+   * grant to the first running one (with a grant-notification mail), or delete
+   * the lock row when the queue is empty. Returns the new holder row, or null
+   * when the lock is free.
    */
   private async advanceQueue(repoId: RepoId, name: string): Promise<LockRow | null> {
     for (const w of await this.deps.locks.listWaiters(repoId, name)) {
-      // Skip/prune waiters whose sessions are gone. Operator and in-process
+      // Skip/prune waiters that cannot take the grant — exited, and equally
+      // hibernated (POD-3807): a parked session polls nothing, so granting it
+      // the lease stalls the queue for a whole TTL. Operator and in-process
       // system identities have no session and are never pruned — they discover
       // grants via polling.
-      if (
-        w.sessionId !== OPERATOR_LOCK_SESSION &&
-        !isSystemLockSession(w.sessionId) &&
-        !this.deps.sessionAlive(w.sessionId)
-      ) {
+      if (!this.isRunning(w.sessionId)) {
         await this.deps.locks.removeWaiter(w.id)
         continue
       }
@@ -430,7 +464,12 @@ export class LockService {
           return {
             released: true as const,
             next: next
-              ? this.principalWire(next.holderSessionId, next.holderIssueId, next.holderLabel)
+              ? this.principalWire(
+                  next.holderSessionId,
+                  next.holderIssueId,
+                  next.holderLabel,
+                  'holder',
+                )
               : null,
           }
         }),
@@ -527,6 +566,7 @@ export class LockService {
                   existing.holderSessionId,
                   existing.holderIssueId,
                   existing.holderLabel,
+                  'holder',
                 )
               : null
           await this.deps.locks.removeWaiterBySession(repoId, input.name, this.sessionKey(caller))
