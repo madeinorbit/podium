@@ -1870,13 +1870,17 @@ describe('the step runners', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it('server: classifies on the thrown message, and keeps the cause in the detail', async () => {
-    // POD-3824. The failure detail now carries the whole `cause` chain, and the
-    // token table underneath `classifyMachineFailure` is an ordered FIRST-MATCH
-    // over a sentence. Classifying the chain would therefore let a deeper link
-    // claim a token the failure itself never carried — this pins that the code
-    // still comes from the thrown error's own message while the operator-facing
-    // detail keeps both links.
+  it('server: keeps the cause in the detail without moving the failure code', async () => {
+    // POD-3824. The DETAIL half is what this guards: flattening the throw back
+    // to `error.message` reds it.
+    //
+    // The CODE half is asserted and deliberately not claimed as a guard. The one
+    // code this site distinguishes comes from a `^`-anchored matcher, so no
+    // cause can reach it and classifying the chain instead would leave this
+    // green — stated here so nobody reads the pass as proof that the classifier
+    // input is load-bearing. It is insurance against the token table being
+    // unanchored later, and `refusal.test.ts` is where the table's own patterns
+    // are pinned.
     const snapshot = vi.fn(() => '/state/podium.db.backup')
     const restart = vi.fn()
     const h = await harness({

@@ -2297,11 +2297,18 @@ async function runCoordinatorReplacement(
       if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
     } catch (error) {
       // CLASSIFY ON THE THROWN ERROR'S OWN MESSAGE, DESCRIBE THE WHOLE CHAIN
-      // [POD-3824]. `classifyUpdateFailureDetail` is an ordered first-match over
-      // a token table, so handing it the `←` chain would let a deeper link claim
-      // a token this failure never carried — a reclassification wearing a
-      // context fix's clothes. The operator-facing `detail` has no such
-      // constraint and keeps everything.
+      // [POD-3824]: widening what an operator READS must not quietly rewrite
+      // what the fleet DECIDES, and these are two questions with one input only
+      // by habit.
+      //
+      // Today they agree. The single code this site distinguishes,
+      // `artifact-unreachable`, comes from the one matcher anchored at `^`, and
+      // `describeError` puts the thrown error's own message at position 0 — so
+      // no cause can reach it whichever string is handed over. That agreement is
+      // a property of the token table, which is edited elsewhere and for its own
+      // reasons; unanchoring any pattern that yields a code this site reads would
+      // make the chain reclassify silently. Keeping the classifier's input
+      // unchanged is what stops that from ever being this line's problem.
       const classified = classifyMachineFailure(
         error instanceof Error ? error.message : String(error),
       )
