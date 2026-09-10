@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { assertSourceMatchesHead } from './modules/updates/dev-bundle'
 import { releaseFailureLogs } from './modules/updates/dev-publisher-wiring'
 import { runPersistenceSteps } from './shutdown'
 import { captureLogs } from './test-support/capture-logs'
@@ -71,6 +72,22 @@ describe('the release failure the update panel shows', () => {
     expect(releaseFailureLogs('dist/podium is missing', wrappedRefusal())).toBe(
       'dist/podium is missing',
     )
+  })
+})
+
+describe('the development bundle refusing an unverifiable checkout', () => {
+  it('names what git actually failed on, not just that verification failed', async () => {
+    // POD-3824. `DevBundleUnavailableError`'s internal message is the whole
+    // record of why a dev publish was refused; flattening the throw to its own
+    // message left `spawn git ENOENT` with no way to reach the reason.
+    const failed = await failureOf(
+      assertSourceMatchesHead('/repo', 'abc1234', () => {
+        throw new Error('spawn git ENOENT', { cause: new Error('PATH contains no git') })
+      }),
+    )
+
+    expect(failed).toBeInstanceOf(Error)
+    expect((failed as Error).message).toContain('spawn git ENOENT ← PATH contains no git')
   })
 })
 

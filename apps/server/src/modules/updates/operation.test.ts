@@ -1870,6 +1870,40 @@ describe('the step runners', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
+  it('server: classifies on the thrown message, and keeps the cause in the detail', async () => {
+    // POD-3824. The failure detail now carries the whole `cause` chain, and the
+    // token table underneath `classifyMachineFailure` is an ordered FIRST-MATCH
+    // over a sentence. Classifying the chain would therefore let a deeper link
+    // claim a token the failure itself never carried — this pins that the code
+    // still comes from the thrown error's own message while the operator-facing
+    // detail keeps both links.
+    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const restart = vi.fn()
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error('signature verification FAILED', {
+          cause: new Error('artifact address unreachable: https://missing.example/a.tgz'),
+        })
+      },
+      createDatabaseSnapshot: snapshot,
+      requestCoordinatorRestart: restart,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // NOT 'artifact-unreachable': the cause says so, the failure does not.
+    expect((await h.read()).error?.code).toBe('download-failed')
+    expect((await h.read()).error?.detail).toBe(
+      'signature verification FAILED ← artifact address unreachable: https://missing.example/a.tgz',
+    )
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
   it('server: records an unreachable published artifact as permanent', async () => {
     const snapshot = vi.fn(() => '/state/podium.db.backup')
     const restart = vi.fn()

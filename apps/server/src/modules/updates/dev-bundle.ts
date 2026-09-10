@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:f
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import {
   commitShaFromDevVersion,
   isFlatPublisherDevVersion,
@@ -499,7 +499,7 @@ export async function assertSourceMatchesHead(
       'development bundle unavailable: could not verify the source checkout against HEAD (' +
         sha +
         '): ' +
-        (error instanceof Error ? error.message : String(error)),
+        describeError(error),
       `The source checkout could not be verified against HEAD (${sha}).`,
     )
   }
@@ -521,7 +521,7 @@ export async function assertSourceMatchesHead(
       'development bundle unavailable: could not enumerate ignored source inputs for HEAD (' +
         sha +
         '): ' +
-        (error instanceof Error ? error.message : String(error)),
+        describeError(error),
       `The source checkout could not be verified against HEAD (${sha}).`,
     )
   }
@@ -1890,7 +1890,9 @@ async function fetchStandingDesktopManifest(
     }
     return { raw: await response.json() }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+    // A fetch failure says almost nothing on its own — `fetch failed` with the
+    // DNS or TLS refusal one `cause` down is the shape this surface kept losing.
+    const detail = describeError(error)
     return { missing: `${channel} desktop manifest could not be fetched: ${detail}` }
   }
 }
@@ -2120,7 +2122,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
   }
 
   const recordFailure = (error: unknown, sha: string | null) => {
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = describeError(error)
     unavailable = reason
     failure = {
       sha,

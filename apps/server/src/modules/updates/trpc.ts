@@ -579,7 +579,7 @@ function logWaveDecision(
     // this line is the case where something is already wrong.
     log.warn('could not describe the update wave decision', {
       operationId: operation.id,
-      error: error instanceof Error ? error.message : String(error),
+      err: error,
     })
   }
 }

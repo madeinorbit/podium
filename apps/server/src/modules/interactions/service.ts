@@ -38,7 +38,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { AgentRuntimeState, SessionId, SessionMeta } from '@podium/model'
 import type {
   InteractionAnswer,
@@ -1083,7 +1083,10 @@ export class InteractionService {
         return {
           ok: false,
           via: 'unverified',
-          detail: err instanceof Error ? err.message : String(err),
+          // The CHAIN, not the outermost message: what refused the round-trip is
+          // routinely one `cause` down, and `detail` is the only thing an
+          // operator gets to read about it [POD-3824].
+          detail: describeError(err),
         }
       }
     }
@@ -1196,7 +1199,7 @@ export class InteractionService {
       return {
         ok: false,
         via: 'unverified',
-        detail: err instanceof Error ? err.message : String(err),
+        detail: describeError(err),
       }
     }
   }

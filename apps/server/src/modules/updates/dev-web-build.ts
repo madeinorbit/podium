@@ -54,7 +54,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
 import { type ServedWebIdentity, servedWebIdentity } from '../../web-bundle-stamp'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
@@ -246,7 +246,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
       try {
         await runStep(step, appVersion)
       } catch (error) {
-        failures.push(`${step.label}: ${error instanceof Error ? error.message : String(error)}`)
+        failures.push(`${step.label}: ${describeError(error)}`)
       }
     }
     // Both halves are named separately because the operator's next move differs:
@@ -295,9 +295,11 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
       },
       (error: unknown) => {
         inFlight = null
-        const reason = error instanceof Error ? error.message : String(error)
+        const reason = describeError(error)
         state = { state: 'failed', headSha, reason }
-        log.warn('development web build failed', { headSha, reason })
+        // The panel gets the flattened one-liner; the log gets the error itself,
+        // which the record serializer renders with every cause AND its stack.
+        log.warn('development web build failed', { headSha, err: error })
         throw error
       },
     )

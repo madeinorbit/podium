@@ -1,4 +1,4 @@
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import { updateFingerprint } from '@podium/runtime/machine-update'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import { asMachineId, resolveMachineChannel } from '@podium/model'
@@ -848,7 +848,7 @@ export class UpdatesService {
       this.recordCheck(channel, { status: 'ok' })
       return true
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = describeError(error)
       // The reason shown to clients describes the ABSENCE of a target, so a
       // failed lookup that leaves a previously-good target standing must not
       // manufacture one. The CHECK still failed, and says so — those are two

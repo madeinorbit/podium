@@ -1,5 +1,5 @@
 import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
   AwaitingAsk,
@@ -1822,7 +1822,7 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
               state: 'failed',
               error: describeUpdateOperationFailure({
                 code: 'preparation-failed',
-                detail: error instanceof Error ? error.message : String(error),
+                detail: describeError(error),
               }),
             }),
           )
@@ -2296,13 +2296,20 @@ async function runCoordinatorReplacement(
       prepared = await context.prepareCoordinatorUpdate(details.target, grant)
       if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      const classified = classifyMachineFailure(detail)
+      // CLASSIFY ON THE THROWN ERROR'S OWN MESSAGE, DESCRIBE THE WHOLE CHAIN
+      // [POD-3824]. `classifyUpdateFailureDetail` is an ordered first-match over
+      // a token table, so handing it the `←` chain would let a deeper link claim
+      // a token this failure never carried — a reclassification wearing a
+      // context fix's clothes. The operator-facing `detail` has no such
+      // constraint and keeps everything.
+      const classified = classifyMachineFailure(
+        error instanceof Error ? error.message : String(error),
+      )
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
           code: classified === 'artifact-unreachable' ? classified : 'download-failed',
-          detail,
+          detail: describeError(error),
         }),
       }
     }
@@ -2338,14 +2345,14 @@ async function runCoordinatorReplacement(
           details.target.version,
         )
       } catch (error) {
-        return snapshotFailure(error instanceof Error ? error.message : String(error))
+        return snapshotFailure(describeError(error))
       }
       if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
       databaseSnapshotPath = verification.path
       try {
         await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
-        return snapshotFailure(error instanceof Error ? error.message : String(error))
+        return snapshotFailure(describeError(error))
       }
     } else if (context.createDatabaseSnapshot) {
       try {
@@ -2356,7 +2363,7 @@ async function runCoordinatorReplacement(
         if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
         await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
       } catch (error) {
-        return snapshotFailure(error instanceof Error ? error.message : String(error))
+        return snapshotFailure(describeError(error))
       }
     }
     if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
@@ -2369,7 +2376,7 @@ async function runCoordinatorReplacement(
         state: 'failed',
         error: describeUpdateOperationFailure({
           code: 'preparation-failed',
-          detail: `Coordinator activation refused: ${error instanceof Error ? error.message : String(error)}`,
+          detail: `Coordinator activation refused: ${describeError(error)}`,
         }),
       }
     }

@@ -38,6 +38,7 @@ import { familyState } from '../derived-family'
  * empty object FAILS it.
  */
 
+import { describeError } from '@podium/logger'
 import type { UserId } from '@podium/model'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
@@ -165,12 +166,21 @@ async function runSettingsCommand(
   // is today; not awaiting an async one would record `applied` for a command
   // that is about to reject. `Promise.resolve`-free branch on the actual result.
   const fail = async (e: unknown): Promise<never> => {
-    const raw = e instanceof Error ? e.message : String(e)
+    // THE CHAIN IS WHAT GETS REDACTED, not just the outermost message
+    // [POD-3824]. A settings handler that wraps a store or provider refusal left
+    // the actual reason one `cause` down, and both the trail and the refused
+    // client kept only the wrapper. Widening the string does NOT weaken the
+    // backstop: `messageMentionsRedactedValue` is a substring scan over whatever
+    // is about to leave, so a wider string is a wider scan — the material now
+    // gets caught in a cause it was never inspected in before.
+    const raw = describeError(e)
     const safe = redactErrorMessage(name, input, raw)
     await record('refused', safe)
     // RE-THROWN WITH THE REDACTED MESSAGE, not the original. This is the wire
     // half of the error path: a handler that built its message from the material
     // must not hand that message to a browser just because the trail was careful.
+    // The pass-through arm keeps a TRPCError's authored message and code intact;
+    // a backstop hit fails closed onto BAD_REQUEST, as it always did.
     throw e instanceof TRPCError && safe === raw
       ? e
       : new TRPCError({ code: 'BAD_REQUEST', message: safe })

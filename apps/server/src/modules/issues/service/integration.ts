@@ -1,3 +1,4 @@
+import { describeError } from '@podium/logger'
 import {
   integrationReceiptMatchesOrder,
   type DescendantTip,
@@ -286,7 +287,7 @@ export class IssueEpicIntegrationModule {
         })
       } catch (error) {
         return await refuse(
-          `integrate: receipt persistence failed: ${this.gitSummary(error instanceof Error ? error.message : String(error))}`,
+          `integrate: receipt persistence failed: ${this.errorSummary(error)}`,
         )
       }
     }
@@ -365,5 +366,19 @@ export class IssueEpicIntegrationModule {
   private gitSummary(output: string): string {
     const line = output.split('\n').find((l) => l.trim() !== '')
     return (line ?? 'git operation failed').trim().slice(0, 200)
+  }
+
+  /**
+   * A THROWN failure's whole cause chain, bounded like {@link gitSummary}.
+   *
+   * Not `gitSummary` itself (POD-3824): that keeps the FIRST LINE, and a store
+   * driver whose own message spans lines — Drizzle prints the statement, then
+   * its params — would take the ` ← ` chain away with the rest, which is the
+   * exact context this call site exists to keep. Folding the whitespace keeps
+   * the chain on the one line a comment renders, and the same 200-character
+   * bound keeps a runaway message out of an issue comment.
+   */
+  private errorSummary(error: unknown): string {
+    return describeError(error).replace(/\s+/g, ' ').trim().slice(0, 200)
   }
 }

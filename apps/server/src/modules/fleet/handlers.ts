@@ -18,6 +18,7 @@
 
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
 import { asMachineId, HOST_REPOS, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
@@ -63,12 +64,13 @@ export interface FleetArgs<In> {
 /** The erased handler shape the heterogeneous registry table holds. */
 export type FleetHandler<In, Out> = (args: FleetArgs<In>) => Out | Promise<Out>
 
-/** The shipped BAD_REQUEST mapping for store-level validation failures, kept
- *  verbatim: the store's own message is what the UI renders. */
+/** The shipped BAD_REQUEST mapping for store-level validation failures: the
+ *  store's own message is what the UI renders, and since POD-3824 that is the
+ *  whole `cause` chain rather than whichever wrapper happened to be outermost. */
 const badRequest = (e: unknown): never => {
   throw new TRPCError({
     code: 'BAD_REQUEST',
-    message: e instanceof Error ? e.message : String(e),
+    message: describeError(e),
   })
 }
 
@@ -301,7 +303,7 @@ const requireRepoHost = async (ctx: Context, machineId: MachineId, action: strin
   } catch (e) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: e instanceof Error ? e.message : String(e),
+      message: describeError(e),
     })
   }
 }
@@ -337,7 +339,7 @@ export const repoAddManyHandler = async ({
     try {
       await ctx.repos.add(path, input.machineId)
     } catch (e) {
-      failed.push({ path, message: e instanceof Error ? e.message : String(e) })
+      failed.push({ path, message: describeError(e) })
     }
   }
   return { repos: await ctx.repos.list(), failed }

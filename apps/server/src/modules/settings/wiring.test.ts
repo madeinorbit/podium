@@ -44,6 +44,7 @@ import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
+import { REDACTED_MESSAGE } from './audit'
 import { SECRET_SURFACE_ABSENT } from './authz'
 
 const SECRET = 'sk-ant-real-material-do-not-log'
@@ -73,6 +74,20 @@ async function harness(role: UserRole | undefined) {
       principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     }),
     audit: async () => await store.settingsAudit.list(),
+  }
+}
+
+/**
+ * Make the secret WRITE throw a wrapped failure, so the refusal that reaches the
+ * trail has its reason one `cause` down — the POD-3802 shape, at the one settings
+ * seam that also has to redact.
+ */
+function throwFromSecretWrite(store: { secrets: unknown }, cause: Error): void {
+  const secrets = store.secrets as {
+    set: (key: string, value: string, updatedAt: string) => Promise<void>
+  }
+  secrets.set = () => {
+    throw new Error('secret store write failed', { cause })
   }
 }
 
@@ -171,6 +186,38 @@ describe('the derived settings router WRITES the trail', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
     expect(rows[0]?.detail).toHaveProperty('error')
+  })
+
+  it('a handler refusal now carries the CAUSE the wrapper used to hide', async () => {
+    // POD-3824, and the non-vacuity control for the redaction test below: a
+    // store failure whose reason is one `cause` down used to reach the trail as
+    // the wrapper alone. If this stopped holding, the redaction assertion under
+    // it would pass for the wrong reason — nothing to redact because nothing
+    // travels.
+    const { call, audit, store } = await harness('admin')
+    throwFromSecretWrite(store, new Error('the secrets file is read-only'))
+    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
+    const row = (await audit()).at(-1)
+    expect((row?.detail as { error: string }).error).toBe(
+      'secret store write failed ← the secrets file is read-only',
+    )
+  })
+
+  it('…and a refusal whose CAUSE echoes the material is redacted, wire and trail', async () => {
+    // THE HALF THAT IS A SECURITY CLAIM. `messageMentionsRedactedValue` is a
+    // substring scan over the string about to leave, so widening that string to
+    // the chain widens the scan with it — a store that echoed the value it
+    // rejected is now caught in a link nothing used to look at.
+    const { call, audit, store } = await harness('admin')
+    throwFromSecretWrite(store, new Error(`rejected value ${SECRET}`))
+    await expect(
+      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
+    ).rejects.toMatchObject({ message: REDACTED_MESSAGE })
+    const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.outcome).toBe('refused')
+    // Against the whole serialized row, as the applied-write test above does.
+    expect(JSON.stringify(rows[0])).not.toContain(SECRET)
   })
 
   it('the trail is EMPTY before any settings command — it is not pre-seeded', async () => {
