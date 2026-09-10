@@ -175,6 +175,17 @@ export interface AnalysisResult {
   /** Transaction-opener declarations that neither table names. */
   readonly uncoveredOpeners: readonly SourceSite[]
   /**
+   * {@link NOT_A_SPAN_OPENER} rows that matched no declaration in this program —
+   * the other direction of {@link deadOpeners}, and it had to be added because
+   * the table rotted exactly the way the opener table can. The two executor rows
+   * are pinned BY LINE so that moving a declaration is reported rather than
+   * followed silently; but when POD-3802's fallout moved both of them, the only
+   * check that fired was {@link uncoveredOpeners} at the NEW line, and the rows
+   * at the old lines went on excusing nothing while looking authoritative. A row
+   * here means the pin is stale: re-point it, or delete it with its declaration.
+   */
+  readonly staleExemptions: readonly SourceSite[]
+  /**
    * Span openers whose body argument is a VALUE, not a written-down function —
    * `store.transact(operation)` where `operation` is a parameter. The span
    * exists and the rule cannot see inside it.
@@ -332,16 +343,18 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
  * cannot appear unnoticed. These are the answers already given. Each is pinned
  * by LINE, so moving one is a reported change rather than a silent one.
  */
-const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
+export type OpenerExemption = SourceSite & { readonly why: string }
+
+export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 81,
-    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70; POD-3498's SpanScopeDrizzle comment moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
+    line: 199,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 678,
-    why: "the same declaration's implementation. (Was 676, then 680; POD-3345's idle-gap clock and the flip's own edits moved it. Reported each time.)",
+    line: 1013,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -441,6 +454,11 @@ const NODE_MODULE_KIND: Readonly<Record<string, CapabilityKind>> = {
   'web-globals/timers': 'exempt',
   'web-globals/events': 'contained',
   'web-globals/abort': 'contained',
+  // `structuredClone`, and nothing else: the module declares that one global. A
+  // deep copy of a value this process already holds — it publishes nothing, and
+  // a rollback leaves nothing outside the process wrong for it having run. The
+  // session's durable capture uses it for `offer` and `agentState`.
+  'web-globals/messaging': 'contained',
   // A timer inside a span is POD-3258's ledger, not this rule's: it schedules,
   // it does not publish. Flagging it here would duplicate that issue's answer
   // with a different one.
@@ -613,6 +631,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'an in-process liveness read',
   },
+  'apps/server/src/modules/lock/service.ts#LockServiceDeps.sessionRunning': {
+    kind: 'contained',
+    why: "the second in-process liveness read, added by POD-3807 so a WAITER is judged by whether it can take a grant rather than merely by existing. Same shape and same answer as `sessionAlive` above: it asks the live session registry a question and returns a boolean. It writes nothing and nothing outside the process can tell it was called.",
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.now': {
     kind: 'contained',
     why: 'a clock read',
@@ -660,6 +682,22 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/authority/arbitration.ts#CommandArbitrationRule.CommandArbitrationRule': {
     kind: 'contained',
     why: 'an arbitration decision: pure, and it publishes nothing',
+  },
+  'apps/server/src/modules/sessions/view.ts#SessionViewPorts.sessionOccupancyCount': {
+    kind: 'contained',
+    why: "a presence read (POD-1081): how many clients are in the session's room, asked while wiring a `SessionMeta` so `clientCount` reports occupancy rather than the PTY attach set. It reads an in-memory room registry and returns a number; it joins nobody, notifies nobody, and a rollback leaves nothing outside the process wrong for it having been asked.",
+  },
+  'apps/server/src/modules/machines/service.ts#MachinesDeps.targetVersion': {
+    kind: 'contained',
+    why: "an update-target read: the version this deployment's selected authority would serve one machine. The composition root fills it from the updates service's already-resolved target descriptor (relay.ts), so it answers from state this process holds; it publishes no grant and starts no update — `MachinesService` only stamps the answer onto the machine row it is projecting.",
+  },
+  'apps/server/src/modules/machines/service.ts#MachinesDeps.targetUnavailableReason': {
+    kind: 'contained',
+    why: "the twin of `targetVersion` above and the negative half of the same read: the actionable sentence for why the selected authority has no trusted target for this machine. It reads the resolved channel and the retraction reasons this process already holds and returns a string; nothing is issued and nothing is announced.",
+  },
+  'packages/protocol/src/schema-digest.ts#<module>.<anonymous>': {
+    kind: 'contained',
+    why: "the zod-internal thunks the digest's structural walk calls — `def.shape()` for an object's fields and `def.getter()` for a lazy schema. They are declared as anonymous function types on the casts in this module, which is why they arrive as a port member with no owner. Both return SCHEMA OBJECTS and nothing else: the digest is computed at run time from the schemas themselves and is deliberately used to tell a human that a bundle and a server were built from different protocol source, never to refuse anything. Pure computation, no observer.",
   },
 
   /* --- OBSERVABLE: rule 19 moves these ------------------------------------ */
@@ -849,6 +887,66 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a waiter continuation held in a Set',
   },
+
+  /* --- the session repository's write seam, and the plans built on it ------
+   *
+   * Every row below is a CALLBACK the caller writes down, so the body that
+   * actually runs is analysed at the site that writes it — inside whichever
+   * span opened there — and never here. `opaque` is the honest answer for the
+   * same reason it is for `IssueStore.write` and `IssueLifecyclePlan.write`
+   * above: the port's declaration names a signature, not a body, and claiming
+   * `contained` for it would be asserting something about code this table
+   * cannot see. It is not an exemption — an observable effect written into one
+   * of these lambdas is reported against the span it is written inside.
+   */
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.mutate': {
+    kind: 'opaque',
+    why: "THE session mutation seam [POD-3330]: the callback `SessionRepository.write` runs against a DRAFT of the durable half. Supplied at the call site, analysed there.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalWrite': {
+    kind: 'opaque',
+    why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.<anonymous>': {
+    kind: 'opaque',
+    why: "the follow-up write `mutate` may RETURN in place of assigning (`void | (() => void | Promise<void>)`), which `persistDraftUnlocked` then runs as the additional write. An anonymous function type declared inline on `write`'s signature, so it has no member name of its own; it is the same callback as `additionalWrite` above, reached by the other of the two routes.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.fn': {
+    kind: 'opaque',
+    why: "the body `enqueueSessionWrite` runs on this session's write turn [POD-3720]. It queues and serialises; it does not decide what the body does, and every one of them is written down at a call site in this file and analysed there.",
+  },
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.write': {
+    kind: 'opaque',
+    why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write', 'changes'] }` that literal is a SPAN ROOT in its own right there.",
+  },
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.changes': {
+    kind: 'opaque',
+    why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionDeletePlan.write` above, and a span root at the same site.',
+  },
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.write': {
+    kind: 'opaque',
+    why: 'the plan callback; its body is supplied by whoever built the plan. `prepareIssueSessionRestore` writes it down, and it is a span root there.',
+  },
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.changes': {
+    kind: 'opaque',
+    why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionRestorePlan.write` above, and a span root at the same site.',
+  },
+  'packages/sync/src/ledger.ts#LedgerCommitOp.apply': {
+    kind: 'opaque',
+    why: "the commit's POST-COMMIT half: the Ledger runs it on the OUTERMOST commit, which is one of spec §3.3's mechanisms and therefore outside the transaction by construction. Its body is written down beside the `write` and `changes` it belongs to, and analysed there.",
+  },
+  'apps/server/src/modules/lock/service.ts#LockService.probe': {
+    kind: 'opaque',
+    why: "the liveness question `principalLiveness` asks once the sentinel principals (operator, in-process system job, unknown-relay) have been answered without asking anything. A private parameter, not an injected port: the two callers write down `deps.sessionAlive` and `deps.sessionRunning`, and both of those are classified as reads above — but they are classified AT THOSE SITES, so a third caller passing something observable is reported rather than covered by this row.",
+  },
+  'apps/server/src/modules/machines/service.ts#MachineUseResolver.MachineUseResolver': {
+    kind: 'opaque',
+    why: "one principal's `use` decision per machine, supplied by the command layer (`apps/server/src/machine-access.ts`) because that is where the principal lives. `MachinesService` carries only the answer. A caller-supplied decision callback, analysed where it is written down.",
+  },
+  'apps/server/src/modules/machines/service.ts#MachineOwnedResolver.MachineOwnedResolver': {
+    kind: 'opaque',
+    why: "one principal's OWNERSHIP answer per machine (POD-1495), supplied from the same place and for the same reason as `MachineUseResolver` above. A caller-supplied decision callback, analysed where it is written down.",
+  },
 }
 
 /* --------------------------------------------------------------- utilities */
@@ -940,6 +1038,13 @@ export interface AnalyzeOptions {
   readonly walk: readonly string[]
   readonly openers?: readonly OpenerSpec[]
   readonly ports?: Readonly<Record<string, PortRule>>
+  /**
+   * The `transact`/`transaction` declarations that are deliberately NOT span
+   * openers. Injectable for the same reason {@link openers} is: a fixture world
+   * contains none of the production rows, and every one of them would then be
+   * reported stale.
+   */
+  readonly exemptions?: readonly OpenerExemption[]
 }
 
 export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisResult {
@@ -947,6 +1052,7 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
   const repoRoot = options.repoRoot
   const openers = options.openers ?? SPAN_OPENERS
   const ports = options.ports ?? PORT_CAPABILITIES
+  const exemptions = options.exemptions ?? NOT_A_SPAN_OPENER
 
   const openerByKey = new Map<string, OpenerSpec>()
   for (const spec of openers) openerByKey.set(`${spec.file}#${spec.symbol}`, spec)
@@ -964,6 +1070,8 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
   const roots: SpanRoot[] = []
   const opaqueRoots: SpanRoot[] = []
   const uncoveredOpeners: SourceSite[] = []
+  /** `<file>:<line>` of every exemption row a declaration in this program hit. */
+  const matchedExemptions = new Set<string>()
   let unresolvedCalls = 0
 
   const relOf = (fileName: string): string => toPosix(relative(repoRoot, fileName))
@@ -1308,10 +1416,17 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
           node.name.text === 'transaction')
       ) {
         const site = siteOf(node, repoRoot)
+        const exempt = exemptions.some(
+          (entry) => entry.file === site.file && entry.line === site.line,
+        )
+        // BEFORE the `known` short-circuit: a declaration that is BOTH in the
+        // opener table and pinned here must still mark the pin used, or the row
+        // reads stale the moment the opener table starts covering it too.
+        if (exempt) matchedExemptions.add(`${site.file}:${site.line}`)
         const known =
           openerByKey.has(`${site.file}#${node.name.text}`) ||
           openerKeysBehind(node).some((key) => openerByKey.has(key)) ||
-          NOT_A_SPAN_OPENER.some((entry) => entry.file === site.file && entry.line === site.line)
+          exempt
         if (!known) uncoveredOpeners.push(site)
       }
       node.forEachChild(visit)
@@ -1360,6 +1475,9 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
   }
 
   const deadOpeners = [...openerByKey.keys()].filter((key) => !matchedOpeners.has(key))
+  const staleExemptions = exemptions
+    .filter((entry) => !matchedExemptions.has(`${entry.file}:${entry.line}`))
+    .map(({ file, line }) => ({ file, line }))
 
   const blind = new Map<string, number>()
   const seenNodes = new Set<string>()
@@ -1386,6 +1504,7 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
     unclassified,
     deadOpeners,
     uncoveredOpeners,
+    staleExemptions,
     opaqueRoots: dedupeSites(opaqueRoots),
     unresolvedCalls,
     blindSpots,

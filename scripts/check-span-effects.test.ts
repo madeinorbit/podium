@@ -89,6 +89,10 @@ function run(subject: string, extra: Record<string, string> = {}): AnalysisResul
     roots: ['apps/server/src/'],
     walk: ['apps/', 'packages/'],
     ports: FIXTURE_PORTS,
+    // The production not-an-opener pins name declarations no fixture world has,
+    // so every one of them would report stale here. The rot check has its own
+    // test below, which supplies the pins it is about.
+    exemptions: [],
   })
 }
 
@@ -298,8 +302,55 @@ describe('the tables cannot rot quietly', () => {
       walk: ['apps/', 'packages/'],
       openers,
       ports: FIXTURE_PORTS,
+      exemptions: [],
     })
     expect(judge(result, []).failures.join('\n')).toContain('DEAD span opener')
+  })
+
+  /*
+   * THE OTHER DIRECTION, and the one the tables actually rotted in [POD-3821].
+   * A not-an-opener row is pinned BY LINE so that moving the declaration is
+   * reported rather than followed silently. When POD-3802's fallout moved both
+   * executor declarations, that worked only halfway: `uncoveredOpeners` named
+   * the NEW line, and the rows at the old lines went on reading as answers to a
+   * question nothing was asking any more. Nothing said so.
+   */
+  it('fails on a not-an-opener pin whose line holds no declaration any more', () => {
+    const program = createFixtureProgram({
+      ...WORLD,
+      'apps/server/src/subject.ts': `
+        import { SessionStore } from './store'
+        export function go(store: SessionStore): void { store.transact(() => store.insert('r')) }
+      `,
+      'apps/server/src/machinery.ts': `
+        export interface Machinery { transact<T>(fn: () => T): T }
+      `,
+    })
+    const shared = {
+      repoRoot: FIXTURE_ROOT,
+      roots: ['apps/server/src/'],
+      walk: ['apps/', 'packages/'],
+      ports: FIXTURE_PORTS,
+    } as const
+    // Pinned where the declaration really is: covered, and not stale.
+    const pinned = analyze(program, {
+      ...shared,
+      exemptions: [{ file: 'apps/server/src/machinery.ts', line: 2, why: 'machinery, not a mouth' }],
+    })
+    expect(pinned.staleExemptions).toEqual([])
+    expect(judge(pinned, []).failures.join('\n')).not.toContain('UNNAMED transaction opener')
+
+    // The same row after the declaration moved one line: the NEW line is
+    // reported as unnamed AND the pin is reported as stale. Before this check
+    // only the first half fired.
+    const drifted = analyze(program, {
+      ...shared,
+      exemptions: [{ file: 'apps/server/src/machinery.ts', line: 3, why: 'machinery, not a mouth' }],
+    })
+    expect(drifted.staleExemptions).toEqual([{ file: 'apps/server/src/machinery.ts', line: 3 }])
+    const failures = judge(drifted, []).failures.join('\n')
+    expect(failures).toContain('STALE not-an-opener pin')
+    expect(failures).toContain('apps/server/src/machinery.ts:3')
   })
 
   it('fails on a transaction opener neither table names', () => {

@@ -5,6 +5,16 @@
 blocking CI step (`.github/workflows/ci.yml`), never the `continue-on-error` `bun run lint`
 bundle. POD-744 is why that distinction is load-bearing.
 
+**And it runs in the agent gate, `bun run test` (POD-3821).** CI is not where this repository
+decides what lands: work lands locally, by fast-forward, and a PR is a separate decision — so
+a gate that runs only in CI is a gate most changes never meet. `bun run lint:span-effects` is
+`scripts/lint-span-effects.ts`, which drives the check through a turbo task
+(`@podium/scripts#lint:span-effects`) whose inputs name every directory the TypeScript program
+is built from. That is what makes it affordable to run every time: **~60 s on a miss, ~0.3 s
+replayed**, and a miss happens exactly when a source it reads changed. `bun
+scripts/check-span-effects.ts` is the same check uncached, and is what takes `--json` and
+`--report`.
+
 ## The rule it encodes
 
 Spec §6 rule 19, and **it is not "no non-database call inside a span"**. The line is
@@ -67,17 +77,19 @@ followed; a body full of `Map`, array and `JSON` work produces zero capabilities
 | `SLACK in the accepted list` | An `ACCEPTED` line no finding matches any more — the site was fixed. Delete the line. This is what makes the list shrink and stops it rotting into an allowlist. |
 | `DEAD span opener` | `SPAN_OPENERS` names a declaration nothing resolves to. Either it was renamed, in which case this lint has been scanning fewer spans than it claims, or it is gone. |
 | `UNNAMED transaction opener` | A `transact`/`transaction` declaration in neither `SPAN_OPENERS` nor `NOT_A_SPAN_OPENER`. Say which it is. |
+| `STALE not-an-opener pin` | A `NOT_A_SPAN_OPENER` row pins a line that holds no such declaration any more. Re-point it, or delete the row with the declaration it was about. |
 
-The last three are the anti-rot checks, and they are the reason this is a gate rather than a
+The last four are the anti-rot checks, and they are the reason this is a gate rather than a
 report. A lint whose own tables can go quiet is a lint that reports green for the wrong
 reason — the failure mode POD-3257 and the shard-manifest rule in the execution method both
 describe.
 
 ## `ACCEPTED` — the ledger, and why it is not an allowlist
 
-Eight findings stand on the tree this was written against, and every one of them is on the
-single span POD-3260 said could not be certified by hand:
-`IssueAttachOrchestrator.execute`. Each carries the sentence that says why it stands. Like
+Six findings stand on the tree this was written against, over three span roots:
+`IssueAttachOrchestrator.execute` — the single span POD-3260 said could not be certified by
+hand — the `Authority`'s own commit, and `mutateSessionMeta`'s write funnel. Each carries the
+sentence that says why it stands. Like
 POD-3252's `STAGE_A_UNCONVERTED`, it excuses no construct and hides no class of defect: it
 records what the lint FOUND, so the rule can gate on a tree it was written against instead
 of being red from the day it lands. An entry that stops matching fails.
@@ -178,3 +190,55 @@ consequences were written back into the instrument:
   `PORT_CAPABILITIES` rows went stale in SILENCE — a port table has no slack check, so a key
   that stops being produced is never reported. That silence is the one hole this gate still
   has, and it is named here rather than assumed away.
+
+## Green, and gated (POD-3821)
+
+The lint was RED on `integrate/3802-async-store-fallout` with 21 failures, which is the same
+thing as being off: a gate everyone has learned to walk past protects nothing. None of the 21
+was a defect the rule was written to find. They were the async-store flip's fallout arriving
+at the instrument, in three shapes, and each shape wanted a different answer.
+
+**Two moved declarations (2 failures).** Both `executor.ts` rows in `NOT_A_SPAN_OPENER` are
+pinned by LINE, deliberately, so that moving a declaration is reported rather than followed
+silently. POD-3802's work moved both — `afterCommit`, the refusal reporting and the scheduler
+types now sit above them — so both were re-pinned, 81 → 199 and 678 → 1013, and both rows keep
+their history in the `why`.
+
+That check turned out to work only halfway, and fixing the other half is the one thing this
+issue added to the instrument rather than to its tables. `uncoveredOpeners` reported the NEW
+line, and nothing at all reported that the rows at the OLD lines had stopped naming anything.
+A pin that excuses nothing while still reading as an answer is exactly the quiet rot the
+anti-rot checks exist for, so `staleExemptions` is now the fifth failure: a
+`NOT_A_SPAN_OPENER` row that matched no declaration in the program fails, the way a
+`SPAN_OPENERS` row that matched nothing already did.
+
+**Nineteen unclassified port members (18 failures).** New ports, and ports the flip made
+reachable from a span for the first time. They divide cleanly:
+
+- **Reads and pure computation** → `contained`. `LockServiceDeps.sessionRunning` (POD-3807's
+  second liveness predicate, the twin of `sessionAlive`), `SessionViewPorts.sessionOccupancyCount`,
+  `MachinesDeps.targetVersion` and `targetUnavailableReason`, and the zod-internal thunks the
+  wire digest's structural walk calls. `structuredClone` joined `NODE_MODULE_KIND` as
+  `web-globals/messaging`, beside the `web-globals/timers`, `events` and `abort` rows.
+- **Caller-supplied callbacks** → `opaque`, the honest answer rather than a claim about code
+  this table cannot see. The session repository's write seam (`mutate`, `additionalWrite`,
+  `fn`, and the follow-up write `mutate` may RETURN), the two session lifecycle plans'
+  `write`/`changes` — the session twins of `IssueLifecyclePlan`'s, and span roots in their own
+  right where the object literal is written down — `LedgerCommitOp.apply`, `LockService.probe`,
+  and the two machine resolvers the command layer supplies. `opaque` is not an exemption: an
+  observable effect written into one of these lambdas is reported against the span it is
+  written inside.
+
+**One observable effect (1 failure), and it is accepted.** `mutateSessionMeta`'s write funnel
+can reach `ClientConn.send`. The path is the ROLLBACK's: when the ledger commit inside
+`persistDraftUnlocked` throws, the catch restores the durable state and `TerminalSession.restoreState`
+re-announces the restored grid to the attached clients. Established by ABLATION rather than by
+reading — delete that one `announceGeometry()` call and the finding is the only thing that
+disappears, so it is the sole way this span reaches a socket at all.
+
+It stands, and the reason is the one shape rule 19's mechanisms cannot carry. The rule asks
+whether anything outside the process would be wrong for having seen this **if the transaction
+rolled back**. It rolled back — that is the precondition of the code running — and what the
+clients are told is the state the rollback restored. Deferring it would not move it, it would
+DELETE it: `afterCommit`/`postCommit` run a step when the span COMMITS, and this span does
+not. Compensation is not fan-out, and a post-commit mechanism is the wrong home for it.

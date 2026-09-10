@@ -34,13 +34,14 @@
  *     warning: an unclassified port is a rule that has quietly stopped covering
  *     something, and the fix is one line in `PORT_CAPABILITIES`.
  *  3. The tables rotting: an opener that matched nothing, a `transact`
- *     declaration neither table names, or an {@link ACCEPTED} entry with no
- *     finding left (slack — the site was fixed and the ledger line must go).
+ *     declaration neither table names, a not-an-opener pin whose line no longer
+ *     holds a declaration, or an {@link ACCEPTED} entry with no finding left
+ *     (slack — the site was fixed and the ledger line must go).
  *
  * Run: `bun run lint:span-effects` (also `--json`, `--report`).
  */
 
-import { relative } from 'node:path'
+import { relative, resolve } from 'node:path'
 import {
   type AnalysisResult,
   analyze,
@@ -92,6 +93,10 @@ const ACCEPTED: readonly AcceptedFinding[] = [
   {
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/application/issue-attach-orchestrator.ts:26',
     why: 'Authority.finalize publishes immediately when AuthorityDeps.postCommit is UNSET, and relay.ts sets it — ledger §A row 3. The immediate branch is real code the type system cannot tell is unreachable in the server, so the lint sees it and this line records why it stands.',
+  },
+  {
+    key: 'apps/server/src/modules/sessions/session.ts#Send.Send@apps/server/src/modules/sessions/session-meta-ops.ts:365',
+    why: "THE ROLLBACK'S OWN CORRECTION, and the one shape rule 19's mechanisms cannot carry. `mutateSessionMeta` opens the write funnel over `SessionRepository.write`; when the ledger commit inside `persistDraftUnlocked` throws, the catch calls `session.restoreDurableState`, and `TerminalSession.restoreState` re-announces the restored grid to the ATTACHED CLIENTS — repository.ts:658 -> session.ts:933 -> terminal.ts:1196 -> announceGeometry -> broadcast -> `ClientConn.send`. Verified BY ABLATION rather than by reading: delete the `announceGeometry()` call at terminal.ts:1209 and this finding is the only one that disappears, so that arrival is the sole way this span reaches a socket at all. Rule 19 asks whether anything outside the process would be wrong for having seen this if the transaction rolled back. It rolled back — that is the precondition of this code running — and what the clients are told is the state the rollback restored, which is what they will still be looking at afterwards. Deferring it would not move it, it would DELETE it: afterCommit/postCommit run a step when the span COMMITS, and this span does not. The comment at terminal.ts:1201 already draws the other half of the line and it holds here: clients only, no `resize` to the daemon, because the rollback undoes what the SERVER believed about geometry while the pty never moved.",
   },
   {
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@packages/sync/src/authority/authority.ts:247',
@@ -175,6 +180,16 @@ export function judge(result: AnalysisResult, accepted: readonly AcceptedFinding
         '    NOT_A_SPAN_OPENER. Say which it is, in scripts/span-effect-graph.ts.',
     )
   }
+  for (const site of result.staleExemptions) {
+    failures.push(
+      `STALE not-an-opener pin: ${site.file}:${site.line}\n` +
+        '    NOT_A_SPAN_OPENER pins a declaration at that line and there is none there any\n' +
+        '    more. The row excuses nothing while still reading as an answer, which is how\n' +
+        '    two executor pins went on standing after POD-3802 moved both declarations —\n' +
+        '    only the NEW line was reported. Re-point the line, or delete the row with the\n' +
+        '    declaration it was about.',
+    )
+  }
   return { failures, accepted: matched, fresh, slack }
 }
 
@@ -211,9 +226,18 @@ function report(result: AnalysisResult, verdict: Verdict): void {
   }
 }
 
+/**
+ * THE REPOSITORY, not the working directory. Every path this lint reports, every
+ * key in {@link ACCEPTED} and every key in `PORT_CAPABILITIES` is repo-relative,
+ * so the root has to be the repository whatever directory the process was
+ * started in — and once it goes through a turbo task it is started in
+ * `scripts/`, not the root.
+ */
+const REPO_ROOT = resolve(import.meta.dirname, '..')
+
 function main(): void {
   const options = parseArgs(process.argv.slice(2))
-  const repoRoot = process.cwd()
+  const repoRoot = REPO_ROOT
   const program = createProjectProgram(repoRoot, 'apps/server/tsconfig.json')
   const result = analyze(program, { repoRoot, roots: ROOT_SCOPE, walk: WALK_SCOPE })
   const verdict = judge(result, ACCEPTED)
