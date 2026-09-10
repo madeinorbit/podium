@@ -63,7 +63,7 @@ export function isMergeLockName(name: string): boolean {
 }
 
 const CANONICAL_HINT =
-  "the merge mutex is branch-scoped and canonically named 'merge:<branch>' — use `podium merge-lock acquire --wait` (sugar for 'merge:main'), or `podium lock acquire merge:<branch>` for another branch"
+  "the merge mutex is branch-scoped and canonically named 'merge:<branch>' — use `podium merge-lock acquire --wait` (sugar for 'merge:main'), or `podium merge-lock acquire <branch> --wait` for another branch"
 
 /**
  * Why `name` may not be used, or null when it is fine.

@@ -5,7 +5,7 @@ import {
   makeRelayIssueClient,
   parseDurationSeconds,
 } from '@podium/issue-client'
-import { DEFAULT_MERGE_LOCK_BRANCH, mergeLockName } from '@podium/protocol'
+import { DEFAULT_MERGE_LOCK_BRANCH, MERGE_LOCK_PREFIX, mergeLockName } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -159,7 +159,11 @@ function helpText(group: 'lock' | 'merge-lock'): string {
   const w = Math.max(...LOCK_COMMANDS.map((c) => c.name.length))
   const extra =
     group === 'merge-lock'
-      ? ['', 'Operates on the lock name `merge:<branch>` (--branch, default main).']
+      ? [
+          '',
+          'Operates on the lock name `merge:<branch>`. Name the branch positionally',
+          '(`merge-lock acquire dev/mw`) or with --branch; the default is main.',
+        ]
       : []
   return [
     `podium ${group} <command> [--flags]`,
@@ -170,14 +174,29 @@ function helpText(group: 'lock' | 'merge-lock'): string {
 }
 
 /**
- * Map `podium merge-lock <verb> [--branch main] …` onto the plain lock argv:
- * the same verb with the positional name `merge:<branch>` (default `main`).
- * Thin CLI-side sugar — there is no separate server surface.
+ * Map `podium merge-lock <verb> [<branch>] [--branch main] …` onto the plain
+ * lock argv: the same verb with the positional name `merge:<branch>` (default
+ * `main`). Thin CLI-side sugar — there is no separate server surface.
+ *
+ * THE BRANCH SLOT (POD-3832). Both spellings name the branch. The positional
+ * used to fall through to `passthrough`, which put it AFTER the injected name:
+ * every lock verb declares exactly one positional (`name`), so the mapping took
+ * the injected `merge:main` and dropped the branch on the floor. `merge-lock
+ * acquire dev/mw` then held the mutex for main — the wrong lease, silently,
+ * which is the one failure mode a mutex may never have.
+ *
+ * So a token no flag consumed is the branch, and the flag/value split has to be
+ * exact (`--note stuck` must not offer `stuck` as a branch) — it mirrors
+ * parseLockArgs, which is what will read this argv back. Two branches that do
+ * not name the same lease are refused rather than resolved by precedence: with
+ * a mutex, guessing which one the caller meant is how you serialise against
+ * nobody.
  */
 export function mergeLockArgv(argv: string[]): string[] {
   const [verb, ...rest] = argv
   if (!verb || verb === 'help') return argv
-  let branch: string = DEFAULT_MERGE_LOCK_BRANCH
+  let flagBranch: string | null = null
+  let positionalBranch: string | null = null
   const passthrough: string[] = []
   for (let i = 0; i < rest.length; i++) {
     const t = rest[i]
@@ -185,20 +204,71 @@ export function mergeLockArgv(argv: string[]): string[] {
     if (t === '--branch') {
       const next = rest[i + 1]
       if (next == null || next.startsWith('--')) throw new LockCliError('--branch needs a value')
-      branch = next
+      flagBranch = next
       i++
       continue
     }
     if (t.startsWith('--branch=')) {
-      branch = t.slice('--branch='.length)
-      if (!branch) throw new LockCliError('--branch needs a value')
+      flagBranch = t.slice('--branch='.length)
+      if (!flagBranch) throw new LockCliError('--branch needs a value')
+      continue
+    }
+    if (!t.startsWith('--')) {
+      if (positionalBranch != null) {
+        throw new LockCliError(
+          `merge-lock takes one branch, but got '${positionalBranch}' and '${t}' — ` +
+            'the lock name is supplied for you.',
+        )
+      }
+      positionalBranch = t
       continue
     }
     passthrough.push(t)
+    // Carry a flag's value across with its flag, so it is never left looking
+    // like the branch. Same value/boolean rule parseLockArgs applies below.
+    const next = rest[i + 1]
+    if (
+      !t.includes('=') &&
+      !BOOL_FLAGS.has(camelFlag(t.slice(2))) &&
+      next != null &&
+      !next.startsWith('--')
+    ) {
+      passthrough.push(next)
+      i++
+    }
+  }
+  for (const [flag, raw] of [
+    ['', positionalBranch],
+    ['--branch ', flagBranch],
+  ] as const) {
+    // `merge-lock acquire merge:dev/mw` reads as right and would build
+    // `merge:merge:dev/mw`, a second lease that serialises against nothing —
+    // the POD-672 failure, reachable again the moment the branch slot works.
+    if (raw?.trim().toLowerCase().startsWith(MERGE_LOCK_PREFIX) === true) {
+      const branch = raw.trim().slice(MERGE_LOCK_PREFIX.length)
+      throw new LockCliError(
+        `merge-lock's branch slot takes a branch, not a lock name: ${flag}'${raw}' would key ` +
+          `the mutex '${mergeLockName(raw)}'. Use \`podium merge-lock ${verb} ${branch}\`.`,
+      )
+    }
+  }
+  if (positionalBranch != null && flagBranch != null) {
+    const fromPositional = mergeLockName(positionalBranch)
+    const fromFlag = mergeLockName(flagBranch)
+    if (fromPositional !== fromFlag) {
+      throw new LockCliError(
+        `merge-lock got two different branches: '${positionalBranch}' (${fromPositional}) and ` +
+          `--branch '${flagBranch}' (${fromFlag}) — pass one.`,
+      )
+    }
   }
   // Through the shared builder, so `--branch refs/heads/main` and `--branch main`
   // reach the SAME lease rather than two independent ones (POD-672).
-  return [verb, mergeLockName(branch), ...passthrough]
+  return [
+    verb,
+    mergeLockName(positionalBranch ?? flagBranch ?? DEFAULT_MERGE_LOCK_BRANCH),
+    ...passthrough,
+  ]
 }
 
 export interface LockCliOutcome {

@@ -152,6 +152,64 @@ describe('mergeLockArgv', () => {
       'merge:main',
     ])
   })
+
+  it('reads the branch off the positional (POD-3832)', () => {
+    // The reported bug: the positional was passed straight through as a second
+    // positional, where the `name` mapping ignores it — so `acquire dev/mw`
+    // silently took merge:main, the WRONG mutex, with no error.
+    expect(mergeLockArgv(['acquire', 'dev/mw'])).toEqual(['acquire', 'merge:dev/mw'])
+    expect(mergeLockArgv(['release', 'dev/mw'])).toEqual(['release', 'merge:dev/mw'])
+    expect(mergeLockArgv(['acquire', 'dev/mw', '--wait', '--ttl', '30m'])).toEqual([
+      'acquire',
+      'merge:dev/mw',
+      '--wait',
+      '--ttl',
+      '30m',
+    ])
+    // Same normalisation as --branch: one branch, one lease (POD-672).
+    expect(mergeLockArgv(['acquire', 'refs/heads/dev/mw'])).toEqual(['acquire', 'merge:dev/mw'])
+  })
+
+  it('does not mistake a flag value for the branch', () => {
+    // `stuck` is --note's value, not a branch; only a token no flag consumed is.
+    expect(mergeLockArgv(['steal', '--note', 'stuck'])).toEqual([
+      'steal',
+      'merge:main',
+      '--note',
+      'stuck',
+    ])
+    expect(mergeLockArgv(['steal', 'dev/mw', '--note', 'stuck'])).toEqual([
+      'steal',
+      'merge:dev/mw',
+      '--note',
+      'stuck',
+    ])
+    // A boolean flag consumes nothing, so the token after it is still the branch.
+    expect(mergeLockArgv(['acquire', '--wait', 'dev/mw'])).toEqual([
+      'acquire',
+      'merge:dev/mw',
+      '--wait',
+    ])
+  })
+
+  it('refuses two branches rather than silently picking one', () => {
+    expect(() => mergeLockArgv(['acquire', 'dev/mw', '--branch', 'main'])).toThrow(
+      /merge:dev\/mw.*merge:main|merge:main.*merge:dev\/mw/,
+    )
+    expect(() => mergeLockArgv(['acquire', 'dev/mw', 'main'])).toThrow(/one branch/)
+    // Two spellings of the SAME branch agree, so there is nothing to refuse.
+    expect(mergeLockArgv(['acquire', 'dev/mw', '--branch', 'refs/heads/dev/mw'])).toEqual([
+      'acquire',
+      'merge:dev/mw',
+    ])
+  })
+
+  it('refuses an already-prefixed lock name in the branch slot', () => {
+    // Would build `merge:merge:dev/mw` — a second independent lease that
+    // serialises against nobody, which is the POD-672 failure all over again.
+    expect(() => mergeLockArgv(['acquire', 'merge:dev/mw'])).toThrow(/merge:dev\/mw/)
+    expect(() => mergeLockArgv(['acquire', '--branch', 'merge:main'])).toThrow(/merge:main/)
+  })
 })
 
 describe('lock name validation reaches the CLI', () => {
@@ -166,6 +224,31 @@ describe('lock name validation reaches the CLI', () => {
       /merge:main/,
     )
     expect(mutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('merge-lock end to end', () => {
+  // Both spellings of the branch have to reach the same lease all the way to
+  // the wire, not just out of the argv mapping: POD-3832's bug survived because
+  // the positional was mapped, then dropped by the `name` positional filling.
+  it.each([
+    ['positional', ['acquire', 'dev/mw', '--repoPath', '/r']],
+    ['--branch', ['acquire', '--branch', 'dev/mw', '--repoPath', '/r']],
+  ])('acquire by %s takes merge:dev/mw', async (_spelling, argv) => {
+    const mutate = vi.fn(async () => grantedWire('merge:dev/mw'))
+    const client = { lock: { acquire: { mutate } } } as never
+    const out = await runLockCli(mergeLockArgv(argv), client, { group: 'merge-lock' })
+    expect(out.exitCode).toBe(0)
+    expect(mutate).toHaveBeenCalledWith({ repoPath: '/r', name: 'merge:dev/mw' })
+  })
+
+  it('still defaults to merge:main when no branch is named', async () => {
+    const mutate = vi.fn(async () => grantedWire('merge:main'))
+    const client = { lock: { acquire: { mutate } } } as never
+    await runLockCli(mergeLockArgv(['acquire', '--repoPath', '/r']), client, {
+      group: 'merge-lock',
+    })
+    expect(mutate).toHaveBeenCalledWith({ repoPath: '/r', name: 'merge:main' })
   })
 })
 
