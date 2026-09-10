@@ -20,6 +20,9 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './sessions/inbox'
 import type { HarnessErrorKind } from './superagent/harness-error'
 
+import { runAtRoot } from '../store/executor/context'
+import { afterCommit } from '../store/executor/executor'
+
 const log = createLogger('server:bus')
 
 /**
@@ -223,15 +226,37 @@ export class EventBus {
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     const set = this.listeners.get(event)
     if (!set) return
-    for (const listener of [...set]) {
-      try {
-        void Promise.resolve(listener(payload)).catch((err) =>
-          log.warn('event listener rejected', { err, event }),
-        )
-      } catch (err) {
-        log.warn('event listener threw', { err, event })
-      }
-    }
+    const listeners = [...set]
+    // OUTSIDE THE EMITTER'S SPAN [POD-3806]. A listener that opens its own store
+    // transaction would otherwise JOIN the span the emitter has open, as a
+    // savepoint: the emitter's next statement then addresses a frame with an open
+    // child and is refused, and the listener's savepoint dies when the span
+    // closes. That is the lock bug (POD-3802) reached through the bus, and it is
+    // what broke `issue.sessionDerived` -> `primeOwnerMemo` in production.
+    //
+    // `afterCommit` is the whole rule: with a write span open the dispatch waits
+    // for its COMMIT — which is also what the bus already promises subscribers
+    // ("emit AFTER the state change is applied"), and it means a rollback
+    // discards the announcement of a change that did not happen. With no span
+    // open it runs now, synchronously, exactly as before.
+    //
+    // `runAtRoot` covers the scopes `afterCommit` treats as "no span" — a read
+    // scope, and the post-commit drain itself — so a listener never inherits the
+    // caller's scope on any path. Inside the drain it is already the root and
+    // this is a no-op.
+    afterCommit(() => {
+      runAtRoot(() => {
+        for (const listener of listeners) {
+          try {
+            void Promise.resolve(listener(payload)).catch((err) =>
+              log.warn('event listener rejected', { err, event }),
+            )
+          } catch (err) {
+            log.warn('event listener threw', { err, event })
+          }
+        }
+      })
+    }, `bus:${event}`)
   }
 
   /** Await every observer while preserving regular event isolation. Use this

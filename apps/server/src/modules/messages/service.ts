@@ -67,6 +67,7 @@ import type {
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
 import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
+import { afterCommit } from '../../store/executor/executor'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
@@ -1145,7 +1146,15 @@ export class MessageDeliveryService {
         claimedBy: null,
         claimedAt: null,
       }
-      this.deps.mirrorIssueMail?.(legacy)
+      // AFTER THE COMMIT, not inside the span [POD-3806]. Both mirrors are
+      // `void`-typed deps wired at the composition root to `funnel.run({ write })`,
+      // which opens its own store transaction. Under the async executor that
+      // transaction JOINS whatever span this send is running inside, as a
+      // savepoint, so firing it here made the span's next statement address a
+      // frame with an open child (refused) and left the mirror's savepoint to die
+      // when the span closed. Same shape as the lock bug (POD-3802).
+      const mirrored = legacy
+      afterCommit(() => this.deps.mirrorIssueMail?.(mirrored), 'legacy-mail-mirror')
     }
 
     const outcome = await this.attemptDelivery(
@@ -2554,9 +2563,13 @@ export class MessageDeliveryService {
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
       // mail") until the agent runs `podium issue mail inbox`.
       if (message.toKind === 'issue' && message.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
-        } catch {}
+        // After the commit, for the reason the mirror insert above states.
+        const readIssueId = asIssueId(message.toId)
+        afterCommit(() => {
+          try {
+            this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+          } catch {}
+        }, 'legacy-mail-mirror-read')
       }
       this.turnHop.set(sessionId, message.hop)
       await this.emitTransition(
@@ -2577,9 +2590,13 @@ export class MessageDeliveryService {
     const at = this.deps.now()
     if (await this.deps.messages.markDelivered(message.id, null, at)) {
       if (message.toKind === 'issue' && message.toId) {
-        try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
-        } catch {}
+        // After the commit, for the reason the mirror insert above states.
+        const readIssueId = asIssueId(message.toId)
+        afterCommit(() => {
+          try {
+            this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+          } catch {}
+        }, 'legacy-mail-mirror-read')
       }
       await this.emitTransition(
         { ...message, status: 'delivered', deliveredAt: at, deliveredTo: null },

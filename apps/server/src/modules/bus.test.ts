@@ -2,6 +2,7 @@ import { asMachineId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { EventBus } from './bus'
+import { openTestStore } from '../test-support/open-test-store'
 
 describe('EventBus', () => {
   it('delivers a typed payload to subscribers', () => {
@@ -117,5 +118,61 @@ describe('EventBus', () => {
       ownerUserId: 'user:sole',
     })
     expect(crashed).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Under the async store executor a listener that opens its own transaction JOINS
+ * whatever span the EMITTER has open, as a savepoint. The emitter's next
+ * statement then addresses a frame with an open child and is refused, and the
+ * listener's orphaned savepoint dies when the span closes. `emit` is a
+ * notification — an observer must never be able to break the mutation path that
+ * announced the change [POD-3806].
+ *
+ * The listener here is production-shaped: it opens a REAL store transaction,
+ * which is exactly what `session-authz.primeOwnerMemo` does on
+ * `issue.sessionDerived`.
+ */
+describe('EventBus under the async store (POD-3806)', () => {
+  it('a listener that opens a transaction does not break the span that emitted', async () => {
+    const store = await openTestStore(':memory:')
+    const bus = new EventBus()
+    bus.on('machine.connected', async () => {
+      await store.transact(async () => {
+        await store.issues.getIssue(asIssueId('iss_listener'))
+      })
+    })
+
+    await store.transact(async () => {
+      await store.issues.getIssue(asIssueId('iss_before'))
+      bus.emit('machine.connected', { machineId: asMachineId('m1') })
+      // The statement the lock bug died on: same span, after the emit.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+  })
+
+  it('defers the listener until the emitting span has committed', async () => {
+    const store = await openTestStore(':memory:')
+    const bus = new EventBus()
+    const order: string[] = []
+    bus.on('machine.connected', () => {
+      order.push('listener')
+    })
+
+    await store.transact(async () => {
+      bus.emit('machine.connected', { machineId: asMachineId('m1') })
+      order.push('span-tail')
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    expect(order).toEqual(['span-tail', 'listener'])
+  })
+
+  it('still dispatches synchronously with no span open', () => {
+    const bus = new EventBus()
+    const seen: string[] = []
+    bus.on('machine.connected', ({ machineId }) => seen.push(machineId))
+    bus.emit('machine.connected', { machineId: asMachineId('m1') })
+    expect(seen).toEqual(['m1'])
   })
 })

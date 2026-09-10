@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import { afterCommit } from '../../../store/executor/executor'
 import {
   asMachineId,
   asUserId,
@@ -656,7 +657,12 @@ export class IssueGitWorkflowModule {
       // operator who pressed merge sees the "ready to merge" chip go rather than
       // watching it outlive the merge until the next watch tick. Siblings whose
       // own counts moved are the watch's job, not this action's.
-      void this.refreshGitState(id).catch(() => {})
+      // After the commit, not inside the span: the probe opens with a 10ms
+      // timer whose callback inherits this scope, and a span that has closed by
+      // then refuses every read the probe makes [POD-3806].
+      afterCommit(() => {
+        void this.refreshGitState(id).catch(() => {})
+      }, 'issue-git-state-landed')
       return { ...r, issue }
     }
     return { ...r, issue: await issueNow() }
@@ -1553,7 +1559,11 @@ export class IssueGitWorkflowModule {
     const removedCommits = this.gitCommitsBySession.delete(sessionId)
     const removedTouched = this.gitTouchedBySession.delete(sessionId)
     if ((!removedCommits && !removedTouched) || !resolved) return
-    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+    // After the commit, for the reason `land` states above [POD-3806].
+    const { row, sess } = resolved
+    afterCommit(() => {
+      void this.refreshGitState(row.id, sess.cwd).catch(() => {})
+    }, 'issue-git-state-session-departed')
   }
 
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the

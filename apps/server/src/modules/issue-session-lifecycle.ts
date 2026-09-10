@@ -73,9 +73,21 @@ export class IssueSessionLifecycle {
     issueId: IssueId
     reason: ClosedIssueSweepReason
   }): Promise<void> {
-    void this.stopClosedIssueNow(input).catch((error) => {
-      log.warn('closed issue cleanup failed', { err: error, issueId: input.issueId })
-    })
+    // AFTER THE COMMIT, not inside the span [POD-3806]. The `void` is the point
+    // of this method — the close must not wait for worktree work — but under the
+    // async store executor the tail's first read JOINS the span the close is
+    // running inside, as a savepoint: the close's next statement addresses a
+    // frame with an open child and is refused, and once the span closes every
+    // read the cleanup makes is refused as stale and swallowed into the warning
+    // below. The issue closes and its sessions are never stopped.
+    //
+    // Still fire-and-forget, and still not awaited by the closer. With no span
+    // open it runs now, exactly as before.
+    afterCommit(() => {
+      void this.stopClosedIssueNow(input).catch((error) => {
+        log.warn('closed issue cleanup failed', { err: error, issueId: input.issueId })
+      })
+    }, 'closed-issue-cleanup')
   }
 
   private async stopClosedIssueNow(input: {

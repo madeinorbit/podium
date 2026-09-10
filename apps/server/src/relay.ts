@@ -2339,7 +2339,14 @@ export class SessionRegistry {
         }
       },
       machineName: async (machineId) => (await machines.listMachines()).find((m) => m.id === machineId)?.name,
-      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
+      // RETURNED, not discarded [POD-3806]. `sendMail` opens its own store
+      // transaction and `ApprovalService.notify` awaits this; the `void` here
+      // dropped the promise, so under the async store executor the mail joined
+      // whatever span the decision was running inside and died orphaned when the
+      // span closed. Same shape as the lock bug (POD-3802).
+      notifyIssue: async (issueId, body) => {
+        await issues.sendMail(issueId, 'approval-broker', body)
+      },
       executeServerOp: async (op, sessionId) => {
         const caller = await workflowCallerForCapability(await sessionsSvc.capabilityForSession(sessionId))
         if (op.kind === 'workflow-publish') {

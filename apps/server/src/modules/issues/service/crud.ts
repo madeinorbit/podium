@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { afterCommit } from '../../../store/executor/executor'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   type ArtifactId,
@@ -1189,9 +1190,20 @@ export class IssueCrudModule {
       patch.parentBranch !== undefined &&
       row.parentBranch !== prevParentBranch
     ) {
-      void this.gitWorkflow()
-        .refreshGitState(row.id)
-        .catch(() => {})
+      // AFTER THE COMMIT, not inside the span [POD-3806]. `refreshGitState`
+      // opens with a 10ms coalescing timer, and a timer callback INHERITS the
+      // async scope it was scheduled in — so from inside a span the probe wakes
+      // up still addressing a transaction frame that has since committed and
+      // released its lease. Every store read it makes is refused as stale, its
+      // own `try/catch` swallows the refusal, and the retarget silently never
+      // re-probes: the row keeps describing a base that no longer applies, which
+      // is the exact failure POD-576 added this refresh to prevent.
+      const retargeted = row.id
+      afterCommit(() => {
+        void this.gitWorkflow()
+          .refreshGitState(retargeted)
+          .catch(() => {})
+      }, 'issue-git-state-retarget')
     }
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart

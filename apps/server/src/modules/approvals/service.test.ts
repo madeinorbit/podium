@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { ApprovalsRepository } from '../../store/approvals'
 import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
+import { openTestStore } from '../../test-support/open-test-store'
 import { APPROVAL_EXEC_DEADLINE_MS, ApprovalService } from './service'
 
 function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => string | null) {
@@ -35,7 +36,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       logEvent: (kind, issueId) => {
         events.push({ kind, issueId })
       },
-      notifyIssue: (_issueId, body) => {
+      notifyIssue: async (_issueId, body) => {
         mails.push(body)
       },
       ...(executeServerOp ? { executeServerOp } : {}),
@@ -298,5 +299,53 @@ describe('ApprovalService', () => {
       })
       expect((await svc.get({ id })).resultText).toBe('no such channel')
     })
+  })
+})
+
+
+/**
+ * The outcome mail is the same shape as the lock bug (POD-3802): a dep wired at
+ * the composition root to `IssueService.sendMail`, which opens its own store
+ * transaction. `ApprovalService.notify` has always awaited it, so the whole
+ * defect was the single `void` at that wiring — which is why the dep is now
+ * typed `Promise<void>`, making a discarded promise there a type error rather
+ * than a runtime span break [POD-3806].
+ *
+ * This pins the half a type cannot: that `notify` still AWAITS, so the mail is a
+ * properly nested savepoint of the deciding span and not a parallel one. The
+ * service is built over the SAME store the span is opened on, as production
+ * builds it, and the mail is production-shaped — it opens a real transaction.
+ */
+describe('ApprovalService under the async store (POD-3806)', () => {
+  it('the outcome mail does not break the span the decision runs in', async () => {
+    const store = await openTestStore(':memory:')
+    const mails: string[] = []
+    const svc = new ApprovalService({
+      store: store.approvals,
+      now: () => '2026-07-13T00:00:00.000Z',
+      toMachine: () => {},
+      clients: () => [],
+      sessionIssueId: () => asIssueId('iss_1'),
+      issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
+      machineName: () => 'ludovico',
+      logEvent: () => {},
+      notifyIssue: async (_issueId, body) => {
+        mails.push(body)
+        await store.transact(async () => {
+          await store.issues.getIssue(asIssueId('iss_mail'))
+        })
+      },
+    })
+    const filed = await req(svc)
+
+    await store.transact(async () => {
+      await svc.deny(filed.id)
+      // The statement the lock bug died on: same span, after the mail.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    expect(mails).toEqual([
+      `approval ${filed.id} ("update podium (self-update from the configured channel)"): denied by the operator`,
+    ])
   })
 })

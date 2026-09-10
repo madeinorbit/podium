@@ -56,6 +56,7 @@ import type {
 import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 import type { TurnEvent } from '@podium/protocol/daemon'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
+import { afterCommit } from '../../store/executor/executor'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
 import { defaultAnswerFor, resolveAnswerText } from './answers'
@@ -248,6 +249,25 @@ export class InteractionService {
   constructor(private readonly deps: InteractionServiceDeps) {}
 
   /**
+   * Announce a row AFTER the caller's span commits [POD-3806].
+   *
+   * `deps.publish` is typed `=> void` and wired at the composition root to an
+   * `async` feed publish, so every call site here discards a promise. Under the
+   * async store executor that discarded transaction JOINS the span this mutation
+   * is running inside, as a savepoint: the mutation's next statement addresses a
+   * frame with an open child and is refused, and the orphaned savepoint dies when
+   * the span closes. That is the lock bug (POD-3802), and the ten call sites
+   * below are the same shape.
+   *
+   * Deferring is also the more honest announcement: a mutation whose span rolls
+   * back never happened, and a replica should not have been told it did. With no
+   * span open `afterCommit` publishes now, exactly as before.
+   */
+  private announce(row: InteractionRow): void {
+    afterCommit(() => this.deps.publish(row), 'interaction-publish')
+  }
+
+  /**
    * POLICY ANSWERS WHOSE DELIVERY IS STILL IN FLIGHT (POD-2414 review, P1/5).
    *
    * The default table CLAIMS a row before delivering, so while delivery is in
@@ -422,7 +442,7 @@ export class InteractionService {
     })
     // A collapsed duplicate must not re-announce — see the header.
     if (inserted) {
-      this.deps.publish(row)
+      this.announce(row)
       await this.applyDefaultAnswer(row, spec)
     }
     const settled = await this.deps.store.get(row.id) ?? row
@@ -693,7 +713,7 @@ export class InteractionService {
     )
       return
     const settled = await this.deps.store.get(row.id)
-    if (settled) this.deps.publish(settled)
+    if (settled) this.announce(settled)
   }
 
   /** A session ended: every ask it left behind stops being answerable. EXPIRED
@@ -715,7 +735,7 @@ export class InteractionService {
     if (!only) {
       for (const id of await this.deps.store.closeSession(sessionId, status, this.deps.now())) {
         const row = await this.deps.store.get(id)
-        if (row) this.deps.publish(row)
+        if (row) this.announce(row)
         log.debug('interaction closed', { id, status, why })
       }
       return
@@ -728,7 +748,7 @@ export class InteractionService {
       if (!only(row)) continue
       if (!await this.deps.store.close(row.id, status, this.deps.now())) continue
       const settled = await this.deps.store.get(row.id)
-      if (settled) this.deps.publish(settled)
+      if (settled) this.announce(settled)
       log.debug('interaction closed', { id: row.id, status, why })
     }
   }
@@ -736,7 +756,7 @@ export class InteractionService {
   private async supersede(id: string): Promise<void> {
     if (!await this.deps.store.close(id, 'superseded', this.deps.now())) return
     const row = await this.deps.store.get(id)
-    if (row) this.deps.publish(row)
+    if (row) this.announce(row)
   }
 
   /** The transcript tail's last AskUserQuestion, as raw prompts. */
@@ -843,7 +863,7 @@ export class InteractionService {
     if (await this.deps.store.openByFingerprint(row.sessionId, row.fingerprint)) return
     if (!await this.deps.store.reopen(row.id, 'policy')) return
     const reopened = await this.deps.store.get(row.id)
-    if (reopened) this.deps.publish(reopened)
+    if (reopened) this.announce(reopened)
     log.info('default answer could not be delivered; escalating to a human', {
       id: row.id,
       kind: row.kind,
@@ -938,7 +958,7 @@ export class InteractionService {
       if (REFUSAL_KEEPS_ASK_OPEN.has(delivery.refusal)) {
         if (await this.deps.store.reopen(row.id, input.answeredBy)) {
           const reopened = await this.deps.store.get(row.id)
-          if (reopened) this.deps.publish(reopened)
+          if (reopened) this.announce(reopened)
         }
         // The refusal is reported as itself, not flattened to one word: a
         // surface renders a permanent limitation differently from a lost reply,
@@ -957,7 +977,7 @@ export class InteractionService {
         )
         if (closed) {
           const retired = await this.deps.store.get(row.id)
-          if (retired) this.deps.publish(retired)
+          if (retired) this.announce(retired)
         }
         return { ok: false, reason: delivery.refusal, detail: delivery.detail }
       }
@@ -967,7 +987,7 @@ export class InteractionService {
       // not have. Record the (unverified) delivery, then say what happened.
       await this.deps.store.recordDelivery(row.id, delivery.via)
       const unresolved = await this.deps.store.get(row.id)
-      if (unresolved) this.deps.publish(unresolved)
+      if (unresolved) this.announce(unresolved)
       return { ok: false, reason: delivery.refusal, detail: delivery.detail }
     }
     // `recordDelivery`, not a second `answer`: that one guards on
@@ -975,7 +995,7 @@ export class InteractionService {
     // nothing here and leave every delivered answer recorded as unverified.
     await this.deps.store.recordDelivery(row.id, delivery.via)
     const settled = await this.deps.store.get(row.id)
-    if (settled) this.deps.publish(settled)
+    if (settled) this.announce(settled)
     if (delivery.ok) return { ok: true }
     /**
      * THE UNTYPED FAILURE, REPORTED AS A FAILURE (POD-2414 third pass).

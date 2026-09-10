@@ -34,9 +34,19 @@ export interface ApprovalServiceDeps {
   machineName(machineId: MachineId): string | undefined | Promise<string | undefined>
   /** Append to the durable event log (renders in the issue activity feed). */
   logEvent(kind: string, issueId: IssueId | null, payload: Record<string, unknown>): void | Promise<void>
-  /** Push the outcome to the requesting agent via issue mail (stop-hook/nudge
-   *  delivery) — the agent must not have to poll to learn the decision. */
-  notifyIssue(issueId: IssueId, body: string): void | Promise<void>
+  /**
+   * Push the outcome to the requesting agent via issue mail (stop-hook/nudge
+   * delivery) — the agent must not have to poll to learn the decision.
+   *
+   * `Promise<void>`, NOT `void | Promise<void>` [POD-3806]. This is wired to
+   * `IssueService.sendMail`, which opens its own store transaction, and the
+   * union let the composition root write `void issues.sendMail(...)` — dropping
+   * that promise, so under the async store executor the mail transaction JOINED
+   * whatever span the decision was running inside and then died orphaned when
+   * the span closed. `notify` below has always awaited this; the type is what
+   * makes the discarded promise unrepresentable at the wiring.
+   */
+  notifyIssue(issueId: IssueId, body: string): Promise<void>
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
   executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null | Promise<string | null>

@@ -194,6 +194,11 @@ interface HarnessOpts {
   /** Whether a draft is typed into the agent's prompt line here [POD-1204].
    *  Unset = unwired, which the guard reads as "assume it is". */
   draftInjectionActive?: () => boolean
+  /** Wire the legacy mirrors PRODUCTION-SHAPED: relay.ts wires both to
+   *  `funnel.run({ write })`, which opens its own store transaction. The plain
+   *  repository call the default harness uses does not, which is why the span
+   *  hazard of POD-3806 was invisible here. */
+  mirrorOpensTransaction?: boolean
 }
 
 async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -260,9 +265,20 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       },
       ...(opts?.draftInjectionActive ? { draftInjectionActive: opts.draftInjectionActive } : {}),
     },
-    mirrorIssueMail: (row) => store.issues.addIssueMessage(row),
-    mirrorMarkIssueMailRead: (issueId, ids) =>
-      store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
+    mirrorIssueMail: opts?.mirrorOpensTransaction
+      ? (row) => {
+          void store.transact(async () => await store.issues.addIssueMessage(row))
+        }
+      : (row) => store.issues.addIssueMessage(row),
+    mirrorMarkIssueMailRead: opts?.mirrorOpensTransaction
+      ? (issueId, ids) => {
+          void store.transact(
+            async () =>
+              await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
+          )
+        }
+      : (issueId, ids) =>
+          store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
     ...(opts?.spawnOnWake ? { spawnOnWake: opts.spawnOnWake } : {}),
     notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
@@ -4963,5 +4979,48 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
     // Deduped per (message, reason): the sweep repeats the refusal every pass.
     await svc.onWakeUnavailable(asSessionId('s1'), 'refused: revoked')
     expect(attention).toHaveLength(1)
+  })
+})
+
+
+/**
+ * The legacy mirrors are `void`-typed deps wired at the composition root to
+ * `funnel.run({ write })` — an `async` store write whose promise all three call
+ * sites in the service discard. Under the async executor that write JOINS the
+ * span the send/delivery is running inside, as a savepoint: the next statement
+ * on the span is refused and the savepoint dies orphaned when the span closes
+ * [POD-3806]. The span belongs to the relay write path around `send`, which is
+ * why the test opens one.
+ */
+describe('MessageDeliveryService under the async store (POD-3806)', () => {
+  it('mirroring issue mail does not break the span the send runs in', async () => {
+    const { svc, store } = await harness([], { mirrorOpensTransaction: true })
+
+    await store.transact(async () => {
+      const r = await svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: 'mirror me' },
+      )
+      expect(r.ok).toBe(true)
+      // The statement the lock bug died on: same span, after the mirror.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+  })
+
+  it('marking the mirror read does not break the span the self-suppression runs in', async () => {
+    // s1 is the sole member of ISSUE and also the sender: the self-echo path
+    // that consumes the mirror row straight to the ledger.
+    const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], {
+      mirrorOpensTransaction: true,
+    })
+
+    await store.transact(async () => {
+      const r = await svc.send(
+        { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
+        { to: { kind: 'issue', id: ISSUE.id }, body: 'status to self' },
+      )
+      expect(r.message.status).toBe('delivered')
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
   })
 })

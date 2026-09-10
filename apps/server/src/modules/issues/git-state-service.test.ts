@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/model'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -10,7 +10,14 @@ import { issueTestPlumbing } from './service/test-plumbing'
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
 // with shared-checkout commits attributed from issue markers in history.
-async function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
+async function harness(
+  sessions: SessionMeta[],
+  repoOpScript: Record<string, string>,
+  /** Read settings THROUGH THE STORE, as `relay.ts` wires them. The plain
+   *  literal below never touches the executor, which is why the span hazard of
+   *  POD-3806 was invisible to the git-state probe here. */
+  opts: { storeBackedSettings?: boolean } = {},
+) {
   const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
@@ -27,15 +34,17 @@ async function harness(sessions: SessionMeta[], repoOpScript: Record<string, str
   const deps: IssueDeps = {
     store,
     listSessions: async () => sessions,
-    getSettings: async () =>
-      normalizeSettings({
+    getSettings: async () => {
+      if (opts.storeBackedSettings) await store.issues.getIssue(asIssueId('iss_settings'))
+      return normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
           mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
-      }),
+      })
+    },
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: repoOp as IssueDeps['repoOp'],
     ...plumbing,
@@ -44,7 +53,13 @@ async function harness(sessions: SessionMeta[], repoOpScript: Record<string, str
   }
   // The plumbing wires a REAL Ledger; widen from the narrow IssueLedger face so
   // tests can read the log back (cursor/changesSince).
-  return { svc: await IssueService.create(deps), repoOp, broadcast, ledger: plumbing.ledger as Ledger }
+  return {
+    svc: await IssueService.create(deps),
+    store,
+    repoOp,
+    broadcast,
+    ledger: plumbing.ledger as Ledger,
+  }
 }
 
 const member = (sessionId: SessionId, issueId: string): SessionMeta =>
@@ -551,6 +566,48 @@ describe('POD-384 parent-branch movement watch', () => {
       await new Promise((r) => setTimeout(r, 10))
     }
 
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true })
+  })
+
+  /**
+   * The retarget re-probe is `void this.refreshGitState(id).catch(() => {})` —
+   * fire-and-forget from inside `update` [POD-3806]. Its first act is a 10ms
+   * timer, and a `setTimeout` callback INHERITS the async scope it was scheduled
+   * in, so under the async store executor the probe wakes up still addressing the
+   * caller's transaction frame — which by then has committed and released its
+   * lease. Every statement it makes is refused as stale, the `.catch(() => {})`
+   * swallows it, and the retarget silently never re-probes: the row keeps
+   * describing a base that no longer applies, which is the very thing POD-576
+   * added this refresh to prevent.
+   *
+   * The span here is the caller's: `update` reaches this service from inside the
+   * relay's write path.
+   */
+  it('a retarget inside a span still re-probes after the span commits [POD-3806]', async () => {
+    const script = unlandedScript()
+    script['revListCount:issue/520-parent..HEAD'] = '9'
+    delete script['revListCount:main..HEAD']
+    const { svc, store } = await harness([], script, { storeBackedSettings: true })
+    const id = (await svc.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
+    giveWorktree(svc, id, 'issue/520-parent')
+
+    await svc.refreshGitState(id)
+    expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 9 })
+
+    script['revListCount:main..HEAD'] = '0'
+    markLanded(script)
+
+    await store.transact(async () => {
+      await svc.update(id, { parentBranch: 'main' })
+      // The statement the lock bug died on: same span, after the refresh call.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    for (let i = 0; i < 50; i++) {
+      const gs = (await svc.get(id))?.gitState
+      if (gs?.ahead === 0 && gs.merged === true) break
+      await new Promise((r) => setTimeout(r, 10))
+    }
     expect((await svc.get(id))?.gitState).toMatchObject({ ahead: 0, merged: true })
   })
 })

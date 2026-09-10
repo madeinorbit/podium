@@ -17,6 +17,7 @@
  */
 
 import { asIssueId } from '@podium/model'
+import { afterCommit } from '../../../store/executor/executor'
 import type {
   ContractInput,
   workflowAdoptContract,
@@ -108,10 +109,19 @@ export async function checkpointHandler(
   })
   const worker = caller.actor.id && caller.actor.id !== run.coordinatorSessionId
   if (worker && deps.notifyCoordinator) {
-    deps.notifyCoordinator(
-      run.coordinatorSessionId,
-      `Workflow step "${step.title}" ${input.status}: ${input.summary || '(no summary)'}`,
-    )
+    // AFTER THE COMMIT, not inside the span [POD-3806]. `notifyCoordinator` is a
+    // `void`-typed dep wired at the composition root to `messagesSvc.send`, which
+    // opens its own store transaction; under the async executor that transaction
+    // JOINS whatever span this checkpoint is running inside, as a savepoint, so
+    // firing it here made the span's next statement address a frame with an open
+    // child (refused) and left the notice's savepoint to die when the span
+    // closed. Same shape as the lock bug (POD-3802).
+    //
+    // Still fire-and-forget, and still not persisted: deferring changes WHEN the
+    // nudge is sent, not whether it survives a restart.
+    const notify = deps.notifyCoordinator
+    const text = `Workflow step "${step.title}" ${input.status}: ${input.summary || '(no summary)'}`
+    afterCommit(() => notify(run.coordinatorSessionId, text), 'workflow-coordinator-notice')
   }
   const message =
     input.status === 'complete'

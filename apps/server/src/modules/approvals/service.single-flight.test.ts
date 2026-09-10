@@ -50,7 +50,7 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
       logEvent: () => {},
-      notifyIssue: () => {},
+      notifyIssue: async () => {},
     })
     const executing = async () => {
       const { id } = await svc.request({

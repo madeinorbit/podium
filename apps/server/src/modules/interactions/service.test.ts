@@ -9,6 +9,7 @@
 
 import {
   type AgentRuntimeState,
+  asIssueId,
   asSessionId,
   type SessionId,
   type SessionMeta,
@@ -17,6 +18,7 @@ import type { QuestionPrompt, QuestionSelection } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type InteractionRow, InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
+import { openTestStore } from '../../test-support/open-test-store'
 import { stageASeam } from '../../test-support/stage-a-seam'
 import type { InboxPrincipalReference } from '../sessions/inbox'
 import type { AnswerDeliveryResult } from '../superagent/answer-delivery'
@@ -1488,5 +1490,62 @@ describe('InteractionsRepository', () => {
     expect(await store.pruneResolvedBefore('2026-08-14T01:00:00.000Z')).toBe(1)
     // An ask nobody answered is the one thing this table must not forget.
     expect(await store.listOpen()).toHaveLength(1)
+  })
+})
+
+/**
+ * `publish` is `InteractionFeed.publish` at the composition root (relay.ts) — an
+ * `async` function whose promise every one of the ten call sites discards,
+ * because the dep is typed `=> void`. Under the async store executor that
+ * discarded transaction JOINS whatever span the mutation is running in, as a
+ * savepoint: the mutation's next statement addresses a frame with an open child
+ * and is refused, and the savepoint dies when the span closes [POD-3806].
+ *
+ * The span here is the caller's, not the service's: interaction mutations reach
+ * this aggregate from inside the relay's write path. The publish below is
+ * production-shaped — it opens a REAL store transaction — which is exactly what
+ * a `vi.fn()` stub cannot show.
+ */
+describe('InteractionService under the async store (POD-3806)', () => {
+  async function spanHarness() {
+    const store = await openTestStore(':memory:')
+    const published: InteractionRow[] = []
+    let clock = 0
+    const svc = new InteractionService({
+      store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
+      now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
+      publish: (row) => {
+        published.push(row)
+        void store.transact(async () => {
+          await store.issues.getIssue(asIssueId('iss_publish'))
+        })
+      },
+      deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
+      readTranscript: async () => ({ items: [] as never }),
+      policyPrincipal: () => PRINCIPAL,
+      causalFailuresOwned: () => false,
+    })
+    return { svc, store, published }
+  }
+
+  it('a publish that opens a transaction does not break the span the ask runs in', async () => {
+    const { svc, store, published } = await spanHarness()
+
+    await store.transact(async () => {
+      await svc.ask({
+        interaction: {
+          id: 'ixn_span',
+          sessionId: S,
+          kind: 'permission',
+          payload: { v: 1, toolName: 'Bash', canAlwaysAllow: false },
+          source: 'hook',
+          answerable: 'keystroke-emulated',
+        },
+      })
+      // The statement the lock bug died on: same span, after the publish.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    expect(published).toHaveLength(1)
   })
 })

@@ -232,7 +232,14 @@ interface Harness {
   clock: { value: string }
 }
 
-async function makeHarness(path = ':memory:'): Promise<Harness> {
+async function makeHarness(
+  path = ':memory:',
+  /** Wire `notifyCoordinator` PRODUCTION-SHAPED: relay.ts wires it to
+   *  `messagesSvc.send`, which opens its own store transaction. The plain array
+   *  push below does not, which is why the span hazard of POD-3806 was
+   *  invisible here. */
+  opts: { notifyOpensTransaction?: boolean } = {},
+): Promise<Harness> {
   const store = await openTestStore(path)
   const notices: Array<{ sessionId: string; text: string }> = []
   const clock = { value: NOW }
@@ -248,7 +255,14 @@ async function makeHarness(path = ':memory:'): Promise<Harness> {
       issue: (id) => ISSUES.get(id),
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
-      notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
+      notifyCoordinator: (sessionId, text) => {
+        notices.push({ sessionId, text })
+        if (opts.notifyOpensTransaction) {
+          void store.transact(async () => {
+            await store.issues.getIssue(asIssueId('iss_notify'))
+          })
+        }
+      },
     },
     {
       ledger: {
@@ -3968,5 +3982,46 @@ describe('POD-730 workflow mutation characterization', () => {
         await after.store.close()
       }
     })
+  })
+})
+
+
+/**
+ * `notifyCoordinator` is a `void`-typed dep wired at the composition root to
+ * `messagesSvc.send`, which opens its own store transaction. `advances.ts` calls
+ * it unawaited from the checkpoint tail, so under the async executor that
+ * transaction JOINS whatever span the checkpoint is running inside, as a
+ * savepoint: the span's next statement is refused and the savepoint dies orphaned
+ * when the span closes [POD-3806]. Same shape as the lock bug (POD-3802).
+ */
+describe('WorkflowService under the async store (POD-3806)', () => {
+  it('the coordinator notice does not break the span the checkpoint runs in', async () => {
+    const h = await makeHarness(':memory:', { notifyOpensTransaction: true })
+    try {
+      const { run } = await twoStepRun(h)
+      await h.service.assignStep(
+        { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
+        operator,
+      )
+
+      await h.store.transact(async () => {
+        await h.service.checkpoint(
+          {
+            runId: run.id,
+            stepId: 'implement',
+            status: 'blocked',
+            summary: 'needs help',
+            evidence: EMPTY_EVIDENCE,
+          },
+          agent('s2'),
+        )
+        // The statement the lock bug died on: same span, after the notice.
+        await h.store.issues.getIssue(asIssueId('iss_after'))
+      })
+
+      expect(h.notices).toHaveLength(1)
+    } finally {
+      await h.store.close()
+    }
   })
 })
