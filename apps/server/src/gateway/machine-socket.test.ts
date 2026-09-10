@@ -226,3 +226,55 @@ describe('machine supervisor socket, after the handshake', () => {
     expect(await row(registry)).toMatchObject({ appVersion: '0.5.0' })
   })
 })
+
+/**
+ * POD-3788. THE EARLIER WINDOW — before the handshake has resolved at all.
+ *
+ * POD-3782 covers the frame read AFTER `established` but before the attach
+ * lands. This one never reaches that guard: a parent whose greeting and first
+ * report arrive in the same read has its second frame handled while the first
+ * is still inside the credential lookup, so the socket has no acceptor yet and
+ * the report is replayed as though it were a handshake — ignored, and dropped
+ * with no log. The machine then shows no services until the next report a
+ * minute later. The `/daemon` plane has never had this window: it serialises
+ * pre-auth frames on a promise chain.
+ */
+describe('machine supervisor socket, during the handshake', () => {
+  it('records a machineReport that arrived beside the hello', async () => {
+    const { registry } = await registryWithMachine()
+    const ws = fakeWs()
+    wireMachineSocket(ws as never, registry)
+
+    // Both frames are read before the hello's credential lookup settles, which
+    // is what "same burst" means at this seam.
+    const handshake = ws.emit('message', hello(SUCCESSOR))
+    const report = ws.emit('message', machineReport('successor'))
+    await handshake
+    await report
+
+    expect(ws.terminated).toBe(false)
+    expect(await reportedBy(registry)).toBe('successor')
+  })
+
+  /**
+   * The queue is what makes the frame survive, so the queue needs a bound: an
+   * unauthenticated peer must not be able to make the server hold frames for
+   * it without limit. Terminated rather than dropped, for the reason the rest
+   * of this file terminates — a close is what every dialer already retries,
+   * and a redial re-asks the handshake.
+   */
+  it('terminates a socket that piles frames up behind an unfinished handshake', async () => {
+    const { registry } = await registryWithMachine()
+    const ws = fakeWs()
+    wireMachineSocket(ws as never, registry)
+
+    const handshake = ws.emit('message', hello(SUCCESSOR))
+    const queued = ws.emit('message', machineReport('queued'))
+    const flooded = ws.emit('message', machineReport('flooded'))
+    await handshake
+    await queued
+    await flooded
+
+    expect(ws.terminated).toBe(true)
+  })
+})

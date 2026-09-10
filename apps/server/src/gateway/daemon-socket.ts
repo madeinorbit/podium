@@ -464,7 +464,25 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
   // fence below would then close the sender that is about to become the holder.
   // Never rejects: the establish branch owns that failure.
   let attached: Promise<void> = Promise.resolve()
-  ws.on('message', async (raw) => {
+  // PRE-HANDSHAKE FRAMES ARE SERIALISED (POD-3788), the way `/daemon` has always
+  // serialised them. Without this the listener is re-entered on the next frame
+  // while the hello is still inside `prepareDaemonFrame`, and a parent whose
+  // greeting and first report arrive in the same read has that report replayed
+  // as though IT were the handshake: `ignored`, dropped, no log, and the machine
+  // shows no services until the next report a minute later.
+  //
+  // The chain is also what makes `resolved` safe to assign below. Before it, the
+  // assignment relied on `prepareDaemonFrame` happening to return no acceptor for
+  // an `ignored` outcome — had it returned one, the report's throwaway probe
+  // acceptor would have overwritten the hello's real one and pinned this socket to
+  // an acceptor that never authenticated. Serialised, a second frame never enters
+  // `prepareDaemonFrame` at all: `resolved` is already set and it goes through the
+  // resolved acceptor, so the ordering does the work instead of the accident.
+  let failed = false
+  let pendingPreAuthFrames = 0
+  let preAuthSerial = Promise.resolve()
+  const receiveMachineMessage = async (raw: string | Buffer): Promise<void> => {
+    if (failed) return
     if (recoveryTransportOnly(registry)) return
     // Resolve the credential BEFORE the synchronous acceptor sees the frame.
     const prepared = resolved
@@ -576,6 +594,34 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     } catch (error) {
       warnDroppedFrame('machine', error)
     }
+  }
+  ws.on('message', (raw) => {
+    if (principal !== undefined || failed) return receiveMachineMessage(raw)
+    // The queue is what makes the report survive, so the queue is bounded: an
+    // unauthenticated peer must not be able to make the server hold frames for it
+    // without limit. Terminated rather than dropped, for the reason every other
+    // refusal on this socket terminates — a close is what every dialer already
+    // retries, and a redial re-asks the handshake.
+    if (pendingPreAuthFrames > MAX_QUEUED_PREAUTH_FRAMES) {
+      failed = true
+      ws.terminate()
+      return
+    }
+    pendingPreAuthFrames += 1
+    preAuthSerial = preAuthSerial
+      .then(() => receiveMachineMessage(raw))
+      .catch((error: unknown) => {
+        if (failed) return
+        failed = true
+        log.warn('terminated a supervisor connection after credential preparation failed', {
+          err: error,
+        })
+        ws.terminate()
+      })
+      .finally(() => {
+        pendingPreAuthFrames -= 1
+      })
+    return preAuthSerial
   })
   ws.on('close', async () => {
     if (!principal || !send) return
