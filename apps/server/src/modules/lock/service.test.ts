@@ -523,3 +523,41 @@ describe('LockService', () => {
     expect(other.granted).toBe(true)
   })
 })
+
+describe('LockService under the async store (POD-3802)', () => {
+  /**
+   * Production `sendMail` is `IssueService.sendMail` behind a fire-and-forget
+   * adapter: it opens its own store transaction, which the executor JOINS as a
+   * savepoint under whatever span the caller has open. The unit harness above
+   * stubs it with `vi.fn()`, which is why this shape was never seen in a test.
+   */
+  async function harnessWithStoreMail() {
+    const h = await harness()
+    h.sendMail.mockImplementation((issueId: string) => {
+      void h.store.transact(async () => {
+        await h.store.issues.getIssue(asIssueId(issueId))
+      })
+    })
+    return h
+  }
+
+  it('sweeping an expired lease with a live waiter must not break the operation that swept it', async () => {
+    const { svc, alive, advance } = await harnessWithStoreMail()
+    alive.add('sess_1').add('sess_2')
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'test:heavy', ttlSeconds: 60 })
+    await svc.acquire(agent(2), { repoPath: REPO, name: 'test:heavy' })
+    advance(61_000)
+
+    // Any lock operation sweeps first. `status` is the read everyone uses.
+    const status = await svc.status({ repoPath: REPO })
+    expect(status.map((l) => l.holder.sessionId)).toEqual([asSessionId('sess_2')])
+
+    // And an acquire of an UNRELATED lock in the same repo is a grant, not a
+    // refused insert (this is the dev-bundle publish of 2026-09-09).
+    const other = await svc.acquire(
+      { sessionId: asSessionId('system:dev-bundle'), issueId: null, label: 'system:dev-bundle', workspace: null },
+      { repoPath: REPO, name: 'podium:dev-bundle' },
+    )
+    expect(other.granted).toBe(true)
+  })
+})

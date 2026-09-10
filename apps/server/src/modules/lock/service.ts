@@ -2,6 +2,7 @@ import type { IssueId, RepoId, SessionId } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
+import { afterCommit } from '../../store/executor/executor'
 import type { WriteFunnel } from '../funnel'
 
 /**
@@ -259,11 +260,21 @@ export class LockService {
     }
     await this.deps.locks.upsertLock(row)
     if (opts?.notify && holder.issueId) {
-      this.deps.sendMail(
-        holder.issueId,
-        'lock-manager',
-        `Lock '${name}' granted to you (TTL ${fmtTtl(ttlSeconds)}). Release with \`podium lock release ${name}\` when done.`,
-      )
+      // AFTER THE COMMIT, not inside the span [POD-3802]. `sendMail` is
+      // fire-and-forget and opens its own store transaction; under the async
+      // executor that transaction JOINS the lock span as a savepoint, so firing
+      // it here and moving on made the grant's next statement address a frame
+      // with an open child (refused), and left the mail's savepoint to die when
+      // the span closed. Every lock op sweeps expired leases first, so one
+      // expired lease with a live waiter wedged every lock RPC.
+      const issueId = holder.issueId
+      afterCommit(() => {
+        this.deps.sendMail(
+          issueId,
+          'lock-manager',
+          `Lock '${name}' granted to you (TTL ${fmtTtl(ttlSeconds)}). Release with \`podium lock release ${name}\` when done.`,
+        )
+      }, 'lock-grant-mail')
     }
     return row
   }
@@ -521,20 +532,28 @@ export class LockService {
           await this.deps.locks.removeWaiterBySession(repoId, input.name, this.sessionKey(caller))
           const row = await this.grantTo(repoId, input.name, caller, ttl, input.note ?? null)
           if (previousHolder) {
-            try {
-              this.deps.appendEvent({
-                ts: this.nowIso(),
-                kind: 'lock.stolen',
-                subject: `${repoId}:${input.name}`,
-                payload: { previousHolder, newHolder: caller.label },
-              })
-            } catch {}
+            // Both effects are fire-and-forget store writers: same rule as the
+            // grant mail in `grantTo` — they run after this span commits.
+            const stolenAt = this.nowIso()
+            afterCommit(() => {
+              try {
+                this.deps.appendEvent({
+                  ts: stolenAt,
+                  kind: 'lock.stolen',
+                  subject: `${repoId}:${input.name}`,
+                  payload: { previousHolder, newHolder: caller.label },
+                })
+              } catch {}
+            }, 'lock-stolen-event')
             if (previousHolder.issueId) {
-              this.deps.sendMail(
-                previousHolder.issueId,
-                'lock-manager',
-                `Lock '${input.name}' was stolen from you by ${caller.label}.`,
-              )
+              const issueId = previousHolder.issueId
+              afterCommit(() => {
+                this.deps.sendMail(
+                  issueId,
+                  'lock-manager',
+                  `Lock '${input.name}' was stolen from you by ${caller.label}.`,
+                )
+              }, 'lock-stolen-mail')
             }
           }
           return { lock: await this.toWire(row), previousHolder }
