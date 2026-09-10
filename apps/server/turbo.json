@@ -1176,6 +1176,7 @@
         "src/modules/sessions/spawn-model-defaults.test.ts",
         "src/modules/sessions/spawn-name.test.ts",
         "src/modules/sessions/stop.test.ts",
+        "src/modules/sessions/terminal-geometry-watchdog.test.ts",
         "src/modules/sessions/terminal-proof.ts",
         "src/modules/sessions/terminal-sizing-claims.test.ts",
         "src/modules/sessions/terminal.ts",

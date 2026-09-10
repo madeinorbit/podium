@@ -33,6 +33,14 @@ const MAX_REPLAY_BYTES = 256 * 1024
 const MAX_REPLAY_FRAMES = 4096
 const MAX_TRANSCRIPT_ITEMS = 12_000
 const SHELL_BUSY_WINDOW_MS = 4000
+/**
+ * HOW LONG A FORWARDED RESIZE MAY GO UNANSWERED before the server says so
+ * (POD-3809). The daemon reports synchronously inside the handler that applies,
+ * so the only thing between the two is one websocket hop; two seconds is far
+ * past any honest round trip and comfortably short of the "couple of seconds"
+ * a viewer spends staring at the wrong grid when the report never comes.
+ */
+const GEOMETRY_REPORT_DEADLINE_MS = 2000
 
 function submitsCommandLine(bytes: Uint8Array): boolean {
   return bytes.includes(0x0d) || bytes.includes(0x0a)
@@ -303,6 +311,23 @@ export class SessionTerminal {
    * and folding the two would make the refusal signal unreadable.
    */
   requestsDuplicate = 0
+  /**
+   * HOW MANY FORWARDED REQUESTS WENT UNANSWERED (POD-3809).
+   *
+   * The server is the only place that knows BOTH halves — "I forwarded a
+   * resize" and "a report came back" — so it is the only place the liveness of
+   * the whole sizing path is observable. Stage 7 exists because a daemon path
+   * applied a grid and never reported it, and nothing anywhere said so: the
+   * viewer simply rendered the wrong size for a couple of seconds. This counter
+   * and the `warn` beside it are what make that a line in the journal rather
+   * than a bug report, in every mode including ones nobody has written yet.
+   */
+  requestsUnanswered = 0
+  /** The armed watchdog for the request now in flight, and what it was for. One
+   *  per session: a newer request supersedes an older one, exactly as W does. */
+  private geometryWatchdog:
+    | { timer: ReturnType<typeof setTimeout>; requested: Geometry; atMs: number }
+    | undefined
   /** Websocket connection id of the current controller (device, not person). */
   controllerId: string | null = null
   /**
@@ -885,9 +910,53 @@ export class SessionTerminal {
       cols: geometry.cols,
       rows: geometry.rows,
     })
-    if (this.init.daemonReportsGeometry?.() === true) return
+    if (this.init.daemonReportsGeometry?.() === true) {
+      // ONLY ON THE REPORTING DAEMON. The compatibility branch below writes W
+      // itself, so there is no report to wait for and a watchdog there would
+      // fire on every single resize.
+      this.armGeometryWatchdog(geometry)
+      return
+    }
     this.setGeometry(geometry.cols, geometry.rows)
     this.announceGeometry()
+  }
+
+  /**
+   * THE WATCHDOG THAT WOULD HAVE CAUGHT POD-3809.
+   *
+   * A request has just gone to the daemon and W will not move until a report
+   * comes back. If none has by the time this fires, the path below is silent —
+   * which is not a slow resize, it is a resize that will never happen, and the
+   * viewer will sit at the old grid until something else moves it.
+   *
+   * CHEAP AND PER-SESSION: one unref'd timer, replaced rather than stacked when
+   * a newer request supersedes an older one, and cancelled by the report. A
+   * session nobody is resizing arms nothing.
+   */
+  private armGeometryWatchdog(requested: Geometry): void {
+    this.cancelGeometryWatchdog()
+    const atMs = Date.now()
+    const timer = setTimeout(() => {
+      this.geometryWatchdog = undefined
+      this.requestsUnanswered += 1
+      log.warn('request:unanswered', {
+        sessionId: this.init.sessionId,
+        requested,
+        geometry: { ...this.geometry },
+        geometryState: this.init.geometryState?.() ?? (this.geometryKnown ? 'current' : 'unknown'),
+        elapsedMs: Date.now() - atMs,
+        requestsUnanswered: this.requestsUnanswered,
+      })
+    }, GEOMETRY_REPORT_DEADLINE_MS)
+    timer.unref?.()
+    this.geometryWatchdog = { timer, requested, atMs }
+  }
+
+  /** A report arrived (or the request is moot): the ask was answered. */
+  private cancelGeometryWatchdog(): void {
+    if (!this.geometryWatchdog) return
+    clearTimeout(this.geometryWatchdog.timer)
+    this.geometryWatchdog = undefined
   }
 
   /**
@@ -1079,6 +1148,10 @@ export class SessionTerminal {
    * here that the ask was answered.
    */
   applyDaemonGeometry(geometry: Geometry): void {
+    // THE ANSWER THE WATCHDOG WAS WAITING FOR. Any report answers it, not only
+    // one at the requested size: the daemon reports what it APPLIED, and a
+    // daemon that applied something else has still spoken. Silence is the fault.
+    this.cancelGeometryWatchdog()
     this.setGeometry(geometry.cols, geometry.rows)
     // A report is what makes W KNOWN — the `unknown` → `current` edge of rule 6.
     this.geometryKnown = true

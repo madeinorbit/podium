@@ -1126,6 +1126,9 @@ export class Session {
       ...(this.terminal.requestsDuplicate > 0
         ? { requestsDuplicate: this.terminal.requestsDuplicate }
         : {}),
+      ...(this.terminal.requestsUnanswered > 0
+        ? { requestsUnanswered: this.terminal.requestsUnanswered }
+        : {}),
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,

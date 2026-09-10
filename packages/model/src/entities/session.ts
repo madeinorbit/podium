@@ -409,6 +409,20 @@ export const SessionMetaEntity = z.object({
    */
   requestsGated: z.number().int().nonnegative().optional(),
   requestsDuplicate: z.number().int().nonnegative().optional(),
+  /**
+   * HOW MANY FORWARDED REQUESTS THE DAEMON NEVER ANSWERED (POD-3809).
+   *
+   * The third invisible failure, and the one the first two could not see: a
+   * request that passed every gate, went to the daemon, and got no
+   * `geometryApplied` back — so W never moved and the viewer kept rendering the
+   * old grid. `requestsGated` counts refusals the SERVER made; this counts
+   * silence from below, which is the only kind of sizing failure the server is
+   * positioned to notice at all.
+   *
+   * Omitted when zero, additive for an older reader, and paired with a `warn`
+   * line naming the session and the size that went unanswered.
+   */
+  requestsUnanswered: z.number().int().nonnegative().optional(),
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
