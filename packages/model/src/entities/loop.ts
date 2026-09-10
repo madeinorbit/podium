@@ -109,6 +109,20 @@ export const LoopMinuteWire = z.object({
   rssBytes: z.number(),
   /** What the accounting module itself cost, as a percentage of the minute. */
   selfCostPct: z.number(),
+  /**
+   * Profile captures refused this minute because one was already running or the
+   * five-minute rate limit had not elapsed. A stall burst that produced one
+   * profile and nine refusals is a different situation from one that produced a
+   * single profile, and only this says which.
+   */
+  profileSuppressed: z.number().optional(),
+  /**
+   * Main-thread ms spent draining the sampling profiler's buffer this minute.
+   * Kept apart from `selfCostPct`: that is the accounting timer's cost and is
+   * paid at every level above `off`, while this is paid only at `attribution`
+   * and only after the process's first capture.
+   */
+  profilerCostMs: z.number().optional(),
   buckets: bucketMap.optional(),
   /** Bucket sum over busy time. Above 1 is normal — see `nestedBuckets`. */
   coverage: z.number().optional(),

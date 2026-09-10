@@ -419,6 +419,26 @@ describe('the model wire schemas accept what this module produces', () => {
   })
 
   /**
+   * The profile-capture counters, ACROSS THE SAME SEAM. They are written only at
+   * `attribution` and only when a capture was refused or a drain was paid, so
+   * the round-trip above never carries them — the guard exists but is unarmed
+   * for exactly the two newest fields. This arms it.
+   */
+  it('carries the profile capture counters across the wire unchanged', () => {
+    const h = harness()
+    h.handle.noteProfileSuppressed()
+    h.handle.noteProfilerCost(22.07)
+    h.idle(SAMPLE_MS * 60)
+    const minute = h.handle.latestMinute()
+    h.handle.stop()
+
+    // Present, or this proves nothing about them.
+    expect(minute?.profileSuppressed).toBe(1)
+    expect(minute?.profilerCostMs).toBeCloseTo(22.07)
+    expect(LoopMinuteWire.parse(minute)).toEqual(minute)
+  })
+
+  /**
    * THE LEVEL NAMES, ON BOTH SIDES.
    *
    * `LOOP_PROFILE_LEVELS` here is ordered — `atLeast` compares indices — and
@@ -428,6 +448,9 @@ describe('the model wire schemas accept what this module produces', () => {
    */
   it('states the same four levels as the wire enum, in the same order', () => {
     expect(LoopProfileLevelWire.options).toEqual([...LOOP_PROFILE_LEVELS])
+  })
+})
+
 describe('profile capture counters on the minute record', () => {
   it('counts suppressed profile requests and the profiler drain cost', () => {
     const h = harness()

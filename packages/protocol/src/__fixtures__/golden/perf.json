@@ -191,6 +191,8 @@
         "heapUsedBytes": 1,
         "rssBytes": 1,
         "selfCostPct": 1,
+        "profileSuppressed": 1,
+        "profilerCostMs": 1,
         "buckets": {
           "buckets.key": {
             "wallMs": 1,
@@ -203,7 +205,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
     },
     {
       "schema": "LoopProfileLevelWire",
