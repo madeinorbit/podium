@@ -102,8 +102,16 @@
  * BOOT-PINNED OR LIVE — every field is one or the other (POD-3840)
  * ---------------------------------------------------------------------------
  *
- * `loadConfig` is CACHED on the file's stat signature, so reading it is a
- * `statSync` and reading it in a loop is no longer a reason to hoist the call.
+ * `loadConfig` is CACHED on the file's stat signature, and that stat itself is
+ * rate-limited to one per {@link CONFIG_STAT_MAX_AGE_MS} (250 ms), so reading
+ * it in a loop costs nothing and is no longer a reason to hoist the call.
+ *
+ * THAT BOUND IS THE FRESHNESS CONTRACT OF EVERY `LIVE` FIELD BELOW: a write by
+ * another process — `podium channel`, `podium setup`, a hand edit — is seen by
+ * the next call at least 250 ms after the loader last looked, rather than by
+ * the very next call. A write by THIS process is seen immediately, because
+ * `saveConfig` primes the cache with the bytes it wrote.
+ *
  * What the cache does NOT change is which fields a running process is allowed
  * to notice changing, and that was never a property of the loader:
  *
@@ -112,8 +120,9 @@
  *   already committed to something (a bound socket, a chosen process shape, an
  *   armed sampler, an open connection's trust decision).
  * - LIVE: read THROUGH `loadConfig` at the moment the answer is needed, so an
- *   external `podium channel` / `podium setup` / hand edit takes effect on the
- *   next call. A live field must never be hoisted into a boot-time `const`;
+ *   external `podium channel` / `podium setup` / hand edit takes effect within
+ *   the freshness bound above. A live field must never be hoisted into a
+ *   boot-time `const`;
  *   that is the one way to turn a live field into a pinned one by accident, and
  *   it does not announce itself.
  *
@@ -582,6 +591,35 @@ export const CONFIG_CACHE_MAX_PATHS = 8
  */
 const CONFIG_SIGNATURE_SETTLE_MS = 10
 
+/**
+ * How long one stat's answer stands before the loader takes another —
+ * THE FRESHNESS BOUND FOR AN EXTERNAL EDIT (POD-3858).
+ *
+ * The signature cache made a cached load cost exactly one `statSync`, which is
+ * cheap until something asks for it often enough. A server resolving a
+ * machine's update channel per machine per session listing did: `statSync` was
+ * 11% of the main thread's own time on the first production profile after the
+ * signature cache landed, and none of those stats could report anything new,
+ * because the file behind them changes at setup time and not since.
+ *
+ * So the stat itself gets a rate: inside this window the loader answers from
+ * the entry it already holds, and takes no syscall at all. The cost is a
+ * BOUNDED delay before a write by ANOTHER process — `podium channel`, `podium
+ * setup`, a hand edit — reaches this one. Nothing in the repository reads the
+ * config in a loop tighter than this expecting to see another process's write
+ * land mid-loop, and the value is a quarter of a second: below what a person
+ * running the command can perceive, and four orders of magnitude above what
+ * the hot path pays for it.
+ *
+ * A write by THIS process is unaffected and needs no window: {@link saveConfig}
+ * primes the cache with the bytes it wrote, immediately.
+ *
+ * The window is measured from the STAT, not from the last read: serving an
+ * entry inside the window does not extend it, so it is a true maximum rather
+ * than an idle timeout that a busy caller could hold open forever.
+ */
+export const CONFIG_STAT_MAX_AGE_MS = 250
+
 /** The signature of a path that does not exist — its own cacheable state. */
 const ABSENT_SIGNATURE = 'absent'
 
@@ -589,17 +627,40 @@ interface ConfigCacheEntry {
   signature: string
   config: PodiumConfig
   /**
+   * When the stat that produced {@link signature} was taken. Set ONCE, by that
+   * stat, and never refreshed by a load served from this entry — see
+   * {@link CONFIG_STAT_MAX_AGE_MS} for why that distinction is the whole point.
+   */
+  statAt: number
+  /**
    * `write` = this process wrote these bytes and knows them without reading;
    * `read` = parsed from the file. The two are trusted in opposite halves of
    * the settle window — see {@link isTrustworthy}.
    */
   source: 'read' | 'write'
+  /**
+   * Was the signature ALREADY SETTLED when these bytes were read?
+   *
+   * A read taken inside the racy window is not evidence about the file: another
+   * process's same-size rewrite lands under the same (mtimeNs, size, ino), so
+   * the signature cannot tell the two contents apart. Such an entry must never
+   * become trustworthy later merely because the CLOCK moved past the settle
+   * boundary — the stamp is no fresher for having aged.
+   *
+   * The loader used to be protected from that by accident: it re-read on every
+   * call inside the window, so the entry standing at the boundary had been read
+   * after it. {@link CONFIG_STAT_MAX_AGE_MS} removed those calls, so the
+   * property is now recorded instead of relied upon.
+   */
+  settledAtRead: boolean
 }
 
 interface ConfigSignature {
   signature: string
   /** True once a later write is guaranteed to produce a different signature. */
   settled: boolean
+  /** When this stat was taken, for {@link CONFIG_STAT_MAX_AGE_MS}. */
+  at: number
 }
 
 /** Insertion-ordered, so the first key is the least recently used. */
@@ -623,15 +684,17 @@ const configCache = new Map<string, ConfigCacheEntry>()
 function configSignature(path: string): ConfigSignature | undefined {
   try {
     const stat = statSync(path, { bigint: true })
-    const ageMs = Date.now() - Number(stat.mtimeNs / 1_000_000n)
+    const at = Date.now()
+    const ageMs = at - Number(stat.mtimeNs / 1_000_000n)
     return {
       signature: `${stat.mtimeNs}:${stat.size}:${stat.ino}`,
       settled: ageMs >= CONFIG_SIGNATURE_SETTLE_MS,
+      at,
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT' || code === 'ENOTDIR') {
-      return { signature: ABSENT_SIGNATURE, settled: true }
+      return { signature: ABSENT_SIGNATURE, settled: true, at: Date.now() }
     }
     return undefined
   }
@@ -640,8 +703,10 @@ function configSignature(path: string): ConfigSignature | undefined {
 /**
  * Whether an entry may answer for the signature now on disk.
  *
- * A READ entry is trusted only once the signature has settled, for the reason
- * {@link CONFIG_SIGNATURE_SETTLE_MS} gives. A WRITE entry is the mirror image:
+ * A READ entry is trusted only when the signature had ALREADY settled when its
+ * bytes were read AND is settled now, for the reason
+ * {@link CONFIG_SIGNATURE_SETTLE_MS} gives — see {@link
+ * ConfigCacheEntry.settledAtRead} for why both halves are needed. A WRITE entry is the mirror image:
  * it is trusted only BEFORE the signature settles, which is precisely the
  * window in which the file cannot have been re-stamped by anyone else either,
  * and this process holds the bytes it wrote. Letting it expire at the settle
@@ -650,7 +715,7 @@ function configSignature(path: string): ConfigSignature | undefined {
  */
 function isTrustworthy(entry: ConfigCacheEntry, stat: ConfigSignature): boolean {
   if (entry.signature !== stat.signature) return false
-  return entry.source === 'read' ? stat.settled : !stat.settled
+  return entry.source === 'read' ? entry.settledAtRead && stat.settled : !stat.settled
 }
 
 function rememberConfig(path: string, entry: ConfigCacheEntry): PodiumConfig {
@@ -692,15 +757,31 @@ function rememberConfig(path: string, entry: ConfigCacheEntry): PodiumConfig {
  * is announced once per distinct version of itself rather than once per call.
  */
 export function loadConfig(path = configPath()): PodiumConfig {
+  const fresh = configCache.get(path)
+  // BEFORE the stat, because the stat is what this skips. `rememberConfig`
+  // moves the entry to the most-recently-used end and leaves `statAt` alone, so
+  // a caller in a loop keeps its entry from being evicted without ever pushing
+  // the re-stat further away.
+  if (fresh && Date.now() - fresh.statAt < CONFIG_STAT_MAX_AGE_MS) {
+    return rememberConfig(path, fresh)
+  }
   const stat = configSignature(path)
   if (stat) {
     const cached = configCache.get(path)
-    if (cached && isTrustworthy(cached, stat)) return rememberConfig(path, cached)
+    if (cached && isTrustworthy(cached, stat)) {
+      return rememberConfig(path, { ...cached, statAt: stat.at })
+    }
     // A path that does not exist has nothing to open. `configSignature` has
     // already separated this from the stat failures that mean "the stat is not
     // to be believed", which still fall through to a direct read below.
     if (stat.signature === ABSENT_SIGNATURE) {
-      return rememberConfig(path, { signature: ABSENT_SIGNATURE, config: {}, source: 'read' })
+      return rememberConfig(path, {
+        signature: ABSENT_SIGNATURE,
+        config: {},
+        source: 'read',
+        statAt: stat.at,
+        settledAtRead: stat.settled,
+      })
     }
   }
   const res = inspectConfig(path)
@@ -711,7 +792,34 @@ export function loadConfig(path = configPath()): PodiumConfig {
     )
   }
   if (!stat) return res.config
-  return rememberConfig(path, { signature: stat.signature, config: res.config, source: 'read' })
+  return rememberConfig(path, {
+    signature: stat.signature,
+    config: res.config,
+    source: 'read',
+    statAt: stat.at,
+    settledAtRead: stat.settled,
+  })
+}
+
+/**
+ * Drop what the loader remembers about `path`.
+ *
+ * FOR THE WRITER `saveConfig` CANNOT SPEAK FOR: this process put bytes at a
+ * config path by a route that never wrote to it — an atomic rename of a
+ * validated temporary file over `config.json` (`transfer-lifecycle`), or a
+ * rename that moves a corrupt one away (`repairConfig`). `saveConfig` primes
+ * the path it WROTE, which in both cases is the temporary one; the live path is
+ * left holding an entry that describes the file it used to be.
+ *
+ * Before {@link CONFIG_STAT_MAX_AGE_MS} the next stat happened to catch this,
+ * because the rename moves the inode. It is not a stat's job to cover for a
+ * writer that knows exactly what it changed, and now that stats are rate-limited
+ * it cannot: the writer says so.
+ *
+ * Not needed for a write by ANOTHER process — that is what the re-stat age is.
+ */
+export function forgetConfig(path = configPath()): void {
+  configCache.delete(path)
 }
 
 // ---------------------------------------------------------------------------
@@ -789,7 +897,15 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
   // than storing bytes under a signature nothing can invalidate.
   const stat = configSignature(path)
   if (stat && stat.signature !== ABSENT_SIGNATURE) {
-    rememberConfig(path, { signature: stat.signature, config: parsed, source: 'write' })
+    rememberConfig(path, {
+      signature: stat.signature,
+      config: parsed,
+      source: 'write',
+      statAt: stat.at,
+      // A write entry is trusted by the mirrored rule below and never by this
+      // flag; it is stated so the field is never absent on an entry.
+      settledAtRead: stat.settled,
+    })
   } else {
     configCache.delete(path)
   }

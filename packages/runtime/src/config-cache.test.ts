@@ -15,7 +15,11 @@ import { vi } from 'vitest'
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
-  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+  return {
+    ...actual,
+    readFileSync: vi.fn(actual.readFileSync),
+    statSync: vi.fn(actual.statSync),
+  }
 })
 
 import {
@@ -35,6 +39,8 @@ import { addSink, type LogRecord } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   CONFIG_CACHE_MAX_PATHS,
+  CONFIG_STAT_MAX_AGE_MS,
+  forgetConfig,
   inspectConfig,
   loadConfig,
   onConfigChanged,
@@ -45,6 +51,24 @@ import {
 /** Reads of ONE path, so the harness's own file writing is not counted. */
 function readsOf(path: string): number {
   return vi.mocked(readFileSync).mock.calls.filter((call) => call[0] === path).length
+}
+
+/** Stats of ONE path — instance-identity's own stats are not counted. */
+function statsOf(path: string): number {
+  return vi.mocked(statSync).mock.calls.filter((call) => call[0] === path).length
+}
+
+/**
+ * Leave the maximum re-stat age behind, so the next load stats again.
+ *
+ * THE CLOCK IS THE INJECTION POINT. A cached entry stands for
+ * {@link CONFIG_STAT_MAX_AGE_MS} of wall time and the loader reads that from
+ * `Date.now`, so a test that wants the next load to go back to the filesystem
+ * moves the clock rather than sleeping — the bound is then pinned exactly,
+ * on any box, at any speed.
+ */
+function passTheRestatAge(): void {
+  vi.advanceTimersByTime(CONFIG_STAT_MAX_AGE_MS)
 }
 
 /**
@@ -67,6 +91,10 @@ describe('config cache (POD-3840)', () => {
   let path: string
 
   beforeEach(() => {
+    // The loader's freshness bound is a duration, so the clock is the only
+    // dial these tests need: freeze it, and every "is this cache entry still
+    // allowed to answer" decision becomes something a test states outright.
+    vi.useFakeTimers()
     priorStateDir = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-cfg-cache-'))
     process.env.PODIUM_STATE_DIR = dir
@@ -78,6 +106,7 @@ describe('config cache (POD-3840)', () => {
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
+    vi.useRealTimers()
   })
 
   it('serves a second load of an unchanged file from cache, without reading it', () => {
@@ -94,6 +123,60 @@ describe('config cache (POD-3840)', () => {
     expect(second).toEqual(expect.objectContaining({ mode: 'server', port: 18787 }))
   })
 
+  it('takes one stat for two loads inside the maximum re-stat age', () => {
+    // THE COST OF A CACHED LOAD, and the reason this bound exists. A cached
+    // load was one `statSync` — cheap on its own, and 11% of the server's main
+    // thread once `listSessions` reached it once per machine per session
+    // (POD-3858). Inside the bound the loader answers from what it already
+    // knows and does not go to the filesystem at all.
+    writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
+    backdate(path)
+
+    const first = loadConfig(path)
+    const statsAfterFirst = statsOf(path)
+    vi.advanceTimersByTime(CONFIG_STAT_MAX_AGE_MS - 1)
+    const second = loadConfig(path)
+
+    expect(statsAfterFirst).toBe(1)
+    expect(statsOf(path)).toBe(1)
+    expect(second).toBe(first)
+  })
+
+  it('sees a file this process replaced by rename once forgetConfig says so', () => {
+    // THE ROUTE `saveConfig` CANNOT PRIME. A server-role transfer validates its
+    // new config at a temporary path and then renames it over config.json, and
+    // `repairConfig` renames a corrupt config away — in both, THIS process
+    // changed the live path without writing to it, so nothing primed the entry
+    // standing for it. Until the re-stat age elapses the loader would keep
+    // answering with the config that was replaced.
+    writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
+    backdate(path)
+    expect(loadConfig(path).port).toBe(18787)
+
+    const tempPath = join(dir, '.config-transfer.tmp')
+    saveConfig({ mode: 'server', port: 19999 }, tempPath)
+    backdate(tempPath)
+    renameSync(tempPath, path)
+    forgetConfig(path)
+
+    expect(loadConfig(path).port).toBe(19999)
+  })
+
+  it('stats again once the maximum re-stat age has passed', () => {
+    // The other half of the bound: it is a MAXIMUM, so an external edit —
+    // `podium channel`, `podium setup`, a hand edit — is seen within it.
+    writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
+    backdate(path)
+    expect(loadConfig(path).port).toBe(18787)
+
+    writeFileSync(path, JSON.stringify({ mode: 'server', port: 19999 }))
+    backdate(path, 30)
+    passTheRestatAge()
+
+    expect(loadConfig(path).port).toBe(19999)
+    expect(statsOf(path)).toBe(2)
+  })
+
   it('re-reads when a rewrite changes the mtime', () => {
     writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
     backdate(path)
@@ -101,6 +184,7 @@ describe('config cache (POD-3840)', () => {
 
     writeFileSync(path, JSON.stringify({ mode: 'server', port: 19999 }))
     backdate(path, 30)
+    passTheRestatAge()
 
     expect(loadConfig(path).port).toBe(19999)
     expect(readsOf(path)).toBe(2)
@@ -116,6 +200,7 @@ describe('config cache (POD-3840)', () => {
     // these two files apart.
     writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787, serverUrl: 'ws://a:1' }))
     utimesSync(path, pinned.atime, pinned.mtime)
+    passTheRestatAge()
 
     expect(loadConfig(path).serverUrl).toBe('ws://a:1')
     expect(readsOf(path)).toBe(2)
@@ -138,6 +223,7 @@ describe('config cache (POD-3840)', () => {
     utimesSync(other, pinned.atime, pinned.mtime)
     expect(statSync(other).ino).not.toBe(pinned.ino)
     renameSync(other, path)
+    passTheRestatAge()
 
     expect(loadConfig(path).port).toBe(19999)
     expect(readsOf(path)).toBe(2)
@@ -150,12 +236,17 @@ describe('config cache (POD-3840)', () => {
     // enough that a later write is guaranteed to move it. An mtime AHEAD of the
     // clock fails that test on any machine at any speed, which is what makes
     // this staging of the rule independent of how fast the box runs.
+    //
+    // The rule governs what the loader concludes FROM A STAT, so the clock is
+    // moved past the re-stat age between the two loads — otherwise the second
+    // never takes a stat to apply the rule to (POD-3858).
     const ahead = new Date(Date.now() + 3_600_000)
     writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
     utimesSync(path, ahead, ahead)
 
     expect(loadConfig(path).port).toBe(18787)
     utimesSync(path, ahead, ahead)
+    passTheRestatAge()
     expect(loadConfig(path).port).toBe(18787)
 
     expect(readsOf(path)).toBe(2)
@@ -173,6 +264,7 @@ describe('config cache (POD-3840)', () => {
     writeFileSync(path, before)
     expect(loadConfig(path).port).toBe(18787)
     writeFileSync(path, after)
+    passTheRestatAge()
 
     expect(loadConfig(path).port).toBe(19999)
   })
@@ -234,6 +326,7 @@ describe('config cache (POD-3840)', () => {
 
     writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
     backdate(path)
+    passTheRestatAge()
 
     expect(loadConfig(path).port).toBe(18787)
     expect(readsOf(path)).toBe(1)
@@ -252,6 +345,7 @@ describe('config cache (POD-3840)', () => {
 
       writeFileSync(path, JSON.stringify({ mode: 'server', port: 18787 }))
       backdate(path, 30)
+      passTheRestatAge()
       expect(loadConfig(path).port).toBe(18787)
     } finally {
       dispose()
@@ -281,6 +375,7 @@ describe('config cache (POD-3840)', () => {
     saveConfig({ mode: 'server', port: 19999 }, tempPath)
     backdate(tempPath)
     renameSync(tempPath, path)
+    passTheRestatAge()
 
     expect(loadConfig(path).port).toBe(19999)
   })

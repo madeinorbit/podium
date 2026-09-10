@@ -3,6 +3,7 @@ import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/au
 import {
   configPath,
   type EnvSource,
+  forgetConfig,
   inspectConfig,
   loadConfig,
   saveConfig,
@@ -621,6 +622,9 @@ export function repairConfig(): {
   if (res.state === 'missing') return { state: 'missing' }
   const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
   renameSync(configPath(), backupPath)
+  // This process just moved the live config away without writing to it, so the
+  // loader's entry for that path describes a file that is no longer there.
+  forgetConfig()
   return { state: 'repaired', backupPath, ...(res.error ? { error: res.error } : {}) }
 }
 

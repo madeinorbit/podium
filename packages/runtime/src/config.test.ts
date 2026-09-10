@@ -10,6 +10,7 @@ import {
   configPath,
   DEFAULT_PROFILE_SAMPLE_US,
   DEFAULT_PROFILE_STALL_MS,
+  forgetConfig,
   inspectConfig,
   JSC_DEFAULT_SAMPLE_US,
   LAYERED_ENV,
@@ -88,6 +89,11 @@ describe('podium config', () => {
     saveConfig({ mode: 'server' })
     const { writeFileSync } = require('node:fs')
     writeFileSync(configPath(), '{not json')
+    // Corrupting the file behind the loader's back is not a write it can have
+    // noticed: `saveConfig` primed the config it WROTE, and a change by any
+    // other route is seen within CONFIG_STAT_MAX_AGE_MS rather than instantly.
+    // Saying so keeps this test about the corrupt file (POD-3858).
+    forgetConfig()
     // Observed through a SINK, not a console spy: the warning goes through the
     // logger now, so the console is no longer where it can be seen.
     const records: LogRecord[] = []

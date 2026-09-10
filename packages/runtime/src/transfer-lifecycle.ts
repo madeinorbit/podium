@@ -37,6 +37,7 @@ import {
 import { dirname, join } from 'node:path'
 import {
   configPath,
+  forgetConfig,
   loadConfig,
   type PodiumConfig,
   resolvePort,
@@ -188,6 +189,9 @@ function saveTransferConfig(config: PodiumConfig, transferAssignment = true): vo
     syncPath(tempPath)
     if (transferAssignment) prepareTransferAssignment(loadConfig(tempPath), tempPath)
     renameSync(tempPath, path)
+    // The live path now holds bytes this process never wrote to it, so the
+    // loader is told rather than left to notice — see {@link forgetConfig}.
+    forgetConfig(path)
     syncParent(path)
     saveTransferSupervisorAssignment(loadConfig())
   } finally {
