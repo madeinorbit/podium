@@ -82,24 +82,12 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     why: "the attach orchestrator's span reaches IssueArtifactStore.removeIssue through draft cleanup, and an rm(recursive) is not something a rollback takes back. This is the same capability as the four fire-and-forget sites the ledger §F left unsettled; POD-3260 could not demonstrate it, and this is the demonstration.",
   },
   {
-    key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.repoOp@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: 'a git round trip to a machine, reached through the gitState refresh the same span triggers. Ledger §F names workflow.ts:589 as one of the unsettled fire-and-forget sites; this is the path that reaches it.',
-  },
-  {
     key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated@apps/server/src/application/issue-attach-orchestrator.ts:26',
     why: "the analytics publication hook, whose own doc says it is 'for a composition root that publishes it'. Reached from issue creation inside the attach span.",
   },
   {
     key: 'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueClosed@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: 'starts session teardown, which tears down processes outside this one, from inside the attach span.',
-  },
-  {
-    key: 'apps/server/src/modules/sessions/session.ts#Send.Send@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: 'a write to a live agent process, reached through the machine RPC the gitState refresh issues.',
-  },
-  {
-    key: 'apps/server/src/gateway/daemon-ports.ts#ControlSend.ControlSend@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: 'a control frame to a daemon, on the same machine-RPC path as the send above.',
+    why: 'starts session teardown, which tears down processes outside this one, from inside the attach span. STILL CALLED in the span, but no longer ACTING in it: POD-3806 moved the drop one level down, so `IssueSessionLifecycle.stopClosedIssue` registers the teardown with afterCommit and it runs once the span commits. The line stays because the call is what the graph can see, and the deferral is a fact about the callee.',
   },
   {
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/application/issue-attach-orchestrator.ts:26',
