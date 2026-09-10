@@ -101,6 +101,8 @@
  */
 
 import { z } from 'zod'
+import type { Instant } from '../clock'
+import { brandedIdSchema, ID_PREFIXES, mintBrandedId } from './branded-ksuid'
 
 /**
  * The field-position brand: the brand ONLY, no added validation, so the schema
@@ -388,3 +390,82 @@ export const DeliveryReceiptId = z.string().min(1).brand<'DeliveryReceiptId'>()
 export type DeliveryReceiptId = z.infer<typeof DeliveryReceiptId>
 export const DeliveryReceiptIdField = idField<'DeliveryReceiptId'>()
 export const asDeliveryReceiptId = (s: string): DeliveryReceiptId => s as DeliveryReceiptId
+
+// ---------------------------------------------------------------------------
+// Branded KSUIDs — the workspace member family (spec, hosted sign-in §9.1; A1)
+// ---------------------------------------------------------------------------
+//
+// The first brands in this file whose SHAPE is ours to know. Every brand above
+// is `z.string().min(1)` because the value's form belongs to whoever mints it —
+// a remote daemon's machine id, a harness's conversation id, a pre-existing
+// `iss_${randomUUID()}`. These two name rows that do not exist yet, minted only
+// by `newMemberId` / `newInviteId` below, so the boundary schema can check the
+// whole value: the prefix, the alphabet, the width, and that the body is twenty
+// bytes a KSUID mint could have produced. `branded-ksuid.ts` holds that
+// mechanism and the reasoning; this is where the two brands live, because a
+// brand has one home.
+//
+// ONE SCHEMA, NOT TWO, AND WHY THAT IS NOT A REGRESSION. This file's header is
+// emphatic that a brand ships a validating boundary schema AND a permissive
+// `…Field` schema, because every id field in `entities/` was a bare
+// `z.string()` and tightening one turns a payload that parses today into a parse
+// failure. That argument is about fields that ALREADY PARSE. `mem_` and `inv_`
+// fields do not exist yet — A2 adds the member column, A4 adds
+// `member_invites` — so there is no such payload, and a permissive field schema
+// here would only be an invitation to bind the unchecked one at the very fields
+// the prefix exists to protect. `MemberIdField` is therefore the same schema as
+// `MemberId`, named so a schema author reaching for the usual spelling cannot
+// pick the wrong one. `brands.test.ts` pins it, with the rule it departs from
+// still holding next door.
+
+/** §9.1: the workspace member — the row in the OSS `users` table. */
+export const MEMBER_ID_PREFIX = ID_PREFIXES.member
+export const MemberId = brandedIdSchema(MEMBER_ID_PREFIX).brand<'MemberId'>()
+export type MemberId = z.infer<typeof MemberId>
+/** The same schema as {@link MemberId} — see the section note above. */
+export const MemberIdField = MemberId
+export const asMemberId = (s: string): MemberId => s as MemberId
+/** Mint one. `at` defaults to now; it is a parameter so tests can be ordered. */
+export const newMemberId = (at?: Instant): MemberId =>
+  asMemberId(mintBrandedId(MEMBER_ID_PREFIX, at))
+
+/** §9.1: a workspace invite — `member_invites`, the A4 invite-and-claim row. */
+export const INVITE_ID_PREFIX = ID_PREFIXES.invite
+export const InviteId = brandedIdSchema(INVITE_ID_PREFIX).brand<'InviteId'>()
+export type InviteId = z.infer<typeof InviteId>
+/** The same schema as {@link InviteId} — see the section note above. */
+export const InviteIdField = InviteId
+export const asInviteId = (s: string): InviteId => s as InviteId
+/** Mint one. Not a secret: an invite's secret is its hashed token (A4). */
+export const newInviteId = (at?: Instant): InviteId =>
+  asInviteId(mintBrandedId(INVITE_ID_PREFIX, at))
+
+/**
+ * Brand widening: a workspace member id as the {@link UserId} the codebase
+ * already carries for that row.
+ *
+ * {@link MemberId} and {@link UserId} name THE SAME ROWS — the OSS `users`
+ * table is the workspace member table (§3) — and A2's migration is what gives
+ * those rows `mem_` ids. `UserId` is not tightened to this shape and must not
+ * be: it is adopted across the codebase over a column that still holds
+ * pre-migration values, and `.min(1)` → prefix-checked would be exactly the
+ * behaviour change in type-change clothing this file's header exists to stop.
+ * So the two are bridged, on the {@link agentIdentityFromSessionId} precedent:
+ * one minted string, two brands, one named conversion each way.
+ *
+ * This direction is a plain cast, because every `mem_` id satisfies `UserId`.
+ */
+export const userIdFromMemberId = (id: MemberId): UserId => asUserId(id)
+
+/**
+ * Brand narrowing: a {@link UserId} as a {@link MemberId} — and the asymmetry
+ * with {@link userIdFromMemberId}. This one PARSES, and throws when the value is
+ * not a branded member id.
+ *
+ * A cast here would launder the very values A2 exists to retire: `user:sole` and
+ * every pre-migration row id would come back as something the type system swore
+ * was a branded KSUID. That is the {@link MachineId} sentinel argument in this
+ * file's header, pointed at the solo user — and the reason this is not the
+ * mirror image of the widening above.
+ */
+export const memberIdFromUserId = (id: UserId): MemberId => MemberId.parse(id)

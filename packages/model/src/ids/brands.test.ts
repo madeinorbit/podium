@@ -10,11 +10,20 @@ import { SessionMeta, SessionOrigin } from '../entities/session'
 import {
   agentIdentityFromSessionId,
   asSessionId,
+  asUserId,
+  InviteId,
   MachineId,
   MachineIdField,
+  MemberId,
+  MemberIdField,
+  memberIdFromUserId,
+  newInviteId,
+  newMemberId,
   SessionId,
   SessionIdField,
   sessionIdFromAgentIdentity,
+  UserId,
+  userIdFromMemberId,
 } from './brands'
 
 /**
@@ -378,5 +387,72 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
     const block = /export const MachineWire = z\.object\(\{[\s\S]*?\n\}\)/.exec(src)?.[0]
     expect(block, 'MachineWire not found in entities/machine.ts').toBeTruthy()
     expect(block).toMatch(/\n {2}id: MachineIdField,/)
+  })
+})
+
+/**
+ * The branded-KSUID family (spec §9.1, A1) — the first brands in this file whose
+ * SHAPE is ours to know. What is pinned here is the thing a brand alone cannot
+ * do: refuse an id that came from the wrong table.
+ */
+describe('the workspace member and invite brands refuse each other', () => {
+  it('refuses a mem_ id where an inv_ id is expected, and the reverse', () => {
+    const member = newMemberId()
+    const invite = newInviteId()
+    expect(MemberId.safeParse(member).success).toBe(true)
+    expect(InviteId.safeParse(invite).success).toBe(true)
+    expect(InviteId.safeParse(member).success).toBe(false)
+    expect(MemberId.safeParse(invite).success).toBe(false)
+  })
+
+  it('is the prefix doing the work, not the length', () => {
+    // The counterfactual: UserId is the min(1) brand every other id in this file
+    // uses, and it accepts BOTH of these happily. Without this half, "InviteId
+    // rejects a member id" could be true of any schema that rejected something.
+    const member = newMemberId()
+    const invite = newInviteId()
+    expect(UserId.safeParse(member).success).toBe(true)
+    expect(UserId.safeParse(invite).success).toBe(true)
+    expect(member).toHaveLength(invite.length)
+  })
+
+  it('refuses the empty string at the field position too', () => {
+    // The deliberate deviation from this file's two-schema rule: mem_ and inv_
+    // name tables that do not exist yet (A2 and A4 add them), so there is no
+    // payload that parses today for a validating field schema to break. The
+    // counterfactual is the rule it departs from, still holding next door.
+    expect(MemberIdField.safeParse('').success).toBe(false)
+    expect(SessionIdField.safeParse('').success).toBe(true)
+  })
+
+  it('mints ids that sort by creation', () => {
+    const day = 86_400_000
+    const minted = Array.from({ length: 50 }, (_, i) => newMemberId(1_600_000_000_000 + i * day))
+    expect([...minted].sort()).toEqual(minted)
+  })
+})
+
+/**
+ * `UserId` and `MemberId` will name the same rows once A2 gives the OSS `users`
+ * table mem_ ids. Until then the column holds pre-migration values, so the two
+ * brands are bridged by named conversions rather than by tightening `UserId` —
+ * the `agentIdentityFromSessionId` precedent, with one asymmetry.
+ */
+describe('the UserId bridge', () => {
+  it('widens a member id to a user id without changing the string', () => {
+    const member = newMemberId()
+    expect(userIdFromMemberId(member)).toBe(String(member))
+  })
+
+  it('narrows a user id only when it really is a member id', () => {
+    const member = newMemberId()
+    expect(memberIdFromUserId(asUserId(String(member)))).toBe(String(member))
+  })
+
+  it('refuses to launder a pre-migration user id into a member id', () => {
+    // The MachineId argument in this file's header, pointed at the solo user: a
+    // cast here would hand back something the type system swore was a branded
+    // KSUID. A2 migrates the row; it does not re-brand the literal.
+    expect(() => memberIdFromUserId(asUserId('user:sole'))).toThrow()
   })
 })
