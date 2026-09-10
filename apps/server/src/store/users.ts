@@ -20,7 +20,7 @@ import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
 
 export interface UserAccountRow {
   id: string
@@ -117,8 +117,24 @@ export class UsersRepository {
     return account === undefined ? undefined : { ...account }
   }
 
+  /**
+   * THE MOST-EXECUTED STATEMENT IN THE SERVER, PREPARED ONCE [POD-3854].
+   *
+   * Seven minutes of a live instance issued this 180,660 times — the frame cache
+   * above absorbs the repeats inside one read scope, and what is left is still
+   * the top statement by count. The fluent form re-serialised the SQL and
+   * regenerated the row mapper on every one of them; measured on the migrated
+   * schema it cost 48.9 us per call against 12.4 us prepared.
+   *
+   * See {@link preparedPerDb} for why the cache is keyed on the drizzle instance
+   * and not held as one query per repository.
+   */
+  private readonly accountById = preparedPerDb((db) =>
+    db.select().from(users).where(eq(users.id, sql.placeholder('id'))).prepare(),
+  )
+
   private async read(userId: UserId): Promise<UserAccountRow | undefined> {
-    const r = await this.db.select().from(users).where(eq(users.id, userId)).get()
+    const r = await this.accountById(this.db).get({ id: userId })
     if (!r) return undefined
     const role = parseRole(r.role)
     if (role === undefined) return undefined

@@ -195,6 +195,46 @@ export type StoreDrizzle = Omit<
   'transaction'
 >
 
+/**
+ * ONE PREPARED QUERY PER DRIZZLE INSTANCE [POD-3854].
+ *
+ * WHAT PREPARING BUYS. `.get()` and `.all()` on a builder are `_prepare().get()`
+ * and `_prepare().all()`, and `_prepare` is the expensive half: it serialises the
+ * statement through the dialect and generates a row mapper over the selection
+ * list, per call. `.prepare()` is the SAME `_prepare()`, kept. Everything after
+ * it is byte-identical — `fillPlaceholders`, then the remote callback below,
+ * then the executor's ambient router — so intent, lane, span scope,
+ * statement-probe attribution and the driver's per-connection statement cache
+ * all see exactly what the fluent form showed them. Only the rebuilding goes.
+ *
+ * WHY "PER INSTANCE" IS THE WHOLE POINT. A prepared query also closes over the
+ * remote callback it was prepared against, and that callback is bound to ONE
+ * `QueryClient`. `buildStoreDrizzle` makes a new instance per transaction over
+ * that transaction's frame-pinned client, which is what `currentTransaction()`
+ * hands a repository's `db` getter. Preparing once per STORE would therefore
+ * pin every read to the root client and quietly take reads out of the enclosing
+ * transaction — the one failure mode this cache exists to make impossible.
+ * Keying on the instance leaves `currentTransaction() ?? rootDb` deciding which
+ * client runs the statement, exactly as the fluent form does.
+ *
+ * The lifetimes line up with the call counts. The root instance is one object
+ * for the store's life, so every read outside a transaction — the hot path this
+ * is for — hits the cache. A transaction's instance prepares once per
+ * transaction and is collected with it, and once per transaction is strictly
+ * less than the once per CALL the fluent form was already paying.
+ */
+export function preparedPerDb<P>(build: (db: StoreDrizzle) => P): (db: StoreDrizzle) => P {
+  const cache = new WeakMap<object, P>()
+  return (db) => {
+    const key = db as unknown as object
+    const hit = cache.get(key)
+    if (hit !== undefined) return hit
+    const made = build(db)
+    cache.set(key, made)
+    return made
+  }
+}
+
 export interface StoreQueries {
   /** The ambient async drizzle instance a repository queries through. */
   readonly rootDb: StoreDrizzle

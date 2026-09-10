@@ -27,7 +27,7 @@ import {
   tabOrder,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { currentTransaction } from './executor/sync-drizzle'
+import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -81,9 +81,36 @@ export class SessionsRepository {
     return await this.readSessions(isNull(sessionsTable.deletedAt))
   }
 
+  /**
+   * {@link readSessions}' predicate and ordering, PREPARED ONCE [POD-3854].
+   *
+   * Both are restated rather than shared with `readSessions`, which takes its
+   * predicate as an argument and so can never be prepared: a prepared query is
+   * one fixed statement, and the readers that share `readSessions` each supply
+   * a different `where`. This is the one worth pinning — seven minutes of a
+   * live instance issued it 146,040 times, and against a 49-column selection the
+   * per-call rebuild dominated: 256.6 us fluent against 28.8 us prepared on the
+   * migrated schema.
+   *
+   * THE ORDERING IS KEPT THOUGH IT CANNOT MATTER. `id` is the primary key, so
+   * there is at most one row to order. It stays because the SQL TEXT is the key
+   * to the driver's per-connection statement cache and the bucket the query
+   * attribution counts under, and changing the text would move this statement to
+   * a new slot in both while claiming to have only made it cheaper.
+   */
+  private readonly sessionById = preparedPerDb((db) =>
+    db
+      .select()
+      .from(sessionsTable)
+      .where(eq(sessionsTable.id, sql.placeholder('id')))
+      .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+      .prepare(),
+  )
+
   /** One durable row, including a tombstone, for scoped delete visibility. */
   async getSession(sessionId: SessionId): Promise<SessionRow | undefined> {
-    return (await this.readSessions(eq(sessionsTable.id, sessionId)))[0]
+    const row = (await this.sessionById(this.db).all({ id: sessionId }))[0]
+    return row === undefined ? undefined : mapSession(row)
   }
 
   /**
