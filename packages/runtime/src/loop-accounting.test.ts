@@ -428,5 +428,63 @@ describe('the model wire schemas accept what this module produces', () => {
    */
   it('states the same four levels as the wire enum, in the same order', () => {
     expect(LoopProfileLevelWire.options).toEqual([...LOOP_PROFILE_LEVELS])
+describe('profile capture counters on the minute record', () => {
+  it('counts suppressed profile requests and the profiler drain cost', () => {
+    const h = harness()
+
+    h.handle.noteProfileSuppressed()
+    h.handle.noteProfileSuppressed()
+    h.handle.noteProfilerCost(6.75)
+    h.handle.noteProfilerCost(3.25)
+    h.idle(60_000)
+
+    const minute = h.minutes.at(-1) as LoopMinute
+    expect(minute.profileSuppressed).toBe(2)
+    expect(minute.profilerCostMs).toBeCloseTo(10)
+    // The drain is NOT folded into the accounting timer's own cost: they are
+    // paid at different levels and by different code.
+    expect(minute.selfCostPct).toBeLessThan(1)
+    h.handle.stop()
+  })
+
+  it('resets both counters at the minute boundary', () => {
+    const h = harness()
+
+    h.handle.noteProfileSuppressed()
+    h.handle.noteProfilerCost(5)
+    h.idle(60_000)
+    h.idle(60_000)
+
+    expect(h.minutes).toHaveLength(2)
+    expect(h.minutes[0]?.profileSuppressed).toBe(1)
+    // A minute with neither is ABSENT rather than zero, like every other
+    // optional field here: "nothing suppressed" and "not measured" stay apart.
+    expect(h.minutes[1]).not.toHaveProperty('profileSuppressed')
+    expect(h.minutes[1]).not.toHaveProperty('profilerCostMs')
+    h.handle.stop()
+  })
+
+  it('ignores both below attribution, where no capture can run', () => {
+    const h = harness({ level: 'accounting' })
+
+    h.handle.noteProfileSuppressed()
+    h.handle.noteProfilerCost(9)
+    h.idle(60_000)
+
+    expect(h.minutes[0]).not.toHaveProperty('profileSuppressed')
+    expect(h.minutes[0]).not.toHaveProperty('profilerCostMs')
+    h.handle.stop()
+  })
+
+  it('ignores a cost that is not a positive number', () => {
+    const h = harness()
+
+    h.handle.noteProfilerCost(Number.NaN)
+    h.handle.noteProfilerCost(-4)
+    h.handle.noteProfilerCost(0)
+    h.idle(60_000)
+
+    expect(h.minutes[0]).not.toHaveProperty('profilerCostMs')
+    h.handle.stop()
   })
 })

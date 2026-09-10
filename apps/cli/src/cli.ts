@@ -106,6 +106,7 @@ const HELP_DELEGATED = new Set([
   'machine',
   'instance',
   'logs',
+  'perf',
 ])
 
 /** First token the launch path does not understand (skipping value-flag arguments). */
@@ -236,6 +237,7 @@ export type LaunchPlan =
   | { kind: 'interactions'; args: string[] }
   | { kind: 'workflow'; args: string[] }
   | { kind: 'merge-lock'; args: string[] }
+  | { kind: 'perf'; args: string[] }
   | { kind: 'status' }
   | { kind: 'stop' }
   | { kind: 'logs'; args: string[] }
@@ -739,6 +741,7 @@ export function resolvePlan(
   if (argv[0] === 'interactions') return { kind: 'interactions', args: argv.slice(1) }
   if (argv[0] === 'workflow') return { kind: 'workflow', args: argv.slice(1) }
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
+  if (argv[0] === 'perf') return { kind: 'perf', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
   if (argv[0] === 'stop') return { kind: 'stop' }
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
@@ -904,6 +907,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  logs clients          List the clients connected right now (and reset them)',
     '  logs level <level|reset> [--role R] [--for 30m]',
     '                        Raise what a connected client records, then put it back',
+    ...(enabledFeatures.has('podium-development')
+      ? ['  perf <command>        Loop profile level, minute files, on-demand CPU profile']
+      : []),
     '',
     'Access:',
     '  auth mint-session     Mint this host’s operator session (password-protected instances)',
@@ -2077,6 +2083,13 @@ export async function main(
     case 'merge-lock': {
       const { mergeLockCliMain } = await import('./lock-cli')
       await mergeLockCliMain(plan.args)
+      return
+    }
+    // `podium perf <command>`: the event-loop instrument's reader — level, the
+    // minute files, and an on-demand CPU profile [spec:SP-6144 §7.3].
+    case 'perf': {
+      const { perfCliMain } = await import('./perf-cli')
+      await perfCliMain(plan.args)
       return
     }
     case 'status': {

@@ -7,11 +7,12 @@ import {
   assertAppUrlCompatible,
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
-  LOGGING_MODE_ENV,
   configPath,
+  DEFAULT_PROFILE_STALL_MS,
   inspectConfig,
   LAYERED_ENV,
   LAYERED_KEYS,
+  LOGGING_MODE_ENV,
   loadConfig,
   localServerUrl,
   localServerWsUrl,
@@ -31,6 +32,7 @@ import {
   resolveLoggingMode,
   resolveMode,
   resolvePort,
+  resolveProfileStallMs,
   resolvePublicUrl,
   resolveRunRecordMode,
   resolveSessionRelay,
@@ -434,9 +436,9 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     // the watchdog — which left the child inferring `foreground` and writing
     // pretty text into journald. The declaration is the child's only true source.
     expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'systemd' })).toBe('systemd')
-    expect(
-      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'detached', NOTIFY_SOCKET: '/run/x' }),
-    ).toBe('detached')
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'detached', NOTIFY_SOCKET: '/run/x' })).toBe(
+      'detached',
+    )
     expect(
       resolveLoggingMode({ [LOGGING_MODE_ENV]: 'foreground', PODIUM_DESKTOP_SUPERVISED: '1' }),
     ).toBe('foreground')
@@ -882,5 +884,27 @@ describe('assertAppUrlCompatible', () => {
     expect(() => assertAppUrlCompatible({ appUrl: 'https://app.example' }, {})).toThrow(
       /different site/,
     )
+  })
+})
+
+describe('resolveProfileStallMs', () => {
+  it('defaults to a full second of blocked loop', () => {
+    expect(resolveProfileStallMs({})).toBe(DEFAULT_PROFILE_STALL_MS)
+    expect(DEFAULT_PROFILE_STALL_MS).toBe(1000)
+  })
+
+  it('takes a positive number from the environment', () => {
+    expect(resolveProfileStallMs({ PODIUM_LOOP_PROFILE_STALL_MS: '250' })).toBe(250)
+    expect(resolveProfileStallMs({ PODIUM_LOOP_PROFILE_STALL_MS: ' 2500 ' })).toBe(2500)
+  })
+
+  it('falls back rather than throwing on a value that is not one', () => {
+    // Same reasoning as the level resolver: a mistyped diagnostic knob must not
+    // be able to stop a server booting.
+    for (const raw of ['', 'soon', '0', '-1', 'NaN']) {
+      expect(resolveProfileStallMs({ PODIUM_LOOP_PROFILE_STALL_MS: raw })).toBe(
+        DEFAULT_PROFILE_STALL_MS,
+      )
+    }
   })
 })

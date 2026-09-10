@@ -54,6 +54,7 @@
  * | PODIUM_INSTANCE_UUID          | — (env-only)            | daemon-owned process identity (instance reaper)       |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | config.loopProfile      | `resolveLoopProfileLevel()` (level name; parent states it) |
+ * | PODIUM_LOOP_PROFILE_STALL_MS  | — → 1000                | `resolveProfileStallMs()` (stall that arms a CPU profile)   |
  * | VITEST / NODE_ENV=test        | — (env-only evidence)   | `resolveLoopProfileLevel()` (a test run defaults to `off`) |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |
  * | PODIUM_APP_VERSION            | — (BUILD-time --define) | server /version; must stay a literal `process.env.…`   |
@@ -741,6 +742,27 @@ export function resolveLoopProfileLevel(
   const appVersion = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
   const development = resolveUpdateChannel(config, env) === 'dev' || appVersion === 'dev'
   return { level: development ? 'attribution' : 'off', source: 'default', ...carry }
+}
+
+/** Stall length that arms an automatic CPU profile, ms (spec §8). */
+export const LOOP_PROFILE_STALL_MS_ENV = 'PODIUM_LOOP_PROFILE_STALL_MS'
+/** Default: a full second of blocked loop. Below this, the minute record is the record. */
+export const DEFAULT_PROFILE_STALL_MS = 1000
+
+/**
+ * How long a tick must block before it arms a profile capture (spec §8).
+ *
+ * Env-only and deliberately so: it is a threshold an operator turns down for one
+ * investigation and back up afterwards, not a property of the install. A value
+ * that is not a positive number falls back to the default rather than throwing —
+ * same reasoning as {@link resolveLoopProfileLevel}, a mistyped diagnostic knob
+ * must not be able to stop a server booting.
+ */
+export function resolveProfileStallMs(env: EnvSource = process.env): number {
+  const raw = env[LOOP_PROFILE_STALL_MS_ENV]?.trim()
+  if (!raw) return DEFAULT_PROFILE_STALL_MS
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_PROFILE_STALL_MS
 }
 
 /**

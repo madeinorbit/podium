@@ -27,6 +27,7 @@
     "./loop-profile": "./src/loop-profile.ts",
     "./loop-accounting": "./src/loop-accounting.ts",
     "./loop-minute-sink": "./src/loop-minute-sink.ts",
+    "./loop-profile-capture": "./src/loop-profile-capture.ts",
     "./task-attribution": "./src/task-attribution.ts",
     "./query-attribution": "./src/query-attribution.ts",
     "./time-budget": "./src/time-budget.ts",

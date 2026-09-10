@@ -120,6 +120,23 @@ export interface LoopMinute {
   heapUsedBytes: number
   rssBytes: number
   selfCostPct: number
+  /**
+   * Profile captures this minute that were refused because one was already
+   * running or the five-minute rate limit had not elapsed (spec §8). A stall
+   * burst that produced ONE profile and nine refusals is a different situation
+   * from a stall burst that produced one profile, and only this says which.
+   */
+  profileSuppressed?: number
+  /**
+   * Main-thread ms this minute spent draining the sampling profiler's buffer.
+   *
+   * Kept OUT of `selfCostPct`, which is the accounting timer's own cost and is
+   * paid at every level above `off`. This is paid only after the process's first
+   * capture, and only at `attribution` and above, so folding the two together
+   * would make the accounting overhead look like it doubled the moment someone
+   * took a profile. See `loop-profile-capture.ts` for why the drain exists.
+   */
+  profilerCostMs?: number
   buckets?: Record<LoopBucket, LoopBucketCost>
   /** Bucket sum over busy time. Above 1 is normal — see {@link LOOP_NESTED_BUCKETS}. */
   coverage?: number
@@ -158,6 +175,10 @@ export interface LoopAccountingHandle {
   latestWindow(): LoopWindow | undefined
   /** The most recently completed minute, for the host metrics push (part C). */
   latestMinute(): LoopMinute | undefined
+  /** Count one profile request that was refused. No-op below `attribution`. */
+  noteProfileSuppressed(): void
+  /** Add main-thread ms spent draining the sampling profiler. No-op below `attribution`. */
+  noteProfilerCost(ms: number): void
 }
 
 /** Windows kept: two minutes of seconds. */
@@ -286,6 +307,8 @@ function inertHandle(component: LoopComponent, level: LoopProfileLevel): LoopAcc
     delaySnapshot: () => ({ p50: 0, p99: 0, max: 0 }),
     latestWindow: () => undefined,
     latestMinute: () => undefined,
+    noteProfileSuppressed() {},
+    noteProfilerCost() {},
   }
 }
 
@@ -341,6 +364,8 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
   let minuteStallMaxMs = 0
   let minuteUtilizationMaxPct = Number.NaN
   let minuteSelfCostMs = 0
+  let minuteProfileSuppressed = 0
+  let minuteProfilerCostMs = 0
   let windowsThisMinute = 0
 
   const classifier: StallClassifier | undefined = createStallClassifier({ readSchedstat })
@@ -439,6 +464,8 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
         windows[latestWindowIndex * WINDOW_COLUMNS + LoopWindowColumn.heapUsedBytes] ?? 0,
       rssBytes: windows[latestWindowIndex * WINDOW_COLUMNS + LoopWindowColumn.rssBytes] ?? 0,
       selfCostPct: (minuteSelfCostMs / wallMs) * 100,
+      ...(minuteProfileSuppressed > 0 ? { profileSuppressed: minuteProfileSuppressed } : {}),
+      ...(minuteProfilerCostMs > 0 ? { profilerCostMs: minuteProfilerCostMs } : {}),
       ...(buckets
         ? {
             buckets,
@@ -471,6 +498,8 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
     minuteStallMaxMs = 0
     minuteUtilizationMaxPct = Number.NaN
     minuteSelfCostMs = 0
+    minuteProfileSuppressed = 0
+    minuteProfilerCostMs = 0
     windowsThisMinute = 0
     stallReservoirCount = 0
     minuteBuckets.fill(0)
@@ -613,6 +642,14 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
     },
     latestMinute() {
       return minutes[minutes.length - 1]
+    },
+    noteProfileSuppressed() {
+      if (!attributing) return
+      minuteProfileSuppressed += 1
+    },
+    noteProfilerCost(ms) {
+      if (!attributing || !Number.isFinite(ms) || ms <= 0) return
+      minuteProfilerCostMs += ms
     },
   }
 }

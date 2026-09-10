@@ -28,6 +28,7 @@ import {
   resolveAgentHomeDir,
   resolveAgentRelayPort,
   resolveHookPort,
+  resolveProfileStallMs,
   stateDir,
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -35,6 +36,11 @@ import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
 import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
 import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
+import {
+  createProfileCapture,
+  type LoopProfileCapture,
+  takeProfileRequest,
+} from '@podium/runtime/loop-profile-capture'
 import {
   SUPERVISOR_MACHINE_ID_ENV,
   SUPERVISOR_MACHINE_TOKEN_ENV,
@@ -391,11 +397,64 @@ export async function createDaemonHostRuntime(args: {
   reportLoopProfileWarning(log)
   let loopAccounting: LoopAccountingHandle | undefined
   let loopMinuteSink: LoopMinuteFileSink | undefined
+  let loopProfileCapture: LoopProfileCapture | undefined
+  const perfDir = join(identityStateDir, 'perf')
   if (atLeast('accounting')) {
     loopMinuteSink = createLoopMinuteSink({
-      dir: join(identityStateDir, 'perf'),
+      dir: perfDir,
       component: 'daemon',
     })
+    // CPU profiles are an `attribution` artifact (spec §8): below it nothing is
+    // constructed, the sampler is never armed and its keep-clear timer never
+    // exists. The daemon runs the SAME capture module as the server — a stall
+    // here blocks session I/O for every agent on the machine, so it needs the
+    // instrument at least as much.
+    const capture = atLeast('attribution')
+      ? createProfileCapture({
+          component: 'daemon',
+          level: loopProfileLevel,
+          dir: perfDir,
+          onKeepClearCost: (ms) => loopAccounting?.noteProfilerCost(ms),
+        })
+      : undefined
+    loopProfileCapture = capture
+    const profileStallMs = resolveProfileStallMs()
+    /** Arm a capture, and record it in the minute when the limiter refuses. */
+    const requestProfile = (
+      trigger: 'stall' | 'signal',
+      seconds: number,
+      context?: { stallMs?: number },
+    ): void => {
+      if (!capture) return
+      void capture
+        .request(trigger, seconds, {
+          ...(context?.stallMs === undefined ? {} : { stallMs: context.stallMs }),
+          ...(loopAccounting?.latestMinute() ? { minute: loopAccounting.latestMinute() } : {}),
+        })
+        .then((result) => {
+          if (result.suppressed) {
+            // `level` cannot happen here and `unavailable` is a property of the
+            // runtime, not of this minute — only contention is worth counting.
+            if (result.reason === 'running' || result.reason === 'rate-limited') {
+              loopAccounting?.noteProfileSuppressed()
+            }
+            return
+          }
+          log.warn('loop profile captured', {
+            path: result.path,
+            trigger,
+            seconds,
+            traceCount: result.traceCount,
+            bytes: result.bytes,
+          })
+        })
+        .catch((err: unknown) => {
+          log.warn('loop profile capture failed', {
+            trigger,
+            reason: err instanceof Error ? err.message : String(err),
+          })
+        })
+    }
     loopAccounting = startLoopAccounting({
       component: 'daemon',
       level: loopProfileLevel,
@@ -405,11 +464,24 @@ export async function createDaemonHostRuntime(args: {
       // the activity mix this reporter names is not being collected anyway.
       ...(atLeast('attribution')
         ? {
-            onLongTick: (stall) =>
-              reportLongTick(stall.durationMs, stall.classification, stall.utilizationPct),
+            onLongTick: (stall) => {
+              reportLongTick(stall.durationMs, stall.classification, stall.utilizationPct)
+              // Armed AFTER the stall, on the premise that stalls recur in
+              // bursts, so the next one lands inside the window (spec §8).
+              if (stall.durationMs >= profileStallMs) {
+                requestProfile('stall', 10, { stallMs: stall.durationMs })
+              }
+            },
           }
         : {}),
     })
+    // The daemon's SIGUSR2 (POD-3819; part B extends this handler rather than
+    // registering a second one — two listeners both fire). `podium perf profile
+    // daemon` leaves the duration in the request file; a signal sent by hand
+    // gets 10 s.
+    if (atLeast('attribution')) {
+      process.on('SIGUSR2', () => requestProfile('signal', takeProfileRequest(perfDir)))
+    }
     // POD-600's loop-stall classifier stays in loop-attribution.ts; boot merely
     // turns it on. Moving connection code must never absorb this instrumentation.
     if (atLeast('attribution')) startLoopAttribution()
@@ -1328,6 +1400,7 @@ export async function createDaemonHostRuntime(args: {
     // records are already on disk (the sink writes synchronously), so this
     // closes a descriptor rather than draining anything.
     loopAccounting?.stop()
+    loopProfileCapture?.stop()
     loopMinuteSink?.close()
     stopInventoryRefresh?.()
     workerClient.stop()

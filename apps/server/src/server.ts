@@ -33,6 +33,7 @@ import {
   resolveDevArtifactOrigin,
   resolveInstanceId,
   resolveMode,
+  resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
   resolveUpdateScope,
@@ -46,6 +47,11 @@ import {
 import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
 import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
+import {
+  createProfileCapture,
+  type LoopProfileCapture,
+  takeProfileRequest,
+} from '@podium/runtime/loop-profile-capture'
 import {
   SUPERVISOR_SERVICE_ASSIGNMENT_ENV,
   targetTransferRecovery,
@@ -1708,6 +1714,7 @@ export async function startServer(
   return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
     let loopMinuteSink: LoopMinuteFileSink | undefined
+    let loopProfileCapture: LoopProfileCapture | undefined
     const failListen = async (err: unknown): Promise<void> => {
       if (settled) return
       settled = true
@@ -1855,11 +1862,63 @@ export async function startServer(
     // so what is measured is not what whoever set it expects.
     reportLoopProfileWarning(loopLog)
     if (atLeast('accounting')) {
+      const perfDir = join(stateDir(), 'perf')
       const loopSink = createLoopMinuteSink({
-        dir: join(stateDir(), 'perf'),
+        dir: perfDir,
         component: 'server',
       })
       loopMinuteSink = loopSink
+      // CPU profiles are an `attribution` artifact (spec §8): below it nothing
+      // is constructed, so the sampler is never armed and its keep-clear timer
+      // never exists. The cost of the drain lands on the minute record through
+      // `noteProfilerCost`, next to everything else this process spends on
+      // measuring itself.
+      const capture = atLeast('attribution')
+        ? createProfileCapture({
+            component: 'server',
+            level: loopProfileLevel,
+            dir: perfDir,
+            onKeepClearCost: (ms) => loopAccounting?.noteProfilerCost(ms),
+          })
+        : undefined
+      loopProfileCapture = capture
+      const profileStallMs = resolveProfileStallMs()
+      /** Arm a capture, and record it in the minute when the limiter refuses. */
+      const requestProfile = (
+        trigger: 'stall' | 'signal',
+        seconds: number,
+        context?: { stallMs?: number },
+      ): void => {
+        if (!capture) return
+        void capture
+          .request(trigger, seconds, {
+            ...(context?.stallMs === undefined ? {} : { stallMs: context.stallMs }),
+            ...(loopAccounting?.latestMinute() ? { minute: loopAccounting.latestMinute() } : {}),
+          })
+          .then((result) => {
+            if (result.suppressed) {
+              // `level` cannot happen here and `unavailable` is a property of the
+              // runtime, not of this minute — only contention is worth counting.
+              if (result.reason === 'running' || result.reason === 'rate-limited') {
+                loopAccounting?.noteProfileSuppressed()
+              }
+              return
+            }
+            loopLog.warn('loop profile captured', {
+              path: result.path,
+              trigger,
+              seconds,
+              traceCount: result.traceCount,
+              bytes: result.bytes,
+            })
+          })
+          .catch((err: unknown) => {
+            loopLog.warn('loop profile capture failed', {
+              trigger,
+              reason: err instanceof Error ? err.message : String(err),
+            })
+          })
+      }
       loopAccounting = startLoopAccounting({
         component: 'server',
         level: loopProfileLevel,
@@ -1909,6 +1968,14 @@ export async function startServer(
                   ...(sql ? { sql } : {}),
                   ...(tasks ? { tasks, taskCoverage } : {}),
                 })
+                // A long stall arms a profile AFTER the fact: the stall itself
+                // is already over, and every measured incident has had them
+                // arrive in bursts, so the next one lands inside the window
+                // (spec §8). The rate limiter is what keeps a burst from
+                // producing a file per stall.
+                if (stall.durationMs >= profileStallMs) {
+                  requestProfile('stall', 10, { stallMs: stall.durationMs })
+                }
               },
             }
           : {}),
@@ -1955,6 +2022,11 @@ export async function startServer(
               samples: samples.slice(0, 3).map((s) => ({ count: s.count, stack: s.stack })),
             })
           }
+          // ...and a CPU profile, which is the half of this the totals above
+          // cannot give: they name what ran through a seam, the profile names
+          // what ran through none. `podium perf profile server` leaves the
+          // duration in the request file; a signal sent by hand gets 10 s.
+          requestProfile('signal', takeProfileRequest(perfDir))
         })
       }
     }
@@ -2181,6 +2253,7 @@ export async function startServer(
                 'loopAccounting.stop',
                 () => {
                   loopAccounting?.stop()
+                  loopProfileCapture?.stop()
                   loopMinuteSink?.close()
                 },
               ],
