@@ -83,6 +83,15 @@ jobs:
       # It builds a TypeScript program over apps/server, so it costs ~35 s and
       # is deliberately NOT folded into `lint:boundaries`, which is a text scan
       # that runs in a second. Same split, same reason, as `lint:architecture`.
+      #
+      # THIS IS NO LONGER THE ONLY PLACE IT RUNS (POD-3821). Work lands locally
+      # by fast-forward here and a PR is a separate decision, so a CI-only gate
+      # is one most changes never meet — and this one had been RED on an
+      # integration branch with 21 pre-existing failures, which is the same
+      # thing as being off. It is in the agent gate `bun run test` too now,
+      # through a turbo task keyed on the directories its program is built from
+      # (~0.3 s replayed). The step stays: CI is a cold cache and re-earns the
+      # answer from nothing, which is the point of having both.
       - name: span effects (nothing observable inside a transaction body)
         run: bun run lint:span-effects
       # BLOCKING, its own step. The other half of spec §3.6: a store read that

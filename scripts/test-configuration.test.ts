@@ -595,8 +595,19 @@ describe('test lane configuration', () => {
     // command still routes through the lean runner: point `test` back at a bare
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
-    expect(pkg.scripts.test).toBe('bun run typecheck && bun scripts/test-lean.ts')
+    expect(pkg.scripts.test).toBe(
+      'bun run typecheck && bun run lint:span-effects && bun scripts/test-lean.ts',
+    )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
+    // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
+    // string above, and it is asserted separately because it is the one step
+    // here that a future edit would be tempted to drop for costing something:
+    // work lands locally by fast-forward in this repository, so moving it back
+    // to CI-only makes it a gate most changes never meet — which is how it came
+    // to be red on an integration branch with 21 failures and nobody the wiser.
+    // It stays affordable by being turbo-cached, not by being skipped.
+    expect(pkg.scripts.test).toContain('bun run lint:span-effects')
+    expect(pkg.scripts['lint:span-effects']).toBe('bun scripts/lint-span-effects.ts')
   })
 
   /**

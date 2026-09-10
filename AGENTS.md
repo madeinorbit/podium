@@ -98,9 +98,18 @@ then run **one** validation command at the end. The normal agent gate is:
 bun run test
 ```
 
-It runs cached, lock-free typecheck followed by a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
+It runs cached, lock-free typecheck, then the cached span-effect gate, then a tiny, hermetic,
+one-worker boot-wiring and lane-configuration probe. It is designed to
 answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
 without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
+
+The middle step is `bun run lint:span-effects` (spec §6 rule 19: nothing a caller outside this
+process can observe inside a transaction body). It is here and not only in CI because work
+lands locally by fast-forward, so a CI-only gate is one most changes never meet. It is turbo-cached
+on the directories its TypeScript program is built from: **~0.3 s replayed, ~60 s when a source
+it reads changed** — which is precisely when it has something to say. Read
+[docs/gates/pod-3332-span-effect-lint.md](docs/gates/pod-3332-span-effect-lint.md) when it fires;
+the failure text names the span, the path and the two ways out.
 
 It is **four files out of everything the unit config collects**, and the footer on every run
 states the exact ratio and the tests each file actually executed — read back out of the
