@@ -12,7 +12,7 @@ import {
   resolveInstanceId,
   resolvePort,
 } from '@podium/runtime/config'
-import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
+import { type ConnectivityStatus, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
 import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
@@ -34,7 +34,8 @@ export interface StatusView {
   instanceId?: string
   port?: number
   /** Daemon⇄server link state written by the daemon itself (issue #19); absent on
-   *  boxes that run no remote daemon (or before the daemon's first write). */
+   *  boxes that run no remote daemon, before the daemon's first write, or when the
+   *  process that wrote it is no longer running (POD-3815). */
   connectivity?: ConnectivityStatus
   /** HTTP liveness is an independent truth source. A surviving server may have
    * lost its advisory run-registry record during a redeploy or signal race. */
@@ -162,7 +163,10 @@ async function serverHealth(port: number): Promise<boolean> {
 /** `podium status` */
 export async function statusCommand(): Promise<void> {
   const config = loadConfig()
-  const connectivity = readConnectivity()
+  // LIVE, not raw: a record whose writer is gone is a dead incarnation's last
+  // words, and rendering it as current is what made `podium status` report a
+  // permanent phantom outage after an update (POD-3815).
+  const connectivity = readLiveConnectivity()
   const port = resolvePort(config)
   const serverHealthy =
     config.mode === 'server' || config.mode === 'all-in-one' ? await serverHealth(port) : false

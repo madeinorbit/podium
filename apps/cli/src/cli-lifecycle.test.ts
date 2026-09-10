@@ -14,6 +14,7 @@ import {
   renderLogLine,
   renderStatus,
   selectedUnits,
+  statusCommand,
 } from './cli-lifecycle'
 
 const T0 = Date.parse('2026-07-06T12:00:00.000Z')
@@ -373,5 +374,67 @@ describe('podium logs export-crash', () => {
       expect(bundle).toContain('/home/alice/private.key')
       expect(bundle).toContain('at f')
     })
+  })
+})
+
+/**
+ * POD-3815. Observed live on the coordinator after an update: `podium status`
+ * reported the machine's link as "disconnected (retrying every ~5s)" for ever
+ * while the server was connected and healthy. The record was the OUTGOING
+ * parent's last write — refused as superseded (POD-3752), which is a close with
+ * no rejection frame, so it read the refusal as a dropped link, wrote
+ * `disconnected` and exited. `connectivity.json` is shared and unfenced, so a
+ * dead process went on describing the machine.
+ *
+ * Exercised through `statusCommand` rather than `renderStatus`, because the
+ * defect is not in the rendering — the pure renderer was told the truth it was
+ * given. It is in which record the command hands it.
+ */
+describe('statusCommand ignores a dead writer s link state (POD-3815)', () => {
+  /** Beyond pid_max — guaranteed not alive. */
+  const deadPid = 2 ** 30
+
+  async function statusWith(record: Record<string, unknown>): Promise<string> {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-status-'))
+    const savedStateDir = process.env.PODIUM_STATE_DIR
+    const savedInstance = process.env.PODIUM_INSTANCE
+    const lines: string[] = []
+    const log = console.log
+    console.log = (...args: unknown[]) => {
+      lines.push(args.join(' '))
+    }
+    process.env.PODIUM_STATE_DIR = dir
+    delete process.env.PODIUM_INSTANCE
+    try {
+      writeFileSync(join(dir, 'connectivity.json'), `${JSON.stringify(record, null, 2)}\n`)
+      await statusCommand()
+      return lines.join('\n')
+    } finally {
+      console.log = log
+      if (savedStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = savedStateDir
+      if (savedInstance !== undefined) process.env.PODIUM_INSTANCE = savedInstance
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  const outgoingParentsLastWords = {
+    state: 'disconnected',
+    serverUrl: 'ws://localhost:18787',
+    lastHelloOkAt: '2026-09-10T08:50:57.450Z',
+    retryBackoffMs: 5_000,
+    appVersion: '0.1.1-dev.93+158dfb1',
+    updatedAt: '2026-09-10T08:50:57.458Z',
+  }
+
+  it('says nothing about the link when the process that wrote it is gone', async () => {
+    const out = await statusWith({ ...outgoingParentsLastWords, processId: deadPid })
+    expect(out).not.toContain('server link')
+  })
+
+  it('still reports the link when the writer is alive (the fence is not a mute button)', async () => {
+    const out = await statusWith({ ...outgoingParentsLastWords, processId: process.pid })
+    expect(out).toContain('server link')
+    expect(out).toContain('disconnected')
   })
 })

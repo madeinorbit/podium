@@ -6,6 +6,7 @@ import {
   connectivityPath,
   DAEMON_BLOCKED_EXIT_CODE,
   readConnectivity,
+  readLiveConnectivity,
   writeConnectivity,
 } from './connectivity'
 
@@ -56,5 +57,62 @@ describe('connectivity status file (#19)', () => {
 
   it('exports the distinct blocked exit code the systemd unit matches', () => {
     expect(DAEMON_BLOCKED_EXIT_CODE).toBe(78)
+  })
+})
+
+/**
+ * POD-3815. `connectivity.json` is ONE file shared by every process that has
+ * held this machine's link, and nothing in it is fenced by incarnation. A
+ * supervisor refused as superseded (POD-3752) is closed WITHOUT a rejection
+ * frame, so it reads the refusal as an ordinary drop, writes `disconnected`
+ * and exits — and that record then describes the machine for ever.
+ *
+ * The reader fence is `processId`: a record whose writer is gone cannot be
+ * current, whatever it says. Suppression is only ever on PROOF the writer is
+ * dead — an absent `processId` (a pre-POD-3815 writer) still reads as current,
+ * because "we cannot tell" must not become "stale".
+ */
+describe('a dead writer s record is not current (POD-3815)', () => {
+  let dir: string
+  /** Beyond pid_max — guaranteed not alive. */
+  const deadPid = 2 ** 30
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-connlive-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('suppresses a record whose writer process is gone', () => {
+    writeConnectivity({ state: 'disconnected', processId: deadPid, retryBackoffMs: 5_000 }, dir)
+    expect(readLiveConnectivity(dir)).toBeUndefined()
+  })
+
+  it('keeps a record written by a live process', () => {
+    writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    expect(readLiveConnectivity(dir)?.state).toBe('connected')
+  })
+
+  it('keeps a record that names no writer — absence is not proof of staleness', () => {
+    writeConnectivity({ state: 'connected' }, dir)
+    expect(readLiveConnectivity(dir)?.state).toBe('connected')
+  })
+
+  it('leaves the raw read alone, so a successor still inherits the link history', () => {
+    writeConnectivity(
+      {
+        state: 'disconnected',
+        processId: deadPid,
+        serverUrl: 'wss://relay',
+        lastHelloOkAt: '2026-09-10T08:50:57.450Z',
+      },
+      dir,
+    )
+    // The successor's first write merges over the predecessor's record, so the
+    // fence must NOT reach `readConnectivity` — "last contact" would be lost.
+    expect(readConnectivity(dir)?.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
+    const successor = writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    expect(successor.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
+    expect(successor.serverUrl).toBe('wss://relay')
   })
 })

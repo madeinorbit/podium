@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
+import { isAlive, type KillFn } from './run-registry'
 
 /**
  * Exit code a daemon process uses when the server TERMINALLY rejected it (pairRejected /
@@ -64,6 +65,39 @@ export function readConnectivity(dir = stateDir()): ConnectivityStatus | undefin
   } catch {
     return undefined
   }
+}
+
+/**
+ * The record iff the process that wrote it is still running; else undefined.
+ *
+ * THE FILE IS SHARED AND UNFENCED (POD-3815). Every incarnation of this
+ * machine's supervisor writes the same `connectivity.json`, and it carries no
+ * notion of which one is current — so a parent refused as superseded
+ * (POD-3752) leaves `disconnected` behind on its way out and that record goes
+ * on describing a machine whose link is healthy. Observed live: `podium status`
+ * said "disconnected (retrying every ~5s)" for ever after an update.
+ *
+ * `processId` is the fence a reader can apply without cooperation from the
+ * writer, which is what makes it the safety net for the SIGKILL case the
+ * writer-side cede (POD-3765) cannot reach.
+ *
+ * SUPPRESSION IS ONLY EVER ON PROOF. A record naming no `processId` — anything
+ * written before this field existed — still reads as current: "we cannot tell
+ * who wrote this" must not be rendered as "this is stale".
+ *
+ * Deliberately NOT folded into {@link readConnectivity}, which is also the
+ * merge input for {@link writeConnectivity}: fencing there would make a
+ * successor's first write drop the `lastHelloOkAt`/`serverUrl` history it
+ * legitimately inherits. Same split as `readRecord`/`liveRecord`.
+ */
+export function readLiveConnectivity(
+  dir = stateDir(),
+  kill: KillFn = process.kill,
+): ConnectivityStatus | undefined {
+  const status = readConnectivity(dir)
+  if (!status) return undefined
+  if (status.processId !== undefined && !isAlive(status.processId, kill)) return undefined
+  return status
 }
 
 /**
