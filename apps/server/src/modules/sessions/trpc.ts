@@ -63,6 +63,7 @@
  * contract's output schema.
  */
 
+import { describeError } from '@podium/logger'
 import {
   isExposedOn,
   SESSION_STATE_COMMAND_TABLES,
@@ -359,7 +360,7 @@ function handoffProcedure(): HandoffProcedure {
         if (!refusal) throw error
         throw new TRPCError({
           code: refusal === 'unauthorized' ? 'FORBIDDEN' : 'PRECONDITION_FAILED',
-          message: error instanceof Error ? error.message : 'handoff refused',
+          message: error instanceof Error ? describeError(error) : 'handoff refused',
           cause: error,
         })
       }

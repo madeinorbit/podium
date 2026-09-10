@@ -10,6 +10,7 @@
  */
 
 import { statSync } from 'node:fs'
+import { describeError } from '@podium/logger'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { type SnapshotIdentity, sameSnapshotIdentity, snapshotIdentity } from './snapshot-catalogue'
 
@@ -105,7 +106,7 @@ export function verifySnapshotFile(
       durationMs: now() - startedAt,
     }
   } catch (error) {
-    return fail('unreadable', error instanceof Error ? error.message : String(error))
+    return fail('unreadable', describeError(error))
   } finally {
     db?.close()
   }

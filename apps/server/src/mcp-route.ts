@@ -1,3 +1,4 @@
+import { describeError } from '@podium/logger'
 import type { ThreadId } from '@podium/model'
 import type { Hono } from 'hono'
 
@@ -127,9 +128,7 @@ export function registerMcpRoute(
           jsonrpc: '2.0',
           id,
           result: {
-            content: [
-              { type: 'text', text: `error: ${err instanceof Error ? err.message : String(err)}` },
-            ],
+            content: [{ type: 'text', text: `error: ${describeError(err)}` }],
             isError: true,
           },
         })

@@ -44,6 +44,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
+import { describeError } from '@podium/logger'
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnDelivery, TurnReceipt } from '@podium/protocol/daemon'
@@ -321,7 +322,7 @@ export class ReceiptSender {
             outcome: 'refused',
             refusal: {
               reason: 'not_running',
-              detail: err instanceof Error ? err.message : String(err),
+              detail: describeError(err),
             },
           },
           onReceipt,

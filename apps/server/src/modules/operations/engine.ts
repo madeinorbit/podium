@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import {
   isTerminalOperationState,
   type Operation,
@@ -752,7 +752,7 @@ export class OperationEngine {
           def.deadlines?.['#cancel']?.totalMs ?? DEFAULT_CANCEL_DEADLINE_MS,
         )
       } catch (error) {
-        cleanupError = error instanceof Error ? error.message : String(error)
+        cleanupError = describeError(error)
         cleanup = {
           cleanup: 'pending',
           pending: [{ what: 'operation cleanup', retryable: true }],
@@ -824,7 +824,7 @@ export class OperationEngine {
           await this.abandonSafely(row, {
             code: ADOPTION_FAILED_ERROR_CODE,
             message: `This server could not resume a '${row.kind}' operation.`,
-            detail: err instanceof Error ? err.message : String(err),
+            detail: describeError(err),
           }),
       )
       if (outcome) adopted.push(outcome)
@@ -1144,7 +1144,7 @@ export class OperationEngine {
             def.deadlines?.['#cancel']?.totalMs ?? DEFAULT_CANCEL_DEADLINE_MS,
           )
         } catch (error) {
-          cleanupError = error instanceof Error ? error.message : String(error)
+          cleanupError = describeError(error)
           result = {
             cleanup: 'pending',
             pending: [{ what: 'operation cleanup', retryable: true }],
@@ -1408,7 +1408,7 @@ export class OperationEngine {
         error: {
           code: 'step-threw',
           message: `The '${stepId}' step could not be completed.`,
-          detail: err instanceof Error ? err.message : String(err),
+          detail: describeError(err),
         },
       }
     } finally {
@@ -1803,7 +1803,7 @@ export class OperationEngine {
       await this.abandonSafely(row, {
         code: DRIVE_FAILED_ERROR_CODE,
         message: 'Podium could not continue this operation.',
-        detail: err instanceof Error ? err.message : String(err),
+        detail: describeError(err),
       })
     } catch {
       // The store itself is gone. Nothing can be recorded, and a throw from

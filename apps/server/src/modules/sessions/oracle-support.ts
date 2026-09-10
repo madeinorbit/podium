@@ -1,3 +1,4 @@
+import { describeError } from '@podium/logger'
 import { resolvePrincipal } from '../../command-principal'
 import { attachTestClient } from '../../test-support/client-transport'
 /**
@@ -404,7 +405,7 @@ export async function messageOf(run: () => unknown): Promise<string> {
   try {
     await run()
   } catch (error) {
-    return error instanceof Error ? error.message : String(error)
+    return describeError(error)
   }
   throw new Error('expected the write to fail, but it resolved')
 }

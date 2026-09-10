@@ -64,7 +64,7 @@ export async function ingestBackfill(
       await history.record(sample, intervalMs)
       recorded += 1
     } catch (err) {
-      log.debug('backfill sample not recorded', { err: String(err) })
+      log.debug('backfill sample not recorded', { err })
     }
   }
   return { recorded, skipped: wires.length - recorded }
@@ -121,7 +121,7 @@ export class QuotaBackfill {
     try {
       wires = await this.readHistory(sinceMs)
     } catch (err) {
-      log.debug('quota backfill failed', { err: String(err) })
+      log.debug('quota backfill failed', { err })
       return { recorded: 0, skipped: 0 }
     }
     if (this.disposed || wires.length === 0) return { recorded: 0, skipped: 0 }

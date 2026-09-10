@@ -5,6 +5,7 @@
  */
 
 
+import { describeError } from '@podium/logger'
 import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
@@ -223,7 +224,7 @@ export class SessionAuthz {
     try {
       await assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
+      const detail = describeError(error)
       return { ok: false, reason: `not authorized: ${detail}` }
     }
     return { ok: true }

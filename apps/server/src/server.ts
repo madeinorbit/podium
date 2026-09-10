@@ -1199,7 +1199,7 @@ export async function startServer(
       } catch (error) {
         log.warn('deferred server move adoption retry failed', {
           operationId: deferredPromotion.operationId,
-          error: error instanceof Error ? error.message : String(error),
+          err: error,
         })
       } finally {
         settling = false
@@ -1246,7 +1246,7 @@ export async function startServer(
         log.warn('deferred source server move adoption retry failed', {
           operationId: deferredSourceMove.operationId,
           transferId: deferredSourceMove.transferId,
-          error: error instanceof Error ? error.message : String(error),
+          err: error,
         })
       } finally {
         settling = false

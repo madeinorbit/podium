@@ -306,7 +306,7 @@ export class ClientMux {
     const prior = this.sessionWork.get(conn)
     // Start the first frame synchronously: hello capability negotiation is immediate.
     const pending = (prior ? prior.then(run) : Promise.resolve(run())).catch((error: unknown) => {
-      log.error('session client operation failed', { clientId: conn.id, error: String(error) })
+      log.error('session client operation failed', { clientId: conn.id, err: error })
     })
     this.sessionWork.set(conn, pending)
     void pending.then(() => {

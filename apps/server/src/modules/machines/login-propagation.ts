@@ -2,7 +2,7 @@ import {
   harnessPortableCredential,
   harnessSupportsCredentialPropagation,
 } from '@podium/harness/metadata'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { AgentKind, HarnessAgent, MachineId, UserId } from '@podium/model'
 import { HOST_REPOS } from '@podium/model'
 import type { PortableCredentialBundle } from '@podium/protocol'
@@ -114,7 +114,7 @@ export class LoginPropagationService {
     } catch (error: unknown) {
       result = {
         status: 'failed',
-        reason: error instanceof Error ? error.message : String(error),
+        reason: describeError(error),
       }
     }
 

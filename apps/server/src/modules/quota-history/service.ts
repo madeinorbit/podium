@@ -73,7 +73,7 @@ export async function recordQuotaSamples(
       log.warn('quota sample not recorded', {
         accountKey: sample.accountKey,
         windowKey: sample.windowKey,
-        err: String(err),
+        err,
       })
     }
   }
@@ -152,7 +152,7 @@ export class QuotaSampler {
     } catch (err) {
       // A provider outage, an offline daemon, or a fan-out timeout. The next tick
       // tries again; a gap in the ledger is the honest outcome and is shown as one.
-      log.debug('quota sample failed', { err: String(err) })
+      log.debug('quota sample failed', { err })
       return
     }
     if (this.disposed) return
@@ -165,7 +165,7 @@ export class QuotaSampler {
       const deleted = await this.history.prune(this.now() - this.retentionMs)
       if (deleted > 0) log.debug('pruned quota windows', { deleted })
     } catch (err) {
-      log.debug('quota prune failed', { err: String(err) })
+      log.debug('quota prune failed', { err })
     }
   }
 }

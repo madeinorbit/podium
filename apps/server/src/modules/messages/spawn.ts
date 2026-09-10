@@ -11,6 +11,7 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
+import { describeError } from '@podium/logger'
 import { type SpawnedByRef, spawnedByTag } from '@podium/model'
 import type { AgentKind, IssueId, SessionId, UserId, MachineId } from '@podium/model'
 import type { MessageRow } from '../../store'
@@ -86,7 +87,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
         })
         return { ok: true, sessionId }
       } catch (error) {
-        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+        return { ok: false, reason: describeError(error) }
       }
     },
   }

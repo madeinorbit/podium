@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { describeError } from '@podium/logger'
 import type {
   AccountId,
   AgentKind,
@@ -346,7 +347,7 @@ export class HeadlessService {
         this.pendingTurns.delete(requestId)
         resolve({
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: describeError(error),
           retryable: true,
         })
       }

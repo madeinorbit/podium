@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
@@ -36,9 +36,7 @@ export async function browseDirectories(
     if (!s.isDirectory()) throw new Error('path is not a directory')
     current = await realpath(current)
   } catch (err) {
-    throw new Error(
-      `Could not open directory ${requested}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new Error(`Could not open directory ${requested}: ${describeError(err)}`)
   }
 
   let entries: DirectoryBrowserEntry[]
@@ -49,9 +47,7 @@ export async function browseDirectories(
       .map((entry) => ({ name: entry.name, path: join(current, entry.name) }))
       .sort((a, b) => a.name.localeCompare(b.name))
   } catch (err) {
-    throw new Error(
-      `Could not read directory ${current}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new Error(`Could not read directory ${current}: ${describeError(err)}`)
   }
 
   const parent = dirname(current)

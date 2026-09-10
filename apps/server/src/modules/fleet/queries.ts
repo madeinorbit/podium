@@ -9,6 +9,7 @@
  * be a behaviour change wearing a refactor's clothes.
  */
 
+import { describeError } from '@podium/logger'
 import { HOST_REPOS, MachineIdField } from '@podium/model'
 import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -56,7 +57,7 @@ export const REPO_QUERIES = {
         } catch (e) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
-            message: e instanceof Error ? e.message : String(e),
+            message: describeError(e),
           })
         }
         const res = await s.modules.rpc.browseDirs(
@@ -76,7 +77,7 @@ export const REPO_QUERIES = {
       } catch (e) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: e instanceof Error ? e.message : String(e),
+          message: describeError(e),
         })
       }
     },

@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import type { MachineId } from '@podium/model'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { Operation as ProtocolOperation, ServerBindHost } from '@podium/protocol'
 import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import type { OperationEngine } from '../operations/engine'
@@ -414,7 +414,7 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
         state: 'failed',
         error: {
           code: TRANSFER_FAILURE_CODES.INTERNAL,
-          message: error instanceof Error ? error.message : String(error),
+          message: describeError(error),
         },
       })
     },
@@ -531,7 +531,7 @@ export function serverMoveOperationKind(
               state: 'failed',
               error: {
                 code: TRANSFER_FAILURE_CODES.INTERNAL,
-                message: error instanceof Error ? error.message : String(error),
+                message: describeError(error),
               },
             }
           }

@@ -24,7 +24,7 @@
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import { retainedSnapshotPaths } from './backup'
 import {
   readSnapshotCatalogue,
@@ -130,7 +130,7 @@ export function spawnSnapshotVerifierChild(
       resolve({
         failure: {
           code: 'crashed',
-          detail: error instanceof Error ? error.message : String(error),
+          detail: describeError(error),
         },
       })
       return
@@ -202,7 +202,7 @@ export function spawnSnapshotVerifierChild(
 
     child.once('error', (error: Error) => {
       childGone()
-      finish({ failure: { code: 'crashed', detail: error.message } })
+      finish({ failure: { code: 'crashed', detail: describeError(error) } })
     })
     child.once('close', (code: number | null, signal: NodeJS.Signals | null) => {
       childGone()
@@ -228,7 +228,7 @@ export function spawnSnapshotVerifierChild(
         finish({
           failure: {
             code: 'unreadable-output',
-            detail: error instanceof Error ? error.message : String(error),
+            detail: describeError(error),
           },
         })
       }

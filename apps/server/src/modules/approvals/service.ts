@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { describeError } from '@podium/logger'
 import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
 import { ApprovalOp, type ApprovalWire, describeApprovalOp, type LiveServerMessage } from '@podium/protocol'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
@@ -261,7 +262,7 @@ export class ApprovalService {
         return await this.toWire(await this.row(id))
       }
     } catch (error) {
-      const result = error instanceof Error ? error.message : String(error)
+      const result = describeError(error)
       await this.deps.store.transition(id, 'executing', 'failed', result)
       await this.log(row, 'issue.approval_failed')
       await this.notify(row, `FAILED — ${result}`)

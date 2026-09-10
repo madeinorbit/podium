@@ -5,6 +5,7 @@
  * missed/overlap/re-arm policy table-testable without a database or a PTY.
  */
 
+import { describeError } from '@podium/logger'
 import { nextAfter, parseCron } from '@podium/commands'
 import type { AutomationScheduleKind, AutomationId, SessionId } from '@podium/model'
 
@@ -94,7 +95,7 @@ export function decideTick(input: {
         kind: 'error',
         firedAt: new Date(due).toISOString(),
         nextRunAt: null,
-        detail: err instanceof Error ? err.message : String(err),
+        detail: describeError(err),
       })
       continue
     }

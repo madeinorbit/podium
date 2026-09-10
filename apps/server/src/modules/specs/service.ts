@@ -12,6 +12,7 @@
  */
 
 import { statSync } from 'node:fs'
+import { describeError } from '@podium/logger'
 import { specsCreateInput, specsRemoveInput, specsSaveInput } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -110,7 +111,7 @@ export class SpecsService {
       }
       throw new TRPCError({
         code: 'BAD_REQUEST',
-        message: err instanceof Error ? err.message : String(err),
+        message: describeError(err),
       })
     }
   }

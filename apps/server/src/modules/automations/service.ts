@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { IssueId, SessionId, MutationId, AutomationId } from '@podium/model'
 import {
   asMutationId,
@@ -514,7 +514,7 @@ export class AutomationsService {
     } catch (err) {
       outcome = 'error'
       if (err instanceof AutomationSpawnError) sessionId = err.sessionId
-      detail = err instanceof Error ? err.message : String(err)
+      detail = describeError(err)
       log.warn('automation failed to spawn', { err, automation: automation.name })
     }
 

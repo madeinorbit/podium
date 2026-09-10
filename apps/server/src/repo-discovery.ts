@@ -1,4 +1,5 @@
 import { dirname } from 'node:path'
+import { describeError } from '@podium/logger'
 import type { GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineId } from '@podium/model'
 import type { ScanReposResult } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
@@ -219,7 +220,7 @@ export class MachineRepoDiscovery {
     setTimeout(async () => {
       await this.scan(machineId, { deep: false }).catch((err) => {
         this.deps.log?.(
-          `repo discovery for ${machineId} failed: ${err instanceof Error ? err.message : String(err)}`,
+          `repo discovery for ${machineId} failed: ${describeError(err)}`,
         )
       })
     }, CONNECT_SCAN_DELAY_MS).unref?.()

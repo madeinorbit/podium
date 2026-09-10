@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
+import { describeError } from '@podium/logger'
 import type { SuperagentUserFocus } from '@podium/commands'
 import {
   type AccountId,
@@ -625,7 +626,7 @@ export class SuperagentService {
    *  composer reopens and the reader sees why their message did not run. */
   private async failQueuedInput(queued: QueuedSuperagentInputRow, error: unknown): Promise<void> {
     this.queuedHarness.delete(queued.inputId)
-    const message = error instanceof Error ? error.message : String(error)
+    const message = describeError(error)
     await this.store.superagent.appendSuperagentMessage(queued.threadId, {
       ownerUserId: queued.ownerUserId,
       role: 'assistant',

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import {
   type Attribution,
   asDeliveryReceiptId,
@@ -1505,7 +1505,7 @@ export class ShippingService {
           effect: 'cancel',
         })
       } catch (error) {
-        const summary = error instanceof Error ? error.message : String(error)
+        const summary = describeError(error)
         await this.hold(
           order,
           attempt,
@@ -1526,7 +1526,7 @@ export class ShippingService {
         )
         await this.assertJobResultFence(executionOrder, effectAttempt, operation, result)
       } catch (error) {
-        const summary = error instanceof Error ? error.message : String(error)
+        const summary = describeError(error)
         await this.hold(
           order,
           attempt,
@@ -1817,7 +1817,7 @@ export class ShippingService {
     } catch (error) {
       this.audit('shipping.train_prefix_skipped', tail.issueId, {
         trainId: train.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
       return false
     }
@@ -1885,7 +1885,7 @@ export class ShippingService {
       }
       return null
     } catch (error) {
-      return error instanceof Error ? error.message : String(error)
+      return describeError(error)
     }
   }
 
@@ -2457,7 +2457,7 @@ export class ShippingService {
         effect: operation,
       })
     } catch (error) {
-      const summary = error instanceof Error ? error.message : String(error)
+      const summary = describeError(error)
       await this.hold(
         order,
         attempt,
@@ -2873,7 +2873,7 @@ export class ShippingService {
         orderId: order.id,
         attemptId: attempt.id,
         generation: attempt.leaseGeneration,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
       return false
     }
@@ -3536,7 +3536,7 @@ export class ShippingService {
       this.audit('shipping.resource_release_failed', order.issueId, {
         orderId: order.id,
         names,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
     }
   }
@@ -3604,7 +3604,7 @@ export class ShippingService {
         orderId: order.id,
         attemptId: attempt.id,
         operation,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeError(error),
       })
     }
   }

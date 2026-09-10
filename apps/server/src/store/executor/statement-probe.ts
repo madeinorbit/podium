@@ -141,7 +141,7 @@ export class StatementProbeHub {
    */
   constructor(
     private readonly onProbeError: (error: unknown) => void = (error) => {
-      log.warn('a statement probe threw and was isolated', { error })
+      log.warn('a statement probe threw and was isolated', { err: error })
     },
   ) {}
 

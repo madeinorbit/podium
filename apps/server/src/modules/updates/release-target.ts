@@ -15,6 +15,7 @@
  * refuse a non-feed delivery — is channel-identical, which is the whole point:
  * development use becomes the continuous test of the release mechanism.
  */
+import { describeError } from '@podium/logger'
 import type { UpdateChannel } from '@podium/model'
 import {
   compareVersions,
@@ -227,7 +228,7 @@ async function fetchFeedJson(
       signal: AbortSignal.timeout(5_000),
     })
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = describeError(error)
     throw new Error(`${channel} target unavailable: ${kind} manifest ${detail}`)
   }
   if (!response.ok) {
@@ -238,7 +239,7 @@ async function fetchFeedJson(
   try {
     return await response.json()
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = describeError(error)
     throw new Error(`${channel} target unavailable: invalid ${kind} manifest (${detail})`)
   }
 }
@@ -474,7 +475,7 @@ async function assertArtifactsFetchable(
             signal: AbortSignal.timeout(5_000),
           })
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error)
+          const detail = describeError(error)
           throw new Error(`${channel} target unavailable: ${place} artifact ${detail}`)
         }
         if (response.status >= 300 && response.status < 400) {
@@ -587,7 +588,7 @@ export async function resolveReleaseTarget(
     if (error instanceof Error && error.message.startsWith(`${channel} target unavailable:`)) {
       throw error
     }
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = describeError(error)
     throw new Error(`${channel} target unavailable: invalid release manifest (${detail})`)
   }
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
+import { describeError } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { isActiveTransfer, TransferJournal } from './journal'
@@ -116,7 +117,7 @@ function classified(
   fallback: TransferFailureCode = TRANSFER_FAILURE_CODES.INTERNAL,
 ) {
   if (error instanceof ServerTransferError) return { code: error.code, message: error.message }
-  return { code: fallback, message: error instanceof Error ? error.message : String(error) }
+  return { code: fallback, message: describeError(error) }
 }
 
 function proofMatches(

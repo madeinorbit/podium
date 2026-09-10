@@ -1,4 +1,4 @@
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type {
   AgentRuntimeState,
   IssueId,
@@ -672,8 +672,8 @@ export class MessagingService implements TelegramNoticePort {
       .catch(async (err: unknown) => {
         this.dispatching.delete(key)
         this.releaseTyping(turnOwner, next.source)
-        const message = err instanceof Error ? err.message : String(err)
-        if (message.includes('already running')) return
+        if ((err instanceof Error ? err.message : String(err)).includes('already running')) return
+        const message = describeError(err)
         queue?.shift()
         void await this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
         await this.pump(ownerUserId, threadId)
@@ -710,7 +710,7 @@ export class MessagingService implements TelegramNoticePort {
             this.deps.superagent.interruptTurn({ ownerUserId, threadId: asThreadId(threadId) })
             await this.reply(source, 'Stopping the current turn…')
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
+            const message = describeError(err)
             await this.reply(source, `⚠️ ${message}`)
           }
           return
@@ -723,7 +723,7 @@ export class MessagingService implements TelegramNoticePort {
               'Superagent thread restarted — next message uses a fresh harness session.',
             )
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
+            const message = describeError(err)
             await this.reply(source, `⚠️ ${message}`)
           }
           return
