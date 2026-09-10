@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { formatTopQueries, type QueryCost, queryKey } from './query-attribution'
+import { afterEach, describe, expect, it } from 'vitest'
+import { addLoopAccounting, clearLoopAccounting } from './loop-accounting'
+import {
+  formatTopQueries,
+  type QueryCost,
+  queryKey,
+  recordQuery,
+  resetQueryAttribution,
+} from './query-attribution'
 
 /**
  * POD-1630. The instrument exists to name the statement behind a stall, so what is
@@ -36,5 +43,35 @@ describe('formatTopQueries', () => {
 
   it('is empty when nothing ran, so the stall line omits the segment entirely', () => {
     expect(formatTopQueries(3, new Map())).toBe('')
+  })
+})
+
+/**
+ * The `sql` bucket (§6.1). It is the one bucket declared NESTED, because every
+ * statement this records ran inside something else that is also being measured —
+ * an rpc handler, a timer callback, a socket frame — so the minute record
+ * subtracts it before comparing the bucket sum to busy time.
+ */
+describe('bucket attribution', () => {
+  afterEach(() => {
+    resetQueryAttribution()
+    clearLoopAccounting()
+  })
+
+  it('bills a statement execution to the sql bucket at its wall time', () => {
+    const calls: [string, number][] = []
+    addLoopAccounting({ attribute: (bucket, wallMs) => calls.push([bucket, wallMs]) })
+    recordQuery('SELECT 1', 12.5, 1)
+    recordQuery('SELECT 2', 3, 0)
+    expect(calls).toEqual([
+      ['sql', 12.5],
+      ['sql', 3],
+    ])
+  })
+
+  it('records with no accounting handle — a statement may run before boot sets one', () => {
+    clearLoopAccounting()
+    expect(() => recordQuery('SELECT 1', 5, 1)).not.toThrow()
+    expect(formatTopQueries(1)).toContain('SELECT 1')
   })
 })

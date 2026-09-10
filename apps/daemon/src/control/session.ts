@@ -26,6 +26,7 @@ import {
   spawnAgent,
 } from '@podium/pty'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
+import { measureTask } from '@podium/runtime/task-attribution'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
@@ -523,13 +524,20 @@ export function wireBridge(
       bytes: frame.data.byteLength,
     })
     countFrame(frame.data.byteLength)
-    ctx.observers.onFrame?.(sessionId, frame.data)
-    ctx.outputScheduler.enqueue(sessionId, frame.data)
-    // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
-    // running for this (flagged) session.
-    if (ctx.composerEngine.has(sessionId)) {
-      ctx.composerEngine.onData(sessionId, frame.data)
-    }
+    // THE `frames` COST BUCKET (§6.1). This is the synchronous PTY-output
+    // handler, not the socket read: it runs once per frame the driver hands up,
+    // and on a busy session that is the daemon's hottest loop path. `countFrame`
+    // above has always counted the frames and their bytes — what nothing could
+    // say is how much LOOP TIME they cost, which is the number a stall needs.
+    measureTask('frames', () => {
+      ctx.observers.onFrame?.(sessionId, frame.data)
+      ctx.outputScheduler.enqueue(sessionId, frame.data)
+      // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
+      // running for this (flagged) session.
+      if (ctx.composerEngine.has(sessionId)) {
+        ctx.composerEngine.onData(sessionId, frame.data)
+      }
+    })
   })
   // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
   // frame-rate), which would clobber the real title the codex observer derives

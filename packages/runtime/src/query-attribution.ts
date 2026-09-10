@@ -26,6 +26,7 @@
  * numbers, so `formatTopQueries` and the stall reporter keep reading one window.
  */
 
+import { attribute } from './loop-accounting'
 import { atLeast } from './loop-profile'
 
 const ENABLED = atLeast('attribution')
@@ -71,6 +72,12 @@ export function recordQuery(sql: string, wallMs: number, rows: number): void {
   total.wallMs += wallMs
   total.rows += rows
   totals.set(key, total)
+  // The `sql` cost bucket (§6.1). Declared NESTED in the minute record, because
+  // every statement here ran inside a region some other bucket is already
+  // timing — an rpc handler, a timer callback, a socket frame — so a coverage
+  // figure that counted it again would claim far more of the minute was
+  // explained than any seam actually explains.
+  attribute('sql', wallMs)
   if (STACKS) recordCallerStack(key)
 }
 

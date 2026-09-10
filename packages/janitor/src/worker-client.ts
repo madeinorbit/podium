@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import { createLogger } from '@podium/logger'
+import { measureTask } from '@podium/runtime/task-attribution'
 import { isCompiledBunfsUrl, janitorWorkerEmbeddedTarget } from './janitor-worker-embed.js'
 
 const log = createLogger('server:janitor-worker')
@@ -150,7 +151,14 @@ export class JanitorWorkerClient implements JanitorWorkerHandle {
       return
     }
     this.worker = worker
-    worker.on('message', (message: WorkerMessage) => this.onMessage(worker, message))
+    // The SERVER's `worker` cost bucket (§6.1). This callback runs on the server's
+    // main thread — the janitor's own work is off it, but every hand-back is
+    // decoded and applied here, and that is loop time no other seam sees. Timed
+    // at the boundary rather than inside `onMessage` so a hand-back that throws
+    // still reports what it cost before it did.
+    worker.on('message', (message: WorkerMessage) =>
+      measureTask('worker.janitor', () => this.onMessage(worker, message)),
+    )
     worker.on('error', (error: Error) => this.onFailure(worker, asError(error)))
     worker.on('exit', (code: number) => {
       this.onFailure(worker, new Error(`janitor worker exited ${code}`))

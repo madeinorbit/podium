@@ -73,6 +73,17 @@ export type LoopBucket = (typeof LOOP_BUCKETS)[number]
  */
 export const LOOP_NESTED_BUCKETS: readonly LoopBucket[] = ['sql']
 
+/**
+ * Buckets whose wall time SPANS work that is not theirs, so a reader must not
+ * read them as own-CPU (§6.1). A tRPC call is timed across its awaits because
+ * the handler's own time between them is not separable at that seam: the number
+ * is real, it just is not exclusively `rpc`. Unlike a nested bucket there is
+ * nothing to subtract — an inclusive bucket overlaps idle time as readily as it
+ * overlaps another bucket — so it is FLAGGED rather than corrected for, and a
+ * coverage above 1 on an rpc-heavy minute is that flag being earned.
+ */
+export const LOOP_INCLUSIVE_BUCKETS: readonly LoopBucket[] = ['rpc']
+
 export interface LoopBucketCost {
   wallMs: number
   count: number
@@ -100,7 +111,7 @@ export interface LoopWindow {
   heapUsedBytes: number
   rssBytes: number
   selfCostMs: number
-  buckets?: Record<LoopBucket, LoopBucketCost>
+  buckets?: Partial<Record<LoopBucket, LoopBucketCost>>
 }
 
 /** One minute, as written to the sink and kept in the minute ring (§4.3). */
@@ -137,10 +148,20 @@ export interface LoopMinute {
    * took a profile. See `loop-profile-capture.ts` for why the drain exists.
    */
   profilerCostMs?: number
-  buckets?: Record<LoopBucket, LoopBucketCost>
-  /** Bucket sum over busy time. Above 1 is normal — see {@link LOOP_NESTED_BUCKETS}. */
+  /**
+   * Only the buckets that recorded at least once this minute. An absent bucket
+   * is absent rather than zero, so "this component has no such seam" (the daemon
+   * runs no SQL) and "that seam stayed quiet" stay distinguishable.
+   */
+  buckets?: Partial<Record<LoopBucket, LoopBucketCost>>
+  /**
+   * Top-level bucket sum over busy time — nested buckets subtracted, inclusive
+   * ones left in. Below 0.5 means the next seam is missing (§6.2, POD-1931);
+   * above 1 is possible on an rpc-heavy minute, see {@link LOOP_INCLUSIVE_BUCKETS}.
+   */
   coverage?: number
   nestedBuckets?: readonly LoopBucket[]
+  inclusive?: readonly LoopBucket[]
 }
 
 /** Where completed minutes go. The file implementation is `loop-minute-sink.ts`. */
@@ -298,6 +319,68 @@ export interface LoopAccountingOptions {
   clockTicksPerSecond?: number
 }
 
+/**
+ * The one capability a RECORDING SEAM needs: somewhere to put a cost. Narrowed
+ * to it on purpose — a seam that could also `stop()` the accounting, or read its
+ * snapshot, is a seam that could change what it is supposed to be measuring.
+ */
+export type LoopAttributionSink = Pick<LoopAccountingHandle, 'attribute'>
+
+/**
+ * The accounting handles the recording seams feed, newest last.
+ *
+ * WHY A MODULE-LEVEL REGISTRY, which is otherwise the wrong shape. `recordQuery`,
+ * `recordTask` and `measureTask` are called from the hot path of code that has no
+ * idea this subsystem exists — a store driver, a socket handler — and threading a
+ * handle down to every one of them would mean changing signatures across both
+ * components to carry a diagnostic.
+ *
+ * WHY A LIST AND NOT ONE HANDLE. `all-in-one` hosts the server AND the daemon in
+ * a single PID (apps/cli `roles: { server: true, daemon: true }`), so two handles
+ * really do exist at once, each writing its own minute file. A single slot would
+ * let the second registration silently capture every seam and leave the other
+ * component's buckets empty — a wiring loss with no error and no empty-looking
+ * log line, just a coverage figure that reads as a missing seam. There is one
+ * event loop in that PID, so every seam's cost genuinely is on the loop both
+ * records describe, and both receive it. In the split topology the list holds
+ * exactly one handle and this is a one-iteration loop.
+ *
+ * An ARRAY walked by index rather than a Set: this runs once per statement and
+ * once per frame, and an iterator allocation per call is not a cost a diagnostic
+ * gets to add.
+ */
+const sinks: LoopAttributionSink[] = []
+
+/**
+ * Register an accounting handle with the recording seams. Called from a boot
+ * path, once per handle; the returned function unregisters it.
+ */
+export function addLoopAccounting(handle: LoopAttributionSink): () => void {
+  sinks.push(handle)
+  return () => {
+    const at = sinks.indexOf(handle)
+    if (at >= 0) sinks.splice(at, 1)
+  }
+}
+
+/** Drop every registered handle. For tests and for a hard process teardown. */
+export function clearLoopAccounting(): void {
+  sinks.length = 0
+}
+
+/**
+ * Feed one attributed cost into this process's accounting.
+ *
+ * The single entry point into the buckets (§6.1), and a no-op below `attribution`
+ * twice over: no boot path registers a handle there, and a handle's own
+ * `attribute` is inert anyway. A seam therefore never has to ask what level it is
+ * running at to know whether to call this, and an empty registry — the state
+ * during boot, before accounting starts — costs one length check.
+ */
+export function attribute(bucket: LoopBucket, wallMs: number): void {
+  for (let i = 0; i < sinks.length; i += 1) sinks[i]?.attribute(bucket, wallMs)
+}
+
 /** A handle that measures nothing, for level `off` and for `stop()`ped callers. */
 function inertHandle(component: LoopComponent, level: LoopProfileLevel): LoopAccountingHandle {
   return {
@@ -429,10 +512,18 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
   }, probeMs)
   probe.unref?.()
 
-  function readBuckets(source: Float64Array): Record<LoopBucket, LoopBucketCost> {
-    const out = {} as Record<LoopBucket, LoopBucketCost>
+  /**
+   * Decode the bucket columns, KEEPING ONLY what recorded. The ring always has a
+   * column per bucket — it is a fixed-width array — but a column that never took
+   * a sample must not reach the record as a zero, or every daemon minute would
+   * claim it measured 0 ms of SQL rather than that it measures none.
+   */
+  function readBuckets(source: Float64Array): Partial<Record<LoopBucket, LoopBucketCost>> {
+    const out: Partial<Record<LoopBucket, LoopBucketCost>> = {}
     for (const [index, bucket] of LOOP_BUCKETS.entries()) {
-      out[bucket] = { wallMs: source[index * 2] ?? 0, count: source[index * 2 + 1] ?? 0 }
+      const count = source[index * 2 + 1] ?? 0
+      if (count === 0) continue
+      out[bucket] = { wallMs: source[index * 2] ?? 0, count }
     }
     return out
   }
@@ -444,8 +535,14 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
     ).sort((a, b) => a - b)
     const busyMs = minuteCpuMeasured ? minuteCpuMs : undefined
     const buckets = attributing ? readBuckets(minuteBuckets) : undefined
+    // The TOP-LEVEL sum: nested buckets come back out, because their cost is
+    // already inside the bucket that called them. Counting sql twice is what
+    // would turn a minute one seam explains a sixth of into a claimed half.
     let bucketSum = 0
-    if (buckets) for (const cost of Object.values(buckets)) bucketSum += cost.wallMs
+    if (buckets)
+      for (const [bucket, cost] of Object.entries(buckets) as [LoopBucket, LoopBucketCost][]) {
+        if (!LOOP_NESTED_BUCKETS.includes(bucket)) bucketSum += cost.wallMs
+      }
     const minute: LoopMinute = {
       at: new Date(Math.floor(endedAt / 60_000) * 60_000).toISOString(),
       component,
@@ -474,6 +571,7 @@ export function startLoopAccounting(opts: LoopAccountingOptions): LoopAccounting
             // read as "the seams explain a third of it" on an idle process.
             ...(busyMs && busyMs > 0 ? { coverage: bucketSum / busyMs } : {}),
             nestedBuckets: LOOP_NESTED_BUCKETS,
+            inclusive: LOOP_INCLUSIVE_BUCKETS,
           }
         : {}),
     }

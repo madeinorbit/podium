@@ -34,7 +34,11 @@ import {
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
-import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
+import {
+  addLoopAccounting,
+  type LoopAccountingHandle,
+  startLoopAccounting,
+} from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
 import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
@@ -88,7 +92,7 @@ import { startHookIngest } from './hook-ingest'
 import { sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
-import { reportLongTick, startLoopAttribution } from './loop-attribution'
+import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
@@ -397,6 +401,8 @@ export async function createDaemonHostRuntime(args: {
   // it says the environment asked for something this build does not accept.
   reportLoopProfileWarning(log)
   let loopAccounting: LoopAccountingHandle | undefined
+  let stopLoopAttribution: (() => void) | undefined
+  let dropLoopAccounting: (() => void) | undefined
   let loopMinuteSink: LoopMinuteFileSink | undefined
   let loopProfileCapture: LoopProfileCapture | undefined
   /** THE daemon's SIGUSR2 listener, held so `close` can remove it. */
@@ -496,12 +502,28 @@ export async function createDaemonHostRuntime(args: {
     // stopped. `podium perf profile daemon` leaves the duration in the request
     // file; a signal sent by hand gets 10 s.
     if (atLeast('attribution')) {
-      onDumpSignal = () => requestProfile('signal', takeProfileRequest(perfDir))
+      onDumpSignal = () => {
+        // The attribution totals go FIRST because they are synchronous: they are
+        // in the journal the moment the signal lands, where the profile file
+        // arrives a whole window later. A reader correlating the two should pair
+        // them by the profile envelope's `startedAt`, not by adjacency.
+        dumpLoopTotals()
+        return requestProfile('signal', takeProfileRequest(perfDir))
+      }
       process.on('SIGUSR2', onDumpSignal)
     }
     // POD-600's loop-stall classifier stays in loop-attribution.ts; boot merely
     // turns it on. Moving connection code must never absorb this instrumentation.
-    if (atLeast('attribution')) startLoopAttribution()
+    if (atLeast('attribution')) {
+      // The seams reach the accounting through a module-level registry, so
+      // register here, BEFORE `startLoopAttribution` patches the schedulers and
+      // before any subsystem schedules work — otherwise the daemon's first costs
+      // are recorded under a name and billed to no bucket. REGISTERED, not
+      // assigned: `all-in-one` hosts the server in this same PID and registers
+      // its own handle, and both describe the one loop they share.
+      dropLoopAccounting = addLoopAccounting(loopAccounting)
+      stopLoopAttribution = startLoopAttribution()
+    }
   }
   const discoveryLoop = createDiscoveryLoop({
     workerClient,
@@ -1422,6 +1444,14 @@ export async function createDaemonHostRuntime(args: {
       process.removeListener('SIGUSR2', onDumpSignal)
       onDumpSignal = undefined
     }
+    // Unpatch the schedulers — a daemon that has closed must not leave a wrapper
+    // on global setTimeout for the next one in this process to inherit.
+    stopLoopAttribution?.()
+    stopLoopAttribution = undefined
+    // And unregister OUR accounting handle, so a stopped one cannot keep taking
+    // costs into a ring nothing will flush. A co-hosted server's is not ours.
+    dropLoopAccounting?.()
+    dropLoopAccounting = undefined
     loopMinuteSink?.close()
     stopInventoryRefresh?.()
     workerClient.stop()

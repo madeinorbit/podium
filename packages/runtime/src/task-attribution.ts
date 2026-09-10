@@ -26,6 +26,7 @@
  * `attribution` level `attributeTasks` is a no-op and the process carries no cost.
  */
 
+import { attribute, type LoopBucket } from './loop-accounting'
 import { atLeast } from './loop-profile'
 
 const ENABLED = atLeast('attribution')
@@ -81,7 +82,54 @@ const site = (fn: object, kind: string, delayMs?: number): string => {
   return label
 }
 
-/** Record one callback invocation under `label`. */
+/**
+ * The scheduler kinds {@link site} prefixes a label with. Everything that
+ * arrives through a patched scheduler is `timers`, whatever the callback is
+ * called — and this list is checked FIRST, so a sweep that happens to be named
+ * `controlDispatch` is still billed to the timer that ran it.
+ */
+const SCHEDULER_KINDS = ['setTimeout', 'setInterval', 'setImmediate', 'microtask'] as const
+
+/**
+ * Seam label prefix to cost bucket. Longest-specific first: `ws.message.daemon`
+ * and `ws.message.machine` are one bucket and `ws.message.client` another, so a
+ * bare `ws.message.` prefix would put them all in the wrong place.
+ *
+ * A label that matches NOTHING here is recorded under its own name and billed to
+ * no bucket. That is deliberate: `ws.message.unknown` is a real label the
+ * gateway falls back to when it cannot read a frame's kind, and a default bucket
+ * would quietly report the fallback as if it were measured work. An unmapped
+ * seam shows up as missing coverage, which is the signal that says to add it.
+ */
+const LABEL_BUCKETS: readonly (readonly [string, LoopBucket])[] = [
+  ['ws.client.', 'ws.client'],
+  ['ws.message.client', 'ws.client'],
+  ['ws.message.daemon', 'ws.daemon'],
+  ['ws.message.machine', 'ws.daemon'],
+  ['worker.', 'worker'],
+  ['controlParse', 'control'],
+  ['controlDispatch', 'control'],
+  ['frames', 'frames'],
+  ['tailBatch', 'tails'],
+  ['publishConv', 'worker'],
+]
+
+/** Which bucket a recorded label belongs to, or none. Exported for the tests. */
+export function bucketForTaskLabel(label: string): LoopBucket | undefined {
+  for (const kind of SCHEDULER_KINDS) if (label.startsWith(kind)) return 'timers'
+  for (const [prefix, bucket] of LABEL_BUCKETS) if (label.startsWith(prefix)) return bucket
+  return undefined
+}
+
+/**
+ * Record one callback invocation under `label`.
+ *
+ * ALSO the one place a recorded region reaches a cost bucket. Both seams funnel
+ * through here — `measureTask` and the scheduler patch's wrapper — so routing
+ * here bills every region EXACTLY ONCE. Doing it at the two call sites instead
+ * would double-count every WebSocket frame (once as its own bucket, once as
+ * `timers`) and push coverage past 1 with nothing nested to explain it.
+ */
 export function recordTask(label: string, wallMs: number): void {
   const cost = costs.get(label) ?? { count: 0, wallMs: 0, maxMs: 0 }
   cost.count++
@@ -93,6 +141,8 @@ export function recordTask(label: string, wallMs: number): void {
   total.wallMs += wallMs
   if (wallMs > total.maxMs) total.maxMs = wallMs
   totals.set(label, total)
+  const bucket = bucketForTaskLabel(label)
+  if (bucket) attribute(bucket, wallMs)
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
+import { attribute } from '@podium/runtime/loop-accounting'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import type { TelemetryEmitter } from '@podium/telemetry'
@@ -203,6 +204,13 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
     // carry one person's session ids and are partitioned by the transport
     // principal at the report seam (POD-1230 / modules/perf/commands.ts).
     perf.record('rpc', path, ms, DEPLOYMENT)
+    // The `rpc` cost bucket (§6.1). WALL time across the handler's awaits, not
+    // own-CPU: the synchronous slices between them are not separable at this
+    // seam, and a middleware that only timed the first one would under-report
+    // every procedure that touches the store. So the number is real but
+    // INCLUSIVE — `LOOP_INCLUSIVE_BUCKETS` says so in the record, which is how a
+    // reader knows not to add it to the others and expect busy time back.
+    attribute('rpc', ms)
     if (ms >= SLOW_RPC_WARN_MS) {
       const now = Date.now()
       const last = lastSlowWarnAt.get(path) ?? 0

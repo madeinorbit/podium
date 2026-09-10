@@ -2,7 +2,6 @@ import { LoopMinuteWire, LoopProfileLevelWire, LoopWindowWire } from '@podium/mo
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LOOP_PROFILE_LEVELS } from './config'
 import {
-  LOOP_BUCKETS,
   LOOP_NESTED_BUCKETS,
   type LoopAccountingOptions,
   type LoopMinute,
@@ -326,10 +325,52 @@ describe('attribution', () => {
     h.idle(SAMPLE_MS * 59)
     const minute = h.minutes[0]
     expect(minute?.buckets?.sql).toEqual({ wallMs: 200, count: 2 })
-    expect(Object.keys(minute?.buckets ?? {})).toEqual([...LOOP_BUCKETS])
-    // 300 ms of named cost against 600 ms of busy time.
-    expect(minute?.coverage).toBeCloseTo(0.5, 2)
+    // 100 ms of TOP-LEVEL cost against 600 ms of busy time: the 200 ms of sql ran
+    // INSIDE the rpc handler, so counting it again would claim half the minute was
+    // explained when one seam explains a sixth of it.
+    expect(minute?.coverage).toBeCloseTo(100 / 600, 4)
     expect(minute?.nestedBuckets).toEqual(['sql'])
+    expect(minute?.inclusive).toEqual(['rpc'])
+    // Only what actually fired. A bucket this component has no seam for — and one
+    // whose seam simply stayed quiet — is ABSENT, so a reader can tell "nothing ran
+    // here" apart from "nothing measures this here" (§6.1).
+    expect(Object.keys(minute?.buckets ?? {})).toEqual(['rpc', 'sql'])
+    h.handle.stop()
+  })
+
+  it('counts a bucket in full when nothing nests inside it', () => {
+    const h = harness()
+    h.burnCpu(600)
+    h.handle.attribute('timers', 200)
+    h.handle.attribute('ws.client', 100)
+    h.idle(SAMPLE_MS * 60)
+    // No sql to subtract, so every named millisecond counts toward coverage.
+    expect(h.minutes[0]?.coverage).toBeCloseTo(300 / 600, 4)
+    h.handle.stop()
+  })
+
+  it('reports a coverage of zero when a busy minute attributed nothing', () => {
+    const h = harness()
+    h.burnCpu(600)
+    h.idle(SAMPLE_MS * 60)
+    const minute = h.minutes[0]
+    // The empty map and the zero are the POINT, not noise to suppress: a busy
+    // minute no seam could explain is exactly the missing-seam signal (§6.2), and
+    // dropping `coverage` here would hide the worst reading the record can carry.
+    expect(minute?.buckets).toEqual({})
+    expect(minute?.coverage).toBe(0)
+    h.handle.stop()
+  })
+
+  it('leaves coverage out when no busy number was measurable', () => {
+    // Off Linux /proc answers no CPU, and a coverage against WALL time would read
+    // as "the seams explain 0.5% of it" on an idle process rather than as absent.
+    const h = harness({ readMainThreadCpu: () => undefined })
+    h.handle.attribute('sql', 120)
+    h.idle(SAMPLE_MS * 60)
+    const minute = h.minutes[0]
+    expect(minute?.buckets?.sql).toEqual({ wallMs: 120, count: 1 })
+    expect(minute?.coverage).toBeUndefined()
     h.handle.stop()
   })
 })

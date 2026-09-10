@@ -45,7 +45,11 @@ import {
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
-import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
+import {
+  addLoopAccounting,
+  type LoopAccountingHandle,
+  startLoopAccounting,
+} from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
 import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
@@ -1443,6 +1447,7 @@ export async function startServer(
    * `undefined` and reports no loop section.
    */
   let loopAccounting: LoopAccountingHandle | undefined
+  let dropLoopAccounting: (() => void) | undefined
   app.use('/setup/*', cors())
   app.use('/readiness', cors())
   registerReadinessRoute(app, readiness)
@@ -1717,6 +1722,7 @@ export async function startServer(
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
+
     let loopMinuteSink: LoopMinuteFileSink | undefined
     let loopProfileCapture: LoopProfileCapture | undefined
     const failListen = async (err: unknown): Promise<void> => {
@@ -1999,6 +2005,14 @@ export async function startServer(
         // and statements together accounted for barely a third of the blocked
         // time. Installed before the subsystems schedule anything, so their timers
         // are wrapped at creation.
+        // Hand the seams their target. The recording sites — `recordQuery`,
+        // `recordTask`, the tRPC middleware — reach the accounting through a
+        // module-level sink rather than a threaded-through handle, so it has to
+        // be registered once here. BEFORE `attributeTasks()` below and before any
+        // subsystem schedules work, or the first costs of the process go nowhere.
+        // REGISTERED, not assigned: `all-in-one` hosts the daemon in this same PID
+        // and registers its own handle, and both describe the one loop they share.
+        dropLoopAccounting = addLoopAccounting(loopAccounting)
         attributeTasks()
         const attributionWindow = setInterval(() => {
           resetQueryAttribution()
@@ -2263,6 +2277,13 @@ export async function startServer(
                 () => {
                   loopAccounting?.stop()
                   loopProfileCapture?.stop()
+                  // Unregister with it — and only THIS handle: a stopped handle
+                  // still accepts costs into a ring nothing will ever flush, and
+                  // on a process that restarts the server in-process those would
+                  // be billed to the run that ended. A co-hosted daemon's handle
+                  // is not ours to drop.
+                  dropLoopAccounting?.()
+                  dropLoopAccounting = undefined
                   loopMinuteSink?.close()
                 },
               ],

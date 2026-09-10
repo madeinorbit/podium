@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { addLoopAccounting, clearLoopAccounting } from './loop-accounting'
 import {
   attributeTasks,
   formatTopTasks,
@@ -136,5 +137,125 @@ describe('task attribution', () => {
       restore()
     }
     expect(patchedError).toBe(unpatchedError)
+  })
+})
+
+/**
+ * Which COST BUCKET a recorded region lands in (§6.1).
+ *
+ * The routing lives here, on the label, rather than at each seam, because every
+ * one of them already funnels through `recordTask` — `measureTask` and the
+ * scheduler patch both do. That is also what makes the count right: a region is
+ * attributed EXACTLY ONCE. Attributing `timers` in `recordTask` *and* a mapped
+ * bucket in `measureTask` would have billed every WebSocket frame to two buckets
+ * and pushed coverage over 1 with nothing nested to explain it.
+ */
+describe('bucket routing', () => {
+  function capture(): [string, number][] {
+    const calls: [string, number][] = []
+    addLoopAccounting({ attribute: (bucket, wallMs) => calls.push([bucket, wallMs]) })
+    return calls
+  }
+
+  afterEach(() => {
+    resetTaskAttribution()
+    clearLoopAccounting()
+  })
+
+  it('bills a scheduled callback to timers and each seam label to its own bucket', () => {
+    const calls = capture()
+    recordTask('setInterval(1000) sweep', 4)
+    recordTask('setTimeout(0) flush', 3)
+    recordTask('microtask hop', 1)
+    recordTask('ws.client.parse', 7)
+    recordTask('ws.message.client', 5)
+    recordTask('ws.message.daemon', 9)
+    recordTask('ws.message.machine', 8)
+    recordTask('worker.janitor', 2)
+    recordTask('controlParse', 11)
+    recordTask('controlDispatch(input)', 12)
+    recordTask('frames', 6)
+    recordTask('tailBatch(12)', 13)
+    recordTask('publishConv(3)', 14)
+    expect(calls).toEqual([
+      ['timers', 4],
+      ['timers', 3],
+      ['timers', 1],
+      ['ws.client', 7],
+      ['ws.client', 5],
+      ['ws.daemon', 9],
+      ['ws.daemon', 8],
+      ['worker', 2],
+      ['control', 11],
+      ['control', 12],
+      ['frames', 6],
+      ['tails', 13],
+      ['worker', 14],
+    ])
+  })
+
+  it('bills an unrecognised label to NO bucket rather than guessing one', () => {
+    const calls = capture()
+    // `ws.message.unknown` is a real label — ws-server falls back to it for a
+    // frame whose kind it cannot read. A bucket it lands in by default would be
+    // a measurement of the fallback, not of the work.
+    recordTask('ws.message.unknown', 40)
+    recordTask('somethingNobodyMapped', 40)
+    expect(calls).toEqual([])
+  })
+
+  it('bills a timed seam region exactly once', async () => {
+    // `measureTask` reads the level at IMPORT and a test run resolves `off`
+    // (POD-3827), so the level is STATED and the module re-imported.
+    // `loop-accounting` comes along because the fresh graph carries its own
+    // registry, and a spy registered in the old one would never be called.
+    const prior = process.env.PODIUM_LOOP_PROFILE
+    process.env.PODIUM_LOOP_PROFILE = 'attribution'
+    vi.resetModules()
+    try {
+      const accounting = await import('./loop-accounting')
+      const { measureTask: subject } = await import('./task-attribution')
+      const calls: string[] = []
+      accounting.addLoopAccounting({ attribute: (bucket) => calls.push(bucket) })
+      subject('ws.client.ping', () => undefined)
+      // ONE bucket, not two: routing lives in `recordTask`, which this funnels
+      // through, so the region is never billed as both `ws.client` and `timers`.
+      expect(calls).toEqual(['ws.client'])
+      accounting.clearLoopAccounting()
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_LOOP_PROFILE
+      else process.env.PODIUM_LOOP_PROFILE = prior
+    }
+  })
+
+  it('feeds EVERY registered handle — all-in-one hosts both components in one PID', () => {
+    // apps/cli `all-in-one` sets roles { server: true, daemon: true }, so two
+    // handles exist at once, each writing its own minute file. With a single slot
+    // the second registration captured every seam and the other component's
+    // buckets came out empty — no error, no log line, just a coverage figure
+    // that read as a missing seam. There is ONE event loop in that PID, so the
+    // cost is on the loop both records describe and both must receive it.
+    const server: string[] = []
+    const daemon: string[] = []
+    const dropServer = addLoopAccounting({ attribute: (bucket) => server.push(bucket) })
+    const dropDaemon = addLoopAccounting({ attribute: (bucket) => daemon.push(bucket) })
+    recordTask('ws.client.parse', 5)
+    expect(server).toEqual(['ws.client'])
+    expect(daemon).toEqual(['ws.client'])
+    // And one component shutting down must not take the other's accounting with
+    // it: `all-in-one` stops its two hosts one at a time.
+    dropServer()
+    recordTask('tailBatch(1)', 2)
+    expect(server).toEqual(['ws.client'])
+    expect(daemon).toEqual(['ws.client', 'tails'])
+    dropDaemon()
+    recordTask('frames', 1)
+    expect(daemon).toEqual(['ws.client', 'tails'])
+  })
+
+  it('records without a handle — the process may not have started accounting yet', () => {
+    clearLoopAccounting()
+    expect(() => recordTask('setInterval(1000) early', 4)).not.toThrow()
+    expect(taskAttributionSnapshot().get('setInterval(1000) early')?.count).toBe(1)
   })
 })

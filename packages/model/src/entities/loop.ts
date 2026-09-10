@@ -124,7 +124,11 @@ export const LoopMinuteWire = z.object({
    */
   profilerCostMs: z.number().optional(),
   buckets: bucketMap.optional(),
-  /** Bucket sum over busy time. Above 1 is normal — see `nestedBuckets`. */
+  /**
+   * Top-level bucket sum over busy time: `nestedBuckets` are subtracted before
+   * the division, `inclusive` ones are not. Below 0.5 means a seam is still
+   * missing; above 1 is possible on an rpc-heavy minute — see `inclusive`.
+   */
   coverage: z.number().optional(),
   /**
    * Buckets whose cost is CONTAINED IN another bucket's, so a reader subtracts
@@ -133,5 +137,17 @@ export const LoopMinuteWire = z.object({
    * very value the daemon sends.
    */
   nestedBuckets: z.array(z.string()).readonly().optional(),
+  /**
+   * Buckets whose wall time SPANS work that is not theirs, so a reader must not
+   * read them as own-CPU. `rpc` is timed across a handler's awaits because the
+   * synchronous slices between them are not separable at that seam. Unlike a
+   * nested bucket there is nothing to subtract — an inclusive bucket overlaps
+   * idle time as readily as another bucket — so it is flagged, not corrected for.
+   *
+   * OPTIONAL, and that is the compatibility story: a peer built before this
+   * field existed strips it and keeps the rest of the record, which is the right
+   * degradation for a diagnostic. Widened here BEFORE anything sends it.
+   */
+  inclusive: z.array(z.string()).readonly().optional(),
 })
 export type LoopMinuteWire = z.infer<typeof LoopMinuteWire>
