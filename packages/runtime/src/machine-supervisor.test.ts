@@ -25,6 +25,7 @@ import {
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
 import { loadConfig, saveConfig } from './config'
+import { readConnectivity } from './connectivity'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 
 const dirs: string[] = []
@@ -330,10 +331,11 @@ describe('supervisor socket ceded and taken back', () => {
     }
   }
 
-  function cededConnection(): ReturnType<typeof createMachineSupervisorConnection> {
+  function cededConnection(
+    dir = stateDir(),
+  ): ReturnType<typeof createMachineSupervisorConnection> {
     Socket.all = []
     vi.stubGlobal('WebSocket', Socket)
-    const dir = stateDir()
     const service = {
       policy: 'enabled' as const,
       state: 'available' as const,
@@ -375,6 +377,51 @@ describe('supervisor socket ceded and taken back', () => {
         live.sent.length,
         'the successor owns this machine now; the socket is open but must stay silent',
       ).toBe(spokenWhileAttached)
+    } finally {
+      connection.close()
+    }
+  })
+
+  /**
+   * POD-3815, the WRITER half. `connectivity.json` is shared by every
+   * incarnation of this machine's parent, so the outgoing one's last write is
+   * what `podium status` reads until something else overwrites it — and after
+   * an update the successor may not write for a whole reconnect interval.
+   *
+   * The refusal itself cannot be the trigger for staying quiet: a superseded
+   * hello is closed WITHOUT a rejection frame (POD-3752), by design, so the
+   * predecessor sees an ordinary dropped socket and nothing else. What it does
+   * know is that it ceded the socket, and that is the fence: from the cede on,
+   * this connection is not the machine's link and must not describe it.
+   *
+   * TWO INDEPENDENT GUARDS carry this, and the mutation round says so: neither
+   * `close()` dropping the socket identity nor the `!closed` check in the close
+   * listener kills this test on its own — only losing both does. That is a
+   * property of the code, not a weakness of the test, and it is worth having
+   * written down: whoever collapses those two guards into one has to keep this
+   * green.
+   */
+  it('writes no connectivity for a socket that drops after the cede', () => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    const connection = cededConnection(dir)
+    try {
+      connection.start()
+      const live = Socket.all[0]!
+      live.accept()
+      expect(readConnectivity(dir)?.state, 'the holder reports while it holds').toBe('connected')
+
+      connection.close()
+      // The transport delivers the close long after the cede — and on a fleet
+      // mid-handover it may be the SERVER's refusal of an incarnation that is
+      // already on its way out.
+      live.drop()
+      vi.advanceTimersByTime(60_000)
+
+      expect(
+        readConnectivity(dir)?.state,
+        'a ceded incarnation must not leave a phantom outage behind it',
+      ).toBe('connected')
     } finally {
       connection.close()
     }
