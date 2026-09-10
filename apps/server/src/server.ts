@@ -43,7 +43,9 @@ import {
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
-import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
+import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
+import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
   SUPERVISOR_SERVICE_ASSIGNMENT_ENV,
   targetTransferRecovery,
@@ -220,6 +222,12 @@ export interface ServerHandle {
    * keep the authenticated WS path.
    */
   localDaemonLink: LocalDaemonLink
+  /**
+   * This process's event-loop accounting, absent at profile level `off`. It is
+   * on the handle because the perf snapshot is assembled from the composition
+   * root and the rings live in the process, not in the store.
+   */
+  loopAccounting?: LoopAccountingHandle
   close(): Promise<void>
 }
 
@@ -1684,6 +1692,11 @@ export async function startServer(
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
+    // Event-loop accounting, when the level installs it (see below). Declared
+    // here because three places need it: the wiring that starts it, the handle
+    // that exposes it, and the shutdown step that releases the file.
+    let loopAccounting: LoopAccountingHandle | undefined
+    let loopMinuteSink: LoopMinuteFileSink | undefined
     const failListen = async (err: unknown): Promise<void> => {
       if (settled) return
       settled = true
@@ -1825,86 +1838,114 @@ export async function startServer(
       mcpToken,
       (await superagent.mcpToolSpecs()).map((s) => s.name),
     )
-    // Server-side stall reporter (POD-600): a lightweight analog of the
-    // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
-    // no activity counters (this process does no PTY work).
-    if (process.env.PODIUM_LOOP_PROFILE) {
-      // POD-1630: the per-second window that scopes SQL attribution to the
-      // stall rather than to all of uptime — the same cadence the daemon's
-      // loop-attribution uses, and for the same reason.
-      // POD-1931: the SAME question one level out. Query attribution names the
-      // statements; this names the SCHEDULED CALLBACKS, which is where the rest
-      // of a stall lives — after the query-shaped costs were fixed, the phases
-      // and statements together accounted for barely a third of the blocked
-      // time. Installed before the subsystems schedule anything, so their timers
-      // are wrapped at creation.
-      attributeTasks()
-      const attributionWindow = setInterval(() => {
-        resetQueryAttribution()
-        resetTaskAttribution()
-      }, 1000)
-      attributionWindow.unref?.()
-      // POD-1653: the window above answers "what stalled this second"; a bench
-      // run asks "what ran over the last minute, and WHO issued it". Both
-      // retentions already exist (queryAttributionTotals / queryCallerStacks)
-      // but nothing could read them out of a live process. SIGUSR2 is that
-      // reader — inert unless profiling is on, and it only prints.
-      process.on('SIGUSR2', () => {
-        const out = [...queryAttributionTotals()]
-          .sort((a, b) => b[1].count - a[1].count)
-          .slice(0, 15)
-          .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
-        loopLog.warn('query totals', { totals: out })
-        loopLog.warn('task totals', {
-          totals: [...taskAttributionTotals()]
-            .sort((a, b) => b[1].wallMs - a[1].wallMs)
-            .slice(0, 20)
-            .map(
-              ([label, c]) =>
-                `${c.count}x/${c.wallMs.toFixed(0)}ms/max${c.maxMs.toFixed(0)} ${label}`,
-            ),
+    // Event-loop accounting and the server-side stall reporter (POD-600), both
+    // gated on the resolved profile level. The warning goes out at ANY level:
+    // it means the environment asked for something this build does not accept,
+    // so what is measured is not what whoever set it expects.
+    reportLoopProfileWarning(loopLog)
+    if (atLeast('accounting')) {
+      const loopSink = createLoopMinuteSink({
+        dir: join(stateDir(), 'perf'),
+        component: 'server',
+      })
+      loopMinuteSink = loopSink
+      loopAccounting = startLoopAccounting({
+        component: 'server',
+        level: loopProfileLevel,
+        sink: loopSink,
+        // The per-stall record is an ATTRIBUTION-level artifact. At `accounting`
+        // the minute record already carries the stall count, max and
+        // percentiles, and a per-stall line would write the same event a second
+        // time in a shape nothing aggregates (POD-1932 is that mistake once
+        // already).
+        ...(atLeast('attribution')
+          ? {
+              // The sole record of a server stall — the probe reports here and
+              // logs nothing itself, so every field lands on one queryable
+              // record (POD-1932).
+              onLongTick: (stall) => {
+                const mu = process.memoryUsage()
+                // The stall reporter could name the COST but never the CAUSE; the
+                // tRPC and phase counters could not fill the gap because the work
+                // is not on either path. The top statements are that missing name.
+                const sql = formatTopQueries()
+                // ...and the work that runs NO statement, which is most of what is
+                // left. `taskCoverage` is reported next to it on purpose: the top
+                // tasks are only worth reading against how much of the tick they
+                // actually cover, or the largest named thing gets mistaken for the
+                // cause again.
+                const tasks = formatTopTasks()
+                const taskCoverage = taskAttributionCoverage(stall.durationMs)
+                loopLog.warn('server event-loop stall', {
+                  durationMs: stall.durationMs,
+                  heapUsedBytes: mu.heapUsed,
+                  rssBytes: mu.rss,
+                  // How busy the loop was in the second before the stall — the
+                  // number that says whether this was a spike on an idle loop
+                  // or one more block on a loop that is saturated anyway.
+                  ...(stall.utilizationPct === undefined
+                    ? {}
+                    : { utilizationPct: stall.utilizationPct }),
+                  // Each classification number its own NUMBER field: a query can ask
+                  // "which stalls were starved" only if the verdict is a field.
+                  ...(stall.classification
+                    ? {
+                        ownCpuMs: stall.classification.ownCpuMs,
+                        runqueueWaitMs: stall.classification.runqueueWaitMs,
+                        stallVerdict: stall.classification.verdict,
+                      }
+                    : {}),
+                  ...(sql ? { sql } : {}),
+                  ...(tasks ? { tasks, taskCoverage } : {}),
+                })
+              },
+            }
+          : {}),
+      })
+      if (atLeast('attribution')) {
+        // POD-1630: the per-second window that scopes SQL attribution to the
+        // stall rather than to all of uptime — the same cadence the daemon's
+        // loop-attribution uses, and for the same reason.
+        // POD-1931: the SAME question one level out. Query attribution names the
+        // statements; this names the SCHEDULED CALLBACKS, which is where the rest
+        // of a stall lives — after the query-shaped costs were fixed, the phases
+        // and statements together accounted for barely a third of the blocked
+        // time. Installed before the subsystems schedule anything, so their timers
+        // are wrapped at creation.
+        attributeTasks()
+        const attributionWindow = setInterval(() => {
+          resetQueryAttribution()
+          resetTaskAttribution()
+        }, 1000)
+        attributionWindow.unref?.()
+        // POD-1653: the window above answers "what stalled this second"; a bench
+        // run asks "what ran over the last minute, and WHO issued it". Both
+        // retentions already exist (queryAttributionTotals / queryCallerStacks)
+        // but nothing could read them out of a live process. SIGUSR2 is that
+        // reader — inert below this level, and it only prints.
+        process.on('SIGUSR2', () => {
+          const out = [...queryAttributionTotals()]
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 15)
+            .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+          loopLog.warn('query totals', { totals: out })
+          loopLog.warn('task totals', {
+            totals: [...taskAttributionTotals()]
+              .sort((a, b) => b[1].wallMs - a[1].wallMs)
+              .slice(0, 20)
+              .map(
+                ([label, c]) =>
+                  `${c.count}x/${c.wallMs.toFixed(0)}ms/max${c.maxMs.toFixed(0)} ${label}`,
+              ),
+          })
+          for (const [key, samples] of queryCallerStacks()) {
+            loopLog.warn('query caller stacks', {
+              query: key,
+              samples: samples.slice(0, 3).map((s) => ({ count: s.count, stack: s.stack })),
+            })
+          }
         })
-        for (const [key, samples] of queryCallerStacks()) {
-          loopLog.warn('query caller stacks', {
-            query: key,
-            samples: samples.slice(0, 3).map((s) => ({ count: s.count, stack: s.stack })),
-          })
-        }
-      })
-      startLoopMetrics({
-        // The sole record of a server stall — the probe reports here and logs
-        // nothing itself, so every field lands on one queryable record (POD-1932).
-        onLongTick: (ms, classification) => {
-          const mu = process.memoryUsage()
-          // The stall reporter could name the COST but never the CAUSE; the
-          // tRPC and phase counters could not fill the gap because the work
-          // is not on either path. The top statements are that missing name.
-          const sql = formatTopQueries()
-          // ...and the work that runs NO statement, which is most of what is
-          // left. `taskCoverage` is reported next to it on purpose: the top
-          // tasks are only worth reading against how much of the tick they
-          // actually cover, or the largest named thing gets mistaken for the
-          // cause again.
-          const tasks = formatTopTasks()
-          const taskCoverage = taskAttributionCoverage(ms)
-          loopLog.warn('server event-loop stall', {
-            durationMs: ms,
-            heapUsedBytes: mu.heapUsed,
-            rssBytes: mu.rss,
-            // Each classification number its own NUMBER field: a query can ask
-            // "which stalls were starved" only if the verdict is a field.
-            ...(classification
-              ? {
-                  ownCpuMs: classification.ownCpuMs,
-                  runqueueWaitMs: classification.runqueueWaitMs,
-                  stallVerdict: classification.verdict,
-                }
-              : {}),
-            ...(sql ? { sql } : {}),
-            ...(tasks ? { tasks, taskCoverage } : {}),
-          })
-        },
-      })
+      }
     }
     // In-process daemon link [POD-196]: the local-machine equivalent of
     // wireDaemonSocket, minus serialization. It still drives the SAME
@@ -2055,6 +2096,7 @@ export async function startServer(
         recoveryOnly,
         bootstrapToken,
         localDaemonLink,
+        ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist
         // state unconditionally, THEN force-close lingering http sockets —
         // see closeServerFast for the full ordering rationale. Step order
@@ -2119,6 +2161,16 @@ export async function startServer(
                     const closing: Promise<void> = janitorHost.close()
                     await closing
                   }
+                },
+              ],
+              // Stop the sample/probe timers and release the minute file's fd.
+              // The records are already on disk — the sink writes synchronously
+              // — so this closes a descriptor rather than draining anything.
+              [
+                'loopAccounting.stop',
+                () => {
+                  loopAccounting?.stop()
+                  loopMinuteSink?.close()
                 },
               ],
               ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],

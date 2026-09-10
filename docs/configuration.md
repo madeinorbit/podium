@@ -177,6 +177,28 @@ reachable. Neither should be settable from a process environment that a
 supervisor, a container platform, or a stray `.env` file can populate by
 accident. They are file-and-command only.
 
+## `PODIUM_LOOP_PROFILE` — layered, but not a layered key
+
+`loopProfile` in `config.json`, `PODIUM_LOOP_PROFILE` in the environment, four
+values: `off`, `accounting`, `attribution`, `full`. It says how much the server
+and the daemon measure their own event loops, and each level installs what the
+one before it does and more — `accounting` is the probe timer, the per-second
+`/proc` sampling and the per-minute file under `<stateDir>/perf`; `attribution`
+adds the SQL, scheduler and frame seams; `full` adds stack capture.
+
+It follows the same env → file order as the keys above, and is written out
+separately (`resolveLoopProfileLevel()`) for two reasons. Its default is not a
+constant: absent everywhere, it is `attribution` on the `dev` channel and on a
+source run, and `off` otherwise, so a customer install pays nothing and a
+development install is always already measuring. And a value that is not one of
+the four names is REFUSED with a startup warning and the next layer answers,
+where a layered key would fail the boot — this is a diagnostic, and it must not
+be able to take a server down. (`PODIUM_LOOP_PROFILE=1`, the boolean flag this
+replaced, is exactly that case.)
+
+The parent states the level it resolved to its server and daemon children, so
+the two processes cannot disagree about what they are measuring.
+
 ## Forced settings in the UI
 
 `setup.provenance` reports, for every layered key, which layer answered and — when

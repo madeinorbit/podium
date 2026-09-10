@@ -32,7 +32,9 @@ import {
 } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { installDaemonLogForwarding } from '@podium/runtime/log-forward'
-import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { type LoopAccountingHandle, startLoopAccounting } from '@podium/runtime/loop-accounting'
+import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
+import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
   SUPERVISOR_MACHINE_ID_ENV,
   SUPERVISOR_MACHINE_TOKEN_ENV,
@@ -383,11 +385,34 @@ export async function createDaemonHostRuntime(args: {
   )
 
   const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
-  if (process.env.PODIUM_LOOP_PROFILE) {
+  // What this process measures about its own loop, at the level the parent
+  // stated (loop profile levels design §3). The warning goes out at ANY level:
+  // it says the environment asked for something this build does not accept.
+  reportLoopProfileWarning(log)
+  let loopAccounting: LoopAccountingHandle | undefined
+  let loopMinuteSink: LoopMinuteFileSink | undefined
+  if (atLeast('accounting')) {
+    loopMinuteSink = createLoopMinuteSink({
+      dir: join(identityStateDir, 'perf'),
+      component: 'daemon',
+    })
+    loopAccounting = startLoopAccounting({
+      component: 'daemon',
+      level: loopProfileLevel,
+      sink: loopMinuteSink,
+      // The per-stall record is an ATTRIBUTION-level artifact: at `accounting`
+      // the minute record already carries the stall counts and percentiles, and
+      // the activity mix this reporter names is not being collected anyway.
+      ...(atLeast('attribution')
+        ? {
+            onLongTick: (stall) =>
+              reportLongTick(stall.durationMs, stall.classification, stall.utilizationPct),
+          }
+        : {}),
+    })
     // POD-600's loop-stall classifier stays in loop-attribution.ts; boot merely
     // turns it on. Moving connection code must never absorb this instrumentation.
-    startLoopAttribution()
-    startLoopMetrics({ onLongTick: reportLongTick })
+    if (atLeast('attribution')) startLoopAttribution()
   }
   const discoveryLoop = createDiscoveryLoop({
     workerClient,
@@ -1291,6 +1316,11 @@ export async function createDaemonHostRuntime(args: {
     scopeMonitor.dispose()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
+    // Stop the probe and sample timers and release the minute file's fd. The
+    // records are already on disk (the sink writes synchronously), so this
+    // closes a descriptor rather than draining anything.
+    loopAccounting?.stop()
+    loopMinuteSink?.close()
     stopInventoryRefresh?.()
     workerClient.stop()
     outputScheduler.stop()

@@ -80,8 +80,8 @@ export function serializeDatabase(db: SqlDatabase): Uint8Array {
 }
 
 function decorate(db: SqlDatabase): SqlDatabase {
-  // Returns `db` itself unless PODIUM_LOOP_PROFILE is set, so the default path is
-  // byte-for-byte what it was. When it does decorate, the raw-handle registration
+  // Returns `db` itself below the `attribution` profile level, so the default
+  // path is byte-for-byte what it was. When it does decorate, the raw-handle registration
   // has to follow the new wrapper or the drizzle migrator loses its connection.
   const attributed = attributeQueries(db)
   if (attributed !== db) aliasBunSqliteClient(db, attributed)

@@ -140,10 +140,12 @@ override with `PODIUM_URL` or `PODIUM_BROWSER_TOKEN`. On Linux it keeps Playwrig
 temporary browser profile in `/dev/shm`. Run it at an idle prompt: during streaming,
 an unrelated next output frame can make `toFrame` under-report the key's true round trip.
 
-For attribution beyond the browser, pair the JSON timestamps with
-`PODIUM_LOOP_PROFILE=1` server/daemon journals. That environment probe is independent and
-can be turned off at service startup; `PODIUM_LOOP_PROFILE_STACKS=1` adds the more
-expensive SQLite caller stacks only when needed.
+For attribution beyond the browser, pair the JSON timestamps with the server/daemon
+journals at profile level `attribution` (`PODIUM_LOOP_PROFILE=attribution`, which is
+already the default on a source run and on the `dev` channel; `off` at service startup
+turns it back off). `PODIUM_LOOP_PROFILE=full` adds the more expensive SQLite caller
+stacks only when needed. The four levels are `off`, `accounting`, `attribution` and
+`full`; the older `PODIUM_LOOP_PROFILE=1` is refused with a warning.
 
 ## Setup gotchas
 

@@ -240,8 +240,8 @@ export function installQueryAttributionProbe(hub: StatementProbeHub): void {
  * It records into the same window and lifetime maps the `SqlDatabase` wrapper
  * has always recorded into, so `formatTopQueries`, the stall reporter and the
  * lifetime totals keep reading one set of numbers whichever seam produced them.
- * Caller stacks ride along inside `recordQuery`, still gated behind
- * `PODIUM_LOOP_PROFILE_STACKS`.
+ * Caller stacks ride along inside `recordQuery`, still gated at the `full`
+ * profile level.
  *
  * A batch member is attributed `durationMs / batchSize`, which sums to the
  * batch's real cost instead of multiplying it.

@@ -1,20 +1,21 @@
 /**
  * Attribution layer for the daemon event loop, paired with `@podium/runtime`'s
- * `startLoopMetrics`. When the loop-metrics probe detects a long tick it calls
+ * `startLoopAccounting`. When the accounting probe detects a long tick it calls
  * {@link reportLongTick}, which dumps WHAT the loop was busy with in the ~1s
  * around the stall: per-window activity counters (PTY frames, control messages,
  * transcript-tail deltas, worker hand-backs) plus a heap/RSS snapshot. A stall
  * with no discrete cause in the mix but a large/growing heap implicates GC —
  * Bun does not emit GC PerformanceObserver entries, so we infer it.
  *
- * Everything here is a no-op unless `PODIUM_LOOP_PROFILE` is set.
+ * Everything here is a no-op below the `attribution` profile level.
  */
 import { createLogger } from '@podium/logger'
 import type { StallClassification } from '@podium/runtime/loop-metrics'
+import { atLeast } from '@podium/runtime/loop-profile'
 
 const log = createLogger('daemon:loop')
 
-const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
+const ENABLED = atLeast('attribution')
 export const loopProfileEnabled = ENABLED
 
 const ctr = { frames: 0, frameBytes: 0, control: 0, tails: 0, worker: 0 }
@@ -70,11 +71,17 @@ export function timeTask<T>(label: string, fn: () => T, thresholdMs = 50): T {
   }
 }
 
-/** Hand this to `startLoopMetrics({ onLongTick })`. Reports the current window's
- *  activity mix + heap; the per-second reset keeps the mix scoped to the stall.
- *  The starved-vs-busy classification (POD-600) rides along when the probe
- *  could compute one (Linux schedstat available). */
-export function reportLongTick(ms: number, classification?: StallClassification): void {
+/** Hand this to `startLoopAccounting({ onLongTick })`. Reports the current
+ *  window's activity mix + heap; the per-second reset keeps the mix scoped to
+ *  the stall. The starved-vs-busy classification (POD-600) rides along when the
+ *  probe could compute one (Linux schedstat available), and `utilizationPct` is
+ *  how busy the loop was in the second before it — the difference between a
+ *  spike on an idle loop and one more block on a saturated one. */
+export function reportLongTick(
+  ms: number,
+  classification?: StallClassification,
+  utilizationPct?: number,
+): void {
   if (!ENABLED) return
   const mu = process.memoryUsage()
   const controlDetail = formatControlCosts(controlCosts)
@@ -92,6 +99,7 @@ export function reportLongTick(ms: number, classification?: StallClassification)
     worker: ctr.worker,
     heapUsedBytes: mu.heapUsed,
     rssBytes: mu.rss,
+    ...(utilizationPct === undefined ? {} : { utilizationPct }),
     ...(controlDetail ? { controlTypes: controlDetail } : {}),
     ...(classification
       ? {

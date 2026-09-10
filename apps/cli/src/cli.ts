@@ -25,6 +25,7 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import {
+  LOOP_PROFILE_ENV,
   loadConfig,
   localServerUrl,
   localServerWsUrl,
@@ -35,6 +36,7 @@ import {
   resolveFeatureOverrides,
   resolveInstanceId,
   resolveLoggingMode,
+  resolveLoopProfileLevel,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
@@ -1646,6 +1648,18 @@ export async function main(
       const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
       const installDir = resolveInstallDir(process.env)
       const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+      /**
+       * WHAT THE CHILDREN MEASURE, decided here and stated to them (loop
+       * profile levels design §3.3), the way `PODIUM_LOGGING_MODE` is.
+       *
+       * A server and a daemon that resolved this for themselves could disagree
+       * — they read the same config today, but a child spawned across a config
+       * write, or one whose env a supervisor has edited, would not — and a pair
+       * of loop records at two different levels is worse than none, because
+       * nothing in the records says they are not comparable. So the parent
+       * resolves once and both children are told.
+       */
+      const loopProfile = resolveLoopProfileLevel(config, process.env)
       const runningDigest = installedArtifactDigest(installDir)
       const runtimeDir = join(stateDir(), 'runtime')
       const pendingUpdate = readMachineUpdateJournal(runtimeDir)
@@ -1679,6 +1693,7 @@ export async function main(
         }),
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
+          [LOOP_PROFILE_ENV]: loopProfile.level,
           PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
           PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
           PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),

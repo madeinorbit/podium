@@ -504,6 +504,40 @@ describe('ParentProcess', () => {
     expect(finalized).toEqual(['2.0.0'])
   })
 
+  it('states the loop profile level to every child, over a stale inherited one', async () => {
+    // The parent resolves the level once and says it (loop profile levels
+    // design §3.3). Its own environment can still hold the boolean flag this
+    // replaced — a unit drop-in outlives the release that stops reading it —
+    // and a child that inherited `1` would refuse it and fall back to ITS OWN
+    // channel default, which is how two processes end up measuring at two
+    // different levels with nothing in the records saying so.
+    const childEnvs = new Map<string, NodeJS.ProcessEnv>()
+    let nextPid = 360
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '2.0.0', PODIUM_LOOP_PROFILE: '1' },
+        childEnv: () => ({ PODIUM_LOOP_PROFILE: 'accounting' }),
+        spawn: ((_cmd, args, options) => {
+          childEnvs.set(String(args[0]), options.env as NodeJS.ProcessEnv)
+          return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('2.0.0'),
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+
+    await parent.start()
+
+    for (const child of ['server', 'daemon']) {
+      expect(childEnvs.get(child)?.PODIUM_LOOP_PROFILE, `${child} level`).toBe('accounting')
+    }
+  })
+
   it('a child of a systemd parent still picks the journald sink (POD-3177)', async () => {
     // The parent deletes NOTIFY_SOCKET from the child env — only the parent may
     // pet the watchdog — and `resolveLoggingMode` used to read that same variable

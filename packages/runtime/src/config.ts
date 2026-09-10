@@ -53,7 +53,7 @@
  * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
  * | PODIUM_INSTANCE_UUID          | — (env-only)            | daemon-owned process identity (instance reaper)       |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
- * | PODIUM_LOOP_PROFILE           | — (env-only flag)       | server + daemon event-loop profiling                   |
+ * | PODIUM_LOOP_PROFILE           | config.loopProfile      | `resolveLoopProfileLevel()` (level name; parent states it) |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |
  * | PODIUM_APP_VERSION            | — (BUILD-time --define) | server /version; must stay a literal `process.env.…`   |
  * | PODIUM_WEB_DIR                | — → bundled dist path   | apps/server static web (packaged bundle sets it)       |
@@ -175,6 +175,17 @@ export const PodiumConfig = z.object({
    * on, but honoured here whatever the UI is currently showing.
    */
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
+  /**
+   * How much this install's server and daemon measure their own event loops
+   * (docs/internal/superpowers/specs/2026-09-10-loop-profile-levels-design.md
+   * §3). Absent means the channel decides: `attribution` on `dev`
+   * and on a source run, `off` everywhere else, so a customer install pays
+   * nothing and a development install is always already measuring. A cloud
+   * host sets `accounting` here (or in its unit's environment) for the cheap
+   * tier. Each level installs what the one before it does and more, so this
+   * is a dial, not a set of independent switches.
+   */
+  loopProfile: z.enum(['off', 'accounting', 'attribution', 'full']).optional(),
   /** Device-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
   /**
@@ -651,6 +662,70 @@ export function resolveUpdateChannel(
   env: EnvSource = process.env,
 ): FleetUpdateChannel {
   return resolveSetting('updateChannel', config, env).value
+}
+
+/**
+ * The event-loop profiling levels, weakest first (loop-profile-levels design
+ * §3.1). The order IS
+ * the semantics: `atLeast` in @podium/runtime/loop-profile compares indices
+ * here, so a level added in the middle changes what every existing gate means.
+ */
+export const LOOP_PROFILE_LEVELS = ['off', 'accounting', 'attribution', 'full'] as const
+export type LoopProfileLevel = (typeof LOOP_PROFILE_LEVELS)[number]
+
+/** The variable the parent states to its children (§3.3), and an operator sets by hand. */
+export const LOOP_PROFILE_ENV = 'PODIUM_LOOP_PROFILE'
+
+export interface ResolvedLoopProfile {
+  level: LoopProfileLevel
+  /** Which layer decided, for `podium perf level` and the boot record. */
+  source: 'env' | 'config' | 'default'
+  /**
+   * Present when the environment held something that is not a level name. The
+   * value is REFUSED and the next layer answers, because this variable used to
+   * be a boolean flag (`PODIUM_LOOP_PROFILE=1`) and a stale unit drop-in or
+   * shell export must not silently pin a level it never meant. The caller logs
+   * this once at startup — see @podium/runtime/loop-profile.
+   */
+  warning?: string
+}
+
+function isLoopProfileLevel(value: string): value is LoopProfileLevel {
+  return (LOOP_PROFILE_LEVELS as readonly string[]).includes(value)
+}
+
+/**
+ * PODIUM_LOOP_PROFILE → config.loopProfile → channel default (§3.2).
+ *
+ * Unlike the layered keys above, a bad env value here WARNS and falls through
+ * rather than throwing: the level is a diagnostic, and refusing to boot a
+ * server because its profiling knob is misspelled would trade an observability
+ * gap for an outage.
+ *
+ * The default is `attribution` for the `dev` channel and for a source run, and
+ * `off` for everything else. The source-run test is `PODIUM_APP_VERSION`: it is
+ * a BUILD-time --define, so a packaged binary carries a version literal here
+ * and only a checkout leaves it at `dev`. The literal read has to stay written
+ * out (`process.env.PODIUM_APP_VERSION`) for the substitution to find it; the
+ * injected `env` is consulted first so a test can state either answer.
+ */
+export function resolveLoopProfileLevel(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): ResolvedLoopProfile {
+  const raw = env[LOOP_PROFILE_ENV]?.trim()
+  let warning: string | undefined
+  if (raw) {
+    if (isLoopProfileLevel(raw)) return { level: raw, source: 'env' }
+    warning =
+      `${LOOP_PROFILE_ENV} is not a profile level: expected one of ` +
+      `${LOOP_PROFILE_LEVELS.join(', ')}, got ${JSON.stringify(raw)}`
+  }
+  const carry = warning ? { warning } : {}
+  if (config.loopProfile) return { level: config.loopProfile, source: 'config', ...carry }
+  const appVersion = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
+  const development = resolveUpdateChannel(config, env) === 'dev' || appVersion === 'dev'
+  return { level: development ? 'attribution' : 'off', source: 'default', ...carry }
 }
 
 /**

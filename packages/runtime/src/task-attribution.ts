@@ -22,22 +22,24 @@
  * the gap survives this instrument, that absence is the next hypothesis rather
  * than a reason to distrust the numbers — see `taskAttributionCoverage`.
  *
- * Like `attributeQueries`, this is a diagnostic and never a budget: with the
- * flag unset `attributeTasks` is a no-op and the process carries no cost.
+ * Like `attributeQueries`, this is a diagnostic and never a budget: below the
+ * `attribution` level `attributeTasks` is a no-op and the process carries no cost.
  */
 
-const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
+import { atLeast } from './loop-profile'
+
+const ENABLED = atLeast('attribution')
 export const taskAttributionEnabled = ENABLED
 
 /**
- * Creation-site labels, one level deeper than the callback name (mirrors
- * `PODIUM_LOOP_PROFILE_STACKS` on the query side). A stack capture at SCHEDULING
+ * Creation-site labels, one level deeper than the callback name (the same thing
+ * caller stacks are on the query side). A stack capture at SCHEDULING
  * time is what turns `<anonymous>` into a file and line, and it is far more
  * expensive than the timing pair — a hot `setTimeout(fn, 0)` path would pay it
- * on every hop. So it sits behind its own flag, and even then only the first
- * capture per callback identity is kept.
+ * on every hop. So it sits one level up, at `full`, and even then only the
+ * first capture per callback identity is kept.
  */
-const STACKS = ENABLED && !!process.env.PODIUM_LOOP_PROFILE_STACKS
+const STACKS = atLeast('full')
 
 export interface TaskCost {
   /** Callback invocations in the current window. */

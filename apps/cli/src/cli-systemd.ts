@@ -158,8 +158,6 @@ Environment=HOME=${c.home}
 Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=${c.port}
 Environment=PODIUM_INSTANCE=${c.instanceId}
-# Event-loop stall logging + starved-vs-busy classification (POD-600).
-Environment=PODIUM_LOOP_PROFILE=1
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite — no build,
 # no dist, no stale-dist trap. Bun runs TS natively and this process does no PTY work.
 ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/server.ts

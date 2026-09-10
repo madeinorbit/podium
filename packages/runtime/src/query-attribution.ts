@@ -1,5 +1,5 @@
 /**
- * Per-statement attribution — the RECORDING core, paired with `startLoopMetrics`.
+ * Per-statement attribution — the RECORDING core, paired with `startLoopAccounting`.
  *
  * WHY THIS EXISTS (POD-1630). The server's stall reporter could say a tick burned
  * 500ms of own-CPU but not WHAT ran, and the tRPC/phase counters could not fill the
@@ -12,8 +12,8 @@
  *
  * So the missing number is per-SQL: which statement, how often, how long, how many
  * rows. That is what this records. It is a diagnostic, not a budget — nothing here
- * changes behavior, and with the flag unset no instrument is installed at all,
- * so a disabled build carries no per-query cost.
+ * changes behavior, and below the `attribution` level no instrument is installed
+ * at all, so an install that is not profiling carries no per-query cost.
  *
  * WHY IT IS NOT UNDER `sqlite/` ANY MORE (POD-3281). It records `(sql, wallMs,
  * rows)` and has never known what a connection is; the SQLite-shaped half is the
@@ -26,7 +26,9 @@
  * numbers, so `formatTopQueries` and the stall reporter keep reading one window.
  */
 
-const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
+import { atLeast } from './loop-profile'
+
+const ENABLED = atLeast('attribution')
 export const queryAttributionEnabled = ENABLED
 
 export interface QueryCost {
@@ -94,11 +96,11 @@ export function queryAttributionTotals(): ReadonlyMap<string, QueryCost> {
  * A statement key names WHAT ran; when the defect is a call COUNT the question is
  * immediately WHO ran it, and the SQL cannot answer that — `SELECT * FROM issues
  * WHERE id = ?` is prepared in one place and reached from dozens. Capturing a stack
- * is far more expensive than the timing pair above, so it sits behind its own flag
- * (`PODIUM_LOOP_PROFILE_STACKS`) rather than riding along with attribution: this is
- * a bench/repro instrument, not something a live host should carry.
+ * is far more expensive than the timing pair above, so it sits one level up, at
+ * `full`, rather than riding along with attribution: this is a bench/repro
+ * instrument, not something a live host should carry.
  */
-const STACKS = ENABLED && !!process.env.PODIUM_LOOP_PROFILE_STACKS
+const STACKS = atLeast('full')
 
 /** Source markers of the instruments themselves — see {@link recordCallerStack}. */
 const INSTRUMENT_FRAMES = ['query-attribution', 'statement-probe'] as const
