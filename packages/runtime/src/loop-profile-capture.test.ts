@@ -1,4 +1,13 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +15,7 @@ import type { LoopMinute } from './loop-accounting'
 import {
   createProfileCapture,
   type LoopProfileEnvelope,
+  PROFILE_KEEP_CLEAR_MIN_MS,
   PROFILE_MAX_FILES,
   profileDir,
   profileRequestPath,
@@ -58,6 +68,59 @@ function fakeJsc() {
   }
 }
 
+/**
+ * A monotonic clock that advances by `costMs()` across each drain: `discard`
+ * reads it once before and once after, so this makes one drain cost exactly
+ * what the test says it costs.
+ */
+function drainClock(costMs: () => number) {
+  let at = 0
+  let inDrain = false
+  return () => {
+    if (inDrain) {
+      at += costMs()
+      inDrain = false
+    } else {
+      inDrain = true
+    }
+    return at
+  }
+}
+
+/**
+ * A sampler whose traces are the size production's are: a real server trace
+ * measured about 2 KB (50-odd frames with a name, a source URL and a location
+ * each), which is what turns 15 000 traces into a 30 MB file.
+ */
+function fatJsc(bytesPerTrace = 2048) {
+  let buffered = 0
+  const frame = { name: 'x'.repeat(bytesPerTrace - 64), sourceURL: 'packages/runtime/src/x.ts' }
+  const api: SamplingProfilerApi = {
+    startSamplingProfiler() {},
+    samplingProfilerStackTraces() {
+      const traces = Array.from({ length: buffered }, (_, id) => ({
+        timestamp: id,
+        frames: [frame],
+      }))
+      buffered = 0
+      return { interval: 0.01, traces, sources: [{ sourceID: 1, url: 'x' }] }
+    },
+  }
+  return {
+    api,
+    feed(count: number) {
+      buffered += count
+    },
+  }
+}
+
+/**
+ * A sampler period somebody chose. Arming is refused on JSC's unstated 1 ms
+ * default (POD-3834), so every test that expects a capture has to say that this
+ * process was started with a period, the same as production does.
+ */
+const SLOW_SAMPLER = { us: 10_000, stated: true } as const
+
 /** A clock the test advances by hand, so the rate-limit window is deterministic. */
 function fakeClock(startMs = Date.parse('2026-09-10T12:00:00.000Z')) {
   let value = startMs
@@ -103,6 +166,7 @@ describe('createProfileCapture', () => {
       dir: root,
       now: clock.now,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       sleep: async (ms) => {
         // The window is where the traces accrue: feed the buffer during it, and
         // advance the clock so `endedAt` is a real duration later.
@@ -142,6 +206,7 @@ describe('createProfileCapture', () => {
       level: 'full',
       dir: root,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       minIntervalMs: 0,
       sleep: async (ms) => {
         slept.push(ms)
@@ -165,6 +230,7 @@ describe('createProfileCapture', () => {
       level: 'attribution',
       dir: root,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       sleep: () => gate,
     })
 
@@ -187,6 +253,7 @@ describe('createProfileCapture', () => {
       dir: root,
       now: clock.now,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       sleep: noWait,
     })
 
@@ -213,6 +280,7 @@ describe('createProfileCapture', () => {
       dir: root,
       now: clock.now,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       minIntervalMs: 0,
       sleep: noWait,
     })
@@ -262,6 +330,7 @@ describe('createProfileCapture', () => {
         level,
         dir: root,
         jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
         sleep: noWait,
       })
       expect(await capture.request('signal', 10)).toEqual({ suppressed: true, reason: 'level' })
@@ -277,6 +346,7 @@ describe('createProfileCapture', () => {
       level: 'attribution',
       dir: root,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       sleep: noWait,
     })
 
@@ -293,6 +363,7 @@ describe('createProfileCapture', () => {
       level: 'attribution',
       dir: root,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       minIntervalMs: 0,
       sleep: async () => {
         jsc.feed(3)
@@ -314,6 +385,7 @@ describe('createProfileCapture', () => {
       level: 'attribution',
       dir: root,
       jsc: jsc.api,
+      effectiveSample: SLOW_SAMPLER,
       minIntervalMs: 0,
       sleep: noWait,
     })
@@ -350,6 +422,7 @@ describe('createProfileCapture', () => {
         level: 'attribution',
         dir: root,
         jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
         keepClearMs: 1000,
         sleep: noWait,
       })
@@ -378,6 +451,7 @@ describe('createProfileCapture', () => {
         level: 'attribution',
         dir: root,
         jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
         keepClearMs: 1000,
         minIntervalMs: 0,
         // A window long enough that the keep-clear would tick several times if
@@ -397,6 +471,63 @@ describe('createProfileCapture', () => {
       capture.stop()
     })
 
+    /**
+     * The measurement that decides what this timer can and cannot do (POD-3834):
+     * total drain cost per busy second was 5.2 ms at a 1000 ms drain interval and
+     * 5.9 ms at 250 ms, interleaved. Draining more often does not buy back cost —
+     * cost is set by the SAMPLE rate — it only makes each drain shorter. So the
+     * timer's job is to keep one drain off the stall ledger, and that is what
+     * this pins.
+     */
+    it('shortens its interval when one drain runs long, and lets it back out again', async () => {
+      const jsc = fakeJsc()
+      let drainCostMs = 40
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        keepClearMs: 1000,
+        keepClearTargetMs: 5,
+        monotonic: drainClock(() => drainCostMs),
+        sleep: noWait,
+      })
+
+      await capture.request('signal', 10)
+      expect(capture.keepClearIntervalMs).toBe(1000)
+
+      // 40 ms against a 5 ms target: the next drain has to come 8x sooner.
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(capture.keepClearIntervalMs).toBe(125)
+
+      // Cheap again: it climbs back, and never past the interval it was given.
+      drainCostMs = 0
+      for (let i = 0; i < 20; i += 1) await vi.advanceTimersByTimeAsync(1000)
+      expect(capture.keepClearIntervalMs).toBe(1000)
+      capture.stop()
+    })
+
+    it('never drains more often than the floor, however long a drain takes', async () => {
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        keepClearMs: 1000,
+        keepClearTargetMs: 5,
+        monotonic: drainClock(() => 100_000),
+        sleep: noWait,
+      })
+
+      await capture.request('signal', 10)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(capture.keepClearIntervalMs).toBe(PROFILE_KEEP_CLEAR_MIN_MS)
+      capture.stop()
+    })
+
     it('reports the main-thread time it has spent keeping the buffer clear', async () => {
       const jsc = fakeJsc()
       const capture = createProfileCapture({
@@ -404,6 +535,7 @@ describe('createProfileCapture', () => {
         level: 'attribution',
         dir: root,
         jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
         keepClearMs: 1000,
         sleep: noWait,
       })
@@ -414,6 +546,185 @@ describe('createProfileCapture', () => {
       expect(capture.keepClearMs).toBeGreaterThanOrEqual(0)
       expect(jsc.drains.mock.calls.length).toBeGreaterThanOrEqual(4)
       capture.stop()
+    })
+  })
+
+  describe('the sample-period guard', () => {
+    /**
+     * The bound the whole issue is about. Arming is irreversible — Bun has no
+     * stop — so at JSC's 1 ms default the process buys a drain cost it can never
+     * put down, measured at 4.05 percent of wall on the reference server against
+     * a 0.5 percent budget. A period nobody stated is an accident, and this
+     * refuses it rather than paying for it.
+     */
+    it('refuses to arm on a fast period nobody asked for, and says what to set', async () => {
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: { us: 1000, stated: false },
+        sleep: noWait,
+      })
+
+      const result = await capture.request('signal', 10)
+
+      expect(result).toMatchObject({ suppressed: true, reason: 'sample-rate' })
+      if (!result.suppressed || !result.path) throw new Error('unreachable')
+      const envelope = readEnvelope(result.path)
+      // The record is the whole point of refusing: an operator who sent SIGUSR2
+      // gets a file naming the variable to set, not silence.
+      expect(envelope.refused).toContain('BUN_JSC_sampleInterval')
+      expect(envelope.sampleIntervalUs).toBe(1000)
+      expect(jsc.starts).not.toHaveBeenCalled()
+    })
+
+    it('arms on a fast period somebody did ask for', async () => {
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        // An operator who writes the variable has said what they are buying.
+        effectiveSample: { us: 1000, stated: true },
+        sleep: noWait,
+      })
+
+      const result = await capture.request('signal', 10)
+
+      expect(result.suppressed).toBe(false)
+      expect(jsc.starts).toHaveBeenCalledTimes(1)
+    })
+
+    it('records the period the sampler is running at, so a reader can size it', async () => {
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        sleep: noWait,
+      })
+
+      const result = await capture.request('signal', 10)
+
+      if (result.suppressed) throw new Error('unreachable')
+      expect(readEnvelope(result.path).sampleIntervalUs).toBe(10_000)
+    })
+
+    it('keeps draining a sampler that was armed before the guard could refuse', async () => {
+      // Arming is per PROCESS, not per request: once the period is paid for, a
+      // later refusal would leave the buffer growing with nobody draining it.
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: { us: 1000, stated: true },
+        minIntervalMs: 0,
+        sleep: noWait,
+      })
+
+      await capture.request('signal', 10)
+      const second = await capture.request('signal', 10)
+
+      expect(second.suppressed).toBe(false)
+      expect(jsc.starts).toHaveBeenCalledTimes(1)
+      capture.stop()
+    })
+  })
+
+  describe('the byte caps', () => {
+    it('keeps a profile under the file cap by dropping traces, and says how many', async () => {
+      const jsc = fatJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        maxBytes: 256 * 1024,
+        sleep: async () => {
+          // 16 000 traces at 2 KB is the 30 MB file the daemon actually wrote.
+          jsc.feed(16_000)
+        },
+      })
+
+      const result = await capture.request('stall', 10, { stallMs: 4000 })
+
+      expect(result.suppressed).toBe(false)
+      if (result.suppressed) throw new Error('unreachable')
+      expect(result.bytes).toBeLessThanOrEqual(256 * 1024)
+      expect(statSync(result.path).size).toBeLessThanOrEqual(256 * 1024)
+      const envelope = readEnvelope(result.path)
+      expect(envelope.tracesSampled).toBe(16_000)
+      expect(envelope.traceCount).toBeLessThan(16_000)
+      expect(envelope.tracesDropped).toBe(16_000 - (envelope.traceCount ?? 0))
+      // What is kept has to be spread across the whole window, not the first
+      // slice of it: a profile of the first 200 ms of a 10 s stall names the
+      // wrong function. The stride keeps the last trace as well as the first.
+      const traces = (envelope.stacks as { traces: { timestamp: number }[] }).traces
+      expect(traces.length).toBeGreaterThan(1)
+      expect(traces[0]?.timestamp).toBe(0)
+      expect(traces.at(-1)?.timestamp).toBeGreaterThan(15_000)
+    })
+
+    it('leaves a profile that already fits completely alone', async () => {
+      const jsc = fakeJsc()
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        maxBytes: 4 * 1024 * 1024,
+        sleep: async () => jsc.feed(9),
+      })
+
+      const result = await capture.request('signal', 10)
+
+      if (result.suppressed) throw new Error('unreachable')
+      const envelope = readEnvelope(result.path)
+      expect(envelope.traceCount).toBe(9)
+      expect(envelope.tracesDropped).toBeUndefined()
+      expect(envelope.tracesSampled).toBeUndefined()
+    })
+
+    it('holds its own profiles under the directory cap, and never the other component', async () => {
+      const jsc = fatJsc()
+      const clock = fakeClock()
+      mkdirSync(profileDir(root), { recursive: true })
+      writeFileSync(join(profileDir(root), 'daemon-keep.json'), 'x'.repeat(400 * 1024))
+      const capture = createProfileCapture({
+        component: 'server',
+        level: 'attribution',
+        dir: root,
+        now: clock.now,
+        jsc: jsc.api,
+        effectiveSample: SLOW_SAMPLER,
+        minIntervalMs: 0,
+        maxBytes: 128 * 1024,
+        maxComponentBytes: 300 * 1024,
+        sleep: async () => jsc.feed(400),
+      })
+
+      for (let i = 0; i < 6; i += 1) {
+        await capture.request('signal', 10)
+        clock.advance(60_000)
+      }
+
+      const dir = profileDir(root)
+      const mine = readdirSync(dir).filter((name) => name.startsWith('server-'))
+      const bytes = mine.reduce((sum, name) => sum + statSync(join(dir, name)).size, 0)
+      expect(bytes).toBeLessThanOrEqual(300 * 1024)
+      expect(mine.length).toBeGreaterThan(0)
+      // The oldest went, the newest stayed.
+      expect(mine.sort().at(-1)).toContain('2026-09-10T12-05-00')
+      expect(existsSync(join(dir, 'daemon-keep.json'))).toBe(true)
     })
   })
 })

@@ -28,6 +28,7 @@ import {
   resolveAgentHomeDir,
   resolveAgentRelayPort,
   resolveHookPort,
+  resolveProfileOnStall,
   resolveProfileStallMs,
   stateDir,
 } from '@podium/runtime/config'
@@ -421,6 +422,8 @@ export async function createDaemonHostRuntime(args: {
       : undefined
     loopProfileCapture = capture
     const profileStallMs = resolveProfileStallMs()
+    // POD-3834: off unless this install asked for it — see the server's copy.
+    const profileOnStall = resolveProfileOnStall(config)
     /** Arm a capture, and record it in the minute when the limiter refuses. */
     const requestProfile = (
       trigger: 'stall' | 'signal',
@@ -470,7 +473,7 @@ export async function createDaemonHostRuntime(args: {
               reportLongTick(stall.durationMs, stall.classification, stall.utilizationPct)
               // Armed AFTER the stall, on the premise that stalls recur in
               // bursts, so the next one lands inside the window (spec §8).
-              if (stall.durationMs >= profileStallMs) {
+              if (profileOnStall && stall.durationMs >= profileStallMs) {
                 requestProfile('stall', 10, { stallMs: stall.durationMs })
               }
             },

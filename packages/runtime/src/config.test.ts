@@ -8,8 +8,10 @@ import {
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
   configPath,
+  DEFAULT_PROFILE_SAMPLE_US,
   DEFAULT_PROFILE_STALL_MS,
   inspectConfig,
+  JSC_DEFAULT_SAMPLE_US,
   LAYERED_ENV,
   LAYERED_KEYS,
   LOGGING_MODE_ENV,
@@ -19,12 +21,14 @@ import {
   migrateConfig,
   migrateConfigFile,
   needsSetup,
+  profileSamplerEnv,
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
   resolveAllowedOrigins,
   resolveAppUrl,
   resolveDevArtifactOrigin,
+  resolveEffectiveSampleUs,
   resolveFeatureOverrides,
   resolveHookPort,
   resolveInstallDir,
@@ -32,6 +36,8 @@ import {
   resolveLoggingMode,
   resolveMode,
   resolvePort,
+  resolveProfileOnStall,
+  resolveProfileSampleUs,
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveRunRecordMode,
@@ -884,6 +890,94 @@ describe('assertAppUrlCompatible', () => {
     expect(() => assertAppUrlCompatible({ appUrl: 'https://app.example' }, {})).toThrow(
       /different site/,
     )
+  })
+})
+
+describe('resolveProfileSampleUs', () => {
+  it('defaults to ten milliseconds per sample', () => {
+    expect(resolveProfileSampleUs({})).toBe(DEFAULT_PROFILE_SAMPLE_US)
+    expect(DEFAULT_PROFILE_SAMPLE_US).toBe(10_000)
+  })
+
+  it('takes a positive number of microseconds from the environment', () => {
+    expect(resolveProfileSampleUs({ PODIUM_LOOP_PROFILE_SAMPLE_US: '20000' })).toBe(20_000)
+    expect(resolveProfileSampleUs({ PODIUM_LOOP_PROFILE_SAMPLE_US: ' 5000 ' })).toBe(5000)
+  })
+
+  it('falls back rather than throwing on a value that is not one', () => {
+    for (const raw of ['', 'fast', '0', '-1', 'NaN']) {
+      expect(resolveProfileSampleUs({ PODIUM_LOOP_PROFILE_SAMPLE_US: raw })).toBe(
+        DEFAULT_PROFILE_SAMPLE_US,
+      )
+    }
+  })
+})
+
+describe('profileSamplerEnv', () => {
+  it("states the sample period under JSC's own option name", () => {
+    // The period is a JSC option read at VM start, so the only way to set it is
+    // to be in the child's environment before it boots — measured on Bun 1.3.14:
+    // assigning process.env in-process leaves the sampler at 1 ms (POD-3834).
+    expect(profileSamplerEnv({})).toEqual({ BUN_JSC_sampleInterval: '10000' })
+    expect(profileSamplerEnv({ PODIUM_LOOP_PROFILE_SAMPLE_US: '25000' })).toEqual({
+      BUN_JSC_sampleInterval: '25000',
+    })
+  })
+})
+
+describe('resolveEffectiveSampleUs', () => {
+  it("reports JSC's 1 ms default, and that nobody asked for it, when unset", () => {
+    expect(resolveEffectiveSampleUs({})).toEqual({ us: JSC_DEFAULT_SAMPLE_US, stated: false })
+    expect(JSC_DEFAULT_SAMPLE_US).toBe(1000)
+  })
+
+  it('reports the stated period when the environment carries one', () => {
+    expect(resolveEffectiveSampleUs({ BUN_JSC_sampleInterval: '10000' })).toEqual({
+      us: 10_000,
+      stated: true,
+    })
+  })
+
+  it('treats a value that is not a positive number as unstated', () => {
+    // A malformed option is one Bun itself refuses, so the sampler is at its
+    // own default and the guard must see that rather than the typo.
+    for (const raw of ['', 'soon', '0', '-5']) {
+      expect(resolveEffectiveSampleUs({ BUN_JSC_sampleInterval: raw })).toEqual({
+        us: JSC_DEFAULT_SAMPLE_US,
+        stated: false,
+      })
+    }
+  })
+})
+
+describe('resolveProfileOnStall', () => {
+  it('is off unless something asks for it', () => {
+    // POD-3834: arming on a stall is what turned a diagnostic into a permanent
+    // tax — once armed the sampler cannot be stopped for the life of the process.
+    expect(resolveProfileOnStall({}, {})).toBe(false)
+  })
+
+  it('takes the config flag', () => {
+    expect(resolveProfileOnStall({ profileOnStall: true }, {})).toBe(true)
+    expect(resolveProfileOnStall({ profileOnStall: false }, {})).toBe(false)
+  })
+
+  it('lets the environment override the config in both directions', () => {
+    expect(resolveProfileOnStall({}, { PODIUM_LOOP_PROFILE_ON_STALL: '1' })).toBe(true)
+    expect(resolveProfileOnStall({}, { PODIUM_LOOP_PROFILE_ON_STALL: 'true' })).toBe(true)
+    expect(
+      resolveProfileOnStall({ profileOnStall: true }, { PODIUM_LOOP_PROFILE_ON_STALL: '0' }),
+    ).toBe(false)
+    expect(
+      resolveProfileOnStall({ profileOnStall: true }, { PODIUM_LOOP_PROFILE_ON_STALL: 'false' }),
+    ).toBe(false)
+  })
+
+  it('ignores a value that states neither', () => {
+    expect(
+      resolveProfileOnStall({ profileOnStall: true }, { PODIUM_LOOP_PROFILE_ON_STALL: 'x' }),
+    ).toBe(true)
+    expect(resolveProfileOnStall({}, { PODIUM_LOOP_PROFILE_ON_STALL: 'x' })).toBe(false)
   })
 })
 

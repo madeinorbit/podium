@@ -3,6 +3,7 @@ import { helpText } from './cli'
 import {
   PERF_EXIT_LEVEL_TOO_LOW,
   PERF_EXIT_NO_PROFILE,
+  PERF_EXIT_REFUSED,
   type PerfCliDeps,
   PerfCliError,
   runPerfCli,
@@ -24,6 +25,7 @@ function deps(over: Partial<PerfCliDeps> = {}): PerfCliDeps & {
       signals.push([pid, sig])
     },
     listProfiles: () => [],
+    readProfile: () => '{}',
     writeRequest: (dir, seconds) => {
       requests.push([dir, seconds])
     },
@@ -105,6 +107,28 @@ describe('podium perf profile', () => {
     const d = deps({ listProfiles: () => ['daemon-2026-09-10T12-00-00.000Z-signal.json'] })
     const result = await runPerfCli(['profile', 'daemon'], d)
     expect(result.exitCode).toBe(PERF_EXIT_NO_PROFILE)
+  })
+
+  it('prints why the process refused, rather than a path to a file with no stacks', async () => {
+    // A refusal IS a file, so the poll finds one and would otherwise report it
+    // as a successful capture. The reason is the whole content (POD-3834).
+    const d = deps({
+      listProfiles: () => ['server-2026-09-10T12-00-00.000Z-signal.json'],
+      readProfile: () =>
+        JSON.stringify({
+          refused: 'the sampler would run at 1000us, which nothing asked for',
+          sampleIntervalUs: 1000,
+        }),
+    })
+    const seen = [[], ['server-2026-09-10T12-00-00.000Z-signal.json']]
+    d.listProfiles = () => (seen.shift() as string[]) ?? []
+
+    const result = await runPerfCli(['profile', 'server'], d)
+
+    expect(result.exitCode).toBe(PERF_EXIT_REFUSED)
+    expect(result.output).toContain('the server refused')
+    expect(result.output).toContain('nothing asked for')
+    expect(result.output).toContain('server-2026-09-10T12-00-00.000Z-signal.json')
   })
 
   it('ignores a stall profile written while it waits for its signal one', async () => {

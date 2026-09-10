@@ -300,10 +300,12 @@ Bun's in-process sampling profiler (`bun:jsc` `startSamplingProfiler` /
 `samplingProfilerStackTraces`) is the capture primitive; `bun --cpu-prof` only writes at
 exit and Linux `perf` is unavailable on the reference host and cannot name JIT frames.
 
-- **Triggers:** a long tick over `profileStallMs` (default 1000 ms) or `SIGUSR2`. The
-  stall trigger arms the profiler *after* the stall (the stall itself is over), on the
-  premise established by every measured incident that stalls recur in bursts; the record
-  says `trigger: 'stall'` and names the stall that armed it.
+- **Triggers:** `SIGUSR2`, and — only when the install asks for it — a long tick over
+  `profileStallMs` (default 1000 ms). The stall trigger arms the profiler *after* the stall
+  (the stall itself is over), on the premise established by every measured incident that
+  stalls recur in bursts; the record says `trigger: 'stall'` and names the stall that armed
+  it. It is OFF by default (`config.profileOnStall`, `PODIUM_LOOP_PROFILE_ON_STALL`)
+  because arming cannot be undone — see **Cost** below (POD-3834).
 - **Duration:** 10 s default, 1–60 s on request.
 - **Rate limit:** one capture per 5 minutes per component; a trigger inside the window is
   counted in the minute record as `profileSuppressed`.
@@ -311,9 +313,29 @@ exit and Linux `perf` is unavailable on the reference host and cannot name JIT f
   envelope with component, level, trigger, timestamps, and the minute record that contained
   the trigger. The format is what Bun returns; converting to the Chrome `.cpuprofile`
   format is out of scope until a reader needs it.
-- **Cost:** the sampling profiler runs on a separate thread at Bun's default 1 ms interval;
-  the capture path itself does one file write. A capture is refused when
-  `startSamplingProfiler` is absent (non-Bun runtime) and the record says so.
+- **Size:** a profile is held under 4 MB by keeping an evenly spread sample of the window's
+  traces (`traceCount`, `tracesSampled`, `tracesDropped` say what happened), and a
+  component's profiles together under 64 MB. Unbounded, the reference install wrote files
+  of 2.0–30.6 MB and 112 MB of directory in half an hour (POD-3834).
+- **Cost:** the sampling profiler runs on a separate thread and CANNOT BE STOPPED, so the
+  first arming is a commitment for the life of the process, and every drain afterwards is
+  main-thread work proportional to the traces in the buffer. Measured on the reference
+  server (2026-09-10, 19 minutes at `attribution`, ~67 % busy loop): a mean 2427 ms per
+  minute — 4.05 % of wall, worst minute 6350 ms — against a budget of 0.5 %.
+
+  The **sample period** is the only lever that reduces that: cost is traces-per-second
+  times microseconds-per-trace, and draining more often does not do less work (interleaved
+  A/B: 5.2 ms per busy second at a 1000 ms drain interval, 5.9 ms at 250 ms). It cannot be
+  set from inside the process — `startSamplingProfiler` takes a directory, a number passed
+  to it is accepted and ignored, and `process.env` assigned before the first call is too
+  late — only through `BUN_JSC_sampleInterval` (microseconds) in the environment at
+  startup. The supervisor states 10 ms to every child it spawns; a capture is REFUSED, with
+  a record saying what to set, when the sampler would run at a period nothing asked for.
+  The drain interval adapts to hold ONE drain near 5 ms, which bounds latency rather than
+  cost, so the diagnostic cannot itself appear as a stall.
+
+  A capture is also refused when `startSamplingProfiler` is absent (non-Bun runtime), and
+  the record says so.
 
 ## 9. Testing
 

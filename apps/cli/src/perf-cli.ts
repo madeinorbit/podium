@@ -14,12 +14,15 @@
  * read. The COMMANDS run regardless — a support session raising the level on a
  * customer box must not also have to enable a feature flag to read the result.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  DEFAULT_PROFILE_SAMPLE_US,
+  JSC_SAMPLE_INTERVAL_ENV,
   LOOP_PROFILE_ENV,
   type LoopProfileLevel,
   loadConfig,
+  PROFILE_ON_STALL_ENV,
   resolveLoopProfileLevel,
   stateDir,
 } from '@podium/runtime/config'
@@ -33,6 +36,8 @@ export class PerfCliError extends Error {}
 /** Exit codes the plan fixes, so a script can branch on them (plan D step 3). */
 export const PERF_EXIT_LEVEL_TOO_LOW = 2
 export const PERF_EXIT_NO_PROFILE = 3
+/** The process wrote a record saying why it would not profile (POD-3834). */
+export const PERF_EXIT_REFUSED = 4
 
 /** Everything the commands touch, injected so the tests need no live install. */
 export interface PerfCliDeps {
@@ -42,6 +47,8 @@ export interface PerfCliDeps {
   pid: (component: LoopComponent) => number | undefined
   signal: (pid: number, signal: NodeJS.Signals) => void
   listProfiles: (dir: string) => string[]
+  /** The profile's bytes, so a refusal can be read out instead of pointed at. */
+  readProfile: (path: string) => string
   writeRequest: (perfDir: string, seconds: number) => void
   now: () => number
   sleep: (ms: number) => Promise<void>
@@ -58,6 +65,7 @@ export function defaultPerfDeps(): PerfCliDeps {
     pid: (component) => liveRecord(component)?.pid,
     signal: (pid, sig) => process.kill(pid, sig),
     listProfiles: (target) => (existsSync(target) ? readdirSync(target) : []),
+    readProfile: (path) => readFileSync(path, 'utf8'),
     writeRequest: writeProfileRequest,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -82,8 +90,16 @@ export function perfHelpText(): string {
     'environment overrides config.loopProfile, which overrides the channel default',
     '(attribution on dev and source runs, off elsewhere).',
     '',
-    'Profiles need attribution or full: `profile` exits 2 below that, and 3 when the',
-    'process produced no file in time.',
+    'Profiles need attribution or full: `profile` exits 2 below that, 3 when the',
+    'process produced no file in time, and 4 when it wrote one saying why it would',
+    'not — it prints that reason.',
+    '',
+    'A stall does NOT arm a profile by itself: the sampler cannot be stopped once',
+    'armed, so automatic arming is a permanent cost. Set config.profileOnStall (or',
+    `${PROFILE_ON_STALL_ENV}=1) for an investigation that needs it. The sampler's`,
+    `period comes from ${JSC_SAMPLE_INTERVAL_ENV} in the process environment at`,
+    `startup — ${DEFAULT_PROFILE_SAMPLE_US}us by default, and a period nothing asked`,
+    'for is refused rather than paid for.',
   ].join('\n')
 }
 
@@ -137,6 +153,20 @@ function parseSeconds(argv: string[]): number {
   return seconds
 }
 
+/**
+ * The refusal a profile records, when it records one. Anything unreadable is
+ * treated as a real capture: a parse failure here must not turn a profile the
+ * operator can use into an error message.
+ */
+function refusalIn(read: (path: string) => string, path: string): string | undefined {
+  try {
+    const envelope = JSON.parse(read(path)) as { refused?: unknown }
+    return typeof envelope.refused === 'string' ? envelope.refused : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function profileCommand(argv: string[], deps: PerfCliDeps): Promise<PerfCommandResult> {
   const component = argv[0]
   if (!isComponent(component)) {
@@ -181,7 +211,20 @@ async function profileCommand(argv: string[], deps: PerfCliDeps): Promise<PerfCo
   while (deps.now() < deadline) {
     await deps.sleep(250)
     const found = deps.listProfiles(dir).filter(wanted).sort().pop()
-    if (found) return { output: join(dir, found) }
+    if (found) {
+      const path = join(dir, found)
+      // A REFUSAL is a file too, and it is the answer — a path on its own would
+      // read as a successful capture and send the operator to open megabytes of
+      // stacks that are not there (POD-3834).
+      const refused = refusalIn(deps.readProfile, path)
+      if (refused) {
+        return {
+          output: `the ${component} refused this capture: ${refused}\n${path}`,
+          exitCode: PERF_EXIT_REFUSED,
+        }
+      }
+      return { output: path }
+    }
   }
   return {
     output:

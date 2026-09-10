@@ -55,6 +55,9 @@
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | config.loopProfile      | `resolveLoopProfileLevel()` (level name; parent states it) |
  * | PODIUM_LOOP_PROFILE_STALL_MS  | — → 1000                | `resolveProfileStallMs()` (stall that arms a CPU profile)   |
+ * | PODIUM_LOOP_PROFILE_ON_STALL  | config.profileOnStall   | `resolveProfileOnStall()` (automatic arming; OFF by default) |
+ * | PODIUM_LOOP_PROFILE_SAMPLE_US | — → 10000               | `resolveProfileSampleUs()` (sampler period a parent states)  |
+ * | BUN_JSC_sampleInterval        | — (JSC's own option)    | `resolveEffectiveSampleUs()` (what the sampler WILL run at)  |
  * | VITEST / NODE_ENV=test        | — (env-only evidence)   | `resolveLoopProfileLevel()` (a test run defaults to `off`) |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |
  * | PODIUM_APP_VERSION            | — (BUILD-time --define) | server /version; must stay a literal `process.env.…`   |
@@ -188,6 +191,15 @@ export const PodiumConfig = z.object({
    * is a dial, not a set of independent switches.
    */
   loopProfile: z.enum(['off', 'accounting', 'attribution', 'full']).optional(),
+  /**
+   * Whether a long stall ARMS a CPU profile by itself (POD-3834). Absent means
+   * no: Bun's sampler cannot be stopped, so the first automatic arming buys the
+   * process a permanent drain cost, and on the reference server that was a
+   * measured 4.05 percent of wall — worst minute 10.6 — for stalls nobody was
+   * watching. An operator who wants the automatic capture turns it on for the
+   * investigation; `podium perf profile` arms one on request either way.
+   */
+  profileOnStall: z.boolean().optional(),
   /** Device-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
   /**
@@ -763,6 +775,103 @@ export function resolveProfileStallMs(env: EnvSource = process.env): number {
   if (!raw) return DEFAULT_PROFILE_STALL_MS
   const value = Number(raw)
   return Number.isFinite(value) && value > 0 ? value : DEFAULT_PROFILE_STALL_MS
+}
+
+/** Whether a stall arms a capture on its own; `podium perf profile` is unaffected. */
+export const PROFILE_ON_STALL_ENV = 'PODIUM_LOOP_PROFILE_ON_STALL'
+
+/**
+ * Does a long tick arm a CPU profile by itself? [POD-3834]
+ *
+ * DEFAULT NO, which is the whole point. Bun's sampling profiler has no stop
+ * call: the first arming runs the sampler thread for the life of the process
+ * and every drain afterwards is main-thread work proportional to the traces in
+ * the buffer. Automatic arming therefore is not "a profile when something goes
+ * wrong", it is "this process pays for a profiler from the first bad minute
+ * onwards" — measured on the reference server at a mean 4.05 percent of wall
+ * and a worst minute of 10.6, against a 0.5 percent budget.
+ *
+ * Env overrides config in BOTH directions so an operator can turn it on for one
+ * investigation without editing the install's config, and off again on a host
+ * whose config asked for it. Anything that states neither is ignored rather
+ * than throwing — same reasoning as {@link resolveProfileStallMs}.
+ */
+export function resolveProfileOnStall(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): boolean {
+  const raw = env[PROFILE_ON_STALL_ENV]?.trim().toLowerCase()
+  if (raw === '1' || raw === 'true') return true
+  if (raw === '0' || raw === 'false') return false
+  return config.profileOnStall ?? false
+}
+
+/** The sampler period a parent states to its children, microseconds. */
+export const PROFILE_SAMPLE_US_ENV = 'PODIUM_LOOP_PROFILE_SAMPLE_US'
+/** 10 ms. Ten times JSC's default, and the whole cost reduction (POD-3834). */
+export const DEFAULT_PROFILE_SAMPLE_US = 10_000
+/**
+ * JSC's OWN option name for the sampler period. Bun forwards `BUN_JSC_<option>`
+ * into `JSC::Options` at VM start, and this is the only way to change the
+ * period: `startSamplingProfiler` takes a directory, not an interval — passing
+ * it a number is accepted and ignored, and assigning `process.env` before the
+ * first call is too late (both measured on Bun 1.3.14, 2026-09-10).
+ */
+export const JSC_SAMPLE_INTERVAL_ENV = 'BUN_JSC_sampleInterval'
+/** What JSC samples at when nothing states otherwise: 1 ms. */
+export const JSC_DEFAULT_SAMPLE_US = 1_000
+/**
+ * The period below which arming is refused (POD-3834).
+ *
+ * Cost is set by the SAMPLE rate, not the drain rate — draining twice as often
+ * cost the same 5.2 ms per busy second in an interleaved A/B — so this is the
+ * only number that bounds it, and 1 ms is the value that blew the budget.
+ */
+export const PROFILE_MIN_SAMPLE_US = 5_000
+
+/**
+ * The sampler period this install wants, microseconds (§8, POD-3834).
+ *
+ * A positive number or the default; a malformed one falls back rather than
+ * throwing, because a mistyped diagnostic knob must not stop a server booting.
+ */
+export function resolveProfileSampleUs(env: EnvSource = process.env): number {
+  const raw = env[PROFILE_SAMPLE_US_ENV]?.trim()
+  if (!raw) return DEFAULT_PROFILE_SAMPLE_US
+  const value = Number(raw)
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_PROFILE_SAMPLE_US
+}
+
+/**
+ * What a parent puts in a child's environment so the child's sampler is slow.
+ *
+ * It has to be the environment: the period is read once when JSC builds its
+ * options table, so nothing the child does to `process.env` afterwards can
+ * change it. Spread this into every spawn that could end up profiling.
+ */
+export function profileSamplerEnv(env: EnvSource = process.env): Record<string, string> {
+  return { [JSC_SAMPLE_INTERVAL_ENV]: String(resolveProfileSampleUs(env)) }
+}
+
+/**
+ * What the sampler in THIS process will actually run at, and whether anybody
+ * asked for it.
+ *
+ * `stated` is the half that matters: an absent or malformed option is one JSC
+ * ignores, so the sampler is at its 1 ms default and nobody chose that. The
+ * capture guard refuses to arm on an unstated fast period, and accepts a stated
+ * one at any value — an operator who writes `BUN_JSC_sampleInterval=1000` has
+ * said what they are buying.
+ */
+export function resolveEffectiveSampleUs(env: EnvSource = process.env): {
+  us: number
+  stated: boolean
+} {
+  const raw = env[JSC_SAMPLE_INTERVAL_ENV]?.trim()
+  const value = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(value) && value > 0
+    ? { us: value, stated: true }
+    : { us: JSC_DEFAULT_SAMPLE_US, stated: false }
 }
 
 /**

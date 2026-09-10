@@ -32,6 +32,7 @@ import {
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
+  profileSamplerEnv,
   resolveAgentRelay,
   resolveFeatureOverrides,
   resolveInstanceId,
@@ -1700,6 +1701,10 @@ export async function main(
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
           [LOOP_PROFILE_ENV]: loopProfile.level,
+          // The sampler's period, which is a JSC option read once at VM start,
+          // so a child can only be given it HERE — nothing it does to its own
+          // environment afterwards can change it (POD-3834).
+          ...profileSamplerEnv(),
           PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
           PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
           PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),

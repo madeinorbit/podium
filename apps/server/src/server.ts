@@ -33,6 +33,7 @@ import {
   resolveDevArtifactOrigin,
   resolveInstanceId,
   resolveMode,
+  resolveProfileOnStall,
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
@@ -1886,6 +1887,11 @@ export async function startServer(
         : undefined
       loopProfileCapture = capture
       const profileStallMs = resolveProfileStallMs()
+      // POD-3834: a stall no longer arms a profile by itself unless this install
+      // asked it to. Arming is permanent — Bun's sampler has no stop — so the
+      // automatic path bought this server a measured 4.05 percent of wall for
+      // stalls nobody was reading. `podium perf profile server` still arms one.
+      const profileOnStall = resolveProfileOnStall()
       /** Arm a capture, and record it in the minute when the limiter refuses. */
       const requestProfile = (
         trigger: 'stall' | 'signal',
@@ -1976,7 +1982,7 @@ export async function startServer(
                 // arrive in bursts, so the next one lands inside the window
                 // (spec §8). The rate limiter is what keeps a burst from
                 // producing a file per stall.
-                if (stall.durationMs >= profileStallMs) {
+                if (profileOnStall && stall.durationMs >= profileStallMs) {
                   requestProfile('stall', 10, { stallMs: stall.durationMs })
                 }
               },
