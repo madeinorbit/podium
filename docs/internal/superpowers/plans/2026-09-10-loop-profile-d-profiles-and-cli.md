@@ -6,7 +6,7 @@ command group lets agents find the files, trigger a capture, and read the resolv
 The group is listed in `podium --help` only when the `podium-development` feature is on.
 
 **Spec:** `docs/internal/superpowers/specs/2026-09-10-loop-profile-levels-design.md` §7.3, §8.
-**Depends on:** part A landed on main (levels, accounting handle, `onLongTick`). Independent
+**Depends on:** part A landed on dev/mw (levels, accounting handle, `onLongTick`). Independent
 of B and C.
 
 ## Global constraints

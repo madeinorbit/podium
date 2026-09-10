@@ -6,7 +6,7 @@ and `SIGUSR2` dump the server already has, and every minute record above `accoun
 carries buckets plus a coverage figure.
 
 **Spec:** `docs/internal/superpowers/specs/2026-09-10-loop-profile-levels-design.md` §6.
-**Depends on:** part A landed on main (`startLoopAccounting`, `attribute`, `LoopBucket`).
+**Depends on:** part A landed on dev/mw (`startLoopAccounting`, `attribute`, `LoopBucket`).
 
 ## Global constraints
 

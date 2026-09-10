@@ -5,7 +5,7 @@ server keeps the newest per machine, and `perf.snapshot` gains a `loop` section 
 server's own rings and every daemon's latest minute.
 
 **Spec:** `docs/internal/superpowers/specs/2026-09-10-loop-profile-levels-design.md` §7.1, §7.2.
-**Depends on:** part A landed on main (`LoopMinute`, `LoopWindow`, `state.loopAccounting`,
+**Depends on:** part A landed on dev/mw (`LoopMinute`, `LoopWindow`, `state.loopAccounting`,
 the daemon's `latestMinute()`).
 
 ## Global constraints
