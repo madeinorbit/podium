@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
-import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
+import { connectivityPath, readConnectivityForTest } from '@podium/runtime/connectivity'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer } from 'ws'
 import { type ReconnectTimers, startDaemon } from './daemon'
@@ -96,7 +96,7 @@ describe('daemon connectivity state (#19)', () => {
     })
     const daemon = await startDaemon(bootOpts({ pairCode: 'CODE-1' }))
     try {
-      const conn = readConnectivity(dir)
+      const conn = readConnectivityForTest(dir)
       expect(conn?.state).toBe('connected')
       expect(conn?.processId).toBe(process.pid)
       expect(conn?.appVersion).toBeTruthy()
@@ -156,7 +156,7 @@ describe('daemon connectivity state (#19)', () => {
       expect(retry.ms).toBe(500)
       const connectedAgain = new Promise<void>((resolve) => {
         const watcher = watch(connectivityPath(dir), () => {
-          if (readConnectivity(dir)?.state !== 'connected') return
+          if (readConnectivityForTest(dir)?.state !== 'connected') return
           watcher.close()
           resolve()
         })
@@ -172,7 +172,7 @@ describe('daemon connectivity state (#19)', () => {
         type: 'peerHello',
         credential: { kind: 'machineToken', token: 'tok-reconnect' },
       })
-      expect(readConnectivity(dir)?.state).toBe('connected')
+      expect(readConnectivityForTest(dir)?.state).toBe('connected')
     } finally {
       await daemon.close()
     }
@@ -195,7 +195,7 @@ describe('daemon connectivity state (#19)', () => {
     await expect(startDaemon(bootOpts({ pairCode: 'WRONG', onBlocked }))).rejects.toThrow(
       /rejected/,
     )
-    const conn = readConnectivity(dir)
+    const conn = readConnectivityForTest(dir)
     expect(conn?.state).toBe('unauthorized')
     expect(conn?.authorizationReason).toContain('peerHelloRejected')
     expect(conn?.authorizationReason).toContain('invalid or expired code')
@@ -235,10 +235,10 @@ describe('daemon connectivity state (#19)', () => {
     const daemon = await startDaemon(bootOpts({}))
     try {
       await vi.waitFor(() => {
-        const conn = readConnectivity(dir)
+        const conn = readConnectivityForTest(dir)
         expect(conn?.state).toBe('disconnected')
       })
-      const conn = readConnectivity(dir)
+      const conn = readConnectivityForTest(dir)
       expect(conn?.lastHelloOkAt).toBeTruthy() // "last seen" survives the disconnect
       expect(conn?.retryBackoffMs).toBeGreaterThan(0)
     } finally {

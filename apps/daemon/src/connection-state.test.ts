@@ -14,7 +14,7 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { readConnectivity, writeConnectivity } from '@podium/runtime/connectivity'
+import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
 import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { ParentProcess } from '@podium/runtime/parent-process'
 import { removeRecord, writeRecord } from '@podium/runtime/run-registry'
@@ -201,15 +201,15 @@ describe('daemon connection credential state machine', () => {
       connected: true, appVersion: '2.0.0', convergedVersion: '2.0.0',
     })
     if (options.identityReadOnly || options.bootstrapToken) {
-      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+      expect(readConnectivityForTest(options.identityDir)).toEqual(machinePresence)
     } else {
-      expect(readConnectivity(options.identityDir)?.processId).toBe(process.pid)
+      expect(readConnectivityForTest(options.identityDir)?.processId).toBe(process.pid)
     }
     await state.close()
     expect(readDaemonHealth(options.identityDir)?.state).toBe('disconnected')
     expect((await probe()).connected).toBe(false)
     if (options.identityReadOnly || options.bootstrapToken) {
-      expect(readConnectivity(options.identityDir)).toEqual(machinePresence)
+      expect(readConnectivityForTest(options.identityDir)).toEqual(machinePresence)
     }
     const next = connection(options, { token: 'token' })
     await next.start()
@@ -848,8 +848,8 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
     state: 'connecting',
     processId: process.pid,
   })
-  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
-  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+  expect(readConnectivityForTest(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivityForTest(identityDir)?.retryBackoffMs).toBeUndefined()
 
   harness.runNext(10_000)
 
@@ -857,7 +857,7 @@ it('closes an open-stalled socket and enters reconnect backoff', async () => {
   expect(socket.closeCalls).toBe(0)
   expect(state.state).toBe('backoff')
   expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
-  expect(readConnectivity(identityDir)).toMatchObject({
+  expect(readConnectivityForTest(identityDir)).toMatchObject({
     state: 'disconnected',
     retryBackoffMs: 500,
     lastError: 'WebSocket open timed out after 10000ms',
@@ -877,8 +877,8 @@ it('forcefully terminates an acknowledgement stall when graceful close emits not
   expect(socket.sent).toHaveLength(1)
   expect(state.state).toBe('awaiting-ack')
   expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
-  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
-  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+  expect(readConnectivityForTest(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  expect(readConnectivityForTest(identityDir)?.retryBackoffMs).toBeUndefined()
 
   socket.close()
   expect(socket.closeCalls).toBe(1)
@@ -888,7 +888,7 @@ it('forcefully terminates an acknowledgement stall when graceful close emits not
 
   expect(socket.terminateCalls).toBe(1)
   expect(state.state).toBe('backoff')
-  expect(readConnectivity(identityDir)?.lastError).toBe(
+  expect(readConnectivityForTest(identityDir)?.lastError).toBe(
     'peerHello acknowledgement timed out after 10000ms',
   )
   await state.close()
@@ -977,7 +977,7 @@ it('normally reconnects and resets truthful connectivity state', async () => {
 
   expect(state.state).toBe('backoff')
   expect(readDaemonHealth(identityDir)?.state).toBe('disconnected')
-  expect(readConnectivity(identityDir)).toMatchObject({
+  expect(readConnectivityForTest(identityDir)).toMatchObject({
     state: 'disconnected',
     retryBackoffMs: 500,
   })
@@ -989,12 +989,12 @@ it('normally reconnects and resets truthful connectivity state', async () => {
     state: 'connecting',
     processId: process.pid,
   })
-  expect(readConnectivity(identityDir)).toMatchObject({ state: 'connecting' })
-  expect(readConnectivity(identityDir)?.retryBackoffMs).toBeUndefined()
+  expect(readConnectivityForTest(identityDir)).toMatchObject({ state: 'connecting' })
+  expect(readConnectivityForTest(identityDir)?.retryBackoffMs).toBeUndefined()
 
   sockets[1]?.emit('open')
   expect(readDaemonHealth(identityDir)?.state).toBe('awaiting-ack')
-  expect(readConnectivity(identityDir)).toMatchObject({ state: 'awaiting-ack' })
+  expect(readConnectivityForTest(identityDir)).toMatchObject({ state: 'awaiting-ack' })
   sockets[1]?.message(ok)
 
   expect(state.state).toBe('connected')

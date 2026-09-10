@@ -56,8 +56,19 @@ export function connectivityPath(dir = stateDir()): string {
   return join(dir, 'connectivity.json')
 }
 
-/** Read + validate; missing or corrupt → undefined (status just omits the line). */
-export function readConnectivity(dir = stateDir()): ConnectivityStatus | undefined {
+/**
+ * Read + validate; missing or corrupt → undefined (status just omits the line).
+ *
+ * UNFENCED: the record may name a process that is long gone (POD-3815), so this
+ * does NOT answer "is this machine's link up" — {@link readLiveConnectivity} does.
+ *
+ * MODULE-PRIVATE ON PURPOSE (POD-3838). Its one legitimate caller is
+ * {@link writeConnectivity}, which merges over it. While it was exported beside the
+ * fenced reader, the shorter name won and shipped a permanently-stale `podium status`
+ * (POD-3826); un-exporting it turns that silent wrong pick into a compile error. Tests
+ * asserting what was WRITTEN reach it through {@link readConnectivityForTest}.
+ */
+function readConnectivity(dir = stateDir()): ConnectivityStatus | undefined {
   const path = connectivityPath(dir)
   if (!existsSync(path)) return undefined
   try {
@@ -66,6 +77,14 @@ export function readConnectivity(dir = stateDir()): ConnectivityStatus | undefin
     return undefined
   }
 }
+
+/**
+ * The raw, UNFENCED record — for tests that assert what {@link writeConnectivity} put on
+ * disk, which is a question the fence would answer wrongly. Production code wants
+ * {@link readLiveConnectivity}; see {@link readConnectivity} for why the raw reader is not
+ * exported under its own name.
+ */
+export const readConnectivityForTest = readConnectivity
 
 /**
  * The record iff the process that wrote it is still running; else undefined.

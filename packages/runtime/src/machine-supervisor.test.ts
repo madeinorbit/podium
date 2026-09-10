@@ -25,7 +25,7 @@ import {
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
 import { loadConfig, saveConfig } from './config'
-import { readConnectivity } from './connectivity'
+import { readConnectivityForTest } from './connectivity'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 
 const dirs: string[] = []
@@ -409,7 +409,7 @@ describe('supervisor socket ceded and taken back', () => {
       connection.start()
       const live = Socket.all[0]!
       live.accept()
-      expect(readConnectivity(dir)?.state, 'the holder reports while it holds').toBe('connected')
+      expect(readConnectivityForTest(dir)?.state, 'the holder reports while it holds').toBe('connected')
 
       connection.close()
       // The transport delivers the close long after the cede — and on a fleet
@@ -419,7 +419,7 @@ describe('supervisor socket ceded and taken back', () => {
       vi.advanceTimersByTime(60_000)
 
       expect(
-        readConnectivity(dir)?.state,
+        readConnectivityForTest(dir)?.state,
         'a ceded incarnation must not leave a phantom outage behind it',
       ).toBe('connected')
     } finally {

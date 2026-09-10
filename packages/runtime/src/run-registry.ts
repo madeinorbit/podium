@@ -38,8 +38,20 @@ export function recordPath(role: RunRole): string {
   return join(runDir(), `${role}.pid`)
 }
 
-/** Read + validate a role's pidfile; missing or corrupt → undefined (never throws). */
-export function readRecord(role: RunRole): RunRecord | undefined {
+/**
+ * Read + validate a role's pidfile; missing or corrupt → undefined (never throws).
+ *
+ * UNFENCED: the PID it names may be dead, so this does NOT answer "is a process of
+ * this role running" — {@link liveRecord} does.
+ *
+ * MODULE-PRIVATE ON PURPOSE (POD-3838). Two callers legitimately want the raw record:
+ * {@link liveRecord}, which applies the fence itself, and `registerProcess`'s exit
+ * cleanup, which must compare the record's PID to our own whether or not that PID is
+ * still alive. Everyone outside wants the fenced reader, and offering both under the
+ * more natural name is exactly how the sibling connectivity module shipped a stale
+ * status (POD-3826). Tests asserting what was WRITTEN use {@link readRecordForTest}.
+ */
+function readRecord(role: RunRole): RunRecord | undefined {
   const path = recordPath(role)
   if (!existsSync(path)) return undefined
   try {
@@ -48,6 +60,14 @@ export function readRecord(role: RunRole): RunRecord | undefined {
     return undefined
   }
 }
+
+/**
+ * The raw, UNFENCED record — for tests that assert what {@link writeRecord} put on disk,
+ * which is a question the fence would answer wrongly. Production code wants
+ * {@link liveRecord}; see {@link readRecord} for why the raw reader is not exported under
+ * its own name.
+ */
+export const readRecordForTest = readRecord
 
 export function writeRecord(rec: RunRecord): void {
   const parsed = RunRecord.parse(rec)

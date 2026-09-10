@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   connectivityPath,
   DAEMON_BLOCKED_EXIT_CODE,
-  readConnectivity,
+  readConnectivityForTest,
   readLiveConnectivity,
   writeConnectivity,
 } from './connectivity'
@@ -24,7 +24,7 @@ describe('connectivity status file (#19)', () => {
       { state: 'connected', serverUrl: 'wss://relay', lastHelloOkAt: '2026-07-07T00:00:00Z' },
       dir,
     )
-    const read = readConnectivity(dir)
+    const read = readConnectivityForTest(dir)
     expect(read?.state).toBe('connected')
     expect(read?.serverUrl).toBe('wss://relay')
     expect(read?.lastHelloOkAt).toBe('2026-07-07T00:00:00Z')
@@ -37,22 +37,22 @@ describe('connectivity status file (#19)', () => {
       dir,
     )
     writeConnectivity({ state: 'disconnected', lastError: 'ECONNREFUSED', retryBackoffMs: 500 }, dir)
-    const afterDrop = readConnectivity(dir)
+    const afterDrop = readConnectivityForTest(dir)
     expect(afterDrop?.lastHelloOkAt).toBe('2026-07-07T00:00:00Z') // "last seen" survives
     expect(afterDrop?.serverUrl).toBe('wss://relay')
     expect(afterDrop?.lastError).toBe('ECONNREFUSED')
     // Reconnecting replaces (not inherits) the error/backoff.
     writeConnectivity({ state: 'connected', lastHelloOkAt: '2026-07-07T00:01:00Z' }, dir)
-    const back = readConnectivity(dir)
+    const back = readConnectivityForTest(dir)
     expect(back?.state).toBe('connected')
     expect(back?.lastError).toBeUndefined()
     expect(back?.retryBackoffMs).toBeUndefined()
   })
 
   it('missing or corrupt file reads as undefined (status just omits the line)', () => {
-    expect(readConnectivity(dir)).toBeUndefined()
+    expect(readConnectivityForTest(dir)).toBeUndefined()
     writeFileSync(connectivityPath(dir), '{nope')
-    expect(readConnectivity(dir)).toBeUndefined()
+    expect(readConnectivityForTest(dir)).toBeUndefined()
   })
 
   it('exports the distinct blocked exit code the systemd unit matches', () => {
@@ -109,8 +109,9 @@ describe('a dead writer s record is not current (POD-3815)', () => {
       dir,
     )
     // The successor's first write merges over the predecessor's record, so the
-    // fence must NOT reach `readConnectivity` — "last contact" would be lost.
-    expect(readConnectivity(dir)?.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
+    // fence must NOT reach the raw read `writeConnectivity` merges from — "last
+    // contact" would be lost. `readConnectivityForTest` is that raw read.
+    expect(readConnectivityForTest(dir)?.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
     const successor = writeConnectivity({ state: 'connected', processId: process.pid }, dir)
     expect(successor.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
     expect(successor.serverUrl).toBe('wss://relay')

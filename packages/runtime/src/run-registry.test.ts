@@ -7,7 +7,7 @@ import {
   type KillFn,
   listLive,
   liveRecord,
-  readRecord,
+  readRecordForTest,
   reclaim,
   recordPath,
   registerProcess,
@@ -55,12 +55,12 @@ const priorStateDir = process.env.PODIUM_STATE_DIR!
 describe('pidfile read/write', () => {
   it('recognizes the janitor as an independently managed sibling', () => {
     writeRecord({ role: 'janitor', pid: 4322, mode: 'systemd', startedAt: 'T0' })
-    expect(readRecord('janitor')?.role).toBe('janitor')
+    expect(readRecordForTest('janitor')?.role).toBe('janitor')
   })
 
   it('roundtrips a record', () => {
     writeRecord({ role: 'server', pid: 4321, port: 18787, mode: 'detached', startedAt: 'T0' })
-    expect(readRecord('server')).toEqual({
+    expect(readRecordForTest('server')).toEqual({
       role: 'server',
       pid: 4321,
       port: 18787,
@@ -69,17 +69,17 @@ describe('pidfile read/write', () => {
     })
   })
   it('returns undefined for a missing pidfile', () => {
-    expect(readRecord('daemon')).toBeUndefined()
+    expect(readRecordForTest('daemon')).toBeUndefined()
   })
   it('returns undefined for a corrupt pidfile', () => {
     mkdirSync(runDir(), { recursive: true })
     writeFileSync(recordPath('server'), 'not json{')
-    expect(readRecord('server')).toBeUndefined()
+    expect(readRecordForTest('server')).toBeUndefined()
   })
   it('removeRecord deletes it (and is a no-op when absent)', () => {
     writeRecord({ role: 'server', pid: 1, startedAt: 'T0' })
     removeRecord('server')
-    expect(readRecord('server')).toBeUndefined()
+    expect(readRecordForTest('server')).toBeUndefined()
     expect(() => removeRecord('server')).not.toThrow()
   })
 })
@@ -118,7 +118,7 @@ describe('reclaim', () => {
     const res = await reclaim('server', { kill: fakeKill(alive), sleepFn: immediate })
     expect(res).toEqual({ reclaimed: true, pid: 700 })
     expect(alive.has(700)).toBe(false)
-    expect(readRecord('server')).toBeUndefined()
+    expect(readRecordForTest('server')).toBeUndefined()
   })
 
   it('stubborn holder ignores SIGTERM → escalates to SIGKILL', async () => {
@@ -152,10 +152,10 @@ describe('registerProcess', () => {
     for (const signal of signals) {
       expect(process.listenerCount(signal)).toBe(listenerCounts.get(signal))
     }
-    expect(readRecord('parent')?.pid).toBe(process.pid)
+    expect(readRecordForTest('parent')?.pid).toBe(process.pid)
 
     cleanup()
-    expect(readRecord('parent')).toBeUndefined()
+    expect(readRecordForTest('parent')).toBeUndefined()
   })
 
   it('reclaims a stale holder and writes our own record', async () => {
@@ -166,12 +166,12 @@ describe('registerProcess', () => {
       kill: fakeKill(new Set()), // 111 not alive → stale
       nowIso: () => 'NOW',
     })
-    const rec = readRecord('server')
+    const rec = readRecordForTest('server')
     expect(rec?.pid).toBe(process.pid)
     expect(rec?.port).toBe(18787)
     expect(rec?.startedAt).toBe('NOW')
     cleanup()
-    expect(readRecord('server')).toBeUndefined()
+    expect(readRecordForTest('server')).toBeUndefined()
   })
 
   it('cleanup does NOT remove a successor record (different pid)', async () => {
@@ -179,12 +179,12 @@ describe('registerProcess', () => {
     // A successor reclaimed us and wrote its own pidfile:
     writeRecord({ role: 'daemon', pid: process.pid + 1, startedAt: 'T1' })
     cleanup()
-    expect(readRecord('daemon')?.pid).toBe(process.pid + 1) // untouched
+    expect(readRecordForTest('daemon')?.pid).toBe(process.pid + 1) // untouched
   })
 
   it('creates the run dir on demand', async () => {
     rmSync(runDir(), { recursive: true, force: true })
     await registerProcess('all-in-one', { kill: fakeKill(new Set()) })
-    expect(readRecord('all-in-one')?.role).toBe('all-in-one')
+    expect(readRecordForTest('all-in-one')?.role).toBe('all-in-one')
   })
 })
