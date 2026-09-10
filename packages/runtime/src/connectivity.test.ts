@@ -9,6 +9,7 @@ import {
   readLiveConnectivity,
   writeConnectivity,
 } from './connectivity'
+import { defaultInstanceGuardIo } from './instance-guard'
 
 describe('connectivity status file (#19)', () => {
   let dir: string
@@ -36,7 +37,10 @@ describe('connectivity status file (#19)', () => {
       { state: 'connected', serverUrl: 'wss://relay', lastHelloOkAt: '2026-07-07T00:00:00Z' },
       dir,
     )
-    writeConnectivity({ state: 'disconnected', lastError: 'ECONNREFUSED', retryBackoffMs: 500 }, dir)
+    writeConnectivity(
+      { state: 'disconnected', lastError: 'ECONNREFUSED', retryBackoffMs: 500 },
+      dir,
+    )
     const afterDrop = readConnectivityForTest(dir)
     expect(afterDrop?.lastHelloOkAt).toBe('2026-07-07T00:00:00Z') // "last seen" survives
     expect(afterDrop?.serverUrl).toBe('wss://relay')
@@ -90,12 +94,12 @@ describe('a dead writer s record is not current (POD-3815)', () => {
 
   it('keeps a record written by a live process', () => {
     writeConnectivity({ state: 'connected', processId: process.pid }, dir)
-    expect(readLiveConnectivity(dir)?.state).toBe('connected')
+    expect(readLiveConnectivity(dir)?.status.state).toBe('connected')
   })
 
   it('keeps a record that names no writer — absence is not proof of staleness', () => {
     writeConnectivity({ state: 'connected' }, dir)
-    expect(readLiveConnectivity(dir)?.state).toBe('connected')
+    expect(readLiveConnectivity(dir)?.status.state).toBe('connected')
   })
 
   it('leaves the raw read alone, so a successor still inherits the link history', () => {
@@ -115,5 +119,101 @@ describe('a dead writer s record is not current (POD-3815)', () => {
     const successor = writeConnectivity({ state: 'connected', processId: process.pid }, dir)
     expect(successor.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
     expect(successor.serverUrl).toBe('wss://relay')
+  })
+})
+
+/**
+ * POD-3837. The POD-3815 fence is sound WITHIN a boot — `report()` in
+ * `connection-state.ts` rewrites this file on every state transition, so a live
+ * writer really does imply a current record. What a bare `kill(pid, 0)` cannot
+ * survive is a REBOOT, where every recorded pid is being reused by something
+ * unrelated, or a pid recycle, where one is. Then the fence passes a corpse's
+ * record through as current — which is precisely the failure the fence exists
+ * to stop, deferred to the next boot.
+ *
+ * The writer stamps the identity triple `instance-guard.ts` already specifies,
+ * and the reader compares it. POD-3815's rule is inherited unchanged: what
+ * cannot be checked is never read as stale.
+ */
+describe('a record left by a previous boot is not current (POD-3837)', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-connboot-'))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** Stage a raw record, so the test controls the triple the writer stamped. */
+  const record = (over: Record<string, unknown>): void => {
+    writeFileSync(
+      connectivityPath(dir),
+      JSON.stringify({ state: 'connected', updatedAt: '2026-09-10T08:50:57.458Z', ...over }),
+    )
+  }
+
+  it('suppresses a record from before the reboot, though its pid is alive again', () => {
+    // `process.pid` is alive by construction: this is exactly the state the
+    // bare pid check reads as "the writer is still there".
+    record({ processId: process.pid, bootId: 'boot-before-the-reboot' })
+    expect(readLiveConnectivity(dir, process.kill, { bootId: () => 'boot-now' })).toBeUndefined()
+  })
+
+  it('suppresses a record whose pid was recycled inside one boot', () => {
+    record({ processId: process.pid, bootId: 'boot-a', procStartTime: '1000' })
+    const io = { bootId: () => 'boot-a', startTime: () => '2000' }
+    expect(readLiveConnectivity(dir, process.kill, io)).toBeUndefined()
+  })
+
+  it('keeps a record whose writer identity still agrees, and reports it verified', () => {
+    record({ processId: process.pid, bootId: 'boot-a', procStartTime: '1000' })
+    const io = { bootId: () => 'boot-a', startTime: () => '1000' }
+    expect(readLiveConnectivity(dir, process.kill, io)).toEqual({
+      status: expect.objectContaining({ state: 'connected' }),
+      identityVerified: true,
+    })
+  })
+
+  it('keeps a pre-triple record on the pid alone, and says the check was weaker', () => {
+    record({ processId: process.pid })
+    expect(readLiveConnectivity(dir, process.kill, { bootId: () => 'boot-now' })).toEqual({
+      status: expect.objectContaining({ state: 'connected' }),
+      identityVerified: false,
+    })
+  })
+
+  it('a record naming no writer is current but never identity-verified', () => {
+    record({})
+    expect(readLiveConnectivity(dir)?.identityVerified).toBe(false)
+  })
+
+  it('the writer stamps its own boot id and start time', () => {
+    writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    const raw = readConnectivityForTest(dir)
+    expect(raw?.bootId).toBe(defaultInstanceGuardIo.bootId())
+    expect(raw?.procStartTime).toBe(defaultInstanceGuardIo.startTime(process.pid))
+  })
+
+  it('does not vouch for a pid that is not ours', () => {
+    // The stamp is a SELF-attestation. A writer recording someone else's pid
+    // cannot say when that process started, and guessing would manufacture the
+    // false agreement the triple exists to detect.
+    writeConnectivity({ state: 'connected', processId: 2 ** 30 }, dir)
+    expect(readConnectivityForTest(dir)?.bootId).toBeUndefined()
+    expect(readConnectivityForTest(dir)?.procStartTime).toBeUndefined()
+  })
+
+  it('a successor inherits the link history but never the predecessor s identity', () => {
+    record({
+      processId: 2 ** 30,
+      bootId: 'boot-before-the-reboot',
+      procStartTime: '1',
+      serverUrl: 'wss://relay',
+      lastHelloOkAt: '2026-09-10T08:50:57.450Z',
+    })
+    const successor = writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    expect(successor.lastHelloOkAt).toBe('2026-09-10T08:50:57.450Z')
+    expect(successor.bootId).not.toBe('boot-before-the-reboot')
+    expect(successor.procStartTime).not.toBe('1')
   })
 })

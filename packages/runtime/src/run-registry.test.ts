@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { defaultInstanceGuardIo } from './instance-guard'
 import {
   isAlive,
   type KillFn,
@@ -186,5 +187,80 @@ describe('registerProcess', () => {
     rmSync(runDir(), { recursive: true, force: true })
     await registerProcess('all-in-one', { kill: fakeKill(new Set()) })
     expect(readRecordForTest('all-in-one')?.role).toBe('all-in-one')
+  })
+})
+
+/**
+ * POD-3837. `<stateDir>/run/<role>.pid` outlives the process it names AND the
+ * boot it was written on — the state root is `~/.podium`, not a runtime tree the
+ * kernel empties. So the bare `kill(pid, 0)` behind {@link liveRecord} says
+ * "running" for every stale record after a reboot, because every pid in them is
+ * being reused by something unrelated.
+ *
+ * That is not only a wrong `podium status` line. `reclaim` SIGTERMs and then
+ * SIGKILLs whatever {@link liveRecord} hands it, so the same guess is what
+ * `podium stop` and every component boot act on: a wrongful kill of a stranger,
+ * which is exactly the failure `instance-guard.ts` was built to argue against.
+ */
+describe('a record from a previous boot is not live (POD-3837)', () => {
+  const rec = (over: Record<string, unknown> = {}) =>
+    writeRecord({ role: 'server', pid: 4321, startedAt: 'T0', ...over } as never)
+
+  it('suppresses a record from before the reboot, though its pid is in use again', () => {
+    rec({ bootId: 'boot-before-the-reboot', procStartTime: '1000' })
+    const io = { bootId: () => 'boot-now', startTime: () => '5000' }
+    expect(liveRecord('server', fakeKill(new Set([4321])), io)).toBeUndefined()
+  })
+
+  it('suppresses a record whose pid was recycled inside one boot', () => {
+    rec({ bootId: 'boot-a', procStartTime: '1000' })
+    const io = { bootId: () => 'boot-a', startTime: () => '2000' }
+    expect(liveRecord('server', fakeKill(new Set([4321])), io)).toBeUndefined()
+  })
+
+  it('keeps a record whose whole identity still agrees', () => {
+    rec({ bootId: 'boot-a', procStartTime: '1000' })
+    const io = { bootId: () => 'boot-a', startTime: () => '1000' }
+    expect(liveRecord('server', fakeKill(new Set([4321])), io)?.pid).toBe(4321)
+  })
+
+  it('keeps a pre-triple record on the pid alone — absence is not proof', () => {
+    // Written before the stamp existed. "We cannot tell who wrote this" must
+    // never render as "this is stale", exactly as POD-3815 ruled for the
+    // sibling connectivity fence.
+    rec()
+    const io = { bootId: () => 'boot-now', startTime: () => '5000' }
+    expect(liveRecord('server', fakeKill(new Set([4321])), io)?.pid).toBe(4321)
+  })
+
+  it('keeps a stale record out of listLive, so status does not report a ghost role', () => {
+    rec({ bootId: 'boot-before-the-reboot' })
+    expect(listLive(fakeKill(new Set([4321])), { bootId: () => 'boot-now' })).toEqual([])
+  })
+
+  it('does NOT signal the stranger now holding a rebooted record s pid', async () => {
+    rec({ bootId: 'boot-before-the-reboot' })
+    const alive = new Set([4321])
+    const result = await reclaim('server', {
+      kill: fakeKill(alive),
+      io: { bootId: () => 'boot-now' },
+    })
+    expect(result.reclaimed).toBe(false)
+    expect(alive.has(4321)).toBe(true)
+  })
+
+  it('the writer stamps its own boot id and start time', () => {
+    writeRecord({ role: 'daemon', pid: process.pid, startedAt: 'T0' })
+    const written = readRecordForTest('daemon')
+    expect(written?.bootId).toBe(defaultInstanceGuardIo.bootId())
+    expect(written?.procStartTime).toBe(defaultInstanceGuardIo.startTime(process.pid))
+  })
+
+  it('does not vouch for a pid that is not ours', () => {
+    // A self-attestation only. Stamping our boot id onto someone else's pid
+    // would manufacture the agreement the triple exists to detect.
+    rec()
+    expect(readRecordForTest('server')?.bootId).toBeUndefined()
+    expect(readRecordForTest('server')?.procStartTime).toBeUndefined()
   })
 })

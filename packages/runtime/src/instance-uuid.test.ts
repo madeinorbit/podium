@@ -22,6 +22,7 @@ import {
   type InstanceGuardIo,
   instanceGuardDir,
   parseProcStatStartTime,
+  writerLiveness,
 } from './instance-guard'
 
 const roots: string[] = []
@@ -511,5 +512,68 @@ describe('per-machine singleton guard', () => {
     if (process.platform !== 'darwin') {
       expect(discovered).toEqual({ dir: join(runtime, 'podium', 'instances'), machineWide: true })
     }
+  })
+})
+
+/**
+ * POD-3837. The guard's triple answers "may I displace this holder"; the same
+ * evidence answers "is the process that wrote this FILE still there", which is
+ * what the CLI's connectivity and run-registry fences ask. `writerLiveness` is
+ * that second question, and it reports its own confidence so a caller can tell
+ * a proof from a guess — the guard handle's `identityVerified`, moved to where
+ * a reader (not an acquirer) can read it.
+ */
+describe('writer liveness — the verdict a file fence reads (POD-3837)', () => {
+  it('is live and identity-backed when the whole triple still agrees', () => {
+    expect(writerLiveness({ pid: 999, bootId: 'boot-a', startTime: '1000' }, stubIo())).toEqual({
+      live: true,
+      identityVerified: true,
+    })
+  })
+
+  it('is dead across a reboot even though the pid is in use again', () => {
+    // The bare `kill(pid, 0)` the two fences shipped with says LIVE here, and
+    // that is the whole defect: after a reboot every recorded pid is being
+    // reused by something unrelated.
+    expect(
+      writerLiveness(
+        { pid: 999, bootId: 'boot-a', startTime: '1000' },
+        stubIo({ bootId: () => 'boot-b' }),
+      ),
+    ).toEqual({ live: false, identityVerified: true })
+  })
+
+  it('is dead when the pid was recycled inside one boot', () => {
+    expect(
+      writerLiveness(
+        { pid: 999, bootId: 'boot-a', startTime: '1000' },
+        stubIo({ startTime: () => '2000' }),
+      ),
+    ).toEqual({ live: false, identityVerified: true })
+  })
+
+  it('falls back to the bare pid check, and SAYS SO, for a record with no triple', () => {
+    // A record written before the triple existed. Absence is not proof of
+    // staleness, so it still reads as live — but not as verified.
+    expect(writerLiveness({ pid: 999 }, stubIo())).toEqual({
+      live: true,
+      identityVerified: false,
+    })
+  })
+
+  it('does not pretend to precision on a host with no /proc', () => {
+    expect(
+      writerLiveness(
+        { pid: 999, bootId: 'boot-a', startTime: '1000' },
+        stubIo({ bootId: () => undefined, startTime: () => undefined }),
+      ),
+    ).toEqual({ live: true, identityVerified: false })
+  })
+
+  it('is dead when the pid itself is gone, whatever the triple says', () => {
+    expect(writerLiveness({ pid: 999 }, stubIo({ pidAlive: () => false }))).toEqual({
+      live: false,
+      identityVerified: false,
+    })
   })
 })

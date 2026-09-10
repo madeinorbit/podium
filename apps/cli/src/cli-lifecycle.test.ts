@@ -122,12 +122,15 @@ describe('renderStatus', () => {
         config: { mode: 'daemon', persistence: 'systemd' },
         nowMs: T0 + 65_000,
         connectivity: {
-          state: 'disconnected',
-          serverUrl: 'wss://relay.example',
-          lastHelloOkAt: new Date(T0).toISOString(),
-          lastError: 'ECONNREFUSED',
-          retryBackoffMs: 5000,
-          updatedAt: new Date(T0 + 60_000).toISOString(),
+          status: {
+            state: 'disconnected',
+            serverUrl: 'wss://relay.example',
+            lastHelloOkAt: new Date(T0).toISOString(),
+            lastError: 'ECONNREFUSED',
+            retryBackoffMs: 5000,
+            updatedAt: new Date(T0 + 60_000).toISOString(),
+          },
+          identityVerified: true,
         },
       })
       expect(out).toContain('● daemon  up') // the process exists…
@@ -143,10 +146,13 @@ describe('renderStatus', () => {
         config: { mode: 'daemon', persistence: 'systemd' },
         nowMs: T0,
         connectivity: {
-          state: 'blocked',
-          serverUrl: 'wss://relay.example',
-          blockedReason: 'pairRejected: bad code',
-          updatedAt: new Date(T0).toISOString(),
+          status: {
+            state: 'blocked',
+            serverUrl: 'wss://relay.example',
+            blockedReason: 'pairRejected: bad code',
+            updatedAt: new Date(T0).toISOString(),
+          },
+          identityVerified: true,
         },
       })
       expect(out).toContain('BLOCKED — pairRejected: bad code')
@@ -162,13 +168,60 @@ describe('renderStatus', () => {
         config: { mode: 'daemon' },
         nowMs: T0,
         connectivity: {
-          state,
-          serverUrl: 'wss://relay.example',
-          updatedAt: new Date(T0).toISOString(),
+          status: {
+            state,
+            serverUrl: 'wss://relay.example',
+            updatedAt: new Date(T0).toISOString(),
+          },
+          identityVerified: true,
         },
       })
       expect(out).toContain(text)
       expect(out).not.toContain('✓ server link')
+    })
+
+    /**
+     * POD-3837. The fence behind this line is a pid check strengthened by the
+     * writer's boot id and process start time. Where the host cannot supply
+     * those — macOS has no `/proc` — or where the record predates the stamp,
+     * the verdict is the bare pid again, which cannot survive a reboot. Say so
+     * rather than render a guess as a fact; `instance-guard`'s handle reports
+     * the same degradation for the same reason.
+     */
+    it('says so when the writing process could only be checked by pid', () => {
+      const out = renderStatus({
+        live: [rec({ role: 'daemon', pid: 7 })],
+        config: { mode: 'daemon' },
+        nowMs: T0,
+        connectivity: {
+          status: {
+            state: 'connected',
+            serverUrl: 'wss://relay.example',
+            processId: 7,
+            updatedAt: new Date(T0).toISOString(),
+          },
+          identityVerified: false,
+        },
+      })
+      expect(out).toContain('checked by pid alone')
+    })
+
+    it('stays quiet about the check when the writer identity was verified', () => {
+      const out = renderStatus({
+        live: [rec({ role: 'daemon', pid: 7 })],
+        config: { mode: 'daemon' },
+        nowMs: T0,
+        connectivity: {
+          status: {
+            state: 'connected',
+            serverUrl: 'wss://relay.example',
+            processId: 7,
+            updatedAt: new Date(T0).toISOString(),
+          },
+          identityVerified: true,
+        },
+      })
+      expect(out).not.toContain('checked by pid alone')
     })
 
     it('a connected daemon reports the server URL and last contact', () => {
@@ -177,10 +230,13 @@ describe('renderStatus', () => {
         config: { mode: 'daemon' },
         nowMs: T0 + 3_000,
         connectivity: {
-          state: 'connected',
-          serverUrl: 'wss://relay.example',
-          lastHelloOkAt: new Date(T0).toISOString(),
-          updatedAt: new Date(T0).toISOString(),
+          status: {
+            state: 'connected',
+            serverUrl: 'wss://relay.example',
+            lastHelloOkAt: new Date(T0).toISOString(),
+            updatedAt: new Date(T0).toISOString(),
+          },
+          identityVerified: true,
         },
       })
       expect(out).toContain('connected')

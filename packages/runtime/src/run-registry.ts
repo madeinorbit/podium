@@ -9,6 +9,12 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
+import {
+  defaultInstanceGuardIo,
+  type InstanceGuardIo,
+  selfIdentityTriple,
+  writerLiveness,
+} from './instance-guard'
 
 export const RunRole = z.enum(['parent', 'server', 'janitor', 'daemon', 'all-in-one'])
 export type RunRole = z.infer<typeof RunRole>
@@ -19,8 +25,20 @@ export const RunRecord = z.object({
   port: z.number().int().positive().optional(),
   /** How this process was launched — for `status` reporting + `stop` routing. */
   mode: z.enum(['systemd', 'detached', 'foreground']).optional(),
-  /** ISO timestamp; also guards against PID reuse when compared to the OS process start. */
+  /** ISO timestamp; human-facing uptime in `podium status`. */
   startedAt: z.string(),
+  /**
+   * The two companions that pin `pid` to ONE incarnation (POD-3837). Stamped
+   * only when a process is recording its OWN pid, because neither can be
+   * observed for another process without guessing.
+   *
+   * `bootId` is `/proc/sys/kernel/random/boot_id`; `procStartTime` is
+   * `/proc/<pid>/stat` field 22. Both are Linux `/proc` facts, so both are
+   * optional, and absent means "this host could not tell us" rather than "they
+   * disagreed" — see {@link liveRecord}.
+   */
+  bootId: z.string().optional(),
+  procStartTime: z.string().optional(),
 })
 export type RunRecord = z.infer<typeof RunRecord>
 
@@ -71,8 +89,17 @@ export const readRecordForTest = readRecord
 
 export function writeRecord(rec: RunRecord): void {
   const parsed = RunRecord.parse(rec)
+  // A SELF-attestation, stamped here rather than at each caller so no writer can
+  // forget it. Recording our boot id against someone else's pid would
+  // manufacture exactly the false agreement the triple exists to detect.
+  const identity = parsed.pid === process.pid ? selfIdentityTriple() : undefined
+  const written: RunRecord = {
+    ...parsed,
+    ...(identity?.bootId ? { bootId: identity.bootId } : {}),
+    ...(identity?.startTime ? { procStartTime: identity.startTime } : {}),
+  }
   mkdirSync(runDir(), { recursive: true })
-  writeFileSync(recordPath(parsed.role), `${JSON.stringify(parsed, null, 2)}\n`)
+  writeFileSync(recordPath(written.role), `${JSON.stringify(written, null, 2)}\n`)
 }
 
 export function removeRecord(role: RunRole): void {
@@ -95,15 +122,48 @@ export function isAlive(pid: number, kill: KillFn = process.kill): boolean {
   }
 }
 
-/** The role's record iff its PID is currently alive; else undefined. */
-export function liveRecord(role: RunRole, kill: KillFn = process.kill): RunRecord | undefined {
+/**
+ * The role's record iff the process that WROTE it is still running; else undefined.
+ *
+ * THE PIDFILE OUTLIVES THE BOOT (POD-3837). It lives in the state root
+ * (`~/.podium/run`), not in a runtime tree the kernel empties, so a record
+ * survives a reboot — and after one, every pid it names is being reused by
+ * something unrelated. A bare `kill(pid, 0)` therefore reads EVERY stale record
+ * as live, and {@link reclaim} then SIGTERMs and SIGKILLs the stranger holding
+ * that pid. So the fence compares the identity triple `instance-guard.ts`
+ * argues for, not just the name.
+ *
+ * SUPPRESSION IS ONLY EVER ON PROOF, the rule POD-3815 set for the sibling
+ * connectivity fence: a record with no `bootId` (written before the stamp
+ * existed), or one read on a host with no `/proc`, still reads as live. "We
+ * cannot tell" must not become "this is stale" — that would strand every
+ * non-Linux host and make a component refuse to find its own running self.
+ *
+ * `io` overrides the `/proc` probes; production passes none. `kill` stays the
+ * pid probe so the many existing callers that inject it are unaffected.
+ */
+export function liveRecord(
+  role: RunRole,
+  kill: KillFn = process.kill,
+  io: Partial<InstanceGuardIo> = {},
+): RunRecord | undefined {
   const rec = readRecord(role)
-  return rec && isAlive(rec.pid, kill) ? rec : undefined
+  if (!rec) return undefined
+  const { live } = writerLiveness(
+    { pid: rec.pid, bootId: rec.bootId, startTime: rec.procStartTime },
+    { ...defaultInstanceGuardIo, pidAlive: (pid) => isAlive(pid, kill), ...io },
+  )
+  return live ? rec : undefined
 }
 
 /** Every role with a live process, for `podium status`. */
-export function listLive(kill: KillFn = process.kill): RunRecord[] {
-  return RunRole.options.map((r) => liveRecord(r, kill)).filter((r): r is RunRecord => Boolean(r))
+export function listLive(
+  kill: KillFn = process.kill,
+  io: Partial<InstanceGuardIo> = {},
+): RunRecord[] {
+  return RunRole.options
+    .map((r) => liveRecord(r, kill, io))
+    .filter((r): r is RunRecord => Boolean(r))
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -121,6 +181,8 @@ export interface ReclaimOptions {
   pollMs?: number
   kill?: KillFn
   sleepFn?: (ms: number) => Promise<void>
+  /** Overrides the `/proc` identity probes {@link liveRecord} fences with. */
+  io?: Partial<InstanceGuardIo>
 }
 
 /**
@@ -132,8 +194,12 @@ export interface ReclaimOptions {
  * avoid a double-run.
  */
 export async function reclaim(role: RunRole, opts: ReclaimOptions = {}): Promise<ReclaimResult> {
-  const { graceMs = 3000, pollMs = 100, kill = process.kill, sleepFn = sleep } = opts
-  const rec = liveRecord(role, kill)
+  const { graceMs = 3000, pollMs = 100, kill = process.kill, sleepFn = sleep, io = {} } = opts
+  // Fenced by IDENTITY, not by pid: everything below this line sends signals, so
+  // a record from a previous boot must never get past here (POD-3837). Once it
+  // has, the pid names the process we just proved is ours to stop, and the wait
+  // below is a within-boot "is it gone yet" — the bare check, correctly.
+  const rec = liveRecord(role, kill, io)
   if (!rec) return { reclaimed: false }
 
   const signal = (sig: number | string): void => {

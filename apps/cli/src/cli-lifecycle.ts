@@ -12,10 +12,10 @@ import {
   resolveInstanceId,
   resolvePort,
 } from '@podium/runtime/config'
-import { type ConnectivityStatus, readLiveConnectivity } from '@podium/runtime/connectivity'
+import { type LiveConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
-import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
+import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
   const started = Date.parse(startedAtIso)
@@ -35,15 +35,38 @@ export interface StatusView {
   port?: number
   /** Daemon⇄server link state written by the daemon itself (issue #19); absent on
    *  boxes that run no remote daemon, before the daemon's first write, or when the
-   *  process that wrote it is no longer running (POD-3815). */
-  connectivity?: ConnectivityStatus
+   *  process that wrote it is no longer running (POD-3815). Carried WITH the fence's
+   *  own confidence rather than beside it, so no caller can render the state and
+   *  drop the caveat (POD-3837). */
+  connectivity?: LiveConnectivity
   /** HTTP liveness is an independent truth source. A surviving server may have
    * lost its advisory run-registry record during a redeploy or signal race. */
   serverHealthy?: boolean
 }
 
+/**
+ * How sure the fence was that the process which wrote that line is still there.
+ *
+ * Shown ONLY when the record named a writer and we could not check its identity
+ * — a host with no `/proc`, or a record written before the stamp existed. Then
+ * the verdict is the bare pid, which every reboot defeats, and saying nothing
+ * would present a guess as a fact (POD-3837).
+ *
+ * A record naming NO writer is a different and older case: POD-3815 ruled it
+ * current because absence is not proof, and this line deliberately leaves that
+ * rendering alone.
+ */
+function renderFenceCaveat(link: LiveConnectivity): string[] {
+  if (link.identityVerified || link.status.processId === undefined) return []
+  return [
+    '    (checked by pid alone — this host cannot confirm the process that wrote this is',
+    '     still the one it names, so a record left before a reboot could read as current)',
+  ]
+}
+
 /** Render the daemon⇄server connectivity line(s) from the daemon-written status file. */
-function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
+function renderConnectivity(link: LiveConnectivity, nowMs: number): string[] {
+  const c = link.status
   const target = c.serverUrl ? ` → ${c.serverUrl}` : ''
   const lastSeen = c.lastHelloOkAt
     ? ` (last contact ${humanUptime(c.lastHelloOkAt, nowMs)} ago)`
@@ -124,7 +147,12 @@ export function renderStatus(view: StatusView): string {
   // Connectivity truthfulness (#19): a PID only proves the daemon process exists. When the
   // daemon has written its link state, report it — including the terminal blocked state,
   // which explains why the unit is down and what to do.
-  if (view.connectivity) lines.push(...renderConnectivity(view.connectivity, nowMs))
+  if (view.connectivity) {
+    lines.push(
+      ...renderConnectivity(view.connectivity, nowMs),
+      ...renderFenceCaveat(view.connectivity),
+    )
+  }
   const url = config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
   lines.push(`  URL: ${url}`)
   return lines.join('\n')

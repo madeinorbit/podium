@@ -96,7 +96,12 @@ export async function waitForDaemonEnrollment(
   const deadline = now() + timeoutMs
   let lastError: string | undefined
   while (now() < deadline) {
-    const status = readLiveConnectivity()
+    // `.status` only: whether the fence could VERIFY the writer's identity does
+    // not change what a join should do. A record it let through is the best fact
+    // available, and one it suppressed leaves the loop with nothing — which is
+    // exactly the state of a join that has not happened yet, so it keeps polling
+    // (POD-3826, POD-3837).
+    const status = readLiveConnectivity()?.status
     if (status?.state === 'connected') return
     if (status?.state === 'unauthorized') {
       throw new Error(

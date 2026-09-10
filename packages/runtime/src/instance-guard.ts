@@ -187,6 +187,38 @@ export function identityIsVerifiable(
 }
 
 /**
+ * Is the process that wrote a FILE still there, and how sure are we?
+ *
+ * {@link holderIsLive} answers the acquirer's question — "may I displace this
+ * holder" — and {@link acquireAt} pairs it with {@link identityIsVerifiable} on
+ * the handle so a caller can tell a proof from a guess. A READER of a record
+ * left on disk asks the same two things at once (POD-3837): `podium status` and
+ * `podium setup --join` fence `connectivity.json`, and the run registry fences
+ * `run/<role>.pid`, and both shipped with a bare `kill(pid, 0)` that reads
+ * every stale record as current after a reboot.
+ *
+ * `identityVerified` is the honest half. It says the verdict rests on the whole
+ * triple rather than on the pid alone, so a caller that must not act on a guess
+ * — or a command that must not render one as fact — can see which it got.
+ */
+export interface WriterLiveness {
+  /** Whether the recorded writer is still running, on the evidence available. */
+  live: boolean
+  /** True only when pid, boot id AND start time could all be compared. */
+  identityVerified: boolean
+}
+
+export function writerLiveness(
+  writer: ProcessIdentityTriple,
+  io: InstanceGuardIo = defaultInstanceGuardIo,
+): WriterLiveness {
+  return {
+    live: holderIsLive(writer, io),
+    identityVerified: identityIsVerifiable(writer, io),
+  }
+}
+
+/**
  * The machine-wide directory the per-UUID guards live in.
  *
  * `XDG_RUNTIME_DIR` is the right home on Linux because the kernel empties it at
