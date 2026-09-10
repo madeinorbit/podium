@@ -97,7 +97,20 @@ export interface NotifyDeps {
   }>
   /** Per-user route lookup and asynchronous delivery request. */
   telegramRouteAvailable?(ownerUserId: UserId): boolean | Promise<boolean>
-  requestTelegram?(input: { ownerUserId: UserId; text: string; sessionId?: SessionId }): void
+  /**
+   * Hand the notice to the per-user Telegram route. PROMISE-TYPED [POD-3820]:
+   * the delivery behind this request reaches the store, and a `void` return type
+   * made it impossible for a caller to await it even when awaiting is the fix —
+   * an unawaited nested transaction is exactly what wedged the lock queue
+   * (POD-3802). The promise settles when the request has been HANDED OVER, not
+   * when Telegram has it; the composition root announces it on the bus, which
+   * defers its listeners past the caller's commit.
+   */
+  requestTelegram?(input: {
+    ownerUserId: UserId
+    text: string
+    sessionId?: SessionId
+  }): Promise<void>
 }
 
 /**
@@ -141,14 +154,19 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
-  private sendTelegram(
+  private async sendTelegram(
     ownerUserId: UserId | undefined,
     config: TelegramConfig,
     notice: AttentionNotice,
     sessionId?: SessionId,
-  ): void {
+  ): Promise<void> {
     if (ownerUserId && this.deps.requestTelegram) {
-      this.deps.requestTelegram({
+      // AWAITED [POD-3820]. The route request is asynchronous and its
+      // implementations touch the store; dropping the promise here is the shape
+      // that wedged the lock queue. Awaiting a nested store write is the fix —
+      // it makes the inner transaction a savepoint of the caller's span instead
+      // of a sibling the executor refuses.
+      await this.deps.requestTelegram({
         ownerUserId,
         text: notice.title + '\n\n' + notice.body,
         ...(sessionId ? { sessionId } : {}),
@@ -200,7 +218,7 @@ export class NotifyService {
       if (!notice) continue
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
       if (sendTelegram && (await this.telegramEnabled(ownerUserId, next, botToken)))
-        this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
+        await this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
     }
   }
 
@@ -228,7 +246,7 @@ export class NotifyService {
         ? await this.telegramEnabled(ownerUserId, settings, botToken)
         : isTelegramEnabled(settings, botToken)
     )
-      this.sendTelegram(ownerUserId, telegramConfig(settings, botToken), notice)
+      await this.sendTelegram(ownerUserId, telegramConfig(settings, botToken), notice)
   }
 
   /**
@@ -312,7 +330,7 @@ export class NotifyService {
       const someoneWatching = [...this.deps.clients(ownerUserId)].some((c) => c.visible)
       if (!someoneWatching) {
         if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-        if (telegramEnabled) this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
+        if (telegramEnabled) await this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)
       }
     }
   }

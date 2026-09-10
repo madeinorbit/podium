@@ -24,8 +24,11 @@ async function harness(opts?: {
   const hibernated = opts?.hibernated ?? new Set<string>()
   const workspace = opts?.workspace ?? new Map<string, string>()
   let nowMs = Date.parse('2026-07-13T12:00:00.000Z')
-  const sendMail = vi.fn()
-  const appendEvent = vi.fn()
+  // Promise-shaped, because the deps are [POD-3820]. `vi.fn()` returning
+  // undefined no longer satisfies `Promise<void>`, which is the compiler
+  // refusing the stub that hid POD-3802 in the first place.
+  const sendMail = vi.fn(async (_issueId: string, _from: string, _body: string) => {})
+  const appendEvent = vi.fn(async (_e: { ts: string; kind: string; subject: string; payload?: unknown }) => {})
   const svc = new LockService({
     locks: store.locks,
     transact: async (fn) => await store.transact(fn),
@@ -580,9 +583,18 @@ describe('LockService under the async store (POD-3802)', () => {
    */
   async function harnessWithStoreMail() {
     const h = await harness()
-    h.sendMail.mockImplementation((issueId: string) => {
-      void h.store.transact(async () => {
+    h.sendMail.mockImplementation(async (issueId: string) => {
+      await h.store.transact(async () => {
         await h.store.issues.getIssue(asIssueId(issueId))
+      })
+    })
+    // `appendEvent` is the same shape (POD-3820): a durable append wired at the
+    // composition root to `store.events.appendEvent`, and it was typed `=> void`
+    // beside `sendMail`. Both deps now return `Promise<void>`, so a stub that
+    // returns nothing does not even compile.
+    h.appendEvent.mockImplementation(async () => {
+      await h.store.transact(async () => {
+        await h.store.issues.getIssue(asIssueId('iss_event'))
       })
     })
     return h
@@ -606,5 +618,30 @@ describe('LockService under the async store (POD-3802)', () => {
       { repoPath: REPO, name: 'podium:dev-bundle' },
     )
     expect(other.granted).toBe(true)
+  })
+
+  it('a steal defers BOTH writers past the commit: the audit event and the notice', async () => {
+    const { svc, store, sendMail, appendEvent } = await harnessWithStoreMail()
+    await svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+
+    let firedInsideTheSpan = -1
+    await store.transact(async () => {
+      const r = await svc.steal(agent(2), { repoPath: REPO, name: 'l' })
+      expect(r.previousHolder?.label).toBe('issue:#1')
+      firedInsideTheSpan = appendEvent.mock.calls.length + sendMail.mock.calls.length
+      // The statement the lock bug died on: the same span, after both writers.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    // NOT ONE of them ran inside the span, and neither was lost.
+    expect(firedInsideTheSpan).toBe(0)
+    expect(appendEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'lock.stolen', subject: 'repo:/repo:l' }),
+    )
+    expect(sendMail).toHaveBeenCalledWith(
+      'iss_1',
+      'lock-manager',
+      expect.stringContaining('stolen'),
+    )
   })
 })

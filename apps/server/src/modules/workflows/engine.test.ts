@@ -255,10 +255,12 @@ async function makeHarness(
       issue: (id) => ISSUES.get(id),
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
-      notifyCoordinator: (sessionId, text) => {
+      notifyCoordinator: async (sessionId, text) => {
         notices.push({ sessionId, text })
         if (opts.notifyOpensTransaction) {
-          void store.transact(async () => {
+          // AWAITED, as `messagesSvc.send` is at the composition root now that
+          // the dep returns `Promise<void>` (POD-3820).
+          await store.transact(async () => {
             await store.issues.getIssue(asIssueId('iss_notify'))
           })
         }

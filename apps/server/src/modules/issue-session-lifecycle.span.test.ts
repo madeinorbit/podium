@@ -1,8 +1,11 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { captureLogs } from '../test-support/capture-logs'
 import { openTestStore } from '../test-support/open-test-store'
+import { type IssueDeps, IssueService } from './issues/service'
+import { issueTestPlumbing } from './issues/service/test-plumbing'
 
 /**
  * `onIssueClosed` (crud.ts) reaches `IssueSessionLifecycle.stopClosedIssue`,
@@ -42,6 +45,65 @@ describe('closed-issue cleanup under the async store (POD-3806)', () => {
     } finally {
       logs.restore()
       registry.modules.issueSessionLifecycle.dispose()
+    }
+  })
+})
+
+/**
+ * The same hazard read from the OTHER side of the seam (POD-3820).
+ *
+ * The test above pins the production wiring. This one pins the CONTRACT: an
+ * `onIssueClosed` that touches the store, wired straight onto `IssueService`.
+ * The dep used to be typed `=> void`, so the close could not await it even
+ * though awaiting is the fix — a nested store write the caller awaits is a
+ * savepoint, and one it drops is a sibling frame the executor refuses. `void`
+ * was never a description of this dep; it was a prohibition on fixing it.
+ */
+describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
+  it('a close awaits a hook that opens its own transaction, and the span survives it', async () => {
+    const store = await openTestStore(':memory:')
+    const closed: string[] = []
+    const deps: IssueDeps = {
+      store,
+      listSessions: async () => [],
+      getSettings: async () =>
+        normalizeSettings({
+          gitWorkflow: {
+            defaultParentBranch: 'main',
+            mergeStyle: 'ff-only',
+            autoRebaseBeforeMerge: true,
+          },
+          sessionDefaults: { agent: 'claude-code' },
+        }),
+      spawnSession: async () => ({
+        sessionId: asSessionId('onclosed-test'),
+        machine: 'machine-under-test',
+      }),
+      repoOp: async () => ({ ok: true, output: '' }),
+      // Production-shaped: `IssueSessionLifecycle.stopClosedIssue` reads the
+      // issue back and stops its sessions. Nothing here is a mock.
+      onIssueClosed: async ({ issueId }) => {
+        closed.push(issueId)
+        await store.transact(async () => {
+          await store.issues.getIssue(issueId)
+        })
+      },
+      ...issueTestPlumbing(),
+    }
+    const issues = await IssueService.create(deps)
+    try {
+      const issue = await issues.create({ repoPath: '/repo', title: 'closes', startNow: false })
+
+      await store.transact(async () => {
+        await issues.close(issue.id, 'done')
+        // The statement the lock bug died on: the same span, after the hook.
+        await store.issues.getIssue(asIssueId('iss_after'))
+      })
+
+      expect(closed).toEqual([issue.id])
+      expect((await store.issues.getIssue(issue.id))?.closedAt).toBeTruthy()
+    } finally {
+      await store.close()
     }
   })
 })

@@ -84,10 +84,21 @@ export interface LockServiceDeps {
    * Unknown / exited / sentinels → null. Same key type as sessionAlive.
    */
   sessionWorkspace(sessionId: LockHolderId): string | null
-  /** Best-effort agent mail to an issue (IssueService.sendMail); never throws. */
-  sendMail(issueId: IssueId, from: string, body: string): void
-  /** Durable event log append (steal audit trail). Best-effort. */
-  appendEvent(e: { ts: string; kind: string; subject: string; payload?: unknown }): void
+  /**
+   * Best-effort agent mail to an issue (IssueService.sendMail); never throws.
+   *
+   * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]. The production wiring
+   * is `async` and opens its own transaction. Typed `=> void` it was assignable
+   * anyway — that is TypeScript's void-return special case — so every call site
+   * here dropped the promise with nothing to warn it, which is the wedge
+   * POD-3802 diagnosed. With the return type honest a caller must `await` it or
+   * hand it to `afterCommit`, and a wiring that forgets to return its promise
+   * no longer compiles.
+   */
+  sendMail(issueId: IssueId, from: string, body: string): Promise<void>
+  /** Durable event log append (steal audit trail). Best-effort, and a store
+   *  write: `Promise<void>` for the reason {@link LockServiceDeps.sendMail} gives. */
+  appendEvent(e: { ts: string; kind: string; subject: string; payload?: unknown }): Promise<void>
 }
 
 /** Normalize a path for co-location compares (trailing slashes, empty → null). */
@@ -303,13 +314,15 @@ export class LockService {
       // the span closed. Every lock op sweeps expired leases first, so one
       // expired lease with a live waiter wedged every lock RPC.
       const issueId = holder.issueId
-      afterCommit(() => {
-        this.deps.sendMail(
-          issueId,
-          'lock-manager',
-          `Lock '${name}' granted to you (TTL ${fmtTtl(ttlSeconds)}). Release with \`podium lock release ${name}\` when done.`,
-        )
-      }, 'lock-grant-mail')
+      afterCommit(
+        () =>
+          this.deps.sendMail(
+            issueId,
+            'lock-manager',
+            `Lock '${name}' granted to you (TTL ${fmtTtl(ttlSeconds)}). Release with \`podium lock release ${name}\` when done.`,
+          ),
+        'lock-grant-mail',
+      )
     }
     return row
   }
@@ -575,9 +588,12 @@ export class LockService {
             // Both effects are fire-and-forget store writers: same rule as the
             // grant mail in `grantTo` — they run after this span commits.
             const stolenAt = this.nowIso()
-            afterCommit(() => {
+            afterCommit(async () => {
               try {
-                this.deps.appendEvent({
+                // AWAITED inside the try [POD-3820]. The append is a store
+                // write and the dep now says so; a synchronous try/catch
+                // around a dropped promise caught nothing.
+                await this.deps.appendEvent({
                   ts: stolenAt,
                   kind: 'lock.stolen',
                   subject: `${repoId}:${input.name}`,
@@ -587,13 +603,15 @@ export class LockService {
             }, 'lock-stolen-event')
             if (previousHolder.issueId) {
               const issueId = previousHolder.issueId
-              afterCommit(() => {
-                this.deps.sendMail(
-                  issueId,
-                  'lock-manager',
-                  `Lock '${input.name}' was stolen from you by ${caller.label}.`,
-                )
-              }, 'lock-stolen-mail')
+              afterCommit(
+                () =>
+                  this.deps.sendMail(
+                    issueId,
+                    'lock-manager',
+                    `Lock '${input.name}' was stolen from you by ${caller.label}.`,
+                  ),
+                'lock-stolen-mail',
+              )
             }
           }
           return { lock: await this.toWire(row), previousHolder }

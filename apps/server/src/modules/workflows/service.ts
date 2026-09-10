@@ -116,7 +116,14 @@ export interface WorkflowServiceDeps {
   session(sessionId: SessionId): SessionInfo | undefined
   issue(issueId: IssueId): IssueInfo | undefined | Promise<IssueInfo | undefined>
   repoIdForPath(path: string): Promise<string | null>
-  notifyCoordinator?(sessionId: SessionId, text: string): void
+  /**
+   * Out-of-band nudge to the run's coordinator. PROMISE-TYPED BECAUSE IT WRITES
+   * THE STORE [POD-3820]: the composition root wires it to `messagesSvc.send`,
+   * which opens its own transaction. Typed `=> void` that wiring compiled and
+   * the promise was dropped inside the checkpoint's span — the POD-3802 shape.
+   * The honest type forces the `afterCommit` hand-off in `advances.ts`.
+   */
+  notifyCoordinator?(sessionId: SessionId, text: string): Promise<void>
 }
 
 function globalTargetId(): string {

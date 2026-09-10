@@ -358,10 +358,15 @@ function ensureMoveRun(operation: ProtocolOperation, context: ServerMoveContext)
     transferId: context.transferId,
     canceled: () => run.canceled,
     ...(context.crash ? { crash: context.crash } : {}),
-    onRecord: (record) => {
-      void recordDetails(record).catch(reportDetailsFailure)
+    // AWAITED, not fired and forgotten [POD-3820]. Both calls are store writes;
+    // the `void`-typed hook let them be dropped, which is the shape POD-3802
+    // diagnosed. The transfer service hands this to `afterCommit`, so a
+    // per-chunk tick still does not block the copy loop — it is deferred, not
+    // discarded, and a failure is reported instead of orphaned.
+    onRecord: async (record) => {
+      await recordDetails(record).catch(reportDetailsFailure)
       if (run.currentPhase === 'stage') {
-        void context.engine.recordProgress(operation.id, 'stage', {
+        await context.engine.recordProgress(operation.id, 'stage', {
           state: 'running',
           progress: { done: record.bytesCopied, total: record.totalBytes },
           detail: 'Copying server state',

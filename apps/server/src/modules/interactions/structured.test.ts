@@ -71,7 +71,9 @@ function harness(
     // store would prove the test's guard rather than the aggregate's.
     store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
     now: () => '2026-08-14T00:00:01.000Z',
-    publish: (row) => published.push(row.id),
+    publish: async (row) => {
+      published.push(row.id)
+    },
     deliver: async (input) => {
       keystrokes.push({ sessionId: input.sessionId, answer: input.answer })
       // `choices` is REQUIRED on the menu arm of `AnswerDeliveryResult` — it is

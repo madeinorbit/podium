@@ -1,6 +1,7 @@
-import { type AgentRuntimeState, asSessionId, asUserId, type UserId } from '@podium/model'
+import { type AgentRuntimeState, asIssueId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
 import { EventBus } from '../bus'
 import { type NotifyDeps, NotifyService, type SessionNoticeInfo } from './service'
 
@@ -48,7 +49,7 @@ function harness(input: { routeAvailable: boolean }) {
     getSettings: async () => settings,
     telegramBotToken: async () => 'bot-token',
     telegramRouteAvailable: async () => input.routeAvailable,
-    requestTelegram: (request) => {
+    requestTelegram: async (request) => {
       requested.push({ ownerUserId: request.ownerUserId, text: request.text })
     },
     appendEvent: () => {},
@@ -101,5 +102,76 @@ describe('the per-user Telegram route gate', () => {
     // reason to fall back to the instance-wide chat id.
     expect(h.requested).toEqual([])
     expect(h.pushed).toEqual([])
+  })
+})
+
+/**
+ * `requestTelegram` USED TO BE TYPED `=> void` (POD-3820).
+ *
+ * That is the shape section 3 of the POD-3802 report lists, and the shape that
+ * wedged the lock queue: a dependency whose declared return type says "nothing
+ * comes back" wired to something asynchronous that touches the store. Under the
+ * async executor the inner transaction JOINS whatever span the caller has open,
+ * as a savepoint. Drop the promise and the caller's next statement addresses a
+ * frame with an open child — refused — while the orphaned savepoint dies when
+ * the span closes.
+ *
+ * `void` was not a description of the dep, it was a PROHIBITION on the fix: the
+ * caller could not await what the type said did not exist. So this pins the fix
+ * from the outside, with a production-shaped dep — one that opens a REAL store
+ * transaction, which is the single thing a `vi.fn()` stub cannot show.
+ */
+describe('NotifyService under the async store (POD-3820)', () => {
+  async function spanHarness() {
+    const store = await openTestStore(':memory:')
+    const requested: UserId[] = []
+    const settings = PodiumSettings.parse({
+      notifications: { web: false, ntfyTopic: '', telegramChatId: '4242' },
+    })
+    const deps: NotifyDeps = {
+      getSettings: async () => settings,
+      telegramBotToken: async () => 'bot-token',
+      telegramRouteAvailable: async () => true,
+      // Production-shaped: the bus listener behind this request is
+      // `MessagingService.sendUserNotice`, which opens its own store
+      // transaction. Nothing here is a mock.
+      requestTelegram: async (request) => {
+        requested.push(request.ownerUserId)
+        await store.transact(async () => {
+          await store.issues.getIssue(asIssueId('iss_telegram'))
+        })
+      },
+      appendEvent: () => {},
+      now: () => NOW,
+      clients: () => [],
+      sessionInfo: () => info(),
+      sessionStates: () => [],
+    }
+    const service = new NotifyService(deps, { ntfy: () => {}, telegram: () => {} }, new EventBus())
+    return { service, store, requested }
+  }
+
+  it('a telegram request that opens its own transaction leaves the span it was made in usable', async () => {
+    const { service, store, requested } = await spanHarness()
+
+    await store.transact(async () => {
+      await service.notifyExternal({ title: 'ship it', body: 'the branch is green' }, OWNER)
+      // The statement the lock bug died on: the same span, one line after the
+      // fire-and-forget writer. A dropped promise makes this a refusal.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    expect(requested).toEqual([OWNER])
+  })
+
+  it('the request is not dropped when there is no span at all', async () => {
+    const { service, requested } = await spanHarness()
+
+    await service.notifyExternal({ title: 'ship it', body: 'the branch is green' }, OWNER)
+
+    // Awaiting `notifyExternal` now means the route request has been handed
+    // over — under the old `void` dep the caller returned first and the
+    // assertion below needed a timer to pass.
+    expect(requested).toEqual([OWNER])
   })
 })

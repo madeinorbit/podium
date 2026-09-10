@@ -60,6 +60,7 @@ async function harness(
     resourceAdmission?: ConstructorParameters<typeof ShippingService>[0]['resourceAdmission']
     repair?: ShippingRepairPort
     beforeRepairAcknowledge?: (resultToken: string) => void
+    audit?: ConstructorParameters<typeof ShippingService>[0]['audit']
   } = {},
 ) {
   const store = await openTestStore(':memory:')
@@ -159,6 +160,7 @@ async function harness(
     ...(options.beforeRepairAcknowledge
       ? { beforeRepairAcknowledge: options.beforeRepairAcknowledge }
       : {}),
+    ...(options.audit ? { audit: options.audit } : {}),
     background: false,
   }
   const service = new ShippingService(deps)
@@ -2550,6 +2552,75 @@ describe('ShippingService resource lease boundary re-check (POD-3488)', () => {
         }),
       },
     ])
+    service.dispose()
+  })
+})
+
+/**
+ * `audit` USED TO BE TYPED `=> void` (POD-3820), and the twenty-odd call sites
+ * in this service all fired it and moved on.
+ *
+ * The composition root wires it to `store.events.appendEvent` plus an issue
+ * read — an `async` function, which a `void` return type accepts without a
+ * murmur (TypeScript's void-return special case). Under the async store
+ * executor that discarded transaction JOINS the shipping span as a savepoint:
+ * the span's next statement addresses a frame with an open child and is refused,
+ * and the savepoint dies when the span closes. That is the lock bug (POD-3802)
+ * with a different caller.
+ *
+ * The dep now returns `Promise<void>` and `ShippingService.audit` hands it to
+ * `afterCommit`. The audit below is production-shaped — it opens a REAL store
+ * transaction — which is the one thing a `vi.fn()` stub cannot show.
+ */
+describe('ShippingService under the async store (POD-3820)', () => {
+  it('an audit that opens its own transaction neither breaks the enqueue nor is lost', async () => {
+    const audited: string[] = []
+    const { store, issues, service } = await harness(undefined, {
+      audit: async (kind, issueId) => {
+        audited.push(kind)
+        await store.transact(async () => {
+          await store.issues.getIssue(issueId)
+        })
+      },
+    })
+    const issue = await issues.create({ repoPath: '/repo', title: 'approved', startNow: false })
+    await issues.update(issue.id, { stage: 'review' })
+
+    await store.transact(async () => {
+      const receipt = await service.enqueue({ issueId: issue.id, ...approval })
+      expect(receipt.created).toBe(true)
+      // The statement the lock bug died on: the same span, one line after the
+      // audit fired. A dropped promise makes this a refusal, and the enqueue's
+      // own writes go down with the frame.
+      expect((await store.issues.getIssue(issue.id))?.stage).toBe('shipping')
+    })
+
+    expect(audited).toContain('shipping.order_enqueued')
+    service.dispose()
+  })
+
+  it('a rolled-back enqueue writes no audit row: the trail cannot claim work that did not happen', async () => {
+    const audited: string[] = []
+    const { store, issues, service } = await harness(undefined, {
+      audit: async (kind, issueId) => {
+        audited.push(kind)
+        await store.transact(async () => {
+          await store.issues.getIssue(issueId)
+        })
+      },
+    })
+    const issue = await issues.create({ repoPath: '/repo', title: 'approved', startNow: false })
+    await issues.update(issue.id, { stage: 'review' })
+
+    await expect(
+      store.transact(async () => {
+        await service.enqueue({ issueId: issue.id, ...approval })
+        throw new Error('caller rolled back after the enqueue')
+      }),
+    ).rejects.toThrow('caller rolled back after the enqueue')
+
+    expect(audited).toEqual([])
+    expect((await store.issues.getIssue(issue.id))?.stage).toBe('review')
     service.dispose()
   })
 })

@@ -109,8 +109,8 @@ export async function checkpointHandler(
   })
   const worker = caller.actor.id && caller.actor.id !== run.coordinatorSessionId
   if (worker && deps.notifyCoordinator) {
-    // AFTER THE COMMIT, not inside the span [POD-3806]. `notifyCoordinator` is a
-    // `void`-typed dep wired at the composition root to `messagesSvc.send`, which
+    // AFTER THE COMMIT, not inside the span [POD-3806]. `notifyCoordinator` is
+    // wired at the composition root to `messagesSvc.send`, which
     // opens its own store transaction; under the async executor that transaction
     // JOINS whatever span this checkpoint is running inside, as a savepoint, so
     // firing it here made the span's next statement address a frame with an open

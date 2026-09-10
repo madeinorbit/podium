@@ -90,7 +90,9 @@ export interface MessageMailboxDeps {
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void | Promise<void>
+  /** `Promise<void>`, not `void | Promise<void>` [POD-3820]: the mirror is a
+   *  store write, and the loose union let a `void`-returning wiring through. */
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(

@@ -36,6 +36,7 @@ import type {
   LedgerCommitOp,
 } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
+import { afterCommit } from '../../store/executor/executor'
 import {
   type RootIntegrationReceiptStore,
   sameFrozenShipOrder,
@@ -266,7 +267,15 @@ export interface ShippingServiceDeps {
   resolveRefTip(issue: IssueWire, ref: string): Promise<string>
   isAncestor(issue: IssueWire, ancestorSha: string, descendantSha: string): Promise<boolean>
   now?: () => string
-  audit?: (kind: string, issueId: IssueId, payload: Record<string, unknown>) => void
+  /**
+   * Append-only audit trail for a shipping order. PROMISE-TYPED BECAUSE IT
+   * WRITES THE STORE [POD-3820]: the composition root wires it to
+   * `store.events.appendEvent` plus an issue read. Typed `=> void` that `async`
+   * wiring was assignable anyway and every one of the twenty-odd call sites
+   * dropped the promise inside a shipping span — the POD-3802 shape. The single
+   * hand-off is {@link ShippingService.audit}, which defers past the commit.
+   */
+  audit?: (kind: string, issueId: IssueId, payload: Record<string, unknown>) => Promise<void>
   beforeCompletionCommit?: (receipt: DeliveryReceipt) => void
   repair?: ShippingRepairPort
   beforeRepairAcknowledge?: (resultToken: string) => void
@@ -3806,7 +3815,30 @@ export class ShippingService {
     )
   }
 
+  /**
+   * THE ONE HAND-OFF for `deps.audit`, and the reason the twenty-odd call sites
+   * above still read as one statement.
+   *
+   * AFTER THE COMMIT, not inside the span [POD-3820]. The dep is a store write;
+   * firing it unawaited from inside a shipping span made that write JOIN the
+   * span as a savepoint, so the span's next statement addressed a frame with an
+   * open child and was refused — the lock bug (POD-3802) with a different
+   * caller. Deferring is also the honest trail: an order state change whose span
+   * rolls back did not happen, and the audit row should not claim it did. With
+   * no span open `afterCommit` runs it now, exactly as before.
+   *
+   * Best-effort by contract, so a failure is swallowed here rather than
+   * surfacing as an unhandled rejection from the post-commit drain.
+   */
   private audit(kind: string, issueId: IssueId, payload: Record<string, unknown>): void {
-    this.deps.audit?.(kind, issueId, payload)
+    const emit = this.deps.audit
+    if (!emit) return
+    afterCommit(async () => {
+      try {
+        await emit(kind, issueId, payload)
+      } catch (err) {
+        log.warn('shipping audit append failed', { err, kind, issueId })
+      }
+    }, 'shipping-audit')
   }
 }

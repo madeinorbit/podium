@@ -1,8 +1,9 @@
-import { asMachineId } from '@podium/model'
+import { asIssueId, asMachineId } from '@podium/model'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
 import { assertWritableServerBoot } from './journal'
 import { ServerTransferService } from './service'
 import {
@@ -498,4 +499,63 @@ describe('ServerTransferService final-fence flow', () => {
     expect(fence).not.toHaveBeenCalled()
   })
 
+})
+
+/**
+ * `onRecord` USED TO BE TYPED `=> void` (POD-3820).
+ *
+ * The operation wiring behind it persists the journal record and reports
+ * progress through the operations engine — two store writes, both fired with a
+ * bare `void` because the hook's return type said there was nothing to wait
+ * for. Under the async store executor an unawaited nested transaction JOINS
+ * whatever span the transfer is running inside, as a savepoint: the span's next
+ * statement addresses a frame with an open child and is refused, and the
+ * savepoint dies when the span closes. That is the lock bug (POD-3802).
+ *
+ * The hook now returns `Promise<void>` and the service hands it to
+ * `afterCommit`, which is the honest middle for a PER-CHUNK tick: deferred past
+ * the commit and run at the root, so it neither blocks the copy loop nor joins
+ * the caller's span. The hook below is production-shaped — it opens a REAL
+ * store transaction — which is what a `vi.fn()` stub cannot show.
+ */
+describe('ServerTransferService under the async store (POD-3820)', () => {
+  it('a record hook that opens its own transaction leaves the span it was called in usable', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const ticks: number[] = []
+      const fake = fakeRpc()
+      const service = makeService(fake.rpc)
+
+      let ticksInsideTheSpan = -1
+
+      await store.transact(async () => {
+        const result = await service.transfer(input, allow, {
+          operationId: 'op-async-store',
+          onRecord: async (record) => {
+            ticks.push(record.bytesCopied)
+            await store.transact(async () => {
+              await store.issues.getIssue(asIssueId('iss_transfer'))
+            })
+          },
+        })
+        expect(result).toMatchObject({ ok: true, state: 'committed' })
+        ticksInsideTheSpan = ticks.length
+        // The statement the lock bug died on: the same span, after the progress
+        // ticks were registered.
+        await store.issues.getIssue(asIssueId('iss_after'))
+      })
+
+      // NOT ONE tick ran inside the span. This is the assertion that fails if
+      // the hand-off goes back to firing the hook where it stands: a store
+      // write that runs there is a savepoint on the caller's frame, and whether
+      // it is REFUSED depends on how soon the caller's next statement lands —
+      // which is why the production symptom was intermittent and why an
+      // end-state assertion alone cannot see this.
+      expect(ticksInsideTheSpan).toBe(0)
+      // Deferred, not discarded: the ticks ran on the far side of the commit.
+      expect(ticks.length).toBeGreaterThan(0)
+    } finally {
+      await store.close()
+    }
+  })
 })

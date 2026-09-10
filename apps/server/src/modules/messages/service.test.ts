@@ -199,6 +199,10 @@ interface HarnessOpts {
    *  repository call the default harness uses does not, which is why the span
    *  hazard of POD-3806 was invisible here. */
   mirrorOpensTransaction?: boolean
+  /** Wire `notifyOperator` PRODUCTION-SHAPED: every notify path this dep stands
+   *  for reaches the store, and the plain array push the default harness uses
+   *  does not, which is why the POD-3802 span hazard was invisible here. */
+  notifyOperatorOpensTransaction?: boolean
 }
 
 async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -265,22 +269,35 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       },
       ...(opts?.draftInjectionActive ? { draftInjectionActive: opts.draftInjectionActive } : {}),
     },
+    // AWAITED, as the composition root's `funnel.run({ write })` wiring now is:
+    // the dep returns `Promise<void>` (POD-3820), so the discarded-promise
+    // variant this used to model no longer type-checks anywhere.
     mirrorIssueMail: opts?.mirrorOpensTransaction
-      ? (row) => {
-          void store.transact(async () => await store.issues.addIssueMessage(row))
+      ? async (row) => {
+          await store.transact(async () => await store.issues.addIssueMessage(row))
         }
-      : (row) => store.issues.addIssueMessage(row),
+      : async (row) => {
+          await store.issues.addIssueMessage(row)
+        },
     mirrorMarkIssueMailRead: opts?.mirrorOpensTransaction
-      ? (issueId, ids) => {
-          void store.transact(
+      ? async (issueId, ids) => {
+          await store.transact(
             async () =>
               await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
           )
         }
-      : (issueId, ids) =>
-          store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
+      : async (issueId, ids) => {
+          await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr')
+        },
     ...(opts?.spawnOnWake ? { spawnOnWake: opts.spawnOnWake } : {}),
-    notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
+    notifyOperator: async (i) => {
+      attention.push({ messageId: i.messageId, reason: i.reason })
+      if (opts?.notifyOperatorOpensTransaction) {
+        await store.transact(async () => {
+          await store.issues.getIssue(asIssueId('iss_notify_operator'))
+        })
+      }
+    },
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
   })
   return {
@@ -5005,6 +5022,35 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
       // The statement the lock bug died on: same span, after the mirror.
       await store.issues.getIssue(asIssueId('iss_after'))
     })
+  })
+
+  it('the needs-attention notify runs after the commit, not inside the sweep span', async () => {
+    const store = await openTestStore(':memory:')
+    const { svc, attention } = await harness(
+      [session({ sessionId: asSessionId('s1'), status: 'exited' })],
+      {
+        store,
+        queueText: async () => ({ ok: false, reason: 'no resume ref' }),
+        notifyOperatorOpensTransaction: true,
+      },
+    )
+
+    let notifiedInsideTheSpan = -1
+    await store.transact(async () => {
+      const r = await svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', lifecycle: 'wake' },
+      )
+      expect(r.message.status).toBe('queued')
+      notifiedInsideTheSpan = attention.length
+      // The statement the lock bug died on: same span, after the alarm fired.
+      await store.issues.getIssue(asIssueId('iss_after'))
+    })
+
+    // NOT ONE notify ran inside the span. An alarm raised there is a savepoint
+    // on the caller's frame, and it would also announce work a rollback unmakes.
+    expect(notifiedInsideTheSpan).toBe(0)
+    expect(attention).toHaveLength(1)
   })
 
   it('marking the mirror read does not break the span the self-suppression runs in', async () => {

@@ -150,9 +150,17 @@ const REFUSAL_RETIRES_ASK: ReadonlySet<AnswerRefusalReason> = new Set([
 export interface InteractionServiceDeps {
   readonly store: InteractionsRepository
   now(): string
-  /** Publish the row onto the durable metadata feed. Every mutation calls it;
-   *  the publisher decides what a replica sees. */
-  publish(row: InteractionRow): void
+  /**
+   * Publish the row onto the durable metadata feed. Every mutation calls it;
+   *  the publisher decides what a replica sees.
+   *
+   * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]. The composition root
+   * wires this to an `async` feed publish. Typed `=> void` that wiring was
+   * accepted anyway (TypeScript's void-return special case) and the promise had
+   * nowhere to go; the honest type makes {@link InteractionService.announce}'s
+   * `afterCommit` hand-off the only thing that compiles.
+   */
+  publish(row: InteractionRow): Promise<void>
   /**
    * THE EXISTING DELIVERY GATE, injected rather than imported so a test can
    * drive the aggregate without a session. This is `deliverAnswerToSession`
@@ -251,13 +259,15 @@ export class InteractionService {
   /**
    * Announce a row AFTER the caller's span commits [POD-3806].
    *
-   * `deps.publish` is typed `=> void` and wired at the composition root to an
-   * `async` feed publish, so every call site here discards a promise. Under the
-   * async store executor that discarded transaction JOINS the span this mutation
-   * is running inside, as a savepoint: the mutation's next statement addresses a
-   * frame with an open child and is refused, and the orphaned savepoint dies when
-   * the span closes. That is the lock bug (POD-3802), and the ten call sites
-   * below are the same shape.
+   * `deps.publish` is wired at the composition root to an `async` feed publish.
+   * It used to be typed `=> void`, so every call site here discarded a promise.
+   * Under the async store executor that discarded transaction JOINS the span
+   * this mutation is running inside, as a savepoint: the mutation's next
+   * statement addresses a frame with an open child and is refused, and the
+   * orphaned savepoint dies when the span closes. That is the lock bug
+   * (POD-3802), and the ten call sites below are the same shape. The dep now
+   * returns `Promise<void>` (POD-3820), so the hand-off below is the only shape
+   * that type-checks.
    *
    * Deferring is also the more honest announcement: a mutation whose span rolls
    * back never happened, and a replica should not have been told it did. With no

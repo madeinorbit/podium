@@ -61,7 +61,9 @@ describe('WorkflowService', () => {
             ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
             : undefined,
         repoIdForPath: async () => 'repo-1',
-        notifyCoordinator: (sessionId, text) => notices.push({ sessionId, text }),
+        notifyCoordinator: async (sessionId, text) => {
+          notices.push({ sessionId, text })
+        },
       }),
     )
   })

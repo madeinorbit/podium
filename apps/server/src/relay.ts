@@ -1609,7 +1609,16 @@ export class SessionRegistry {
         telegramBotToken: async () => await this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         telegramRouteAvailable: async (ownerUserId) =>
           (await this.store.telegramBindings.listForUser(ownerUserId)).length === 1,
-        requestTelegram: (request) => this.bus.emit('notification.telegramRequested', request),
+        // The bus is the hand-over point, and `emit` already defers its
+        // listeners past the emitter's commit and runs them at the root
+        // (POD-3806), so the promise this returns means "announced", which is
+        // all a request can promise. It is `async` so the dep's honest
+        // `Promise<void>` (POD-3820) has something real to hold: a future
+        // rewiring straight to the delivery service is now awaited by the
+        // caller instead of dropped.
+        requestTelegram: async (request) => {
+          this.bus.emit('notification.telegramRequested', request)
+        },
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -1651,7 +1660,11 @@ export class SessionRegistry {
       },
       portableStateFence,
     )
-    let stopClosedIssue: ((input: { issueId: IssueId }) => void) | undefined
+    // Late-bound because the lifecycle object below needs services this one
+    // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
+    // bottom is `async`, and under a `void` declaration TypeScript accepted it
+    // while the close silently dropped the promise.
+    let stopClosedIssue: ((input: { issueId: IssueId }) => Promise<void>) | undefined
 
     const issues = IssueService.compose({
       store: this.store,
@@ -1738,7 +1751,7 @@ export class SessionRegistry {
           seq: row.seq,
         }),
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
-      onIssueClosed: (input) => stopClosedIssue?.(input),
+      onIssueClosed: async (input) => await stopClosedIssue?.(input),
     })
     // Coordinator defaults are lifecycle-derived, not caller discipline. The
     // first eligible agent born on an issue takes an empty coordinator seat;

@@ -270,20 +270,33 @@ export interface MessageDeliveryDeps {
   }
   /** Server-only fact for the live runtime contract. It is not part of the client session projection. */
   runtimeContractActive?(sessionId: SessionId): boolean
-  /** Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
-   *  sends dual-write so inbox/claim/pending keep working (drop with the table). */
-  mirrorIssueMail?(row: IssueMessageRow): void
+  /**
+   * Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
+   * sends dual-write so inbox/claim/pending keep working (drop with the table).
+   *
+   * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]. Both mirrors are
+   * wired at the composition root to `funnel.run({ write })`, which opens its
+   * own transaction. Typed `=> void` those `async` wirings were assignable
+   * anyway and the promise was dropped inside the send's span — the POD-3802
+   * shape. The honest type leaves `afterCommit` as the only hand-off that
+   * compiles, and a wiring that forgets to return its promise is now an error.
+   */
+  mirrorIssueMail?(row: IssueMessageRow): Promise<void>
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
-   *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
+   *  mailPending's legacy fallback keeps nagging. Drop with the table.
+   *  `Promise<void>` for the reason {@link MessageDeliveryDeps.mirrorIssueMail} gives. */
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
   /** Spawn-on-wake seam; absent = unresumable wakes surface needs-attention. */
   spawnOnWake?: SpawnOnWake
   /** Transaction seam (store.transact): an ack's row insert + acked_by stamp on
    *  the original commit atomically. Absent (tests) = plain sequential writes. */
   transact?<T>(fn: () => T | Promise<T>): Promise<T>
-  /** Existing notify path for needs-attention surfacing (best-effort). */
-  notifyOperator?(input: { messageId: string; reason: string; body: string }): void
+  /** Existing notify path for needs-attention surfacing (best-effort). A
+   *  notification is an external effect and its implementations reach the store,
+   *  so it returns `Promise<void>` (POD-3820) and is deferred past the commit
+   *  rather than fired inside the sweep's span. */
+  notifyOperator?(input: { messageId: string; reason: string; body: string }): Promise<void>
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string | Promise<string>
@@ -573,8 +586,8 @@ export class MessageDeliveryService {
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
-            mirrorMarkIssueMailRead: (issueId: IssueId, ids: string[]) =>
-              deps.mirrorMarkIssueMailRead?.(issueId, ids),
+            mirrorMarkIssueMailRead: async (issueId: IssueId, ids: string[]) =>
+              await deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
       send: async (from, input, opts) => await this.send(from, input, opts),
@@ -1146,9 +1159,9 @@ export class MessageDeliveryService {
         claimedBy: null,
         claimedAt: null,
       }
-      // AFTER THE COMMIT, not inside the span [POD-3806]. Both mirrors are
-      // `void`-typed deps wired at the composition root to `funnel.run({ write })`,
-      // which opens its own store transaction. Under the async executor that
+      // AFTER THE COMMIT, not inside the span [POD-3806]. Both mirrors are wired
+      // at the composition root to `funnel.run({ write })`, which opens its own
+      // store transaction. Under the async executor that
       // transaction JOINS whatever span this send is running inside, as a
       // savepoint, so firing it here made the span's next statement address a
       // frame with an open child (refused) and left the mirror's savepoint to die
@@ -2565,9 +2578,12 @@ export class MessageDeliveryService {
       if (message.toKind === 'issue' && message.toId) {
         // After the commit, for the reason the mirror insert above states.
         const readIssueId = asIssueId(message.toId)
-        afterCommit(() => {
+        afterCommit(async () => {
           try {
-            this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            // AWAITED [POD-3820]: the mirror is a store write and the dep now
+            // says so. A synchronous try/catch around a dropped promise caught
+            // nothing that mattered.
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2592,9 +2608,10 @@ export class MessageDeliveryService {
       if (message.toKind === 'issue' && message.toId) {
         // After the commit, for the reason the mirror insert above states.
         const readIssueId = asIssueId(message.toId)
-        afterCommit(() => {
+        afterCommit(async () => {
           try {
-            this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            // AWAITED, for the reason the delivery path above states.
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2887,9 +2904,17 @@ export class MessageDeliveryService {
     if (this.attentionEmitted.has(dedupe)) return
     this.attentionEmitted.add(dedupe)
     await this.emitTransition(message, 'message.needs_attention')
-    try {
-      this.deps.notifyOperator?.({ messageId: message.id, reason, body: message.body })
-    } catch {}
+    // AFTER THE COMMIT [POD-3820]. The sweep that reaches here runs inside a
+    // span, and the notify path is an external effect whose implementations open
+    // their own store transaction: firing it here unawaited is the POD-3802
+    // shape, and awaiting it inside the span would announce an alarm a rollback
+    // then unmakes. With no span open `afterCommit` runs it now, as before.
+    const notice = { messageId: message.id, reason, body: message.body }
+    afterCommit(async () => {
+      try {
+        await this.deps.notifyOperator?.(notice)
+      } catch {}
+    }, 'message-needs-attention-notify')
   }
 
   /** One podium_events row per ledger transition (steward visibility, audit). */

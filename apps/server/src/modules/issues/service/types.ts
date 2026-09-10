@@ -315,8 +315,18 @@ export interface IssueDeps {
   /** Send-time mail delivery hook (issue #103): the registry nudges the target
    *  issue's live agent session. Best-effort — sendMail swallows its failures. */
   onMailSent?(row: IssueRow, message: IssueMessageRow): void
-  /** Fired after a durable closed-predicate flip so session teardown can begin. */
-  onIssueClosed?(input: { issueId: IssueId }): void
+  /**
+   * Fired after a durable closed-predicate flip so session teardown can begin.
+   *
+   * PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]: the composition root
+   * wires it to `stopClosedIssue`, which reads the issue back and stops its
+   * sessions. Typed `=> void` that `async` wiring
+   * was assignable anyway and the close dropped the promise mid-span — the
+   * POD-3802 shape. Awaited at the call site now; the cleanup itself still
+   * defers its own tail past the commit, so the close does not wait on worktree
+   * work.
+   */
+  onIssueClosed?(input: { issueId: IssueId }): Promise<void>
   /**
    * An issue came into existence, for a composition root that publishes it
    * (podium-cloud's analytics subscriber).

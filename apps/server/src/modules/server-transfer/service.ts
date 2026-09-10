@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { join } from 'node:path'
-import { describeError } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { validatePublicUrl } from '@podium/runtime/setup'
+import { afterCommit } from '../../store/executor/executor'
 import { isActiveTransfer, TransferJournal } from './journal'
 import { TransferLock } from './lock'
 import {
@@ -29,6 +30,8 @@ import {
   type TransferProof,
   type TransferRecord,
 } from './types'
+
+const log = createLogger('server:server-transfer')
 
 const CHUNK_BYTES = 512 * 1024
 const TARGET_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
@@ -246,7 +249,15 @@ export type ServerTransferCrashPoint =
 export interface ServerTransferHooks {
   operationId?: string
   transferId?: string
-  onRecord?: (record: TransferRecord) => void
+  /**
+   * Journal-record tick. PROMISE-TYPED BECAUSE IT WRITES THE STORE [POD-3820]:
+   * the operation wiring persists the record and reports progress through the
+   * operations engine. Typed `=> void` that wiring hid two dropped promises
+   * behind a `void` signature — the POD-3802 shape. Handed to `afterCommit` at
+   * both call sites so a per-chunk tick still does not block the upload and
+   * never runs inside an open span.
+   */
+  onRecord?: (record: TransferRecord) => Promise<void>
   onPhase?: (
     phase: 'preflight' | 'stage' | 'validate',
     state: 'running' | 'done',
@@ -464,6 +475,30 @@ export class ServerTransferService {
         else hooks.onPhase?.('validate', 'done', record)
       }
 
+      /**
+       * THE ONE HAND-OFF for `hooks.onRecord` [POD-3820].
+       *
+       * The dep persists the record and reports progress through the operations
+       * engine — both store writes. It is called from a per-chunk upload tick,
+       * so it must not be awaited there: that would serialise a journal write
+       * and an engine write into the copy loop. `afterCommit` is the honest
+       * middle: with a span open the tick waits for its COMMIT and runs at the
+       * root, so the write can never JOIN the caller's span as a savepoint (the
+       * POD-3802 refusal); with no span open it runs now, as before. The
+       * rejection is caught here rather than left to surface from the drain,
+       * because a progress tick must not fail a transfer.
+       */
+      const emitRecord = (tick: TransferRecord): void => {
+        const onRecord = hooks.onRecord
+        if (!onRecord) return
+        afterCommit(async () => {
+          try {
+            await onRecord(tick)
+          } catch (err) {
+            log.warn('server transfer record hook failed', { err, operationId })
+          }
+        }, 'server-transfer-record')
+      }
       let prepared: { transferId: string; manifestDigest: string } | undefined
       let fenceHeld = false
       const persistProgress = (bytesCopied: number, totalBytes: number) => {
@@ -472,7 +507,7 @@ export class ServerTransferService {
         }
         record = { ...record, phase: 'copying', bytesCopied, totalBytes }
         this.journal.updateRecord(record)
-        hooks.onRecord?.(record)
+        emitRecord(record)
       }
       try {
         let initialManifest = record.manifest
@@ -486,7 +521,7 @@ export class ServerTransferService {
             totalBytes: initialManifest.packageBytes,
           }
           this.journal.updateRecord(record)
-          hooks.onRecord?.(record)
+          emitRecord(record)
         }
         prepared = {
           transferId: initialManifest.transferId,

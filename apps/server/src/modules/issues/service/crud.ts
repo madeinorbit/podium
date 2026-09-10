@@ -1278,7 +1278,12 @@ export class IssueCrudModule {
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
       await this.attention().retireIssueOffers(row)
-      this.onIssueClosed?.({
+      // AWAITED [POD-3820]. The hook opens its own store work; dropping the
+      // promise inside this span is the shape that wedged the lock queue
+      // (POD-3802). Awaiting is cheap: the cleanup registers its own tail with
+      // `afterCommit` and returns, so the close still does not wait for the
+      // worktree stop.
+      await this.onIssueClosed?.({
         issueId: row.id,
       })
 

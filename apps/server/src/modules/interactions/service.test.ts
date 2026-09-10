@@ -114,7 +114,9 @@ function harness(
   const svc = new InteractionService({
     store,
     now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-    publish: (row) => published.push(row),
+    publish: async (row) => {
+      published.push(row)
+    },
     deliver: async (input) => {
       delivered.push(input.answer)
       return options.delivery?.(input.answer) ?? { ok: true, via: 'menu', choices: [] }
@@ -303,7 +305,7 @@ describe('InteractionService — synthesis', () => {
     const broken = new InteractionService({
       store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
       now: () => '2026-08-14T00:00:00.000Z',
-      publish: () => {},
+      publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         throw new Error('daemon offline')
@@ -782,7 +784,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     const service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: () => {},
+      publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         throw new Error('transcript rpc is down')
@@ -850,7 +852,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     const service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: (row) => published.push(row),
+      publish: async (row) => {
+        published.push(row)
+      },
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => ({ items: [] }),
       policyPrincipal: () => PRINCIPAL,
@@ -898,7 +902,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     const svc = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: (row) => published.push(row),
+      publish: async (row) => {
+        published.push(row)
+      },
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         await readGate
@@ -943,7 +949,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     const svc = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: () => {},
+      publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         await readGate
@@ -986,7 +992,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     const svc = new InteractionService({
       store,
       now: () => '2026-08-14T00:00:00.000Z',
-      publish: (row) => published.push(row),
+      publish: async (row) => {
+        published.push(row)
+      },
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => {
         startRead()
@@ -1029,7 +1037,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: () => {},
+      publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => ({ items: [] }),
       policyPrincipal: () => PRINCIPAL,
@@ -1133,7 +1141,7 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     const service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: () => {},
+      publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => ({ items: [] }),
       policyPrincipal: () => PRINCIPAL,
@@ -1167,7 +1175,9 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     const service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: (row) => published.push(row),
+      publish: async (row) => {
+        published.push(row)
+      },
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => ({ items: [] }),
       policyPrincipal: () => PRINCIPAL,
@@ -1372,7 +1382,9 @@ describe('InteractionService — a policy answer whose delivery THREW (POD-2414)
     const service = new InteractionService({
       store,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: (row) => published.push(row),
+      publish: async (row) => {
+        published.push(row)
+      },
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
       readTranscript: async () => ({ items: [] }),
       policyPrincipal: () => PRINCIPAL,
@@ -1495,8 +1507,9 @@ describe('InteractionsRepository', () => {
 
 /**
  * `publish` is `InteractionFeed.publish` at the composition root (relay.ts) — an
- * `async` function whose promise every one of the ten call sites discards,
- * because the dep is typed `=> void`. Under the async store executor that
+ * `async` function whose promise every one of the ten call sites used to
+ * discard, because the dep was typed `=> void` (POD-3820 made it
+ * `Promise<void>`). Under the async store executor that
  * discarded transaction JOINS whatever span the mutation is running in, as a
  * savepoint: the mutation's next statement addresses a frame with an open child
  * and is refused, and the savepoint dies when the span closes [POD-3806].
@@ -1514,9 +1527,12 @@ describe('InteractionService under the async store (POD-3806)', () => {
     const svc = new InteractionService({
       store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
-      publish: (row) => {
+      publish: async (row) => {
         published.push(row)
-        void store.transact(async () => {
+        // AWAITED, exactly as the composition root's `interactionFeed.publish`
+        // is now that the dep returns `Promise<void>` (POD-3820). Dropping it
+        // here would model a wiring the compiler no longer accepts.
+        await store.transact(async () => {
           await store.issues.getIssue(asIssueId('iss_publish'))
         })
       },
