@@ -164,6 +164,17 @@ export interface FamilyState {
   readonly readiness?: Context['readiness']
   readonly requestCoordinatorRestart?: Context['requestCoordinatorRestart']
   /**
+   * THIS PROCESS's event-loop accounting rings (loop design §7.2), for
+   * `perf.snapshot`. On the bundle for the same reason as `repos` and
+   * `telemetry`: exactly one family reads it, and naming it here is a smaller
+   * claim than widening `RegistryModules` — the handle is a property of the
+   * PROCESS, not a composed service, and the registry composes services.
+   *
+   * Optional, and absence is a real state rather than a missing wire: at profile
+   * level `off` nothing is installed, so there is no handle to pass.
+   */
+  readonly loopAccounting?: Context['loopAccounting']
+  /**
    * WHO IS ASKING — IDENTITY ONLY, and the shape is narrow on purpose.
    *
    * Four reads need to know whose rows to return or whose access to log:
@@ -420,6 +431,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   ...(ctx.requestCoordinatorRestart
     ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
     : {}),
+  ...(ctx.loopAccounting ? { loopAccounting: ctx.loopAccounting } : {}),
   caller: {
     userId: callerUserId(ctx),
     sessionState: sessionStatePrincipalFor(ctx.principal),

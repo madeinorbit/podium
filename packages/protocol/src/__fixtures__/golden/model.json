@@ -2922,12 +2922,36 @@
           "currentBytes": 1,
           "highBytes": 1,
           "stalledPct": 1
+        },
+        "loop": {
+          "at": "loop.at",
+          "component": "server",
+          "level": "off",
+          "utilizationPct": 1,
+          "utilizationMaxPct": 1,
+          "runqueueWaitPct": 1,
+          "blockedPct": 1,
+          "stalls": 1,
+          "stallP50Ms": 1,
+          "stallP99Ms": 1,
+          "stallMaxMs": 1,
+          "heapUsedBytes": 1,
+          "rssBytes": 1,
+          "selfCostPct": 1,
+          "buckets": {
+            "loop.buckets.key": {
+              "wallMs": 1,
+              "count": 1
+            }
+          },
+          "coverage": 1,
+          "nestedBuckets": ["loop.nestedBuckets[0]"]
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1}}"
+      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"]}}"
     },
     {
       "schema": "HumanSettableIssueStage",
@@ -6264,6 +6288,161 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
+    },
+    {
+      "schema": "LoopBucketCostWire",
+      "variant": "minimal",
+      "wire": {
+        "wallMs": 1,
+        "count": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"wallMs\":1,\"count\":1}"
+    },
+    {
+      "schema": "LoopBucketCostWire",
+      "variant": "full",
+      "wire": {
+        "wallMs": 1,
+        "count": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"wallMs\":1,\"count\":1}"
+    },
+    {
+      "schema": "LoopComponentWire",
+      "variant": "minimal",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
+    },
+    {
+      "schema": "LoopComponentWire",
+      "variant": "full",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
+    },
+    {
+      "schema": "LoopMinuteWire",
+      "variant": "minimal",
+      "wire": {
+        "at": "at",
+        "component": "server",
+        "level": "off",
+        "blockedPct": 1,
+        "stalls": 1,
+        "stallP50Ms": 1,
+        "stallP99Ms": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostPct": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1}"
+    },
+    {
+      "schema": "LoopMinuteWire",
+      "variant": "full",
+      "wire": {
+        "at": "at",
+        "component": "server",
+        "level": "off",
+        "utilizationPct": 1,
+        "utilizationMaxPct": 1,
+        "runqueueWaitPct": 1,
+        "blockedPct": 1,
+        "stalls": 1,
+        "stallP50Ms": 1,
+        "stallP99Ms": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostPct": 1,
+        "buckets": {
+          "buckets.key": {
+            "wallMs": 1,
+            "count": 1
+          }
+        },
+        "coverage": 1,
+        "nestedBuckets": ["nestedBuckets[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
+    },
+    {
+      "schema": "LoopProfileLevelWire",
+      "variant": "minimal",
+      "wire": "off",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"off\""
+    },
+    {
+      "schema": "LoopProfileLevelWire",
+      "variant": "full",
+      "wire": "off",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"off\""
+    },
+    {
+      "schema": "LoopWindowWire",
+      "variant": "minimal",
+      "wire": {
+        "at": 1,
+        "blockedMs": 1,
+        "stalls": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":1,\"blockedMs\":1,\"stalls\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostMs\":1}"
+    },
+    {
+      "schema": "LoopWindowWire",
+      "variant": "full",
+      "wire": {
+        "at": 1,
+        "utilizationPct": 1,
+        "runqueueWaitPct": 1,
+        "blockedMs": 1,
+        "stalls": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostMs": 1,
+        "buckets": {
+          "buckets.key": {
+            "wallMs": 1,
+            "count": 1
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":1,\"utilizationPct\":1,\"runqueueWaitPct\":1,\"blockedMs\":1,\"stalls\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}}}"
     },
     {
       "schema": "MachineComponent",

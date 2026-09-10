@@ -2,6 +2,7 @@ import type { PrepareCoordinatorUpdate } from './modules/updates/installed-resta
 import { createLogger } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
+import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -70,6 +71,16 @@ export interface Context {
   users?: UsersRepository
   /** Is login required on this instance — `credentialsRequired()` from server.ts. */
   loginRequired?: () => boolean | Promise<boolean>
+  /**
+   * This process's event-loop accounting rings, which `perf.snapshot` reports
+   * alongside the timings (loop design §7.2).
+   *
+   * A property of the PROCESS rather than of the registry, which is why it is on
+   * the context rather than in `RegistryModules`. Optional and absent at profile
+   * level `off`: at that level nothing is installed and the snapshot omits its
+   * whole `loop` section, which is the honest answer.
+   */
+  loopAccounting?: LoopAccountingHandle
   /** Source-host only: schedule the verified redeploy unit after an operator
    * authorizes a target newer than this server's boot identity. */
   requestCoordinatorRestart?: () => void | Promise<void>

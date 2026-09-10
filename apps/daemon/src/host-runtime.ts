@@ -1221,6 +1221,13 @@ export async function createDaemonHostRuntime(args: {
   let disposed = false
   const pushHostMetrics = (): void => {
     const sessionsMemory = scopeMonitor.sessionsMemory()
+    // This daemon's last COMPLETE minute of event-loop accounting (loop-profile
+    // design §7.1). Absent at level `off` (the handle is inert), and absent for
+    // the first minute after boot — the record describes a closed minute, and
+    // there is no honest partial one to send. This push is every 15 s, so the
+    // same minute goes out up to four times; that is the intended shape, and the
+    // server dedupes by `at`. See the field's comment on `HostMetricsWire`.
+    const loop = loopAccounting?.latestMinute()
     send({
       type: 'hostMetrics',
       hostname: hostname(),
@@ -1235,6 +1242,7 @@ export async function createDaemonHostRuntime(args: {
       // before any session has been scoped here — the server then reads only
       // the host-wide number, exactly as it did before this existed.
       ...(sessionsMemory ? { sessionsMemory } : {}),
+      ...(loop ? { loop } : {}),
     })
   }
 

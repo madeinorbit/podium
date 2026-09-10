@@ -1,5 +1,11 @@
 import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
+import type {
+  AgentRuntimeState,
+  HostMetricsWire,
+  LoopMinuteWire,
+  MachineId,
+  SessionId,
+} from '@podium/model'
 import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
@@ -147,6 +153,19 @@ export class HostsService {
   // Latest health sample per daemon host, keyed by machineId — each connected
   // machine reports its own sample, scoped to it so a detach drops only its row.
   private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
+  /**
+   * THE NEWEST EVENT-LOOP MINUTE EACH DAEMON HAS REPORTED (loop design §7.1).
+   *
+   * Kept BESIDE `latestHostMetrics` rather than inside it, which is what makes
+   * the strip below a deletion and not a filter someone has to remember: the
+   * sample that reaches clients simply never holds a minute, because the minute
+   * was moved out on the way in.
+   *
+   * In memory, and gone with the process. A minute record is a diagnostic about
+   * a loop that is running now; nothing about it is worth a table, and a
+   * restarted server is honestly reporting that it has heard nothing yet.
+   */
+  private readonly latestLoopMinutes = new Map<MachineId, LoopMinuteWire>()
   /** Machines whose latest sample arrived while lifecycle effects were fenced. */
   private readonly deferredPressureMachines = new Set<MachineId>()
   // At most one hibernation per cooldown window PER MACHINE — memory readings need
@@ -169,6 +188,10 @@ export class HostsService {
     // machine's numbers never linger as truth. Keyed by machineId, so other machines'
     // samples are untouched.
     bus.on('machine.disconnected', ({ machineId }) => {
+      // Same reason, same moment: a minute from a machine that is gone describes
+      // a loop nobody can still be watching, and leaving it in the snapshot
+      // would report a fleet larger than the one reporting.
+      this.latestLoopMinutes.delete(machineId)
       if (this.latestHostMetrics.delete(machineId)) this.broadcastHostMetrics()
     })
   }
@@ -179,8 +202,17 @@ export class HostsService {
     machineId: MachineId,
     sample: Omit<HostMetricsWire, 'machineId' | 'name'>,
   ): Promise<void> {
+    // THE LOOP MINUTE COMES OFF THE SAMPLE HERE (loop design §7.1), before
+    // anything else touches it. It goes to the perf snapshot and nowhere else:
+    // the web app renders none of it, it is the largest field on this frame, and
+    // this frame is broadcast to every connected client on every push from every
+    // machine. Destructuring rather than deleting a key means the rest of this
+    // method — and `hostMetricsMessage`, and the fenced path below — cannot
+    // reintroduce it by accident.
+    const { loop, ...metrics } = sample
+    this.recordLoopMinute(machineId, loop)
     const tagged: HostMetricsWire = {
-      ...sample,
+      ...metrics,
       machineId,
       name: await this.deps.machineName(machineId),
     }
@@ -220,6 +252,41 @@ export class HostsService {
       changed = true
     }
     if (changed) this.broadcastHostMetrics()
+  }
+
+  /**
+   * Keep this minute only if it is NEWER THAN THE ONE HELD, by the record's own
+   * `at` — never by arrival.
+   *
+   * The daemon repeats its latest minute on every 15 s push, so most calls here
+   * are the same record arriving again and must be no-ops. More importantly, a
+   * reconnect can deliver a queued older frame after a newer one, and a machine
+   * whose clock stepped can report out of order; a last-write-wins map would
+   * then install an older minute over a newer one and a reader would see the
+   * loop go backwards with nothing saying it had.
+   *
+   * The comparison is on the ISO string deliberately: these are minute
+   * boundaries from `toISOString()`, which is fixed-width UTC and therefore
+   * orders lexically exactly as it orders in time, and a string compare cannot
+   * fail on an unparseable value the way `Date.parse` silently can (NaN, which
+   * loses every comparison and would let a corrupt record pin the map forever).
+   */
+  private recordLoopMinute(machineId: MachineId, minute: LoopMinuteWire | undefined): void {
+    if (minute === undefined) return
+    const held = this.latestLoopMinutes.get(machineId)
+    if (held !== undefined && minute.at <= held.at) return
+    this.latestLoopMinutes.set(machineId, minute)
+  }
+
+  /**
+   * The latest minute per machine, for `perf.snapshot` (loop design §7.2).
+   *
+   * A fresh object each call rather than the live map: the snapshot is
+   * serialized asynchronously and a handed-out map would keep mutating under the
+   * reader.
+   */
+  loopMinutes(): Record<MachineId, LoopMinuteWire> {
+    return Object.fromEntries(this.latestLoopMinutes) as Record<MachineId, LoopMinuteWire>
   }
 
   hostMetricsMessage(): LiveServerMessage {

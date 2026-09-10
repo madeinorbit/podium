@@ -111,6 +111,161 @@
       "encoded": "{\"switchId\":\"switchId\",\"startedAt\":3,\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"mode\":\"unknown\",\"cold\":true,\"totalMs\":3,\"timedOut\":true,\"marks\":[{\"name\":\"marks[0].name\",\"atMs\":3,\"meta\":{\"marks[0].meta.key\":true}}],\"meta\":{\"meta.key\":true}}"
     },
     {
+      "schema": "LoopBucketCostWire",
+      "variant": "minimal",
+      "wire": {
+        "wallMs": 1,
+        "count": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"wallMs\":1,\"count\":1}"
+    },
+    {
+      "schema": "LoopBucketCostWire",
+      "variant": "full",
+      "wire": {
+        "wallMs": 1,
+        "count": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"wallMs\":1,\"count\":1}"
+    },
+    {
+      "schema": "LoopComponentWire",
+      "variant": "minimal",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
+    },
+    {
+      "schema": "LoopComponentWire",
+      "variant": "full",
+      "wire": "server",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"server\""
+    },
+    {
+      "schema": "LoopMinuteWire",
+      "variant": "minimal",
+      "wire": {
+        "at": "at",
+        "component": "server",
+        "level": "off",
+        "blockedPct": 1,
+        "stalls": 1,
+        "stallP50Ms": 1,
+        "stallP99Ms": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostPct": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1}"
+    },
+    {
+      "schema": "LoopMinuteWire",
+      "variant": "full",
+      "wire": {
+        "at": "at",
+        "component": "server",
+        "level": "off",
+        "utilizationPct": 1,
+        "utilizationMaxPct": 1,
+        "runqueueWaitPct": 1,
+        "blockedPct": 1,
+        "stalls": 1,
+        "stallP50Ms": 1,
+        "stallP99Ms": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostPct": 1,
+        "buckets": {
+          "buckets.key": {
+            "wallMs": 1,
+            "count": 1
+          }
+        },
+        "coverage": 1,
+        "nestedBuckets": ["nestedBuckets[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
+    },
+    {
+      "schema": "LoopProfileLevelWire",
+      "variant": "minimal",
+      "wire": "off",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"off\""
+    },
+    {
+      "schema": "LoopProfileLevelWire",
+      "variant": "full",
+      "wire": "off",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"off\""
+    },
+    {
+      "schema": "LoopWindowWire",
+      "variant": "minimal",
+      "wire": {
+        "at": 1,
+        "blockedMs": 1,
+        "stalls": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":1,\"blockedMs\":1,\"stalls\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostMs\":1}"
+    },
+    {
+      "schema": "LoopWindowWire",
+      "variant": "full",
+      "wire": {
+        "at": 1,
+        "utilizationPct": 1,
+        "runqueueWaitPct": 1,
+        "blockedMs": 1,
+        "stalls": 1,
+        "stallMaxMs": 1,
+        "heapUsedBytes": 1,
+        "rssBytes": 1,
+        "selfCostMs": 1,
+        "buckets": {
+          "buckets.key": {
+            "wallMs": 1,
+            "count": 1
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":1,\"utilizationPct\":1,\"runqueueWaitPct\":1,\"blockedMs\":1,\"stalls\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}}}"
+    },
+    {
       "schema": "switchMarkSchema",
       "variant": "minimal",
       "wire": {

@@ -96,6 +96,7 @@
 import { z } from 'zod'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
 import { AgentKind, HarnessAgent } from './agent'
+import { LoopMinuteWire } from './loop'
 
 // ---------------------------------------------------------------------------
 // Harness + tool inventory (was messages/inventory.ts)
@@ -309,6 +310,32 @@ export const HostMetricsWire = z.object({
       stalledPct: z.number().nonnegative().optional(),
     })
     .optional(),
+  /**
+   * WHAT THIS MACHINE'S DAEMON EVENT LOOP DID IN ITS LAST COMPLETE MINUTE
+   * (loop-profile-levels design §7.1).
+   *
+   * It rides on THIS frame rather than on a channel of its own because the
+   * frame already exists, already arrives from every daemon, and is already
+   * scoped to the machine the record is about. A second push would be a second
+   * thing to authenticate, a second thing to reconnect, and a second thing to
+   * forget to send.
+   *
+   * THE SAME MINUTE REPEATS UP TO FOUR TIMES. This push runs every 15 s and the
+   * accounting closes a minute every 60 s, so consecutive frames carry the same
+   * record. That redundancy is deliberate and belongs on the SENDER: the
+   * receiver can collapse two identical minutes by `at` and can never recover
+   * one that a reconnect ate. The server keeps the newest per machine BY `at`,
+   * never by arrival — samples from a machine whose clock or link reordered
+   * them must not be able to install an older minute over a newer one.
+   *
+   * Absent below level `accounting`, absent before the daemon's first minute
+   * completes, and absent from an older daemon — which is why it is optional
+   * and why the parser here was widened in the same change that taught the
+   * daemon to send it. Never forwarded to clients: the server strips it when it
+   * tags the sample, since the web app renders none of it and it is by far the
+   * largest field on this frame.
+   */
+  loop: LoopMinuteWire.optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 

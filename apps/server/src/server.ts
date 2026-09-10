@@ -1425,6 +1425,17 @@ export async function startServer(
     trustedProxyHops,
   })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
+  /**
+   * Event-loop accounting, when the level installs it (it is started further
+   * down, inside the listen promise). Declared at THIS scope — above the /trpc
+   * context factory rather than beside the wiring that assigns it — because four
+   * places need it: that wiring, the tRPC context (so `perf.snapshot` can report
+   * the rings), the handle this function resolves, and the shutdown step that
+   * releases the file. `let`, and read through the context factory's closure at
+   * REQUEST time, so a request served before the level is resolved simply sees
+   * `undefined` and reports no loop section.
+   */
+  let loopAccounting: LoopAccountingHandle | undefined
   app.use('/setup/*', cors())
   app.use('/readiness', cors())
   registerReadinessRoute(app, readiness)
@@ -1585,6 +1596,10 @@ export async function startServer(
           // login as OFF over tRPC no matter how many credentials existed.
           loginRequired: credentialsRequired,
           modules: registry.modules,
+          // Absent at profile level `off`, and absent until the level resolves
+          // during listen — `perf.snapshot` then omits its `loop` section, which
+          // is what "nothing was measured" has to look like.
+          ...(loopAccounting ? { loopAccounting } : {}),
           // Only so telemetry.preview can show the REAL report [spec:SP-f933];
           // consent lives in config.json and is never read through the context.
           telemetry,
@@ -1692,10 +1707,6 @@ export async function startServer(
   const requestedPort = opts.port ?? 0
   return new Promise<ServerHandle>(async (resolve, reject) => {
     let settled = false
-    // Event-loop accounting, when the level installs it (see below). Declared
-    // here because three places need it: the wiring that starts it, the handle
-    // that exposes it, and the shutdown step that releases the file.
-    let loopAccounting: LoopAccountingHandle | undefined
     let loopMinuteSink: LoopMinuteFileSink | undefined
     const failListen = async (err: unknown): Promise<void> => {
       if (settled) return

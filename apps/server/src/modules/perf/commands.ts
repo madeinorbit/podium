@@ -33,7 +33,9 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import { createLogger } from '@podium/logger'
+import type { LoopMinuteWire, MachineId } from '@podium/model'
 import type { Principal } from '@podium/protocol'
+import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import type { z } from 'zod'
 import { perfPrincipal } from './principal'
 import type { PerfRegistry } from './registry'
@@ -49,6 +51,28 @@ const log = createLogger('server:perf')
 export interface PerfState {
   readonly perf: PerfRegistry
   readonly feedPrincipal?: Principal
+  /**
+   * THIS PROCESS's event-loop rings, absent at profile level `off` (loop design
+   * §7.2). Optional because absence is a real, expected state — at `off` nothing
+   * is installed, so there is no handle to hand over — and `snapshot` omits its
+   * whole `loop` section rather than reporting an idle loop it never measured.
+   */
+  readonly loopAccounting?: LoopAccountingHandle
+  /**
+   * The newest minute each DAEMON has reported, from the hosts service.
+   *
+   * REQUIRED, and a function rather than a value. Required because the hosts
+   * service always exists in a composed server: making it optional would mean a
+   * composition root that forgot to select it produces a snapshot whose
+   * `daemons` is empty, which is indistinguishable from a fleet that has
+   * reported nothing — a wiring bug that reads as data. A reader who has to
+   * supply a stub in a test is the price of that not being possible.
+   *
+   * A function because the map keeps changing after the bundle is built: every
+   * host metrics push updates it, and a value captured at service-selection time
+   * would be a snapshot of the wrong moment.
+   */
+  readonly loopMinutes: () => Record<MachineId, LoopMinuteWire>
 }
 
 export type PerfHandler<In, Out> = (state: PerfState, input: In) => Out

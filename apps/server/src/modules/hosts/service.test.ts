@@ -1,5 +1,6 @@
 import type { HostMetricsWire, SessionId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
+import type { LiveServerMessage } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../../test-support/capture-logs'
@@ -1000,5 +1001,151 @@ describe('reclaim disk estimate cache', () => {
     })
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2))
     now.mockRestore()
+  })
+})
+
+/**
+ * THE DAEMON'S EVENT-LOOP MINUTE, riding on the host metrics frame (loop design
+ * §7.1).
+ *
+ * Two properties, and neither is about the happy path. The map is keyed by the
+ * record's own `at` rather than by arrival, so a reordered or replayed frame
+ * cannot install an older minute over a newer one; and the minute is taken OFF
+ * the sample on the way in, so the frame every connected client receives on
+ * every push from every machine does not carry it.
+ */
+describe('daemon loop minutes', () => {
+  const MINUTE = {
+    component: 'daemon' as const,
+    level: 'accounting' as const,
+    blockedPct: 4,
+    stalls: 1,
+    stallP50Ms: 10,
+    stallP99Ms: 20,
+    stallMaxMs: 30,
+    heapUsedBytes: 1,
+    rssBytes: 2,
+    selfCostPct: 0.1,
+  }
+  const minuteAt = (at: string, utilizationPct: number) => ({ ...MINUTE, at, utilizationPct })
+
+  /** A hosts service with a recording client, and nothing else switched on:
+   *  hibernation is off, so `onHostMetrics` is only doing the metrics path. */
+  function loopHarness() {
+    const sent: LiveServerMessage[] = []
+    const bus = new EventBus()
+    const settings = PodiumSettings.parse({
+      hibernation: { enabled: false, memoryPct: 80, idleMinutes: 30, maxIdleSessions: null },
+    })
+    const deps = {
+      getSettings: async () => settings,
+      transferFenceActive: () => false,
+      clients: () => [{ send: (msg: LiveServerMessage) => void sent.push(msg) }],
+      machineName: async (id: string) => id,
+      sessions: async () => [],
+      hibernateSession: async () => ({ ok: false }),
+      parkShellSession: async () => ({ ok: false }),
+      parkStaleSession: async () => ({ ok: false }),
+      hasScheduledWakeup: async () => false,
+      hasValidTerminalProof: async () => true,
+      terminalProofMissing: async () => false,
+      daemonRequest: {
+        request: vi.fn(),
+        settle: vi.fn(),
+        nextRequestId: vi.fn(),
+      } as unknown as HostsDeps['daemonRequest'],
+      toMachine: () => {},
+    } as unknown as HostsDeps
+    return { service: new HostsService(deps, bus), sent, bus }
+  }
+
+  it('keeps the newest minute per machine by `at`, and ignores an older one', async () => {
+    const h = loopHarness()
+    const box = asMachineId('box-1')
+    await h.service.onHostMetrics(box, {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    expect(h.service.loopMinutes()[box]?.utilizationPct).toBe(50)
+
+    // The 15 s push repeats the same minute up to four times — a no-op, not a rewrite.
+    await h.service.onHostMetrics(box, {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    expect(h.service.loopMinutes()[box]?.utilizationPct).toBe(50)
+
+    await h.service.onHostMetrics(box, {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:02:00.000Z', 60),
+    })
+    expect(h.service.loopMinutes()[box]?.utilizationPct).toBe(60)
+
+    // A REPLAYED OR REORDERED frame. Last-write-wins here would walk the reported
+    // loop backwards with nothing in the snapshot saying it had.
+    await h.service.onHostMetrics(box, {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    expect(h.service.loopMinutes()[box]?.utilizationPct).toBe(60)
+  })
+
+  it('keeps one minute per machine, not one for the fleet', async () => {
+    const h = loopHarness()
+    await h.service.onHostMetrics(asMachineId('box-1'), {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    // An OLDER minute from a DIFFERENT machine must still land: the newest-wins
+    // comparison is per machine, and a fleet-wide one would hide a quiet host.
+    await h.service.onHostMetrics(asMachineId('box-2'), {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:00:00.000Z', 5),
+    })
+    expect(h.service.loopMinutes()).toEqual({
+      'box-1': minuteAt('2026-09-10T12:01:00.000Z', 50),
+      'box-2': minuteAt('2026-09-10T12:00:00.000Z', 5),
+    })
+  })
+
+  it('never forwards the minute to clients', async () => {
+    const h = loopHarness()
+    await h.service.onHostMetrics(asMachineId('box-1'), {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    const broadcast = h.sent.at(-1)
+    expect(broadcast?.type).toBe('hostMetricsChanged')
+    const hosts = (broadcast as { hosts: HostMetricsWire[] }).hosts
+    expect(hosts).toHaveLength(1)
+    expect(hosts[0]).not.toHaveProperty('loop')
+    // …and the rest of the sample is untouched by the strip.
+    expect(hosts[0]?.hostname).toBe('box')
+    expect(hosts[0]?.machineId).toBe('box-1')
+
+    // The bootstrap snapshot a fresh client receives reads the same store, so it
+    // cannot carry one either.
+    const bootstrap: LiveServerMessage[] = []
+    h.service.snapshotFor((msg) => void bootstrap.push(msg as LiveServerMessage))
+    expect((bootstrap[0] as { hosts: HostMetricsWire[] }).hosts[0]).not.toHaveProperty('loop')
+  })
+
+  it("drops a machine's minute when its daemon disconnects", async () => {
+    const h = loopHarness()
+    const box = asMachineId('box-1')
+    await h.service.onHostMetrics(box, {
+      ...sample(10),
+      loop: minuteAt('2026-09-10T12:01:00.000Z', 50),
+    })
+    h.bus.emit('machine.disconnected', { machineId: box })
+    // Not an empty minute — no entry at all. A machine that is gone reports
+    // nothing, which is a different claim from a machine reporting an idle loop.
+    expect(h.service.loopMinutes()).toEqual({})
+  })
+
+  it('records nothing for a daemon that sends no minute', async () => {
+    const h = loopHarness()
+    await h.service.onHostMetrics(asMachineId('box-1'), sample(10))
+    expect(h.service.loopMinutes()).toEqual({})
   })
 })

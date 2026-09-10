@@ -863,6 +863,77 @@ describe('host metrics messages', () => {
       ),
     ).toThrow()
   })
+
+  /**
+   * THE DAEMON'S LATEST EVENT-LOOP MINUTE, riding on this frame (loop design
+   * §7.1). Two cases, and the SECOND is the one that matters: the parser was
+   * widened in the same change that taught the daemon to send the field, so what
+   * has to be proved is not only that a frame carrying it survives the round
+   * trip, but that a frame WITHOUT it still parses — every daemon older than
+   * this change, every daemon at level `off`, and every daemon in the first
+   * minute after boot sends exactly that frame.
+   */
+  const minute = {
+    at: '2026-09-10T12:34:00.000Z',
+    component: 'daemon' as const,
+    level: 'attribution' as const,
+    utilizationPct: 81.4,
+    utilizationMaxPct: 99.1,
+    runqueueWaitPct: 3.2,
+    blockedPct: 12.5,
+    stalls: 7,
+    stallP50Ms: 24,
+    stallP99Ms: 310,
+    stallMaxMs: 412,
+    heapUsedBytes: 128_000_000,
+    rssBytes: 512_000_000,
+    selfCostPct: 0.14,
+    buckets: { 'ws.daemon': { wallMs: 120.5, count: 44 }, timers: { wallMs: 9, count: 300 } },
+    coverage: 1.08,
+    nestedBuckets: ['sql'],
+  }
+
+  it('round-trips a hostMetrics frame carrying a loop minute', () => {
+    const msg = {
+      type: 'hostMetrics' as const,
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      memory,
+      loop: minute,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('parses a hostMetrics frame with no loop minute', () => {
+    const msg = {
+      type: 'hostMetrics' as const,
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      memory,
+    }
+    const parsed = parseDaemonMessage(encode(msg))
+    expect(parsed).toEqual(msg)
+    expect(parsed).not.toHaveProperty('loop')
+  })
+
+  /**
+   * A BUCKET NAME THIS BUILD HAS NEVER HEARD OF STILL PARSES.
+   *
+   * The bucket set is the runtime's and is expected to grow. If this schema
+   * re-enumerated the names, a newer daemon's minute would be REFUSED by an
+   * older server — and a refused daemon frame is not a dropped field, it is a
+   * dropped frame, taking the memory and load samples with it.
+   */
+  it('accepts a loop minute naming a bucket this schema does not enumerate', () => {
+    const msg = {
+      type: 'hostMetrics' as const,
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      memory,
+      loop: { ...minute, buckets: { 'some.future.bucket': { wallMs: 1, count: 2 } } },
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
 })
 
 describe('memory breakdown messages', () => {

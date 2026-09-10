@@ -47,6 +47,10 @@ export * from './entities/issue-status'
 export * from './entities/cost'
 export * from './entities/issue-dep'
 export * from './entities/issue-event'
+// What one process's event loop did, per second and per minute. Rides on the
+// host metrics frame below and on `perf.snapshot` — see the file header for why
+// the schemas are here rather than in @podium/protocol.
+export * from './entities/loop'
 export * from './entities/pending-interaction-row'
 export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,

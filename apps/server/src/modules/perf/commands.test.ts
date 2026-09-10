@@ -16,6 +16,11 @@ import { PerfRegistry } from './registry'
 const ALICE: Principal = { kind: 'user', user: asUserId('user:alice'), device: asDeviceId('dev'), capability: asCapabilityRef('cap') }
 const BOB: Principal = { kind: 'user', user: asUserId('user:bob'), device: asDeviceId('dev'), capability: asCapabilityRef('cap') }
 
+/** The reads a report handler never makes, so the bundle can be built at all.
+ *  `loopMinutes` is REQUIRED on `PerfState` on purpose — see the field's comment
+ *  — so a caller that only exercises `report` still has to state one. */
+const noLoopMinutes = () => ({})
+
 function trace(switchId: string, sessionId: string): ClientSwitchTrace {
   return {
     switchId,
@@ -38,7 +43,7 @@ describe('perf.report attribution [POD-1230]', () => {
     // payload, this would land on Alice's partition — the concrete harm D17
     // forbids.
     PERF_COMMANDS_TRPC.report.handler(
-      { perf: reg, feedPrincipal: BOB },
+      { perf: reg, feedPrincipal: BOB, loopMinutes: noLoopMinutes },
       trace('bob-forged', 'sess-alice'),
     )
 
@@ -53,11 +58,11 @@ describe('perf.report attribution [POD-1230]', () => {
   it('keeps two callers on separate partitions', () => {
     const reg = new PerfRegistry()
     PERF_COMMANDS_TRPC.report.handler(
-      { perf: reg, feedPrincipal: ALICE },
+      { perf: reg, feedPrincipal: ALICE, loopMinutes: noLoopMinutes },
       trace('alice-switch', 'sess-a'),
     )
     PERF_COMMANDS_TRPC.report.handler(
-      { perf: reg, feedPrincipal: BOB },
+      { perf: reg, feedPrincipal: BOB, loopMinutes: noLoopMinutes },
       trace('bob-switch', 'sess-b'),
     )
 
@@ -73,7 +78,10 @@ describe('perf.report attribution [POD-1230]', () => {
   it('refuses to report without a transport principal rather than dumping into DEPLOYMENT', () => {
     const reg = new PerfRegistry()
     expect(() =>
-      PERF_COMMANDS_TRPC.report.handler({ perf: reg }, trace('orphan', 'sess-x')),
+      PERF_COMMANDS_TRPC.report.handler(
+        { perf: reg, loopMinutes: noLoopMinutes },
+        trace('orphan', 'sess-x'),
+      ),
     ).toThrow(/authenticated feed principal required/)
     expect(reg.snapshot().clientSwitches).toHaveLength(0)
   })

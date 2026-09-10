@@ -1,6 +1,9 @@
+import { LoopMinuteWire, LoopProfileLevelWire, LoopWindowWire } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LOOP_PROFILE_LEVELS } from './config'
 import {
   LOOP_BUCKETS,
+  LOOP_NESTED_BUCKETS,
   type LoopAccountingOptions,
   type LoopMinute,
   MINUTE_RING,
@@ -355,5 +358,75 @@ describe('parseProcStat', () => {
   it('is undefined on a row it cannot read', () => {
     expect(parseProcStat('')).toBeUndefined()
     expect(parseProcStat('2225619 (podium) S 1 2')).toBeUndefined()
+  })
+})
+
+/**
+ * THE WIRE CONTRACT, PINNED AGAINST A REAL RECORD (loop design §7.1/§7.2).
+ *
+ * `LoopMinuteWire` / `LoopWindowWire` in @podium/model are a HAND-WRITTEN mirror
+ * of the interfaces above, and the model package deliberately does not import
+ * this module (it is a leaf of Zod schemas that a browser bundle parses; this
+ * module reads `/proc`). A mirror is only safe if something proves the two still
+ * agree, and the failure it prevents is silent and remote: a field added or
+ * retyped here, a daemon that starts sending it, and a server that refuses the
+ * whole `hostMetrics` frame — dropping the memory and load samples with it.
+ *
+ * So the fixture is not hand-written: these parse the records the module ACTUALLY
+ * produced, with every optional field populated.
+ */
+describe('the model wire schemas accept what this module produces', () => {
+  it('parses a real minute and a real window, unchanged', () => {
+    const h = harness()
+    for (let second = 0; second < 60; second += 1) {
+      h.burnCpu(100)
+      h.waitOnRunqueue(10)
+      h.handle.attribute('sql', 2)
+      h.handle.attribute('rpc', 3)
+      if (second === 10) h.block(300)
+      h.idle(SAMPLE_MS)
+    }
+    const minute = h.handle.latestMinute()
+    const window = h.handle.latestWindow()
+    h.handle.stop()
+
+    // The optional fields have to be PRESENT or this proves nothing about them.
+    expect(minute?.utilizationPct).toBeGreaterThan(0)
+    expect(minute?.runqueueWaitPct).toBeGreaterThan(0)
+    expect(minute?.buckets?.sql?.count).toBeGreaterThan(0)
+    expect(minute?.nestedBuckets).toEqual(LOOP_NESTED_BUCKETS)
+    expect(minute?.coverage).toBeGreaterThan(0)
+    expect(window?.utilizationPct).toBeGreaterThan(0)
+    expect(window?.buckets?.sql?.count).toBeGreaterThan(0)
+
+    // Parsed, and IDENTICAL — a schema that silently stripped a field would pass
+    // a bare `parse` and lose exactly what the record was sent to carry.
+    expect(LoopMinuteWire.parse(minute)).toEqual(minute)
+    expect(LoopWindowWire.parse(window)).toEqual(window)
+  })
+
+  /** A minute from a host with no `/proc` — the fields the schema must allow to
+   *  be missing are missing, rather than sent as a zero that reads as an idle loop. */
+  it('parses a minute from a host that could not measure utilization', () => {
+    const h = harness({ readMainThreadCpu: () => undefined, readSchedstat: () => '' })
+    h.idle(SAMPLE_MS * 60)
+    const minute = h.handle.latestMinute()
+    h.handle.stop()
+    expect(minute).toBeDefined()
+    expect(minute).not.toHaveProperty('utilizationPct')
+    expect(minute).not.toHaveProperty('runqueueWaitPct')
+    expect(LoopMinuteWire.parse(minute)).toEqual(minute)
+  })
+
+  /**
+   * THE LEVEL NAMES, ON BOTH SIDES.
+   *
+   * `LOOP_PROFILE_LEVELS` here is ordered — `atLeast` compares indices — and
+   * `LoopProfileLevelWire` restates the same four names as the set a record may
+   * carry. Equal as ARRAYS, not as sets: a reordering here changes what every
+   * gate means, and this is the cheapest place that notices.
+   */
+  it('states the same four levels as the wire enum, in the same order', () => {
+    expect(LoopProfileLevelWire.options).toEqual([...LOOP_PROFILE_LEVELS])
   })
 })

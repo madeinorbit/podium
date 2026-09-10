@@ -42,7 +42,14 @@
  * historical baseline must stay readable. The dimensions are ADDED beside them.
  */
 
-import { IssueIdField, SessionIdField } from '@podium/model'
+import {
+  IssueIdField,
+  type LoopMinuteWire,
+  type LoopProfileLevelWire,
+  type LoopWindowWire,
+  type MachineId,
+  SessionIdField,
+} from '@podium/model'
 import { z } from 'zod'
 
 /** Stable client-switch mark names shared by emitters and trace readers.
@@ -210,4 +217,59 @@ export interface PerfSnapshot {
    * valid, same-principal comparison comes from.
    */
   byPrincipal: Record<string, PerfPrincipalSlice>
+  /**
+   * WHAT THE EVENT LOOPS DID — this server's own rings, plus the latest minute
+   * from every daemon that reported one (loop-profile-levels design §7.2).
+   *
+   * Here rather than in a diagnostic of its own because a switch that was slow
+   * and a loop that was 90 percent busy in the same second are one question, and
+   * reading them out of two endpoints means correlating two samples taken at two
+   * moments. Everything above is what the server SPENT time on; this is how much
+   * time there was to spend.
+   *
+   * ABSENT AT LEVEL `off`, which is the customer default: at `off` nothing is
+   * installed — no timer, no /proc read, no ring — so there is no snapshot to
+   * take, and an empty section here would claim a perfectly idle fleet. Absence
+   * is the honest answer and a reader must treat it as "not measured".
+   */
+  loop?: PerfLoopSection
 }
+
+/** The `loop` section of {@link PerfSnapshot}. */
+export interface PerfLoopSection {
+  /** The level THIS SERVER resolved. The parent states one level to both its
+   *  children, so a daemon minute below carries the same name — but each record
+   *  carries its own `level` and a reader should trust that, not this. */
+  level: LoopProfileLevelWire
+  /** This process's rings, newest last: 120 seconds and 60 minutes. */
+  server: {
+    windows: LoopWindowWire[]
+    minutes: LoopMinuteWire[]
+  }
+  /**
+   * The newest minute each daemon has reported, keyed by machine. IN MEMORY on
+   * the server and gone with the process: a minute record is a diagnostic about
+   * a running loop, and nothing in this feature is worth a table.
+   *
+   * A machine is absent until its daemon completes a minute AND pushes it, so an
+   * absent machine means "nothing reported yet", never "an idle loop".
+   */
+  daemons: Record<MachineId, LoopMinuteWire>
+}
+
+/**
+ * The loop record schemas, re-exported from `@podium/model`.
+ *
+ * They are DEFINED there because `HostMetricsWire` embeds one and this package
+ * depends on that one, not the reverse (see the header of
+ * `@podium/model`'s `entities/loop.ts`). They are re-exported HERE because this
+ * file is the perf wire contract, and a reader who came looking for the shape of
+ * `PerfSnapshot.loop` should not have to know which package won that edge.
+ */
+export {
+  LoopBucketCostWire,
+  LoopComponentWire,
+  LoopMinuteWire,
+  LoopProfileLevelWire,
+  LoopWindowWire,
+} from '@podium/model'

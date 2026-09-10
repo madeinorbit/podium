@@ -139,6 +139,8 @@
         "src/modules/perf/commands.test.ts",
         "src/modules/perf/commands.ts",
         "src/modules/perf/principal.ts",
+        "src/modules/perf/queries.test.ts",
+        "src/modules/perf/queries.ts",
         "src/modules/perf/registry.test.ts",
         "src/modules/perf/registry.ts",
         "src/modules/server-transfer/journal.test.ts",
