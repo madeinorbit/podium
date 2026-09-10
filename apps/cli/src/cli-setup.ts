@@ -7,7 +7,7 @@ import {
   loadConfig,
   saveConfig,
 } from '@podium/runtime/config'
-import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
+import { connectivityPath, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
 import {
   assertModeWritable,
@@ -71,7 +71,15 @@ const JOIN_CONNECT_POLL_MS = 100
 
 /** Wait for this join attempt to reach an authenticated daemon handshake. The daemon's
  * connectivity file is the cross-process truth: a parent PID or a started systemd unit says
- * nothing about whether the source accepted the credential. */
+ * nothing about whether the source accepted the credential.
+ *
+ * Read it through the POD-3815 liveness fence (POD-3826). The file is shared by every
+ * process that has ever held this machine's link, so a record outlives its writer — and
+ * all three terminal branches below would then answer for a daemon that is gone: a stale
+ * `connected` returns success with no live link, a stale `unauthorized`/`blocked` throws a
+ * rejection that may be long over. Suppressing the dead writer's record settles all three
+ * at once, and leaves the loop seeing nothing — which is exactly the state of a join that
+ * has not happened yet, so it keeps waiting for the real daemon until the deadline. */
 export async function waitForDaemonEnrollment(
   opts: {
     timeoutMs?: number
@@ -88,7 +96,7 @@ export async function waitForDaemonEnrollment(
   const deadline = now() + timeoutMs
   let lastError: string | undefined
   while (now() < deadline) {
-    const status = readConnectivity()
+    const status = readLiveConnectivity()
     if (status?.state === 'connected') return
     if (status?.state === 'unauthorized') {
       throw new Error(

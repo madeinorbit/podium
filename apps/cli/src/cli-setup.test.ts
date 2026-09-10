@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
+import { writeConnectivity } from '@podium/runtime/connectivity'
 import { encodeJoin } from '@podium/runtime/join'
 import { NETWORK_OPTIONS } from '@podium/runtime/setup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +12,7 @@ import {
   runJoinSetup,
   runVpsSetup,
   shouldRunCliSetup,
+  waitForDaemonEnrollment,
 } from './cli-setup'
 import { scriptedIO } from './setup-ui'
 
@@ -663,5 +665,105 @@ describe('runCliSetup under a deployment that owns the answers', () => {
     await done
     expect(out.join('\n')).not.toMatch(/strands every machine/)
     expect(loadConfig().publicUrl).toBe('https://a.example')
+  })
+})
+
+/**
+ * POD-3826. `connectivity.json` is shared by every process that has ever held this
+ * machine's link, and a record outlives the daemon that wrote it. The join wait is the
+ * reader with the worst consequence: `podium setup --join` is a one-shot operation an
+ * operator performs once and then trusts, and all three of its terminal branches read
+ * the raw file — a stale `connected` returns success with no live link, a stale
+ * `unauthorized`/`blocked` throws an error naming a rejection that may be long over.
+ *
+ * The fence is the writer's `processId` (POD-3815). Suppressing the dead writer's record
+ * fixes all three at once: the loop then sees nothing, which is exactly the state of a
+ * join that has not happened yet, and keeps waiting for the real daemon until its
+ * deadline. Suppression is only ever on PROOF — a record naming no writer still counts.
+ */
+describe('waitForDaemonEnrollment ignores a dead daemon s leftover record (POD-3826)', () => {
+  let dir: string
+  const priorDir = process.env.PODIUM_STATE_DIR
+  /** Beyond pid_max — guaranteed not alive. */
+  const deadPid = 2 ** 30
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-joinwait-'))
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    process.env.PODIUM_STATE_DIR = priorDir
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** A clock the wait drives itself: every poll sleep advances it, so the deadline is
+   *  reached in five iterations rather than thirty real seconds. */
+  const scriptedClock = () => {
+    let t = 0
+    let sleeps = 0
+    return {
+      now: () => t,
+      sleep: async (ms: number) => {
+        sleeps += 1
+        t += ms
+      },
+      get sleeps() {
+        return sleeps
+      },
+    }
+  }
+  const wait = (clock: ReturnType<typeof scriptedClock>) =>
+    waitForDaemonEnrollment({ timeoutMs: 500, pollMs: 100, now: clock.now, sleep: clock.sleep })
+
+  it('returns as soon as the LIVE daemon reports connected', async () => {
+    writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    const clock = scriptedClock()
+    await expect(wait(clock)).resolves.toBeUndefined()
+    expect(clock.sleeps, 'a live record ends the wait on the first poll').toBe(0)
+  })
+
+  it('keeps waiting through a dead daemon s connected record instead of declaring success', async () => {
+    writeConnectivity({ state: 'connected', processId: deadPid }, dir)
+    const clock = scriptedClock()
+    await expect(wait(clock)).rejects.toThrow(/did not connect within 1 second/)
+    expect(clock.sleeps, 'it polls to the deadline, as for a join that has not happened').toBe(5)
+  })
+
+  /** One rejection, two questions: it must be the deadline, and it must not carry the
+   *  dead daemon's refusal reason at an operator whose join is not being refused. */
+  const failureOf = async (clock: ReturnType<typeof scriptedClock>) => {
+    const error = await wait(clock).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    )
+    if (!error) throw new Error('the wait returned success on a dead daemon s record')
+    return error.message
+  }
+
+  it('does not throw a dead daemon s unauthorized rejection at a join that is fine', async () => {
+    writeConnectivity(
+      { state: 'unauthorized', processId: deadPid, authorizationReason: 'bad-token' },
+      dir,
+    )
+    const message = await failureOf(scriptedClock())
+    expect(message, 'a rejection nobody is making must not be named').not.toContain('bad-token')
+    expect(message).toMatch(/did not connect within/)
+  })
+
+  it('does not throw a dead daemon s blocked refusal at a join that is fine', async () => {
+    writeConnectivity(
+      { state: 'blocked', processId: deadPid, blockedReason: 'machine-revoked' },
+      dir,
+    )
+    const message = await failureOf(scriptedClock())
+    expect(message, 'a refusal that is long over must not be named').not.toContain(
+      'machine-revoked',
+    )
+    expect(message).toMatch(/did not connect within/)
+  })
+
+  it('still trusts a record that names no writer — absence is not proof of staleness', async () => {
+    writeConnectivity({ state: 'connected' }, dir)
+    await expect(wait(scriptedClock())).resolves.toBeUndefined()
   })
 })
