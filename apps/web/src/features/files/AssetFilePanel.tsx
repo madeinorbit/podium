@@ -3,6 +3,7 @@ import { Maximize2, Minus, Plus, X } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { DownloadFileButton } from './DownloadFileButton'
 import type { FileKind } from './file-kind'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { rawFileUrl } from './open-in-browser'
@@ -62,6 +63,7 @@ export function AssetFilePanel({
             {path}
           </span>
           <OpenInBrowserButton scope={scope} path={path} dirty={false} />
+          <DownloadFileButton scope={scope} path={path} dirty={false} />
           <Button
             type="button"
             variant="ghost"

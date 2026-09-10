@@ -101,4 +101,18 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
     expect(res.status).toBe(416)
     expect(res.headers.get('content-range')).toBe('bytes */10')
   })
+
+  it('serves a snapshot file as a download named after its basename when asked', async () => {
+    const app = appWith({
+      read: async () => ({
+        bytes: Buffer.from('<h1>hi</h1>'),
+        contentType: 'text/html; charset=utf-8',
+        size: 11,
+      }),
+    })
+    const res = await app.request('/files/artifact/iss_1/abc123/site/index.html?download=1')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="index.html"')
+    expect(res.headers.get('content-security-policy')).toBeNull()
+  })
 })

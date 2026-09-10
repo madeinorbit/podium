@@ -9,13 +9,14 @@ mod bootstrap;
 mod logging;
 mod updater;
 
-use std::collections::VecDeque;
-use std::path::Path;
+use std::collections::{HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
+use tauri::webview::DownloadEvent;
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
@@ -309,6 +310,55 @@ fn remote_parent_command(runnable: &Path, shutdown_file: &Path) -> Command {
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
+}
+
+/// Where a webview download lands: `downloads/<name>`, stepping to `name (2).ext`,
+/// `name (3).ext`, … past whatever already exists. `name` is whatever the response
+/// or URL called the file; anything path-like in it is reduced to its final
+/// component so a served name can never climb out of the downloads folder.
+fn download_destination(downloads: &Path, name: &str) -> PathBuf {
+    let leaf = name.rsplit(['/', '\\']).next().unwrap_or("").trim();
+    let leaf = if leaf.is_empty() || leaf == "." || leaf == ".." {
+        "download"
+    } else {
+        leaf
+    };
+    let candidate = downloads.join(leaf);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let (stem, ext) = match leaf.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, Some(ext)),
+        _ => (leaf, None),
+    };
+    (2..)
+        .map(|n| match ext {
+            Some(ext) => downloads.join(format!("{stem} ({n}).{ext}")),
+            None => downloads.join(format!("{stem} ({n})")),
+        })
+        .find(|path| !path.exists())
+        .expect("an unbounded counter finds a free name")
+}
+
+/// The file's own name for a download: the URL's last path segment, or the
+/// `download=` name the file viewer's link carries when the route is query-style
+/// (`/files/asset?…&path=%2Fw%2Fnotes.md&download=1`), whose last segment is just
+/// "asset". The server's Content-Disposition holds the same name; wry does not
+/// hand it to this hook, so it is recovered from the URL the page built.
+fn download_name_from_url(url: &Url) -> String {
+    let from_path = url
+        .query_pairs()
+        .find(|(key, _)| key == "path")
+        .map(|(_, value)| value.into_owned())
+        .and_then(|path| path.rsplit('/').next().map(str::to_owned))
+        .filter(|leaf| !leaf.is_empty());
+    from_path
+        .or_else(|| {
+            url.path_segments()
+                .and_then(|segments| segments.last().map(str::to_owned))
+                .filter(|leaf| !leaf.is_empty())
+        })
+        .unwrap_or_else(|| "download".to_string())
 }
 
 fn native_window_capability(
@@ -2225,6 +2275,51 @@ fn main() {
                         // native events it gives up: the shell uploads nothing, and the page
                         // owns the workspace the bytes land in.
                         .disable_drag_drop_handler()
+                        // The file viewer's Download button is a plain `<a download>` to the
+                        // server's `?download=1` route. WKWebView drops a download unless the
+                        // app claims it, so this hook is what makes the button work in the
+                        // shell at all: it names the destination (the OS Downloads folder,
+                        // deduplicated) and reveals the file once it lands. macOS never reports
+                        // the finished path, hence the URL-keyed ledger of what was chosen.
+                        .on_download({
+                            let downloads_app = handle2.clone();
+                            let in_flight: Arc<Mutex<HashMap<Url, PathBuf>>> =
+                                Arc::new(Mutex::new(HashMap::new()));
+                            move |_webview, event| {
+                                match event {
+                                    DownloadEvent::Requested { url, destination } => {
+                                        let Ok(downloads) = downloads_app.path().download_dir()
+                                        else {
+                                            log::error!("no downloads folder for {url}");
+                                            return false;
+                                        };
+                                        let target = download_destination(
+                                            &downloads,
+                                            &download_name_from_url(&url),
+                                        );
+                                        in_flight.lock().unwrap().insert(url, target.clone());
+                                        *destination = target;
+                                    }
+                                    DownloadEvent::Finished { url, path, success } => {
+                                        let chosen = in_flight.lock().unwrap().remove(&url);
+                                        let landed = path.or(chosen);
+                                        match (success, landed) {
+                                            (true, Some(landed)) => {
+                                                if let Err(error) =
+                                                    tauri_plugin_opener::reveal_item_in_dir(&landed)
+                                                {
+                                                    log::warn!("cannot reveal {landed:?}: {error}");
+                                                }
+                                            }
+                                            (true, None) => log::info!("downloaded {url}"),
+                                            (false, _) => log::error!("download failed: {url}"),
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                true
+                            }
+                        })
                         .initialization_script(&init)
                         .on_page_load(move |window, payload| {
                             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
@@ -2406,6 +2501,91 @@ fn main() {
 mod tests {
     use super::*;
     use tauri::ipc::RuntimeCapability;
+
+    /// A fresh per-test scratch folder, removed on drop.
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "podium-desktop-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn download_destination_steps_past_existing_files() {
+        let dir = Scratch::new("downloads");
+        assert_eq!(
+            download_destination(dir.path(), "notes.md"),
+            dir.path().join("notes.md")
+        );
+        std::fs::write(dir.path().join("notes.md"), b"x").unwrap();
+        assert_eq!(
+            download_destination(dir.path(), "notes.md"),
+            dir.path().join("notes (2).md")
+        );
+        std::fs::write(dir.path().join("notes (2).md"), b"x").unwrap();
+        assert_eq!(
+            download_destination(dir.path(), "notes.md"),
+            dir.path().join("notes (3).md")
+        );
+        std::fs::write(dir.path().join("Makefile"), b"x").unwrap();
+        assert_eq!(
+            download_destination(dir.path(), "Makefile"),
+            dir.path().join("Makefile (2)")
+        );
+        std::fs::write(dir.path().join(".env"), b"x").unwrap();
+        assert_eq!(
+            download_destination(dir.path(), ".env"),
+            dir.path().join(".env (2)")
+        );
+    }
+
+    #[test]
+    fn download_destination_never_leaves_the_downloads_folder() {
+        let dir = Scratch::new("downloads-escape");
+        assert_eq!(
+            download_destination(dir.path(), "../../etc/passwd"),
+            dir.path().join("passwd")
+        );
+        assert_eq!(
+            download_destination(dir.path(), ".."),
+            dir.path().join("download")
+        );
+        assert_eq!(
+            download_destination(dir.path(), ""),
+            dir.path().join("download")
+        );
+    }
+
+    #[test]
+    fn download_name_prefers_the_viewer_path_over_the_route_name() {
+        let url = Url::parse(
+            "http://127.0.0.1:18787/files/asset?sessionId=s1&path=%2Fw%2Fsite%2Findex.html&download=1",
+        )
+        .unwrap();
+        assert_eq!(download_name_from_url(&url), "index.html");
+        let artifact =
+            Url::parse("http://127.0.0.1:18787/files/artifact/iss_1/abc/shots/a.png?download=1")
+                .unwrap();
+        assert_eq!(download_name_from_url(&artifact), "a.png");
+        assert_eq!(
+            download_name_from_url(&Url::parse("http://h/").unwrap()),
+            "download"
+        );
+    }
 
     fn command_env(command: &Command, key: &str) -> Option<String> {
         command

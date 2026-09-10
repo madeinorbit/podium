@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Pencil, Save, Search, X } from 'l
 import { type JSX, useDeferredValue, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DownloadFileButton } from './DownloadFileButton'
 import { parseDelimitedDocument } from './delimited-document'
 import { canSave } from './editor-save'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
@@ -103,6 +104,7 @@ export function TableFilePanel({
             {doc.saveFeedback?.message ?? ''}
           </span>
           <OpenInBrowserButton scope={scope} path={path} dirty={doc.dirty} />
+          <DownloadFileButton scope={scope} path={path} dirty={doc.dirty} />
           <Button
             type="button"
             variant="ghost"

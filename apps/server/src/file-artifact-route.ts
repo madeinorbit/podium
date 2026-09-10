@@ -2,7 +2,7 @@
 import { type ArtifactId, asArtifactId, asIssueId, type IssueId } from '@podium/model'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
-import { rawFileHeaders } from './raw-file-headers'
+import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 const MAX_RANGE_BYTES = 10 * 1024 * 1024
 
@@ -78,6 +78,7 @@ export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): v
         contentType: r.contentType,
         cacheControl: 'private, max-age=31536000, immutable',
         secFetchDest: c.req.header('sec-fetch-dest'),
+        download: downloadName(c.req.query('download'), rel),
       }),
       'accept-ranges': 'bytes',
       ...(range

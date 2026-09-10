@@ -37,4 +37,21 @@ describe('rawFileHeaders', () => {
     expect(h['cache-control']).toBe('immutable')
     expect(h['x-content-type-options']).toBe('nosniff')
   })
+
+  it('marks a download as an attachment named after the file, and drops the page sandbox', () => {
+    const h = rawFileHeaders({
+      contentType: 'text/html; charset=utf-8',
+      cacheControl: 'no-cache',
+      secFetchDest: 'document',
+      download: 'mock "v2".html',
+    })
+    expect(h['content-disposition']).toBe('attachment; filename="mock \\"v2\\".html"')
+    expect(h['content-security-policy']).toBeUndefined()
+    expect(h['content-type']).toBe('text/html; charset=utf-8')
+  })
+
+  it('serves inline when no download name is given', () => {
+    const h = rawFileHeaders({ contentType: 'image/png', cacheControl: 'no-cache' })
+    expect(h['content-disposition']).toBeUndefined()
+  })
 })

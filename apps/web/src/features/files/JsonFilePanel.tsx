@@ -22,6 +22,7 @@ import { type JSX, useCallback, useDeferredValue, useId, useMemo, useRef } from 
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
 import {
   describeShape,
@@ -241,6 +242,7 @@ export function JsonFilePanel({
           {doc.saveFeedback?.message ?? ''}
         </span>
         <OpenInBrowserButton scope={scope} path={path} dirty={doc.dirty} />
+        <DownloadFileButton scope={scope} path={path} dirty={doc.dirty} />
         <Button
           type="button"
           variant="ghost"

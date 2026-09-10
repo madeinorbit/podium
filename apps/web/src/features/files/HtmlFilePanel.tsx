@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { scopedAssetUrl } from '@/lib/asset-url'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
 import {
   buildStaticHtmlPreview,
@@ -170,6 +171,7 @@ export function HtmlFilePanel({
           {doc.saveFeedback?.message ?? ''}
         </span>
         <OpenInBrowserButton scope={scope} path={path} dirty={doc.dirty} />
+        <DownloadFileButton scope={scope} path={path} dirty={doc.dirty} />
         <Button
           type="button"
           variant="ghost"

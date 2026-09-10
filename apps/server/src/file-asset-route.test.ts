@@ -233,4 +233,20 @@ describe('GET /files/asset', () => {
     const res = await app.request('/files/asset')
     expect(res.status).toBe(400)
   })
+
+  it('serves the file as a download named after its basename when asked', async () => {
+    const app = new Hono()
+    registerAssetRoute(
+      app,
+      stub({
+        ok: true,
+        dataBase64: Buffer.from('<h1>hi</h1>').toString('base64'),
+        contentType: 'text/html; charset=utf-8',
+      }),
+    )
+    const res = await app.request('/files/asset?sessionId=s&path=/w/site/index.html&download=1')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="index.html"')
+    expect(res.headers.get('content-security-policy')).toBeNull()
+  })
 })

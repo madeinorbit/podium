@@ -23,3 +23,19 @@ export function rawFileUrl(args: {
   if (!name) return null
   return scopedAssetUrl({ httpOrigin, scope, fileDir, src: name })
 }
+
+/**
+ * The same bytes as `rawFileUrl`, served as an attachment (`download=1`), plus the
+ * name the browser should save under — the file's basename, which is also what the
+ * server puts in Content-Disposition.
+ */
+export function downloadFileUrl(args: {
+  httpOrigin: string
+  scope: FileScope
+  path: string
+}): { url: string; name: string } | null {
+  const raw = rawFileUrl(args)
+  if (!raw) return null
+  const name = args.path.slice(args.path.lastIndexOf('/') + 1)
+  return { url: `${raw}${raw.includes('?') ? '&' : '?'}download=1`, name }
+}

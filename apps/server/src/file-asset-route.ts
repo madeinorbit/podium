@@ -4,7 +4,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { asMachineId, asSessionId, type MachineId, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
-import { rawFileHeaders } from './raw-file-headers'
+import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
   /** Worktree asset URLs carry their root over HTTP, so the route must verify
@@ -106,6 +106,7 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
         contentType: r.contentType ?? 'application/octet-stream',
         cacheControl: 'no-cache',
         secFetchDest: c.req.header('sec-fetch-dest'),
+        download: downloadName(c.req.query('download'), path),
       }),
       'accept-ranges': 'bytes',
       ...(range
