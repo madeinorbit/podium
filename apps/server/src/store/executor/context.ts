@@ -144,6 +144,13 @@ export interface TransactionFrame {
    * refuses with it. The root path passes {@link ALWAYS_ALIVE}.
    */
   readonly alive: () => boolean
+  /**
+   * The stack where this scope was OPENED — captured at the `transact`/`read`
+   * call, which is the last point at which the caller is still on the stack
+   * [POD-3805]. Every refusal that names this frame carries it, so a refusal
+   * points at a code site and not only at a transaction id.
+   */
+  readonly openedAt: string
   /** The open nested scope, if any. Only the innermost frame is addressable. */
   child: TransactionFrame | undefined
   active: boolean
@@ -204,11 +211,14 @@ export function createFrame(input: {
   parent: TransactionFrame | undefined
   postCommit: PostCommitRegistry
   alive?: () => boolean
+  /** See {@link TransactionFrame.openedAt}. Captured by the CALLER, not here. */
+  openedAt: string
 }): TransactionFrame {
   const id = nextFrameId++
   const frame: TransactionFrame = {
     id,
     lane: input.lane,
+    openedAt: input.openedAt,
     lease: input.lease,
     depth: input.parent ? input.parent.depth + 1 : 0,
     parent: input.parent,
@@ -235,17 +245,22 @@ export function createFrame(input: {
  * savepoint is open is the same interleaving in the other direction.
  */
 export function assertAddressable(frame: TransactionFrame): void {
+  // Every refusal here carries the frame's open site: the message names an id,
+  // and an id has never been enough to find the call that leaked (POD-3805).
+  const origin = { openedAt: frame.openedAt }
   if (frame.unit.poisoned !== undefined) {
     throw new TransactionPoisonedError(
       `transaction ${frame.id} is poisoned: a savepoint boundary failed, so what the engine ` +
         'still holds open is unknown and nothing further may be issued on it.',
       frame.unit.poisoned,
+      origin,
     )
   }
   if (!frame.active) {
     throw new StaleTransactionError(
       `transaction ${frame.id} is closed: an operation reached it after its scope ended. ` +
         'A promise the body did not await is the usual cause.',
+      origin,
     )
   }
   if (!frame.alive()) {
@@ -253,6 +268,7 @@ export function assertAddressable(frame: TransactionFrame): void {
       `transaction ${frame.id} ran on a lease that has been released: the post-commit drain ` +
         'that held the connection ended while this transaction was still in flight. A ' +
         'follow-up that did not return its transaction promise is the usual cause.',
+      origin,
     )
   }
   if (frame.child) {
@@ -260,6 +276,9 @@ export function assertAddressable(frame: TransactionFrame): void {
       `transaction ${frame.id} has an open nested scope (${frame.child.id}); only the ` +
         'innermost scope may be addressed. Two nested transactions in parallel are not ' +
         'supported: savepoints are a stack.',
+      // The CHILD's site is the one that names the defect: the scope nobody
+      // awaited is the reason this statement cannot run.
+      { ...origin, nestedOpenedAt: frame.child.openedAt },
     )
   }
 }

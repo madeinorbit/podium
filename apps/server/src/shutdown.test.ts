@@ -95,8 +95,11 @@ describe('closeServerFast', () => {
       logError: (msg) => errors.push(msg),
     })
     expect(ran).toEqual(['flushActivity', 'store.close'])
+    // `dispose boom`, not `Error: dispose boom`: the line renders the cause CHAIN
+    // now (POD-3805), and a bare `Error` class name adds nothing to it. A wrapped
+    // failure reads `outer ← inner`, which is the half POD-3802 lost.
     expect(errors).toEqual([
-      expect.stringContaining("shutdown step 'registry.dispose' failed: Error: dispose boom"),
+      expect.stringContaining("shutdown step 'registry.dispose' failed: dispose boom"),
     ])
   })
 

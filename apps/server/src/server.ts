@@ -1553,14 +1553,17 @@ export async function startServer(
     trpcServer({
       router: appRouter,
       // Error funnel: every failed /trpc call leaves a server-side trace (proc +
-      // code + message — no payloads). Without this, 500s (INTERNAL_SERVER_ERROR)
-      // were completely invisible in the server log.
+      // code + the error and its cause chain — no payloads). Without this, 500s
+      // (INTERNAL_SERVER_ERROR) were completely invisible in the server log.
       onError: ({ error, path, type }) => {
         log.warn('tRPC procedure failed', {
           callType: type,
           path: path ?? '<unknown>',
           code: error.code,
-          reason: error.message,
+          // `err`, not `error.message`: a TRPCError keeps the real failure in
+          // `cause`, the logger walks it recursively, and a message-only line is
+          // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
+          err: error,
         })
       },
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard

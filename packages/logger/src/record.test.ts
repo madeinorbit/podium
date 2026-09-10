@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildRecord, RESERVED_KEYS, serializeError, toNdjson } from './record'
+import { buildRecord, describeError, RESERVED_KEYS, serializeError, toNdjson } from './record'
 
 describe('serializeError', () => {
   it('keeps name, message and stack of a real Error', () => {
@@ -151,5 +151,76 @@ describe('toNdjson', () => {
     )
     expect(() => JSON.parse(line)).not.toThrow()
     expect(JSON.parse(line).msg).toBe('m')
+  })
+})
+
+describe('describeError', () => {
+  it('renders a lone error as its own message', () => {
+    expect(describeError(new Error('the feed manifest was not published'))).toBe(
+      'the feed manifest was not published',
+    )
+  })
+
+  it('renders the cause chain oldest-last, which is the sentence an operator needs', () => {
+    // The POD-3802 shape: Drizzle's generic wrapper over the executor's refusal.
+    // The wrapper alone is what the update panel showed for a day.
+    const refusal = new Error('transaction 4 has an open nested scope (5)')
+    refusal.name = 'ParallelNestedTransactionError'
+    const thrown = new Error('Failed query: insert into "locks"', { cause: refusal })
+    expect(describeError(thrown)).toBe(
+      'Failed query: insert into "locks" ← ParallelNestedTransactionError: transaction 4 has an ' +
+        'open nested scope (5)',
+    )
+  })
+
+  it('names a plain Error by its message alone, and any other class by class and message', () => {
+    expect(describeError(new TypeError('x is not a function'))).toBe(
+      'TypeError: x is not a function',
+    )
+  })
+
+  it('stops at the same depth the serializer does, and says that it stopped', () => {
+    let deepest = new Error('root')
+    for (let level = 6; level > 0; level--) {
+      deepest = new Error(`level ${level}`, { cause: deepest })
+    }
+    const described = describeError(deepest)
+    expect(described.startsWith('level 1 ← level 2 ← level 3 ← level 4 ← level 5 ← level 6')).toBe(
+      true,
+    )
+    expect(described).not.toContain('root')
+    expect(described.endsWith(' ← …')).toBe(true)
+  })
+
+  it('terminates on a self-referential cause', () => {
+    const err = new Error('loop') as Error & { cause?: unknown }
+    err.cause = err
+    // One link, then the marker: a chain that only repeats itself has nothing
+    // more to say, and the marker is still honest that the walk stopped early.
+    expect(describeError(err)).toBe('loop ← …')
+  })
+
+  it('describes a thrown non-Error without losing its value', () => {
+    expect(describeError('just a string')).toBe('just a string')
+    expect(describeError({ code: 17 })).toBe('{"code":17}')
+    expect(describeError(undefined)).toBe('undefined')
+  })
+
+  it('walks the cause of an already-serialized error from across a process boundary', () => {
+    expect(
+      describeError({
+        name: 'FetchError',
+        message: 'upload failed',
+        cause: { name: 'TypeError', message: 'body is null' },
+      }),
+    ).toBe('FetchError: upload failed ← TypeError: body is null')
+  })
+
+  it('skips a cause that only repeats its own wrapper message', () => {
+    // Drizzle wraps with `Failed query: <sql>` and some drivers rewrap the same
+    // text. A chain that says one thing twice reads as two failures.
+    const inner = new Error('database is locked')
+    const outer = new Error('database is locked', { cause: inner })
+    expect(describeError(outer)).toBe('database is locked')
   })
 })

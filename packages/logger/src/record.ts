@@ -114,6 +114,55 @@ export function serializeError(value: unknown, depth = 0): SerializedError {
   return serialized
 }
 
+/**
+ * The cause chain as ONE LINE: `"msg ← cause ← cause"` [POD-3805].
+ *
+ * For the surfaces that must render TEXT rather than a structured record — a CLI
+ * reply, the update panel's failure log, a tRPC error shape — where
+ * `error.message` is what they used to keep. POD-3802 is what that costs: the
+ * panel showed Drizzle's `Failed query: insert into "locks"` for a day while the
+ * executor's refusal sat in `.cause`, unread, because the message was all anyone
+ * had kept. A structured log line should still be given `err` itself, which
+ * {@link serializeError} renders with every stack.
+ *
+ * A link is its message alone when the class adds nothing (`Error`, and a
+ * non-Error rendered by {@link safeString}), and `Name: message` otherwise —
+ * `ParallelNestedTransactionError: transaction 4 has an open nested scope` is
+ * the half of that sentence an operator greps for.
+ *
+ * Bounded by the same {@link MAX_CAUSE_DEPTH} the serializer uses, and a walk
+ * that stopped with a cause still unread says so with a trailing `…` rather than
+ * ending as if the chain were complete. A link identical to the one before it is
+ * dropped: a driver that rewraps with its own message verbatim would otherwise
+ * read as two separate failures.
+ */
+export function describeError(value: unknown): string {
+  const links: string[] = []
+  let current: unknown = value
+  for (let depth = 0; ; depth++) {
+    // AT the depth bound, so the node is rendered without recursing into a
+    // cause this walk is about to follow itself.
+    const node = serializeError(current, MAX_CAUSE_DEPTH)
+    const bare = node.name === 'Error' || node.name === 'NonError'
+    const link = bare ? node.message : `${node.name}: ${node.message}`
+    if (links[links.length - 1] !== link) links.push(link)
+    const cause = causeOf(current)
+    if (cause === undefined) break
+    if (depth >= MAX_CAUSE_DEPTH) {
+      links.push('…')
+      break
+    }
+    current = cause
+  }
+  return links.join(' ← ')
+}
+
+/** The next link, treating a null cause as no cause — as the serializer does. */
+function causeOf(value: unknown): unknown {
+  const cause = (value as { cause?: unknown } | null | undefined)?.cause
+  return cause === null ? undefined : cause
+}
+
 function safeString(value: unknown): string {
   if (typeof value === 'string') return value
   try {

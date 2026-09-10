@@ -20,7 +20,7 @@
 
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import {
@@ -97,6 +97,18 @@ export interface DevPublisherWiring {
     bundleReady: boolean
     failureDetail?: string
   }
+}
+
+/**
+ * The failure text an operator reads in the update panel [POD-3805].
+ *
+ * The publisher's own diagnostic wins when it has one: it names the offending
+ * paths, which is more specific than any exception. Otherwise the WHOLE chain,
+ * not the outermost message — POD-3802's panel said `Failed query: insert into
+ * "locks"` for a day while the executor's refusal sat unread in `.cause`.
+ */
+export function releaseFailureLogs(unavailable: string | undefined, error: unknown): string {
+  return unavailable ?? describeError(error)
 }
 
 /**
@@ -596,8 +608,7 @@ export async function wireDevBundlePublisher(deps: {
         currentTimingRunId = undefined
       }
     },
-    failureLogs: (error) =>
-      publisher?.unavailable() ?? (error instanceof Error ? error.message : String(error)),
+    failureLogs: (error) => releaseFailureLogs(publisher?.unavailable(), error),
   })
 
   return {
@@ -688,11 +699,10 @@ export async function wireDevBundlePublisher(deps: {
           // Log each distinct refusal once. This full text — offending paths
           // included — is the CONSOLE half; only
           // `readiness().publicReason` travels to a client.
-          const diagnostic =
-            publisher.unavailable() ?? (error instanceof Error ? error.message : String(error))
+          const diagnostic = releaseFailureLogs(publisher.unavailable(), error)
           if (diagnostic !== unavailableDiagnostic) {
             unavailableDiagnostic = diagnostic
-            log.warn('development bundle unavailable', { diagnostic })
+            log.warn('development bundle unavailable', { diagnostic, err: error })
           }
           throw error
         },

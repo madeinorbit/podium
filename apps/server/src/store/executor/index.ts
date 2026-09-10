@@ -49,6 +49,7 @@ export {
   UNBOUNDED_WRITE_BUDGET_MS,
 } from './driver'
 export {
+  AbandonedNestedTransactionError,
   ExclusiveInsideLeaseError,
   NoPostCommitScopeError,
   ParallelNestedTransactionError,
@@ -58,6 +59,7 @@ export {
   StoreExecutorError,
   StoreUnhealthyError,
   TransactionPoisonedError,
+  type RefusalOrigin,
   WriteInsideReadLeaseError,
 } from './errors'
 export {
@@ -72,6 +74,7 @@ export {
   type StoreExecutor,
   type StoreExecutorOptions,
   type StoreHealth,
+  type StoreRefusal,
   spanOpen,
 } from './executor'
 export { createFrameFlusher, type FrameFlusher, type FrameFlusherOptions } from './frame-flusher'

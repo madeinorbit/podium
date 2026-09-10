@@ -1,5 +1,5 @@
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
@@ -139,19 +139,46 @@ export function issueCaller(ctx: Context): IssueCaller {
   }
 }
 
+/**
+ * Put back on the wire the two things tRPC drops with `cause` — ADDITIVELY, so
+ * every error a client already renders keeps its shape and its `message`.
+ *
+ * `data.conflict` is a refused expected-revision precondition (ADR 3 D13.3):
+ * which revision the authority expected and which it is actually at, so a client
+ * that must rebase is not left parsing English.
+ *
+ * `data.causeChain` is everything UNDER the error, rendered as one line
+ * [POD-3805]. A store failure arrives wrapped — `Failed query: insert into
+ * "locks"` over `ParallelNestedTransactionError` — and `cause` is dropped at this
+ * boundary, so the operator-facing half of the sentence never reached the UI at
+ * all (POD-3802 §2). It is a string rather than a serialized error: this travels
+ * to a client, and a stack is for the server log.
+ *
+ * Exported because it is the only testable seam here — `initTRPC.create()`
+ * swallows the formatter, and `createCaller` never runs it.
+ */
+export function errorShapeWithCause<TShape extends { data: Record<string, unknown> }>(
+  shape: TShape,
+  error: { readonly cause?: unknown },
+): TShape {
+  const conflict = error.cause instanceof IssueRevisionConflict ? error.cause.detail : undefined
+  const causeChain =
+    error.cause === undefined || error.cause === null ? undefined : describeError(error.cause)
+  if (conflict === undefined && causeChain === undefined) return shape
+  return {
+    ...shape,
+    data: {
+      ...shape.data,
+      ...(conflict === undefined ? {} : { conflict }),
+      ...(causeChain === undefined ? {} : { causeChain }),
+    },
+  }
+}
+
+/** Composed at rebase with POD-701's timing core: one create() carries both. */
 const core = initTRPC.context<Context>().create({
-  /**
-   * Lift a refused expected-revision precondition onto `error.data.conflict`
-   * (ADR 3 D13.3). tRPC drops `cause` on the way out, so without this the
-   * authority's structured rejection — which revision it expected, which it is
-   * actually at — would reach the client only as prose in `message`, and a
-   * client that must rebase would be left parsing English. Additive: every
-   * other error keeps its default shape. Composed at rebase with POD-701's
-   * timing core: one create() call carries both concerns.
-   */
   errorFormatter({ shape, error }) {
-    if (!(error.cause instanceof IssueRevisionConflict)) return shape
-    return { ...shape, data: { ...shape.data, conflict: error.cause.detail } }
+    return errorShapeWithCause(shape, error)
   },
 })
 

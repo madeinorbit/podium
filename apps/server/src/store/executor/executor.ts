@@ -34,6 +34,7 @@ import {
   poisonUnit,
   runInScope,
   settleInFlight,
+  type StoreScope,
   type TransactionFrame,
 } from './context'
 import type {
@@ -42,6 +43,7 @@ import type {
   Lane,
   QueryClient,
   Statement,
+  StatementResult,
   StatementRouter,
   StoreDriver,
 } from './driver'
@@ -51,6 +53,7 @@ import {
   NoPostCommitScopeError,
   PostCommitError,
   StaleTransactionError,
+  StoreExecutorError,
   StoreUnhealthyError,
   TransactionPoisonedError,
   WriteInsideReadLeaseError,
@@ -231,6 +234,42 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
   close(persist?: () => Promise<void>): Promise<void>
 }
 
+/**
+ * The stack where a scope is being opened, captured in the CALLER's own turn.
+ *
+ * It has to happen here, at the `transact`/`read` entry point, and not inside
+ * `createFrame`: by the time a frame exists the scheduler has awaited admission
+ * and the connection open, so the caller's frames are gone and a capture taken
+ * there names the executor's own internals. `scheduler.ts` captures its watchdog
+ * stack before queueing for the same reason.
+ *
+ * Unconditional, unlike the watchdog's. It costs one `Error.stack` per scope —
+ * measured at ~1.1µs on this runtime, against a SQLite round trip — and the one
+ * thing POD-3802 proves is that a diagnostic nobody turned on is a diagnostic
+ * nobody has.
+ */
+function captureOpenSite(): string {
+  return new Error('Transaction scope opened').stack ?? ''
+}
+
+/**
+ * One refused operation, as the report sink sees it [POD-3805].
+ *
+ * `label` is the operation that was refused (`statement`, `batch`, `transact`,
+ * `read`), in the same spirit as `effectSink`'s label. `frameId` and `lane` name
+ * the scope it addressed, when the seam had one in hand.
+ */
+export interface StoreRefusal {
+  readonly error: StoreExecutorError
+  readonly label: string
+  readonly frameId?: number
+  readonly lane?: Lane
+  /** See {@link StoreExecutorError.openedAt} — lifted off the error for the sink. */
+  readonly openedAt?: string
+  /** See {@link StoreExecutorError.nestedOpenedAt}. */
+  readonly nestedOpenedAt?: string
+}
+
 export interface StoreExecutorOptions<TClient> {
   driver: StoreDriver<TClient>
   startOpen?: boolean
@@ -241,6 +280,16 @@ export interface StoreExecutorOptions<TClient> {
   now?: () => number
   /** Mechanism 3's report sink. Failures are reported, never rethrown. */
   effectSink?: (error: unknown, label: string) => void
+  /**
+   * Called ONCE for every operation the executor refuses, at the source.
+   *
+   * A refusal is visible to the caller by definition, and that was the problem:
+   * POD-3802's refusal reached the operator as Drizzle's `Failed query: …`
+   * wrapper and left no server-side trace at all. This hook is the one line per
+   * refusal that makes it greppable — see `store.ts` for the production wiring.
+   * Reported, never rethrown, like every other sink here.
+   */
+  onRefusal?: (refusal: StoreRefusal) => void
   /** Called when mechanism 1 fails and the store becomes unhealthy. */
   onUnhealthy?: (error: unknown, label: string) => void
   /**
@@ -296,6 +345,41 @@ export function createStoreExecutor<TClient>(
   function report(error: unknown, label: string): void {
     try {
       effectSink(error, label)
+    } catch (sinkError) {
+      try {
+        options.onReportFailure?.(sinkError, label)
+      } catch {
+        /* the last-resort sink threw; there is nowhere further to report it */
+      }
+    }
+  }
+  /**
+   * Refusals already reported, so a refusal is logged ONCE however many layers
+   * rethrow it. A statement refused inside a body rejects the body, and the body's
+   * error rejects the transaction — the same object arriving at three seams. One
+   * line per refusal is the contract; four lines for one refusal would be worse
+   * than none, because an operator counting them would be counting layers.
+   *
+   * Weakly held: the entry dies with the error it describes.
+   */
+  const reportedRefusals = new WeakSet<StoreExecutorError>()
+  /**
+   * Report a refusal at the innermost seam that raised it. Anything that is not a
+   * refusal passes through untouched — a driver failure is the caller's business
+   * and is not the executor saying no.
+   */
+  function reportRefusal(error: unknown, label: string, frame?: TransactionFrame): void {
+    if (!(error instanceof StoreExecutorError)) return
+    if (reportedRefusals.has(error)) return
+    reportedRefusals.add(error)
+    try {
+      options.onRefusal?.({
+        error,
+        label,
+        ...(frame ? { frameId: frame.id, lane: frame.lane } : {}),
+        ...(error.openedAt === undefined ? {} : { openedAt: error.openedAt }),
+        ...(error.nestedOpenedAt === undefined ? {} : { nestedOpenedAt: error.nestedOpenedAt }),
+      })
     } catch (sinkError) {
       try {
         options.onReportFailure?.(sinkError, label)
@@ -370,8 +454,17 @@ export function createStoreExecutor<TClient>(
    * rests on.
    */
   const ambientRouter: StatementRouter = async (statement) => {
-    assertHealthy()
     const scope = currentScope()
+    try {
+      return await routeStatement(statement, scope)
+    } catch (error) {
+      reportRefusal(error, 'statement', scope.kind === 'transaction' ? scope.frame : undefined)
+      throw error
+    }
+  }
+
+  async function routeStatement(statement: Statement, scope: StoreScope): Promise<StatementResult> {
+    assertHealthy()
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, [statement])
@@ -418,8 +511,20 @@ export function createStoreExecutor<TClient>(
    * and would lose the atomicity the batch is for.
    */
   const ambientBatchRouter: BatchRouter = async (statements) => {
-    assertHealthy()
     const scope = currentScope()
+    try {
+      return await routeBatch(statements, scope)
+    } catch (error) {
+      reportRefusal(error, 'batch', scope.kind === 'transaction' ? scope.frame : undefined)
+      throw error
+    }
+  }
+
+  async function routeBatch(
+    statements: readonly Statement[],
+    scope: StoreScope,
+  ): Promise<readonly StatementResult[]> {
+    assertHealthy()
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, statements)
@@ -476,9 +581,14 @@ export function createStoreExecutor<TClient>(
 
   function frameRouter(frame: TransactionFrame): StatementRouter {
     return async (statement) => {
-      assertHealthy()
-      assertAddressable(frame)
-      assertWritable(frame, [statement])
+      try {
+        assertHealthy()
+        assertAddressable(frame)
+        assertWritable(frame, [statement])
+      } catch (error) {
+        reportRefusal(error, 'statement', frame)
+        throw error
+      }
       return await frame.unit.inFlight.track(
         async () => await frame.lease.session.execute(statement),
       )
@@ -487,9 +597,14 @@ export function createStoreExecutor<TClient>(
 
   function frameBatchRouter(frame: TransactionFrame): BatchRouter {
     return async (statements) => {
-      assertHealthy()
-      assertAddressable(frame)
-      assertWritable(frame, statements)
+      try {
+        assertHealthy()
+        assertAddressable(frame)
+        assertWritable(frame, statements)
+      } catch (error) {
+        reportRefusal(error, 'batch', frame)
+        throw error
+      }
       return await frame.unit.inFlight.track(
         async () => await frame.lease.session.executeBatch(statements),
       )
@@ -541,17 +656,19 @@ export function createStoreExecutor<TClient>(
    * it is not ours any more, and on a reusable remote client a statement issued
    * now executes on whoever holds it next.
    */
-  function leaseReleased(): StaleTransactionError {
+  function leaseReleased(frame: TransactionFrame): StaleTransactionError {
     return new StaleTransactionError(
       'the post-commit scope this transaction was started from has ended, so the lease it runs ' +
         'on is released. A follow-up that did not return its transaction promise is the usual ' +
         'cause.',
+      { openedAt: frame.openedAt },
     )
   }
 
   async function runTopLevel<T>(
     lease: Lease,
     lane: Lane,
+    openedAt: string,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
     runner: PostCommitRunner | undefined,
     /**
@@ -562,7 +679,34 @@ export function createStoreExecutor<TClient>(
   ): Promise<T> {
     const alive = (): boolean => lease.active() && scopeAlive()
     const registry = new PostCommitRegistry()
-    const frame = createFrame({ lane, lease, parent: undefined, postCommit: registry, alive })
+    const frame = createFrame({
+      lane,
+      lease,
+      parent: undefined,
+      postCommit: registry,
+      alive,
+      openedAt,
+    })
+    try {
+      return await runTopLevelOn(frame, lease, lane, fn, runner, registry, alive)
+    } catch (error) {
+      // The frame is in hand HERE and nowhere above: `transact` resolves its
+      // scope before one exists, so a refusal reported from there would carry no
+      // frame id and no lane.
+      reportRefusal(error, lane === 'read' ? 'read' : 'transact', frame)
+      throw error
+    }
+  }
+
+  async function runTopLevelOn<T>(
+    frame: TransactionFrame,
+    lease: Lease,
+    lane: Lane,
+    fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    runner: PostCommitRunner | undefined,
+    registry: PostCommitRegistry,
+    alive: () => boolean,
+  ): Promise<T> {
     // Through the LEASE, so the driver's bounded busy retry applies: this is
     // the last point at which nothing of the body has run.
     await lease.begin(lane)
@@ -577,7 +721,7 @@ export function createStoreExecutor<TClient>(
       // scope. Nothing can address it, so no test can distinguish its absence.
       closeFrame(frame)
       registry.discard()
-      throw leaseReleased()
+      throw leaseReleased(frame)
     }
     let result: T
     try {
@@ -619,7 +763,7 @@ export function createStoreExecutor<TClient>(
     closeFrame(frame)
     if (!alive()) {
       registry.discard()
-      throw leaseReleased()
+      throw leaseReleased(frame)
     }
     if (abandoned) {
       // Its savepoint never released, so the frame stack does not describe what
@@ -629,6 +773,7 @@ export function createStoreExecutor<TClient>(
       const error = new AbandonedNestedTransactionError(
         `transaction ${frame.id} is rolled back: it returned while nested scope ` +
           `${abandoned.id} was still open. A transact the body did not await is the usual cause.`,
+        { openedAt: frame.openedAt, nestedOpenedAt: abandoned.openedAt },
       )
       try {
         await lease.session.rollback()
@@ -650,6 +795,7 @@ export function createStoreExecutor<TClient>(
         'the transaction is rolled back: a savepoint boundary failed, so what the engine held ' +
           'open was no longer known and the commit could not be trusted.',
         frame.unit.poisoned,
+        { openedAt: frame.openedAt },
       )
       try {
         await lease.session.rollback()
@@ -700,16 +846,21 @@ export function createStoreExecutor<TClient>(
     return frame.active && frame.alive()
   }
 
-  function enclosingScopeEnded(parent: TransactionFrame): StaleTransactionError {
+  function enclosingScopeEnded(
+    parent: TransactionFrame,
+    frame: TransactionFrame,
+  ): StaleTransactionError {
     return new StaleTransactionError(
       `the transaction ${parent.id} this nested scope was opened on has ended, so its lease is ` +
         'no longer held. A nested transact the body did not await is the usual cause.',
+      { openedAt: parent.openedAt, nestedOpenedAt: frame.openedAt },
     )
   }
 
   async function runNested<T>(
     parent: TransactionFrame,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    openedAt: string,
   ): Promise<T> {
     const registry = new PostCommitRegistry()
     const frame = createFrame({
@@ -717,6 +868,7 @@ export function createStoreExecutor<TClient>(
       lease: parent.lease,
       parent,
       postCommit: registry,
+      openedAt,
     })
     // Claimed before the first await, so a second branch opened in the same
     // turn is refused rather than racing for the savepoint stack.
@@ -742,7 +894,7 @@ export function createStoreExecutor<TClient>(
       // refuses on the parent's own dead token long before it looks at a child.
       closeFrame(frame)
       registry.discard()
-      throw enclosingScopeEnded(parent)
+      throw enclosingScopeEnded(parent, frame)
     }
     let result: T
     try {
@@ -771,7 +923,7 @@ export function createStoreExecutor<TClient>(
     closeFrame(frame)
     if (!unitUsable(parent)) {
       registry.discard()
-      throw enclosingScopeEnded(parent)
+      throw enclosingScopeEnded(parent, frame)
     }
     if (abandoned) {
       // The same rule one level down: a savepoint that returned over an open
@@ -787,6 +939,7 @@ export function createStoreExecutor<TClient>(
       throw new AbandonedNestedTransactionError(
         `nested transaction ${frame.id} is rolled back: it returned while nested scope ` +
           `${abandoned.id} was still open. A transact the body did not await is the usual cause.`,
+        { openedAt: frame.openedAt, nestedOpenedAt: abandoned.openedAt },
       )
     }
     try {
@@ -809,24 +962,44 @@ export function createStoreExecutor<TClient>(
   async function transactOn<T>(
     frame: TransactionFrame,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
+    // Defaulted rather than required: the default is evaluated in the CALLER's
+    // turn, so `tx.transact(fn)` captures its own site and the ambient form
+    // passes the one it already took.
+    openedAt: string = captureOpenSite(),
   ): Promise<T> {
-    assertHealthy()
-    assertAddressable(frame)
-    if (frame.lane === 'read') {
-      throw new WriteInsideReadLeaseError(
-        'transact() inside a read lease: a read lease has no write to commit. Open the write ' +
-          'scope at the top of the operation instead.',
-      )
+    try {
+      assertHealthy()
+      assertAddressable(frame)
+      if (frame.lane === 'read') {
+        throw new WriteInsideReadLeaseError(
+          'transact() inside a read lease: a read lease has no write to commit. Open the write ' +
+            'scope at the top of the operation instead.',
+          { openedAt: frame.openedAt },
+        )
+      }
+    } catch (error) {
+      reportRefusal(error, 'transact', frame)
+      throw error
     }
-    return await runNested(frame, fn)
+    try {
+      return await runNested(frame, fn, openedAt)
+    } catch (error) {
+      reportRefusal(error, 'transact', frame)
+      throw error
+    }
   }
 
   async function readOn<T>(
     frame: TransactionFrame,
     fn: (tx: StoreExecutor<TClient>) => Promise<T>,
   ): Promise<T> {
-    assertHealthy()
-    assertAddressable(frame)
+    try {
+      assertHealthy()
+      assertAddressable(frame)
+    } catch (error) {
+      reportRefusal(error, 'read', frame)
+      throw error
+    }
     // Already inside a unit of work: a read sees its own writes, so it needs no
     // scope of its own.
     return fn(executorForFrame(frame))
@@ -838,9 +1011,12 @@ export function createStoreExecutor<TClient>(
    * guard the call site as well as the promise.
    */
   async function transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
+    // FIRST, before any await: this is the caller's own turn and the only place
+    // the site that opens the scope is still on the stack.
+    const openedAt = captureOpenSite()
     assertHealthy()
     const scope = currentScope()
-    if (scope.kind === 'transaction') return await transactOn(scope.frame, fn)
+    if (scope.kind === 'transaction') return await transactOn(scope.frame, fn, openedAt)
     if (scope.kind === 'post-commit') {
       // A follow-up committing durably: the same lease, a fresh transaction,
       // and its own post-commit work queued behind the batch being drained.
@@ -849,14 +1025,16 @@ export function createStoreExecutor<TClient>(
       // wait for what a step returns, so a follow-up that starts a transaction
       // and drops its promise would otherwise go on begin-ing, writing and
       // committing on a lease the scheduler has taken back.
-      return await runTopLevel(scope.lease, 'write', fn, scope.runner, () => scope.active())
+      return await runTopLevel(scope.lease, 'write', openedAt, fn, scope.runner, () =>
+        scope.active(),
+      )
     }
     let runner: PostCommitRunner | undefined
     try {
       return await scheduler.run('write', async (lease) => {
         assertHealthy()
         runner = newRunner(lease.active)
-        return await runTopLevel(lease, 'write', fn, runner)
+        return await runTopLevel(lease, 'write', openedAt, fn, runner)
       })
     } finally {
       // NOT awaited: effects need the released lane for their root operations.
@@ -866,16 +1044,17 @@ export function createStoreExecutor<TClient>(
   }
 
   async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
+    const openedAt = captureOpenSite()
     assertHealthy()
     const scope = currentScope()
     if (scope.kind === 'transaction') return await readOn(scope.frame, fn)
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return await runTopLevel(scope.lease, 'read', fn, undefined, () => scope.active())
+      return await runTopLevel(scope.lease, 'read', openedAt, fn, undefined, () => scope.active())
     }
     return await scheduler.run('read', async (lease) => {
       assertHealthy()
-      return await runTopLevel(lease, 'read', fn, undefined)
+      return await runTopLevel(lease, 'read', openedAt, fn, undefined)
     })
   }
 
@@ -921,12 +1100,14 @@ export function createStoreExecutor<TClient>(
       // committed view successfully — the token rule with a hole in it.
       assertAddressable(scope.frame)
       const caller = scope.frame
+      const openedAt = captureOpenSite()
       return await scheduler.detachedRead(async (session) => {
         const frame = createFrame({
           lane: 'read',
           lease: detachedLease(session),
           parent: undefined,
           postCommit: new PostCommitRegistry(),
+          openedAt,
           // BOUND TO THE CALLER'S SCOPE, not just checked on the way in. The
           // reader frame is a fresh top-level frame, so its own token stays
           // open for as long as `fn` runs — and a `fn` whose promise the body

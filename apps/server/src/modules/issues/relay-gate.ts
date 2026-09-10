@@ -1,6 +1,9 @@
+import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { Capability } from '../../issue-authz'
+
+const log = createLogger('server:issues')
 
 /** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the shared
  *  command guard (guardIssueCommand over the registry defs); everything else is an explicit
@@ -209,7 +212,21 @@ export class AgentRelayGate {
       reply({ ok: true, result: value })
       this.deps.afterSuccessfulReply?.(msg, value)
     } catch (err) {
-      reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
+      // THE ONLY RECORD THIS FAILURE LEAVES, and until POD-3805 there was none
+      // at all: the agent got a reply and the server logged nothing, so a day of
+      // failing `podium lock` calls was invisible here (POD-3802 §2). `err`
+      // rather than its message, because the logger walks `err.cause` and the
+      // cause is where a store refusal lives.
+      log.warn('agent command failed', {
+        router: msg.router,
+        proc: msg.proc,
+        sessionId: msg.sessionId,
+        err,
+      })
+      // The chain, not the outermost message: what the agent saw was Drizzle's
+      // `Failed query: …` with the refusal that explains it dropped. An error
+      // with no cause renders exactly as it did before.
+      reply({ ok: false, error: describeError(err) })
     }
   }
 }

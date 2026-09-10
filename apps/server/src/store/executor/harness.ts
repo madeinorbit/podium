@@ -379,6 +379,7 @@ export function openHarness(options: HarnessOptions = {}): Harness {
     ...(options.watchdog ? { watchdog: options.watchdog } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.effectSink ? { effectSink: options.effectSink } : {}),
+    ...(options.onRefusal ? { onRefusal: options.onRefusal } : {}),
     ...(options.onUnhealthy ? { onUnhealthy: options.onUnhealthy } : {}),
     ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
   })

@@ -7,11 +7,48 @@
  * That is the whole point of the token — see `scheduler.ts`.
  */
 
+/**
+ * WHERE THE SCOPES A REFUSAL NAMES WERE OPENED [POD-3805].
+ *
+ * A refusal's message names transaction ids — `transaction 4 has an open nested
+ * scope (5)` — and an id is not a code site. POD-3802 spent a day on exactly that
+ * gap, so every refusal that has a frame in hand carries the stack captured where
+ * that frame's `transact`/`read` call was made.
+ *
+ * Diagnostics only: nothing branches on these, and a refusal that has no frame to
+ * name simply has neither.
+ */
+export interface RefusalOrigin {
+  /** The scope the refused operation addressed. */
+  readonly openedAt?: string
+  /**
+   * The nested scope that blocks it, when the refusal names one. This is the
+   * field that names the DEFECT: in POD-3802 the refused statement belonged to
+   * the lock span, and the bug was the unawaited `sendMail` whose transaction
+   * joined it as a savepoint.
+   */
+  readonly nestedOpenedAt?: string
+}
+
 /** Base class so a caller can catch "the executor refused" without listing the set. */
 export class StoreExecutorError extends Error {
-  constructor(message: string) {
+  /**
+   * See {@link RefusalOrigin.openedAt}.
+   *
+   * `declare`, so the field is not DEFINED when there is no origin to put in it.
+   * A plain optional field compiles to `openedAt = undefined` under ES2022 class
+   * semantics, which every serializer then shows: vitest prints
+   * `Serialized Error: { openedAt: undefined }` on an unhandled refusal, and the
+   * diagnostic becomes noise on the errors it has nothing to say about.
+   */
+  declare readonly openedAt?: string
+  /** See {@link RefusalOrigin.nestedOpenedAt}. Declared, as above. */
+  declare readonly nestedOpenedAt?: string
+  constructor(message: string, origin: RefusalOrigin = {}) {
     super(message)
     this.name = new.target.name
+    if (origin.openedAt !== undefined) this.openedAt = origin.openedAt
+    if (origin.nestedOpenedAt !== undefined) this.nestedOpenedAt = origin.nestedOpenedAt
   }
 }
 
@@ -47,8 +84,9 @@ export class TransactionPoisonedError extends StoreExecutorError {
   constructor(
     message: string,
     override readonly cause: unknown,
+    origin: RefusalOrigin = {},
   ) {
-    super(message)
+    super(message, origin)
   }
 }
 

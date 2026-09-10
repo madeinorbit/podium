@@ -23,7 +23,7 @@
  *     alone hangs tests and same-port restarts that `await server.close()`.
  */
 import type { Server } from 'node:http'
-import { createLogger } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 
 const log = createLogger('server:shutdown')
 
@@ -55,11 +55,29 @@ export interface CloseServerDeps {
    * when the runtime never drains upgraded sockets (Bun + WebSocket).
    */
   httpCloseGraceMs?: number
-  logError?: (msg: string) => void
+  /**
+   * Takes the error as well as the message: the default sink hands the logger an
+   * `err`, so a failed step keeps its cause chain and its stacks (POD-3805). A
+   * message-only sink remains assignable.
+   */
+  logError?: (msg: string, error?: unknown) => void
+}
+
+/**
+ * The default sink: the message AND the error. `describeError` puts the cause
+ * chain in the line itself for sinks that only carry text, and `err` carries the
+ * stacks — both halves of what `String(error)` threw away (POD-3802 §2).
+ */
+function structuredLogError(message: string, error?: unknown): void {
+  if (error === undefined) {
+    log.error(message)
+    return
+  }
+  log.error(message, { err: error })
 }
 
 export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
-  const logError = deps.logError ?? ((msg: string) => log.error(msg))
+  const logError = deps.logError ?? structuredLogError
   const grace = deps.wsCloseGraceMs ?? 250
   const httpGrace = deps.httpCloseGraceMs ?? 250
 
@@ -71,12 +89,12 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
   try {
     wsClosed = Promise.resolve(deps.closeWebSockets())
   } catch (err) {
-    logError(`[podium:server] websocket close threw during shutdown: ${String(err)}`)
+    logError(`[podium:server] websocket close threw during shutdown: ${describeError(err)}`, err)
   }
   let graceTimer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
     wsClosed.catch((err) => {
-      logError(`[podium:server] websocket close failed during shutdown: ${String(err)}`)
+      logError(`[podium:server] websocket close failed during shutdown: ${describeError(err)}`, err)
     }),
     new Promise<void>((r) => {
       graceTimer = setTimeout(r, grace)
@@ -91,7 +109,7 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
     if (deps.drainStore) await deps.drainStore(persist)
     else await persist()
   } catch (error) {
-    logError(`[podium:server] store drain failed during shutdown: ${String(error)}`)
+    logError(`[podium:server] store drain failed during shutdown: ${describeError(error)}`, error)
   }
 
   // 3. Force-close the network. close() alone would wait (potentially forever)
@@ -109,7 +127,7 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
         }),
       ])
     } catch (err) {
-      logError(`[podium:server] http stop failed during shutdown: ${String(err)}`)
+      logError(`[podium:server] http stop failed during shutdown: ${describeError(err)}`, err)
     } finally {
       if (stopTimer !== undefined) clearTimeout(stopTimer)
     }
@@ -130,7 +148,7 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
       nodeServer.close(() => finish())
       nodeServer.closeAllConnections?.()
     } catch (err) {
-      logError(`[podium:server] http close threw during shutdown: ${String(err)}`)
+      logError(`[podium:server] http close threw during shutdown: ${describeError(err)}`, err)
       finish()
       return
     }
@@ -141,13 +159,13 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
 /** Shared by normal shutdown and failed listen: cleanup failures never skip close. */
 export async function runPersistenceSteps(
   steps: readonly PersistStep[],
-  logError: (message: string) => void = (message) => log.error(message),
+  logError: (message: string, error?: unknown) => void = structuredLogError,
 ): Promise<void> {
   for (const [name, run] of steps) {
     try {
       await run()
     } catch (error) {
-      logError(`[podium:server] shutdown step '${name}' failed: ${String(error)}`)
+      logError(`[podium:server] shutdown step '${name}' failed: ${describeError(error)}`, error)
     }
   }
 }

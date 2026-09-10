@@ -73,6 +73,7 @@ import {
   createBunStoreExecutor,
   type QueryClient,
   type RootStoreExecutor,
+  type StoreRefusal,
   type WatchdogOptions,
 } from './store/executor'
 import { GrantsRepository } from './store/grants'
@@ -252,19 +253,46 @@ export class SessionStore {
     options: SnapshotVerifierDeps & { queryOnly?: boolean } = {},
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
-      onReportFailure: (error) =>
-        log.error('transaction watchdog sink failed', { error: String(error) }),
+      onReportFailure: (error) => log.error('transaction watchdog sink failed', { err: error }),
     },
   ): Promise<SessionStore> {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    let database = await openStoreDatabase(path)
-    let executor = createBunStoreExecutor({
-      database,
-      startOpen: true,
+    /**
+     * The executor's report sinks, defined ONCE for both constructions below: a
+     * migration connection that logged differently from the runtime one would be
+     * a diagnostic gap nobody notices until it matters.
+     *
+     * Every one hands the logger `err` rather than a string. The logger walks
+     * `err.cause` recursively with stacks (packages/logger/src/record.ts), so a
+     * store refusal wrapped by Drizzle reaches the log WITH the refusal that
+     * explains it — which is exactly what `String(error)` threw away (POD-3802 §2).
+     */
+    const sinks = {
       watchdog,
-      effectSink: (error, label) =>
-        log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
-    })
+      effectSink: (error: unknown, label: string) =>
+        log.error('shutdown or post-commit effect failed', { label, err: error }),
+      /**
+       * One line per refused statement, at the source [POD-3805]. The refusal is
+       * already a rejection the caller sees; what was missing is a server-side
+       * record naming the lane, the frame and the SITE that opened the span, so a
+       * wedged queue is one grep rather than a day of guessing.
+       */
+      onRefusal: (refusal: StoreRefusal) =>
+        log.error('store executor refused a statement', {
+          label: refusal.label,
+          ...(refusal.frameId === undefined ? {} : { frameId: refusal.frameId }),
+          ...(refusal.lane === undefined ? {} : { lane: refusal.lane }),
+          // The stacks go in their own fields: the logger serializes `err` to
+          // name/message/stack/cause and would drop anything else on the error.
+          ...(refusal.openedAt === undefined ? {} : { openedAt: refusal.openedAt }),
+          ...(refusal.nestedOpenedAt === undefined
+            ? {}
+            : { nestedOpenedAt: refusal.nestedOpenedAt }),
+          err: refusal.error,
+        }),
+    }
+    let database = await openStoreDatabase(path)
+    let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
     try {
       const applied = await executor.exclusive(async () => migrateStoreConnection(database, path))
       if (applied.length > 0) log.info('applied migrations', { applied })
@@ -274,13 +302,7 @@ export class SessionStore {
         // database transfers the migrated handle: reopening would lose it.
         await executor.close()
         database = openDatabase(path)
-        executor = createBunStoreExecutor({
-          database,
-          startOpen: true,
-          watchdog,
-          effectSink: (error, label) =>
-            log.error('shutdown or post-commit effect failed', { label, error: String(error) }),
-        })
+        executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
         await executor.exclusive(async () => configureStoreConnection(database))
       }
       const store = new SessionStore(path, hostMachineId, options, database, executor)
