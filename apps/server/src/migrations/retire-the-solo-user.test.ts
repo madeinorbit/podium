@@ -327,31 +327,59 @@ describe('retire-the-solo-user: the first member gets a minted id', () => {
 })
 
 describe('retire-the-solo-user: shipping approval custody', () => {
-  function shippingDb(): SqlDatabase {
+  function shippingDb(state = 'queued'): SqlDatabase {
     const db = preMigrationDb()
     db.prepare(`INSERT INTO ship_orders (
       id, issue_id, repo_id, target_branch, destination, approved_base_sha, approved_head_sha,
       requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
-      requested_at, policy_id, close_mode, state, state_changed_at, repo_path, machine_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      'order-review', 'issue-review', 'repo-review', 'main', 'local', 'base', 'head',
-      'user', RETIRED, RETIRED, '2026-09-01', 'policy', 'leave-open', 'queued',
-      '2026-09-01', '/tmp/review-repo', 'machine-review')
+      requested_at, policy_id, close_mode, state, state_changed_at, repo_path, machine_id,
+      evidence_manifest_ref, current_integration_receipt, validation_profile, validation_profile_digest
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      'order-review',
+      'issue-review',
+      'repo-review',
+      'main',
+      'local',
+      'base',
+      'head',
+      'user',
+      RETIRED,
+      RETIRED,
+      '2026-09-01',
+      'policy',
+      'leave-open',
+      state,
+      '2026-09-01',
+      '/tmp/review-repo',
+      'machine-review',
+      'evidence-1',
+      'receipt-1',
+      'profile-1',
+      'profile-digest-1',
+    )
     return db
   }
 
-  const triggers = (db: SqlDatabase) => db.prepare(
-    "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'ship_orders' ORDER BY name",
-  ).all()
+  const triggers = (db: SqlDatabase) =>
+    db
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'ship_orders' ORDER BY name",
+      )
+      .all()
 
-  it('re-keys a queued order with production triggers and preserves frozen evidence', () => {
-    const db = shippingDb()
+  it.each([
+    'queued',
+    'shipped',
+    'cancelled',
+  ])('re-keys a %s order with production triggers and preserves frozen evidence', (state) => {
+    const db = shippingDb(state)
     try {
       const before = db.prepare('SELECT * FROM ship_orders').get() as Record<string, unknown>
       const guards = triggers(db)
       expect(guards.length).toBeGreaterThan(0)
-      expect(() => db.exec("UPDATE ship_orders SET approved_head_sha = 'tampered'"))
-        .toThrow('ship order approval is immutable')
+      expect(() => db.exec("UPDATE ship_orders SET approved_head_sha = 'tampered'")).toThrow(
+        /immutable/,
+      )
 
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
@@ -361,42 +389,81 @@ describe('retire-the-solo-user: shipping approval custody', () => {
         requested_by_on_behalf_of: firstAdminId(db),
       })
       expect(triggers(db)).toEqual(guards)
-      for (const column of ['requested_by_actor_id', 'requested_by_on_behalf_of', 'approved_head_sha',
-        'approved_base_sha', 'evidence_manifest_ref', 'current_integration_receipt',
-        'validation_profile', 'validation_profile_digest']) {
-        expect(() => db.exec(`UPDATE ship_orders SET ${column} = 'tampered'`))
-          .toThrow('ship order approval is immutable')
+      for (const column of [
+        'requested_by_actor_id',
+        'requested_by_on_behalf_of',
+        'approved_head_sha',
+        'approved_base_sha',
+        'evidence_manifest_ref',
+        'current_integration_receipt',
+        'validation_profile',
+        'validation_profile_digest',
+      ]) {
+        expect(() => db.exec(`UPDATE ship_orders SET ${column} = 'tampered'`)).toThrow(/immutable/)
       }
-      expect(() => db.exec("UPDATE ship_orders SET machine_id = 'tampered'"))
-        .toThrow('ship order lane custody is immutable')
-    } finally { db.close() }
+      expect(() => db.exec("UPDATE ship_orders SET machine_id = 'tampered'")).toThrow(/immutable/)
+      expect(() => db.exec('DELETE FROM ship_orders')).toThrow(/immutable/)
+      if (state === 'queued') {
+        expect(() => db.exec("UPDATE ship_orders SET state = 'preflight'")).not.toThrow()
+      } else {
+        expect(() => db.exec("UPDATE ship_orders SET state = 'queued'")).toThrow(
+          'terminal ship order is immutable',
+        )
+      }
+    } finally {
+      db.close()
+    }
   })
 
-  it.each(['evidence', 'identity', 'after-restore'])('restores identity and production guards on rollback (%s)', (failure) => {
-    const db = shippingDb()
+  it.each(
+    ['queued', 'shipped', 'cancelled'].flatMap((state) =>
+      ['evidence', 'identity', 'state', 'rowid', 'after-restore'].map(
+        (failure) => [state, failure] as const,
+      ),
+    ),
+  )('restores identity and production guards on rollback (%s, %s)', (state, failure) => {
+    const db = shippingDb(state)
     try {
       const guards = triggers(db)
-      const manifest = DRIZZLE_MIGRATIONS.map((migration) => migration.name.includes(MIGRATION)
-        ? { ...migration, sql: failure === 'after-restore' ? migration.sql.replace(
-          'DROP TRIGGER `ship_orders_member_rekey_guard`;',
-          "UPDATE ship_orders SET approved_head_sha = 'tampered';",
-        ) : migration.sql.replace(
-          "UPDATE `ship_orders` SET `requested_by_actor_id` = '{{mint:mem_}}'",
-          failure === 'evidence'
-            ? "UPDATE `ship_orders` SET `approved_head_sha` = 'tampered', `requested_by_actor_id` = '{{mint:mem_}}'"
-            : "UPDATE `ship_orders` SET `requested_by_actor_id` = 'mem_not_the_minted_member'",
-        ) }
-        : migration)
+      const before = db.prepare('SELECT * FROM ship_orders').get()
+      const manifest = DRIZZLE_MIGRATIONS.map((migration) =>
+        migration.name.includes(MIGRATION)
+          ? {
+              ...migration,
+              sql:
+                failure === 'after-restore'
+                  ? migration.sql.replace(
+                      'DROP TRIGGER `ship_orders_member_rekey_guard`;',
+                      "UPDATE ship_orders SET approved_head_sha = 'tampered';",
+                    )
+                  : migration.sql.replace(
+                      "UPDATE `ship_orders` SET `requested_by_actor_id` = '{{mint:mem_}}'",
+                      failure === 'state'
+                        ? "UPDATE `ship_orders` SET `state` = 'preflight', `requested_by_actor_id` = '{{mint:mem_}}'"
+                        : failure === 'rowid'
+                          ? "UPDATE `ship_orders` SET `rowid` = `rowid` + 1, `requested_by_actor_id` = '{{mint:mem_}}'"
+                          : failure === 'evidence'
+                            ? "UPDATE `ship_orders` SET `approved_head_sha` = 'tampered', `requested_by_actor_id` = '{{mint:mem_}}'"
+                            : "UPDATE `ship_orders` SET `requested_by_actor_id` = 'mem_not_the_minted_member'",
+                    ),
+            }
+          : migration,
+      )
       expect(() => runDrizzleMigrations(db, manifest)).toThrow()
       expect(firstAdminId(db)).toBe(RETIRED)
-      expect(db.prepare('SELECT requested_by_actor_id AS actor FROM ship_orders').get())
-        .toEqual({ actor: RETIRED })
+      expect(db.prepare('SELECT * FROM ship_orders').get()).toEqual(before)
+      expect(db.prepare('SELECT requested_by_actor_id AS actor FROM ship_orders').get()).toEqual({
+        actor: RETIRED,
+      })
       expect(triggers(db)).toEqual(guards)
-      expect(() => db.exec("UPDATE ship_orders SET requested_by_actor_id = 'tampered'"))
-        .toThrow('ship order approval is immutable')
+      expect(() => db.exec("UPDATE ship_orders SET requested_by_actor_id = 'tampered'")).toThrow(
+        /immutable/,
+      )
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
       expect(firstAdminId(db)).not.toBe(RETIRED)
-    } finally { db.close() }
+    } finally {
+      db.close()
+    }
   })
 })
 

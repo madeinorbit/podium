@@ -160,15 +160,20 @@ UPDATE `settings_audit_events` SET `on_behalf_of` = '{{mint:mem_}}' WHERE `on_be
 -- BEFORE replacing the unconditional guard: only this migration's exact member
 -- re-key is allowed, and no other approval evidence may change. Restore the
 -- original guard before leaving the transaction; rollback restores it on failure.
-CREATE TRIGGER `ship_orders_member_rekey_guard` BEFORE UPDATE OF
-  `issue_id`, `repo_id`, `target_branch`, `destination`, `approved_base_sha`,
-  `approved_head_sha`, `descendant_manifest`, `delivery_depends_on`,
-  `evidence_manifest_ref`, `current_integration_receipt`, `provider_ref`,
-  `requested_by_actor_kind`, `requested_by_actor_id`, `requested_by_on_behalf_of`,
-  `requested_at`, `policy_id`, `validation_profile`, `validation_profile_digest`, `close_mode`
-ON `ship_orders`
+-- Terminal orders reject EVERY update, so the migration guard must protect
+-- the entire row, not just approval columns. Only the exact owner substitution
+-- is allowed while either original guard is being replaced. Keep custody and
+-- deletion guards installed throughout.
+CREATE TRIGGER `ship_orders_member_rekey_guard` BEFORE UPDATE ON `ship_orders`
 WHEN NOT (
-  NEW.`issue_id` IS OLD.`issue_id`
+  NEW.`rowid` IS OLD.`rowid`
+  AND NEW.`id` IS OLD.`id`
+  AND NEW.`state` IS OLD.`state`
+  AND NEW.`state_changed_at` IS OLD.`state_changed_at`
+  AND NEW.`hold_code` IS OLD.`hold_code`
+  AND NEW.`repo_path` IS OLD.`repo_path`
+  AND NEW.`machine_id` IS OLD.`machine_id`
+  AND NEW.`issue_id` IS OLD.`issue_id`
   AND NEW.`repo_id` IS OLD.`repo_id`
   AND NEW.`target_branch` IS OLD.`target_branch`
   AND NEW.`destination` IS OLD.`destination`
@@ -194,6 +199,8 @@ END;
 --> statement-breakpoint
 DROP TRIGGER `ship_orders_frozen_fields`;
 --> statement-breakpoint
+DROP TRIGGER `ship_orders_terminal_immutable`;
+--> statement-breakpoint
 UPDATE `ship_orders` SET `requested_by_actor_id` = '{{mint:mem_}}' WHERE `requested_by_actor_id` = 'user:sole';
 --> statement-breakpoint
 UPDATE `ship_orders` SET `requested_by_on_behalf_of` = '{{mint:mem_}}' WHERE `requested_by_on_behalf_of` = 'user:sole';
@@ -207,6 +214,12 @@ CREATE TRIGGER `ship_orders_frozen_fields` BEFORE UPDATE OF
 ON `ship_orders`
 BEGIN
   SELECT RAISE(ABORT, 'ship order approval is immutable');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `ship_orders_terminal_immutable` BEFORE UPDATE ON `ship_orders`
+WHEN OLD.`state` IN ('shipped', 'cancelled')
+BEGIN
+  SELECT RAISE(ABORT, 'terminal ship order is immutable');
 END;
 --> statement-breakpoint
 DROP TRIGGER `ship_orders_member_rekey_guard`;
