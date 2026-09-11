@@ -22,8 +22,7 @@ import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
-import { type IdPrefix, mintBrandedId, primeFirstAdminMember } from '@podium/model'
+import { type IdPrefix, mintBrandedId } from '@podium/model'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, repairReason } from './repair'
@@ -239,7 +238,6 @@ export function runDrizzleMigrations(
     // wrong schema, so a boot with nothing pending is exactly the case that
     // must heal itself.
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
-    primeFirstAdmin(db)
     return []
   }
 
@@ -283,33 +281,7 @@ export function runDrizzleMigrations(
   // AFTER the migrations, never before: the rebuild that drops the column is
   // itself one of the migrations that may have just run.
   if (opts.skipSchemaRepair !== true) reportRepairs(db)
-  primeFirstAdmin(db)
   return pending.map((m) => m.name)
-}
-
-/**
- * RESOLVE THIS INSTANCE'S FIRST ADMIN, ONCE THE SCHEMA IS CURRENT [A2].
- *
- * Every ambient-principal site in the server reads `firstAdminMemberId()`, and
- * it has to be primed before any of them runs. This is where, because this
- * function is the ONE choke point every database passes through on its way to
- * being current — the store's boot bracket, `applyBaselineSchema`, the
- * test-support images — and priming at each of those instead would be three
- * copies of one obligation, the third of which someone forgets.
- *
- * AFTER the migrations rather than before: the A2 migration is what mints the
- * `mem_` id, so a database arriving with the retired literal still in it has no
- * correct answer to give until this run has rewritten it.
- *
- * A database with no `users` table predates accounts entirely, and one whose
- * admins are all disabled has no member that may act — both leave the slot
- * unset, so the next ambient site throws and says so, which is the honest
- * outcome for a database nothing can resolve a principal from.
- */
-function primeFirstAdmin(db: SqlDatabase): void {
-  if (!hasTable(db, 'users')) return
-  const id = earliestAdminMember(db)
-  if (id !== undefined) primeFirstAdminMember(id)
 }
 
 /**

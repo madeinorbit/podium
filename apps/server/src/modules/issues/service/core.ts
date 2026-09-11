@@ -140,8 +140,8 @@ export class IssueStore {
    * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
    * body with the request's principal; every caller already asks the question.
    */
-  broadcastViewer(): UserId {
-    return firstAdminMemberId()
+  async broadcastViewer(): Promise<UserId> {
+    return (await firstAdminMemberId(this.deps.store))
   }
 
   /**
@@ -189,7 +189,7 @@ export class IssueStore {
    * POD-723's memo would otherwise serve the pre-change payload.
    */
   async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = this.broadcastViewer()
+    const user = (await this.broadcastViewer())
     await this.deps.store.issues.setIssueUserState(user, issueId, patch)
     const viewerState = this.requireHydrated().viewerState
     const next = await this.deps.store.issues.getIssueUserState(user, issueId)
@@ -473,7 +473,7 @@ export class IssueStore {
     // keep serving a stale overlay. They are re-read HERE rather than on next
     // touch (POD-3256) — `issueOverlay` is called from the synchronous wire
     // serializer, so its read has to have happened already.
-    this.viewerState = await this.deps.store.issues.listIssueUserState(this.broadcastViewer())
+    this.viewerState = await this.deps.store.issues.listIssueUserState((await this.broadcastViewer()))
     // Wholesale row replacement invalidates every cached wire, and dropping the
     // map also prunes entries for purged issues (bounds memory to live issues)
     // [POD-723].

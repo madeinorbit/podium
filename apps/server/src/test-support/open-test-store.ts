@@ -26,7 +26,7 @@
  * The seam stays synchronous at the flip and is called from inside `open()`.
  */
 
-import type { MachineId } from '@podium/model'
+import { primeFirstAdminMember, firstAdminMemberId, type MachineId } from '@podium/model'
 import type { SnapshotVerifierDeps } from '../migrations/snapshot-verifier'
 import { SessionStore } from '../store'
 
@@ -44,5 +44,7 @@ export async function openTestStore(
   // selects it, so forwarding all three keeps the state-dir path, the freshly
   // minted machine id and the real verifier exactly as a bare `await SessionStore.open()`
   // would have them.
-  return await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
+  const store = await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
+  primeFirstAdminMember(await firstAdminMemberId(store))
+  return store
 }

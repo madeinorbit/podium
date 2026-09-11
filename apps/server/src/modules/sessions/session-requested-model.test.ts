@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * THREE FACTS ABOUT ONE SESSION'S MODEL, AND WHY THEY ARE THREE (POD-3081).
  *
@@ -21,6 +22,7 @@ const geo: Geometry = { cols: 80, rows: 24 }
 
 const makeSession = () =>
   new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('s-configure'),
     durableLabel: 'podium-s-configure',
     agentKind: 'codex',

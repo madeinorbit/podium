@@ -536,7 +536,7 @@ export class IssueAttentionModule {
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
       // open question "auto-archived because WHO read it?" is POD-1136's, and it
       // is now askable because the value has an owner.
-      const viewerReadAt = this.store.issueOverlay(row.id).readAt
+      const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -581,8 +581,8 @@ export class IssueAttentionModule {
     // happen to match. When `archived` becomes per-user (POD-1077), this
     // comparison becomes "the principal whose flag you are setting" and the
     // observation already carries it.
-    if (observed.readerUserId !== this.store.broadcastViewer()) return 'precondition'
-    const viewerReadAt = this.store.issueOverlay(row.id).readAt
+    if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
+    const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
     // and deliberately no `viewerReadAt == null` guard here either: the two
     // cases the CAS caught are both already refused BELOW, and a second guard

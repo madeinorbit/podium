@@ -1664,8 +1664,8 @@ export class MachinesService {
     const id = this.deps.hostMachineId
     const existing = await this.deps.store.machines.getMachine(id)
     const enrollmentOwner = this.deps.enrollment
-      ? (existing?.ownerUserId ?? deviceGradeSoleOwner())
-      : deviceGradeSoleOwner()
+      ? (existing?.ownerUserId ?? (await deviceGradeSoleOwner(this.deps.store)))
+      : (await deviceGradeSoleOwner(this.deps.store))
     // Ledger first: this is the durable commit point shared with pairing. A
     // revoked host throws before its row or credential can be recreated.
     const ownerUserId = await credentials.ensureHostEnrollment(

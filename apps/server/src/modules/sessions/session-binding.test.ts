@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import { expect, it, vi } from 'vitest'
 import { Session } from './session'
@@ -12,6 +13,7 @@ it('retains heuristic projection while the clearing write is pending and after i
   const sessions = ['heuristic', 'exact'].map(
     (id) =>
       new Session({
+    ownerUserId: firstAdminMemberId(),
         sessionId: asSessionId(id),
         durableLabel: id,
         agentKind: 'codex',

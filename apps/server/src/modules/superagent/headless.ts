@@ -109,7 +109,7 @@ export class HeadlessService {
     title?: string
     spawnedBy?: string
     machineId?: MachineId
-    ownerUserId?: UserId
+    ownerUserId: UserId
     createdBy?: Attribution
     issueId?: IssueId
     accountId?: AccountId
@@ -160,7 +160,7 @@ export class HeadlessService {
       // A mint, so the claim is honest: no conversation yet. `setHeadlessResume`
       // below promotes it the moment the first turn reports the harness's id.
       conversationBinding: 'never',
-      ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
+      ownerUserId: input.ownerUserId,
       ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.accountId ? { accountId: input.accountId } : {}),

@@ -596,7 +596,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // so it is resolved for a user. See `settingsViewer` below for why that
     // user is spelled out rather than defaulted.
     isEnabled: async () =>
-      (await store.settings.getSettingsFor(bag.settingsViewer())).autoContinue.enabled,
+      (await store.settings.getSettingsFor((await bag.settingsViewer()))).autoContinue.enabled,
     sendContinue: (sessionId) => {
       bag.continueSession({ sessionId })
     },

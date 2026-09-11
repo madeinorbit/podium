@@ -1,3 +1,4 @@
+import { soleHumanSessionStatePrincipal } from '../../test-support/session-state-principal'
 /**
  * THE SHADOW COMPARISON — POD-351's most falsifiable criterion.
  *
@@ -52,7 +53,7 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
-import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-state/registry'
+import { SessionStateRegistry} from './session-state/registry'
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []

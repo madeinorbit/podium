@@ -42,6 +42,7 @@ const agentCaller = (): HandoffCaller => {
 
 function makeSession(issueId?: string): Session {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('s1'),
     durableLabel: 'podium-s1',
     agentKind: 'claude-code',

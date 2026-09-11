@@ -3,8 +3,8 @@
  * user [spec, hosted sign-in §8, A2].
  *
  * Open mode acts as this member. The break-glass CLI mints for this member. The
- * store primes `firstAdminMemberId()` with this member, and every ambient-
- * principal site in the server then reads it. Those four used to spell one
+ * server resolves `firstAdminMemberId(store)` from this store, and the janitor
+ * resolves this same rule from its own database handle. Those four used to spell one
  * literal, `'user:sole'`, and agreed because a constant cannot disagree with
  * itself; now that the id is minted per installation they agree because they ask
  * the same QUESTION, and the question is written down exactly once — here.

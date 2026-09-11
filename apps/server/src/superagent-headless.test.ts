@@ -253,6 +253,7 @@ describe('bounded headless session identity', () => {
     const h = await harness()
     await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'codex',
         cwd: '/r',
         requireNoTools: true,
@@ -260,6 +261,7 @@ describe('bounded headless session identity', () => {
     ).rejects.toThrow(/cannot enforce a no-tools headless session/)
     await expect(
       h.registry.modules.sessions.headless.createHeadlessSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/r',
         accountId: asAccountId('native:claude-code'),
@@ -272,6 +274,7 @@ describe('bounded headless session identity', () => {
   it('keeps ordinary legacy headless sessions runnable without a bound account', async () => {
     const h = await harness()
     const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })

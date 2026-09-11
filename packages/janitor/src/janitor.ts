@@ -1,3 +1,4 @@
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
@@ -10,7 +11,6 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
-  firstAdminMemberId,
   type UserId,
 } from '@podium/model'
 import {
@@ -869,12 +869,13 @@ export class MaintenanceCommandsPrunePlanner {
  * policy is unchanged; what changed is that a disagreement is now a refusal with
  * a reason instead of a sweep that finds nothing.
  */
-/** A FUNCTION, not a module-level constant (A2). The first admin is resolved
- *  from the open instance now, and this module is imported long before one
- *  exists — a constant here would read the ambient at import time and throw. It
- *  is a default parameter below, so it is evaluated per construction, which is
- *  after the store that primed it. */
-const archiveViewer = (): UserId => firstAdminMemberId()
+/** Resolve from this reader's database on every scan so member removal and
+ * independent worker/store lifetimes cannot leave a stale viewer. */
+const archiveViewer = (db: SqlDatabase): UserId => {
+  const member = earliestAdminMember(db)
+  if (!member) throw new Error('the first admin member is not resolved: no active administrator in this database')
+  return member
+}
 
 /**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
@@ -884,10 +885,11 @@ const archiveViewer = (): UserId => firstAdminMemberId()
 export class SessionAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: UserId = archiveViewer(),
+    private readonly viewer?: UserId,
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
+    const viewer = this.viewer ?? archiveViewer(this.db)
     return this.db
       .prepare(
         // INNER JOIN, not LEFT: no row in `session_user_state` for this viewer
@@ -907,7 +909,7 @@ export class SessionAutoArchiveReader {
          ORDER BY sus.read_at ASC, s.id ASC
          LIMIT ?`,
       )
-      .all(this.viewer, input.cutoffReadAt, input.cutoffReadAt, input.limit)
+      .all(viewer, input.cutoffReadAt, input.cutoffReadAt, input.limit)
       .map((row: any) => ({
         sessionId: asSessionId(row.id),
         issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
@@ -916,7 +918,7 @@ export class SessionAutoArchiveReader {
         // viewer's read state authoritatively and refuses an observation that
         // names anyone else. `sus.read_at` still drives the candidate query and
         // the ordering above — it just no longer rides the wire.
-        readerUserId: this.viewer,
+        readerUserId: viewer,
         archived: false as const,
       }))
   }
@@ -925,17 +927,18 @@ export class SessionAutoArchiveReader {
 export class IssueAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: UserId = archiveViewer(),
+    private readonly viewer?: UserId,
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {
+    const viewer = this.viewer ?? archiveViewer(this.db)
     const candidates: IssueAutoArchiveObservation[] = []
     let cursor: { readAt: string; id: string } | undefined
     let done = false
     await runTimeBudgetedJob(() => {
       if (done || candidates.length >= input.limit) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
-      const params: Array<string | number> = [this.viewer, input.cutoffReadAt]
+      const params: Array<string | number> = [viewer, input.cutoffReadAt]
       // The keyset key moves WITH the read timestamp: it now names the viewer's
       // `issue_user_state.read_at`, never `issues.read_at` (dropped). It stays a
       // TOTAL order because the reader is pinned to ONE user, so at most one row
@@ -975,7 +978,7 @@ export class IssueAutoArchiveReader {
           // See the session reader: the wire carries WHOSE read gated this, not
           // the timestamp. `ius.read_at` is still what the query filters and
           // what the keyset cursor below orders by.
-          readerUserId: this.viewer,
+          readerUserId: viewer,
           archived: false,
           deletedAt: null,
         })

@@ -231,6 +231,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     worldIndex: (await WorldIndex.load(store)).reader,
+      firstAdminMemberId: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,

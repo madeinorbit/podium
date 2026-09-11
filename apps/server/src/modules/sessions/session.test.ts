@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState, Geometry, SessionUserOverlay } from '@podium/model'
 import { asMachineId, asSessionId, NO_SESSION_USER_STATE } from '@podium/model'
 import {
@@ -25,6 +26,7 @@ function makeSession(
   seed: { outputCount?: number; turnPreviewEnabled?: boolean } = {},
 ) {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     ...seed,
     sessionId: asSessionId('s1'),
     durableLabel: 'podium-s1',
@@ -188,6 +190,7 @@ describe('Session', () => {
 
   it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('sh'),
       durableLabel: 'podium-sh',
       agentKind: 'shell',
@@ -942,6 +945,7 @@ describe('Session', () => {
 
   it('markLive promotes a reconnecting session to live', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1068,6 +1072,7 @@ describe('Session', () => {
 
   it('preserves a persisted compute total when a reloaded old daemon omits it', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1103,6 +1108,7 @@ describe('Session', () => {
 
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1129,6 +1135,7 @@ describe('Session', () => {
 
   it('a running shell command advances lastActiveAt (output is its only signal)', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('sh'),
       durableLabel: 'podium-sh',
       agentKind: 'shell',
@@ -1313,6 +1320,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1342,6 +1350,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds counters from SessionInit ISO values', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
@@ -1362,6 +1371,7 @@ describe('Session transcript cache (recent-delta window)', () => {
 
   it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
     const s = new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId('s1'),
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',

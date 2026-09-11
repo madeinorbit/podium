@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * WHAT THE DRIVER CAN CHANGE, PUBLISHED TO CLIENTS (POD-3087).
  *
@@ -24,6 +25,7 @@ const geo: Geometry = { cols: 80, rows: 24 }
 
 const makeSession = (): Session =>
   new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('s-configure-fields'),
     durableLabel: 'podium-s-configure-fields',
     agentKind: 'codex',

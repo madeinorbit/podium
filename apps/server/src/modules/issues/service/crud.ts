@@ -1023,7 +1023,7 @@ export class IssueCrudModule {
     // migration names no member, so a row created without an owner would be
     // owned by nobody and visible to nobody. Resolved now, like every other
     // ambient site; a caller that knows whose issue it is still says so.
-    row.ownerUserId = input.ownerUserId ?? firstAdminMemberId()
+    row.ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.store.deps.store))
     row.visibility = input.visibility ?? 'personal'
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId

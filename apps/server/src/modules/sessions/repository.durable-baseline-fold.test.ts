@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * THE SESSION'S COMMITTED DURABLE BASELINE IS A COMMIT APPLICATION, NOT A
  * SAVEPOINT RELEASE (POD-3361, spec §3.3 mechanism 1).
@@ -34,6 +35,7 @@ const MACHINE = asMachineId('fold-machine')
 async function fixture() {
   const store = await openTestStore(':memory:')
   const session = new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('fold-1'),
     durableLabel: 'podium-fold-1',
     agentKind: 'claude-code',

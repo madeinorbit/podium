@@ -117,7 +117,7 @@ export interface SessionStartPorts {
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
   /** Whose preferences a spawning read uses. NOT this module's decision. */
-  settingsViewer(): UserId
+  settingsViewer(): UserId | Promise<UserId>
   durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
@@ -228,7 +228,7 @@ export class SessionStart {
     const agentKind = requested.success
       ? requested.data
       : resolveRole(
-          await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+          await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
           'coding',
         ).harness
     // Resolve the target machine before model validation — the catalog is
@@ -286,7 +286,7 @@ export class SessionStart {
         : input.binding?.principal.kind === 'agent'
           ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? firstAdminMemberId()
+    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -411,7 +411,7 @@ export class SessionStart {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : await this.ports.defaultMachine()
-    const ownerUserId = input.ownerUserId ?? firstAdminMemberId()
+    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
@@ -427,7 +427,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+            await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the

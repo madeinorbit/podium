@@ -244,8 +244,8 @@ export class SessionView {
 
   readonly wire = wireSession
 
-  broadcastViewer(): UserId {
-    return firstAdminMemberId()
+  async broadcastViewer(): Promise<UserId> {
+    return (await firstAdminMemberId(this.ports.store))
   }
 
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
@@ -255,14 +255,15 @@ export class SessionView {
   }
 
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
-    const role = await this.ports.store.users.roleOf(firstAdminMemberId())
+    const member = await this.ports.store.users.earliestAdmin()
+    const role = member?.role
     return role
-      ? sessionStatePrincipalFor(userCommandPrincipal(firstAdminMemberId(), role))
+      ? sessionStatePrincipalFor(userCommandPrincipal(member!.id, role))
       : undefined
   }
 
   async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
-    return await this.ports.state.overlay(this.broadcastViewer(), sessionId)
+    return await this.ports.state.overlay((await this.broadcastViewer()), sessionId)
   }
 
   /**

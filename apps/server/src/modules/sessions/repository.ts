@@ -760,7 +760,7 @@ export class SessionRepository {
     let session!: Session
     session = new Session({
       sessionId: r.id,
-      ownerUserId: r.ownerUserId ?? firstAdminMemberId(),
+      ownerUserId: r.ownerUserId ?? (await firstAdminMemberId(this.store)),
       agentKind: kind.data,
       cwd: r.cwd,
       title: r.title,

@@ -136,7 +136,7 @@ export class IssueCommentsMailModule {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
             // delivery state, `read_at` is a fact about THIS reader.
             await this.store.deps.store.issues.markIssueMessagesRead(
-              this.store.broadcastViewer(),
+              (await this.store.broadcastViewer()),
               id,
               unreadIds,
               at,

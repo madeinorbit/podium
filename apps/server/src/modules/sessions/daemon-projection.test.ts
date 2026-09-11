@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionDaemonProjection, type SessionDaemonProjectionPorts, type SessionProjectionDaemonFrame } from './daemon-projection'
@@ -18,6 +19,7 @@ const cases: { name: string; frame: SessionProjectionDaemonFrame; fallback?: boo
 
 function fixture(fallback = false) {
   const session = new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId, machineId, durableLabel: 'projection-session', agentKind: 'claude-code',
     cwd: '/old', title: 'Old title', origin: { kind: 'spawn' },
     createdAt: '2026-09-07T00:00:00.000Z', geometry: { cols: 80, rows: 24 },

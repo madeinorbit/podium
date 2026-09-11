@@ -40,7 +40,7 @@ import { resolveAccountEnv } from './account-env'
 export interface LaunchConfigPorts {
   store: Pick<SessionStore, 'settings' | 'accounts'>
   /** Whose preferences a spawning read uses. Not this module's decision. */
-  settingsViewer(): UserId
+  settingsViewer(): UserId | Promise<UserId>
 }
 
 export interface LaunchModelDefaults {
@@ -57,7 +57,7 @@ export class SessionLaunchConfig {
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
   ): Promise<LaunchModelDefaults> {
-    const settings = await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer())
+    const settings = await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer()))
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
     const explicitModel = override?.model
@@ -103,7 +103,7 @@ export class SessionLaunchConfig {
     const selectedAccountId =
       accountId ??
       resolveRole(
-        await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+        await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
         'coding',
       ).accountId
     if (agentKind === 'shell') return {}

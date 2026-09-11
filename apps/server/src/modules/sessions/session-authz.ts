@@ -426,8 +426,8 @@ export class SessionAuthz {
    * the only true answer — and POD-315 replaces this body with the requesting
    * principal, with every caller already asking the question.
    */
-  settingsViewer(): UserId {
-    return firstAdminMemberId()
+  async settingsViewer(): Promise<UserId> {
+    return (await firstAdminMemberId(this.ports.store))
   }
 
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----

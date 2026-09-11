@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * THE NARROW READ RETURNS THE FULL READ'S ANSWER [POD-1639].
  *
@@ -31,6 +32,7 @@ const PRINCIPAL = { userId: 'u1', role: 'admin' } as unknown as SessionStatePrin
 
 function session(id: string, cwd: string, issueId?: string, spawnedBy?: string): Session {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     ...(spawnedBy ? { spawnedBy } : {}),
     sessionId: asSessionId(id),
     durableLabel: `podium-${id}`,

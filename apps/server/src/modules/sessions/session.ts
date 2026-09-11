@@ -5,7 +5,6 @@ import {
   type AgentRuntimeState,
   type Attribution,
   type ConversationId,
-  firstAdminMemberId,
   type Geometry,
   type GeometryState,
   type HarnessAgent,
@@ -57,7 +56,7 @@ export type Send<T> = (msg: T) => void
 export interface SessionInit {
   sessionId: SessionId
   /** Accountable human owner. Required on production mint paths. */
-  ownerUserId?: UserId
+  ownerUserId: UserId
   agentKind: AgentKind
   cwd: string
   title: string
@@ -468,7 +467,7 @@ export class Session {
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
-    this.ownerUserId = init.ownerUserId ?? firstAdminMemberId()
+    this.ownerUserId = init.ownerUserId
     this.agentKind = init.agentKind
     this.cwd = init.cwd
     this.title = init.title

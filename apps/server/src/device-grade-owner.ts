@@ -37,7 +37,7 @@
  * nothing failing.
  */
 
-import { firstAdminMemberId, type UserId } from '@podium/model'
+import { firstAdminMemberId, type FirstAdminSource, type UserId } from '@podium/model'
 
 /**
  * The user to record when a connection this build cannot attribute to a specific
@@ -56,6 +56,6 @@ import { firstAdminMemberId, type UserId } from '@podium/model'
  * to exactly one person, and that person is everyone who can log in, which is
  * the honest statement of what a shared password means.
  */
-export function deviceGradeSoleOwner(): UserId {
-  return firstAdminMemberId()
+export function deviceGradeSoleOwner(store: FirstAdminSource): Promise<UserId> {
+  return firstAdminMemberId(store)
 }

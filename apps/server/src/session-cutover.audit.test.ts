@@ -1,3 +1,4 @@
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
 /**
  * THE 3.2 CUTOVER AUDIT (POD-382) — the gate the session family passes or the
  * build fails.
@@ -75,7 +76,6 @@ import {
 import { asyncSessionIssueAccess, type SessionVisibility } from './modules/sessions/session-access'
 import {
   SessionStateRegistry,
-  soleHumanSessionStatePrincipal,
 } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'

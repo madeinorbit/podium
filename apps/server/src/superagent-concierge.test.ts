@@ -1,6 +1,7 @@
 import {
   asSessionId,
   asThreadId,
+  asUserId,
   firstAdminMemberId,
   type IssueWire,
   type IssueWireInput,
@@ -529,5 +530,27 @@ describe('list_sessions boundIssue', () => {
     const outside = rows.find((r) => r.cwd === '/elsewhere')
     expect(outside).toBeDefined()
     expect(outside).not.toHaveProperty('boundIssue')
+  })
+})
+
+
+describe('thread ownership after administrator removal', () => {
+  it('keeps legacy threads with their owner and reuses the next admin’s own threads', async () => {
+    const { registry, sa } = await harness()
+    const store = registry.sessionStore
+    const original = await firstAdminMemberId(store)
+    const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
+    await store.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
+      createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
+    await sa.history(replacement)
+    const before = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
+    await store.users.removeMember(original, replacement)
+    await sa.history(replacement)
+    const after = await sa.ensureConciergeThread({ ownerUserId: replacement, repoPath: '/r' })
+    expect(after).toEqual({ threadId: before.threadId, isNew: false })
+    expect((await store.superagent.getSuperagentThread(asThreadId('global')))?.ownerUserId).toBe(original)
+    expect((await store.superagent.getSuperagentThread(conciergeThreadId('/r')))?.ownerUserId).toBe(original)
+    expect((await store.superagent.getSuperagentThread(asThreadId(`global:${replacement}`)))?.ownerUserId).toBe(replacement)
+    sa.dispose()
   })
 })

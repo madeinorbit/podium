@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { asMachineId, asSessionId, type MachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -22,6 +23,7 @@ function deferred() {
 
 function fixture() {
   const session = new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('durable-order'),
     durableLabel: 'podium-durable-order',
     agentKind: 'claude-code',

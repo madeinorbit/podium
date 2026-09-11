@@ -216,7 +216,7 @@ export class SessionTeardown {
     // WHOSE read (POD-1229) — see `IssueAttention.tryAutoArchiveObserved` for the
     // reasoning. `archived` is shared, so only the viewer this service archives
     // for may gate it, and a proposal naming anyone else is refused outright.
-    if (observed.readerUserId !== this.ports.view.broadcastViewer()) return 'precondition'
+    if (observed.readerUserId !== (await this.ports.view.broadcastViewer())) return 'precondition'
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
     // and no `readAt == null` clause here either: both cases the CAS caught are
     // refused by the checks below — a re-read lands inside the `not-due` window,

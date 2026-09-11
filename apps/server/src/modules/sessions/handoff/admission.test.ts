@@ -32,6 +32,7 @@ const caller = (): HandoffCaller => {
 
 function makeSession(over: { agentKind?: string; resume?: boolean } = {}): Session {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: SESSION,
     durableLabel: 'podium-s1',
     // `opencode` declares handoff: false in its harness manifest; `claude-code`

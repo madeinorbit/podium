@@ -22,7 +22,7 @@ export interface SessionWorkspacePorts {
   machines: MachinesService
   issueAccess: DurableIssueAccessIndex
   getSession: SessionLookup
-  settingsViewer(): UserId
+  settingsViewer(): UserId | Promise<UserId>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
@@ -40,7 +40,7 @@ export class SessionWorkspace {
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
+      : resolveRole(await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())), 'coding')
           .harness
     // A freshly reconnected daemon temporarily hides its persisted inventory:
     // the old report belongs to the previous socket. Explicit placement can

@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import type { EntityChangeSpec } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,6 +9,7 @@ const MACHINE = asMachineId('slice-machine')
 
 function makeSession(index: number): Session {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId(`slice-${index}`),
     durableLabel: `podium-slice-${index}`,
     agentKind: 'claude-code',

@@ -145,6 +145,25 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('resolves both readers again after the original administrator is removed', async () => {
+    const original = await firstAdminMemberId(store)
+    const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
+    await store.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
+      createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
+    await store.issues.upsertIssue(issueRow('iss_changed_owner'))
+    await seedSession(store, 'ses_changed_owner')
+    await store.issues.setIssueUserState(replacement, asIssueId('iss_changed_owner'), { readAt: READ_OLD })
+    await store.sessions.markSessionRead(replacement, asSessionId('ses_changed_owner'), READ_OLD)
+    const issues = new IssueAutoArchiveReader(db)
+    const sessions = new SessionAutoArchiveReader(db)
+    const input = { cutoffReadAt: CUTOFF, limit: 100 }
+    expect(await issues.read(input)).toEqual([])
+    expect(await sessions.read(input)).toEqual([])
+    await store.users.removeMember(original, replacement)
+    expect((await issues.read(input)).map(row => row.readerUserId)).toEqual([replacement])
+    expect((await sessions.read(input)).map(row => row.readerUserId)).toEqual([replacement])
+  })
+
   it('proposes an issue the broadcast viewer read before the cutoff', async () => {
     await store.issues.upsertIssue(issueRow('iss_read'))
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {

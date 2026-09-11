@@ -44,7 +44,6 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  firstAdminMemberId,
   isAgentComputing,
   isIssueClosed,
   type IssueScope,
@@ -235,6 +234,7 @@ class RoutingMembership {
 
 export interface MessageDeliveryDeps {
   worldIndex: Pick<WorldIndexReader, 'pendingCount'>
+  firstAdminMemberId(): Promise<import('@podium/model').UserId>
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
   events: EventsRepository
@@ -1056,7 +1056,7 @@ export class MessageDeliveryService {
     if (lifecycle === 'wake' && !exemptFromBrakes(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : this.issueForSession(targetSession)
-      const key = `${this.senderKey(from)}|${issueKey ?? toId ?? ''}`
+      const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
       if (await this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
@@ -1101,12 +1101,12 @@ export class MessageDeliveryService {
       !!original &&
       original.expectsResponse === true &&
       kind !== 'notification' &&
-      !this.sameSenderAs(from, original) &&
+      !(await this.sameSenderAs(from, original)) &&
       this.isRecipientOf(from, original)
     const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
 
     const id = input.correlationId ?? `msg_${randomUUID()}`
-    const authority = this.authorityOf(from)
+    const authority = await this.authorityOf(from)
     const message: MessageRow = {
       id,
       threadId: asThreadId(input.threadId ?? original?.threadId ?? id),
@@ -1494,7 +1494,7 @@ export class MessageDeliveryService {
     opts?: { awaitReceipt?: boolean },
   ): Promise<DeliveryOutcome> {
     const sessions = this.deps.sessions
-    const principal = this.inboxPrincipal(message)
+    const principal = await this.inboxPrincipal(message)
     const text = await this.render.renderFor(message, sessionId)
     // Operator chat / offer buttons ride this substrate after POD-729, but they
     // are still a person typing into the session — not agent mail. Stamp
@@ -2013,7 +2013,7 @@ export class MessageDeliveryService {
           sessionId: session.sessionId,
           text: await this.render.renderFor(m, session.sessionId),
           inputOrigin: originOf(m),
-          principal: this.inboxPrincipal(m),
+          principal: await this.inboxPrincipal(m),
           sourceMessageId: m.id,
         },
         m.id,
@@ -2030,7 +2030,7 @@ export class MessageDeliveryService {
           sessionId: session.sessionId,
           text: await this.render.renderFor(m, session.sessionId),
           inputOrigin: originOf(m),
-          principal: this.inboxPrincipal(m),
+          principal: await this.inboxPrincipal(m),
           sourceMessageId: m.id,
         },
         m.id,
@@ -2305,8 +2305,8 @@ export class MessageDeliveryService {
   /** ONE definition of the brake bucket, in `@podium/commands` — see
    *  {@link senderBrakeKey} for why `operator`/`superagent` must be re-keyed per
    *  user and why the bare kind is still the right answer today. */
-  private senderKey(from: MessageSender): string {
-    const authority = this.authorityOf(from)
+  private async senderKey(from: MessageSender): Promise<string> {
+    const authority = await this.authorityOf(from)
     return senderBrakeKey(
       principalOf({
         ...from,
@@ -2323,8 +2323,8 @@ export class MessageDeliveryService {
   /** Whether `from` is the same principal that sent `original` — guards
    *  semantic-reply-as-ack [POD-835] so a requester can never satisfy its OWN
    *  requested response (only the other party's reply fulfils it). */
-  private sameSenderAs(from: MessageSender, original: MessageRow): boolean {
-    return this.senderKey(from) === this.senderKeyOfRow(original)
+  private async sameSenderAs(from: MessageSender, original: MessageRow): Promise<boolean> {
+    return (await this.senderKey(from)) === this.senderKeyOfRow(original)
   }
 
   /** Whether `from` is the party the `original` was addressed to — the ONLY
@@ -2850,27 +2850,29 @@ export class MessageDeliveryService {
     }
   }
 
-  private authorityOf(from: MessageSender): {
+  private async authorityOf(from: MessageSender): Promise<{
     attribution: Attribution
     delegationRef: string | null
-  } {
+  }> {
     if (from.attribution) {
       return { attribution: from.attribution, delegationRef: from.delegationRef ?? null }
     }
     switch (from.kind) {
-      case 'operator':
+      case 'operator': {
+        const owner = await this.deps.firstAdminMemberId()
         return {
           attribution: {
-            actor: actorUser(firstAdminMemberId()),
-            onBehalfOf: firstAdminMemberId(),
+            actor: actorUser(owner),
+            onBehalfOf: owner,
           },
           delegationRef: null,
         }
+      }
       case 'superagent':
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-            onBehalfOf: firstAdminMemberId(),
+            onBehalfOf: (await this.deps.firstAdminMemberId()),
           },
           delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
@@ -2879,7 +2881,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(actorId)),
-            onBehalfOf: firstAdminMemberId(),
+            onBehalfOf: (await this.deps.firstAdminMemberId()),
           },
           delegationRef: from.sessionId ?? null,
         }
@@ -2894,7 +2896,7 @@ export class MessageDeliveryService {
     }
   }
 
-  private inboxPrincipal(message: MessageRow): InboxPrincipalReference {
+  private async inboxPrincipal(message: MessageRow): Promise<InboxPrincipalReference> {
     const legacySender: MessageSender =
       message.fromKind === 'operator'
         ? { kind: 'operator' }
@@ -2907,7 +2909,7 @@ export class MessageDeliveryService {
                 ...(message.fromIssue ? { issueId: message.fromIssue } : {}),
                 ...(message.fromSession ? { sessionId: message.fromSession } : {}),
               }
-    const attribution = message.attribution ?? this.authorityOf(legacySender).attribution
+    const attribution = message.attribution ?? (await this.authorityOf(legacySender)).attribution
     const actor = attribution.actor
     return {
       kind: actor.kind === 'user' ? 'user' : actor.kind === 'agent' ? 'agent' : 'system',

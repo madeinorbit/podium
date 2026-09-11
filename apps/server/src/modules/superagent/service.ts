@@ -315,18 +315,21 @@ export class SuperagentService {
     this.interruptFallbacks.clear()
   }
 
-  private globalThreadId(ownerUserId: UserId): ThreadId {
-    return ownerUserId === firstAdminMemberId()
-      ? asThreadId('global')
-      : asThreadId(`global:${ownerUserId}`)
+  private async personalThreadId(ownerUserId: UserId, base: ThreadId): Promise<ThreadId> {
+    const legacy = await this.store.superagent.getSuperagentThread(base)
+    // Existing personal history stays with its recorded owner after admin removal.
+    const ownsBase = legacy
+      ? legacy.ownerUserId === ownerUserId
+      : ownerUserId === await firstAdminMemberId(this.store)
+    return ownsBase ? base : asThreadId(`${base}:${ownerUserId}`)
   }
 
-  private resolveThreadId(ownerUserId: UserId, threadId: ThreadId): ThreadId {
-    return threadId === 'global' ? this.globalThreadId(ownerUserId) : threadId
+  private async resolveThreadId(ownerUserId: UserId, threadId: ThreadId): Promise<ThreadId> {
+    return threadId === 'global' ? this.personalThreadId(ownerUserId, threadId) : threadId
   }
 
   private async ensureGlobalThread(ownerUserId: UserId): Promise<ThreadId> {
-    const threadId = this.globalThreadId(ownerUserId)
+    const threadId = await this.personalThreadId(ownerUserId, asThreadId('global'))
     if (!await this.store.superagent.getSuperagentThread(threadId, ownerUserId)) {
       await this.store.superagent.upsertSuperagentThread({
         id: threadId,
@@ -338,7 +341,7 @@ export class SuperagentService {
   }
 
   private async ownedThread(ownerUserId: UserId, requested: ThreadId): Promise<SuperagentThreadRow> {
-    const threadId = this.resolveThreadId(ownerUserId, requested)
+    const threadId = await this.resolveThreadId(ownerUserId, requested)
     const thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (!thread) throw new Error(`unknown thread: ${requested}`)
     return thread
@@ -676,6 +679,7 @@ export class SuperagentService {
     if (bound && await this.sessionById(bound)) return bound
     const agent = HarnessAgent.safeParse(thread.agentKind)
     const { sessionId } = await this.modules.headless.createHeadlessSession({
+      ownerUserId: thread.ownerUserId,
       agentKind: agent.success
         ? agent.data
         : superagentHarnessAgent(await this.store.settings.getSettingsFor(thread.ownerUserId)),
@@ -1216,10 +1220,7 @@ export class SuperagentService {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
     const baseThreadId = conciergeThreadId(repoPath)
-    const threadId =
-      ownerUserId === firstAdminMemberId()
-        ? baseThreadId
-        : asThreadId(`${baseThreadId}:${ownerUserId}`)
+    const threadId = await this.personalThreadId(ownerUserId, baseThreadId)
     const existing = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     const isNew = existing?.kind !== 'concierge'
     if (isNew) {
@@ -1264,10 +1265,7 @@ export class SuperagentService {
     isNew: boolean
   }> {
     const baseThreadId = conciergeThreadId(repoPath)
-    const threadId =
-      ownerUserId === firstAdminMemberId()
-        ? baseThreadId
-        : asThreadId(`${baseThreadId}:${ownerUserId}`)
+    const threadId = await this.personalThreadId(ownerUserId, baseThreadId)
     const existing = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (existing?.kind === 'concierge') return { threadId, isNew: false }
     await this.store.superagent.upsertSuperagentThread({

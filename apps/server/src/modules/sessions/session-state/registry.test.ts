@@ -1,3 +1,4 @@
+import { soleHumanSessionStatePrincipal } from '../../../test-support/session-state-principal'
 /**
  * MULTI-USER PROPERTIES of the session-state command envelope (POD-380).
  *
@@ -26,7 +27,6 @@ import { openTestStore } from '../../../test-support/open-test-store'
 import {
   type SessionStatePrincipal,
   SessionStateRegistry,
-  soleHumanSessionStatePrincipal,
 } from './registry'
 
 const registries: SessionRegistry[] = []

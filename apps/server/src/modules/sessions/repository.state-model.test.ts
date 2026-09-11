@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * THE SESSION REGISTRY'S MUTABLE-STATE MODEL [POD-3259, spec §3.6].
  *
@@ -34,6 +35,7 @@ const MACHINE = asMachineId('model-machine')
 
 const makeSession = (): Session =>
   new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: asSessionId('model-1'),
     durableLabel: 'podium-model-1',
     agentKind: 'claude-code',

@@ -39,6 +39,7 @@ const caller = (): HandoffCaller => {
 
 function makeSession(over: { cwd?: string; machineId?: string; issueId?: string } = {}): Session {
   return new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: SESSION,
     durableLabel: 'podium-s1',
     agentKind: 'claude-code',

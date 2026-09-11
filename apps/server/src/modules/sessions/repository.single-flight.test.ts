@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRepository } from './repository'
@@ -23,6 +24,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
 
   const makeSession = (index: number): Session =>
     new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: asSessionId(`flush-${index}`),
       durableLabel: `podium-flush-${index}`,
       agentKind: 'claude-code',

@@ -19,6 +19,7 @@ import {
   superagentThreads,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import { UsersRepository } from './users'
 import { currentTransaction } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -36,7 +37,10 @@ export class SuperagentRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
+  private readonly users: UsersRepository
+
   constructor(queries: StoreQueries) {
+    this.users = new UsersRepository(queries)
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -53,7 +57,8 @@ export class SuperagentRepository {
   }
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
-  async seedGlobalThread(ownerUserId: UserId = firstAdminMemberId()): Promise<void> {
+  async seedGlobalThread(ownerUserId?: UserId): Promise<void> {
+    ownerUserId ??= await firstAdminMemberId({ users: this.users })
     const saNow = new Date().toISOString()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. `INSERT OR IGNORE`
     // suppresses UNIQUE, PRIMARY KEY, NOT NULL and CHECK; `onConflictDoNothing()`

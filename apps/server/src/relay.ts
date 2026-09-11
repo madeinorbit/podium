@@ -927,7 +927,7 @@ export class SessionRegistry {
       // composition root, where POD-315 will replace it with real principals.
       users: async () => {
         const rows = (await this.store.users.list()).map((row) => asUserId(row.id))
-        return rows.length > 0 ? rows : [firstAdminMemberId()]
+        return rows.length > 0 ? rows : [(await firstAdminMemberId(this.store))]
       },
       settingsFor: async (userId) => await settings.getSettingsFor(userId),
       machines: async () => await machines.listMachines(),
@@ -1638,8 +1638,8 @@ export class SessionRegistry {
         // a person (one shared password), so the sole account is the only true
         // answer, and POD-315/POD-1077 replace the argument rather than finding a
         // hidden read.
-        getSettings: async (ownerUserId = firstAdminMemberId()) =>
-          await this.store.settings.getSettingsFor(ownerUserId),
+        getSettings: async (ownerUserId?: import('@podium/model').UserId) =>
+          await this.store.settings.getSettingsFor(ownerUserId ?? await firstAdminMemberId(this.store)),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: async () => await this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
         telegramRouteAvailable: async (ownerUserId) =>
@@ -1670,7 +1670,7 @@ export class SessionRegistry {
           [...sessionsSvc.sessions.values()].map((s) => ({
             info: noticeInfo(s),
             state: s.agentState,
-            ownerUserId: firstAdminMemberId(),
+            ownerUserId: s.ownerUserId,
           })),
         notificationsEnabled: () => featureEnabled('notifications'),
       },
@@ -1724,7 +1724,7 @@ export class SessionRegistry {
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
-      getSettings: async () => await this.store.settings.getSettingsFor(firstAdminMemberId()),
+      getSettings: async () => await this.store.settings.getSettingsFor((await firstAdminMemberId(this.store))),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           ...(o.sessionId ? { sessionId: o.sessionId } : {}),
@@ -1984,6 +1984,7 @@ export class SessionRegistry {
     // arrives at a composition root that already carries it.
     const messagesSvc = new MessageDeliveryService({
       worldIndex: this.worldIndex,
+      firstAdminMemberId: () => firstAdminMemberId(this.store),
       authorizeAtApply: mail.authorizeAtApply,
       // POD-1193: wake resumes/spawns on the target session's machine — enforce
       // `use` at delivery. Same principalMailPolicy object as the ceiling port.
@@ -1999,7 +2000,7 @@ export class SessionRegistry {
         await funnel.run({
           write: async () =>
             await this.store.issues.markIssueMessagesRead(
-              firstAdminMemberId(),
+              (await firstAdminMemberId(this.store)),
               issueId,
               ids,
               new Date().toISOString(),
@@ -2447,7 +2448,7 @@ export class SessionRegistry {
           // while issue-create honoured it. Continuing an existing session still
           // wins outright — that session's harness is already running.
           const spawnDefaults = resolveSpawnDefaults(
-            await this.store.settings.getSettingsFor(firstAdminMemberId()),
+            await this.store.settings.getSettingsFor((await firstAdminMemberId(this.store))),
             {
               agentKind: existing?.agentKind ?? fresh?.agentKind,
               model: fresh?.model,

@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 /**
  * THE STICKY POLICY SURVIVES A SERVER RESTART — through SQLite, not through a
  * `structuredClone` (POD-3081 review).
@@ -62,6 +63,7 @@ const SID = asSessionId('session-reload-configure')
 /** A session launched on one model, as a spawn would leave it. */
 const launched = (): Session =>
   new Session({
+    ownerUserId: firstAdminMemberId(),
     sessionId: SID,
     durableLabel: 'podium-session-reload-configure',
     agentKind: 'codex',

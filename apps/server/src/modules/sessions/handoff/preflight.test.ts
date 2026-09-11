@@ -27,6 +27,7 @@ function placement(): HandoffPlacement {
   const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
   return {
     session: new Session({
+    ownerUserId: firstAdminMemberId(),
       sessionId: SESSION,
       durableLabel: 'podium-session-1',
       agentKind: 'claude-code',

@@ -52,7 +52,6 @@ import {
   authorize,
   type Capability,
   type IssueId,
-  firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 
@@ -83,30 +82,6 @@ export type SessionStateTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
  * questions, and `nameSource` is the shipped feature that depends on the answer.
  */
 /**
- * Compatibility constructor for the first administrator. A direct human now has
- * `actorUser` attribution, so directness is identified by the absence of an agent
- * session rather than by an empty actor slot.
- *
- * A FUNCTION, not a constant, so a caller cannot mutate the shared object — and
- * so every call site that will need a real principal is one grep away.
- *
- * IT SPELLED THE LITERAL UNTIL A2. `asUserId(SOLE_USER_ID)` was correct while
- * the first admin's row carried that id; after the migration re-keys it, the
- * literal names no member, and the per-user-state store REFUSES a principal with
- * no active account — "no active account for session-state user user:sole",
- * which is the failure shape this resolution avoids. The member is looked up
- * now, like every other ambient site.
- */
-export function soleHumanSessionStatePrincipal(capability: Capability): SessionStatePrincipal {
-  return {
-    userId: firstAdminMemberId(),
-    capability,
-    onBehalfOf: firstAdminMemberId(),
-    humanDirect: capability.actorSessionId === undefined,
-  }
-}
-
-/**
  * The principal for a WebSocket client message. Same sole human as the tRPC seam
  * (both are the one shared password today) but carrying the attached client's id,
  * which the draft handler needs.
@@ -125,13 +100,6 @@ export function sessionStatePrincipalFor(
     humanDirect: principal.kind === 'user',
     ...(clientId ? { clientId } : {}),
   }
-}
-
-export function soleHumanSessionStateWsPrincipal(
-  capability: Capability,
-  clientId: string,
-): SessionStatePrincipal {
-  return { ...soleHumanSessionStatePrincipal(capability), clientId }
 }
 
 /** What a refused session-state write returns: nothing. See the §3.1.5 note above. */

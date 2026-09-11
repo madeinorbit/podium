@@ -165,7 +165,7 @@ export class SessionRevival {
     })
     const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
-      ownerUserId: input.ownerUserId ?? firstAdminMemberId(),
+      ownerUserId: input.ownerUserId ?? (await firstAdminMemberId(this.ports.store)),
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
