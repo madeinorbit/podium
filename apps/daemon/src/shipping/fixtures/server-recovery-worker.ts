@@ -33,7 +33,10 @@ const ledger = new Ledger({
 })
 const issues = IssueService.create({
   store,
-  listSessions: async () => [],
+  sessionFacts: () => [],
+  sessionById: async () => undefined,
+  listSessionsForIssue: async () => [],
+  sessionsById: async () => [],
   getSettings: async () =>
     normalizeSettings({
       gitWorkflow: {

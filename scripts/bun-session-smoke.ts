@@ -94,8 +94,8 @@ try {
   // 3) take control + resize repaints the agent at the new geometry
   client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
   client.send(encode({ type: 'requestControl', sessionId }))
-  const sess = async () =>
-    (await srv.registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+  // Epoch is not a SessionFacts field; project only the session under test.
+  const sess = () => srv.registry.modules.sessions.sessionById(sessionId)
   await waitFor(async () => ((await sess())?.epoch ?? 0) >= 1, 'epoch bump')
   await waitFor(async () => c.text.includes('cols=100 rows=30'), 'resize repaint')
   console.log('[smoke] ✓ resize + takeover: epoch bumped, repainted at cols=100 rows=30')
