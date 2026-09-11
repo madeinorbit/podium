@@ -27,6 +27,8 @@ import {
   CAP_SYNC_FEED_IDENTITY,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_FEED_BOOTSTRAP_ZSTD_V1,
+  ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
   createDispatcher,
   decodeBinaryEnvelope,
@@ -41,7 +43,7 @@ import {
   type PresencePayload,
   type PresenceRoomClientMessage,
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
-  PtyOutputBinaryMetadata,
+  type PtyOutputBinaryMetadata,
   parseServerMessageLenient,
   presencePayloadWithinBudget,
   type RoomRef,
@@ -52,6 +54,7 @@ import {
   WIRE_VERSION,
   type PendingInteractionWire,
 } from '@podium/protocol'
+import { decodeBootstrapZstd, type CompressedBootstrap } from './bootstrap-zstd'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
@@ -606,10 +609,11 @@ export class SocketHub {
   private ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
-    raw: string
+    raw: string | CompressedBootstrap
     socket: WebSocketLike
     kind: FeedServerFrame['type']
   }> = []
+  private compressedIngressBytes = 0
   private feedIngressScheduled = false
   private feedIngressGeneration = 0
   /** Running count of `feedDelta` entries in `feedIngressQueue` — the number the
@@ -884,6 +888,7 @@ export class SocketHub {
                     ]
                   : []),
                 ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
+                ...(acceptsBinaryOutput && this.opts.feed ? [CAP_FEED_BOOTSTRAP_ZSTD_V1] : []),
                 ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
               ],
             }
@@ -958,23 +963,26 @@ export class SocketHub {
       this.evaluateHealth(true)
     }
     socket.onmessage = (ev) => {
-      if (this.invalidSockets.has(socket)) return
+      if (this.socket !== socket || this.invalidSockets.has(socket)) return
       this.markAlive()
       if (typeof ev.data !== 'string') {
         try {
           if (!acceptsBinaryOutput || !(ev.data instanceof ArrayBuffer)) {
             throw new Error('unnegotiated or non-ArrayBuffer binary server frame')
           }
-          const { metadata, payload } = decodeBinaryEnvelope(ev.data, PtyOutputBinaryMetadata)
-          this.forwardBinaryOutput(metadata, payload)
+          const { metadata, payload } = decodeBinaryEnvelope(ev.data, ClientOutputBinaryMetadata)
+          if (metadata.type === 'feedBootstrapZstd') {
+            if (!this.opts.feed) throw new Error('unnegotiated bootstrap compression')
+            this.enqueueFeedFrame(
+              { payload, uncompressedBytes: metadata.uncompressedBytes },
+              socket,
+              'feedBootstrap',
+            )
+          } else {
+            this.forwardBinaryOutput(metadata, payload)
+          }
         } catch (err) {
-          log.warn('closing a socket after a binary protocol violation', { err })
-          this.recordSkew({ refusedFrames: 1, error: err })
-          this.invalidSockets.add(socket)
-          this.connectedFlag = false
-          this.inputBinaryAcknowledged = false
-          this.stopHeartbeat()
-          socket.close()
+          this.rejectBinaryFrame(socket, err)
         }
         return
       }
@@ -1826,11 +1834,33 @@ export class SocketHub {
     return { ...this.feedBudgetStats }
   }
 
+  private rejectBinaryFrame(socket: WebSocketLike, err: unknown): void {
+    log.warn('closing a socket after a binary protocol violation', { err })
+    this.recordSkew({ refusedFrames: 1, error: err })
+    this.invalidSockets.add(socket)
+    this.connectedFlag = false
+    this.inputBinaryAcknowledged = false
+    this.clearFeedIngress()
+    this.stopHeartbeat()
+    socket.close()
+  }
+
   private enqueueFeedFrame(
-    raw: string,
+    raw: string | CompressedBootstrap,
     socket: WebSocketLike,
     kind: FeedServerFrame['type'],
   ): void {
+    if (typeof raw !== 'string') {
+      const charge = raw.payload.byteLength + raw.uncompressedBytes
+      if (
+        this.compressedIngressBytes + charge > 128 * 1024 * 1024 ||
+        this.feedIngressQueue.length >= 8192
+      ) {
+        this.rejectBinaryFrame(socket, new RangeError('compressed bootstrap queue exceeds budget'))
+        return
+      }
+      this.compressedIngressBytes += charge
+    }
     this.feedIngressQueue.push({ raw, socket, kind })
     if (kind === 'feedDelta') this.feedDeltaQueueDepth += 1
     this.feedBudgetStats.maxQueueDepth = Math.max(
@@ -1863,6 +1893,7 @@ export class SocketHub {
    *  what is queued would be wrong. */
   private clearFeedIngress(): void {
     this.feedIngressQueue.length = 0
+    this.compressedIngressBytes = 0
     this.feedDeltaQueueDepth = 0
     this.feedIngressScheduled = false
     this.feedIngressGeneration += 1
@@ -1879,11 +1910,23 @@ export class SocketHub {
     const entry = this.feedIngressQueue.shift()
     if (entry === undefined) return
     if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
+    if (typeof entry.raw !== 'string')
+      this.compressedIngressBytes -= entry.raw.payload.byteLength + entry.raw.uncompressedBytes
 
     if (this.socket === entry.socket && !this.invalidSockets.has(entry.socket)) {
       const startedAt = interactionNow()
       try {
-        this.route(entry.raw)
+        if (typeof entry.raw === 'string') this.route(entry.raw)
+        else {
+          try {
+            const raw = decodeBootstrapZstd(entry.raw)
+            if (feedFrameTypeHint(raw) !== 'feedBootstrap')
+              throw new Error('compressed payload is not a bootstrap')
+            this.route(raw)
+          } catch (err) {
+            this.rejectBinaryFrame(entry.socket, err)
+          }
+        }
       } finally {
         const durationMs = Math.max(0, interactionNow() - startedAt)
         const overTaskBudget = durationMs > FEED_TASK_BUDGET_MS

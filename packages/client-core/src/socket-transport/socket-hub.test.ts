@@ -2,12 +2,15 @@ import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_FEED_BOOTSTRAP_ZSTD_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   ClientPtyInputMetadata,
   decodeBinaryEnvelope,
   encode,
   encodeBinaryEnvelope,
   type ServerMessage,
+  type FeedDeltaMessage,
+  type FeedBootstrapMessage,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FEED_DELTA_RESYNC_QUEUE_DEPTH, SocketHub, type WebSocketLike } from './socket-hub'
@@ -80,7 +83,141 @@ const b64 = (s: string): string => btoa(s)
 const b64Bytes = (...bytes: number[]): string => btoa(String.fromCharCode(...bytes))
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
+// A valid single-segment Zstd frame with one raw block. Native compressed
+// blocks are covered by the server compressor → portable decoder roundtrip.
+function zstdBootstrap(raw: string): Uint8Array {
+  const source = utf8(raw)
+  if (source.length >= 256) throw new Error('fixture needs a one-byte content size')
+  const zstd = new Uint8Array(9 + source.length)
+  zstd.set([0x28, 0xb5, 0x2f, 0xfd, 0x20, source.length])
+  const block = (source.length << 3) | 1
+  zstd.set([block & 255, (block >>> 8) & 255, (block >>> 16) & 255], 6)
+  zstd.set(source, 9)
+  return encodeBinaryEnvelope(
+    { v: 1, type: 'feedBootstrapZstd', uncompressedBytes: source.length },
+    zstd,
+  )
+}
+
 describe('SocketHub', () => {
+  it('negotiates compression only with a binary transport and feed consumer', () => {
+    for (const socket of [new FakeSocket(), new BrowserSocket()]) {
+      const hub = new SocketHub({
+        url: 'ws://x',
+        makeSocket: () => socket,
+        feed: { helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
+      })
+      hub.connect()
+      socket.open()
+      const caps = socket.parsed().find((msg) => msg.type === 'hello')?.caps as string[] | undefined
+      expect(caps?.includes(CAP_FEED_BOOTSTRAP_ZSTD_V1) ?? false).toBe(
+        socket instanceof BrowserSocket,
+      )
+      hub.dispose()
+    }
+  })
+
+  it('decodes compressed chunks in the scheduled feed FIFO before later JSON deltas', () => {
+    const sock = new BrowserSocket()
+    const tasks: Array<() => void> = []
+    const frames: unknown[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+      scheduleFeedTask: (task) => tasks.push(task),
+      feed: {
+        helloFields: () => null,
+        connected() {},
+        disconnected() {},
+        frame: (frame) => frames.push(frame),
+      },
+    })
+    hub.connect()
+    sock.open()
+    const bootstrap: FeedBootstrapMessage = {
+      type: 'feedBootstrap',
+      feedId: 'feed',
+      epoch: 'e1',
+      fromSeq: 0,
+      seq: 0,
+      minAvailableSeq: 0,
+      changes: [],
+      last: false,
+    }
+    const delta: FeedDeltaMessage = {
+      type: 'feedDelta',
+      feedId: 'feed',
+      epoch: 'e1',
+      fromSeq: 0,
+      seq: 1,
+      changes: [],
+      minAvailableSeq: 0,
+    }
+    sock.recvBinary(zstdBootstrap(JSON.stringify(bootstrap)))
+    sock.recvBinary(zstdBootstrap(JSON.stringify({ ...bootstrap, last: true })))
+    sock.onmessage?.({ data: JSON.stringify(delta) })
+    expect(frames).toEqual([])
+    tasks.shift()?.()
+    expect(frames).toHaveLength(1)
+    tasks.shift()?.()
+    tasks.shift()?.()
+    expect(frames).toMatchObject([bootstrap, { ...bootstrap, last: true }, delta])
+    expect(sock.closeCalls).toBe(0)
+    hub.dispose()
+  })
+
+  it('rejects corrupt compressed payloads and invalidates already scheduled work', () => {
+    const sock = new BrowserSocket()
+    const tasks: Array<() => void> = []
+    const frame = vi.fn()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+      scheduleFeedTask: (task) => tasks.push(task),
+      feed: { helloFields: () => null, connected() {}, disconnected() {}, frame },
+    })
+    hub.connect()
+    sock.open()
+    sock.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'feedBootstrapZstd', uncompressedBytes: 10 },
+        Uint8Array.of(0),
+      ),
+    )
+    sock.recvBinary(zstdBootstrap('{"type":"feedBootstrap"}'))
+    tasks.shift()?.()
+    expect(sock.closeCalls).toBe(1)
+    while (tasks.length) tasks.shift()?.()
+    expect(frame).not.toHaveBeenCalled()
+    hub.dispose()
+  })
+
+  it('discards compressed ingress on disconnect and refuses it without negotiation', () => {
+    const sock = new BrowserSocket()
+    const tasks: Array<() => void> = []
+    const frame = vi.fn()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+      scheduleFeedTask: (task) => tasks.push(task),
+      feed: { helloFields: () => null, connected() {}, disconnected() {}, frame },
+    })
+    hub.connect()
+    sock.open()
+    sock.recvBinary(zstdBootstrap('{"type":"feedBootstrap"}'))
+    hub.suspend()
+    while (tasks.length) tasks.shift()?.()
+    expect(frame).not.toHaveBeenCalled()
+    hub.dispose()
+    const legacy = new BrowserSocket()
+    const legacyHub = new SocketHub({ url: 'ws://x', makeSocket: () => legacy })
+    legacyHub.connect()
+    legacy.open()
+    legacy.recvBinary(zstdBootstrap('{"type":"feedBootstrap"}'))
+    expect(legacy.closeCalls).toBe(1)
+    legacyHub.dispose()
+  })
+
   it('sends hello on open, carrying the transport bootstrap viewport the wire requires', () => {
     // POD-3239: the viewport field is no longer a hub OPTION — nothing supplies
     // one and no session is born at it. It stays on the frame because the

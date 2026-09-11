@@ -16,6 +16,17 @@ export const BINARY_ENVELOPE_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 /** A scheduler batch cannot legitimately contain more one-byte PTY reads than this. */
 export const DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES = 64 * 1024
 
+/** Negotiated application compression, independent of WebSocket deflate. */
+export const CAP_FEED_BOOTSTRAP_ZSTD_V1 = 'feed.bootstrap.zstd.v1'
+export const BOOTSTRAP_ZSTD_MAX_BYTES = 64 * 1024 * 1024
+export const BootstrapZstdMetadata = z
+  .object({
+    v: z.literal(1),
+    type: z.literal('feedBootstrapZstd'),
+    uncompressedBytes: z.number().int().positive().max(BOOTSTRAP_ZSTD_MAX_BYTES),
+  })
+  .passthrough()
+
 /** V1 server-to-browser PTY output metadata. Unknown additive fields survive. */
 export const PtyOutputBinaryMetadata = z
   .object({
@@ -27,6 +38,8 @@ export const PtyOutputBinaryMetadata = z
   })
   .passthrough()
 export type PtyOutputBinaryMetadata = z.infer<typeof PtyOutputBinaryMetadata>
+
+export const ClientOutputBinaryMetadata = z.union([PtyOutputBinaryMetadata, BootstrapZstdMetadata])
 
 /** V1 daemon-to-server PTY output metadata. Unknown additive fields survive. */
 export const DaemonPtyOutputMetadata = z
@@ -62,7 +75,7 @@ export type DaemonPtyInputMetadata = z.infer<typeof DaemonPtyInputMetadata>
 
 /** Supported framing header. Plane schemas validate fields beyond this header. */
 export const BinaryEnvelopeHeader = z
-  .object({ v: z.literal(1), type: z.enum(['ptyOutput', 'ptyInput']) })
+  .object({ v: z.literal(1), type: z.enum(['ptyOutput', 'ptyInput', 'feedBootstrapZstd']) })
   .passthrough()
 export type BinaryEnvelopeHeader = z.infer<typeof BinaryEnvelopeHeader>
 

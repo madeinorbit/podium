@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto'
 import { request } from 'node:http'
 import { firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import {
+  BootstrapZstdMetadata,
+  CAP_FEED_BOOTSTRAP_ZSTD_V1,
+  decodeBinaryEnvelope,
+  type ServerMessage,
+  WIRE_VERSION,
+} from '@podium/protocol'
+import { decodeBootstrapZstd } from '../../../packages/client-core/src/socket-transport/bootstrap-zstd'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -355,6 +362,65 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url, { origin: 'https://evil.example' })).toBe('open')
     expect(await attempt(url)).toBe('open')
   })
+  test('negotiates compressed bootstrap over a native socket before subsequent deltas', async () => {
+    const url = await start(() => true)
+    if (!registry) throw new Error('missing test registry')
+    const sessionId = (
+      await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/zstd-feed' })
+    ).sessionId
+    registry.modules.sessions.flushBroadcasts()
+    const ws = new WebSocket(url)
+    const frames: Array<{ binary: boolean; message: ServerMessage }> = []
+    const errors: unknown[] = []
+    ws.on('message', (data, binary) => {
+      try {
+        const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
+        let raw = bytes.toString()
+        if (binary) {
+          const decoded = decodeBinaryEnvelope(bytes, BootstrapZstdMetadata)
+          raw = decodeBootstrapZstd({
+            payload: decoded.payload,
+            uncompressedBytes: decoded.metadata.uncompressedBytes,
+          })
+        }
+        frames.push({ binary, message: JSON.parse(raw) as ServerMessage })
+      } catch (error) {
+        errors.push(error)
+      }
+    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', resolve)
+        ws.once('error', reject)
+      })
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          clientId: '',
+          viewport: { cols: 80, rows: 24, dpr: 1 },
+          wireVersion: WIRE_VERSION,
+          caps: [CAP_FEED_BOOTSTRAP_ZSTD_V1],
+        }),
+      )
+      await until(() => errors.length > 0 || frames.some((f) => f.message.type === 'feedBootstrap'))
+      expect(errors).toEqual([])
+      const bootstrapIndex = frames.findIndex((f) => f.message.type === 'feedBootstrap')
+      expect(frames[bootstrapIndex]).toMatchObject({
+        binary: true,
+        message: { changes: [{ entity: 'session', entityId: sessionId }] },
+      })
+      await registry.modules.sessions.renameSession({ sessionId, name: 'zstd-renamed' })
+      registry.modules.sessions.flushBroadcasts()
+      await until(() => frames.some((f) => f.message.type === 'feedDelta'))
+      const deltaIndex = frames.findIndex((f) => f.message.type === 'feedDelta')
+      expect(deltaIndex).toBeGreaterThan(bootstrapIndex)
+      expect(frames[deltaIndex]?.binary).toBe(false)
+      expect(errors).toEqual([])
+    } finally {
+      ws.close()
+    }
+  })
+
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
     if (!registry) throw new Error('missing test registry')

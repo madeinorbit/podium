@@ -23,12 +23,18 @@
 
 import { createLogger } from '@podium/logger'
 import type { MachineWire, UserId, UserRole } from '@podium/model'
-import { ClientPtyInputMetadata, decodeBinaryEnvelope, parseClientMessage } from '@podium/protocol'
+import {
+  CAP_FEED_BOOTSTRAP_ZSTD_V1,
+  ClientPtyInputMetadata,
+  decodeBinaryEnvelope,
+  parseClientMessage,
+} from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
 import { feedPrincipalOf } from './client-principal'
+import { OrderedClientSend } from './ordered-client-send'
 import { CLIENT_PLANE_LIVENESS } from './plane-liveness'
 import { type GatewaySocket, warnDroppedFrame } from './ws-send'
 
@@ -52,7 +58,7 @@ export interface ClientAuthorityOptions {
  * behaviour.
  *
  * Returns the connection id, or `undefined` when the socket was refused.
- * Outbound frames go through {@link safeSend} (backpressure + never-throws); the
+ * Outbound frames go through {@link OrderedClientSend} (ordering + backpressure); the
  * caller layers the heartbeat sweep on top.
  */
 export function wireClientSocket(
@@ -68,7 +74,7 @@ export function wireClientSocket(
   }
   // The plane applies its own budget: this file never names a byte count, so it
   // cannot name the daemon plane's (POD-391).
-  const sink = CLIENT_PLANE_LIVENESS.sink(ws)
+  const sink = new OrderedClientSend(ws, CLIENT_PLANE_LIVENESS)
   const id = registry.clientGateway.attachClient({
     send: sink.send,
     terminate: () => ws.terminate(),
@@ -143,6 +149,9 @@ export function wireClientSocket(
       // costs it. Parse is timed apart from routing because the two fail
       // differently: a slow parse is frame SIZE, a slow route is the handler.
       const parsed = measureTask('ws.client.parse', () => parseClientMessage(raw))
+      if (parsed.type === 'hello') {
+        sink.enableBootstrapCompression(parsed.caps?.includes(CAP_FEED_BOOTSTRAP_ZSTD_V1) ?? false)
+      }
       measureTask(`ws.client.${parsed.type}`, () =>
         registry.clientGateway.routeClientFrame(id, parsed),
       )
@@ -152,6 +161,9 @@ export function wireClientSocket(
       warnDroppedFrame('client', err)
     }
   })
-  ws.on('close', () => registry.clientGateway.detachClient(id))
+  ws.on('close', () => {
+    sink.dispose()
+    registry.clientGateway.detachClient(id)
+  })
   return id
 }
