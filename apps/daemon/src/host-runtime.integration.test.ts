@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentSessionHandle } from '@podium/agent-runtime'
-import { asMachineId, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { BindingStore } from './binding-store'
 import { buildReport } from './build-report'
 import { createDaemonHostRuntime } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
@@ -44,9 +45,11 @@ type TestAgentRuntime = Pick<
 async function createCloseHost(
   runtime: TestAgentRuntime,
   io: ServerReapIo,
+  legacy = false,
 ): Promise<{
   host: Awaited<ReturnType<typeof createDaemonHostRuntime>>
   sent: DaemonMessage[]
+  root: string
   cleanup(): void
 }> {
   const root = mkdtempSync(join(tmpdir(), 'podium-host-close-'))
@@ -68,6 +71,12 @@ async function createCloseHost(
     rmSync(root, { recursive: true, force: true })
   }
 
+  if (legacy) {
+    mkdirSync(join(root, 'identity'), { recursive: true })
+    mkdirSync(instance.codexReceiptDir, { recursive: true })
+    writeFileSync(join(root, 'identity', 'daemon.json'), JSON.stringify({ machineId: '11111111-1111-4111-8111-111111111111' }))
+    writeFileSync(join(instance.codexReceiptDir, 'legacy-pane.json'), JSON.stringify({ session_id: 'thread-live', hook_event_name: 'PodiumProcessBinding' }))
+  }
   try {
     const host = await createDaemonHostRuntime({
       options: {
@@ -99,7 +108,7 @@ async function createCloseHost(
       testServerReapIo: io,
       isConnected: () => true,
     })
-    return { host, sent, cleanup }
+    return { host, sent, root, cleanup }
   } catch (error) {
     cleanup()
     throw error
@@ -251,6 +260,20 @@ describe('full-reap daemon close', () => {
       await closing?.catch(() => undefined)
       await host.close().catch(() => undefined)
       cleanup()
+    }
+  })
+})
+
+
+describe('legacy member recovery at host boot', () => {
+  it('keeps legacy receipts unowned until the authenticated server supplies their owner', async () => {
+    const fixture = await createCloseHost({ registeredBindings: () => [], serverHandleFor: () => undefined, journalledServerProcess: async () => undefined, dispose: () => {} } as TestAgentRuntime, reapIo({ alive: false }), true)
+    try {
+      const store = await BindingStore.open({ dir: join(fixture.root, 'runtime', 'session-bindings') })
+      expect(await store.read(asSessionId('legacy-pane'))).toBeNull()
+    } finally {
+      await fixture.host.close()
+      fixture.cleanup()
     }
   })
 })
