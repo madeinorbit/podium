@@ -1,4 +1,3 @@
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
@@ -1259,8 +1258,7 @@ export async function startJanitor(options: {
   const db = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), { readOnly: true })
   db.exec('PRAGMA query_only = ON')
   db.exec('PRAGMA busy_timeout = 1000')
-  // Worker threads do not inherit the server's process-local first-admin slot.
-  // Resolve against this worker's database and inject the same viewer into both readers.
+  // Validate the worker database at boot; readers resolve again on each scan.
   const viewer = earliestAdminMember(db)
   if (!viewer) {
     db.close()
@@ -1270,8 +1268,8 @@ export async function startJanitor(options: {
   const eventPlanner = new EventLogPrunePlanner(db)
   const changePlanner = new ChangeLogPrunePlanner(db)
   const commandPlanner = new MaintenanceCommandsPrunePlanner(db)
-  const archiveReader = new IssueAutoArchiveReader(db, viewer)
-  const sessionArchiveReader = new SessionAutoArchiveReader(db, viewer)
+  const archiveReader = new IssueAutoArchiveReader(db)
+  const sessionArchiveReader = new SessionAutoArchiveReader(db)
   const worktreeGcReader = new WorktreeGcReader(db)
   const automationReader = new AutomationDueReader(db)
   const stewardReader = new StewardPollReader(db)
