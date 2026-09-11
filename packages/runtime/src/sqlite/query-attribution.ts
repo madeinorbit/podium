@@ -17,6 +17,7 @@ import { recordQuery } from '../query-attribution'
 import type { SqlDatabase, SqlParam } from './types'
 
 export {
+  claimQueryAttribution,
   formatTopQueries,
   type QueryCost,
   queryAttributionEnabled,
@@ -44,7 +45,13 @@ import { queryAttributionEnabled as ENABLED } from '../query-attribution'
  */
 export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): SqlDatabase {
   if (!enabled) return db
-  return {
+  // Attributing an already-attributed handle is never what the caller wanted: it
+  // records every execution once per layer. `openDatabase` decorates at open, so
+  // any later caller stating `enabled` explicitly — a test, or a second
+  // composition over the same handle — used to double the numbers silently
+  // (POD-3852). Handing the existing wrapper back makes the operation idempotent.
+  if (attributed.has(db)) return db
+  const wrapper: SqlDatabase = {
     prepare(sql) {
       const st = db.prepare(sql)
       const timed = <T>(fn: () => T, rowsOf: (result: T) => number): T => {
@@ -86,4 +93,9 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
     exec: (sql) => db.exec(sql),
     close: () => db.close(),
   }
+  attributed.add(wrapper)
+  return wrapper
 }
+
+/** Every wrapper {@link attributeQueries} has produced — see its idempotence note. */
+const attributed = new WeakSet<SqlDatabase>()

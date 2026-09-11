@@ -155,6 +155,87 @@ describe('parity between the SqlDatabase wrapper and the driver seam', () => {
   })
 })
 
+describe('one instrument per execution, on a handle the profiler already wraps', () => {
+  /**
+   * THE WRAPPER IS STATED, NOT INHERITED [POD-3852]. `openDatabase` attributes
+   * only when PODIUM_LOOP_PROFILE is set, so a test that let the wrapper arrive
+   * by ambient flag would pass on a clean shell and go silent on exactly the
+   * machines the profiler runs on — which is how the doubling survived. Stating
+   * it makes these cases mean the same thing in either environment.
+   */
+  const attributed = (): SqlDatabase => attributeQueries(fresh(), true)
+
+  const read: Statement = {
+    sql: 'SELECT v FROM t WHERE id = ?',
+    params: [1],
+    method: 'get',
+    intent: 'read',
+  }
+
+  const twice = async (database: SqlDatabase, hub: StatementProbeHub): Promise<void> => {
+    const driver = instrumentDriver(createBunSqliteDriver({ database }), hub)
+    const session = await driver.open('read')
+    await session.execute(read)
+    await session.execute(read)
+    await session.close()
+  }
+
+  it('records each execution ONCE, not once per instrument in the path', async () => {
+    resetQueryAttribution()
+    const hub = new StatementProbeHub()
+    hub.attach(queryAttributionProbe)
+    await twice(attributed(), hub)
+
+    // Two executions ran. The seam and the wrapper both saw them; one recorded.
+    expect(costOf(read.sql)).toEqual({ count: 2, rows: 2 })
+  })
+
+  it('counts a batch member once, with the batch time divided over it', async () => {
+    resetQueryAttribution()
+    const hub = new StatementProbeHub()
+    hub.attach(queryAttributionProbe)
+    const driver = instrumentDriver(createBunSqliteDriver({ database: attributed() }), hub)
+    const session = await driver.open('write')
+    await session.executeBatch([
+      { sql: 'INSERT INTO t (id, v) VALUES (?, ?)', params: [3, 'c'], method: 'run', intent: 'write' },
+      { sql: 'INSERT INTO t (id, v) VALUES (?, ?)', params: [4, 'd'], method: 'run', intent: 'write' },
+    ])
+    await session.close()
+
+    // Two members of one round trip, not four records.
+    expect(costOf('INSERT INTO t (id, v) VALUES (?, ?)').count).toBe(2)
+  })
+
+  it('leaves the wrapper recording when this seam does NOT attribute', async () => {
+    // THE OTHER HALF OF THE INVARIANT. Standing the wrapper down is only safe
+    // while something else is counting. A hub carrying an audit probe and no
+    // profiler must turn two executions into two records, never into none —
+    // a silent undercount is the failure mode this module exists to avoid.
+    resetQueryAttribution()
+    const seen: StatementObservation[] = []
+    const hub = new StatementProbeHub()
+    hub.attach((observation) => seen.push(observation))
+    await twice(attributed(), hub)
+
+    expect(seen).toHaveLength(2)
+    expect(costOf(read.sql).count).toBe(2)
+  })
+
+  it('hands recording back to the wrapper when the profiler probe detaches', async () => {
+    // The claim is refcounted, so it has to be released as well as taken: a
+    // detached profiler that kept the wrapper silenced would count nothing.
+    const hub = new StatementProbeHub()
+    const detach = hub.attach(queryAttributionProbe)
+    hub.attach(() => {})
+    detach()
+
+    resetQueryAttribution()
+    await twice(attributed(), hub)
+
+    expect(costOf(read.sql).count).toBe(2)
+  })
+})
+
 describe('the statement cache the seam had to move past', () => {
   it('counts every execution although the driver prepares the text once', async () => {
     const prepared: string[] = []

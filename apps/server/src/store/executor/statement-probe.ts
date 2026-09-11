@@ -46,6 +46,7 @@
 
 import { createLogger } from '@podium/logger'
 import {
+  claimQueryAttribution,
   queryCallerStacksEnabled,
   queryKey,
   recordQuery,
@@ -144,6 +145,7 @@ export type StatementProbe = (observation: StatementObservation) => void
 export class StatementProbeHub {
   private probes: StatementProbe[] = []
   private siteRequests = 0
+  private attributors = 0
 
   /**
    * Where a throwing probe is reported. Injectable rather than rethrown,
@@ -161,6 +163,23 @@ export class StatementProbeHub {
   /** True while anyone is listening. Checked before any timing work happens. */
   get active(): boolean {
     return this.probes.length > 0
+  }
+
+  /**
+   * True while {@link queryAttributionProbe} is attached — i.e. while THIS seam
+   * is the profiler's instrument for the statements it sees [POD-3852].
+   *
+   * It gates the claim in {@link observeSession}, and the gate has to be this
+   * narrow in BOTH directions. Too wide (any probe at all) and a hub carrying
+   * only the lane-intent audit would silence the `SqlDatabase` wrapper without
+   * recording anything in its place — a silent UNDERCOUNT, which is the failure
+   * mode this whole module exists to avoid. Too narrow (only what
+   * {@link installQueryAttributionProbe} registered) and a caller that attached
+   * the probe directly, as the parity test does, would still be counted twice.
+   * Probe IDENTITY answers both: whoever holds it, the profiler is at this seam.
+   */
+  get attributing(): boolean {
+    return this.attributors > 0
   }
 
   /**
@@ -184,11 +203,13 @@ export class StatementProbeHub {
   attach(probe: StatementProbe, options: { wantsIssueSite?: boolean } = {}): () => void {
     this.probes.push(probe)
     if (options.wantsIssueSite) this.siteRequests += 1
+    if (probe === queryAttributionProbe) this.attributors += 1
     let detached = false
     return () => {
       if (detached) return
       detached = true
       if (options.wantsIssueSite) this.siteRequests -= 1
+      if (probe === queryAttributionProbe) this.attributors -= 1
       const at = this.probes.indexOf(probe)
       if (at >= 0) this.probes.splice(at, 1)
     }
@@ -319,7 +340,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       const startedAt = performance.now()
       let result: StatementResult | undefined
       try {
-        result = await session.execute(statement)
+        result = await claim(hub, () => session.execute(statement))
         return result
       } finally {
         hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0, doorStack))
@@ -334,7 +355,7 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
       try {
-        results = await session.executeBatch(statements)
+        results = await claim(hub, () => session.executeBatch(statements))
         return results
       } finally {
         const durationMs = performance.now() - startedAt
@@ -363,6 +384,23 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
     rollbackToSavepoint: async (name) => await session.rollbackToSavepoint(name),
     close: async () => await session.close(),
   }
+}
+
+/**
+ * Hold the attribution claim over the driver call's SYNCHRONOUS body, so a
+ * `SqlDatabase` wrapper underneath this seam does not record the same execution a
+ * second time (POD-3852; see `claimQueryAttribution` for why outer wins).
+ *
+ * The call stays INSIDE the caller's `try` and the claim is released the instant
+ * the driver hands its promise back — never across the `await`. Both matter: a
+ * driver that throws synchronously must still be observed, and a claim spanning
+ * an await would silence unrelated statements that ran in the gap.
+ *
+ * When no probe here attributes, nothing is claimed and the wrapper keeps
+ * recording. One instrument per execution, never two and never none.
+ */
+function claim<T>(hub: StatementProbeHub, call: () => T): T {
+  return hub.attributing ? claimQueryAttribution(call) : call()
 }
 
 function observationOf(

@@ -64,6 +64,25 @@ describe('attributeQueries', () => {
     expect(cost?.rows).toBe(14)
   })
 
+  it('is idempotent — attributing an attributed database hands the same wrapper back', () => {
+    // `openDatabase` attributes at open, so a caller that states `enabled`
+    // explicitly over an already-open handle used to stack a second wrapper and
+    // record every execution twice (POD-3852). Identity is the assertion because
+    // it is what makes the doubling impossible rather than merely unlikely.
+    const once = attributeQueries(fakeDatabase(), true)
+    expect(attributeQueries(once, true)).toBe(once)
+  })
+
+  it('counts an execution once however many times the handle was attributed', () => {
+    resetQueryAttribution()
+    const db = attributeQueries(attributeQueries(fakeDatabase(2), true), true)
+    db.prepare('SELECT * FROM podium_events').all(0)
+    expect(queryAttributionSnapshot().get('SELECT * FROM podium_events')).toMatchObject({
+      count: 1,
+      rows: 2,
+    })
+  })
+
   it('records a throwing statement rather than losing the window to it', () => {
     resetQueryAttribution()
     const exploding: SqlDatabase = {

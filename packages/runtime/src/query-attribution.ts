@@ -55,6 +55,52 @@ export function queryKey(sql: string, maxLength = 120): string {
 }
 
 /**
+ * Depth of the claim {@link claimQueryAttribution} holds. Depth, not a boolean,
+ * because the claim nests: nothing here assumes one seam.
+ */
+let claimDepth = 0
+
+/**
+ * Run `claimed` as the ONE instrument recording the executions inside it
+ * [POD-3852].
+ *
+ * WHY THIS EXISTS. There are two instruments and they are NESTED, not
+ * alternatives. A statement issued through the executor's driver passes the
+ * driver seam (`store/executor/statement-probe.ts`) AND, on a bun-backed store,
+ * the `SqlDatabase` wrapper underneath it — so one execution called
+ * {@link recordQuery} twice and every count, every wall time and every row total
+ * in the profile was exactly double what ran. POD-3281's "two instruments, one
+ * set of numbers" was written for the case where only ONE of them can see a
+ * statement (the libsql driver has no `SqlDatabase` to wrap at all); it was
+ * never a licence for both to fire on one execution.
+ *
+ * So the OUTER instrument claims the execution and everything under it stands
+ * down. Outer rather than inner because the outer one is the better witness: it
+ * knows the declared write intent, the batch the statement rode in, and the call
+ * site that issued it, none of which the handle wrapper can see. That is also
+ * what stopped half the caller-stack samples naming `bun-driver.ts` instead of a
+ * repository.
+ *
+ * THE SCOPE IS SYNCHRONOUS AND THAT IS THE WHOLE SAFETY ARGUMENT. `claimDepth`
+ * is process-wide, so a claim held across an `await` would silence whatever
+ * unrelated statement happened to run in the gap. `claimed` must therefore do
+ * its recording work synchronously and return — returning a promise is fine and
+ * expected (a driver's `execute` is `async`), but the claim ends the moment that
+ * promise is HANDED BACK, not when it settles. The bun driver does all of its
+ * SQLite work in that synchronous body, which is precisely the window the
+ * wrapper underneath it records in. A driver that genuinely defers its work is a
+ * driver with no `SqlDatabase` beneath it, so there is nothing to stand down.
+ */
+export function claimQueryAttribution<T>(claimed: () => T): T {
+  claimDepth += 1
+  try {
+    return claimed()
+  } finally {
+    claimDepth -= 1
+  }
+}
+
+/**
  * Record one statement execution. The enabled-gate lives at the wrapping decision
  * in {@link attributeQueries}, not here: a wrapper only exists when attribution is
  * on, so re-checking an ambient env var per execution would be a second source of
@@ -65,8 +111,13 @@ export function queryKey(sql: string, maxLength = 120): string {
  * difference is the whole value of the number. A seam that has no such capture
  * omits it and this module falls back to its own stack, which is right for the
  * synchronous `SqlDatabase` wrapper and wrong for anything that awaited.
+ *
+ * The claim check is the other exception, and it belongs here rather than at a
+ * wrapping decision because it is per-EXECUTION, not per-handle: the same wrapper
+ * records for statements a driver claimed and for statements nobody else can see.
  */
 export function recordQuery(sql: string, wallMs: number, rows: number, issueStack?: string): void {
+  if (claimDepth > 0) return
   const key = queryKey(sql)
   const cost = costs.get(key) ?? { count: 0, wallMs: 0, rows: 0 }
   cost.count++
