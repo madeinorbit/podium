@@ -1453,6 +1453,18 @@ export async function startServer(
    * see where the request came from cannot claim it came from here.
    */
   const auth = createPluginAuth(store.users)
+  // Installed before the core routes; plugins supply the callback before listen.
+  // Never run this for socket heartbeats or platform auth routes (which own cookies).
+  for (const path of ['/trpc/*', '/auth/status']) {
+    app.use(path, async (c, next) => {
+      const headers = c.req.method === 'OPTIONS'
+        ? undefined
+        : await auth.sessionResponseHeaders?.(c.req.raw)
+      await next()
+      for (const cookie of headers?.getSetCookie() ?? []) c.header('set-cookie', cookie, { append: true })
+      if (headers?.has('set-cookie')) c.header('cache-control', 'no-store')
+    })
+  }
   // The HTTP guard and tRPC context share one provider lookup per request.
   const sourcePrincipals = new WeakMap<Request, Promise<ProviderPrincipal>>()
   const sourcePrincipal = (request: Request) => {

@@ -17,6 +17,10 @@ export interface PrincipalRequest {
 export function createPluginAuth(users: UsersRepository) {
   const invites = new MemberInvites(users)
   return {
+    /** Renew external sessions only where the response can deliver provider cookies. */
+    sessionResponseHeaders: undefined as
+      | ((request: Request) => Promise<Headers>)
+      | undefined,
     principalSource: undefined as
       | ((request: PrincipalRequest) => Promise<Principal | null>)
       | undefined,
