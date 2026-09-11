@@ -57,6 +57,14 @@ test('lists members and pending invites, creates a link and revokes an invite', 
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Revoke invite' })).toHaveProperty('disabled', false),
   )
+  const writeText = vi.fn(async () => {})
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+  await screen.findByText('Link copied.')
+  expect(writeText).toHaveBeenCalledWith('https://workspace/#invite=secret')
+  vi.stubGlobal('navigator', { clipboard: undefined })
+  fireEvent.click(screen.getByRole('button', { name: 'Copy link' }))
+  await screen.findByText('Select the link above and copy it.')
   fireEvent.click(screen.getByRole('button', { name: 'Revoke invite' }))
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
