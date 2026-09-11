@@ -1,16 +1,14 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import {
-  closeSync,
   existsSync,
-  fsyncSync,
   mkdirSync,
-  openSync,
   readFileSync,
   realpathSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fsyncDirectory } from '@podium/runtime/durable-fs'
 import { shipRepairRef, type MachineId } from '@podium/model'
 import type {
   ShippingJobClassification,
@@ -258,12 +256,7 @@ export class ShippingExecutionPlane {
     const existed = existsSync(dir)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (!existed) {
-      const parent = openSync(dirname(dir), 'r')
-      try {
-        fsyncSync(parent)
-      } finally {
-        closeSync(parent)
-      }
+      fsyncDirectory(dirname(dir))
       crashPoint?.('after-shipping-root-parent-fsync')
     }
     this.journal = new ShippingJobJournal(join(dir, 'jobs'), (point) => crashPoint?.(point))

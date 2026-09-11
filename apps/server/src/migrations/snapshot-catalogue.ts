@@ -28,6 +28,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
+import { fsyncDirectory } from '@podium/runtime/durable-fs'
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:migrations')
@@ -159,19 +160,14 @@ export function writeSnapshotCatalogue(dbPath: string, records: readonly Snapsho
   const body: SnapshotCatalogue = { version: SNAPSHOT_CATALOGUE_VERSION, records: [...records] }
   try {
     writeFileSync(temp, `${JSON.stringify(body, null, 2)}\n`)
-    const fd = openSync(temp, 'r')
+    const fd = openSync(temp, 'r+')
     try {
       fsyncSync(fd)
     } finally {
       closeSync(fd)
     }
     renameSync(temp, path)
-    const dirFd = openSync(dirname(path), 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
+    fsyncDirectory(dirname(path))
   } catch (err) {
     rmSync(temp, { force: true })
     log.warn('snapshot verification catalogue could not be published', { path, err })

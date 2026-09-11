@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { fsyncDirectory } from '@podium/runtime/durable-fs'
 import {
   RuntimeQueueDrainAbandonedMessage,
   type RuntimeQueueDrainAbandonedMessage as QueueDrainMessage,
@@ -23,21 +24,6 @@ export interface QueueDrainOutbox {
   enqueue(report: DurableQueueDrainReport): void
   acknowledge(reportId: string): boolean
   pending(): readonly DurableQueueDrainReport[]
-}
-
-function fsyncDirectory(dir: string): void {
-  try {
-    const dirFd = openSync(dir, 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
-  } catch (error) {
-    // Windows does not permit opening directories as file descriptors. The
-    // temp file itself was still fsynced before the atomic rename.
-    if (process.platform !== 'win32') throw error
-  }
 }
 
 function parseReports(raw: string, path: string): DurableQueueDrainReport[] {

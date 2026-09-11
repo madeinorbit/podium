@@ -27,6 +27,7 @@ import {
   statSync,
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { fsyncDirectory } from '@podium/runtime/durable-fs'
 import { createLogger } from '@podium/logger'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -121,7 +122,8 @@ export function backupDatabase(
     for (const suffix of suffixes) {
       const temp = `${partialPath}${suffix}`
       copyFileSync(`${dbPath}${suffix}`, temp)
-      const fd = openSync(temp, 'r')
+      // Windows file flushing requires a writable handle.
+      const fd = openSync(temp, 'r+')
       try {
         fsyncSync(fd)
       } finally {
@@ -138,12 +140,7 @@ export function backupDatabase(
 
     // Persist the directory entry before the update operation records this path
     // and asks the coordinator to restart onto code that may run migrations.
-    const dirFd = openSync(dir, 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
+    fsyncDirectory(dir)
   } catch (err) {
     log.warn('database snapshot did not complete; removing its unpublished files', {
       path: partialPath,
