@@ -1970,6 +1970,7 @@
         "src/server.activation-lockout.test.ts",
         "src/server.bind.test.ts",
         "src/server.context-users.test.ts",
+        "src/server.invite-login.test.ts",
         "src/server.janitor.test.ts",
         "src/server.open-mode.test.ts",
         "src/server.plugin-auth.test.ts",
