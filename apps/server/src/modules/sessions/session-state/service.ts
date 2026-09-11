@@ -303,14 +303,30 @@ export class SessionStateService {
     /** Per-pass memo when a full-list caller is asking [POD-1618]. */
     memo?: SessionOwnerMemo,
   ): Promise<boolean> {
-    const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
-    if (!target) return false
-    if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
-      return true
+    return (await this.visibleSessions(principal, [sessionId], memo)).has(sessionId)
+  }
+
+  /** One reader-scoped set computation. Principals are already admitted by the
+   * transport; re-reading account status here would change the existing policy.
+   * The memo belongs to this call (or its enclosing projection), never a user cache.
+   */
+  async visibleSessions(
+    principal: SessionStatePrincipal,
+    candidates: readonly SessionId[],
+    memo: SessionOwnerMemo = { issues: new Map(), grants: new Map() },
+  ): Promise<ReadonlySet<SessionId>> {
+    const visible = new Set<SessionId>()
+    if (candidates.length === 0) return visible
+    const ids = [...new Set(candidates)]
+    await this.primeOwnerMemo(memo, ids)
+    for (const sessionId of ids) {
+      const target = await this.ports.sessionOwner({ sessionId, memo })
+      if (target && (target.owner === principal.userId ||
+          target.grants.includes(principal.userId) || principal.capability.scope.kind === 'all')) {
+        visible.add(sessionId)
+      }
     }
-    // The current operator capability is the transitional one-account read.
-    // Narrow agent scopes never widen the on-behalf-of human's visibility.
-    return principal.capability.scope.kind === 'all'
+    return visible
   }
 
   private async cachedOverlay(userId: UserId): Promise<{

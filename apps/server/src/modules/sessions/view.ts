@@ -195,18 +195,10 @@ export class SessionView {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
     const pass = await this.buildProjectionPass(candidates, principal)
-    await this.ports.state.primeOwnerMemo?.(pass, candidates.map(s => s.sessionId))
-    // The visibility verdicts are awaited into an ARRAY before the filter.
-    // `.filter(async p)` keeps every element, because a pending promise is
-    // truthy — which at this exact site would project every session in the
-    // fleet to every reader [POD-3507].
-    const visible = await Promise.all(
-      candidates.map(
-        async (session) =>
-          await this.ports.state.canReadSession(principal, session.sessionId, pass),
-      ),
+    const visible = await this.ports.state.visibleSessions(
+      principal, candidates.map(session => session.sessionId), pass,
     )
-    const readable = candidates.filter((_session, index) => visible[index] === true)
+    const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
     return readable.map(session => this.wire(session, pass))
   }

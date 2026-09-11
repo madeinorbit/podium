@@ -9,7 +9,7 @@
  * `sessionsForIssue(list())`) so a future change to membership precedence that
  * lands on one path only turns this red.
  */
-import { asIssueId, asMachineId, asSessionId, type IssueId, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { sessionsForIssue } from '../../issue-util'
@@ -62,6 +62,12 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
     } as unknown as SessionViewPorts['store'],
     machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
     state: {
+      async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
+        const state = this as unknown as SessionViewPorts['state']
+        await state.primeOwnerMemo?.(memo, ids)
+        const verdicts = await Promise.all(ids.map(id => state.canReadSession(principal, id, memo)))
+        return new Set(ids.filter((_id, i) => verdicts[i]))
+      },
       canReadSession: (_p: unknown, id: string) => {
         canReadCalls.push(id)
         return !hidden.has(id)
@@ -267,6 +273,12 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
       } as unknown as SessionViewPorts['store'],
       machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
       state: {
+      async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
+        const state = this as unknown as SessionViewPorts['state']
+        await state.primeOwnerMemo?.(memo, ids)
+        const verdicts = await Promise.all(ids.map(id => state.canReadSession(principal, id, memo)))
+        return new Set(ids.filter((_id, i) => verdicts[i]))
+      },
         canReadSession: async () => true,
         overlaySnapshot: async () => new Map(),
         overlay: async () => ({}),
@@ -544,6 +556,12 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
       } as unknown as SessionViewPorts['store'],
       machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
       state: {
+      async visibleSessions(principal: SessionStatePrincipal, ids: readonly SessionId[], memo: SessionOwnerMemo) {
+        const state = this as unknown as SessionViewPorts['state']
+        await state.primeOwnerMemo?.(memo, ids)
+        const verdicts = await Promise.all(ids.map(id => state.canReadSession(principal, id, memo)))
+        return new Set(ids.filter((_id, i) => verdicts[i]))
+      },
         primeOwnerMemo: async (memo: SessionOwnerMemo, ids: readonly string[]) => {
           // A REAL round trip, not a microtask. The prime reads the store twice;
           // a double that settles in one microtask settles before the verdicts

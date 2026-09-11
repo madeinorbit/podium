@@ -5,7 +5,7 @@
  */
 
 
-import { describeError } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, UserId, IssueId } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import {
@@ -27,6 +27,8 @@ import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
 import type { SessionOwnerMemo } from './session-state/service'
 
+const log = createLogger('server:session-authz')
+
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf'>
@@ -40,11 +42,8 @@ export interface SessionAuthzPorts {
   deps: Pick<SessionLifecycleDeps, 'issueAccess' | 'authorizeQueuedMessage'>
   sessionById: SessionAccessDeps['sessionById']
   machines: import('../../machine-access').AsyncMachineRowSource
-  /** The LIVE registry — an in-memory map, synchronous and staying that way.
-   *  Typed rather than `any` because every durable fallback in this file is
-   *  spelled `live ?? store.sessions.getSession(id)`, and an `any` on the left
-   *  of `??` makes the whole expression `any` — which is how three unawaited
-   *  durable reads survived the flip unseen [POD-3507]. */
+  /** Complete session registry, including parked sessions; the same map the
+   * view projects. A missing id may still be resolved from durable storage. */
   sessions: { get(sessionId: SessionId): Session | undefined }
   store: SessionAuthzStorePort
 }
@@ -272,10 +271,9 @@ export class SessionAuthz {
    * `undefined` means the session does not exist — which the session-state envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Session rows still have no `owner` column, so existing sessions use
-   * the instance's first-admin identity as a transitional owner. This is the ONE place
-   * that answer is given; POD-1070 ownership work replaces it here rather than
-   * in eleven handlers.
+   * Issue ownership overrides the session owner; absent or ownerless issues
+   * fall back to the session owner. Issue-backed sessions use issue grants,
+   * and standalone sessions use their own grants.
    */
   async sessionOwner(
     sessionId: SessionId,
@@ -283,8 +281,7 @@ export class SessionAuthz {
      *  behaviour every single-session caller keeps. */
     memo?: SessionOwnerMemo,
   ): Promise<{ owner: UserId; grants: string[] } | undefined> {
-    const live = this.ports.sessions.get(sessionId)
-    const durable = live ?? (await this.ports.store.sessions.getSession(sessionId))
+    const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
     if (!durable) return undefined
     const issueId = durable.issueId ?? undefined
     const resourceKind = issueId ? 'issue' : 'session'
@@ -325,8 +322,7 @@ export class SessionAuthz {
     const byKind = new Map<string, Set<string>>()
     const issueIds = new Set<string>()
     for (const sessionId of sessionIds) {
-      const live = this.ports.sessions.get(sessionId)
-      const durable = live ?? (await this.ports.store.sessions.getSession(sessionId))
+      const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
       if (!durable) continue
       const issueId = durable.issueId ?? undefined
       if (issueId) issueIds.add(issueId)
@@ -353,6 +349,11 @@ export class SessionAuthz {
         memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
       }
     }
+  }
+
+  private async storedOwnershipRecord(sessionId: SessionId) {
+    log.debug('session ownership registry miss; reading durable row', { sessionId })
+    return this.ports.store.sessions.getSession(sessionId)
   }
 
   private async memoIssueOwner(

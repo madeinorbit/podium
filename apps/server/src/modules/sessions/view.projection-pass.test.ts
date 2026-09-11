@@ -13,6 +13,8 @@ afterAll(() => {
   else process.env.PODIUM_LOOP_PROFILE = previousProfile
 })
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
+import { systemPrincipal } from '../../command-principal'
+import { sessionStatePrincipalFor } from './session-state/registry'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
@@ -22,7 +24,8 @@ import { SessionStateService, type SessionStatePrincipal } from './session-state
 import { SessionView } from './view'
 
 const reader = asUserId('projection-reader')
-const principal = { userId: reader, capability: { role: 'worker', scope: { kind: 'none' } } } as SessionStatePrincipal
+const principal: SessionStatePrincipal = { userId: reader, humanDirect: true, onBehalfOf: reader,
+  capability: { role: 'worker', scope: { kind: 'none' } } }
 const machineId = asMachineId('projection-machine')
 
 async function fixture(count: number) {
@@ -111,7 +114,7 @@ async function fixture(count: number) {
   const view = new SessionView({ sessions, store, state, machines: machines as never, sessionOccupancyCount: () => 3 })
   // Broadcast still resolves its default principal exactly once.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
-  return { store, rows, sessions, state, machines, view }
+  return { store, rows, sessions, authz, state, machines, view }
 }
 
 /** Frozen pre-pass wire algorithm: the oracle deliberately performs row reads. */
@@ -145,6 +148,42 @@ function statementCount() {
 }
 
 describe('one projection pass', () => {
+  it('characterizes visibility without revalidating an already-admitted principal', async () => {
+    const f = await fixture(5)
+    try {
+      // The five rows cover missing issue fallback, direct grantee, no-issue
+      // owner, issue owner (different from session owner), and unrelated reader.
+      // Account status and actor kind are admission concerns: this API consumes
+      // an admitted principal and historically consults neither user rows nor roles.
+      await f.store.users.create({ id: reader, displayName: 'Reader', role: 'member',
+        createdAt: '2026-09-10T00:00:00.000Z', disabledAt: null }, 'test-only')
+      expect(await f.store.users.get(reader)).toBeDefined()
+      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
+        .toEqual([true, true, true, true, false])
+      // Test-only revocation: no user lifecycle write API exists yet.
+      // @ts-expect-error test-only access to the private database connection
+      await f.store.db.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
+        .run('2026-09-11T00:00:00.000Z', reader)
+      // A previously admitted principal keeps this method's historical outcome.
+      // The transport admission layer, not this visibility method, rejects it.
+      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
+        .toEqual([true, true, true, true, false])
+      expect(() => sessionStatePrincipalFor(systemPrincipal('characterization')))
+        .toThrow('system principal has no per-user session state')
+      const member = { ...principal, userId: asUserId('unrelated'),
+        capability: { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId('projection-issue') } },
+      } as SessionStatePrincipal
+      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(member, s.sessionId))))
+        .toEqual([false, false, false, false, false])
+      const operator = { ...principal, userId: asUserId('unrelated'),
+        capability: { role: 'admin', scope: { kind: 'all' } },
+      } as SessionStatePrincipal
+      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(operator, s.sessionId))))
+        .toEqual([true, true, true, true, true])
+      expect(await f.state.canReadSession(operator, asSessionId('absent'))).toBe(false)
+    } finally { await f.store.close() }
+  })
+
   it('preserves the old reader-scoped SessionMeta array deeply', async () => {
     const f = await fixture(10)
     try {
@@ -154,6 +193,40 @@ describe('one projection pass', () => {
       expect(expected).toHaveLength(8)
       expect(expected.some(s => s.displayRef)).toBe(true)
       expect(expected.some(s => s.snoozedUntil === null)).toBe(true)
+    } finally { await f.store.close() }
+  })
+
+  it('reads at most three statements for 200 visibility candidates and none for primed ownership', async () => {
+    const f = await fixture(200)
+    try {
+      resetQueryAttribution()
+      await f.store.sync.queuedMessageCounts(asSessionId('calibration-only'))
+      const recordingsPerStatement = statementCount()
+      expect([1, 2]).toContain(recordingsPerStatement)
+      const sessionReads = vi.spyOn(f.store.sessions, 'getSession')
+      const userReads = vi.spyOn(f.store.users, 'get')
+      resetQueryAttribution()
+      const start = performance.now()
+      const visible = await f.state.visibleSessions(principal, f.rows.map(s => s.sessionId))
+      const count = statementCount() / recordingsPerStatement
+      process.stdout.write(`visibility 200: ${count} physical statements, ${(performance.now() - start).toFixed(2)} ms\n`)
+      expect(visible.size).toBe(160)
+      expect(count).toBe(3)
+      expect(sessionReads).not.toHaveBeenCalled()
+      expect(userReads).not.toHaveBeenCalled()
+
+      // These registry sessions have no attached live process. Ownership reads
+      // the registry, and its issue/grant inputs come from the enclosing pass.
+      const pass = await f.view.buildProjectionPass(f.rows, principal)
+      resetQueryAttribution()
+      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass))
+        .toEqual({ owner: reader, grants: [] })
+      expect(statementCount()).toBe(0)
+      expect(sessionReads).not.toHaveBeenCalled()
+      process.stdout.write('registered non-live ownership: 0 physical statements\n')
+      resetQueryAttribution()
+      expect(await f.state.visibleSessions(principal, [], pass)).toEqual(new Set())
+      expect(statementCount()).toBe(0)
     } finally { await f.store.close() }
   })
 
