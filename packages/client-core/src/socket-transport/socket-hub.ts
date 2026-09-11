@@ -2112,6 +2112,9 @@ export class SocketHub {
       endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
       endpoint.pathname = '/client'
       endpoint.search = ''
+      // Workspace identity survives relocation; endpoint-specific credentials do not.
+      const workspace = new URL(this.serverUrl).searchParams.get('workspace')
+      if (workspace) endpoint.searchParams.set('workspace', workspace)
       endpoint.hash = ''
       this.serverUrl = endpoint.toString()
       if (this.socket !== undefined) this.forceClose({ cause: 'server-relocation' })

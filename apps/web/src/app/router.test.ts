@@ -56,6 +56,8 @@ describe('routePath', () => {
       routeDefaults('usage'),
       routeDefaults('automations'),
       routeDefaults('workflows'),
+      { ...routeDefaults('issues'), workspaceSlug: 'anna/team', issueId: asIssueId('iss_1') },
+      { ...routeDefaults('workspace'), workspaceSlug: 'anna', pane: 's1' },
     ]
     for (const r of routes) {
       const url = routePath(r)
@@ -122,6 +124,32 @@ function fakeWindow(initialUrl = '/'): RouterWindow & {
 }
 
 describe('createRouter', () => {
+  it('retains workspace identity through navigation, replacement and history', () => {
+    const win = fakeWindow('/w/anna/issues/iss_1?e2e=1')
+    const router = createRouter({ win })
+    expect(router.current()).toMatchObject({ workspaceSlug: 'anna', issueId: 'iss_1' })
+    expect(win.url()).toBe('/w/anna/issues/iss_1?e2e=1')
+    router.navigate(routeDefaults('settings'))
+    router.replace({ ...routeDefaults('settings'), settingsTab: 'hosts' })
+    expect(win.url()).toBe('/w/anna/settings/hosts?e2e=1')
+    win.back()
+    expect(win.url()).toBe('/w/anna/issues/iss_1?e2e=1')
+    expect(router.current().workspaceSlug).toBe('anna')
+    win.forward()
+    expect(win.url()).toBe('/w/anna/settings/hosts?e2e=1')
+    router.dispose()
+  })
+
+  it('retains the prefix when repairing an unknown URL or restoring a persisted view', () => {
+    for (const path of ['/w/anna/bogus', '/w/anna', '/w/anna/']) {
+      const win = fakeWindow(path)
+      const router = createRouter({ win, fallbackView: 'issues' })
+      expect(win.url()).toBe('/w/anna/issues')
+      expect(router.current()).toMatchObject({ view: 'issues', workspaceSlug: 'anna' })
+      router.dispose()
+    }
+  })
+
   it('navigates with pushState; back and forward restore routes', () => {
     const win = fakeWindow('/')
     const router = createRouter({ win })

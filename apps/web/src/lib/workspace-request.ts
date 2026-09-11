@@ -1,13 +1,5 @@
-/** Workspace routing is a hint until the server supports multiple workspaces. */
-export function workspaceSlug(pathname: string): string | undefined {
-  const segment = /^\/w\/([^/]+)(?:\/|$)/.exec(pathname)?.[1]
-  if (!segment) return undefined
-  try {
-    return decodeURIComponent(segment)
-  } catch {
-    return undefined
-  }
-}
+import { workspaceSlug } from '@podium/client-core/router'
+export { workspaceSlug } from '@podium/client-core/router'
 
 export function workspaceRequestInit(
   input: RequestInfo | URL,
