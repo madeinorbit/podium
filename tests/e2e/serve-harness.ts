@@ -306,7 +306,7 @@ if (!REAL_AGENTS) {
  * POD-421's acceptance criteria require runtime verification of the settings
  * screens "for both an admin and a non-admin principal". On this build a second
  * human cannot be authenticated at all: `CLIENT_PRINCIPAL_GRADE` is still
- * `device`, so `resolvePrincipal` returns `FIRST_ADMIN_USER_ID` for every
+ * `device`, so `resolvePrincipal` returns `firstAdminMemberId()` for every
  * transport call and per-user login is POD-315's work.
  *
  * The alternative to a lever here would be to verify only the admin path and

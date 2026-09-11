@@ -24,7 +24,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeIssueClient } from '@podium/issue-client'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli'
 import { noJanitorWorkerForTests } from './janitor-host'
@@ -42,7 +42,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
-    await registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await registry.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await registry.modules.settings.getSettings(),
       experimental: { workflows: true },
     })

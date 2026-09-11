@@ -34,6 +34,7 @@
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",
+    "./earliest-admin": "./src/earliest-admin.ts",
     "./logging": "./src/logging.ts",
     "./log-forward": "./src/log-forward.ts",
     "./process-safety": "./src/process-safety.ts",

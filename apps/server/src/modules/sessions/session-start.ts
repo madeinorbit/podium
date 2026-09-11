@@ -37,10 +37,10 @@ import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
  *
  * WHOSE preferences a spawning read uses. `settingsViewer` arrives as a port and
  * stays owned by `SessionLifecycle`, which has five callers for it. It resolves
- * to `FIRST_ADMIN_USER_ID` today and POD-315 replaces that with the requesting
+ * to `firstAdminMemberId()` today and POD-315 replaces that with the requesting
  * principal; this module needs no change when it does.
  *
- * The two `?? FIRST_ADMIN_USER_ID` fallbacks below ARE ambient-principal sites,
+ * The two `?? firstAdminMemberId()` fallbacks below ARE ambient-principal sites,
  * and they moved here from `lifecycle.ts` rather than being created. The census
  * (`bun run audit:ambient-principals`) counts USAGE and reads the delta, so a
  * move like this is 0 and only a genuinely NEW default is +1.
@@ -54,7 +54,7 @@ import {
   AgentKind,
   asMachineId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -286,7 +286,7 @@ export class SessionStart {
         : input.binding?.principal.kind === 'agent'
           ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? FIRST_ADMIN_USER_ID
+    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? firstAdminMemberId()
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -411,7 +411,7 @@ export class SessionStart {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : await this.ports.defaultMachine()
-    const ownerUserId = input.ownerUserId ?? FIRST_ADMIN_USER_ID
+    const ownerUserId = input.ownerUserId ?? firstAdminMemberId()
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,

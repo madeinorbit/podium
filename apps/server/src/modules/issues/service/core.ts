@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Instant,
   type IssueDepProjection,
   type IssueGitState,
@@ -135,13 +135,13 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE per-user markers the broadcast carries. `FIRST_ADMIN_USER_ID` spelled
+   * WHOSE per-user markers the broadcast carries. `firstAdminMemberId()` spelled
    * out, never a default: an unidentified principal must fail closed rather than
    * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
    * body with the request's principal; every caller already asks the question.
    */
   broadcastViewer(): UserId {
-    return FIRST_ADMIN_USER_ID
+    return firstAdminMemberId()
   }
 
   /**

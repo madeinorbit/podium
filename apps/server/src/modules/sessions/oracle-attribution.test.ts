@@ -13,7 +13,7 @@
  * there are no people in the model (docs/multi-user-readiness.md §3.2).
  */
 
-import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -41,7 +41,7 @@ describe('oracle: who created this session', () => {
     expect((await o.meta(sessionId)).spawnedBy).toBe('user')
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)).toMatchObject({
       spawnedBy: 'user',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
   })
 
@@ -237,7 +237,7 @@ describe('oracle: who moved this session between machines', () => {
 
     const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     // Handoff changes placement without changing the durable human owner.
-    expect(row?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect(row?.ownerUserId).toBe(firstAdminMemberId())
     expect(
       Object.keys(row ?? {})
         .filter((k) => /source|by|actor|owner|user/i.test(k))

@@ -4,7 +4,7 @@
  * being pure metadata, and attachDaemon reaps legacy archived-but-live rows.
  */
 
-import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -58,7 +58,7 @@ describe('archive parks the session process [POD-108]', () => {
       cwd: '/r',
     })
     await bindLive(reg, sessionId, '/r')
-    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect((await meta(reg, sessionId))?.status).toBe('live')
 
     const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')

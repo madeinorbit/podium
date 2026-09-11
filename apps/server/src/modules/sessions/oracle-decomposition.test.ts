@@ -14,7 +14,7 @@ import {
   actorUser,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -210,7 +210,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       expect.any(String),
     )
     expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
-    expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
+    expect(await f.o.store.sessions.listReadAt(firstAdminMemberId())).toEqual({})
     await f.sessionState.execute(
       'sessions.markUnread',
       { sessionId: f.alice.sessionId },
@@ -220,7 +220,7 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       expect.any(String),
     )
     expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
-    expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
+    expect(await f.o.store.sessions.listReadAt(firstAdminMemberId())).toEqual({})
   })
 })
 
@@ -499,8 +499,8 @@ describe('oracle: browser-open forwarding', () => {
       requestId: 'open-1',
       url: 'http://localhost:1455/callback?code=x',
       resolvedBy: {
-        actor: actorUser(FIRST_ADMIN_USER_ID),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actor: actorUser(firstAdminMemberId()),
+        onBehalfOf: firstAdminMemberId(),
       },
     })
     expect(o.daemon).not.toContainEqual(expect.objectContaining({ resolvedBy: forged }))

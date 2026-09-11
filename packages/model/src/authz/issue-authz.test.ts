@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID } from '../identity/user'
+import { firstAdminMemberId } from '../identity/first-admin'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
 import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
 
@@ -16,8 +16,8 @@ import { type AuthDecision, authorize, type Capability, type IssueScope } from '
 const UNCONSTRAINED_ADMIN: Capability = {
   role: 'admin',
   scope: { kind: 'all' },
-  actorUser: FIRST_ADMIN_USER_ID,
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  actorUser: firstAdminMemberId(),
+  onBehalfOf: firstAdminMemberId(),
 }
 const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({
   role,
@@ -304,7 +304,7 @@ describe('the unconstrained admin capability keeps its reach across the new targ
    * scoped user, not an unconstrained operator.
    *
    * WHAT CHANGED: a first admin now EXISTS as a row, with `role = 'admin'` and
-   * `FIRST_ADMIN_USER_ID` as its id.
+   * `firstAdminMemberId()` as its id.
    *
    * WHAT DID NOT: the short-circuit, and deliberately. `OPERATOR` is
    * `admin`/`all`, and the two halves of that are independent gates — the

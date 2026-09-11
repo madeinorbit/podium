@@ -1,4 +1,4 @@
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../../command-principal'
@@ -12,10 +12,10 @@ import { sessionReadPorts } from '../../../test-support/session-facts'
  *
  * IssueService.addComment used to declare
  *
- *     principal: CommandPrincipal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+ *     principal: CommandPrincipal = userCommandPrincipal(firstAdminMemberId(), 'admin')
  *
  * so a caller that simply forgot the argument silently acted as the instance
- * administrator. The count-occurrences-of-FIRST_ADMIN_USER_ID scan that watches
+ * administrator. The count-occurrences-of-firstAdminMemberId() scan that watches
  * for ambient principals could not see it: a defaulted parameter and a harmless
  * mention of the constant look identical to a grep. The guard therefore has to
  * live in the type system, and the `@ts-expect-error` probes below are the
@@ -113,7 +113,7 @@ describe('addComment requires an explicit principal', () => {
   it('attributes the comment to the named human, never to the first admin', async () => {
     const { store, svc, issue } = await harness()
     const alice = asUserId('user:alice')
-    expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
+    expect(alice).not.toBe(firstAdminMemberId())
 
     await svc.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
 
@@ -141,7 +141,7 @@ describe('addComment requires an explicit principal', () => {
       issue.id,
       'mike',
       'attributed',
-      userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+      userCommandPrincipal(firstAdminMemberId(), 'admin'),
     )
 
     const [comment] = await store.issues.listIssueComments(issue.id)

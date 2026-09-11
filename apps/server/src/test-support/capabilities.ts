@@ -1,5 +1,5 @@
 import type { Capability } from '@podium/model'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 
 /**
  * THE UNCONSTRAINED ADMIN CAPABILITY — a TEST FIXTURE, and only that.
@@ -33,12 +33,12 @@ import { FIRST_ADMIN_USER_ID } from '@podium/model'
  * hand are what actually exercise `authorize()`.
  *
  * ADR 9 D1.5 keeps the identity half of this alive under its own name:
- * `FIRST_ADMIN_USER_ID` "survives only as a migration artefact: the first
+ * `firstAdminMemberId()` "survives only as a migration artefact: the first
  * account of an upgraded instance". That is a real, migrated USER. This is a
  * capability shape for tests, which is a different thing, and separating them is
  * the point of the move.
  *
- * AMBIENT PRINCIPAL, DELIBERATE (POD-1669). The two `FIRST_ADMIN_USER_ID` uses
+ * AMBIENT PRINCIPAL, DELIBERATE (POD-1669). The two `firstAdminMemberId()` uses
  * below are counted by the ambient-principal census — this file is not named
  * `*.test.ts`, so the census's path filter cannot see that it is a fixture, and
  * that is the honest outcome: a fixture is still a place the identity is
@@ -50,6 +50,6 @@ import { FIRST_ADMIN_USER_ID } from '@podium/model'
 export const OPERATOR: Capability = {
   role: 'admin',
   scope: { kind: 'all' },
-  actorUser: FIRST_ADMIN_USER_ID,
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  actorUser: firstAdminMemberId(),
+  onBehalfOf: firstAdminMemberId(),
 }

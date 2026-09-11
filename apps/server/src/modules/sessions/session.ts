@@ -5,7 +5,7 @@ import {
   type AgentRuntimeState,
   type Attribution,
   type ConversationId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Geometry,
   type GeometryState,
   type HarnessAgent,
@@ -468,7 +468,7 @@ export class Session {
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
-    this.ownerUserId = init.ownerUserId ?? FIRST_ADMIN_USER_ID
+    this.ownerUserId = init.ownerUserId ?? firstAdminMemberId()
     this.agentKind = init.agentKind
     this.cwd = init.cwd
     this.title = init.title

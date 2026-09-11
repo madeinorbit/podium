@@ -80,9 +80,9 @@ export interface Vocabulary {
 
 export const VOCABULARIES: readonly Vocabulary[] = [
   {
-    symbol: 'FIRST_ADMIN_USER_ID',
+    symbol: 'firstAdminMemberId',
     enforced: true,
-    note: 'The Phase 4 gate constraint. A site here is code assuming the sole account rather than resolving the caller.',
+    note: 'The Phase 4 gate constraint. A site here is code assuming the first admin rather than resolving the caller. Spelled `FIRST_ADMIN_USER_ID` until A2 retired the constant; the sites are the same sites.',
   },
   {
     symbol: 'DEVICE_GRADE_PRINCIPAL',
@@ -286,7 +286,7 @@ export const BASELINE: Readonly<Record<string, number>> = {
    * hand-authored, so an ambient principal appearing in one is a property of its
    * GENERATOR and should be audited there, where a human could fix it.
    */
-  FIRST_ADMIN_USER_ID: 46,
+  firstAdminMemberId: 46,
 }
 
 export const checkDrift = (
@@ -333,24 +333,24 @@ export const probe = (): Finding[] => {
 
   expect(
     'ambient-principal-added',
-    checkDrift({ FIRST_ADMIN_USER_ID: 46 }, { FIRST_ADMIN_USER_ID: 45 }),
-    checkDrift({ FIRST_ADMIN_USER_ID: 45 }, { FIRST_ADMIN_USER_ID: 45 }),
+    checkDrift({ firstAdminMemberId: 46 }, { firstAdminMemberId: 45 }),
+    checkDrift({ firstAdminMemberId: 45 }, { firstAdminMemberId: 45 }),
   )
   expect(
     'ambient-principal-baseline-stale',
-    checkDrift({ FIRST_ADMIN_USER_ID: 44 }, { FIRST_ADMIN_USER_ID: 45 }),
-    checkDrift({ FIRST_ADMIN_USER_ID: 45 }, { FIRST_ADMIN_USER_ID: 45 }),
+    checkDrift({ firstAdminMemberId: 44 }, { firstAdminMemberId: 45 }),
+    checkDrift({ firstAdminMemberId: 45 }, { firstAdminMemberId: 45 }),
   )
 
   // The measurement itself must discriminate, or the count is meaningless.
   const fixture = [
-    "import { FIRST_ADMIN_USER_ID } from '@podium/model'",
-    '// FIRST_ADMIN_USER_ID in a line comment',
-    '/* FIRST_ADMIN_USER_ID in a block comment */',
-    'const a = FIRST_ADMIN_USER_ID',
-    'function f() { return FIRST_ADMIN_USER_ID }',
+    "import { firstAdminMemberId } from '@podium/model'",
+    '// firstAdminMemberId in a line comment',
+    '/* firstAdminMemberId in a block comment */',
+    'const a = firstAdminMemberId()',
+    'function f() { return firstAdminMemberId() }',
   ].join('\n')
-  const seen = sitesIn('probe.ts', fixture, 'FIRST_ADMIN_USER_ID')
+  const seen = sitesIn('probe.ts', fixture, 'firstAdminMemberId')
   if (seen.length !== 2)
     broken.push({
       check: 'measure-usage-sites',
@@ -362,11 +362,11 @@ export const probe = (): Finding[] => {
   const multiline = [
     'import {',
     '  computePriorities,',
-    '  FIRST_ADMIN_USER_ID,',
+    '  firstAdminMemberId,',
     "} from '@podium/model'",
-    'const b = FIRST_ADMIN_USER_ID',
+    'const b = firstAdminMemberId()',
   ].join('\n')
-  const seen2 = sitesIn('probe.ts', multiline, 'FIRST_ADMIN_USER_ID')
+  const seen2 = sitesIn('probe.ts', multiline, 'firstAdminMemberId')
   if (seen2.length !== 1)
     broken.push({
       check: 'measure-multiline-import',

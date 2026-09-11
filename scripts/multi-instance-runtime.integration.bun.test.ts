@@ -24,7 +24,7 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asSessionId } from '@podium/model'
 import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
 import {
   ABDUCO_SUN_PATH_MAX,
@@ -1763,7 +1763,7 @@ exec "$CANARY_REAL_CLI" "$@"
       const columns = db.prepare('PRAGMA table_info(machines)').all() as { name: string }[]
       db.close()
       expect(rows).toHaveLength(1)
-      expect(rows[0]?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+      expect(rows[0]?.ownerUserId).toBe(firstAdminMemberId())
       expect(rows.some((row) => row.ownerUserId === null)).toBe(false)
       expect(rows.some((row) => row.id === 'local' || row.id === '__local__')).toBe(false)
       expect(columns.some((column) => column.name === 'instance_id')).toBe(false)

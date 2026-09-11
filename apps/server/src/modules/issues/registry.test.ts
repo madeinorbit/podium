@@ -1,5 +1,5 @@
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
-import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId} from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
@@ -509,14 +509,14 @@ describe('Shipping command boundary', () => {
       role: 'worker' as const,
       scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
       actorSessionId,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     return {
       capability,
       principal: {
         kind: 'agent' as const,
         agentSessionId: actorSessionId,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
         capability,
         chain: [],
       },
@@ -547,7 +547,7 @@ describe('Shipping command boundary', () => {
       capability: OPERATOR,
       principal: {
         kind: 'user' as const,
-        user: FIRST_ADMIN_USER_ID,
+        user: firstAdminMemberId(),
         capability: OPERATOR,
       },
     }
@@ -720,7 +720,7 @@ describe('Shipping command boundary', () => {
 
     const store = registry as unknown as {
       store: {
-        users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => Promise<'admin' | 'member' | undefined> }
+        users: { roleOf: (id: UserId) => Promise<'admin' | 'member' | undefined> }
       }
     }
     const roleOf = vi.spyOn(store.store.users, 'roleOf').mockResolvedValue('member')
@@ -755,7 +755,7 @@ describe('Shipping command boundary', () => {
     const ownedOutside = await registry.issues.create({
       repoPath: '/r',
       title: 'Human owned outside root',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       startNow: false,
     })
     const hiddenOutside = await registry.issues.create({
@@ -780,7 +780,7 @@ describe('Shipping command boundary', () => {
       }
     ).deps.authorization
     const store = registry as unknown as {
-      store: { users: { roleOf: (id: typeof FIRST_ADMIN_USER_ID) => Promise<'member' | undefined> } }
+      store: { users: { roleOf: (id: UserId) => Promise<'member' | undefined> } }
     }
     vi.spyOn(store.store.users, 'roleOf').mockResolvedValue('member')
 
@@ -852,7 +852,7 @@ describe('issue spawn provenance', () => {
             role: 'worker',
             scope: { kind: 'subtree', rootId: issue.id },
             actorSessionId: asSessionId('comment-agent'),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
         },
         'issues',
@@ -870,7 +870,7 @@ describe('issue spawn provenance', () => {
         }
       }
       expect(await internal.store.issues.listIssueComments(issue.id)).toMatchObject([
-        { actor: 'session:comment-agent', onBehalfOf: FIRST_ADMIN_USER_ID },
+        { actor: 'session:comment-agent', onBehalfOf: firstAdminMemberId() },
       ])
     } finally {
       await registry.dispose()
@@ -890,7 +890,7 @@ describe('issue spawn provenance', () => {
           role: 'worker',
           scope: { kind: 'subtree', rootId: issue.id },
           actorSessionId: asSessionId('parent-session'),
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
         },
       } as const
       const start = vi.spyOn(registry.issues, 'start').mockResolvedValue(issue)
@@ -929,7 +929,7 @@ describe('issue spawn provenance', () => {
           role: 'worker' as const,
           scope: { kind: 'none' as const },
           actorSessionId: asSessionId('sess_agent_creator'),
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
         },
       }
       const created = (await registry.issueCommands.dispatch(agentCaller, 'issues', 'create', {
@@ -948,7 +948,7 @@ describe('issue spawn provenance', () => {
             role: 'worker',
             scope: { kind: 'subtree', rootId: asIssueId(created.id) },
             actorSessionId: asSessionId('sess_coord'),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
         },
         'issues',
@@ -1050,7 +1050,7 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
             actorSessionId: asSessionId(sessionId),
             // An agent capability must name the human it acts for: `resolvePrincipal`
             // refuses one with no delegation owner (POD-1075 attribution).
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
         }) as const
       const pending = async (sessionId: string) =>

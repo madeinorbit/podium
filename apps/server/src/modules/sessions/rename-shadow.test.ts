@@ -43,10 +43,10 @@
  */
 
 import { isExposedOn, sessionStateCommand } from '@podium/commands'
-import { asSessionId, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, SOLE_USER_ID, type UserId} from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
+import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -92,14 +92,14 @@ const agentCapability = { ...OPERATOR, actorSessionId: asSessionId('agent-sess-1
 const agentPrincipal: CommandPrincipal = {
   kind: 'agent',
   agentSessionId: asSessionId('agent-sess-1'),
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  onBehalfOf: firstAdminMemberId(),
   capability: agentCapability,
   chain: [],
 }
 
 const humanPrincipal: CommandPrincipal = {
   kind: 'user',
-  user: FIRST_ADMIN_USER_ID,
+  user: firstAdminMemberId(),
   capability: OPERATOR,
 }
 
@@ -374,7 +374,7 @@ describe('the compatibility adapter moves ONE command and defaults to the target
  * whoever reconciled them would be told to delete the bridge rather than let it
  * become a permanent alias table.
  *
- * IT FIRED, AND THIS IS WHAT REPLACED IT. POD-1075's `FIRST_ADMIN_USER_ID` is
+ * IT FIRED, AND THIS IS WHAT REPLACED IT. POD-1075's `firstAdminMemberId()` is
  * the reconciliation: one constant, value `'user:sole'`, because that is the id
  * the POD-380 migration had already written into every pin, snooze and
  * tab-order row and a migration is frozen history. `samePrincipal` is deleted,
@@ -389,8 +389,8 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // The tripwire's successor. It asserts the reconciliation rather than the
     // fork: if a second spelling is ever reintroduced, the id the database
     // actually holds is the one that must win, and this says which that is.
-    expect(FIRST_ADMIN_USER_ID as string).toBe(SOLE_USER_ID as string)
-    expect(FIRST_ADMIN_USER_ID as string).toBe('user:sole')
+    expect(firstAdminMemberId() as string).toBe(SOLE_USER_ID as string)
+    expect(firstAdminMemberId() as string).toBe('user:sole')
   })
 
   it('an agent whose human IS the sole human may write — the ceiling can say YES', async () => {
@@ -403,7 +403,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     const ownAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-8'),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
       capability: agentCapability,
       chain: [],
     }
@@ -428,7 +428,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-9'),
-      onBehalfOf: 'user:stranger' as typeof FIRST_ADMIN_USER_ID,
+      onBehalfOf: 'user:stranger' as UserId,
       capability: agentCapability,
       chain: [],
     }

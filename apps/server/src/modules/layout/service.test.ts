@@ -2,14 +2,14 @@
  * LayoutService — principal-scoped snapshot writes (POD-1350).
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createBunStoreExecutor } from '../../store/executor'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { LayoutService } from './service'
 
-const ALICE: UserId = FIRST_ADMIN_USER_ID
+const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
 
 let service: LayoutService

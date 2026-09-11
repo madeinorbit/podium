@@ -9,7 +9,7 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -31,7 +31,7 @@ const ISSUE = {
   defaultAgent: 'claude-code',
   defaultModel: 'auto',
   defaultEffort: 'auto',
-  ownerUserId: FIRST_ADMIN_USER_ID,
+  ownerUserId: firstAdminMemberId(),
 }
 const SENDER_ISSUE = { ...ISSUE, id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
@@ -57,7 +57,7 @@ function fakeIssues(
     has: (id: string) => byId.has(id),
     ownedTarget: (id: string) => {
       const row = byId.get(id)
-      return row ? { kind: 'issue', id, owner: row.ownerUserId ?? FIRST_ADMIN_USER_ID } : undefined
+      return row ? { kind: 'issue', id, owner: row.ownerUserId ?? firstAdminMemberId() } : undefined
     },
     ancestorIds: () => [],
     create: (input: Record<string, unknown>) => {
@@ -72,14 +72,14 @@ function fakeIssues(
 const OPERATOR: Capability = {
   role: 'admin',
   scope: { kind: 'all' },
-  actorUser: FIRST_ADMIN_USER_ID,
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  actorUser: firstAdminMemberId(),
+  onBehalfOf: firstAdminMemberId(),
 }
 const PARENT: Capability = {
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
   actorSessionId: asSessionId('sParent'),
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  onBehalfOf: firstAdminMemberId(),
 }
 
 async function harness(opts?: {
@@ -852,7 +852,7 @@ describe('agent await (bounded, never hangs)', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
       actorSessionId: asSessionId('sStranger'),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     await expect(
       gate.dispatch(stranger, undefined, 'awaitAgent', {
@@ -1293,7 +1293,7 @@ describe('mail dismiss — recipient-only clear', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) },
       actorSessionId: asSessionId('sRecipient'),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     const wire = (await gate.dispatch(recipient, undefined, 'dismiss', {
       id: sent.message.id,

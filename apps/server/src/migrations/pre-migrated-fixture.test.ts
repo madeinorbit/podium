@@ -64,6 +64,19 @@ function schemaObjects(db: SqlDatabase): { type: string; name: string; sql: stri
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/
 
 /**
+ * Branded ids minted by a migration — two builds are two mints (A2).
+ *
+ * The solo-user retirement gives the first member an ordinary `mem_` id, minted
+ * when the migration is APPLIED, which is exactly what makes it an id rather
+ * than a constant with a nicer prefix. So the cached image and a freshly built
+ * one differ here by design, in the same way and for the same reason they differ
+ * on a timestamp, and the comparison normalises it for the same reason: what
+ * this test is asking is whether the clone IS the chain, not whether two mints
+ * agree.
+ */
+const BRANDED_ID = /^[a-z]{2,4}_[0-9A-Za-z]{27}$/
+
+/**
  * Every way vitest lets a case stop running without being deleted.
  *
  * Anchored patterns, not substrings: they must match a real call site at the start of
@@ -97,7 +110,13 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
         Object.fromEntries(
           Object.entries(row).map(([column, value]) => [
             column,
-            typeof value === 'string' && ISO_INSTANT.test(value) ? '<instant>' : value,
+            typeof value !== 'string'
+              ? value
+              : ISO_INSTANT.test(value)
+                ? '<instant>'
+                : BRANDED_ID.test(value)
+                  ? '<minted-id>'
+                  : value,
           ]),
         ),
     )

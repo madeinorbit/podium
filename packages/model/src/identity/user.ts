@@ -72,8 +72,6 @@ import { assertUnreachable } from '../exhaustive'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import { UserIdField } from '../ids'
-import { asUserId, type UserId } from '../ids/brands'
-import { SOLE_USER_ID } from '../user-state/session-state'
 
 // ---------------------------------------------------------------------------
 // Roles — a closed enum with a totality obligation (ADR 9 D1.4)
@@ -295,53 +293,33 @@ export const UserCredential = z.object({
 export type UserCredential = z.infer<typeof UserCredential>
 
 // ---------------------------------------------------------------------------
-// The one pre-accounts human, reconciled
+// The one pre-accounts human, retired
 // ---------------------------------------------------------------------------
 
 /**
- * THE FIRST ADMIN — the single account an upgraded instance has, and the ONE
- * name for the identity that two constants used to spell two ways.
+ * THE FIRST ADMIN IS NO LONGER A CONSTANT. It is
+ * {@link file://./first-admin.ts}'s `firstAdminMemberId()`, primed from the
+ * database by whatever opened the instance.
  *
- * ---------------------------------------------------------------------------
- * WHAT THIS RECONCILES (POD-1172)
- * ---------------------------------------------------------------------------
+ * WHAT WAS HERE. `FIRST_ADMIN_USER_ID`, the branded spelling of `'user:sole'`.
+ * It could be a constant because the POD-1075 migration wrote that exact string
+ * into the one account row, and POD-1172 had reconciled it against a second
+ * constant (`INSTANCE_OWNER`, `'instance-owner'`) that named the same human and
+ * disagreed about the spelling — an unreconciled pair that had already denied
+ * every agent write once, through POD-351's delegation ceiling.
  *
- * Two constants named the one pre-accounts human and DISAGREED:
+ * WHY IT WENT. A2 [spec, hosted sign-in §8] mints the first member an ordinary
+ * `mem_` id, one per installation, and rewrites every owner reference to it. The
+ * id a build compiles in and the id a database holds stopped being the same
+ * thing, so the constant would have been a well-typed name for a row that does
+ * not exist — the failure mode POD-1172 documents, one layer further along.
  *
- *   `SOLE_USER_ID`   `'user:sole'`       POD-380 — what `sessionOwner` stamps as
- *                                        every session's owner, and what the
- *                                        per-user-state migration WROTE INTO THE
- *                                        DATABASE for every pin, snooze and saved
- *                                        tab order.
- *   `INSTANCE_OWNER` `'instance-owner'`  POD-381 — what `resolvePrincipal` minted
- *                                        as every human's `UserId`.
- *
- * Each side was internally consistent, so nothing compared them until POD-351's
- * delegation ceiling needed both — where, unreconciled, the intersection denied
- * EVERY agent write. It failed closed, so a liveness defect rather than a leak,
- * but one that would have surfaced as "agents inexplicably cannot act" inside a
- * check that reads as correct. POD-351 bridged it in one named place
- * (`samePrincipal`) with a tripwire asserting the constants still differed, so
- * that whoever reconciled them would delete the bridge. Both are now gone.
- *
- * ---------------------------------------------------------------------------
- * WHY THE SURVIVING VALUE IS `'user:sole'` AND NOT `'instance-owner'`
- * ---------------------------------------------------------------------------
- *
- * Because it is the one that is already WRITTEN DOWN. The POD-380 migration
- * (`20260730104951_per-user-state-keying`) backfilled every existing pin, snooze
- * and tab-order row with the literal `'user:sole'`, and a migration is frozen
- * history: those rows keep the id they were actually written with. Choosing
- * `'instance-owner'` would have meant a second data migration to re-key rows
- * that are already correct, to change a string no user ever sees. The other
- * constant was minted in memory and persisted nowhere, so retiring it costs
- * nothing.
- *
- * `SOLE_USER_ID` survives as the raw storage LITERAL that the migration and its
- * tests spell; this is the branded identity every principal and owner check
- * compares against. One value, two positions, no second spelling.
+ * {@link SOLE_USER_ID} survives, and is deliberately NOT re-exported as an
+ * identity here: it is now only two things, both of them history. It is the raw
+ * literal the frozen migrations spell, and it is the login identifier A3 accepts
+ * for a first member whose email is still empty, so that an upgrade locks nobody
+ * out of their own instance.
  */
-export const FIRST_ADMIN_USER_ID: UserId = asUserId(SOLE_USER_ID)
 
 /**
  * The first admin's role, named rather than inlined so the upgrade migration's

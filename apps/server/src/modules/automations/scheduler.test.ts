@@ -1,4 +1,4 @@
-import { asAutomationId, FIRST_ADMIN_USER_ID, asIssueId, asSessionId } from '@podium/model'
+import { asAutomationId, firstAdminMemberId, asIssueId, asSessionId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from 
 import { AutomationsService, type AutomationInput } from './service'
 import { openTestStore } from '../../test-support/open-test-store'
 
-const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 class TestAutomationsService extends AutomationsService {
   override create(input: AutomationInput) {
@@ -496,9 +496,9 @@ describe('AutomationsService.tick — spawn', () => {
       defaultModel: 'auto',
       defaultEffort: 'auto',
       type: 'automation',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       createdByActor: `automation:${a.id}`,
-      createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+      createdByOnBehalfOf: firstAdminMemberId(),
     })
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
     // silently becomes a draft on opencode/cursor [spec:SP-17db].
@@ -567,7 +567,7 @@ describe('AutomationsService.tick — spawn', () => {
       outcome: 'error',
       detail: 'reserved',
       actor: `automation:${a.id}`,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
     // nextRunAt still the original occurrence
     expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(firedAt)
@@ -602,7 +602,7 @@ describe('AutomationsService.tick — spawn', () => {
       outcome: 'error',
       detail: 'reserved',
       actor: `automation:${a.id}`,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
 
     // Revocation happens after durable reservation and before startup replay.

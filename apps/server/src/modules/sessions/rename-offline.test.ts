@@ -41,9 +41,9 @@
  * and is recorded as an open gap in the ledger.
  */
 
-import { asMutationId, asSessionId, asUserId } from '@podium/model'
+import { asMutationId, asSessionId, asUserId, type UserId} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
+import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -68,7 +68,7 @@ async function revocableStack() {
 
   // Mutable ownership, read LIVE on every call — which is the whole mechanism.
   // There is no snapshot to invalidate because there is no snapshot.
-  const ownership = { owner: FIRST_ADMIN_USER_ID as string | null, grants: [] as string[] }
+  const ownership = { owner: firstAdminMemberId() as string | null, grants: [] as string[] }
 
   const deps = {
     sessions: new Proxy(sessions, {
@@ -108,11 +108,11 @@ async function revocableStack() {
  */
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
-  user: userId as typeof FIRST_ADMIN_USER_ID,
+  user: userId as UserId,
   capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(userId) } },
 })
 
-const human = humanScoped(FIRST_ADMIN_USER_ID)
+const human = humanScoped(firstAdminMemberId())
 
 /**
  * The AGENT's capability is deliberately left as admin/all. Its own scope is
@@ -123,7 +123,7 @@ const human = humanScoped(FIRST_ADMIN_USER_ID)
 const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal => ({
   kind: 'agent',
   agentSessionId: asSessionId(agentSessionId),
-  onBehalfOf: onBehalfOf as typeof FIRST_ADMIN_USER_ID,
+  onBehalfOf: onBehalfOf as UserId,
   capability: { ...OPERATOR, actorSessionId: asSessionId(agentSessionId) },
   chain: [],
 })
@@ -178,7 +178,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     // to write and none to forget. The AGENT's own capability is admin/all here and
     // is untouched — only its human lost the row.
     const s = await revocableStack()
-    const agent = agentOf('agent-sess-1', FIRST_ADMIN_USER_ID)
+    const agent = agentOf('agent-sess-1', firstAdminMemberId())
 
     // Instrument first: this agent CAN write before the revocation.
     expect(
@@ -218,7 +218,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
       )).outcome,
     ).toBe('denied')
 
-    s.ownership.owner = FIRST_ADMIN_USER_ID
+    s.ownership.owner = firstAdminMemberId()
 
     expect(
       (await renameOnTargetPath(
@@ -234,7 +234,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
   it('a GRANT, not just ownership, is enough — and is also read live', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
-    s.ownership.grants = [FIRST_ADMIN_USER_ID]
+    s.ownership.grants = [firstAdminMemberId()]
 
     expect(
       (await renameOnTargetPath(
@@ -352,7 +352,7 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
     expect(await call('s1')).toBe('applied')
     s.ownership.owner = 'user:someone-else'
     expect(await call('s2')).toBe('denied')
-    s.ownership.owner = FIRST_ADMIN_USER_ID
+    s.ownership.owner = firstAdminMemberId()
     expect(await call('s3')).toBe('applied')
   })
 })
@@ -405,7 +405,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
 
     const operator: CommandPrincipal = {
       kind: 'user',
-      user: FIRST_ADMIN_USER_ID,
+      user: firstAdminMemberId(),
       capability: OPERATOR,
     }
 
@@ -434,7 +434,7 @@ describe('today’s operator principal short-circuits the owner gate (transition
     const dispatch = await renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'agent tried', mutationId: 'op-2' },
-      agentOf('agent-sess-7', FIRST_ADMIN_USER_ID),
+      agentOf('agent-sess-7', firstAdminMemberId()),
       'outbox',
     )
 

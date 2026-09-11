@@ -3,7 +3,7 @@ import {
   asMachineId,
   asShipOrderId,
   asShipStepId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueWire,
   shipRepairRef,
 } from '@podium/model'
@@ -171,8 +171,8 @@ async function harness(
 const approval = {
   principal: { kind: 'system' as const, job: 'shipping-test' },
   requestedBy: {
-    actor: { kind: 'user' as const, id: FIRST_ADMIN_USER_ID },
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actor: { kind: 'user' as const, id: firstAdminMemberId() },
+    onBehalfOf: firstAdminMemberId(),
   },
   overrideScope: false,
   approved: {

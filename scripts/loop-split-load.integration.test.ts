@@ -1,4 +1,4 @@
-import { asIssueId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asIssueId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
@@ -18,10 +18,10 @@ function issueRow(seq: number): IssueRow {
   const timestamp = '2026-07-18T00:00:00.000Z'
   return {
     id: asIssueId(`iss_load_${seq}`),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     repoPath: '/representative-load',
     seq,
     title: `Representative issue ${seq}`,
@@ -125,7 +125,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
               publications.push(JSON.stringify(message))
             }
           },
-          userId: FIRST_ADMIN_USER_ID,
+          userId: firstAdminMemberId(),
           userRole: 'admin',
         })
         clients.push({ id, publications, allowedSessionIds })

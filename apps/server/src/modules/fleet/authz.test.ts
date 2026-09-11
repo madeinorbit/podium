@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import { asMachineId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -42,7 +42,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
-const OWNER = FIRST_ADMIN_USER_ID
+const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
 
 const user = (id: UserId): CommandPrincipal => ({
@@ -549,7 +549,7 @@ describe('the derived fleet router actually calls the gate', () => {
   const edge = (verb: 'see' | 'use' | 'manage', resourceId = 'm1') => ({
     resourceKind: 'machine',
     resourceId,
-    grantee: FIRST_ADMIN_USER_ID,
+    grantee: firstAdminMemberId(),
     verb,
     owner: 'someone-else',
     visibility: 'owned-compute',
@@ -560,23 +560,23 @@ describe('the derived fleet router actually calls the gate', () => {
   })
 
   it('renames a machine the caller owns', async () => {
-    const { call } = await caller(FIRST_ADMIN_USER_ID)
+    const { call } = await caller(firstAdminMemberId())
     const after = await call.machines.rename({ id: 'm1', name: 'renamed' })
     expect(after.find((m) => m.id === 'm1')?.name).toBe('renamed')
   })
 
   it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
-    const { call, store } = await caller(FIRST_ADMIN_USER_ID)
+    const { call, store } = await caller(firstAdminMemberId())
 
     await call.machines.share({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
     expect(await store.grants.listForResource('machine', 'm1')).toEqual([
       expect.objectContaining({
         grantee: COLLEAGUE,
         verb: 'use',
-        owner: FIRST_ADMIN_USER_ID,
+        owner: firstAdminMemberId(),
         actorKind: 'user',
         actorId: 'sole',
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
       }),
     ])
 
@@ -592,7 +592,7 @@ describe('the derived fleet router actually calls the gate', () => {
     // contract/registry/target wiring produced a procedure at all.
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
     try {
-      const { call, store } = await caller(FIRST_ADMIN_USER_ID, { stateDir: dir })
+      const { call, store } = await caller(firstAdminMemberId(), { stateDir: dir })
       await store.users.create(
         {
           id: COLLEAGUE,
@@ -810,7 +810,7 @@ describe('the derived fleet router actually calls the gate', () => {
     expect(after.find((m) => m.id === 'm1')?.name).toBe('granted')
 
     // …and revoking it takes effect at the NEXT call, with nothing to invalidate.
-    await store.grants.remove('machine', 'm1', FIRST_ADMIN_USER_ID, 'manage')
+    await store.grants.remove('machine', 'm1', firstAdminMemberId(), 'manage')
     await expect(call.machines.rename({ id: 'm1', name: 'again' })).rejects.toThrow(
       /unknown machine/,
     )
@@ -858,10 +858,10 @@ describe('a paired machine belongs to whoever minted its code', () => {
 
   it('the pairer named at mint becomes the owner of the machine that redeems the code', async () => {
     const { store, machines } = await service()
-    const code = machines.mintPairingCode({ ownerUserId: FIRST_ADMIN_USER_ID })
+    const code = machines.mintPairingCode({ ownerUserId: firstAdminMemberId() })
 
     expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
-    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(firstAdminMemberId())
   })
 
   it('a code minted with NO pairer produces an unowned machine — refused, not shared', async () => {

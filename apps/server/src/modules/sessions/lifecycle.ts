@@ -40,7 +40,7 @@ const log = createLogger('server:sessions')
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { computePriorities, firstAdminMemberId } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,

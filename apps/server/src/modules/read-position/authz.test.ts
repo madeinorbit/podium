@@ -5,7 +5,7 @@
  */
 
 import { readPositionAdvanceInput } from '@podium/commands'
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { UserReadPositionRepository } from '../../store/user-read-position'
@@ -14,7 +14,7 @@ import { stageASeam } from '../../test-support/stage-a-seam'
 import { type ReadPositionAuthzDeps, readPositionActor, readPositionAuthzFailure } from './authz'
 import { ReadPositionService } from './service'
 
-const ALICE: UserId = FIRST_ADMIN_USER_ID
+const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
 
 function deps(

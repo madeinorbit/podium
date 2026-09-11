@@ -1,5 +1,5 @@
 import {
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   NO_SESSION_USER_STATE,
   type SessionId,
   type SessionMeta,
@@ -245,7 +245,7 @@ export class SessionView {
   readonly wire = wireSession
 
   broadcastViewer(): UserId {
-    return FIRST_ADMIN_USER_ID
+    return firstAdminMemberId()
   }
 
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
@@ -255,9 +255,9 @@ export class SessionView {
   }
 
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
-    const role = await this.ports.store.users.roleOf(FIRST_ADMIN_USER_ID)
+    const role = await this.ports.store.users.roleOf(firstAdminMemberId())
     return role
-      ? sessionStatePrincipalFor(userCommandPrincipal(FIRST_ADMIN_USER_ID, role))
+      ? sessionStatePrincipalFor(userCommandPrincipal(firstAdminMemberId(), role))
       : undefined
   }
 

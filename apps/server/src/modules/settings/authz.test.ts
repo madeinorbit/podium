@@ -31,7 +31,7 @@
  */
 
 import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS } from '@podium/commands'
-import { asSessionId, FIRST_ADMIN_USER_ID, type UserRole } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import {
@@ -44,7 +44,7 @@ import {
 
 const person: CommandPrincipal = {
   kind: 'user',
-  user: FIRST_ADMIN_USER_ID,
+  user: firstAdminMemberId(),
   capability: { role: 'admin', scope: { kind: 'all' } },
 }
 
@@ -53,7 +53,7 @@ const person: CommandPrincipal = {
 const agent: CommandPrincipal = {
   kind: 'agent',
   agentSessionId: asSessionId('sess-1'),
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  onBehalfOf: firstAdminMemberId(),
   capability: { role: 'admin', scope: { kind: 'all' } },
   chain: [],
 }

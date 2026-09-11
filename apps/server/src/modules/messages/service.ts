@@ -44,7 +44,7 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   isAgentComputing,
   isIssueClosed,
   type IssueScope,
@@ -2861,8 +2861,8 @@ export class MessageDeliveryService {
       case 'operator':
         return {
           attribution: {
-            actor: actorUser(FIRST_ADMIN_USER_ID),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            actor: actorUser(firstAdminMemberId()),
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: null,
         }
@@ -2870,7 +2870,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
@@ -2879,7 +2879,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(actorId)),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: from.sessionId ?? null,
         }

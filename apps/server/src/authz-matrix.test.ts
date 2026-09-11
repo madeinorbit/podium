@@ -38,7 +38,7 @@
  * ---------------------------------------------------------------------------
  *
  * Two humans. `auth-store.ts` is still one password per instance, so every
- * authenticated caller resolves to `FIRST_ADMIN_USER_ID` and the transports
+ * authenticated caller resolves to `firstAdminMemberId()` and the transports
  * cannot yet tell two people apart. The matrix therefore drives the POLICY layer
  * with the principals the transports WILL supply — which is the only way read
  * denial and the delegation ceiling can be tested before login lands, and
@@ -70,7 +70,7 @@ import { describe, expect, it } from 'vitest'
 import {
   attributionOf,
   type CommandPrincipal,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   onBehalfOfUser,
   resolvePrincipal,
   systemPrincipal,
@@ -244,7 +244,7 @@ describe('D14 — every transport resolves to a principal that names a person or
     expect(system.kind).toBe('system')
     expect(onBehalfOfUser(system)).toBeNull()
     // Not the first admin, not the row's owner — the two wrong answers D17.5 names.
-    expect(onBehalfOfUser(system)).not.toBe(FIRST_ADMIN_USER_ID)
+    expect(onBehalfOfUser(system)).not.toBe(firstAdminMemberId())
   })
 })
 
@@ -333,8 +333,8 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
     const world = delegationWorld()
     const human = resolvePrincipal(OPERATOR, world.index)
     const pair = attributionOf(human)
-    expect(pair.actor).toBe(FIRST_ADMIN_USER_ID)
-    expect(pair.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
+    expect(pair.actor).toBe(firstAdminMemberId())
+    expect(pair.onBehalfOf).toBe(firstAdminMemberId())
   })
 
   it('a system write is attributed `system` with no human (D17.5)', () => {
@@ -682,7 +682,7 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
     // instance up. A second human authenticating to the server must not inherit
     // execute on the Mac it runs on.
     const host = 'b1c2d3e4-5f60-4712-8899-aabbccddeeff'
-    const hostRow = machineWorld({ owner: FIRST_ADMIN_USER_ID })
+    const hostRow = machineWorld({ owner: firstAdminMemberId() })
     const world: MachineOwnershipIndex = {
       rowFor: (id) => (id === host ? hostRow.rowFor(asMachineId('m1')) : undefined),
     }
@@ -691,7 +691,7 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
     // instance's own account does hold it.
     const instanceOwner: CommandPrincipal = {
       kind: 'user',
-      user: FIRST_ADMIN_USER_ID,
+      user: firstAdminMemberId(),
       capability: OPERATOR,
     }
     expect(checkMachineUse(instanceOwner, asMachineId(host), world)).toBeUndefined()

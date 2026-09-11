@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import type {
   MachineSupervisorControlMessage,
   UpdateGrantMessage,
@@ -56,7 +56,7 @@ async function fixture() {
         name: id,
         hostname: id,
         tokenHash: '',
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
       })
       await store.machines.setUpdateChannel(id, 'dev')
       await this.hello(id, version)

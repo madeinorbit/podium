@@ -38,11 +38,21 @@ const MIGRATION = 'per-user-state-family'
 /** The literal the migration writes. Spelled out here for the same reason the
  *  migration spells it out: a migration is frozen history, so this test keeps
  *  asserting the id that was actually written even if the constant is renamed.
- *  `FIRST_ADMIN_USER_ID` is tied to this literal in
+ *  `firstAdminMemberId()` is tied to this literal in
  *  `packages/model/src/identity/user.test.ts`. */
 const FIRST_ADMIN = 'user:sole'
 
 type Db = ReturnType<typeof openDatabase>
+
+/**
+ * The manifest UP TO AND INCLUDING this migration.
+ *
+ * It used to be the whole manifest, and stopping here is A2's doing: the
+ * solo-user retirement re-keys `'user:sole'` to a minted `mem_` id, so applying
+ * everything would make this file assert the state of a LATER migration and
+ * call it this one's. A migration test's subject is its own migration.
+ */
+const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
 
 const cutIndex = () => {
   const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.includes(MIGRATION))
@@ -131,7 +141,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     seedSession(db, 's-read-b', READ_B)
     seedSession(db, 's-never-opened', null)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db
       .prepare('SELECT user_id, session_id, read_at FROM session_user_state ORDER BY session_id')
@@ -156,7 +166,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     seedIssue(db, 'i-pinned-only', 3, { pinned: 1 })
     seedIssue(db, 'i-untouched', 4, {})
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db
       .prepare(
@@ -195,7 +205,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     seedIssue(db, 'i-pin', 1, { pinned: 1 })
     seedIssue(db, 'i-nopin', 2, { pinned: 0 })
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const pinnedAt = (
       db.prepare('SELECT pinned_at FROM issue_user_state WHERE issue_id = ?').get('i-pin') as
@@ -217,7 +227,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     seedIssueMessage(db, 'm-read', 'i-host', MSG_READ)
     seedIssueMessage(db, 'm-unread', 'i-host', null)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db
       .prepare('SELECT user_id, issue_message_id, read_at FROM issue_message_user_state')
@@ -331,7 +341,7 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
     // not, for instance, fail on a backfill SELECT against a column the baseline
     // never created.
     const db = openDatabase(':memory:')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     expect(columns(db, 'sessions')).not.toContain('read_at')
     expect(columns(db, 'issues')).not.toContain('pinned')
     expect(tableExists(db, 'session_user_state')).toBe(true)

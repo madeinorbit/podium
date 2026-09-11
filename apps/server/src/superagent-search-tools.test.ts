@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -24,7 +24,7 @@ async function toolNames(): Promise<string[]> {
   registries.push(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
-  await sa.history(FIRST_ADMIN_USER_ID)
+  await sa.history(firstAdminMemberId())
   return (await sa.mcpToolSpecs()).map((t) => t.name)
 }
 

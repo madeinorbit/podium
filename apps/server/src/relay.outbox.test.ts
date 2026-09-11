@@ -8,7 +8,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
   type SessionMeta,
   SOLE_USER_ID,
@@ -203,7 +203,7 @@ describe('queueText (durable outbox sends)', () => {
         delegation: asDelegationRef(source),
         attribution: {
           actor: actorAgent(asAgentIdentityId(source)),
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
         },
       }
       expect(
@@ -224,7 +224,7 @@ describe('queueText (durable outbox sends)', () => {
       // @ts-expect-error test-only revocation through SessionStore's private connection
       await reg.sessionStore.db
         .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
-        .run('2026-08-01T00:00:00.000Z', FIRST_ADMIN_USER_ID)
+        .run('2026-08-01T00:00:00.000Z', firstAdminMemberId())
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
       await settle(reg, target)

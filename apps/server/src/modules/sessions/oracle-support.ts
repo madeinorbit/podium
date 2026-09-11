@@ -41,7 +41,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 import {
   type AgentProbeError,
   BUILTIN_HARNESS_KINDS,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type MachineId,
   type SessionId,
 } from '@podium/model'
@@ -217,7 +217,7 @@ export async function makeOracle(
       tokenHash: `hash-${machine.id}`,
       // The oracle's fixture fleet belongs to the instance's one account: these
       // rows stand in for machines the operator paired (POD-1079).
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.setMachineInventory(
       machine.id,

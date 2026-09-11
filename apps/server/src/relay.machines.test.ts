@@ -6,7 +6,7 @@ import {
   asMachineId,
   asRepoId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -19,7 +19,7 @@ import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 
-const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
 
@@ -79,7 +79,7 @@ async function regWithRevocableMachineGrant() {
   await store.grants.upsert({
     resourceKind: 'machine',
     resourceId: SHARED_MACHINE,
-    grantee: FIRST_ADMIN_USER_ID,
+    grantee: firstAdminMemberId(),
     verb: 'use',
     owner: COLLEAGUE,
     visibility: 'owned-compute',
@@ -91,7 +91,7 @@ async function regWithRevocableMachineGrant() {
   await store.grants.upsert({
     resourceKind: 'machine',
     resourceId: SHARED_MACHINE,
-    grantee: FIRST_ADMIN_USER_ID,
+    grantee: firstAdminMemberId(),
     verb: 'see',
     owner: COLLEAGUE,
     visibility: 'owned-compute',
@@ -125,7 +125,7 @@ async function regWithRevocableMachineGrant() {
       if (machineId !== SHARED_MACHINE) return snapshot
       grantReads += 1
       if (grantReads === 1) {
-        await store.grants.remove('machine', SHARED_MACHINE, FIRST_ADMIN_USER_ID, 'use')
+        await store.grants.remove('machine', SHARED_MACHINE, firstAdminMemberId(), 'use')
       }
       return snapshot
     })
@@ -167,7 +167,7 @@ describe('rule 46 grant snapshots at relay composition', () => {
     await expect(
       reg.modules.nativeLogin.start({
         harness: 'codex',
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
       }),
     ).resolves.toBeDefined()
     expect(grantReads()).toBe(1)
@@ -176,7 +176,7 @@ describe('rule 46 grant snapshots at relay composition', () => {
       reg.modules.nativeLogin.start({
         harness: 'claude-code',
         machineId: SHARED_MACHINE,
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
       }),
     ).rejects.toThrow('you do not have access to start login on this machine')
     expect(grantReads()).toBe(2)
@@ -267,7 +267,7 @@ describe('multi-daemon routing', () => {
       type: 'sessionResumeRefAck',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-a' },
-      ownerId: FIRST_ADMIN_USER_ID,
+      ownerId: firstAdminMemberId(),
     })
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
   })

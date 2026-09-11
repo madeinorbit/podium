@@ -1,14 +1,14 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import type { ClientMux, ClientPeer, ClientTransport } from '../gateway/client-mux'
 
 /** Explicit in-process transport authenticator used only by server fixtures. */
 export function attachTestClient(mux: ClientMux, peer: ClientPeer): string {
   const transport: ClientTransport =
     typeof peer === 'function'
-      ? { send: peer, userId: FIRST_ADMIN_USER_ID, userRole: 'admin' }
+      ? { send: peer, userId: firstAdminMemberId(), userRole: 'admin' }
       : {
           ...peer,
-          userId: peer.userId ?? FIRST_ADMIN_USER_ID,
+          userId: peer.userId ?? firstAdminMemberId(),
           userRole: peer.userRole ?? 'admin',
         }
   return mux.attachClient(transport)

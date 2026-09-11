@@ -8,7 +8,7 @@ import type { IssueWire } from '@podium/model'
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -22,12 +22,12 @@ const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
       ? {
           ...rawCapability,
           actorSessionId: rawCapability.actorSessionId ?? asSessionId('audience-agent'),
-          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
       : {
           ...rawCapability,
-          actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+          onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
   return appRouter.createCaller({
     registry,

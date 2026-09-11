@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { request } from 'node:http'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
@@ -43,13 +43,13 @@ async function start(
     registry,
     {
       authorizeClient,
-      userForClient: () => FIRST_ADMIN_USER_ID,
+      userForClient: () => firstAdminMemberId(),
       roleForClient: () => 'admin',
       ...(maintainClientCredential ? { maintainClientCredential } : {}),
       ...(credentialId
         ? {
             principalForClient: () => ({
-              userId: FIRST_ADMIN_USER_ID,
+              userId: firstAdminMemberId(),
               userRole: 'admin' as const,
               credentialId,
             }),
@@ -79,7 +79,7 @@ async function startNotReady() {
       reason: 'restart_required',
       dataPlane: 'blocked',
     }),
-    userForClient: () => FIRST_ADMIN_USER_ID,
+    userForClient: () => firstAdminMemberId(),
     roleForClient: () => 'admin',
   })
   server = serveNative({

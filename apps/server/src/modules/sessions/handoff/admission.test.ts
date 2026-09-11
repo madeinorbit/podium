@@ -13,7 +13,7 @@
  * allowed to ask, and every other test here would still pass.
  */
 
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -26,7 +26,7 @@ const OTHER = asMachineId('m-other')
 const SESSION = asSessionId('s1')
 
 const caller = (): HandoffCaller => {
-  const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+  const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
   return { capability: principal.capability, principal }
 }
 

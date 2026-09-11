@@ -25,14 +25,14 @@
  */
 
 import { REDACTED } from '@podium/commands'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import { settingsAuditAttribution } from '../../store/settings-audit'
 import { recordSettingsCommand, REDACTED_MESSAGE, redactErrorMessage } from './audit'
 
-const HUMAN = FIRST_ADMIN_USER_ID
+const HUMAN = firstAdminMemberId()
 const DELEGATOR = asUserId('ada')
 
 const person: CommandPrincipal = {

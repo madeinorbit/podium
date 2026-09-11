@@ -23,7 +23,7 @@
  * must resolve identically for everybody.
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -34,7 +34,7 @@ import { SettingsRepository } from './settings'
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
  *  NOW, which is exactly why a second id can be written today and must not be
  *  visible to the first. */
-const ALICE: UserId = FIRST_ADMIN_USER_ID
+const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
 
 const AT = '2026-07-31T04:00:00.000Z'

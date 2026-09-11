@@ -64,7 +64,7 @@ const log = createLogger('server:issues')
  * defaulting `onBehalfOf` to the operator, and a mapper is the last place anyone
  * would look for the multi-user model's defaults. The answer instead is stated
  * ONCE, here, as {@link SINGLE_USER_ISSUE_OWNERSHIP}: this instance has one human,
- * `FIRST_ADMIN_USER_ID`, and issues are `personal` on ADR 1's matrix. That is the
+ * `firstAdminMemberId()`, and issues are `personal` on ADR 1's matrix. That is the
  * same shape the rest of the tree already uses for the single-operator assumption
  * (`SINGLE_USER_CEILING`, `SINGLE_USER_HUMAN`, `SINGLE_USER_WORKFLOW_OWNERSHIP`) —
  * a named constant with a successor issue, not a literal at a call site. POD-1075

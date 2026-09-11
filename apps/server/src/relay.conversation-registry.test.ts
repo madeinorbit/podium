@@ -1,5 +1,5 @@
 import {
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type ConversationSummaryWire,
   type ConversationSummaryWireInput,
 } from '@podium/model'
@@ -123,7 +123,7 @@ describe('SessionRegistry conversation registry', () => {
     })
     await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     const read = daemon.find((m) => (m as { type: string }).type === 'transcriptRead') as {
       pathHint?: string

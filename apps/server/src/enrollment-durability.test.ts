@@ -18,7 +18,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { mintPairingToken, openEnrollmentLedger, verifyPairingToken } from './enrollment-ledger'
@@ -34,7 +34,7 @@ import { MachinesService, sha256 } from './modules/machines/service'
 import { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
-const OWNER = FIRST_ADMIN_USER_ID
+const OWNER = firstAdminMemberId()
 const OTHER = asUserId('user:colleague')
 const ORIGINAL_HOST = asMachineId('00000000-0000-4000-8000-000000000101')
 const PROMOTED_HOST = asMachineId('00000000-0000-4000-8000-000000000202')

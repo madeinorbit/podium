@@ -7,7 +7,7 @@ import {
   asSessionId,
   asThreadId,
   ConversationSummaryWire,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   GitRepositoryWire,
   MachineWire,
   ResumeRef,
@@ -602,7 +602,7 @@ describe('ControlMessage (server -> daemon)', () => {
       type: 'sessionResumeRefAck',
       sessionId: asSessionId('s1'),
       resume: { kind: 'codex-thread', value: 'thread-1' },
-      ownerId: FIRST_ADMIN_USER_ID,
+      ownerId: firstAdminMemberId(),
     },
     {
       type: 'sessionOpenUrlCallback',

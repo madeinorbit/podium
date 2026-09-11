@@ -4,7 +4,7 @@
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
 import { WorldIndex } from '../world-index'
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueService } from '../issues/service'
@@ -22,7 +22,7 @@ const ISSUE = {
   defaultAgent: 'claude-code',
   defaultModel: 'auto',
   defaultEffort: 'auto',
-  ownerUserId: FIRST_ADMIN_USER_ID,
+  ownerUserId: firstAdminMemberId(),
 }
 
 function fakeIssues(over?: Partial<typeof ISSUE>) {

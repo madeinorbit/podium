@@ -38,7 +38,7 @@ describe('issue blank-text backfill migration [POD-820]', () => {
          '2026-01-01', '2026-01-01', 'user:sole')`,
     ).run()
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex + 1))
 
     const blank = db.prepare('SELECT * FROM issues WHERE id = ?').get('blank') as Record<
       string,

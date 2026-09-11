@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID, type ServerReadiness } from '@podium/model'
+import { firstAdminMemberId, type ServerReadiness } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
@@ -93,13 +93,13 @@ const READY: ServerReadiness = {
 /** The first admin's credential — what "a password is set" means after POD-1554. */
 async function credentialHash(): Promise<string> {
   harness ??= await makeHarness()
-  return (await harness.users.credentialFor(FIRST_ADMIN_USER_ID))?.passwordHash ?? ''
+  return (await harness.users.credentialFor(firstAdminMemberId()))?.passwordHash ?? ''
 }
 
 async function seedPassword(password: string): Promise<void> {
   harness ??= await makeHarness()
   await harness.users.setPasswordHash(
-    FIRST_ADMIN_USER_ID,
+    firstAdminMemberId(),
     await hashPassword(password),
     new Date().toISOString(),
   )
@@ -509,7 +509,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
     // credential rather than leaning on the router).
     const restart = vi.fn()
     const service = new InstanceService({
-      callerUserId: FIRST_ADMIN_USER_ID,
+      callerUserId: firstAdminMemberId(),
       users: {
         get: () => ({ role: 'member' }),
         credentialFor: () => undefined,
@@ -549,7 +549,7 @@ describe('fleet default channel refresh ordering', () => {
     })
 
     const service = new InstanceService({
-      callerUserId: FIRST_ADMIN_USER_ID,
+      callerUserId: firstAdminMemberId(),
       onFleetChannelChanged: async (channel) => {
         await refreshTarget(channel)
         broadcast()
@@ -576,7 +576,7 @@ describe('fleet default channel refresh ordering', () => {
     try {
       const onFleetChannelChanged = vi.fn(async () => {})
       const service = new InstanceService({
-        callerUserId: FIRST_ADMIN_USER_ID,
+        callerUserId: firstAdminMemberId(),
         onFleetChannelChanged,
       })
 
@@ -634,7 +634,7 @@ describe('instance provenance', () => {
 
   it('refuses setup.connect and setup.join when the environment owns the mode', async () => {
     vi.stubEnv('PODIUM_MODE', 'server')
-    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    const service = new InstanceService({ callerUserId: firstAdminMemberId() })
     // Both refuse BEFORE the remote is asked anything (PDM-34 made them async): a
     // deployment whose mode the environment owns must not even be probed.
     const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -645,7 +645,7 @@ describe('instance provenance', () => {
 
   it('refuses setup.complete when the environment owns the public URL', async () => {
     vi.stubEnv('PODIUM_PUBLIC_URL', 'https://api.example')
-    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    const service = new InstanceService({ callerUserId: firstAdminMemberId() })
     await expect(
       service.complete({ publicUrl: 'https://other.example', acknowledgeNoPassword: true }),
     ).rejects.toThrow(/PODIUM_PUBLIC_URL/)

@@ -40,7 +40,7 @@ import {
   asThreadId,
   asIssueId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueScope,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
@@ -467,8 +467,8 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
     const noMailbox: Capability = {
       role: 'worker',
       scope: { kind: 'none' },
-      actorUser: FIRST_ADMIN_USER_ID,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actorUser: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     }
     await expect(h.gate.dispatch(noMailbox, undefined, 'inbox', {})).rejects.toThrow(
       'no mailbox bound to this caller',
@@ -735,7 +735,7 @@ describe('the operator principal class (A6)', () => {
     // Superagent automation is private per owner, so its unattended-wake brake
     // is keyed by that accountable user rather than shared across the instance.
     expect(
-      await h.store.messages.getWakeCooldown(`superagent:${FIRST_ADMIN_USER_ID}|${iss.id}`),
+      await h.store.messages.getWakeCooldown(`superagent:${firstAdminMemberId()}|${iss.id}`),
     ).toBe(h.now())
     const second = await h.svc.send({ kind: 'superagent' }, { to, body: '2', lifecycle: 'wake' })
     expect(second.message.lifecycle).toBe('wait')

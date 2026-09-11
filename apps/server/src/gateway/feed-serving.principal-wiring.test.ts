@@ -54,7 +54,7 @@
  * rather than about an instrument that could never have said it.
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   type ClientMessage,
@@ -447,9 +447,9 @@ describe('the single-user deployment is not tightened into an empty screen', () 
     // adjacent regression this guards against is the one POD-1497's brief names:
     // a tightening that reads an unevaluated permission as a denial blanks the
     // whole screen for the person who owns everything on it.
-    const owners = new Map([['issue-only', FIRST_ADMIN_USER_ID]])
+    const owners = new Map([['issue-only', firstAdminMemberId()]])
     const g = await gateway(owners)
-    const solo = await g.signIn(FIRST_ADMIN_USER_ID)
+    const solo = await g.signIn(firstAdminMemberId())
 
     await commitIssue(g.plumbing, 'issue-only', { id: 'issue-only', title: 'the only issue' })
     await settle(g)

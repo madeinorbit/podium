@@ -43,8 +43,9 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asUserId, SOLE_USER_ID } from '@podium/model'
 import { stateDir } from './config'
+import { earliestAdminMember, instanceModelsAccounts } from './earliest-admin'
 import { openDatabase } from './sqlite'
 
 /** Marks a session minted from local state-dir access, so `podium auth revoke-sessions`
@@ -177,6 +178,30 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
           'Host-local mint is only sound while one person owns the instance (ADR 3 D14 / POD-1402); ' +
           'sign in as your own account instead. See docs/decisions/1634-mint-root-after-multi-user.md.',
       )
+    // WHO THE CREDENTIAL IS FOR, resolved rather than assumed [A2]. It used to
+    // be the compile-time `FIRST_ADMIN_USER_ID`; the first admin now has an id
+    // minted per installation, so the mint asks this database the same question
+    // open mode and the password login ask — `EARLIEST_ADMIN_MEMBER_SQL`, one
+    // statement, in `./earliest-admin.ts`.
+    //
+    // Refusing when there is no answer is not defensiveness: writing a session
+    // for a member that does not exist would hand back a token that
+    // authenticates as nobody, and the caller — a human at a terminal who has
+    // just been locked out — would take the empty 401 that follows as evidence
+    // the mint failed for some other reason.
+    // A PRE-ACCOUNTS SCHEMA KEEPS THE RETIRED LITERAL. It has no `users` table,
+    // so it cannot name a member — and it does not need to: its rows were all
+    // written when the one human on the instance WAS `'user:sole'`, which is
+    // frozen history, the same reason the migrations spell it. This is the
+    // ACCEPT case ADR 3 D14 argued for, and the one every other fixture in
+    // `session-mint.test.ts` relies on.
+    const owner = instanceModelsAccounts(db) ? earliestAdminMember(db) : asUserId(SOLE_USER_ID)
+    if (owner === undefined)
+      throw new Error(
+        `refusing to mint: ${path} has no admin account to mint for — every admin on this ` +
+          'instance is disabled, so there is no first admin whose authority this session ' +
+          'could carry. Re-enable an admin account, or sign in as your own.',
+      )
     // `user_id` is NOT NULL and carries no default (POD-1079): a login session
     // says WHO it is, and the server's own `createClientSession` takes the user
     // as a required parameter for the same reason. A break-glass session is
@@ -186,7 +211,7 @@ export function mintBreakGlassSession(opts: MintOptions = {}): MintedSession {
       'INSERT OR REPLACE INTO client_sessions (token_hash, user_id, created_at, expires_at, label) VALUES (?, ?, ?, ?, ?)',
     ).run(
       createHash('sha256').update(token).digest('hex'),
-      FIRST_ADMIN_USER_ID,
+      owner,
       new Date(nowMs).toISOString(),
       expiresAt,
       BREAK_GLASS_LABEL,

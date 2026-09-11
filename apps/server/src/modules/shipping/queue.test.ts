@@ -3,7 +3,7 @@ import {
   asRepoId,
   asShipOrderId,
   type DeliveryReceipt,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type ShipOrder,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -22,8 +22,8 @@ const order = (id: string, requestedAt: string, input: Partial<ShipOrder> = {}):
   approvedHeadSha: `head-${id}`,
   deliveryDependsOn: [],
   requestedBy: {
-    actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actor: { kind: 'user', id: firstAdminMemberId() },
+    onBehalfOf: firstAdminMemberId(),
   },
   requestedAt,
   policyId: 'policy-1',

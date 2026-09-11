@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asThreadId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asThreadId, asUserId, firstAdminMemberId } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -19,9 +19,9 @@ forceFeature('command-palette', true)
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
-const READER = { kind: 'user' as const, id: FIRST_ADMIN_USER_ID }
+const READER = { kind: 'user' as const, id: firstAdminMemberId() }
 
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
@@ -74,7 +74,7 @@ describe('MemoryService omni-search', () => {
 
     // Conversation row in the durable index.
     const { sessionId: conversationSessionId } = await registry.modules.sessions.createSession({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/conversation',
     })
@@ -451,7 +451,7 @@ describe('search.query tRPC', () => {
         resume: { kind: 'claude-session', value: nativeId },
       })
     }
-    await bind(FIRST_ADMIN_USER_ID, 'visible-rank', '/visible')
+    await bind(firstAdminMemberId(), 'visible-rank', '/visible')
     await store.conversations.transcriptIndex.append(
       asMachineId('m1'),
       'visible-rank',

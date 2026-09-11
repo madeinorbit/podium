@@ -10,7 +10,7 @@
  */
 
 import type { UserId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -19,7 +19,7 @@ import type { HandoffCaller } from './ports'
 
 const SOURCE = asMachineId('m-source')
 const TARGET = asMachineId('m-target')
-const HUMAN: UserId = asUserId(FIRST_ADMIN_USER_ID)
+const HUMAN: UserId = asUserId(firstAdminMemberId())
 
 const userCaller = (): HandoffCaller => {
   const principal = userCommandPrincipal(HUMAN, 'admin')

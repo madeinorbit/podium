@@ -17,6 +17,7 @@ import { CommittedRows } from './committed-rows'
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
+import { EARLIEST_ADMIN_MEMBER_SQL } from '@podium/runtime/earliest-admin'
 import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
@@ -144,6 +145,26 @@ export class UsersRepository {
   /** The account role, or `undefined` for an account that cannot act. */
   async roleOf(userId: UserId): Promise<UserRole | undefined> {
     return (await this.get(userId))?.role
+  }
+
+  /**
+   * THE EARLIEST ADMIN MEMBER — who open mode acts as, who the break-glass CLI
+   * mints for, and who `firstAdminMemberId()` is primed with [A2].
+   *
+   * The rule is `@podium/runtime`'s, as one SQL statement, because the CLI path
+   * asks the same question on a raw handle with no drizzle in the process (see
+   * that module's header). Reaching for `sql.raw` here rather than rebuilding
+   * the ORDER BY in the query builder is what keeps the two askers unable to
+   * disagree.
+   *
+   * `undefined` means no member may act as this instance's first admin: a
+   * database from before accounts, or one whose admins are all disabled. A
+   * caller decides what that means; it is never smoothed into a default, which
+   * is the whole point of retiring the constant.
+   */
+  async earliestAdmin(): Promise<UserAccountRow | undefined> {
+    const row = await this.db.get<{ id: string }>(sql.raw(EARLIEST_ADMIN_MEMBER_SQL)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
+    return row ? await this.get(asUserId(row.id)) : undefined
   }
 
   async list(): Promise<UserAccountRow[]> {

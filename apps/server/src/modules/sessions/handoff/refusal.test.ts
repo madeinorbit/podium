@@ -10,7 +10,7 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../../machine-access'
@@ -35,7 +35,7 @@ const user = (id: UserId): CommandPrincipal => ({
 const ownership: MachineOwnershipIndex = {
   rowFor: (machineId): MachineOwnershipRow | undefined => {
     const rows: Record<string, MachineOwnershipRow> = {
-      mine: { machine: 'mine' as MachineId, owner: FIRST_ADMIN_USER_ID, grants: [] },
+      mine: { machine: 'mine' as MachineId, owner: firstAdminMemberId(), grants: [] },
       theirs: {
         machine: 'theirs' as MachineId,
         owner: COLLEAGUE,
@@ -45,7 +45,7 @@ const ownership: MachineOwnershipIndex = {
       shared: {
         machine: 'shared' as MachineId,
         owner: COLLEAGUE,
-        grants: [{ subject: FIRST_ADMIN_USER_ID, verb: 'see' }],
+        grants: [{ subject: firstAdminMemberId(), verb: 'see' }],
         name: 'shared-box',
       },
     }
@@ -53,7 +53,7 @@ const ownership: MachineOwnershipIndex = {
   },
 }
 
-const gate = machineUseGateFor({ principal: user(FIRST_ADMIN_USER_ID), ownership })
+const gate = machineUseGateFor({ principal: user(firstAdminMemberId()), ownership })
 
 const refusalFor = (machineId: string): { reason: unknown; message: string } => {
   try {

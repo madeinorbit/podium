@@ -6,7 +6,7 @@ import {
   asIssueId,
   asMachineId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
@@ -19,7 +19,7 @@ import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
@@ -624,14 +624,14 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       const worker = caller({
         role: 'worker',
         scope: { kind: 'subtree', rootId: A.id },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       })
       const viewer = caller({
         role: 'viewer',
         scope: { kind: 'all' },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       })
 
       // Middleware path (issues.update / issues.delete).
@@ -657,8 +657,8 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         {
           role: 'worker',
           scope: { kind: 'subtree', rootId: A.id },
-          actorUser: FIRST_ADMIN_USER_ID,
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          actorUser: firstAdminMemberId(),
+          onBehalfOf: firstAdminMemberId(),
         },
         true,
       )
@@ -671,8 +671,8 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         {
           role: 'viewer',
           scope: { kind: 'all' },
-          actorUser: FIRST_ADMIN_USER_ID,
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          actorUser: firstAdminMemberId(),
+          onBehalfOf: firstAdminMemberId(),
         },
         true,
       )

@@ -20,7 +20,7 @@ import type {
 } from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import {
   type DaemonMessage,
@@ -2964,7 +2964,7 @@ describe('Codex identity receipt recovery', () => {
             type: 'sessionResumeRefAck',
             sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
-            ownerId: FIRST_ADMIN_USER_ID,
+            ownerId: firstAdminMemberId(),
           }),
         )
         await waitFor(() => !readFileSync(bindingPath, 'utf8').includes('pendingServerAck'))

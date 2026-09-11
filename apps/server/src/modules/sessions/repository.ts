@@ -18,7 +18,7 @@ import { AgentKind } from '@podium/model'
  */
 export type SessionWirePrincipal = SessionStatePrincipal
 
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type BaselineFoldPort, type EntityChangeSpec, StagedOverlay } from '@podium/sync'
@@ -760,7 +760,7 @@ export class SessionRepository {
     let session!: Session
     session = new Session({
       sessionId: r.id,
-      ownerUserId: r.ownerUserId ?? FIRST_ADMIN_USER_ID,
+      ownerUserId: r.ownerUserId ?? firstAdminMemberId(),
       agentKind: kind.data,
       cwd: r.cwd,
       title: r.title,

@@ -14,7 +14,7 @@
  * invisible forever, and every other assertion about the upsert would pass.
  */
 
-import { asSessionId, asThreadId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asThreadId, firstAdminMemberId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { syncQueriesOver } from './executor/sync-drizzle'
@@ -22,7 +22,7 @@ import { SuperagentRepository } from './superagent'
 
 let superagent: SuperagentRepository
 
-const OWNER = FIRST_ADMIN_USER_ID
+const OWNER = firstAdminMemberId()
 
 beforeEach(async () => {
   superagent = new SuperagentRepository(syncQueriesOver(openMigratedTestDatabase()))

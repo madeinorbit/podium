@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -96,7 +96,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
@@ -124,7 +124,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
@@ -157,7 +157,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
@@ -219,7 +219,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId: asSessionId(sessionId), direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(res.items.map((item) => item.text)).toEqual([
       'history from the original inode',
@@ -336,7 +336,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
     const res = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(res).toEqual({ items: [], hasMore: false })
   })
@@ -352,7 +352,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     const result = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(result).toEqual({ items: [], hasMore: false })
     expect(sent.some((message) => (message as { type?: string }).type === 'transcriptRead')).toBe(

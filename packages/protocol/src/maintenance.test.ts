@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
@@ -123,7 +123,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
       issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
-      readerUserId: FIRST_ADMIN_USER_ID,
+      readerUserId: firstAdminMemberId(),
       archived: false as const,
       deletedAt: null,
     }
@@ -222,7 +222,7 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
     sessionId: asSessionId('ses_1'),
     issueId: asIssueId('iss_1'),
     stoppedAt: '2026-07-01T00:00:00.000Z',
-    readerUserId: FIRST_ADMIN_USER_ID,
+    readerUserId: firstAdminMemberId(),
     archived: false as const,
   }
   const command = (observed: unknown) => ({
@@ -313,7 +313,7 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     issueId: asIssueId('iss_a'),
     stage: 'done',
     closedReason: 'shipped',
-    readerUserId: FIRST_ADMIN_USER_ID,
+    readerUserId: firstAdminMemberId(),
     archived: false as const,
     deletedAt: null,
   }

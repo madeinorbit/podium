@@ -5,7 +5,7 @@
  * roleFloor. Proves NO write occurs when the gate refuses.
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { createBunStoreExecutor } from '../../store/executor'
@@ -16,7 +16,7 @@ import { LayoutService } from './service'
 
 function deps(role: LayoutAuthzDeps['role'], principal?: CommandPrincipal): LayoutAuthzDeps {
   return {
-    principal: principal ?? userCommandPrincipal(asUserId(FIRST_ADMIN_USER_ID), role ?? 'member'),
+    principal: principal ?? userCommandPrincipal(asUserId(firstAdminMemberId()), role ?? 'member'),
     role,
   }
 }
@@ -52,13 +52,13 @@ describe('a refused principal does not write', () => {
     if (refusal) {
       // no write
     } else {
-      await service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
+      await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
     }
-    expect(await repo.getSnapshot(FIRST_ADMIN_USER_ID)).toEqual({})
+    expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({})
     // Positive control: the same service DOES write when the gate would pass.
     expect(layoutAuthzFailure('layout.set', deps('member'))).toBeUndefined()
-    await service.set(FIRST_ADMIN_USER_ID, { dockTab: 'files' }, 't')
-    expect(await repo.getSnapshot(FIRST_ADMIN_USER_ID)).toEqual({ dockTab: 'files' })
+    await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
+    expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({ dockTab: 'files' })
     db.close?.()
   })
 })

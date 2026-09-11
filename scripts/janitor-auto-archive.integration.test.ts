@@ -21,7 +21,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
@@ -40,10 +40,10 @@ let nextSeq = 1
 function issueRow(id: string, over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId(id),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     repoPath: '/repo',
     seq: nextSeq++,
     title: id,
@@ -95,7 +95,7 @@ async function seedSession(
 ): Promise<void> {
   await store.sessions.upsertSession({
     id: asSessionId(id),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
     cwd: '/repo',
     title: id,
@@ -147,7 +147,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
 
   it('proposes an issue the broadcast viewer read before the cutoff', async () => {
     await store.issues.upsertIssue(issueRow('iss_read'))
-    await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: READ_OLD,
     })
 
@@ -163,11 +163,11 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     // The server refuses any proposal naming someone other than the viewer it
     // archives for, so a reader that forgot to say who it asked is a proposal
     // that can never apply.
-    expect(candidates[0]?.readerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect(candidates[0]?.readerUserId).toBe(firstAdminMemberId())
     // And the read state it was gated on is real, not merely present: the row
     // this viewer wrote is what the query matched.
     expect(
-      (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_read')))?.readAt,
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))?.readAt,
     ).toBe(READ_OLD)
   })
 
@@ -200,7 +200,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('does NOT propose an unread issue or one read after the cutoff', async () => {
     await store.issues.upsertIssue(issueRow('iss_unread'))
     await store.issues.upsertIssue(issueRow('iss_recent'))
-    await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_recent'), {
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_recent'), {
       readAt: READ_RECENT,
     })
 
@@ -219,7 +219,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     await store.issues.upsertIssue(issueRow('iss_parent'))
     await store.issues.upsertIssue(issueRow('iss_child', { parentId: asIssueId('iss_parent') }))
     for (const id of ['iss_open', 'iss_archived', 'iss_deleted', 'iss_child']) {
-      await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId(id), { readAt: READ_OLD })
+      await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId(id), { readAt: READ_OLD })
     }
 
     const candidates = await new IssueAutoArchiveReader(db).read({
@@ -239,7 +239,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       const id = `iss_p${String(i).padStart(3, '0')}`
       ids.push(id)
       await store.issues.upsertIssue(issueRow(id, { seq: i }))
-      await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId(id), { readAt: READ_OLD })
+      await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId(id), { readAt: READ_OLD })
     }
 
     const candidates = await new IssueAutoArchiveReader(db).read({
@@ -255,7 +255,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('proposes a stopped session the broadcast viewer read, and not another user’s', async () => {
     await seedSession(store, 'ses_mine')
     await seedSession(store, 'ses_theirs')
-    await store.sessions.markSessionRead(FIRST_ADMIN_USER_ID, asSessionId('ses_mine'), READ_OLD)
+    await store.sessions.markSessionRead(firstAdminMemberId(), asSessionId('ses_mine'), READ_OLD)
     await store.sessions.markSessionRead(OTHER_USER, asSessionId('ses_theirs'), READ_OLD)
 
     const candidates = await new SessionAutoArchiveReader(db).read({
@@ -264,8 +264,8 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     })
 
     expect(candidates.map((c) => c.sessionId)).toEqual(['ses_mine'])
-    expect(candidates[0]?.readerUserId).toBe(FIRST_ADMIN_USER_ID)
-    expect(await store.sessions.getReadAt(FIRST_ADMIN_USER_ID, asSessionId('ses_mine'))).toBe(
+    expect(candidates[0]?.readerUserId).toBe(firstAdminMemberId())
+    expect(await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('ses_mine'))).toBe(
       READ_OLD,
     )
   })

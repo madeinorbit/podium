@@ -11,7 +11,7 @@
  * assertion can be satisfied by a store that simply returns nothing.
  */
 
-import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -35,11 +35,11 @@ const pair = async (id: string, ownerUserId: string | null): Promise<void> =>
 
 describe('machines.owner_user_id', () => {
   it('round-trips an owner, and null means unowned rather than absent', async () => {
-    await pair('laptop', FIRST_ADMIN_USER_ID)
+    await pair('laptop', firstAdminMemberId())
     await pair('orphan', null)
 
     const rows = await store.machines.listMachines()
-    expect(rows.find((m) => m.id === 'laptop')?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect(rows.find((m) => m.id === 'laptop')?.ownerUserId).toBe(firstAdminMemberId())
     // Present-and-null, NOT undefined: `MachineRecord.ownerUserId` is required so
     // "unowned" and "nobody threaded the value" cannot look alike.
     expect(rows.find((m) => m.id === 'orphan')).toHaveProperty('ownerUserId', null)
@@ -47,14 +47,14 @@ describe('machines.owner_user_id', () => {
   })
 
   it('a re-pair does NOT transfer ownership — the existing owner survives', async () => {
-    await pair('laptop', FIRST_ADMIN_USER_ID)
+    await pair('laptop', firstAdminMemberId())
 
     // The same daemon re-pairs (or a boot-time provision runs) with a different
     // owner in the frame. Latest-writer-wins here would make re-pairing a silent
     // take-over of somebody else's machine.
     await pair('laptop', COLLEAGUE)
 
-    expect((await store.machines.getMachine('laptop'))?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect((await store.machines.getMachine('laptop'))?.ownerUserId).toBe(firstAdminMemberId())
   })
 
   it('a row that has NO owner acquires one — the COALESCE fills NULL, it does not only preserve', async () => {
@@ -74,12 +74,12 @@ describe('the grant edge table', () => {
     resourceId,
     grantee,
     verb,
-    owner: FIRST_ADMIN_USER_ID,
+    owner: firstAdminMemberId(),
     visibility: 'owned-compute',
     createdAt: '2026-07-30T00:00:00.000Z',
     actorKind: 'user',
-    actorId: FIRST_ADMIN_USER_ID,
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actorId: firstAdminMemberId(),
+    onBehalfOf: firstAdminMemberId(),
   })
 
   it('stores, reads back and revokes one verb without touching the others', async () => {

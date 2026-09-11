@@ -7,7 +7,7 @@
  * tip is a sound base once the source independently proves it has that object.
  */
 
-import { asMachineId, asRepoId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asRepoId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
 import { Session } from '../session'
@@ -24,7 +24,7 @@ const SOURCE_TIP = 'a'.repeat(40)
 const TARGET_TIP = 'b'.repeat(40)
 
 function placement(): HandoffPlacement {
-  const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+  const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
   return {
     session: new Session({
       sessionId: SESSION,

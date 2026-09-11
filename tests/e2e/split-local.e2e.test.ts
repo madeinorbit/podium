@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import {
@@ -62,7 +62,7 @@ describe('e2e: split server/daemon local transition', () => {
     const seed = new SessionStore() // PODIUM_STATE_DIR/podium.db (harness-isolated)
     seed.sessions.upsertSession({
       id: 'leg-1',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/tmp',
       title: 'legacy',

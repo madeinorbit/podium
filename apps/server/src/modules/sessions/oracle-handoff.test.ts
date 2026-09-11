@@ -1,6 +1,6 @@
 import {
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Inventory,
   type RepoId,
   type SessionId,
@@ -42,10 +42,10 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { machineUseGateFor } from './handoff/access'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
-const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
-const WORKER_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'member')
+const WORKER_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'member')
 const WORKER_CALLER = { capability: WORKER_PRINCIPAL.capability, principal: WORKER_PRINCIPAL }
 const CAROL_PRINCIPAL = userCommandPrincipal(asUserId('carol'), 'admin')
 const CAROL_CALLER = { capability: CAROL_PRINCIPAL.capability, principal: CAROL_PRINCIPAL }
@@ -975,7 +975,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       role: 'admin' as const,
       scope: { kind: 'all' as const },
       actorSessionId: asSessionId('sess-agent-7'),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     await agent.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: agent.sessionId, machineId: asMachineId('m2') },
@@ -984,7 +984,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         principal: {
           kind: 'agent',
           agentSessionId: asSessionId('sess-agent-7'),
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
           capability: agentCapability,
           chain: [asSessionId('sess-agent-7')],
         },
@@ -995,9 +995,9 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     // an on-behalf-of alone cannot tell them apart. Only the actor half can.
     expect(await handoffRecords(human)).toEqual([
       {
-        actor: FIRST_ADMIN_USER_ID,
+        actor: firstAdminMemberId(),
         actorKind: 'user',
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
         fromMachineId: 'm1',
         toMachineId: 'm2',
       },
@@ -1006,7 +1006,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       {
         actor: 'sess-agent-7',
         actorKind: 'agent',
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
         fromMachineId: 'm1',
         toMachineId: 'm2',
       },

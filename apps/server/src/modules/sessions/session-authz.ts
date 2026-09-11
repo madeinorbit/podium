@@ -7,7 +7,7 @@
 
 import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, UserId, IssueId } from '@podium/model'
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
   type CommandPrincipal,
   resolvePrincipalAsync,
@@ -420,14 +420,14 @@ export class SessionAuthz {
    *
    * `roles.*` and `autoContinue.*` are `preferences-personal` and live on
    * `user_preferences` now, so a read of the instance blob would see the model's
-   * defaults rather than anyone's choices. `FIRST_ADMIN_USER_ID` is spelled out
+   * defaults rather than anyone's choices. `firstAdminMemberId()` is spelled out
    * here for the reason `IssueService.broadcastViewer` spells it out: this
    * build's transport authenticates one shared password, so the sole account is
    * the only true answer — and POD-315 replaces this body with the requesting
    * principal, with every caller already asking the question.
    */
   settingsViewer(): UserId {
-    return FIRST_ADMIN_USER_ID
+    return firstAdminMemberId()
   }
 
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----

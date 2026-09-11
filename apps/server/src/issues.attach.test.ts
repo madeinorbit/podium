@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   asIssueId,
   asSessionId,
   asUserId,
@@ -633,7 +633,7 @@ describe('store: sessions.issue_id round-trip', () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession({
       id: asSessionId('sx'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
       title: 't',

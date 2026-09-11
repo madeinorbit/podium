@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { type Operation, parseOperation } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
@@ -40,7 +40,7 @@ async function harness() {
     repos,
     superagent,
     capability: OPERATOR,
-    principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
   } as Parameters<typeof appRouter.createCaller>[0])
   return { registry, caller, operations: registry.modules.operations }
 }

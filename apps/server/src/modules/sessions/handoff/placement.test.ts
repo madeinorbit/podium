@@ -19,7 +19,7 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
@@ -33,7 +33,7 @@ const TARGET = asMachineId('m-target')
 const SESSION = asSessionId('s1')
 
 const caller = (): HandoffCaller => {
-  const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+  const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
   return { capability: principal.capability, principal }
 }
 
@@ -275,7 +275,7 @@ describe('handoff placement: the refusals, all before anything moves', () => {
   })
 
   it('an agent principal places the move on behalf of its human, not itself', async () => {
-    const human = asUserId(FIRST_ADMIN_USER_ID)
+    const human = asUserId(firstAdminMemberId())
     const placement = await resolveHandoffPlacement(
       ports({}),
       { sessionId: SESSION, machineId: TARGET },

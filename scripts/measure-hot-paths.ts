@@ -90,7 +90,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import {
   asMachineId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueId,
   type SessionId,
 } from '@podium/model'
@@ -296,7 +296,7 @@ function attachClient(fixture: Fixture, sink: (message: ServerMessage) => void):
     // The fixture's issues and sessions are the admin's. A connection for any
     // OTHER principal is scoped out of every change and receives frames carrying
     // no rows — which reads as a beautifully low number and measures nothing.
-    userId: FIRST_ADMIN_USER_ID,
+    userId: firstAdminMemberId(),
     userRole: 'admin',
   })
   fixture.registry.clientGateway.routeClientFrame(clientId, {
