@@ -1,3 +1,4 @@
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { InviteView } from './InviteView'
 import {
@@ -144,9 +145,16 @@ export function CloudLoginView({
   signInUrl?: string
   deniedReason?: string
 }): ReactNode {
+  const desktop = nativeDesktopBridge()
+  const [error, setError] = useState<string | null>(
+    new URLSearchParams(window.location.search).get('handoff') === 'failed'
+      ? 'That sign-in link expired or was already used. Please try again.'
+      : null,
+  )
   const returnTo = window.location.pathname + window.location.search + window.location.hash
   const destination = new URL(signInUrl ?? '/account/sign-in', window.location.origin)
   destination.searchParams.set('returnTo', returnTo)
+  if (desktop) destination.searchParams.set('handoff', 'desktop')
   return (
     <main
       style={{
@@ -157,6 +165,10 @@ export function CloudLoginView({
         color: C.text,
       }}
     >
+      {/* A refused member gets the reason and NOTHING to click: offering sign-in
+          again to somebody who just signed in successfully is the loop this
+          state exists to end. Everyone else gets the sign-in affordance, which
+          on the desktop hands off to the system browser. */}
       {deniedReason ? (
         <p
           role="alert"
@@ -165,22 +177,42 @@ export function CloudLoginView({
           {deniedReason}
         </p>
       ) : (
-        <a
-          href={
-            signInUrl
-              ? destination.href
-              : destination.pathname + destination.search + destination.hash
-          }
-          style={{
-            padding: '16px 24px',
-            borderRadius: 8,
-            background: C.accent,
-            color: C.accentText,
-            fontFamily: MONO,
-          }}
-        >
-          Continue with Podium Cloud
-        </a>
+        <>
+          <a
+            onClick={
+              desktop
+                ? (event) => {
+                    if (event.defaultPrevented) return // The native capture shim already opened an external host.
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setError(null)
+                    if (!desktop.openExternal) {
+                      setError('Update Podium Desktop to sign in through your browser.')
+                      return
+                    }
+                    void desktop.openExternal(destination.href).catch(() => {
+                      setError('Could not open your browser. Please try again.')
+                    })
+                  }
+                : undefined
+            }
+            href={
+              signInUrl
+                ? destination.href
+                : destination.pathname + destination.search + destination.hash
+            }
+            style={{
+              padding: '16px 24px',
+              borderRadius: 8,
+              background: C.accent,
+              color: C.accentText,
+              fontFamily: MONO,
+            }}
+          >
+            Continue with Podium Cloud
+          </a>
+          {error && <p role="alert">{error}</p>}
+        </>
       )}
     </main>
   )

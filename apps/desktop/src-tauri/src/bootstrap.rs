@@ -1171,28 +1171,34 @@ pub fn remote_window_target(
     server_url: &str,
     ui_url: Option<&str>,
 ) -> Result<(WebviewUrl, String), String> {
-    if let Some(url) = ui_url
-        .filter(|url| !url.is_empty())
-        .and_then(|url| validated_webview_http_url(url).ok())
-    {
-        return Ok((WebviewUrl::External(url), String::new()));
-    }
-    validated_webview_http_url(server_url).map(|url| (WebviewUrl::External(url), String::new()))
+    let url = remote_ui_url(server_url, ui_url)?;
+    Ok((WebviewUrl::External(url), String::new()))
 }
 
-/// The origin a remote-mode window will actually LOAD — the one the IPC capability grants
-/// have to name (`main.rs`), the cookie has to reach, and nothing else keys off.
-///
-/// It exists as its own function so the grant and the navigation cannot answer the question
-/// differently: a capability derived from the server URL while the window sits on the app host
-/// is a dead grant, and a dead grant looks like a native bridge that silently does nothing.
-pub fn remote_window_origin_url(server_url: &str, ui_url: Option<&str>) -> String {
-    match ui_url.filter(|url| !url.is_empty()) {
-        // The SAME acceptance test `remote_window_target` applies, or the grant would name an
-        // app host the window was refused permission to load.
-        Some(ui_url) if validated_webview_http_url(ui_url).is_ok() => ui_url.to_string(),
-        _ => webview_http_url(server_url),
+fn remote_ui_url(server_url: &str, ui_url: Option<&str>) -> Result<Url, String> {
+    let server = validated_webview_http_url(server_url)?;
+    let ui = ui_url.filter(|url| !url.is_empty())
+        .and_then(|url| validated_webview_http_url(url).ok());
+    // The hosted app moved. Resolve the known alias BEFORE navigation and capability
+    // grants; a 301 cannot transfer Tauri's grant to the new origin. Self-hosted
+    // servers and explicit custom UI hosts retain their configured behavior.
+    if server.origin().ascii_serialization() == "https://api.podium.do" {
+        if ui.is_none() || ui.as_ref().is_some_and(|url| {
+            url.origin().ascii_serialization() == "https://app.podium.do"
+        }) {
+            let mut target = ui.unwrap_or(Url::parse("https://ade.podium.do").unwrap());
+            target.set_host(Some("ade.podium.do")).expect("static hostname");
+            return Ok(target);
+        }
     }
+    Ok(ui.unwrap_or(server))
+}
+
+/// The same resolved URL backs both navigation and the native capability grant.
+pub fn remote_window_origin_url(server_url: &str, ui_url: Option<&str>) -> String {
+    remote_ui_url(server_url, ui_url)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| webview_http_url(server_url))
 }
 
 /// One HTTP/1.0 GET against the loopback backend. Returns the status line's code and the
@@ -1927,6 +1933,24 @@ mod tests {
     }
 
     #[test]
+    fn hosted_navigation_and_capability_both_use_the_current_app_origin() {
+        for configured in [None, Some("https://app.podium.do/w/anna?tab=one#issue")] {
+            let (target, _) = remote_window_target("wss://api.podium.do", configured).unwrap();
+            let WebviewUrl::External(target) = target else { panic!("expected remote page") };
+            assert_eq!(target.origin().ascii_serialization(), "https://ade.podium.do");
+            assert_eq!(remote_window_origin_url("wss://api.podium.do", configured), target.as_str());
+            if configured.is_some() {
+                assert_eq!(target.path(), "/w/anna");
+                assert_eq!(target.query(), Some("tab=one"));
+                assert_eq!(target.fragment(), Some("issue"));
+            }
+        }
+        let (target, _) = remote_window_target("https://self.example", Some("https://app.podium.do")).unwrap();
+        let WebviewUrl::External(target) = target else { panic!("expected remote page") };
+        assert_eq!(target.host_str(), Some("app.podium.do"));
+    }
+
+    #[test]
     fn remote_window_target_loads_the_secure_relay_url_directly() {
         let (url, injection) = remote_window_target("https://relay.example:55555", None)
             .expect("secure remote transport is allowed");
@@ -2110,20 +2134,20 @@ mod tests {
                 "wss://api.meetpodium.com",
                 Some("https://app.meetpodium.com")
             ),
-            "https://app.meetpodium.com"
+            "https://app.meetpodium.com/"
         );
         assert_eq!(
             remote_window_origin_url("wss://relay.example:55555", None),
-            "https://relay.example:55555"
+            "https://relay.example:55555/"
         );
         assert_eq!(
             remote_window_origin_url("wss://relay.example:55555", Some("not a url")),
-            "https://relay.example:55555"
+            "https://relay.example:55555/"
         );
         // A ui_url the transport policy refuses is not the loaded origin either.
         assert_eq!(
             remote_window_origin_url("wss://relay.example:55555", Some("http://app.example")),
-            "https://relay.example:55555"
+            "https://relay.example:55555/"
         );
     }
 

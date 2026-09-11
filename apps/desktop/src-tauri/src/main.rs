@@ -6,6 +6,7 @@
 #![allow(non_snake_case)]
 
 mod bootstrap;
+mod handoff;
 mod logging;
 mod updater;
 
@@ -220,6 +221,30 @@ fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &
 
 fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueue) {
     drain_native_open_queue(queue, |raw| {
+        if let Ok(url) = Url::parse(raw) {
+            if url.host_str() == Some("signed-in") {
+                // Reserved for native cookie delivery, never forwarded into page JS.
+                let target = handoff::parse_signed_in(&url).and_then(|code| {
+                    bootstrap::read_config().server_url
+                        .and_then(|server| handoff::handoff_url(&server, &code).ok())
+                });
+                match target {
+                    Some(target) => {
+                        if window.navigate(target).is_err() {
+                            log::warn!("could not navigate to desktop sign-in redemption");
+                            window.app_handle().dialog().message("Could not finish signing in. Please try again.")
+                                .title("Sign-in failed").show(|_| {});
+                        }
+                    }
+                    None => {
+                        log::warn!("refusing invalid desktop sign-in handoff");
+                        window.app_handle().dialog().message("This sign-in link is invalid or no cloud server is configured.")
+                            .title("Sign-in failed").show(|_| {});
+                    }
+                }
+                return true;
+            }
+        }
         if let Err(error) = window.eval(native_open_eval(raw)) {
             log::warn!("could not flush a native Podium URL: {error}");
             return false;

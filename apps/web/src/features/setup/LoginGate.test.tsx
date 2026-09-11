@@ -369,3 +369,68 @@ it('uses the configured cloud destination and preserves query, fragment, and wor
   expect(screen.queryByLabelText(/password/i)).toBeNull()
   window.history.replaceState(null, '', '/')
 })
+
+it('opens desktop cloud sign-in in the system browser with the handoff intent', async () => {
+  const openExternal = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', openExternal })
+  vi.stubGlobal(
+    'fetch',
+    statusFetch({
+      needsAuth: true,
+      authed: false,
+      mode: 'cloud',
+      signInUrl: 'https://ade.podium.do/account/sign-in',
+    }),
+  )
+  render(<LoginGate>{child}</LoginGate>)
+  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
+  expect(fireEvent.click(link)).toBe(false)
+  expect(openExternal).toHaveBeenCalledOnce()
+  const url = new URL(openExternal.mock.calls[0]![0])
+  expect(url.origin + url.pathname).toBe('https://ade.podium.do/account/sign-in')
+  expect(url.searchParams.get('handoff')).toBe('desktop')
+})
+
+it('keeps sign-in out of the webview when the browser opener fails', async () => {
+  vi.stubGlobal('__PODIUM_DESKTOP__', {
+    platform: 'linux',
+    openExternal: vi.fn().mockRejectedValue(new Error('unavailable')),
+  })
+  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  render(<LoginGate>{child}</LoginGate>)
+  expect(
+    fireEvent.click(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })),
+  ).toBe(false)
+  expect((await screen.findByRole('alert')).textContent).toContain('Could not open your browser')
+})
+
+it('lets the person retry an expired or reused handoff', async () => {
+  window.history.replaceState(null, '', '/?handoff=failed')
+  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  render(<LoginGate>{child}</LoginGate>)
+  expect((await screen.findByRole('alert')).textContent).toContain('expired or was already used')
+  expect(screen.getByRole('link', { name: 'Continue with Podium Cloud' })).toBeTruthy()
+  window.history.replaceState(null, '', '/')
+})
+
+it('asks an older desktop to update instead of navigating into embedded sign-in', async () => {
+  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux' })
+  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  render(<LoginGate>{child}</LoginGate>)
+  expect(
+    fireEvent.click(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })),
+  ).toBe(false)
+  expect((await screen.findByRole('alert')).textContent).toContain('Update Podium Desktop')
+})
+
+it('does not open twice when the native capture shim already handled the link', async () => {
+  const openExternal = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', openExternal })
+  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  render(<LoginGate>{child}</LoginGate>)
+  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+  click.preventDefault()
+  fireEvent(link, click)
+  expect(openExternal).not.toHaveBeenCalled()
+})
