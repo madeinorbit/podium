@@ -30,16 +30,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: bun-${{ hashFiles('bun.lock') }}
       # zig + rcodesign versions come from mise.toml — the one pin site dev machines share.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
 
       - name: bun install
         run: bun install --frozen-lockfile --ignore-scripts
@@ -76,7 +76,7 @@ jobs:
           PLATFORM=darwin-arm64 scripts/spike/package-mac-execution-bundle.sh
           scripts/spike/prove-assert-can-fail.sh | tee prove-assert-can-fail.log
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac-execution-bundles
           path: |
@@ -103,7 +103,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: mac-execution-bundles
       - name: Unpack and run the execution proof
@@ -127,7 +127,7 @@ jobs:
           grep -q 'PASS  abduco: embedded helper materialized' "$log"
           grep -q 'PASS  abduco: session survives daemon kill' "$log"
           grep -q 'RESULT: PASS' "$log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: verify-${{ matrix.platform }}-log
