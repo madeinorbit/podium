@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { MENU_ITEM, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
 import {
   MachineEmptyStateNotice,
@@ -435,24 +436,24 @@ export function RepoPickerModal({
           to it at desktop width and pins the modal to 384px (POD-832). */}
       <DialogContent
         ref={dialogRef}
-        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-[#22262d] p-0 text-[#f2f3f5] shadow-[0_30px_70px_-20px_rgba(0,0,0,.75),inset_0_0_0_1px_#2f343d] sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-[#9ba1ab]"
+        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-popover p-0 text-foreground shadow-popover sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-muted-foreground"
       >
         {resultPanel ? (
           resultPanel
         ) : (
           <>
             <DialogHeader className="gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]">
-              <DialogTitle className="text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-[#f2f3f5]">
+              <DialogTitle className="text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground">
                 {onScan ? 'Find a repository' : 'Add a repository'}
               </DialogTitle>
-              <p className="text-[13.5px] leading-[1.5] text-[#9ba1ab]">
+              <p className="text-[13.5px] leading-[1.5] text-muted-foreground">
                 Choose a repository already on this machine, or bring one in from GitHub.
               </p>
             </DialogHeader>
 
             {onCloneGithub && (
-              <fieldset className="grid gap-3.5 border-t border-[#2b2f37] px-6 pb-4 sm:grid-cols-2">
-                <legend className="col-span-full w-full pt-3.5 pb-[11px] font-mono text-[10px] leading-none font-semibold tracking-[0.2em] text-[#8a9099] uppercase">
+              <fieldset className="grid gap-3.5 border-t border-border px-6 pb-4 sm:grid-cols-2">
+                <legend className="col-span-full w-full pt-3.5 pb-[11px] font-mono text-[10px] leading-none font-semibold tracking-[0.2em] text-muted-foreground uppercase">
                   Where from?
                 </legend>
                 <button
@@ -462,8 +463,8 @@ export function RepoPickerModal({
                   className={cn(
                     'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'local'
-                      ? 'bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1.5px_#d9b477]'
-                      : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
+                      ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
+                      : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
                   )}
                   onClick={() => {
                     setSource('local')
@@ -472,13 +473,13 @@ export function RepoPickerModal({
                 >
                   <HardDrive size={21} className="flex-none" aria-hidden="true" />
                   <span>
-                    <span className="block text-[14.5px] leading-none font-semibold text-[#f2f3f5]">
+                    <span className="block text-[14.5px] leading-none font-semibold text-foreground">
                       On this machine
                     </span>
                     <span
                       className={cn(
                         'mt-1 block text-[12.5px] leading-[1.4]',
-                        source === 'local' ? 'text-[#b9bec6]' : 'text-[#9ba1ab]',
+                        source === 'local' ? 'text-foreground' : 'text-muted-foreground',
                       )}
                     >
                       Browse folders already on its disk
@@ -492,8 +493,8 @@ export function RepoPickerModal({
                   className={cn(
                     'flex min-h-[70px] items-center gap-3.5 rounded-[11px] px-4 py-[15px] text-left transition-colors',
                     source === 'github'
-                      ? 'bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1.5px_#d9b477]'
-                      : 'bg-[#1b1e24] text-[#8a9099] shadow-[inset_0_0_0_1px_#2f343d] hover:bg-[#252a31]',
+                      ? 'bg-primary/10 text-ring inset-ring-[1.5px] inset-ring-ring'
+                      : 'bg-background text-muted-foreground inset-ring inset-ring-border hover:bg-muted',
                   )}
                   onClick={() => {
                     setSource('github')
@@ -502,13 +503,13 @@ export function RepoPickerModal({
                 >
                   <GitFork size={21} className="flex-none" aria-hidden="true" />
                   <span>
-                    <span className="block text-[14.5px] leading-none font-semibold text-[#f2f3f5]">
+                    <span className="block text-[14.5px] leading-none font-semibold text-foreground">
                       From GitHub
                     </span>
                     <span
                       className={cn(
                         'mt-1 block text-[12.5px] leading-[1.4]',
-                        source === 'github' ? 'text-[#b9bec6]' : 'text-[#9ba1ab]',
+                        source === 'github' ? 'text-foreground' : 'text-muted-foreground',
                       )}
                     >
                       Sign in, choose a repository, then clone it
@@ -519,7 +520,7 @@ export function RepoPickerModal({
             )}
 
             {(source === 'local' || showMachinePicker) && (
-              <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-[#2b2f37] bg-[#1f2329] px-6 py-3.5">
+              <div className="flex min-h-16 flex-wrap items-center gap-3 border-t border-border bg-muted/50 px-6 py-3.5">
                 {showMachinePicker ? (
                   <div className="flex min-w-48 flex-col gap-1 max-md:w-full">
                     <label htmlFor="repo-machine-select" className="text-xs text-muted-foreground">
@@ -604,7 +605,7 @@ export function RepoPickerModal({
                     </div>
                     <Input
                       aria-label="Folder path"
-                      className="h-9 min-w-0 flex-1 rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d]"
+                      className="h-9 min-w-0 flex-1 rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border"
                       value={machineReady ? browserPath : headerPath}
                       disabled={!machineReady || busy}
                       onChange={(event) => setBrowserPath(event.currentTarget.value)}
@@ -616,8 +617,8 @@ export function RepoPickerModal({
                       variant="ghost"
                       size="sm"
                       className={cn(
-                        'h-9 rounded-[9px] border-0 px-[13px] text-[12.5px] font-semibold text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842]',
-                        showHidden && 'text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56]',
+                        'h-9 rounded-[9px] border-0 px-[13px] text-[12.5px] font-semibold text-muted-foreground inset-ring inset-ring-border',
+                        showHidden && 'text-foreground inset-ring inset-ring-border-strong',
                       )}
                       disabled={!machineReady || busy}
                       onClick={toggleHidden}
@@ -630,7 +631,7 @@ export function RepoPickerModal({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-9 rounded-[9px] border-0 px-[15px] text-[12.5px] font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56]"
+                        className="h-9 rounded-[9px] border-0 px-[15px] text-[12.5px] font-semibold text-foreground inset-ring inset-ring-border-strong"
                         disabled={!listing || busy}
                         onClick={() => void scanCurrent()}
                       >
@@ -644,7 +645,7 @@ export function RepoPickerModal({
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="size-9 rounded-[9px] border-0 text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842]"
+                        className="size-9 rounded-[9px] border-0 text-muted-foreground inset-ring inset-ring-border"
                         disabled={!listing || busy}
                         onClick={() => startEdit({ kind: 'folder', name: '' })}
                         aria-label="New folder"
@@ -656,7 +657,7 @@ export function RepoPickerModal({
                     {onCreateRepo && (
                       <Button
                         size="sm"
-                        className="h-9 rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] hover:bg-[#efc964] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+                        className="h-9 rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground hover:bg-primary/80 disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border"
                         disabled={!listing || busy}
                         onClick={() => startEdit({ kind: 'repo', name: '' })}
                       >
@@ -669,7 +670,7 @@ export function RepoPickerModal({
               </div>
             )}
             {source === 'local' && error && (
-              <div className="border-t border-[#2b2f37] px-6 py-3">
+              <div className="border-t border-border px-6 py-3">
                 <SetupError>{error}</SetupError>
               </div>
             )}
@@ -719,9 +720,9 @@ export function RepoPickerModal({
                   <EditRow
                     icon={
                       edit.kind === 'repo' ? (
-                        <FolderGit2 size={19} className="flex-none text-[#d9b477]" />
+                        <FolderGit2 size={19} className="flex-none text-ring" />
                       ) : (
-                        <Folder size={19} className="flex-none text-[#8a9099]" />
+                        <Folder size={19} className="flex-none text-muted-foreground" />
                       )
                     }
                     label={edit.kind === 'repo' ? 'New repository name' : 'New folder name'}
@@ -747,14 +748,14 @@ export function RepoPickerModal({
                   <button
                     type="button"
                     data-pressable
-                    className="flex min-h-[46px] w-full items-center gap-[13px] border-t border-[#272b33] px-6 py-[13px] text-left disabled:pointer-events-none disabled:opacity-50"
+                    className="flex min-h-[46px] w-full items-center gap-[13px] border-t border-border px-6 py-[13px] text-left disabled:pointer-events-none disabled:opacity-50"
                     onClick={() => void load(listing.parentPath ?? undefined)}
                     disabled={busy}
                     aria-label={`Open parent folder ${listing.parentPath}`}
                   >
-                    <Folder size={19} className="flex-none text-[#8a9099]" aria-hidden="true" />
-                    <span className="font-mono text-[13px] text-[#8a9099]">..</span>
-                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-[#9ba1ab]">
+                    <Folder size={19} className="flex-none text-muted-foreground" aria-hidden="true" />
+                    <span className="font-mono text-[13px] text-muted-foreground">..</span>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
                       {listing.parentPath}
                     </span>
                   </button>
@@ -767,9 +768,9 @@ export function RepoPickerModal({
                         key={entry.path}
                         icon={
                           entry.isRepo ? (
-                            <FolderGit2 size={19} className="flex-none text-[#d9b477]" />
+                            <FolderGit2 size={19} className="flex-none text-ring" />
                           ) : (
-                            <Folder size={19} className="flex-none text-[#8a9099]" />
+                            <Folder size={19} className="flex-none text-muted-foreground" />
                           )
                         }
                         label={`Rename folder ${entry.name}`}
@@ -785,7 +786,7 @@ export function RepoPickerModal({
                       />
                     ) : (
                       <div
-                        className="group flex min-h-[46px] items-center gap-[13px] border-t border-[#272b33] px-6 hover:bg-[#252a31]"
+                        className="group flex min-h-[46px] items-center gap-[13px] border-t border-border px-6 hover:bg-muted"
                         key={entry.path}
                       >
                         <button
@@ -816,27 +817,27 @@ export function RepoPickerModal({
                           {entry.isRepo ? (
                             <FolderGit2
                               size={19}
-                              className="flex-none text-[#d9b477]"
+                              className="flex-none text-ring"
                               aria-hidden="true"
                             />
                           ) : (
                             <Folder
                               size={19}
-                              className="flex-none text-[#8a9099]"
+                              className="flex-none text-muted-foreground"
                               aria-hidden="true"
                             />
                           )}
                           <span
                             className={cn(
                               'min-w-0 flex-1 truncate text-[14px]',
-                              entry.isRepo ? 'font-semibold text-[#f2f3f5]' : 'text-[#e6e8ec]',
+                              entry.isRepo ? 'font-semibold text-foreground' : 'text-foreground',
                             )}
                           >
                             {entry.name}
                           </span>
                           <ChevronRight
                             size={18}
-                            className="flex-none text-[#6f757f]"
+                            className="flex-none text-muted-foreground"
                             aria-hidden="true"
                           />
                         </button>
@@ -844,7 +845,7 @@ export function RepoPickerModal({
                           <button
                             type="button"
                             data-pressable
-                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] group-hover:bg-[#d9b477] group-hover:text-[#191308] group-hover:shadow-none"
+                            className="h-8 w-[132px] flex-none rounded-[9px] text-[12.5px] leading-none font-semibold text-foreground inset-ring inset-ring-border-strong group-hover:bg-primary group-hover:text-primary-foreground group-hover:inset-ring-0"
                             disabled={busy}
                             onClick={() => void pickPath(entry.path)}
                             aria-label={`Use repository ${entry.name}`}
@@ -856,8 +857,8 @@ export function RepoPickerModal({
                     ),
                   )}
               </div>
-              <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 pt-[18px] pb-[22px]">
-                <p className="text-[12.5px] leading-none font-semibold text-[#a8adb6]">
+              <div className="border-t border-border bg-muted/50 px-6 pt-[18px] pb-[22px]">
+                <p className="text-[12.5px] leading-none font-semibold text-muted-foreground">
                   {browsedRepoPath
                     ? 'Use this folder, or another path'
                     : 'Or use a repository path'}
@@ -867,10 +868,10 @@ export function RepoPickerModal({
                     id="repo-machine-path"
                     aria-label={machinePathLabel}
                     className={cn(
-                      'h-[38px] rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]',
+                      'h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground',
                       // The offered path is what the button will act on, so it reads as
                       // content rather than as the usual dim hint.
-                      browsedRepoPath && 'placeholder:text-[#9ba1ab]',
+                      browsedRepoPath && 'placeholder:text-foreground',
                     )}
                     value={manualPath}
                     placeholder={browsedRepoPath ?? '/home/user/project'}
@@ -881,7 +882,7 @@ export function RepoPickerModal({
                     }}
                   />
                   <Button
-                    className="h-[38px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
+                    className="h-[38px] rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border max-sm:w-full"
                     disabled={writing || !machineReady || manualTarget === ''}
                     onClick={() => void pickManual()}
                   >
@@ -951,9 +952,7 @@ export function RepoPickerModal({
  * as an invitation to use it. The gestures that remain are the two a file list
  * teaches — right-click, and F2 on the focused row.
  *
- * Styled from the picker's own palette rather than `menu-surface.ts`: this
- * dialog is a fixed dark surface whatever the app's theme is, and a themed panel
- * would render a light menu on a dark modal.
+ * Uses the shared menu surface so it follows the same theme as the dialog.
  */
 function RowMenu({
   entry,
@@ -1016,8 +1015,7 @@ function RowMenu({
     }
   }, [onClose])
 
-  const item =
-    'flex w-full cursor-pointer items-center gap-2 rounded-md px-[7px] py-[5px] text-left text-[12.5px] text-[#c9ced6] outline-none hover:bg-[#2f343d] hover:text-[#f2f3f5] focus-visible:bg-[#2f343d] focus-visible:text-[#f2f3f5]'
+  const item = cn(MENU_ITEM, 'px-[7px] py-[5px] text-[12.5px]')
 
   return (
     <div
@@ -1025,21 +1023,21 @@ function RowMenu({
       role="menu"
       aria-label={`Actions for ${entry.name}`}
       style={{ left: pos.x, top: pos.y }}
-      className="absolute z-50 min-w-[168px] rounded-[10px] border border-[#3a404a] bg-[#272c34] p-[5px] shadow-[0_18px_40px_-12px_rgba(0,0,0,.8)]"
+      className={cn(MENU_PANEL, 'absolute z-50 min-w-[168px]')}
     >
       <button data-pressable type="button" role="menuitem" className={item} onClick={onOpen}>
-        <ChevronRight size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+        <ChevronRight size={14} className="flex-none text-muted-foreground" aria-hidden="true" />
         Open
       </button>
       {onUse && (
         <button data-pressable type="button" role="menuitem" className={item} onClick={onUse}>
-          <Check size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+          <Check size={14} className="flex-none text-muted-foreground" aria-hidden="true" />
           Use repository
         </button>
       )}
-      <hr className="my-[4px] h-px border-0 bg-[#3a404a]" />
+      <hr className={MENU_RULE} />
       <button data-pressable type="button" role="menuitem" className={item} onClick={onRename}>
-        <Pencil size={14} className="flex-none text-[#8a9099]" aria-hidden="true" />
+        <Pencil size={14} className="flex-none text-muted-foreground" aria-hidden="true" />
         Rename…
       </button>
     </div>
@@ -1078,13 +1076,13 @@ function EditRow({
   onCancel: () => void
 }): JSX.Element {
   return (
-    <div className="border-t border-[#272b33] bg-[#252a31] px-6 py-[9px]">
+    <div className="border-t border-border bg-muted px-6 py-[9px]">
       <div className="flex items-center gap-[13px]">
         {icon}
         <Input
           autoFocus
           aria-label={label}
-          className="h-8 min-w-0 flex-1 rounded-[7px] border-0 bg-[#15171b] px-[10px] font-mono text-[13px] text-[#f2f3f5] shadow-[inset_0_0_0_1.5px_#d9b477] placeholder:text-[#6f757f]"
+          className="h-8 min-w-0 flex-1 rounded-[7px] border-0 bg-background px-[10px] font-mono text-[13px] text-foreground inset-ring-[1.5px] inset-ring-ring placeholder:text-muted-foreground"
           value={value}
           placeholder={placeholder}
           disabled={busy}
@@ -1106,7 +1104,7 @@ function EditRow({
         <button
           type="button"
           data-pressable
-          className="h-8 flex-none rounded-[9px] bg-[#d9b477] px-[13px] text-[12.5px] leading-none font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37]"
+          className="h-8 flex-none rounded-[9px] bg-primary px-[13px] text-[12.5px] leading-none font-semibold text-primary-foreground disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border"
           disabled={busy || value.trim() === ''}
           onClick={onCommit}
         >
@@ -1115,7 +1113,7 @@ function EditRow({
         <button
           type="button"
           data-pressable
-          className="h-8 flex-none rounded-[9px] px-[11px] text-[12.5px] leading-none font-semibold text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] disabled:opacity-50"
+          className="h-8 flex-none rounded-[9px] px-[11px] text-[12.5px] leading-none font-semibold text-muted-foreground inset-ring inset-ring-border disabled:opacity-50"
           disabled={busy}
           onClick={onCancel}
         >
@@ -1123,12 +1121,12 @@ function EditRow({
         </button>
       </div>
       {error && (
-        <p role="alert" className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-[#f0a58f]">
+        <p role="alert" className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-destructive">
           {error}
         </p>
       )}
       {!error && warning && (
-        <p className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-[#c8ab6a]">{warning}</p>
+        <p className="mt-2 pl-8 text-[12.5px] leading-[1.4] text-warning">{warning}</p>
       )}
     </div>
   )

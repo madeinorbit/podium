@@ -203,22 +203,22 @@ export function GitHubProjectIntake({
       )}
 
       {status?.state === 'logged-out' && (
-        <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 py-[18px]">
-          <div className="text-[14.5px] leading-none font-semibold text-[#f2f3f5]">
+        <div className="border-t border-border bg-muted/50 px-6 py-[18px]">
+          <div className="text-[14.5px] leading-none font-semibold text-foreground">
             Sign in to GitHub CLI
           </div>
-          <p className="mt-[7px] text-[13px] leading-[1.5] text-[#9ba1ab]">
+          <p className="mt-[7px] text-[13px] leading-[1.5] text-muted-foreground">
             Run this on {machine.name}. It opens GitHub's browser sign-in; Podium uses the resulting
             GitHub CLI login and never stores your token.
           </p>
-          <div className="mt-[13px] flex h-11 items-center gap-3 rounded-[10px] bg-[#15171b] pr-3 pl-3.5 shadow-[inset_0_0_0_1px_#2f343d]">
-            <code className="min-w-0 flex-1 select-all font-mono text-[13.5px] text-[#e6e8ec]">
+          <div className="mt-[13px] flex h-11 items-center gap-3 rounded-[10px] bg-background pr-3 pl-3.5 inset-ring inset-ring-border">
+            <code className="min-w-0 flex-1 select-all font-mono text-[13.5px] text-foreground">
               gh auth login
             </code>
             <Button
               size="sm"
               variant="ghost"
-              className="h-[30px] rounded-lg border-0 px-3 text-[12.5px] font-semibold text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842]"
+              className="h-[30px] rounded-lg border-0 px-3 text-[12.5px] font-semibold text-muted-foreground inset-ring inset-ring-border"
               onClick={() => void copySignIn()}
             >
               <Copy size={14} /> {copied ? 'Copied' : 'Copy sign-in command'}
@@ -227,7 +227,7 @@ export function GitHubProjectIntake({
           <div className="mt-3 flex justify-end">
             <Button
               size="sm"
-              className="h-[34px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308]"
+              className="h-[34px] rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground"
               onClick={() => void refresh(true)}
               disabled={checking}
             >
@@ -237,13 +237,13 @@ export function GitHubProjectIntake({
         </div>
       )}
 
-      <div className="flex items-center gap-3 border-t border-[#2b2f37] px-6 py-3.5">
-        <Search size={18} className="text-[#6f757f]" />
+      <div className="flex items-center gap-3 border-t border-border px-6 py-3.5">
+        <Search size={18} className="text-muted-foreground" />
         <Input
           aria-label="Search GitHub repositories"
           aria-disabled={unavailable}
           readOnly={unavailable}
-          className="h-9 rounded-[9px] border-0 bg-[#1b1e24] px-[13px] text-[13.5px] text-[#e6e8ec] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+          className="h-9 rounded-[9px] border-0 bg-background px-[13px] text-[13.5px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground"
           placeholder={checking ? 'Checking GitHub…' : 'Search accessible repositories'}
           value={draft.query}
           onChange={(event) => setDraft({ ...draft, query: event.currentTarget.value })}
@@ -258,8 +258,8 @@ export function GitHubProjectIntake({
       <div
         className={
           unavailable
-            ? 'relative h-[214px] min-h-[214px] flex-1 overflow-hidden border-t border-[#272b33]'
-            : 'min-h-[214px] flex-1 overflow-y-auto border-t border-[#272b33]'
+            ? 'relative h-[214px] min-h-[214px] flex-1 overflow-hidden border-t border-border'
+            : 'min-h-[214px] flex-1 overflow-y-auto border-t border-border'
         }
         aria-disabled={unavailable}
       >
@@ -269,22 +269,22 @@ export function GitHubProjectIntake({
               {['your-team/project', 'your-name/toolbox', 'your-org/application'].map((name) => (
                 <div
                   key={name}
-                  className="flex items-center gap-3 border-t border-[#272b33] px-6 py-[15px] first:border-t-0"
+                  className="flex items-center gap-3 border-t border-border px-6 py-[15px] first:border-t-0"
                 >
-                  <GitFork size={18} className="text-[#8a9099]" />
-                  <span className="font-mono text-[13.5px] text-[#8a9099]">{name}</span>
+                  <GitFork size={18} className="text-muted-foreground" />
+                  <span className="font-mono text-[13.5px] text-muted-foreground">{name}</span>
                 </div>
               ))}
             </div>
             <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
               <div>
-                <span className="mx-auto flex size-9 items-center justify-center rounded-[10px] bg-[#2a2418] text-[#d9b477] shadow-[inset_0_0_0_1px_#4a4331]">
+                <span className="mx-auto flex size-9 items-center justify-center rounded-[10px] bg-primary/10 text-ring inset-ring inset-ring-ring/30">
                   <GitFork size={19} aria-hidden="true" />
                 </span>
-                <p className="mt-3 text-[15px] leading-none font-semibold text-[#f2f3f5]">
+                <p className="mt-3 text-[15px] leading-none font-semibold text-foreground">
                   {checking ? 'Checking GitHub authorization…' : 'Authorize GitHub first'}
                 </p>
-                <p className="mt-2 text-[13px] leading-[1.5] text-[#9ba1ab]">
+                <p className="mt-2 text-[13px] leading-[1.5] text-muted-foreground">
                   {status?.state === 'missing'
                     ? 'Install GitHub CLI before Podium can list repositories.'
                     : 'Podium can list and clone your repositories once the CLI is signed in.'}
@@ -334,10 +334,10 @@ export function GitHubProjectIntake({
           })}
       </div>
 
-      <div className="border-t border-[#2b2f37] bg-[#1f2329] px-6 pt-[18px] pb-[22px]">
+      <div className="border-t border-border bg-muted/50 px-6 pt-[18px] pb-[22px]">
         <label
           htmlFor="github-clone-destination"
-          className="text-[12.5px] leading-none font-semibold text-[#a8adb6]"
+          className="text-[12.5px] leading-none font-semibold text-muted-foreground"
         >
           Where should Podium keep it?
         </label>
@@ -349,13 +349,13 @@ export function GitHubProjectIntake({
             readOnly={unavailable}
             value={draft.destination}
             placeholder="/home/user/podium-repos/project"
-            className="h-[38px] rounded-[9px] border-0 bg-[#15171b] px-[13px] font-mono text-[13px] text-[#c3c8d0] shadow-[inset_0_0_0_1px_#2f343d] placeholder:text-[#6f757f]"
+            className="h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground"
             onChange={(event) => setDraft({ ...draft, destination: event.currentTarget.value })}
           />
           <Button
             disabled={!canClone || cloning}
             onClick={() => void clone()}
-            className="h-[38px] rounded-[9px] border-0 bg-[#d9b477] px-[15px] text-[12.5px] font-semibold text-[#191308] disabled:bg-transparent disabled:text-[#5f656e] disabled:shadow-[inset_0_0_0_1px_#2b2f37] max-sm:w-full"
+            className="h-[38px] rounded-[9px] border-0 bg-primary px-[15px] text-[12.5px] font-semibold text-primary-foreground disabled:bg-transparent disabled:text-muted-foreground disabled:inset-ring disabled:inset-ring-border max-sm:w-full"
           >
             <Download size={15} />{' '}
             {cloning ? 'Preparing…' : selected ? 'Clone repository' : 'Choose a repository'}
