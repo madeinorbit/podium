@@ -41,6 +41,14 @@ describe('installable PWA wiring', () => {
     }
   })
 
+  it('never shadows the hosted account and organization pages', () => {
+    for (const prefix of ['/account', '/org']) {
+      for (const suffix of ['', '?tab=members', '/settings', '/settings?tab=members']) {
+        expect(denied(`${prefix}${suffix}`)).toBe(true)
+      }
+    }
+  })
+
   it('still falls back to the cached shell for SPA deep links', () => {
     for (const url of ['/workspace', '/session/s1', '/settings/machines', '/desktops']) {
       expect(denied(url)).toBe(false)
