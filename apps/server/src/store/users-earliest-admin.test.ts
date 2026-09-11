@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, MemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId, MemberId } from '@podium/model'
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
@@ -81,7 +81,7 @@ describe('store scoped administrator identity', () => {
       createdAt: '2000-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
     expect(await firstAdminMemberId(b)).toBe(other)
     expect(await firstAdminMemberId(a)).toBe(original)
-    const replacement = MemberId.parse('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
+    const replacement = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
     await a.users.create({ id: replacement, displayName: 'Next admin', role: 'admin',
       createdAt: '2099-01-01T00:00:00.000Z', disabledAt: null }, 'scrypt:hash')
     await a.users.removeMember(original, replacement)
