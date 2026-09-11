@@ -1,4 +1,4 @@
-import { asSessionId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../../test-support/capabilities'
@@ -17,7 +17,7 @@ describe('draft replay ordering', () => {
     })
     const sessionOwner = vi.fn(async () => {
       await authorization
-      return { owner: asUserId(SOLE_USER_ID), grants: [] }
+      return { owner: firstAdminMemberId(), grants: [] }
     })
     const state = new SessionStateService({
       store: { sessions: { setDraftDoc: vi.fn() } } as unknown as SessionStatePorts['store'],
@@ -40,7 +40,7 @@ describe('draft replay ordering', () => {
       await state.setDraft({ sessionId, text: 'older text' })
       received.length = 0
       const replay = state.replayDrafts(
-        { userId: asUserId(SOLE_USER_ID), capability: OPERATOR, humanDirect: true },
+        { userId: firstAdminMemberId(), capability: OPERATOR, humanDirect: true },
         send,
       )
       expect(sessionOwner).toHaveBeenCalledOnce()

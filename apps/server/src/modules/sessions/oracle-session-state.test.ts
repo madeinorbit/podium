@@ -10,7 +10,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  * for the must-not-change / will-change contract.
  */
 
-import { asUserId, SOLE_USER_ID, type SessionId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -228,7 +228,7 @@ describe('oracle: read state', () => {
     // value is one user's row. Reading the STORAGE, not merely the wire, is what
     // makes this a measurement of the re-key rather than of the projection that
     // happens to sit on top of it.
-    expect(await o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).toBe(readAt)
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).toBe(readAt)
     // A DIFFERENT user has no marker for the same session — the property the
     // re-key exists for, and one an instance-wide column could not express.
     expect(await o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
@@ -316,7 +316,7 @@ describe('oracle: snoozes', () => {
     expect((await o.meta(sessionId)).snoozedUntil).toBe(until)
     // And the row is KEYED by user: a different principal's slice is empty. This
     // is the assertion the old instance-wide characterization could not make.
-    expect(await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
+    expect(await o.store.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: until,
     })
     expect(await o.store.sessions.listSnoozes(asUserId('user:somebody-else'))).toEqual({})
@@ -332,7 +332,7 @@ describe('oracle: snoozes', () => {
     // Housekeeping only drops TIMED snoozes whose deadline passed.
     expect(
       await o.store.sessions.listSnoozes(
-        asUserId(SOLE_USER_ID),
+        firstAdminMemberId(),
         Date.now() + 10 * 365 * 24 * 3_600_000,
       ),
     ).toEqual({
@@ -347,11 +347,11 @@ describe('oracle: snoozes', () => {
     await o.call.snoozes.set({ sessionId, until })
 
     expect(
-      await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID), Date.parse(until) + 1),
+      await o.store.sessions.listSnoozes(firstAdminMemberId(), Date.parse(until) + 1),
     ).toEqual({})
     // The lazy delete is a real write: the row is gone on the next read too.
     expect(
-      await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID), Date.parse(until) - 500),
+      await o.store.sessions.listSnoozes(firstAdminMemberId(), Date.parse(until) - 500),
     ).toEqual({})
   })
 

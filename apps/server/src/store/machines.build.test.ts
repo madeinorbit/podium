@@ -1,4 +1,4 @@
-import { asUserId } from '@podium/model'
+import { firstAdminMemberId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -9,7 +9,7 @@ async function seedMachine(store: SessionStore): Promise<void> {
     name: 'box',
     hostname: 'box.local',
     tokenHash: 'token-hash',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
 }
 

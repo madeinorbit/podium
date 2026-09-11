@@ -18,7 +18,7 @@
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { asSessionId, asUserId, type SessionId, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, type SessionId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
 import { OPERATOR } from '../../../test-support/capabilities'
@@ -263,11 +263,11 @@ describe('owner-or-grant policy on the shared session writes', () => {
   it.each(SHARED)('%s: the OWNER is allowed', async (name) => {
     const { sessionState, session } = await fixture()
     const { sessionId } = await session()
-    // Sessions are owned by SOLE_USER_ID until POD-1075 (SessionLifecycle.sessionOwner).
+    // Sessions are owned by firstAdminMemberId() until POD-1075 (SessionLifecycle.sessionOwner).
     const owner: SessionStatePrincipal = {
-      userId: asUserId(SOLE_USER_ID),
-      capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(SOLE_USER_ID) } },
-      onBehalfOf: asUserId(SOLE_USER_ID),
+      userId: firstAdminMemberId(),
+      capability: { role: 'worker', scope: { kind: 'owned', userId: firstAdminMemberId() } },
+      onBehalfOf: firstAdminMemberId(),
       humanDirect: true,
     }
 
@@ -347,7 +347,7 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
     const realOwner = sessions.sessionOwner.bind(sessions)
     sessions.sessionOwner = (id: string) => {
       const found = realOwner(id)
-      return found ? { owner: SOLE_USER_ID, grants } : undefined
+      return found ? { owner: firstAdminMemberId(), grants } : undefined
     }
     return { ...base, revoke: () => (grants = []) }
   }

@@ -12,7 +12,7 @@
  * instrument can say YES: a good hello on the same fixture must attach and route.
  */
 
-import { asUserId, asSessionId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
@@ -64,7 +64,7 @@ async function harness(machines: { id: string; token: string }[]) {
       name: m.id,
       hostname: m.id,
       tokenHash: sha256(m.token),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
   }
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -108,7 +108,7 @@ describe('a daemon that cannot prove who it is', () => {
       name: 'm1',
       hostname: 'm1',
       tokenHash: sha256('rotated'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'old', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()

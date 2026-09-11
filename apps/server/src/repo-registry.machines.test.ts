@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 /**
  * Task 9: per-machine repo registration + machine-tagged repo scans.
  *
@@ -19,14 +19,14 @@ async function regWithTwoDaemons() {
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(reg, store)
@@ -251,7 +251,7 @@ describe('RepoRegistry.scanReposAll()', () => {
       name: 'one',
       hostname: 'one',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const repos = new RepoRegistry(reg, store)

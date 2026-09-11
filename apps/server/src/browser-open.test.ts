@@ -26,14 +26,14 @@ async function setup() {
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],

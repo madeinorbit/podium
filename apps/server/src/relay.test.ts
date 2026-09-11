@@ -15,7 +15,6 @@ import {
   type IssueWire,
   resolveTelegramPrincipal,
   type SessionId,
-  SOLE_USER_ID,
 } from '@podium/model'
 import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -2274,14 +2273,14 @@ describe('host metrics relay', () => {
       name: 'alpha',
       hostname: 'alpha',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
       id: 'm-beta',
       name: 'beta',
       hostname: 'beta',
       tokenHash: 'y',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon('m-alpha', () => {})
@@ -5991,7 +5990,7 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     const after = (await reg.modules.sessions.listSessions())[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -6015,7 +6014,7 @@ describe('SessionRegistry read state (#124)', () => {
     await attachCurrent(reg, c.send)
     c.sent.length = 0
 
-    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
     await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
@@ -6033,13 +6032,13 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
 
     const c = sink()
     await attachCurrent(reg, c.send)
     c.sent.length = 0
-    await reg.modules.sessions.markSessionUnread(asUserId(SOLE_USER_ID), sessionId)
+    await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
     const after = (await reg.modules.sessions.listSessions())[0]
@@ -6078,14 +6077,14 @@ describe('SessionRegistry snooze', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
+    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: null,
     })
     expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
 
-    await reg.modules.sessions.clearSnooze(asUserId(SOLE_USER_ID), sessionId)
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    await reg.modules.sessions.clearSnooze(firstAdminMemberId(), sessionId)
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
     expect('snoozedUntil' in ((await reg.modules.sessions.listSessions())[0] ?? {})).toBe(false)
   })
 
@@ -6097,10 +6096,10 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
+    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
 
     await reg.modules.sessions.sendText({ sessionId, text: 'hi' })
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 
   it('leaving the attention phase clears it; staying in attention keeps it', async () => {
@@ -6115,20 +6114,20 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    await reg.modules.sessions.setSnooze({ userId: asUserId(SOLE_USER_ID), sessionId, until: null })
+    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
     await reg.gateway.routeDaemonFrame(
       'local',
       agentState(sessionId, 'idle', { idle: { kind: 'question' } }),
     )
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: null,
     })
 
     // -> working leaves attention: snooze clears.
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentState(sessionId, 'working'))
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 
   it('seeds snoozedUntil from the store at load', async () => {
@@ -6156,7 +6155,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    await store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
+    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
   })

@@ -55,9 +55,10 @@ describe('IssueService boot quarantine', () => {
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
     rawDb(store)
       .prepare(
-        `INSERT INTO issues (id, owner_user_id, repo_path, seq, title, stage, default_agent,
-           created_at, updated_at)
-         VALUES (NULL, '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
+        `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+           repo_path, seq, title, stage, default_agent, created_at, updated_at)
+         VALUES (NULL, '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+                 '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
                  't', 't')`,
       )
       .run()

@@ -1,4 +1,4 @@
-import { asMachineId, asIssueId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { EventBus } from './bus'
@@ -100,11 +100,11 @@ describe('EventBus', () => {
     bus.on('issue.created', created)
     bus.on('client.crashed', crashed)
 
-    bus.emit('auth.login', { userId: asUserId('user:sole'), delivery: 'cookie' })
+    bus.emit('auth.login', { userId: firstAdminMemberId(), delivery: 'cookie' })
     bus.emit('issue.created', {
       issueId: asIssueId('iss_1'),
       title: 'a title',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     bus.emit('client.crashed', {
       origin: { role: 'web' },

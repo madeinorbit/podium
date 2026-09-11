@@ -575,7 +575,10 @@ describe('the derived fleet router actually calls the gate', () => {
         verb: 'use',
         owner: firstAdminMemberId(),
         actorKind: 'user',
-        actorId: 'sole',
+        // The actor id is the MEMBER id now. It read `'sole'` while the first
+        // admin was `'user:sole'` and the attribution encoder split that on the
+        // colon; a `mem_` id has no colon to split, so the whole id is the actor.
+        actorId: firstAdminMemberId(),
         onBehalfOf: firstAdminMemberId(),
       }),
     ])

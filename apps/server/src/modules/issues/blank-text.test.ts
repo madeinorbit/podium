@@ -1,4 +1,4 @@
-import { asSessionId, asUserId, type UserId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -48,7 +48,7 @@ describe('blank issue text normalizes to null', () => {
   it('leaves a non-empty value and a legitimately empty description alone', async () => {
     const { store, svc } = await harness()
     const created = await svc.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
-    await svc.update(created.id, { assignee: asUserId('user:sole') })
+    await svc.update(created.id, { assignee: firstAdminMemberId() })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.assignee).toBe('user:sole')

@@ -43,7 +43,7 @@
  */
 
 import { isExposedOn, sessionStateCommand } from '@podium/commands'
-import { asSessionId, SOLE_USER_ID, type UserId} from '@podium/model'
+import { asSessionId, MemberId, type UserId } from '@podium/model'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
@@ -360,7 +360,7 @@ describe('the compatibility adapter moves ONE command and defaults to the target
  * TWO CONSTANTS NAMED THE ONE PRE-ACCOUNTS HUMAN, and the delegation ceiling was
  * the first code in the tree to put them side by side:
  *
- *   SOLE_USER_ID   'user:sole'       @podium/model, POD-380 — what sessionOwner stamps
+ *   firstAdminMemberId()   'user:sole'       @podium/model, POD-380 — what sessionOwner stamps
  *   INSTANCE_OWNER 'instance-owner'  command-principal.ts, POD-381 — what resolvePrincipal minted
  *
  * Nothing compared them before, because POD-380 read owners with a principal
@@ -385,12 +385,15 @@ describe('the compatibility adapter moves ONE command and defaults to the target
  * That one is kept — and strengthened — below.
  */
 describe('the sole-human identity fork this skeleton surfaced, now reconciled', () => {
-  it('there is ONE constant for the one human, and it is the stored value', () => {
-    // The tripwire's successor. It asserts the reconciliation rather than the
-    // fork: if a second spelling is ever reintroduced, the id the database
-    // actually holds is the one that must win, and this says which that is.
-    expect(firstAdminMemberId() as string).toBe(SOLE_USER_ID as string)
-    expect(firstAdminMemberId() as string).toBe('user:sole')
+  it('there is ONE answer for the one human, and it is the STORED value', () => {
+    // The tripwire's successor, and A2 sharpened rather than retired it. It used
+    // to assert that the one constant spelled the value the database held. There
+    // is no constant now: the first admin is a `mem_` id minted per
+    // installation, so the assertion is the property the constant was standing
+    // in for — what the code resolves IS the row `users` holds. A second
+    // spelling reintroduced anywhere would disagree with this.
+    expect(firstAdminMemberId() as string).not.toBe('user:sole')
+    expect(() => MemberId.parse(firstAdminMemberId())).not.toThrow()
   })
 
   it('an agent whose human IS the sole human may write — the ceiling can say YES', async () => {

@@ -23,7 +23,7 @@
  * re-asking can only refuse what was already allowed.
  */
 
-import {
+import { firstAdminMemberId,
   actorAgent,
   asAgentIdentityId,
   asMachineId,
@@ -35,7 +35,7 @@ import { asDelegationRef } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionAuthz } from './session-authz'
 
-const USER = asUserId('user:sole')
+const USER = firstAdminMemberId()
 const MACHINE = asMachineId('m1')
 const PARENT_ISSUE = 'iss_parent'
 const CHILD_ISSUE = 'iss_child'

@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -88,7 +88,7 @@ describe('deriveVersionState', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.setMachineBuild(
       'm1',

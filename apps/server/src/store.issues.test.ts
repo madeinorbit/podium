@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId, SOLE_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId,  } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -219,12 +219,12 @@ describe('per-user issue state (POD-1076)', () => {
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
     await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
 
-    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: '2026-07-07T00:00:00.000Z',
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
     expect(
-      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
+      await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),
     ).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: null,
@@ -232,17 +232,17 @@ describe('per-user issue state (POD-1076)', () => {
     })
     // An issue nobody touched has NO row — absence is the single spelling.
     expect(
-      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_untouched')),
+      await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_untouched')),
     ).toBeUndefined()
 
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: '2026-07-09T00:00:00.000Z',
     })
     expect(
-      (await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')))
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))
         ?.pinnedAt,
     ).toBe('2026-07-08T00:00:00.000Z')
 
@@ -253,12 +253,12 @@ describe('per-user issue state (POD-1076)', () => {
     expect((await store.issues.listIssueUserState(asUserId('user:other'))).size).toBe(0)
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: null,
       pinnedAt: null,
     })
     expect(
-      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
+      await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),
     ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
@@ -407,7 +407,7 @@ describe('issue mail store (agent mail #103)', () => {
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
     expect(await store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
     await store.issues.markIssueMessagesRead(
-      asUserId(SOLE_USER_ID),
+      firstAdminMemberId(),
       asIssueId('iss_a'),
       ['msg_a'],
       'tr',
@@ -437,13 +437,13 @@ describe('issue mail store (agent mail #103)', () => {
     await seedIssues(store, 'iss_a')
     await store.issues.addIssueMessage(msg('msg_a'))
     await store.issues.markIssueMessagesRead(
-      asUserId(SOLE_USER_ID),
+      firstAdminMemberId(),
       asIssueId('iss_a'),
       ['msg_a'],
       't1',
     )
     await store.issues.markIssueMessagesRead(
-      asUserId(SOLE_USER_ID),
+      firstAdminMemberId(),
       asIssueId('iss_a'),
       ['msg_a'],
       't2',
@@ -453,13 +453,13 @@ describe('issue mail store (agent mail #103)', () => {
     // per-user `read_at` is a fact about THIS reader and DOES advance, because
     // "when did I last look at this" is not a once-only event.
     expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('read')
-    expect((await store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID))).msg_a).toBe('t2')
+    expect((await store.issues.listIssueMessageReadAt(firstAdminMemberId())).msg_a).toBe('t2')
     // …and another reader has no marker for the same message.
     expect(await store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
 
     await store.issues.claimIssueMessage('msg_a', 'x', 'tc')
     await store.issues.markIssueMessagesRead(
-      asUserId(SOLE_USER_ID),
+      firstAdminMemberId(),
       asIssueId('iss_a'),
       ['msg_a'],
       't3',
@@ -467,7 +467,7 @@ describe('issue mail store (agent mail #103)', () => {
     // Never regresses a claimed message back to 'read'…
     expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('claimed')
     // …but MY having read it after the claim is still true and is recorded.
-    expect((await store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID))).msg_a).toBe('t3')
+    expect((await store.issues.listIssueMessageReadAt(firstAdminMemberId())).msg_a).toBe('t3')
   })
 
   it('deleteIssueChildRows removes the issue mailbox', async () => {

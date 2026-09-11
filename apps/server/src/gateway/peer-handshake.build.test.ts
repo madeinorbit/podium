@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -42,7 +42,7 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2', installKind: 'installed' },
@@ -59,7 +59,7 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await recordHelloBuild(store.machines, asMachineId('m1'), {
       build: { appVersion: '0.4.2' },
@@ -81,7 +81,7 @@ describe('build report on hello accept', () => {
       name: 'box',
       hostname: 'box.local',
       tokenHash: sha256('tok'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()

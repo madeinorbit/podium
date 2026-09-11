@@ -76,9 +76,11 @@ async function seedV010ShapedDb(path: string): Promise<void> {
     `INSERT OR REPLACE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
        VALUES ('${id}', '${name}', '${name}', '${sha256(id)}', 't', 't');`
   const issue = (id: string, seq: number, worktree: string | null, pin: string | null): string =>
-    `INSERT INTO issues (id, owner_user_id, repo_id, repo_path, seq, title, stage, default_agent,
+    `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of, repo_id,
+                         repo_path, seq, title, stage, default_agent,
                          created_at, updated_at, worktree_path, machine_id)
-       VALUES ('${id}', '${firstAdminMemberId()}', 'repo:one', '/r', ${seq}, '${id}', 'backlog',
+       VALUES ('${id}', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+               '${firstAdminMemberId()}', 'repo:one', '/r', ${seq}, '${id}', 'backlog',
                'claude-code', 't', 't', ${worktree === null ? 'NULL' : `'${worktree}'`},
                ${pin === null ? 'NULL' : `'${pin}'`});`
   const session = (
@@ -90,7 +92,7 @@ async function seedV010ShapedDb(path: string): Promise<void> {
     `INSERT INTO sessions (id, owner_user_id, agent_kind, cwd, title, origin_kind, status,
                            durable_label, created_at, last_active_at, machine_id,
                            issue_id, ref_issue_id)
-       VALUES ('${id}', 'user:sole', 'claude-code', '/w', '${id}', 'spawn', 'live',
+       VALUES ('${id}', '${firstAdminMemberId()}', 'claude-code', '/w', '${id}', 'spawn', 'live',
                'podium-${id}', 't', 't', '${m}',
                ${issueId === null ? 'NULL' : `'${issueId}'`},
                ${refIssueId === null ? 'NULL' : `'${refIssueId}'`});`

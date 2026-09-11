@@ -20,7 +20,7 @@
  */
 
 import type { TelegramChatBinding, UserId } from '@podium/model'
-import {
+import { firstAdminMemberId,
   asUserId,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -54,7 +54,7 @@ function makeStore(): SettingsRepository {
 
 /** The person every write below is made by. Named once so a test asserting
  *  "what this caller sees" cannot silently read someone else's view. */
-const USER: UserId = asUserId('user:sole')
+const USER: UserId = firstAdminMemberId()
 
 /** The server-only secret store, in memory (POD-419). A Map, not an object with
  *  five keys: absence is the ROW being absent, and a fixture that pre-seeds five

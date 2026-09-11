@@ -30,14 +30,14 @@ async function regWithTwoDaemons() {
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
@@ -477,14 +477,14 @@ async function handoffRegistry(
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'target',
     hostname: 'target',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
@@ -555,7 +555,7 @@ async function handoffRegistry(
                 observationGeneration: 2,
                 delegation: {
                   actor: asAgentIdentityId(msg.sessionId),
-                  onBehalfOf: asUserId('user:sole'),
+                  onBehalfOf: firstAdminMemberId(),
                   grantedScope: { kind: 'all' },
                   parentBindingId: null,
                 },

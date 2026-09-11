@@ -20,7 +20,7 @@
  * the session being refused.
  */
 
-import { asMachineId, asUserId, type SessionId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asUserId, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -50,7 +50,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
         name: id,
         hostname: id,
         tokenHash: `token-${id}`,
-        ownerUserId: asUserId('user:sole'),
+        ownerUserId: firstAdminMemberId(),
       })
       await store.machines.setMachineInventory(id, INVENTORY)
     }

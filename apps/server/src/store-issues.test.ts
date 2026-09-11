@@ -386,11 +386,13 @@ describe('shipping durable store', () => {
       // `owner_user_id` is named because A2 dropped its literal default: every
       // write says whose row it is.
       `INSERT INTO issues
-        (id, owner_user_id, repo_path, seq, title, description, stage, parent_branch,
-         default_agent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, owner_user_id, created_by_actor, created_by_on_behalf_of, repo_path, seq, title,
+         description, stage, parent_branch, default_agent, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       'legacy-verifying',
+      firstAdminMemberId(),
+      firstAdminMemberId(),
       firstAdminMemberId(),
       '/r',
       99,

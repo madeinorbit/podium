@@ -39,14 +39,14 @@
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, issueDepId, SOLE_USER_ID } from '@podium/model'
+import { asUserId, issueDepId, firstAdminMemberId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 
-const OWNER = asUserId(SOLE_USER_ID)
+const OWNER = firstAdminMemberId()
 
 /** The principal a real connection is served under — `relay.ts` builds this same
  *  shape from the authenticated transport, never from a payload. */

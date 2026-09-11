@@ -18,7 +18,7 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { type AgentInventory, asMachineId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { type AgentInventory, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
@@ -69,7 +69,7 @@ describe('oracle: not-found shape, per write', () => {
     const o = await makeOracle()
 
     await expect(o.call.snoozes.set({ sessionId: GHOST, until: null })).resolves.toBeUndefined()
-    expect(await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await o.store.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
     await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
   })
 
@@ -84,7 +84,7 @@ describe('oracle: not-found shape, per write', () => {
     await expect(
       o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
     ).resolves.toBeUndefined()
-    expect(await o.store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await o.store.sessions.listTabOrders(firstAdminMemberId())).toEqual({})
   })
 
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {

@@ -46,7 +46,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  SOLE_USER_ID,
+  firstAdminMemberId,
   type UserId,
 } from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
@@ -55,7 +55,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   type AgentCommandPrincipal,
   type CommandPrincipal,
-  firstAdminMemberId,
 } from './command-principal'
 
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
@@ -578,7 +577,7 @@ describe('AC4 · the per-user split actually happened', () => {
     // honestly. The column is gone; the marker is one user's `(userId, sessionId)`
     // row. Measured the same way — against STORAGE, not the wire — so this stays
     // a statement about the shape rather than about the projection.
-    expect(await o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).not.toBeNull()
+    expect(await o.store.sessions.getReadAt(firstAdminMemberId(), sessionId)).not.toBeNull()
     // The property a column could not express: a different principal has no marker.
     expect(await o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
 
