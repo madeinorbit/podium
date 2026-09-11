@@ -714,6 +714,7 @@ export class SessionRegistry {
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
+      worldIndex: this.worldIndex,
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),

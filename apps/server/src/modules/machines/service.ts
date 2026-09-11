@@ -1,4 +1,5 @@
 import { machineRecordFromRow } from '../../store/machines'
+import type { WorldIndexReader } from '../world-index'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
@@ -220,6 +221,8 @@ export interface MachineFactsSnapshot {
 }
 
 export interface MachinesDeps {
+  /** Loaded before this service subscribes; standalone fixtures may omit it. */
+  worldIndex?: WorldIndexReader
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
   /** Public half of the server update-signing key, sent on every successful machine hello. */
@@ -369,20 +372,13 @@ export class MachinesService {
     this.unsubscribeMachineWrites = deps.store.machines.committed.subscribe((change) => {
       this.machineCacheEpoch += 1
       for (const raw of change.rows) {
-        const position = this.machineRecordsCache?.findIndex((row) => row.id === raw.id) ?? -1
-        if (change.operation === 'delete') {
-          if (position >= 0) this.machineRecordsCache!.splice(position, 1)
-          this.machineNameCache.delete(raw.id)
-        } else {
-          const row = machineRecordFromRow(raw)
-          if (position >= 0) {
-            const cached = this.machineRecordsCache![position]!
-            if (row.inventory === undefined) delete cached.inventory
-            Object.assign(cached, row)
-          }
-          else this.machineRecordsCache?.push(row)
-          this.machineNameCache.set(row.id, row.name)
-        }
+        // WorldIndex subscribed during boot, before this service. Its committed
+        // entry is already current here; never read it inside the write span.
+        const patch = change.operation === 'delete' ? undefined
+          : deps.worldIndex ? deps.worldIndex.machine(raw.id) : machineRecordFromRow(raw)
+        if (change.operation === 'upsert' && !patch)
+          throw new Error(`Committed machine missing from world index: ${raw.id}`)
+        this.applyMachineWrite(raw.id, patch)
       }
     })
 
@@ -395,6 +391,25 @@ export class MachinesService {
       },
       hasSupervisor: (machineId) => this.hasSupervisor(machineId),
     }
+  }
+
+  /** All twelve repository writers arrive through the mandatory commit funnel.
+   * Apply the complete committed record, including cleared optional inventory.
+   * No ordinary writer needs invalidation; rollback never reaches this helper.
+   */
+  private applyMachineWrite(id: string, patch: Readonly<MachineRecord> | undefined): void {
+    const position = this.machineRecordsCache?.findIndex((row) => row.id === id) ?? -1
+    if (!patch) {
+      if (position >= 0) this.machineRecordsCache!.splice(position, 1)
+      this.machineNameCache.delete(id)
+      return
+    }
+    if (position >= 0) {
+      const cached = this.machineRecordsCache![position]!
+      if (patch.inventory === undefined) delete cached.inventory
+      Object.assign(cached, patch)
+    } else this.machineRecordsCache?.push({ ...patch })
+    this.machineNameCache.set(id, patch.name)
   }
 
   /** Deployment label supplied by the composition root. */
@@ -1402,7 +1417,7 @@ export class MachinesService {
    * Separate from {@link listMachines} because that one builds the WIRE
    * projection: a client sees a machine's name, liveness and inventory, and does
    * not need to be told who owns it in order to be refused. Served from the same
-   * cache, which every write to the table invalidates.
+   * cache, which every committed write to the table updates in place.
    */
   async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale

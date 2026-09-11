@@ -242,9 +242,16 @@ describe('world index committed facts', () => {
     const store = await setup()
     const index = await WorldIndex.load(store)
     const apply = vi.spyOn(index, 'apply')
+    const service = new MachinesService({ store, worldIndex: index.reader } as ConstructorParameters<
+      typeof MachinesService
+    >[0])
+    const records = () => service['machineRecords']()
+    await records()
+    const list = vi.spyOn(store.machines, 'listMachines')
     const writes = [
       () => store.machines.upsertMachine(machine),
       () => store.machines.addMachineComponent(machine.id, 'daemon'),
+      () => store.machines.setMachineInventory(machine.id, JSON.stringify({ os: 'linux', arch: 'x64', podiumVersion: '1', agents: [], tools: [] })),
       () => store.machines.setMachineInventory(machine.id, '{"invalid":true}'),
       () =>
         store.machines.setMachineBuild(
@@ -276,11 +283,19 @@ describe('world index committed facts', () => {
       () => store.machines.touchMachine(machine.id, 'new-host'),
       () => store.machines.deleteMachine(machine.id),
     ]
-    for (const write of writes) {
-      apply.mockClear()
-      await write()
-      expect(apply).toHaveBeenCalledTimes(1)
-      expect(index.reader.machine(machine.id)).toEqual(await store.machines.getMachine(machine.id))
+    try {
+      for (const write of writes) {
+        apply.mockClear()
+        await write()
+        expect(apply).toHaveBeenCalledTimes(1)
+        const expected = await store.machines.getMachine(machine.id)
+        expect(index.reader.machine(machine.id)).toEqual(expected)
+        expect(await records()).toEqual(expected ? [expected] : [])
+        expect(await service.machineName(machine.id)).toBe(expected?.name ?? machine.id)
+        expect(list).not.toHaveBeenCalled()
+      }
+    } finally {
+      service.dispose()
     }
   })
 
@@ -288,7 +303,8 @@ describe('world index committed facts', () => {
     const store = await setup()
     await store.machines.upsertMachine(machine)
     // machineName needs only persistence; no transport or enrollment is driven.
-    const service = new MachinesService({ store } as ConstructorParameters<
+    const index = await WorldIndex.load(store)
+    const service = new MachinesService({ store, worldIndex: index.reader } as ConstructorParameters<
       typeof MachinesService
     >[0])
     try {
