@@ -182,12 +182,14 @@ export function MembersSection() {
                 onFocus={(e) => e.target.select()}
               />
               <Button
-                onClick={() =>
-                  void navigator.clipboard
-                    .writeText(link)
-                    .then(() => setNotice('Link copied.'))
-                    .catch(() => setNotice('Select the link above and copy it.'))
-                }
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(link)
+                    setNotice('Link copied.')
+                  } catch {
+                    setNotice('Select the link above and copy it.')
+                  }
+                }}
               >
                 Copy link
               </Button>
