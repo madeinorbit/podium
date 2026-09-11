@@ -1867,7 +1867,20 @@ export async function startServer(
           }
           const supplied = await sourcePrincipal(request)
           if (supplied === false) return undefined
-          if (supplied) return { userId: asUserId(supplied.memberId), userRole: supplied.role }
+          if (supplied) {
+            const principal = { ...supplied }
+            const principalRequest = { ...headers, url: request.url }
+            return {
+              userId: asUserId(principal.memberId),
+              userRole: principal.role,
+              ...(auth.maintainPrincipal
+                ? {
+                    maintain: async () =>
+                      (await auth.maintainPrincipal?.(principalRequest, principal)) === true,
+                  }
+                : {}),
+            }
+          }
           const credential = await resolveClientCredential(store.auth, headers)
           const principal = await requestPrincipal(headers, request)
           if (!principal) return undefined
