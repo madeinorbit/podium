@@ -44,6 +44,7 @@ const WORLD: Record<string, string> = {
   `,
   'apps/server/src/store/executor/executor.ts': `
     export function afterCommit(step: () => void, label: string): void { void step; void label }
+    export function applyAfterCommit(step: () => void, label: string): void { void step; void label }
   `,
   'packages/logger/src/logger.ts': `
     export interface Logger {
@@ -146,6 +147,29 @@ describe('rule 19: observability, not kind', () => {
       }
     `)
     expect(observableKeys(result)).toEqual([])
+  })
+
+  it('checks the repository write callback and excludes its commit application', () => {
+    const extra = {
+      'apps/server/src/store/committed-rows.ts': `
+        export class CommittedRows {
+          write(query: () => void): void { query() }
+        }
+      `,
+    }
+    const subject = (body: string) => `
+      import { CommittedRows } from './store/committed-rows'
+      import { applyAfterCommit } from './store/executor/executor'
+      import type { FeedPort } from './ports'
+      export function publish(rows: CommittedRows, feed: FeedPort): void {
+        rows.write(() => { ${body} })
+      }
+    `
+    expect(observableKeys(run(subject('feed.announce(1)'), extra)))
+      .toEqual(['apps/server/src/ports.ts#FeedPort.announce'])
+    const deferred = run(subject("applyAfterCommit(() => feed.announce(1), 'applied')"), extra)
+    expect(deferred.roots).toHaveLength(1)
+    expect(observableKeys(deferred)).toEqual([])
   })
 
   it('does not treat a read through a port as an effect', () => {

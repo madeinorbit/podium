@@ -2546,8 +2546,29 @@ export function checkSequentialPromiseCombinator(file: string, source: string): 
   return violations
 }
 
+/** Hot paths may consume the read-only index and explicitly injected ports,
+ * never import a repository. This participates in the whole-repo sweep. */
+export function checkWorldIndexBoundary(file: string, source: string): Violation[] {
+  if (isTestFile(file) || file === 'apps/server/src/gateway/feed-test-plumbing.ts') return []
+  const hot = file.startsWith('apps/server/src/gateway/') || [
+    'apps/server/src/modules/sessions/daemon-lifecycle.ts',
+    'apps/server/src/modules/messages/scheduler.ts',
+    'apps/server/src/feed-visibility.ts',
+  ].includes(file)
+  if (!hot) return []
+  return extractImports(source).flatMap((ref) => {
+    const target = ref.specifier.startsWith('.')
+      ? relative(process.cwd(), resolve(dirname(file), ref.specifier)).split(sep).join('/')
+      : ref.specifier.replace(/^@podium\/server(?:\/src)?(?=\/|$)/, 'apps/server/src')
+    if (!/^apps\/server\/src\/store(?:[/.]|$)/.test(target)) return []
+    return [{ rule: 'world-index-reader-boundary', file, specifier: ref.specifier,
+      message: 'Hot paths receive WorldIndexReader or a named port; store imports belong to composition and persistence.' }]
+  })
+}
+
 export function checkFile(file: string, source: string): Violation[] {
   return [
+    ...checkWorldIndexBoundary(file, source),
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
     ...checkRepositoryDbCapture(file, source),

@@ -17,7 +17,7 @@ import type { AutoContinueController } from '../../auto-continue'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import { harnessObservationProvider } from '../../harness-manifest'
-import type { ObservationLeaseRecord, SessionStore, TerminalCandidateFacts } from '../../store'
+import type { ObservationLeaseRecord, DaemonObservationStore, TerminalCandidateFacts } from '../../hot-path-ports'
 import type { EventBus } from '../bus'
 import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
@@ -36,7 +36,7 @@ export interface SessionDaemonLifecyclePorts {
   inbox: SessionInbox
   state: SessionStateService
   projection: SessionDaemonProjection
-  store: SessionStore
+  store: DaemonObservationStore
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
   observationLeases: SessionObservationLeases
   persist(session: Session, additionalWrite?: () => void | Promise<void>): Promise<void>
@@ -176,7 +176,7 @@ export class SessionDaemonLifecycle {
   private get daemonProjection(): SessionDaemonProjection {
     return this.ports.projection
   }
-  private get store(): SessionStore {
+  private get store(): DaemonObservationStore {
     return this.ports.store
   }
   private get observationLeases(): SessionObservationLeases {

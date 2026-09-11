@@ -28,8 +28,7 @@
 
 import { createLogger } from '@podium/logger'
 import type { SessionMeta, SessionId } from '@podium/model'
-import type { MessageRow } from '../../store'
-import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
+import type { MessageRow, MessagePageCursor, DeliveryMessages } from '../../hot-path-ports'
 import {
   compareCursor,
   cursorOf,
@@ -99,10 +98,7 @@ export interface DeliveryRunner {
 }
 
 export interface DeliverySchedulerDeps {
-  messages: Pick<
-    MessagesRepository,
-    'countPending' | 'countQueued' | 'listQueuedPage' | 'pendingForPage'
-  >
+  messages: DeliveryMessages
   now(): string
   runner: DeliveryRunner
 }

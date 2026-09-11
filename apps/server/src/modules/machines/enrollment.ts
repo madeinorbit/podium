@@ -31,8 +31,6 @@ const log = createLogger('server:machines')
  */
 export interface EnrollmentHost {
   readonly deps: MachinesDeps
-  /** The row caches are derived from the machines table; every write here invalidates. */
-  invalidateMachineCache(): void
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
   broadcastMachines(): Promise<void>
   hasSupervisor(machineId: MachineId): boolean
@@ -124,7 +122,7 @@ export async function authenticateDaemon(
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
     await deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
-    host.invalidateMachineCache()
+
     return {
       ok: true,
       machineId: frame.machineId,
@@ -149,7 +147,6 @@ export async function authenticateDaemon(
       (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
     ) {
       await deps.store.machines.touchMachine(frame.machineId, frame.hostname)
-      host.invalidateMachineCache()
     }
     const name = row.name ?? frame.hostname
     const updatePubkey = deps.updatePubkey?.()
@@ -334,7 +331,6 @@ async function reEnrolMachine(
   // Grants are always dropped on recovery — the row was gone, so edge rows
   // referencing it should already be gone; belt-and-braces clear.
   await host.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
-  host.invalidateMachineCache()
 }
 
 /**
@@ -398,7 +394,6 @@ export async function reconcileOwnersFromLedger(host: EnrollmentHost): Promise<v
       await host.deps.store.machines.setMachineOwner(machineId, resolved)
     }
   }
-  host.invalidateMachineCache()
 }
 
 /**
@@ -437,7 +432,7 @@ export async function transferOwnership(
   }
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
-  host.invalidateMachineCache()
+
   await host.broadcastMachines()
 }
 

@@ -1,3 +1,4 @@
+import { WorldIndex, type WorldIndexReader } from './modules/world-index'
 import { Buffer } from 'node:buffer'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
@@ -206,6 +207,7 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
+  worldIndex: WorldIndexReader
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
 }
 
@@ -408,6 +410,8 @@ function noticeInfo(session: Session): SessionNoticeInfo {
  * (or the store's aggregate repositories) directly.
  */
 export class SessionRegistry {
+  readonly worldIndex: WorldIndexReader
+
   readonly recoveryOnly: boolean
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
@@ -578,8 +582,11 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
+    const world = await WorldIndex.load(resolvedStore)
+    log.info('world index loaded', { elapsedMs: world.loadMs })
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
+      worldIndex: world.reader,
     })
     await registry.hydrate()
     return registry
@@ -600,6 +607,7 @@ export class SessionRegistry {
     // rather than surface after services and timers exist (POD-1470).
     const reactions = composeReactions(options.reactions ?? REACTIONS)
     this.store = store
+    this.worldIndex = boot.worldIndex
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     const recoveryOnly = options.recoveryOnly === true
@@ -3555,6 +3563,7 @@ export class SessionRegistry {
     clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
+    this.modules.machines.dispose()
     this.modules.issueSessionLifecycle.dispose()
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()

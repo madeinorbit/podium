@@ -196,7 +196,11 @@ export class PostCommitRunner {
         for (const entry of batch.commitApplications) {
           this.assertActive()
           try {
-            await entry.step()
+            // Synchronous commit applications (including the world index) form
+            // one turn. Awaiting void would expose a partially applied commit
+            // to microtask readers between two owned-fact writes.
+            const result = entry.step()
+            if (isThenable(result)) await result
           } catch (error) {
             this.report(this.options.markUnhealthy, error, entry.label)
             // Not skippable and not recoverable: stop the drain rather than

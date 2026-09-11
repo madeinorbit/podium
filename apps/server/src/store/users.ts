@@ -1,3 +1,4 @@
+import { CommittedRows } from './committed-rows'
 /**
  * THE ACCOUNT ROLE READER (POD-1079) — the first reader the `users` table
  * (POD-1075) has had.
@@ -9,9 +10,9 @@
  * the capability says what this connection was granted, the account role says
  * what grade of person is behind it.
  *
- * Writes stay out of scope on purpose — invite / disable / remove are ADR 9
- * lifecycle commands and POD-290's, and a repository that could mint an admin
- * would be a privilege-escalation surface this issue has no use for.
+ * Account creation, disablement and credential replacement publish the account
+ * through the mandatory commit application. Credential hashes stay out of the
+ * world index; disabled accounts and unknown roles still fail closed.
  */
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
@@ -50,10 +51,13 @@ export interface UserCredentialRow {
 }
 
 export class UsersRepository {
+  readonly committed: CommittedRows<typeof users.$inferSelect>
+
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
+    this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -87,10 +91,8 @@ export class UsersRepository {
    *
    * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, and reading it through a slot
    * is the PER-PASS form of spec rule 18's open question. It is legitimate here
-   * for a reason that does not extend to grants: `create` is the table's ONLY
-   * writer in product code — there is no UPDATE or DELETE against `users`
-   * anywhere — and it drops the cache, so the only mutation that exists is one
-   * this cache already honours. A caller still gets its own object per call;
+   * because account writes clear this scope cache. WorldIndex maintains its
+   * separate committed view through the write funnel. A caller gets its own object;
    * `undefined` is cached as an answer too, because "no account" is the verdict
    * every caller acts on.
    */
@@ -136,17 +138,7 @@ export class UsersRepository {
   private async read(userId: UserId): Promise<UserAccountRow | undefined> {
     const r = await this.accountById(this.db).get({ id: userId })
     if (!r) return undefined
-    const role = parseRole(r.role)
-    if (role === undefined) return undefined
-    const disabledAt = r.disabledAt
-    if (disabledAt !== null) return undefined
-    return {
-      id: r.id,
-      displayName: r.displayName,
-      role,
-      createdAt: r.createdAt,
-      disabledAt,
-    }
+    return userFromRow(r)
   }
 
   /** The account role, or `undefined` for an account that cannot act. */
@@ -158,6 +150,18 @@ export class UsersRepository {
     const rows = await this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
     const accounts = await Promise.all(rows.map(async (row) => await this.get(row.id)))
     return accounts.filter((account): account is UserAccountRow => account !== undefined)
+  }
+
+  /** One grouped boot read; disabled/unknown roles stay fail-closed. */
+  async loadWorldUsers(): Promise<UserAccountRow[]> {
+    return (await this.db.select().from(users).all())
+      .flatMap((row) => { const account = userFromRow(row); return account ? [account] : [] })
+  }
+
+  async disable(userId: UserId, disabledAt: string): Promise<void> {
+    currentReadScope().clear(this.accountsSlot)
+    await this.committed.write(async () => this.db.update(users).set({ disabledAt })
+      .where(eq(users.id, userId)).returning().all(), 'upsert')
   }
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
@@ -194,12 +198,12 @@ export class UsersRepository {
   }
 
   async create(account: UserAccountRow, passwordHash: string): Promise<void> {
-    // The table's only writer drops the scope's cache, so the read after a mint
+    // Account writes drop the scope's cache, so the read after a mint
     // sees the account rather than the "no account" this scope had cached.
     currentReadScope().clear(this.accountsSlot)
     try {
       await this.createOrJoinTransaction(async () => {
-        ;await (this.db
+        ;await this.committed.write(async () => (this.db
           .insert(users)
           .values({
             // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
@@ -209,8 +213,7 @@ export class UsersRepository {
             role: account.role,
             createdAt: account.createdAt,
             disabledAt: null,
-          }))
-          .run()
+          })).returning().all(), 'upsert')
         ;await (this.db
           .insert(userCredentials)
           .values({
@@ -231,8 +234,11 @@ export class UsersRepository {
   }
 
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
-    if (!await this.get(userId)) throw new Error(`unknown user: ${userId}`)
-    ;await (this.db
+    await this.committed.write(async () => {
+      // A credential write must not republish an older pass-scoped account.
+      const account = await this.read(userId)
+      if (!account) throw new Error(`unknown user: ${userId}`)
+      await (this.db
       .insert(userCredentials)
       .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
       .onConflictDoUpdate({
@@ -240,5 +246,21 @@ export class UsersRepository {
         set: { source: 'per-user-scrypt', passwordHash, updatedAt },
       })
       .run()
+      return [{ ...account, id: userId }]
+    }, 'upsert')
   }
+}
+
+export function userFromRow(r: typeof users.$inferSelect): UserAccountRow | undefined {
+    const role = parseRole(r.role)
+    if (role === undefined) return undefined
+    const disabledAt = r.disabledAt
+    if (disabledAt !== null) return undefined
+    return {
+      id: r.id,
+      displayName: r.displayName,
+      role,
+      createdAt: r.createdAt,
+      disabledAt,
+    }
 }

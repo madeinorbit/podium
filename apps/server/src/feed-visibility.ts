@@ -46,8 +46,8 @@ import type {
 } from '@podium/sync'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
-import type { GrantRow } from './store/grants'
-import type { IssueRow, SessionRow, SessionStore } from './store'
+import type { GrantRow } from './hot-path-ports'
+import type { IssueRow, SessionRow, FeedVisibilityStore } from './hot-path-ports'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -158,7 +158,7 @@ type BootstrapReadCache = {
 
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
-  readonly store: SessionStore
+  readonly store: FeedVisibilityStore
   /**
    * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
    *

@@ -1,3 +1,4 @@
+import { machineRecordFromRow } from '../../store/machines'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
@@ -346,12 +347,11 @@ export class MachinesService {
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
    * a fresh SQLite prepare+all on the hottest path in the process — the profiled
-   * boot-storm CPU sink. Machines change rarely: every method that writes the
-   * machines table (and daemon attach/detach, defensively) calls
-   * invalidateMachineCache(); the next read rebuilds lazily.
+   * boot-storm CPU sink. Committed machine writes update these records in place. Explicit schema
+   * repair can invalidate them; the next read rebuilds lazily.
    */
   private machineRecordsCache: MachineRecord[] | null = null
-  /** Bumped by every invalidation; see {@link machineRecords}. */
+  /** Bumped by every committed write and schema invalidation. */
   private machineCacheEpoch = 0
   private machineNameCache = new Map<string, string>()
 
@@ -363,14 +363,33 @@ export class MachinesService {
    */
   private readonly enrollmentHost: EnrollmentHost
 
+  private readonly unsubscribeMachineWrites: () => void
+
   constructor(private readonly deps: MachinesDeps) {
+    this.unsubscribeMachineWrites = deps.store.machines.committed.subscribe((change) => {
+      this.machineCacheEpoch += 1
+      for (const raw of change.rows) {
+        const position = this.machineRecordsCache?.findIndex((row) => row.id === raw.id) ?? -1
+        if (change.operation === 'delete') {
+          if (position >= 0) this.machineRecordsCache!.splice(position, 1)
+          this.machineNameCache.delete(raw.id)
+        } else {
+          const row = machineRecordFromRow(raw)
+          if (position >= 0) {
+            const cached = this.machineRecordsCache![position]!
+            if (row.inventory === undefined) delete cached.inventory
+            Object.assign(cached, row)
+          }
+          else this.machineRecordsCache?.push(row)
+          this.machineNameCache.set(row.id, row.name)
+        }
+      }
+    })
+
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
     this.enrollmentHost = {
       deps,
-      invalidateMachineCache: () => {
-        this.invalidateMachineCache()
-      },
       broadcastMachines: async () => {
         await this.broadcastMachines()
       },
@@ -419,7 +438,6 @@ export class MachinesService {
     }
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
-    this.invalidateMachineCache()
     // A DAEMON JUST ATTACHED HERE (POD-2700), so this machine durably runs one —
     // the structural fact §1.2 asks for, recorded at the same moment the socket
     // fact is. This is the one place every enrolment path converges on (pair and
@@ -439,7 +457,6 @@ export class MachinesService {
   async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
     if (this.presenceReadOnly) return
     if (!await this.deps.store.machines.addMachineComponent(machineId, component)) return
-    this.invalidateMachineCache()
     await this.broadcastMachines()
   }
 
@@ -514,7 +531,6 @@ export class MachinesService {
       new Date().toISOString(),
       'supervisor',
     )
-    this.invalidateMachineCache()
     send({ type: 'serviceAssignment', assignment: await this.serviceAssignment(machineId) })
     return 'attached'
   }
@@ -541,8 +557,7 @@ export class MachinesService {
     if (!this.supervisorHolds(machineId, send)) return false
     this.supervisors.delete(machineId)
     if (this.presenceReadOnly) {
-      this.invalidateMachineCache()
-      return true
+        return true
     }
     const legacy = this.legacyBuilds.get(machineId)
     if (this.daemons.has(machineId) && legacy) {
@@ -560,7 +575,6 @@ export class MachinesService {
     } else {
       this.beginPresenceGrace(machineId)
     }
-    this.invalidateMachineCache()
     return true
   }
 
@@ -577,7 +591,6 @@ export class MachinesService {
     this.legacyBuilds.set(machineId, { build, caps: [...caps] })
     if (this.presenceReadOnly || this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
-    this.invalidateMachineCache()
   }
 
   async recordSupervisorReport(
@@ -595,7 +608,6 @@ export class MachinesService {
       services,
       at,
     )
-    this.invalidateMachineCache()
     await this.broadcastMachines()
   }
 
@@ -614,7 +626,6 @@ export class MachinesService {
     }
     this.updateParticipants.set(machineId, send)
     if (!this.supervisors.has(machineId)) this.clearPresenceGrace(machineId)
-    this.invalidateMachineCache()
   }
 
   detachUpdateParticipant(
@@ -627,7 +638,6 @@ export class MachinesService {
     if (!this.supervisors.has(machineId) && !this.daemons.has(machineId)) {
       this.beginPresenceGrace(machineId)
     }
-    this.invalidateMachineCache()
     return true
   }
 
@@ -665,7 +675,6 @@ export class MachinesService {
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
     if (!this.supervisors.has(machineId)) this.beginPresenceGrace(machineId)
-    this.invalidateMachineCache()
     return true
   }
 
@@ -682,8 +691,7 @@ export class MachinesService {
     const timer = setTimeout(() => {
       this.presenceGraceTimers.delete(machineId)
       this.presenceGraceUntil.delete(machineId)
-      this.invalidateMachineCache()
-      this.scheduleBroadcastMachines()
+        this.scheduleBroadcastMachines()
     }, MACHINE_PRESENCE_GRACE_MS)
     timer.unref?.()
     this.presenceGraceTimers.set(machineId, timer)
@@ -842,34 +850,21 @@ export class MachinesService {
     return await credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
 
-  /**
-   * INSTALL ONLY IF NOTHING INVALIDATED WHILE WE WERE READING.
-   *
-   * `listMachines` is async now, so the assignment lands AFTER the await, and
-   * that gap is a real window: a read that starts before a write, and resolves
-   * after the write's `invalidateMachineCache()`, would put its own STALE
-   * snapshot back into the cache and undo the invalidation. Nothing invalidates
-   * it again, so the cache stays wrong for the life of the process.
-   *
-   * That is not hypothetical. It is how a machine whose daemon component had
-   * just been written kept reading back as "runs no Podium daemon", which is a
-   * structural refusal on an AUTHORIZATION path -- requireMachineForRepo and
-   * requireCapability both decide through this cache.
-   *
-   * Before the flip the read was synchronous and there was no gap, so the plain
-   * assignment was correct. The epoch counter is what replaces that atomicity:
-   * compare against the LATEST invalidation, not merely against "was there one".
-   */
+  /** The existing service cache is maintained by committed machine writes.
+   * A load overlapping a commit retries, never installs or returns stale rows. */
   private async machineRecords(): Promise<MachineRecord[]> {
     if (this.machineRecordsCache) return this.machineRecordsCache
-    const epoch = this.machineCacheEpoch
-    const rows = await this.deps.store.machines.listMachines()
-    // The name map is a display-name projection: fresher is always better, and
-    // it is safe to refresh even when the records cache must be discarded.
-    this.machineNameCache = new Map(rows.map((m) => [m.id, m.name]))
-    if (epoch === this.machineCacheEpoch) this.machineRecordsCache = rows
-    return rows
+    for (;;) {
+      const epoch = this.machineCacheEpoch
+      const rows = await this.deps.store.machines.listMachines()
+      if (epoch !== this.machineCacheEpoch) continue
+      this.machineNameCache = new Map(rows.map((m) => [m.id, m.name]))
+      this.machineRecordsCache = rows
+      return rows
+    }
   }
+
+  dispose(): void { this.unsubscribeMachineWrites() }
 
   /** Resolve the native login identity available on the machine that will run a session. */
   async nativeAccountIdForMachine(
@@ -887,6 +882,7 @@ export class MachinesService {
       : accountId
   }
 
+  /** Explicit schema-level repair only; ordinary writes update in place. */
   invalidateMachineCache(): void {
     // Bump BEFORE clearing: a read in flight compares against this counter, and
     // must see the invalidation whichever order the two lines are observed in.
@@ -1473,7 +1469,6 @@ export class MachinesService {
 
   private async persistInventory(machineId: MachineId, inventoryJson: string): Promise<void> {
     await this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
-    this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
     await this.deps.onInventoryRecorded?.()
@@ -1486,7 +1481,6 @@ export class MachinesService {
   async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
     if (this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
-    this.invalidateMachineCache()
     await this.broadcastMachines()
   }
 
@@ -1501,7 +1495,6 @@ export class MachinesService {
 
   async renameMachine(id: MachineId, name: string): Promise<void> {
     await this.deps.store.machines.renameMachine(id, name)
-    this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
@@ -1514,7 +1507,6 @@ export class MachinesService {
    * exactly as a per-machine change does for one.
    */
   async refreshFleetChannel(): Promise<void> {
-    this.invalidateMachineCache()
     await this.broadcastMachines()
   }
 
@@ -1524,7 +1516,6 @@ export class MachinesService {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine) throw new Error(`unknown machine '${id}'`)
     await this.deps.store.machines.setUpdateChannel(id, channel)
-    this.invalidateMachineCache()
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
     await this.broadcastMachines()
@@ -1604,7 +1595,6 @@ export class MachinesService {
     // silently re-share a machine its owner had already un-shared.
     await this.deps.store.grants.removeAllForResource('machine', id)
     await this.deps.store.machines.deleteMachine(id)
-    this.invalidateMachineCache()
     this.daemons.delete(id)
     this.supervisors.delete(id)
     this.updateParticipants.delete(id)
@@ -1680,7 +1670,6 @@ export class MachinesService {
     // The ledger owner wins over a stale or restored row. `upsertMachine`
     // deliberately preserves an existing owner, so project explicitly here.
     if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)
-    this.invalidateMachineCache()
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at
     // boot is what finally makes a server-only host legible as such: a row with

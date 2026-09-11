@@ -234,6 +234,12 @@ export interface OpenerSpec {
  */
 export const SPAN_OPENERS: readonly OpenerSpec[] = [
   {
+    file: 'apps/server/src/store/committed-rows.ts',
+    symbol: 'write',
+    body: 'arg0',
+    label: 'CommittedRows.write',
+  },
+  {
     file: 'apps/server/src/store.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -388,6 +394,7 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
  */
 const POST_COMMIT_REGISTRARS: readonly { readonly file: string; readonly symbol: string }[] = [
   { file: 'apps/server/src/store/executor/executor.ts', symbol: 'afterCommit' },
+  { file: 'apps/server/src/store/executor/executor.ts', symbol: 'applyAfterCommit' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'effect' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'followUp' },
   { file: 'apps/server/src/store/executor/post-commit.ts', symbol: 'commitApplication' },
@@ -514,6 +521,10 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/store/committed-rows.ts#CommittedRows.query': {
+    kind: 'opaque',
+    why: 'The repository-supplied write callback; every CommittedRows.write argument is a span root, so its effects are checked where the query is declared.',
+  },
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',
     why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",

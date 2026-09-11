@@ -1,3 +1,4 @@
+import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
  * [spec:SP-34d7]: one durable row per inter-agent / superagent / system / UI
@@ -165,7 +166,14 @@ const DELIVERY_ORDER = [asc(messagesTable.createdAt), asc(messagesTable.id)] as 
 const boundedLimit = (limit: number | undefined, fallback: number, ceiling: number): number =>
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
+export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'status'>
+const MESSAGE_QUEUE_COLUMNS = {
+  id: messagesTable.id, toKind: messagesTable.toKind, toId: messagesTable.toId, status: messagesTable.status,
+}
+
 export class MessagesRepository {
+  readonly committed: CommittedRows<MessageQueueFact>
+
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
    * This aggregate opens no span today, but both members are retained so adding
@@ -175,6 +183,7 @@ export class MessagesRepository {
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
+    this.committed = new CommittedRows(queries.createOrJoinTransaction, 'messages')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -190,7 +199,7 @@ export class MessagesRepository {
   }
 
   async addMessage(m: MessageRow): Promise<void> {
-    ;await (this.db
+    ;await this.committed.write(async () => (this.db
       .insert(messagesTable)
       .values({
         id: m.id,
@@ -229,8 +238,18 @@ export class MessagesRepository {
         expectsResponse: m.expectsResponse,
         factKey: m.factKey ?? null,
         factTarget: m.factTarget ?? null,
-      }))
-      .run()
+      })).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
+  }
+
+  /** Queued identities let apply distinguish mixed queued/delivered predicates
+   * without a before-image SELECT. Still one statement, grouped by target. */
+  async loadWorldPending(): Promise<{ toKind: string; toId: string | null; count: number; ids: string[] }[]> {
+    const rows = await this.db.select({
+      toKind: messagesTable.toKind, toId: messagesTable.toId,
+      count: sql<number>`count(*)`, ids: sql<string>`json_group_array(${messagesTable.id})`,
+    }).from(messagesTable).where(eq(messagesTable.status, 'queued'))
+      .groupBy(messagesTable.toKind, messagesTable.toId).all()
+    return rows.map((row) => ({ ...row, ids: JSON.parse(row.ids) as string[] }))
   }
 
   async getMessage(id: string): Promise<MessageRow | null> {
@@ -648,11 +667,10 @@ export class MessagesRepository {
    *  transcript echo. A queued row that was injected but never echoed within the
    *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
   async markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ injectedAt, deliveredTo })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -680,7 +698,7 @@ export class MessagesRepository {
     at: string,
     reason: QueueDrainAbandonedReason,
   ): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -689,8 +707,7 @@ export class MessagesRepository {
         deliveryDeferredReason: reason,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
       })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -721,11 +738,10 @@ export class MessagesRepository {
    * nothing and changes nothing.
    */
   async retractOptimisticDelivery(id: string, deliveredTo: SessionId): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ status: 'queued', deliveredAt: null, injectedAt: null })
-      .where(restingOnAPush(id, deliveredTo))
-      .run()
+      .where(restingOnAPush(id, deliveredTo)).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     if (r.changes !== 1) return false
     await this.db
       .delete(messageReads)
@@ -759,7 +775,7 @@ export class MessagesRepository {
     at: string,
     reason: QueueDrainAbandonedReason,
   ): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -767,8 +783,7 @@ export class MessagesRepository {
         deliveryDeferredAt: at,
         deliveryDeferredReason: reason,
       })
-      .where(restingOnAPush(id, deliveredTo))
-      .run()
+      .where(restingOnAPush(id, deliveredTo)).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -780,11 +795,10 @@ export class MessagesRepository {
     // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
     // supply strings, so narrow once before writing the branded column.
     const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ status: 'delivered', deliveredAt, deliveredTo: brandedDeliveredTo })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
     if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
@@ -795,11 +809,10 @@ export class MessagesRepository {
    * recipient. The queued-input drain re-reads this status immediately before
    * touching the PTY, so a cancelled row cannot be applied later. */
   async markCancelled(id: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ status: 'cancelled' })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -812,15 +825,14 @@ export class MessagesRepository {
    *  correctly and landed in a transcript. That erase is why the delivery ledger
    *  could not be trusted to answer "did this reach anyone?". */
   async markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({
         status: 'delivered',
         deliveredAt,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${reader})`,
       })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     // The pull proves THIS reader has it, whoever the row was pushed to.
     if (reader) await this.recordRead(id, asSessionId(reader), deliveredAt)
     return r.changes === 1
@@ -830,15 +842,14 @@ export class MessagesRepository {
    *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
    *  agent pulled it. A delivered row can still be marked read if later pulled. */
   async markRead(id: string, deliveredTo: string | null, readAt: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({
         status: 'read',
         readAt,
         deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${deliveredTo})`,
       })
-      .where(and(eq(messagesTable.id, id), inArray(messagesTable.status, ['queued', 'delivered'])))
-      .run()
+      .where(and(eq(messagesTable.id, id), inArray(messagesTable.status, ['queued', 'delivered']))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
     // guarded UPDATE lost (a peer consumed the shared row first): the receipt is
     // about THIS reader, not about who moved the shared delivery ledger.
@@ -860,7 +871,7 @@ export class MessagesRepository {
   async markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): Promise<boolean> {
     // TWO DIFFERENT WRITES, not one with nulls: without a cause the two
     // `delivery_deferred_*` columns are LEFT ALONE rather than cleared.
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set(
         cause
@@ -872,8 +883,7 @@ export class MessagesRepository {
             }
           : { status: 'dead_letter', deadLetteredAt: at },
       )
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -882,11 +892,10 @@ export class MessagesRepository {
    *  delivery attempt re-pushes. Guarded on status='queued' so a row that raced to
    *  delivered/read in the meantime is left alone. */
   async clearInjected(id: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ injectedAt: null })
-      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
-      .run()
+      .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued'))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -936,7 +945,7 @@ export class MessagesRepository {
     lifecycle: MessageRow['lifecycle']
     expiresAt: string | null
   }): Promise<boolean> {
-    const result = await this.db
+    const result = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ status: 'expired' })
       .where(
@@ -952,18 +961,16 @@ export class MessagesRepository {
             ? isNull(messagesTable.expiresAt)
             : eq(messagesTable.expiresAt, input.expiresAt),
         ),
-      )
-      .run()
+      ).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return result.changes === 1
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
   async markAcked(id: string, ackedBy: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ ackedBy })
-      .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy)))
-      .run()
+      .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 
@@ -1031,11 +1038,10 @@ export class MessagesRepository {
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
   async markReminded(id: string, at: string): Promise<boolean> {
-    const r = await this.db
+    const r = await this.committed.write(async () => this.db
       .update(messagesTable)
       .set({ remindedAt: at })
-      .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt)))
-      .run()
+      .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt))).returning(MESSAGE_QUEUE_COLUMNS).all(), 'upsert')
     return r.changes === 1
   }
 }

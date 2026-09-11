@@ -24,7 +24,12 @@ function makeService(): MachinesService {
     // truthful answer for a fixture with no rows and keeps these socket-identity
     // tests about sockets.
     store: {
-      machines: { addMachineComponent: () => false, setPresenceSource: () => {} },
+      machines: {
+        addMachineComponent: () => false,
+        setPresenceSource: () => {},
+        // No durable rows in this socket-only fake, so no commit events fire.
+        committed: { subscribe: () => () => {} },
+      },
     } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
     sessionsChangedForMachine: () => {},

@@ -1,30 +1,10 @@
+import { CommittedRows } from './committed-rows'
 /**
- * THE GRANT EDGE TABLE (POD-1079) — the persistence half of POD-1075's
- * `GrantEdge` model type, and the first writer the `grants` table has ever had.
- *
- * ---------------------------------------------------------------------------
- * WHAT IS STORED IS AN EDGE, NOT A DECISION
- * ---------------------------------------------------------------------------
- *
- * ADR 9 D2 rule 4: *"A grant is not a copy of rights. It is evaluated live
- * against the granter's CURRENT rights."* So this repository has no `can()`, no
- * effective-rights query and no cache. It answers ONE question — which edges
- * exist on this resource right now — and `machine-access.ts` computes the
- * verdict from that plus the row's current owner, at every apply.
- *
- * The consequence that matters operationally: revocation is `DELETE`, and the
- * next decision is already correct. There is no reaper to write and therefore
- * none to forget (the same reason the model type has no `expiresAt`).
- *
- * ---------------------------------------------------------------------------
- * WHY THE READ IS PER-RESOURCE AND NOT A WHOLE-TABLE LOAD
- * ---------------------------------------------------------------------------
- *
- * Every `use` check names one machine. A cached whole-table read would be a
- * SECOND source of truth for "who may run code on this laptop", and the failure
- * mode is the one ADR 9 D2 rule 4 forbids: a revoked grant that keeps working until
- * something invalidates a cache. `MachinesService` caches machine ROWS for the
- * hot listing path; grants are deliberately not in that cache.
+ * Durable grant edges, never cached authorization decisions. Existing readers
+ * still query this repository. WorldIndex separately mirrors these rows through
+ * the mandatory commit application: a revocation and its in-memory edge removal
+ * commit together, so there is no cache invalidation or stale-rights interval.
+ * The granter's CURRENT rights must still be evaluated at every decision.
  */
 
 import type { GrantVerb } from '@podium/model'
@@ -71,7 +51,7 @@ const parseVerb = (raw: unknown): GrantVerb | undefined =>
 
 type GrantSelection = typeof grants.$inferSelect
 
-function toRow(r: GrantSelection): GrantRow | undefined {
+export function grantFromRow(r: GrantSelection): GrantRow | undefined {
   const verb = parseVerb(r.verb)
   if (verb === undefined) return undefined
   return {
@@ -89,6 +69,8 @@ function toRow(r: GrantSelection): GrantRow | undefined {
 }
 
 export class GrantsRepository {
+  readonly committed: CommittedRows<typeof grants.$inferSelect>
+
   private readonly visibilityAudiences = new Map<string, Set<string>>()
   /**
    * Process-local authority generation for caches that retain a scoped answer.
@@ -138,6 +120,7 @@ export class GrantsRepository {
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
+    this.committed = new CommittedRows(queries.createOrJoinTransaction, 'grants')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -164,7 +147,7 @@ export class GrantsRepository {
       .orderBy(asc(grants.createdAt))
       .all()
     return rows.flatMap((r) => {
-      const row = toRow(r)
+      const row = grantFromRow(r)
       return row ? [row] : []
     })
   }
@@ -173,13 +156,8 @@ export class GrantsRepository {
    * The same LIVE read as {@link listForResource}, asked about MANY resources at
    * once [POD-1653].
    *
-   * This is a batching change, explicitly not a caching one — the header above
-   * rules a cache out, and for a reason that still holds: a revoked grant must
-   * stop working at the next decision, and a whole-table read held across
-   * decisions would be a second source of truth for "who may run code on this
-   * laptop". Every row here is read from SQLite at the moment of asking, exactly
-   * as the per-resource form does; the only thing that changes is how many
-   * round-trips one pass costs.
+   * This API remains a live batched read. WorldIndex is a separate committed
+   * fact capability; switching authorization callers belongs to the child issues.
    *
    * Why it was needed: a reader-scoped session projection asked this question
    * once per session, and for the ~1145 sessions with no issue the resource key
@@ -208,7 +186,7 @@ export class GrantsRepository {
         .orderBy(asc(grants.createdAt))
         .all()
       for (const r of rows) {
-        const row = toRow(r)
+        const row = grantFromRow(r)
         if (!row) continue
         const bucket = out.get(row.resourceId)
         if (bucket) bucket.push(row)
@@ -228,9 +206,15 @@ export class GrantsRepository {
       .orderBy(asc(grants.createdAt))
       .all()
     return rows.flatMap((r) => {
-      const row = toRow(r)
+      const row = grantFromRow(r)
       return row ? [row] : []
     })
+  }
+
+  /** One boot statement, sharing the same fail-closed decoder as live reads. */
+  async loadWorldGrants(): Promise<GrantRow[]> {
+    return (await this.db.select().from(grants).orderBy(asc(grants.createdAt)).all())
+      .flatMap((row) => { const grant = grantFromRow(row); return grant ? [grant] : [] })
   }
 
   /**
@@ -244,7 +228,7 @@ export class GrantsRepository {
     // `grants` carries its four-column primary key and NO second uniqueness
     // constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly
     // (checklist item 1, as amended: every column is named).
-    ;await (this.db
+    ;await this.committed.write(async () => (this.db
       .insert(grants)
       .values({
         resourceKind: row.resourceKind,
@@ -268,8 +252,7 @@ export class GrantsRepository {
           actorId: row.actorId,
           onBehalfOf: row.onBehalfOf,
         },
-      })
-      .run()
+      }).returning().all(), 'upsert')
     this.visibilityRevisionValue += 1
   }
 
@@ -285,7 +268,7 @@ export class GrantsRepository {
       eq(grants.verb, verb),
     )
     const before = await this.db.select({ n: count() }).from(grants).where(match).get()
-    await this.db.delete(grants).where(match).run()
+    await this.committed.write(async () => this.db.delete(grants).where(match).returning().all(), 'delete')
     const removed = (before?.n ?? 0) > 0
     if (removed) this.visibilityRevisionValue += 1
     return removed
@@ -299,10 +282,9 @@ export class GrantsRepository {
    * owner already un-shared. This is not a reaper: it is part of the delete.
    */
   async removeAllForResource(resourceKind: string, resourceId: string): Promise<void> {
-    const result = await this.db
+    const result = await this.committed.write(async () => this.db
       .delete(grants)
-      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId)))
-      .run()
+      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId))).returning().all(), 'delete')
     if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
   }
 }

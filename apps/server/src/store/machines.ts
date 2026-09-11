@@ -1,3 +1,4 @@
+import { CommittedRows } from './committed-rows'
 /**
  * Machines aggregate — owns the `machines` table (registered daemons and
  * their token hashes).
@@ -149,7 +150,7 @@ const MACHINE_COLUMNS = {
   componentsJson: machines.componentsJson,
 }
 
-function toRecord(r: MachineSelect): MachineRecord {
+export function machineRecordFromRow(r: MachineSelect): MachineRecord {
   const inventory = parseInventory(r.inventoryJson)
   return {
     id: r.id,
@@ -223,10 +224,13 @@ export const MACHINE_ID_SITES: readonly string[] = [
 ]
 
 export class MachinesRepository {
+  readonly committed: CommittedRows<typeof machines.$inferSelect>
+
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(queries: StoreQueries) {
+    this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -307,7 +311,7 @@ export class MachinesRepository {
     podiumManaged?: boolean
   }): Promise<void> {
     const now = new Date().toISOString()
-    ;await (this.db
+    ;await this.committed.write(async () => (this.db
       .insert(machines)
       .values({
         // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
@@ -335,8 +339,7 @@ export class MachinesRepository {
           ownerUserId: sql`COALESCE(${machines.ownerUserId}, ${m.ownerUserId})`,
           podiumManaged: m.podiumManaged ?? true,
         },
-      })
-      .run()
+      }).returning().all(), 'upsert')
   }
 
   async listMachines(): Promise<MachineRecord[]> {
@@ -345,7 +348,7 @@ export class MachinesRepository {
       .from(machines)
       .orderBy(asc(machines.createdAt))
       .all())
-      .map(toRecord)
+      .map(machineRecordFromRow)
   }
 
   async getMachine(id: string): Promise<MachineRecord | undefined> {
@@ -355,7 +358,7 @@ export class MachinesRepository {
       .where(eq(machines.id, id as MachineId))
       .get()
     if (!r) return undefined
-    return toRecord(r)
+    return machineRecordFromRow(r)
   }
 
   /**
@@ -384,21 +387,19 @@ export class MachinesRepository {
     const current = parseComponents(row.componentsJson) ?? []
     if (current.includes(component)) return false
     const next = [...current, component]
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ componentsJson: JSON.stringify(next) })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
     return true
   }
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
   async setMachineInventory(id: string, inventoryJson: string): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ inventoryJson })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   /** Persist a compatibility-path build report. */
@@ -409,7 +410,7 @@ export class MachinesRepository {
     at: string,
     source?: MachinePresenceSource,
   ): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({
         appVersion: build.appVersion ?? null,
@@ -421,8 +422,7 @@ export class MachinesRepository {
         presenceSource: sql`COALESCE(${source ?? null}, ${machines.presenceSource})`,
         buildReportedAt: at,
       })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   /** One supervisor report atomically owns presence, build and service truth. */
@@ -433,7 +433,7 @@ export class MachinesRepository {
     services: MachineServiceReport,
     at: string,
   ): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({
         appVersion: build.appVersion ?? null,
@@ -445,24 +445,21 @@ export class MachinesRepository {
         buildReportedAt: at,
         lastSeenAt: at,
       })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   async setServiceAssignment(id: string, assignment: MachineServiceAssignment): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ serviceAssignmentJson: JSON.stringify(assignment) })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   async setPresenceSource(id: string, source: MachinePresenceSource): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ presenceSource: source })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   /** Constant-time token comparison using sha-256 hex. */
@@ -481,19 +478,17 @@ export class MachinesRepository {
   /** Persist the operator-selected update authority for one managed machine.
    *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
   async setUpdateChannel(id: string, channel: UpdateChannelValue | null): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ updateChannelOverride: channel })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   async renameMachine(id: string, name: string): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ name })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   /**
@@ -503,25 +498,22 @@ export class MachinesRepository {
    * projects it onto the row. `null` is quarantine (usable by nobody).
    */
   async setMachineOwner(id: string, ownerUserId: UserId | null): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ ownerUserId })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   async deleteMachine(id: string): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .delete(machines)
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'delete')
   }
 
   async touchMachine(id: string, hostname: string): Promise<void> {
-    await this.db
+    await this.committed.write(async () => this.db
       .update(machines)
       .set({ lastSeenAt: new Date().toISOString(), hostname })
-      .where(eq(machines.id, id as MachineId))
-      .run()
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 }

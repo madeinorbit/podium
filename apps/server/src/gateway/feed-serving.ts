@@ -147,9 +147,7 @@ import type {
 } from '@podium/sync'
 import { FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
-import { runAtRoot } from '../store/executor/context'
-import { createFrameFlusher } from '../store/executor/frame-flusher'
-import { withReadScope } from '../store/executor/read-scope'
+import { runAtRoot, createFrameFlusher, withReadScope } from '../publication-scope'
 import { perf } from '../modules/perf/registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import {
