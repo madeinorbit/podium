@@ -45,12 +45,12 @@ const GLOW = {
 const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
 
 /**
- * Ask the server whether a login is needed. Returns 'login' only when a password is set AND
- * this client isn't authed yet. Every other answer is handed to the replica gate so it can
- * preserve authoritative refusals and offline namespace selection without another request.
+ * Ask the server whether authentication is needed, including cloud admission refusals.
+ * Other answers go to the replica gate to preserve authoritative refusals and offline
+ * namespace selection without another request.
  */
 type AuthDecision =
-  | { readonly kind: 'login'; mode: 'local' | 'cloud'; signInUrl?: string }
+  | { readonly kind: 'login'; mode: 'local' | 'cloud'; signInUrl?: string; deniedReason?: string }
   | { readonly kind: 'ready'; auth: AuthBootstrap }
 
 async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
@@ -87,6 +87,8 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
     readiness?: unknown
     mode?: unknown
     signInUrl?: unknown
+    providerSignedIn?: unknown
+    deniedReason?: unknown
   }
   try {
     data = (await res.json()) as {
@@ -103,6 +105,13 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
       kind: 'login',
       mode: data.mode === 'cloud' ? 'cloud' : 'local',
       signInUrl: typeof data.signInUrl === 'string' ? data.signInUrl : undefined,
+      deniedReason:
+        data.mode === 'cloud' &&
+        data.providerSignedIn === true &&
+        typeof data.deniedReason === 'string' &&
+        data.deniedReason.length > 0
+          ? data.deniedReason
+          : undefined,
     }
   const outcome = classifyAuthStatus(data)
   return 'principal' in outcome
@@ -128,7 +137,13 @@ function originHost(httpOrigin: string): string {
 
 /* ── Login view ───────────────────────────────────────────────────────────── */
 
-export function CloudLoginView({ signInUrl }: { signInUrl?: string }): ReactNode {
+export function CloudLoginView({
+  signInUrl,
+  deniedReason,
+}: {
+  signInUrl?: string
+  deniedReason?: string
+}): ReactNode {
   const returnTo = window.location.pathname + window.location.search + window.location.hash
   const destination = new URL(signInUrl ?? '/account/sign-in', window.location.origin)
   destination.searchParams.set('returnTo', returnTo)
@@ -142,22 +157,31 @@ export function CloudLoginView({ signInUrl }: { signInUrl?: string }): ReactNode
         color: C.text,
       }}
     >
-      <a
-        href={
-          signInUrl
-            ? destination.href
-            : destination.pathname + destination.search + destination.hash
-        }
-        style={{
-          padding: '16px 24px',
-          borderRadius: 8,
-          background: C.accent,
-          color: C.accentText,
-          fontFamily: MONO,
-        }}
-      >
-        Continue with Podium Cloud
-      </a>
+      {deniedReason ? (
+        <p
+          role="alert"
+          style={{ margin: 24, color: C.errorText, fontFamily: MONO, textAlign: 'center' }}
+        >
+          {deniedReason}
+        </p>
+      ) : (
+        <a
+          href={
+            signInUrl
+              ? destination.href
+              : destination.pathname + destination.search + destination.hash
+          }
+          style={{
+            padding: '16px 24px',
+            borderRadius: 8,
+            background: C.accent,
+            color: C.accentText,
+            fontFamily: MONO,
+          }}
+        >
+          Continue with Podium Cloud
+        </a>
+      )}
     </main>
   )
 }
@@ -507,6 +531,7 @@ export function LoginGate({
   )
   const [mode, setMode] = useState<'local' | 'cloud'>('local')
   const [signInUrl, setSignInUrl] = useState<string>()
+  const [deniedReason, setDeniedReason] = useState<string>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -519,6 +544,7 @@ export function LoginGate({
       if (decision.kind === 'login') {
         setMode(decision.mode)
         setSignInUrl(decision.signInUrl)
+        setDeniedReason(decision.deniedReason)
         setPhase('login')
         return
       }
@@ -558,7 +584,8 @@ export function LoginGate({
   const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
   if (phase === 'ready') return <>{app}</>
 
-  if (mode === 'cloud') return <CloudLoginView signInUrl={signInUrl} />
+  if (mode === 'cloud')
+    return <CloudLoginView signInUrl={signInUrl} deniedReason={deniedReason} />
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
   const blurred = phase === 'success' && !reduced

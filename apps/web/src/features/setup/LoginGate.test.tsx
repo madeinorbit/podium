@@ -269,6 +269,64 @@ describe('LoginGate success reveal', () => {
 })
 
 describe('cloud login gate', () => {
+  it.each(['not a member of this workspace', 'Server-supplied admission reason'])(
+    'shows the provider refusal verbatim: %s',
+    async (deniedReason) => {
+      const fetchMock = statusFetch({
+        needsAuth: true,
+        authed: false,
+        mode: 'cloud',
+        providerSignedIn: true,
+        deniedReason,
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const renderApp = vi.fn(() => child)
+      render(<LoginGate>{renderApp}</LoginGate>)
+      expect((await screen.findByRole('alert')).textContent).toBe(deniedReason)
+      expect(screen.queryByRole('link')).toBeNull()
+      expect(screen.queryByLabelText(/password/i)).toBeNull()
+      expect(renderApp).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledOnce()
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/auth\/status$/),
+        expect.objectContaining({ credentials: 'include' }),
+      )
+    },
+  )
+
+  it.each([
+    { providerSignedIn: false, deniedReason: 'not a member of this workspace' },
+    { providerSignedIn: true },
+    { providerSignedIn: true, deniedReason: 403 },
+    { providerSignedIn: true, deniedReason: '' },
+  ])('keeps sign-in available without a valid provider refusal: %j', async (reporting) => {
+    vi.stubGlobal(
+      'fetch',
+      statusFetch({ needsAuth: true, authed: false, mode: 'cloud', ...reporting }),
+    )
+    render(<LoginGate>{child}</LoginGate>)
+    expect(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
+  it('admits an authenticated cloud member even if reporting fields remain', async () => {
+    vi.stubGlobal(
+      'fetch',
+      statusFetch({
+        needsAuth: true,
+        authed: true,
+        mode: 'cloud',
+        userId: 'alice',
+        providerSignedIn: true,
+        deniedReason: 'not a member of this workspace',
+      }),
+    )
+    render(<LoginGate>{child}</LoginGate>)
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('shows only the cloud sign-in link and keeps the workspace return path', async () => {
     window.history.replaceState(null, '', '/w/anna/session/one')
     vi.stubGlobal(
