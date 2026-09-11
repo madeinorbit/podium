@@ -47,6 +47,7 @@ import type {
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
 import type { GrantRow } from './hot-path-ports'
+import type { WorldIndexReader } from './modules/world-index'
 import type { IssueRow, SessionRow, FeedVisibilityStore } from './hot-path-ports'
 
 /**
@@ -56,11 +57,8 @@ import type { IssueRow, SessionRow, FeedVisibilityStore } from './hot-path-ports
  */
 type BootstrapReadPhase =
   | 'visibility.issue.getIssue'
-  | 'visibility.issue.grants.listForResource'
   | 'visibility.session.getSession'
-  | 'visibility.session.grants.listForResource'
   | 'visibility.conversation.findSessionByResumeValue'
-  | 'visibility.conversation.grants.listForResource'
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
   | 'visibility.shipOrder.issueIdForOrder'
@@ -82,28 +80,9 @@ type BootstrapVisibilityPrefetch = {
   readonly sessions: ReadonlyMap<string, SessionRow>
   readonly resumeValues: ReadonlySet<string>
   readonly sessionsByResumeValue: ReadonlyMap<string, SessionRow>
-  /**
-   * THE GRANT EDGES THE PASS WILL CONSULT, READ ONCE [POD-3261].
-   *
-   * The single largest remaining per-row read on this path: an owner check that
-   * misses falls through to `grants.listForResource`, once per subject per
-   * principal. On the measured feed bootstrap that is 9 of the 44 queries, and
-   * on a remote database every one of them is a round trip.
-   *
-   * `store.grants.listForResources` is the SAME LIVE READ asked about many
-   * resources at once — its own header says so, and rules a cache out for the
-   * same reason this is not one: the rows are read from the database at the
-   * moment of asking, and the map is discarded with the pass. What changes is
-   * how many round trips one pass costs, not when the rights were read.
-   *
-   * The ID SETS are what say "looked at and found nothing" — a resource with no
-   * edges has no entry in the map, so the set is the only thing that separates
-   * an empty answer from an unprepared ref. A ref outside the set is denied: the
-   * synchronous decision loop may consume only answers resolved for this pass.
-   *
-   * Every answer is resolved before `decide` starts and the snapshot is
-   * discarded with the pass. A failed preparation emits nothing, which is the
-   * fail-closed direction for visibility.
+  /** Committed grant edges, copied from the world index for this pass.
+   * ID sets distinguish an empty answer from an unprepared ref. Preparation
+   * runs after commit for delta publication; no read-your-writes is required.
    */
   readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
   readonly sessionGrants: ReadonlyMap<string, readonly GrantRow[]>
@@ -141,7 +120,7 @@ type BootstrapReadCache = {
    * ITS SIZE COMES FROM THE AUDIENCE MAP, not from the batch. Only an issue with
    * a non-empty visibility audience can produce an edge at all — the caller
    * returns `null` above otherwise — so the ids worth fetching are exactly
-   * `grants.visibilityAudienceResourceIds('issue')`, which is an in-memory read
+   * `audienceResourceIds('issue')`, which is an in-memory read
    * and costs nothing. `covered` records which ids that fill covered, because an
    * absent entry has to mean "this issue has no sessions" and not "the fill
    * happened before this issue had an audience"; an uncovered id falls through
@@ -159,6 +138,12 @@ type BootstrapReadCache = {
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: FeedVisibilityStore
+  readonly worldIndex: WorldIndexReader
+  /** Historical audiences include revoked readers; current edges cannot replace
+   * them. These existing memory-only signals remain owned by the grant writer. */
+  readonly audienceResourceIds: (kind: string) => Promise<string[]>
+  readonly audienceFor: (kind: string, id: string) => Promise<readonly string[]>
+  readonly authorizationRevision: () => Promise<number>
   /**
    * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
    *
@@ -196,7 +181,7 @@ export interface FeedVisibility {
 }
 
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
-  const { store } = deps
+  const { store, worldIndex } = deps
 
   const traces: BootstrapReadTrace[] = []
   const measure = async <T>(
@@ -240,10 +225,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       await store.issues.getIssue(issueId),
     )
     if (row?.ownerUserId === userId) return true
-    return await measure('visibility.issue.grants.listForResource', async () =>
-      (await store.grants.listForResource('issue', issueId)).some((edge) =>
-        issueGrantAdmits(edge, userId),
-      ),
+    return worldIndex.grantsFor('issue', issueId).some((edge) =>
+      issueGrantAdmits(edge, userId),
     )
   }
 
@@ -491,18 +474,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         ),
       )
     }
-    const issueGrants =
-      issueIds.size === 0
-        ? new Map<string, GrantRow[]>()
-        : await measure('visibility.issue.grants.listForResource', async () =>
-            await store.grants.listForResources('issue', [...issueIds]),
-          )
-    const sessionGrants =
-      grantedSessionIds.size === 0
-        ? new Map<string, GrantRow[]>()
-        : await measure('visibility.session.grants.listForResource', async () =>
-            await store.grants.listForResources('session', [...grantedSessionIds]),
-          )
+    const issueGrants = new Map(
+      [...issueIds].map((id) => [id, worldIndex.grantsFor('issue', id)]),
+    )
+    const sessionGrants = new Map(
+      [...grantedSessionIds].map((id) => [id, worldIndex.grantsFor('session', id)]),
+    )
     return makeVisibilityState({
       issueIds,
       issues,
@@ -584,7 +561,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     // Anchors resolve concurrently; share the pending session query as well.
     if (cache.sessionsByIssue === undefined) {
       cache.sessionsByIssue = (async () => {
-        const anchorable = await store.grants.visibilityAudienceResourceIds('issue')
+        const anchorable = await deps.audienceResourceIds('issue')
         const byIssueId = new Map<string, SessionRow[]>()
         const rows =
           anchorable.length === 0
@@ -630,7 +607,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
       if (ref.entity !== 'issue') return null
-      const audience = await store.grants.visibilityAudienceFor('issue', ref.entityId)
+      const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
       const cache = await currentBootstrapReadCache()
       // BY QUERY, NEVER BY SCAN [POD-3261], the same lesson the `conversation`
@@ -670,7 +647,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     anchors,
     beginBootstrapRead,
     finishBootstrapRead,
-    authorizationRevision: async () => await store.grants.visibilityRevision(),
+    authorizationRevision: deps.authorizationRevision,
     mayReadIssue: (userId, issueId) => mayReadIssue(userId, issueId),
   }
 }

@@ -44,6 +44,8 @@ import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
+import { statementBudget } from './test-support/statement-budget'
 import type { SessionStore } from './store'
 
 const OWNER = asUserId(SOLE_USER_ID)
@@ -308,31 +310,9 @@ describe('POD-1732 — a bootstrap resolves visibility in batches, not per row',
 /**
  * THE GRANT READ IS THE ONE THAT WAS LEFT [POD-3261].
  *
- * POD-1614 and POD-1732 above batched the ROW reads a bootstrap makes — the
- * issue, the session, the conversation. What they left per row is the read that
- * happens when the OWNER CHECK MISSES: `grants.listForResource(kind, id)`, once
- * per subject, and on a shared corpus that is every row. On bun:sqlite it is a
- * cheap indexed lookup; on the hosted Turso backend this epic is preparing for,
- * it is a network round trip at ~95 ms, so a 400-row shared world is 38 seconds
- * of nothing but permission lookups.
- *
- * The prefetch reads them for the whole pass in one statement. Two conserved
- * quantities are asserted here because the mechanism can fail in two different
- * directions and each has its own arm:
- *
- *   PER PASS, NOT PER ROW — the bootstrap case. Growing the shared corpus must
- *   not grow the count.
- *
- *   PER BATCH, NOT PER PRINCIPAL — the phase-3 case. `Authority.broadcast`
- *   evaluates one appended batch for every subscriber in turn, so a prefetch
- *   built inside the per-principal call would be rebuilt N times and would look
- *   perfect in the bootstrap test above while doing nothing for the fan-out that
- *   actually runs on every commit.
- *
- * And both count `listForResource` (the point read) SEPARATELY from
- * `listForResources` (the batch), for POD-1732's reason: a fix that merely
- * memoized would drive the point reads down without ever issuing a batch, and
- * these have to be able to tell those apart.
+ * POD-3870 replaces the former one-query-per-pass grant prefetch with the
+ * committed world index. Both point and batch repository reads must stay zero
+ * as the corpus and reader counts grow; delivered rows are the positive control.
  */
 const OTHER_OWNER = asUserId('usr_someone_else')
 
@@ -389,8 +369,8 @@ async function grantReadsDuring(reg: SessionRegistry, run: () => Promise<unknown
   return { points, batches }
 }
 
-describe('POD-3261 — a pass reads grants once, not once per row or once per principal', () => {
-  it('reads the shared corpus grants in one statement, however large the corpus', async () => {
+describe('POD-3870 — feed passes read grants from the world index', () => {
+  it('reads shared corpus grants without SQL, however large the corpus', async () => {
     const small = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const large = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
@@ -407,11 +387,11 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
       internals(large).ledger.authority.bootstrap(feedPrincipal),
     )
 
-    // THE CONSERVED QUANTITY. Before the prefetch these read 4 and 32.
+    // Neither point nor batch grant SQL survives the index switch.
     expect(a.points).toBe(0)
     expect(b.points).toBe(0)
-    expect(a.batches).toBe(1)
-    expect(b.batches).toBe(1)
+    expect(a.batches).toBe(0)
+    expect(b.batches).toBe(0)
 
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
     // world. A prefetch that returned nothing would satisfy every count above.
@@ -419,18 +399,20 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
     expect(world.changes.filter((change) => change.entity === 'issue')).toHaveLength(32)
   })
 
-  it('reads them once for a batch, not once per subscribed principal', async () => {
+  it('reads them without SQL for a batch across subscribed principals', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const { ledger } = internals(reg)
-    expect(await seedGrantedIssues(reg, 6)).toBe(6)
-
-    // Two principals on the same feed. `broadcast` walks them in one drain.
-    const second: Principal = {
-      kind: 'user',
-      user: OWNER,
-      device: asDeviceId('dev:probe-2'),
-      capability: asCapabilityRef('cap:probe-2'),
+    const { ledger, store } = internals(reg)
+    // Session subjects do not trigger the issue-anchor rescope threshold (32).
+    // Seed only grants, so no earlier feed delivery can reach these subscribers.
+    for (let i = 0; i < 50; i++) {
+      await store.grants.upsert({
+        resourceKind: 'session', resourceId: `shared_${i}`, grantee: OWNER,
+        verb: 'read', owner: OTHER_OWNER, visibility: 'personal',
+        createdAt: '2026-09-11T00:00:00Z', actorKind: 'user',
+        actorId: OTHER_OWNER, onBehalfOf: OTHER_OWNER,
+      })
     }
+
     const delivered: number[] = []
     const payloads: unknown[] = []
     let finishDelivery!: () => void
@@ -438,40 +420,46 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
     const onDelivery = (subscriber: number, batch: unknown) => {
       payloads.push(batch)
       delivered.push(subscriber)
-      if (delivered.length === 2) finishDelivery()
+      if (delivered.length === 10) finishDelivery()
     }
-    const off1 = ledger.authority.subscribe(feedPrincipal, (batch) => onDelivery(1, batch))
-    const off2 = ledger.authority.subscribe(second, (batch) => onDelivery(2, batch))
+    const unsubscribe = Array.from({ length: 10 }, (_, i) =>
+      ledger.authority.subscribe({
+        ...feedPrincipal,
+        device: asDeviceId(`dev:budget-${i}`),
+        capability: asCapabilityRef(`cap:budget-${i}`),
+      }, (batch) => onDelivery(i, batch)),
+    )
     try {
-      const reads = await grantReadsDuring(reg, async () => {
-        await ledger.capture([
-          { entity: 'issue', id: 'iss_shared_0', op: 'upsert', value: { id: 'iss_shared_0', v: 2 } },
-        ] as EntityChangeSpec[])
-        // capture appends durably; post-commit delivery completes separately.
-        // Keep the read probes installed through both subscriber callbacks.
+      const publish = () => grantReadsDuring(reg, async () => {
+        await ledger.capture(Array.from({ length: 50 }, (_, i) => ({
+          entity: 'session', id: `shared_${i}`, op: 'upsert',
+          value: { id: `shared_${i}`, v: 2 },
+        })) as EntityChangeSpec[])
         await delivery
       })
-      // CONTROL: both subscribers really were evaluated, so a count of 1 below
-      // is one read shared by two passes and not one pass that happened.
-      expect(delivered).toEqual([1, 2])
+      // Attribution must be enabled before import. The focused acceptance run
+      // enables it; ordinary suite runs retain the repository-call guard.
+      const budget = queryAttributionEnabled ? await statementBudget(publish) : null
+      const reads = budget?.result ?? await publish()
+      if (budget) {
+        expect(budget.statements).toBeGreaterThan(0)
+        expect([...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))).toEqual([])
+      }
+      expect(delivered).toEqual(Array.from({ length: 10 }, (_, i) => i))
       for (const batch of payloads) {
         expect(batch).toEqual(expect.objectContaining({
           kind: 'batch',
-          changes: expect.arrayContaining([expect.objectContaining({
-            entity: 'issue',
-            entityId: 'iss_shared_0',
-            op: 'upsert',
-            value: { id: 'iss_shared_0', v: 2 },
-          })]),
+          changes: expect.arrayContaining(Array.from({ length: 50 }, (_, i) => expect.objectContaining({
+            entity: 'session', entityId: `shared_${i}`, op: 'upsert',
+            value: { id: `shared_${i}`, v: 2 },
+          }))),
         }))
       }
       expect(reads.points).toBe(0)
-      // Preparing inside the per-principal call multiplies reads by the
-      // connected client count on every commit.
-      expect(reads.batches).toBe(1)
+      // No grant repository read remains in publication.
+      expect(reads.batches).toBe(0)
     } finally {
-      off1()
-      off2()
+      for (const off of unsubscribe) off()
     }
   })
 })

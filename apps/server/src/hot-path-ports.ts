@@ -25,14 +25,6 @@ export interface FeedVisibilityStore {
     SessionStore['sessions'],
     'getSessions' | 'findSessionsByResumeValues' | 'findSessionsByIssueIds'
   >
-  readonly grants: Pick<
-    SessionStore['grants'],
-    | 'listForResource'
-    | 'listForResources'
-    | 'visibilityAudienceResourceIds'
-    | 'visibilityAudienceFor'
-    | 'visibilityRevision'
-  >
   readonly shipping: Pick<SessionStore['shipping'], 'issueIdsForOrders'>
   readonly automations: Pick<SessionStore['automations'], 'ownerOf' | 'runOwnerOf'>
   readonly sync: Pick<SessionStore['sync'], 'latestChangeStatesGeneration' | 'latestChangeStates'>

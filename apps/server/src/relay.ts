@@ -954,6 +954,10 @@ export class SessionRegistry {
     let issueEventFeed: IssueEventFeedPublisher | undefined
     const feedVisibility = makeFeedVisibility({
       store: this.store,
+      worldIndex: this.worldIndex,
+      audienceResourceIds: (kind) => this.store.grants.visibilityAudienceResourceIds(kind),
+      audienceFor: (kind, id) => this.store.grants.visibilityAudienceFor(kind, id),
+      authorizationRevision: () => this.store.grants.visibilityRevision(),
       issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
     })
     const visibility = new GrantEdgeVisibilityPolicy(
