@@ -13,6 +13,8 @@ const prior = process.env.PODIUM_STATE_DIR
 let dir: string
 let handle: Awaited<ReturnType<typeof startServer>>
 let memberId: string
+let principalValid = true
+const maintainPrincipal = vi.fn(async () => principalValid)
 const source = vi.fn(
   async (request: PrincipalRequest): Promise<Principal | null> =>
     request.cookieHeader?.includes('cloud=yes') || request.authorizationHeader === 'Bearer cloud'
@@ -43,6 +45,7 @@ beforeAll(async () => {
         async register({ auth }) {
           memberId = (await auth.createMemberForAccount('acct_test', 'member', 'Test', null)).id
           auth.principalSource = source
+          auth.maintainPrincipal = maintainPrincipal
         },
       },
     ],
@@ -140,6 +143,31 @@ test('passes bearer credentials and request URLs to the provider on all transpor
     expect.objectContaining({ authorizationHeader: 'Bearer cloud' }),
   )
 })
+
+// Exercise the server-to-gateway hook with the real client heartbeat and socket.
+test('host revocation disconnects an already open provider socket', async () => {
+  principalValid = true
+  maintainPrincipal.mockClear()
+  const ws = new WebSocket(url(`/client?v=${WIRE_VERSION}`).replace('http:', 'ws:'), {
+    headers: { cookie: `cloud=yes; ${localCookie}` },
+  })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve)
+      ws.once('error', reject)
+    })
+    principalValid = false
+    await new Promise<void>((resolve) => ws.once('close', () => resolve()))
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+    expect(maintainPrincipal).toHaveBeenCalledWith(
+      expect.objectContaining({ cookieHeader: `cloud=yes; ${localCookie}` }),
+      { memberId, role: 'member' },
+    )
+  } finally {
+    principalValid = true
+    ws.terminate()
+  }
+}, 20_000)
 
 test('uses workspace membership instead of an inflated provider role', async () => {
   await source.withImplementation(

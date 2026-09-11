@@ -9,6 +9,7 @@ import {
   type NativeServer,
   serveNative,
   type WsHandle,
+  type WsAuthOptions,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -36,6 +37,8 @@ async function start(
     setInterval(fn: () => void, ms: number): unknown
     clearInterval(handle: unknown): void
   },
+  principalForClient?: WsAuthOptions['principalForClient'],
+  now?: () => number,
 ) {
   store = await openTestStore(':memory:')
   registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -43,6 +46,7 @@ async function start(
     registry,
     {
       authorizeClient,
+      ...(principalForClient ? { principalForClient } : {}),
       userForClient: () => firstAdminMemberId(),
       roleForClient: () => 'admin',
       ...(maintainClientCredential ? { maintainClientCredential } : {}),
@@ -56,7 +60,7 @@ async function start(
           }
         : {}),
     },
-    timers ? { timers } : {},
+    { timers, now },
   )
   server = serveNative({
     port: 0,
@@ -254,6 +258,88 @@ describe('/client WS auth gate', () => {
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })
 
+  test.each([
+    'revoked',
+    'error',
+  ] as const)('the heartbeat drops a provider socket when its session is %s', async (failure) => {
+    const ticks: (() => void)[] = []
+    let valid = true
+    let checks = 0
+    const url = await start(
+      () => true,
+      undefined,
+      undefined,
+      {
+        setInterval(fn) {
+          ticks.push(fn)
+          return fn
+        },
+        clearInterval() {},
+      },
+      () => ({
+        userId: firstAdminMemberId(),
+        userRole: 'admin',
+        maintain: async () => {
+          checks++
+          if (!valid && failure === 'error') throw new Error('provider unavailable')
+          return valid
+        },
+      }),
+    )
+    const socket = new WebSocket(url)
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    ticks[0]?.()
+    await until(() => checks === 1, 1_000)
+    expect(socket.readyState).toBe(WebSocket.OPEN)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    valid = false
+    ticks[0]?.()
+    await until(() => socket.readyState === WebSocket.CLOSED, 1_000)
+    expect(checks).toBe(2)
+  })
+
+  test('a stalled provider expires without blocking another socket maintenance pass', async () => {
+    const ticks: (() => void)[] = []
+    let now = 0
+    let checks = 0
+    const url = await start(
+      () => true,
+      undefined,
+      undefined,
+      {
+        setInterval(fn) {
+          ticks.push(fn)
+          return fn
+        },
+        clearInterval() {},
+      },
+      () => ({
+        userId: firstAdminMemberId(),
+        userRole: 'admin',
+        maintain: () => {
+          checks++
+          return new Promise<boolean>(() => {})
+        },
+      }),
+      () => now,
+    )
+    const socket = new WebSocket(url)
+    await new Promise<void>((resolve, reject) => {
+      socket.once('open', resolve)
+      socket.once('error', reject)
+    })
+    ticks[0]?.()
+    await until(() => checks === 1, 1_000)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    now = 30_001
+    ticks[0]?.()
+    await until(() => socket.readyState === WebSocket.CLOSED, 1_000)
+    expect(checks).toBe(1)
+  })
+
   test('no gate configured keeps the client surface open (back-compat)', async () => {
     const url = await start(undefined as never)
     expect(await attempt(url)).toBe('open')
@@ -272,10 +358,12 @@ describe('/client WS auth gate', () => {
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
     if (!registry) throw new Error('missing test registry')
-    const sessionId = (await registry.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/feed-only',
-    })).sessionId
+    const sessionId = (
+      await registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/feed-only',
+      })
+    ).sessionId
     registry.modules.sessions.flushBroadcasts()
 
     const client = await connectDeltaClient(url)
