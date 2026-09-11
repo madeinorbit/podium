@@ -63,6 +63,7 @@ export interface NativeDesktopBridge {
    * only diverts cross-origin links, so a same-origin `_blank` lands in an in-app webview
    * window instead of Safari. Absent on shells older than this bridge method.
    */
+  beginCloudSignIn?: (url: string, challenge: string) => Promise<void>
   openExternal?: (url: string) => Promise<void>
   /**
    * Syncs the native window appearance (NSAppearance on macOS) with the page's resolved

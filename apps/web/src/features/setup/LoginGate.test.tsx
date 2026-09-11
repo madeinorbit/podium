@@ -371,11 +371,11 @@ it('uses the configured cloud destination and preserves query, fragment, and wor
 })
 
 it('opens desktop cloud sign-in in the system browser with the handoff intent', async () => {
-  const openExternal = vi.fn().mockResolvedValue(undefined)
-  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', openExternal })
+  const beginCloudSignIn = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', beginCloudSignIn })
   vi.stubGlobal(
     'fetch',
-    statusFetch({
+    handoffFetch({
       needsAuth: true,
       authed: false,
       mode: 'cloud',
@@ -385,8 +385,9 @@ it('opens desktop cloud sign-in in the system browser with the handoff intent', 
   render(<LoginGate>{child}</LoginGate>)
   const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
   expect(fireEvent.click(link)).toBe(false)
-  expect(openExternal).toHaveBeenCalledOnce()
-  const url = new URL(openExternal.mock.calls[0]![0])
+  await waitFor(() => expect(beginCloudSignIn).toHaveBeenCalledOnce())
+  expect(beginCloudSignIn.mock.calls[0]![1]).toBe('a'.repeat(64))
+  const url = new URL(beginCloudSignIn.mock.calls[0]![0])
   expect(url.origin + url.pathname).toBe('https://ade.podium.do/account/sign-in')
   expect(url.searchParams.get('handoff')).toBe('desktop')
 })
@@ -394,9 +395,9 @@ it('opens desktop cloud sign-in in the system browser with the handoff intent', 
 it('keeps sign-in out of the webview when the browser opener fails', async () => {
   vi.stubGlobal('__PODIUM_DESKTOP__', {
     platform: 'linux',
-    openExternal: vi.fn().mockRejectedValue(new Error('unavailable')),
+    beginCloudSignIn: vi.fn().mockRejectedValue(new Error('unavailable')),
   })
-  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  vi.stubGlobal('fetch', handoffFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
   render(<LoginGate>{child}</LoginGate>)
   expect(
     fireEvent.click(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })),
@@ -434,3 +435,14 @@ it('does not open twice when the native capture shim already handled the link', 
   fireEvent(link, click)
   expect(openExternal).not.toHaveBeenCalled()
 })
+
+function handoffFetch(status: Parameters<typeof statusFetch>[0]) {
+  const fallback = statusFetch(status)
+  return vi.fn((url: RequestInfo | URL, options?: RequestInit) => {
+    if (String(url).endsWith('/platform/auth/handoff/begin')) {
+      expect(options).toMatchObject({ method: 'POST', credentials: 'include' })
+      return Promise.resolve(new Response(JSON.stringify({ challenge: 'a'.repeat(64) }), { status: 200 }))
+    }
+    return fallback(url, options)
+  })
+}

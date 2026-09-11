@@ -68,6 +68,7 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-set-update-channel",
     "allow-repair-payload",
     "allow-daemon-connectivity",
+    "allow-begin-cloud-sign-in",
     "allow-runtime-probe-report",
     "process:allow-restart",
 ];
@@ -224,22 +225,31 @@ fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueu
         if let Ok(url) = Url::parse(raw) {
             if url.host_str() == Some("signed-in") {
                 // Reserved for native cookie delivery, never forwarded into page JS.
-                let target = handoff::parse_signed_in(&url).and_then(|code| {
-                    bootstrap::read_config().server_url
-                        .and_then(|server| handoff::handoff_url(&server, &code).ok())
-                });
+                let target = bootstrap::read_config()
+                    .server_url
+                    .and_then(|server| handoff::receive(&url, &server));
                 match target {
                     Some(target) => {
                         if window.navigate(target).is_err() {
                             log::warn!("could not navigate to desktop sign-in redemption");
-                            window.app_handle().dialog().message("Could not finish signing in. Please try again.")
-                                .title("Sign-in failed").show(|_| {});
+                            window
+                                .app_handle()
+                                .dialog()
+                                .message("Could not finish signing in. Please try again.")
+                                .title("Sign-in failed")
+                                .show(|_| {});
                         }
                     }
                     None => {
                         log::warn!("refusing invalid desktop sign-in handoff");
-                        window.app_handle().dialog().message("This sign-in link is invalid or no cloud server is configured.")
-                            .title("Sign-in failed").show(|_| {});
+                        window
+                            .app_handle()
+                            .dialog()
+                            .message(
+                                "This sign-in link is invalid or no cloud server is configured.",
+                            )
+                            .title("Sign-in failed")
+                            .show(|_| {});
                     }
                 }
                 return true;
@@ -1126,7 +1136,7 @@ fn native_desktop_hook(
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
     // because the webview answers a same-origin `_blank` with an in-app window. Runs on the
     // narrow open-url grant the shim already uses ("external-link-opener" capability).
-    let open_external = ",\n            openExternal: (url) => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })";
+    let open_external = ",\n            openExternal: (url) => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url }),\n            beginCloudSignIn: (url, challenge) => window.__TAURI_INTERNALS__.invoke('begin_cloud_sign_in', { url, challenge })";
     // Native appearance sync (macOS vibrancy): the NSVisualEffectView behind the
     // transparent command bar renders with the WINDOW's NSAppearance, which follows
     // the OS — not the page's data-theme/.dark state. The page reports its resolved
@@ -1488,6 +1498,7 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             enable_hosting,
+            handoff::begin_cloud_sign_in,
             daemon_connectivity,
             runtime_probe_report,
             claim_update_ownership,
@@ -2945,6 +2956,7 @@ mod tests {
                 "allow-set-update-channel",
                 "allow-repair-payload",
                 "allow-daemon-connectivity",
+                "allow-begin-cloud-sign-in",
                 "allow-runtime-probe-report",
                 "process:allow-restart",
             ]

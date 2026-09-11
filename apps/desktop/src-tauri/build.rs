@@ -8,19 +8,17 @@ fn main() {
 
     // App-defined commands must be declared so tauri-build generates their
     // allow-* permissions for the capability system. [spec:SP-3701]
-    tauri_build::try_build(
-        tauri_build::Attributes::new()
-            .app_manifest(
-                tauri_build::AppManifest::new().commands(&[
-                    "enable_hosting",
-                    "daemon_connectivity",
-                    "runtime_probe_report",
-                    "claim_update_ownership",
-                    "check_update",
-                    "install_update",
-                    "set_update_channel",
-                ]),
-            ),
-    )
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&[
+            "enable_hosting",
+            "begin_cloud_sign_in",
+            "daemon_connectivity",
+            "runtime_probe_report",
+            "claim_update_ownership",
+            "check_update",
+            "install_update",
+            "set_update_channel",
+        ]),
+    ))
     .expect("failed to run tauri-build");
 }

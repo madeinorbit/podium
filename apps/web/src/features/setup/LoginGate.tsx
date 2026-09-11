@@ -186,20 +186,37 @@ export function CloudLoginView({
                     event.preventDefault()
                     event.stopPropagation()
                     setError(null)
-                    if (!desktop.openExternal) {
+                    if (!desktop.beginCloudSignIn) {
                       setError('Update Podium Desktop to sign in through your browser.')
                       return
                     }
-                    void desktop.openExternal(destination.href).catch(() => {
+                    void (async () => {
+                      const response = await fetch(
+                        `${serverConfig(window.location).httpOrigin}/platform/auth/handoff/begin`,
+                        {
+                          method: 'POST',
+                          credentials: 'include',
+                          headers: { 'content-type': 'application/json' },
+                          body: '{}',
+                        },
+                      )
+                      if (!response.ok) throw new Error('Could not start sign-in')
+                      const { challenge } = await response.json()
+                      if (typeof challenge !== 'string' || !/^[a-f0-9]{64}$/.test(challenge))
+                        throw new Error('Invalid sign-in challenge')
+                      await desktop.beginCloudSignIn!(destination.href, challenge)
+                    })().catch(() => {
                       setError('Could not open your browser. Please try again.')
                     })
                   }
                 : undefined
             }
             href={
-              signInUrl
-                ? destination.href
-                : destination.pathname + destination.search + destination.hash
+              desktop
+                ? '#sign-in'
+                : signInUrl
+                  ? destination.href
+                  : destination.pathname + destination.search + destination.hash
             }
             style={{
               padding: '16px 24px',
