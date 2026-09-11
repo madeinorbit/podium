@@ -197,8 +197,18 @@ describe('one instrument per execution, on a handle the profiler already wraps',
     const driver = instrumentDriver(createBunSqliteDriver({ database: attributed() }), hub)
     const session = await driver.open('write')
     await session.executeBatch([
-      { sql: 'INSERT INTO t (id, v) VALUES (?, ?)', params: [3, 'c'], method: 'run', intent: 'write' },
-      { sql: 'INSERT INTO t (id, v) VALUES (?, ?)', params: [4, 'd'], method: 'run', intent: 'write' },
+      {
+        sql: 'INSERT INTO t (id, v) VALUES (?, ?)',
+        params: [3, 'c'],
+        method: 'run',
+        intent: 'write',
+      },
+      {
+        sql: 'INSERT INTO t (id, v) VALUES (?, ?)',
+        params: [4, 'd'],
+        method: 'run',
+        intent: 'write',
+      },
     ])
     await session.close()
 
