@@ -1,4 +1,4 @@
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import {
   asSubscriberId,
   principalRoutingKey,
@@ -22,7 +22,7 @@ const ROOM: RoomRef = { kind: 'session', id: asSessionId('session-room') }
 function connection(
   id: string,
   stream: (message: Parameters<ClientConn['send']>[0]) => boolean = () => true,
-  user: UserId = FIRST_ADMIN_USER_ID,
+  user: UserId = firstAdminMemberId(),
 ): { conn: ClientConn; sent: Parameters<ClientConn['send']>[0][] } {
   const sent: Parameters<ClientConn['send']>[0][] = []
   const conn: ClientConn = {
@@ -85,7 +85,7 @@ describe('production presence routing', () => {
       expect(alice.sent.at(-1)).toEqual({
         type: 'presenceRoomState',
         room: ROOM,
-        members: [{ identity: { kind: 'user', user: FIRST_ADMIN_USER_ID } }],
+        members: [{ identity: { kind: 'user', user: firstAdminMemberId() } }],
         token: 'join-1',
       })
     } finally {

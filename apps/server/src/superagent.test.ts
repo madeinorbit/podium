@@ -1,4 +1,4 @@
-import { asSessionId, asThreadId, FIRST_ADMIN_USER_ID, type TranscriptItem } from '@podium/model'
+import { asSessionId, asThreadId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildBtwDelta,
@@ -153,9 +153,9 @@ describe('start_agent tool wiring (issue #60)', () => {
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
-    await sa.history(FIRST_ADMIN_USER_ID)
-    await sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
-    await sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('parent') })
+    await sa.history(firstAdminMemberId())
+    await sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId: asSessionId('s1') })
+    await sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId: asSessionId('parent') })
     return { registry, sa }
   }
 
@@ -374,7 +374,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
-    await sa.history(FIRST_ADMIN_USER_ID)
+    await sa.history(firstAdminMemberId())
     const spawn = async (live = false): Promise<string> => {
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -399,7 +399,7 @@ describe('session-steering tool belt (issue #62)', () => {
           cwd: '/w',
           spawnedBy: `superagent:${threadId}`,
         })
-        await registry.sessionStore.superagent.upsertSuperagentThread({ id: threadId, ownerUserId: FIRST_ADMIN_USER_ID, kind: 'global' })
+        await registry.sessionStore.superagent.upsertSuperagentThread({ id: threadId, ownerUserId: firstAdminMemberId(), kind: 'global' })
         await registry.sessionStore.superagent.updateSuperagentThreadBinding(threadId, {
           podiumSessionId: sessionId,
         })
@@ -647,7 +647,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // always had. Driving the real entry point is also what makes this a test of
     // the shipped path rather than of the repository.
     h.registry.modules.sessions.setSnooze({
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       sessionId,
       until: '2020-01-01T00:00:00.000Z',
     })
@@ -655,7 +655,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // …while an open-ended snooze (null) never lapses by time. The counterfactual
     // that keeps the assertion above from passing for the wrong reason: if the
     // projection had simply stopped carrying snoozes, this would fail too.
-    h.registry.modules.sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeNull()
   })
 
@@ -768,7 +768,7 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.modules.sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     const rows = JSON.parse(
       await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_x')),
     ) as Array<Record<string, unknown>>

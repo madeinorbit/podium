@@ -18,7 +18,7 @@ import {
   asIssueId,
   asSessionId,
   asThreadId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   HarnessAgent,
   type HarnessAgent as HarnessAgentKind,
   type IssueId,
@@ -316,7 +316,7 @@ export class SuperagentService {
   }
 
   private globalThreadId(ownerUserId: UserId): ThreadId {
-    return ownerUserId === FIRST_ADMIN_USER_ID
+    return ownerUserId === firstAdminMemberId()
       ? asThreadId('global')
       : asThreadId(`global:${ownerUserId}`)
   }
@@ -708,7 +708,7 @@ export class SuperagentService {
     let thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
     // PERSONAL (POD-1213): `roles.superagent` is *"you, automated"* — one
-    // human's delegation — so it resolves for a user. `FIRST_ADMIN_USER_ID`
+    // human's delegation — so it resolves for a user. `firstAdminMemberId()`
     // spelled out, never defaulted: this build authenticates one shared
     // password, and POD-315 replaces the argument with the real principal.
     const settings = await this.store.settings.getSettingsFor(ownerUserId)
@@ -1217,7 +1217,7 @@ export class SuperagentService {
     }
     const baseThreadId = conciergeThreadId(repoPath)
     const threadId =
-      ownerUserId === FIRST_ADMIN_USER_ID
+      ownerUserId === firstAdminMemberId()
         ? baseThreadId
         : asThreadId(`${baseThreadId}:${ownerUserId}`)
     const existing = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
@@ -1265,7 +1265,7 @@ export class SuperagentService {
   }> {
     const baseThreadId = conciergeThreadId(repoPath)
     const threadId =
-      ownerUserId === FIRST_ADMIN_USER_ID
+      ownerUserId === firstAdminMemberId()
         ? baseThreadId
         : asThreadId(`${baseThreadId}:${ownerUserId}`)
     const existing = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)

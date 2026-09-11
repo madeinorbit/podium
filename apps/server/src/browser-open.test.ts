@@ -3,7 +3,7 @@ import {
   type Attribution,
   actorUser,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
@@ -68,8 +68,8 @@ function request(sessionId: SessionId, requestId: string) {
 }
 
 const RESOLVER = {
-  actor: actorUser(FIRST_ADMIN_USER_ID),
-  onBehalfOf: FIRST_ADMIN_USER_ID,
+  actor: actorUser(firstAdminMemberId()),
+  onBehalfOf: firstAdminMemberId(),
 } satisfies Attribution
 const SPOOFED_RESOLVER = {
   actor: actorUser(asUserId('user:attacker')),
@@ -142,19 +142,19 @@ describe('remote browser-open routing', () => {
       resourceId: sessionId,
       grantee: 'user:grantee',
       verb: 'read',
-      owner: FIRST_ADMIN_USER_ID,
+      owner: firstAdminMemberId(),
       visibility: 'personal',
       createdAt: '2026-08-02T00:00:00.000Z',
       actorKind: 'user',
-      actorId: FIRST_ADMIN_USER_ID,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actorId: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     })
     const owner: ServerMessage[] = []
     const grantee: ServerMessage[] = []
     const unrelated: ServerMessage[] = []
     const ownerId = attachTestClient(registry.clientGateway, {
       send: (message) => owner.push(message),
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       userRole: 'member',
     })
     const granteeId = attachTestClient(registry.clientGateway, {

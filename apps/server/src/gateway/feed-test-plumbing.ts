@@ -14,7 +14,7 @@
  */
 
 import type { ConversationDiagnosticWire, UserId, UserRole } from '@podium/model'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { type SubscriberId, SubscriptionRegistry } from '@podium/protocol'
 import {
   type Authority,
@@ -114,7 +114,7 @@ export async function feedTestPlumbing(
     authority: ledger.authority,
     store,
     subscriptions,
-    routingPrincipal: (peerId, user = FIRST_ADMIN_USER_ID, role = 'admin') =>
+    routingPrincipal: (peerId, user = firstAdminMemberId(), role = 'admin') =>
       userClientPrincipal(peerId, user, role),
   }
 }

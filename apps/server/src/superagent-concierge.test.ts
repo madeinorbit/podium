@@ -1,7 +1,7 @@
 import {
   asSessionId,
   asThreadId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueWire,
   type IssueWireInput,
   type SessionId,
@@ -72,9 +72,9 @@ async function harness(opts?: { eventReadLimit?: number }) {
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
-  await sa.history(FIRST_ADMIN_USER_ID)
-  await sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId: asSessionId('s1') })
-  await sa.ensureConciergeThread({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r' })
+  await sa.history(firstAdminMemberId())
+  await sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId: asSessionId('s1') })
+  await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath: '/r' })
   // Same wiring as server.ts: issue tools over the registry's in-process
   // OPERATOR client (router-equal guard, no router caller involved).
   const issueTools = new IssueToolProvider()
@@ -178,20 +178,20 @@ describe('concierge threads (issue #64)', () => {
   it('reuses one thread per repo across turns — never duplicates', async () => {
     const { sa, settle } = await harness()
     const a = await sa.conciergeTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'hello',
     })
     await settle()
     const b = await sa.conciergeTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'again',
     })
     expect(a.threadId).toBe(b.threadId)
     expect(a.isNew).toBe(false)
     expect(b.isNew).toBe(false)
-    const threads = (await sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'concierge')
+    const threads = (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge')
     expect(threads).toHaveLength(1)
     expect(threads[0]).toMatchObject({ id: conciergeThreadId('/r'), repoPath: '/r' })
   })
@@ -206,7 +206,7 @@ describe('concierge threads (issue #64)', () => {
       cwd: '/r',
       spawnedBy: 'user',
     })
-    await sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r', text: 'status?' })
+    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'status?' })
     const request = turnReqs[0]
     const context = request?.contextPrompt ?? ''
     expect(request?.prompt).toBe('status?')
@@ -251,9 +251,9 @@ describe('concierge threads (issue #64)', () => {
   it('rejects an unregistered repoPath without minting a thread', async () => {
     const { sa } = await harness()
     await expect(
-      sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
+      sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
-    expect((await sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'concierge')).toHaveLength(
+    expect((await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge')).toHaveLength(
       1,
     )
   })
@@ -403,13 +403,13 @@ describe('concierge threads (issue #64)', () => {
 
   it('advances the watermark only to the last read event on delta overflow', async () => {
     const { registry, sa, turnReqs, settle } = await harness({ eventReadLimit: 2 })
-    await sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r', text: 'hi' })
+    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'hi' })
     await settle()
     // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
     await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await registry.issues.create({ repoPath: '/r', title: 'B', startNow: false })
     await registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
-    await sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r', text: 'update?' })
+    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
     await settle()
     const second = turnReqs[1]?.contextPrompt ?? ''
     expect(second).toContain('[CONCIERGE UPDATE')
@@ -417,7 +417,7 @@ describe('concierge threads (issue #64)', () => {
     expect(second).toContain('created "B"')
     expect(second).not.toContain('created "C"')
     // The overflowed remainder arrives on the next turn — nothing silently lost.
-    await sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r', text: 'more?' })
+    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'more?' })
     await settle()
     const third = turnReqs[2]?.contextPrompt ?? ''
     expect(third).toContain('[CONCIERGE UPDATE')

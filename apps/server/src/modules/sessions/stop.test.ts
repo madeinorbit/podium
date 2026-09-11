@@ -3,7 +3,7 @@
  * resume recreates worktree; unsaved guard + force.
  */
 
-import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, asMachineId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId, asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -140,7 +140,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     await bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
     expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
-    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })

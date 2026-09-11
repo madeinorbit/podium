@@ -31,13 +31,13 @@
  *
  * Dispose: none. The coordinator holds a single-flight map only; no timer.
  *
- * Ambient: resumeSession's `ownerUserId ?? FIRST_ADMIN_USER_ID` moved here from
+ * Ambient: resumeSession's `ownerUserId ?? firstAdminMemberId()` moved here from
  * lifecycle. USAGE DELTA on the census must be 0.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
-import { type AgentKind, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { type AgentKind, asSessionId, firstAdminMemberId } from '@podium/model'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
@@ -165,7 +165,7 @@ export class SessionRevival {
     })
     const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
-      ownerUserId: input.ownerUserId ?? FIRST_ADMIN_USER_ID,
+      ownerUserId: input.ownerUserId ?? firstAdminMemberId(),
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },

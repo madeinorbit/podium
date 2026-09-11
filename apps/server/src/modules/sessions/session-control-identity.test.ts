@@ -7,7 +7,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -24,7 +24,7 @@ import { Session as SessionClass } from './session'
 const geo = { cols: 80, rows: 24 }
 const MACHINE = asMachineId('m-home')
 const SESSION = asSessionId('s-shared')
-const OWNER = asUserId(FIRST_ADMIN_USER_ID)
+const OWNER = asUserId(firstAdminMemberId())
 const ALICE = asUserId('user:alice')
 
 function makeSession(): Session {

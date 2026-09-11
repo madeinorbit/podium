@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, FIRST_ADMIN_USER_ID, type MachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type DaemonHandle, startDaemon } from '../apps/daemon/src/daemon'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
@@ -166,7 +166,7 @@ describe('real daemon-to-daemon login propagation', () => {
         startDaemon({
           serverUrl,
           pairCode: server?.registry.modules.machines.mintPairingCode({
-            ownerUserId: FIRST_ADMIN_USER_ID,
+            ownerUserId: firstAdminMemberId(),
           }),
           machineId,
           identityDir: join(root as string, label + '-identity'),
@@ -201,7 +201,7 @@ describe('real daemon-to-daemon login propagation', () => {
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: FIRST_ADMIN_USER_ID,
+          principalUserId: firstAdminMemberId(),
         }),
       ).resolves.toMatchObject({
         status: 'propagated',
@@ -230,7 +230,7 @@ describe('real daemon-to-daemon login propagation', () => {
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: FIRST_ADMIN_USER_ID,
+          principalUserId: firstAdminMemberId(),
           force: true,
         }),
       ).resolves.toMatchObject({ status: 'failed' })

@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
@@ -30,7 +30,7 @@ async function start(): Promise<string> {
   store = await openTestStore(':memory:')
   registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
-    userForClient: () => FIRST_ADMIN_USER_ID,
+    userForClient: () => firstAdminMemberId(),
     roleForClient: () => 'admin',
   })
   server = serveNative({

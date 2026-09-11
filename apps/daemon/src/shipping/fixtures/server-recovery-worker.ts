@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline'
 import {
   asMachineId,
   asShipAttemptId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueWire,
   type MachineId,
 } from '@podium/model'
@@ -118,8 +118,8 @@ const service = new ShippingService({
   daemon: rpc,
   authorization: {
     attribution: () => ({
-      actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actor: { kind: 'user', id: firstAdminMemberId() },
+      onBehalfOf: firstAdminMemberId(),
     }),
     authorize: async () => {},
     reauthorize: async () => {},
@@ -164,12 +164,12 @@ if (phase === 'crash') {
     issueId: created.id,
     principal: {
       kind: 'user',
-      user: FIRST_ADMIN_USER_ID,
+      user: firstAdminMemberId(),
       capability: {
         role: 'admin',
         scope: { kind: 'all' },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       },
     },
     overrideScope: false,

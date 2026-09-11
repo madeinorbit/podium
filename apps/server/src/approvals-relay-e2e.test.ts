@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID, asSessionId } from '@podium/model'
+import { firstAdminMemberId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -113,7 +113,7 @@ describe('approval broker relay e2e (#410)', () => {
   })
 
   it('[POD-1107] a fresh schedule with no agent gets the configured default, not codex', async () => {
-    await registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await registry.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await registry.modules.settings.getSettings(),
       roles: {
         ...(await registry.modules.settings.getSettings()).roles,

@@ -6,7 +6,7 @@
 
 import {
   asThreadId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
   type ThreadId,
   type UserId,
@@ -53,7 +53,7 @@ export class SuperagentRepository {
   }
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
-  async seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): Promise<void> {
+  async seedGlobalThread(ownerUserId: UserId = firstAdminMemberId()): Promise<void> {
     const saNow = new Date().toISOString()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. `INSERT OR IGNORE`
     // suppresses UNIQUE, PRIMARY KEY, NOT NULL and CHECK; `onConflictDoNothing()`
@@ -62,7 +62,7 @@ export class SuperagentRepository {
     // is. Enumerated against the live DDL rather than assumed:
     //   NOT NULL columns: id, kind, created_at, updated_at (all supplied
     //     non-null above), owner_user_id (supplied; its parameter defaults to
-    //     FIRST_ADMIN_USER_ID) and archived (not supplied, so its DEFAULT 0
+    //     firstAdminMemberId()) and archived (not supplied, so its DEFAULT 0
     //     applies). Nothing reaching this statement can be null.
     //   CHECK constraints: none on this table anywhere in the migration chain.
     //   Foreign keys: none — and they would not count anyway, because OR IGNORE

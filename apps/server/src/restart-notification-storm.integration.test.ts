@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentRuntimeState } from '@podium/model'
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { AgentObservation, ObservationProvider, ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
@@ -135,7 +135,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         )
       attach()
       await registry.modules.settings.setSettingsFor(
-        FIRST_ADMIN_USER_ID,
+        firstAdminMemberId(),
         normalizeSettings({
           notifications: {
             web: true,
@@ -154,11 +154,11 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // the binding ceremony; a preference string alone is intentionally inert.
       await store.telegramBindings.upsert({
         chatId: 'fixture-chat',
-        userId: FIRST_ADMIN_USER_ID,
+        userId: firstAdminMemberId(),
         boundAt: at(0),
         boundBy: {
-          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          actor: { kind: 'user', id: firstAdminMemberId() },
+          onBehalfOf: firstAdminMemberId(),
         },
       })
       attachTestClient(registry.clientGateway, (message) => web.push(message))
@@ -414,7 +414,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(ntfy).toHaveBeenCalledTimes(1)
       expect(telegramRequest).toHaveBeenCalledTimes(1)
       expect(telegramRequest).toHaveBeenCalledWith({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         sessionId: childId,
         text: expect.any(String),
       })

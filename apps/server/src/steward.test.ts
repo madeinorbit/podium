@@ -7,7 +7,7 @@ import {
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { FIRST_ADMIN_USER_ID, userCommandPrincipal } from './command-principal'
+import { firstAdminMemberId, userCommandPrincipal } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
@@ -25,7 +25,7 @@ import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function harness(
   opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {},
@@ -1256,7 +1256,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     })
     // …and the switch now does what its label says.
     expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify.mock.calls[0]![0]).toBe(FIRST_ADMIN_USER_ID)
+    expect(notify.mock.calls[0]![0]).toBe(firstAdminMemberId())
     expect(notify.mock.calls[0]![1]).toMatchObject({
       title: 'Podium: issue.closed',
       body: expect.stringContaining(x.id),

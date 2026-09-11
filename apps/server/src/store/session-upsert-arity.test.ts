@@ -4,7 +4,7 @@
  * carrying both families so INSERT column/value arity cannot drift silently.
  */
 
-import { actorUser, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { actorUser, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -29,7 +29,7 @@ describe('session upsert rebase seam', () => {
     const sessions = new SessionsRepository(stageQueries(db))
     const row: SessionRow = {
       id: asSessionId('session-rebase-seam'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       loginHarness: 'codex',
       selectedDriverId: 'codex-app-server',
@@ -69,8 +69,8 @@ describe('session upsert rebase seam', () => {
       deletionSource: null,
       deletedByIssueId: null,
       createdBy: {
-        actor: actorUser(FIRST_ADMIN_USER_ID),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actor: actorUser(firstAdminMemberId()),
+        onBehalfOf: firstAdminMemberId(),
       },
     }
 

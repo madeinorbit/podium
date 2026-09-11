@@ -27,7 +27,7 @@
  * calls THIS, and `bun run audit:machine-grants` holds the call sites to a
  * declared allowlist. That is what makes the placeholder's spread a gate failure
  * rather than an archaeology exercise: a new pairing path that quietly assigns
- * `FIRST_ADMIN_USER_ID` would be invisible; one that calls
+ * `firstAdminMemberId()` would be invisible; one that calls
  * {@link deviceGradeSoleOwner} is a finding.
  *
  * WHEN PER-USER LOGIN LANDS (Phase 3, POD-315) THIS MODULE IS DELETED OUTRIGHT.
@@ -37,7 +37,7 @@
  * nothing failing.
  */
 
-import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { firstAdminMemberId, type UserId } from '@podium/model'
 
 /**
  * The user to record when a connection this build cannot attribute to a specific
@@ -57,5 +57,5 @@ import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
  * the honest statement of what a shared password means.
  */
 export function deviceGradeSoleOwner(): UserId {
-  return FIRST_ADMIN_USER_ID
+  return firstAdminMemberId()
 }

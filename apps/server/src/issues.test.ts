@@ -9,7 +9,7 @@ import {
   asThreadId,
   asUserId,
   type DescendantTip,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueId,
   type SessionMeta,
   type SessionMetaInput,
@@ -30,7 +30,7 @@ import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function harness(sessions: SessionMeta[] = []) {
   const store = await openTestStore(':memory:')
@@ -435,7 +435,7 @@ describe('IssueService unread (#124)', () => {
     // observation point. Same three cases, same rule.
     const withReadAt = async (readAt: string, updatedAt: string) => {
       await store.issues.upsertIssue({ ...row, updatedAt })
-      await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, w.id, { readAt })
+      await store.issues.setIssueUserState(firstAdminMemberId(), w.id, { readAt })
       await svc.reload()
       return svc.unreadFor(w.id)
     }
@@ -455,7 +455,7 @@ describe('IssueService unread (#124)', () => {
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.markIssueRead(w.id)
     expect(await svc.unreadFor(w.id)).toBe(false)
-    const readAt = (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.readAt
+    const readAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
     const pinned = await svc.update(w.id, { pinned: true })
@@ -550,7 +550,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     expect((await svc.get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     // Durable, not in-memory: it is in the DB column…
-    expect((await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.tuckedAt).toBe(
+    expect((await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.tuckedAt).toBe(
       '2026-06-30T00:00:00.000Z',
     )
     // …so a cold service over the same store — the "different browser / after a
@@ -670,7 +670,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     const w = await closedIssue(svc)
     await svc.markIssueRead(w.id)
     const before = (await store.issues.getIssue(w.id))!
-    const beforeReadAt = (await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, w.id))!.readAt
+    const beforeReadAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
 
     const tucked = await svc.setIssueTucked(w.id, true)
 
@@ -836,7 +836,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // Says YES first. Every refusal below is measured against this exact
     // fixture, so none of them can pass by failing for an unrelated reason.
     const { svc, id } = await doneAndRead()
-    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe('applied')
+    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), DUE)).toBe('applied')
     expect((await svc.get(id))!.archived).toBe(true)
   })
 
@@ -872,7 +872,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // is inside the seven-day window.
     const { svc, id } = await doneAndRead()
     await svc.markIssueRead(id) // re-read at the harness clock, long after the observation
-    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), readAtMs + 1000)).toBe(
+    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), readAtMs + 1000)).toBe(
       'not-due',
     )
     expect((await svc.get(id))!.archived).toBe(false)
@@ -881,7 +881,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { svc, id } = await doneAndRead()
     await svc.markIssueUnread(id) // deletes the marker; absent row == never read
-    expect(await svc.tryAutoArchiveObserved(observation(id, FIRST_ADMIN_USER_ID), DUE)).toBe(
+    expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), DUE)).toBe(
       'precondition',
     )
     expect((await svc.get(id))!.archived).toBe(false)
@@ -891,7 +891,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     const { svc, id } = await doneAndRead()
     expect(
       await svc.tryAutoArchiveObserved(
-        { ...observation(id, FIRST_ADMIN_USER_ID), stage: 'in_progress' },
+        { ...observation(id, firstAdminMemberId()), stage: 'in_progress' },
         DUE,
       ),
     ).toBe('precondition')
@@ -1506,7 +1506,7 @@ describe('IssueService.start', () => {
       model: 'auto',
       effort: 'auto',
       initialPrompt: 'do the thing',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${created.id}`,
       machineId: store.hostMachineId,
     })
@@ -2112,7 +2112,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
@@ -2168,7 +2168,7 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
@@ -2396,7 +2396,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
@@ -4050,8 +4050,8 @@ describe('IssueService.cleanup (issue #71)', () => {
     )
     expect(audit).toBeDefined()
     // POD-1344: the transport principal is stamped, not system:cleanup.
-    expect(audit?.actor).toBe(FIRST_ADMIN_USER_ID)
-    expect(audit?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
+    expect(audit?.actor).toBe(firstAdminMemberId())
+    expect(audit?.onBehalfOf).toBe(firstAdminMemberId())
     const events = await h.store.events.listEventsSince(0, { kinds: ['issue.cleaned'] })
     expect(events.length).toBe(1)
   })
@@ -4061,7 +4061,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     const w = await prepared(h)
     scriptRepoOp(h.deps, { status: { ok: true, output: CLEAN_STATUS } })
     const alice = asUserId('user:alice')
-    expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
+    expect(alice).not.toBe(firstAdminMemberId())
 
     const r = await h.svc.cleanup(w.id, userCommandPrincipal(alice, 'member'))
     expect(r.ok).toBe(true)
@@ -4364,8 +4364,8 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(comments[0]!.body).toContain(`rebuilt '${INT_BR}' from 'main'`)
     expect(comments[0]!.body).toContain(`#${children[0]!.seq}, #${children[1]!.seq}`)
     // POD-1344: job label stays system:integrate; actor/onBehalfOf name the caller.
-    expect(comments[0]!.actor).toBe(FIRST_ADMIN_USER_ID)
-    expect(comments[0]!.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
+    expect(comments[0]!.actor).toBe(firstAdminMemberId())
+    expect(comments[0]!.onBehalfOf).toBe(firstAdminMemberId())
     const ev = await h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(1)
     expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [children[0]!.seq, children[1]!.seq] })
@@ -4607,7 +4607,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const { epic } = await epicWith(h, [{}, {}])
     scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
     const alice = asUserId('user:alice')
-    expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
+    expect(alice).not.toBe(firstAdminMemberId())
 
     const r = await h.svc.integrate(epic.id, userCommandPrincipal(alice, 'member'))
     expect(r.ok).toBe(true)
@@ -5752,7 +5752,7 @@ describe('IssueService agent mail (#103)', () => {
     await svc.mailInbox(a.id, { sessionId: asSessionId('sOld') })
     await store.sessions.upsertSession({
       id: asSessionId('sNew'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
       title: 'fresh agent',
@@ -5788,7 +5788,7 @@ describe('IssueService agent mail (#103)', () => {
     await seedIssueMail(store, a.id, 'msg_held', { fromSession: asSessionId('sSender') })
     await store.sessions.upsertSession({
       id: asSessionId('sLate'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
       title: 'late agent',

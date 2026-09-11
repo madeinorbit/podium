@@ -23,7 +23,7 @@ import { addSink, configureLevelsFromEnv, createRingBufferSink, resetLogging } f
 import {
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Geometry,
   SessionMeta,
 } from '@podium/model'
@@ -36,7 +36,7 @@ import type { ClientConn } from '../../gateway/client-registry'
 import { SessionTerminal } from './terminal'
 
 const SESSION = asSessionId('s-watchdog')
-const OWNER = asUserId(FIRST_ADMIN_USER_ID)
+const OWNER = asUserId(firstAdminMemberId())
 const GEO: Geometry = { cols: 80, rows: 24 }
 const ASKED: Geometry = { cols: 203, rows: 51 }
 

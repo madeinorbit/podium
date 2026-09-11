@@ -22,6 +22,8 @@ import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
+import { type IdPrefix, mintBrandedId, primeFirstAdminMember } from '@podium/model'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applySchemaRepairs, repairReason } from './repair'
@@ -237,6 +239,7 @@ export function runDrizzleMigrations(
     // wrong schema, so a boot with nothing pending is exactly the case that
     // must heal itself.
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
+    primeFirstAdmin(db)
     return []
   }
 
@@ -275,12 +278,75 @@ export function runDrizzleMigrations(
     // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
     // the scripts typecheck lane does not (POD-1122). Same object at runtime.
     drizzle({ client: client as unknown as DrizzleBunClient }),
-    pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
+    pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: mintIdsIn(m.sql) })),
   )
   // AFTER the migrations, never before: the rebuild that drops the column is
   // itself one of the migrations that may have just run.
   if (opts.skipSchemaRepair !== true) reportRepairs(db)
+  primeFirstAdmin(db)
   return pending.map((m) => m.name)
+}
+
+/**
+ * RESOLVE THIS INSTANCE'S FIRST ADMIN, ONCE THE SCHEMA IS CURRENT [A2].
+ *
+ * Every ambient-principal site in the server reads `firstAdminMemberId()`, and
+ * it has to be primed before any of them runs. This is where, because this
+ * function is the ONE choke point every database passes through on its way to
+ * being current — the store's boot bracket, `applyBaselineSchema`, the
+ * test-support images — and priming at each of those instead would be three
+ * copies of one obligation, the third of which someone forgets.
+ *
+ * AFTER the migrations rather than before: the A2 migration is what mints the
+ * `mem_` id, so a database arriving with the retired literal still in it has no
+ * correct answer to give until this run has rewritten it.
+ *
+ * A database with no `users` table predates accounts entirely, and one whose
+ * admins are all disabled has no member that may act — both leave the slot
+ * unset, so the next ambient site throws and says so, which is the honest
+ * outcome for a database nothing can resolve a principal from.
+ */
+function primeFirstAdmin(db: SqlDatabase): void {
+  if (!hasTable(db, 'users')) return
+  const id = earliestAdminMember(db)
+  if (id !== undefined) primeFirstAdminMember(id)
+}
+
+/**
+ * `{{mint:<prefix>_}}` — A MIGRATION ASKING FOR A FRESHLY MINTED ID [A2].
+ *
+ * WHAT NEEDED THIS. A2 gives the existing first member an ordinary `mem_` id,
+ * and "ordinary" is the requirement: one id per installation, minted, not a
+ * second constant with a nicer prefix. SQL cannot mint one — a KSUID is four
+ * bytes of clock and sixteen of randomness rendered in base62, which in SQLite
+ * is long division over a 160-bit number written as a recursive CTE, frozen into
+ * a migration forever and testable only against itself. This is the same
+ * problem `20260730173834_user-accounts-first-admin` hit with a file it could
+ * not read, and the same answer: let the process do the part SQL cannot, at the
+ * moment the migration is applied.
+ *
+ * ONE ID PER PREFIX PER MIGRATION, because the A2 migration spells the new id in
+ * every UPDATE it makes and they must all name the same member. Substitution is
+ * therefore by prefix, not by occurrence.
+ *
+ * INVISIBLE TO THE LEDGER. drizzle's array form records a migration by NAME with
+ * an empty hash, so two installations applying this migration with two different
+ * ids are indistinguishable to the skip logic and to the downgrade guard — which
+ * is what makes a per-apply substitution safe here and would not be safe against
+ * a migrator that checksums its SQL.
+ *
+ * A migration with no token is returned unchanged, which is every migration but
+ * one.
+ */
+export function mintIdsIn(sql: string, mint: (prefix: IdPrefix) => string = mintBrandedId): string {
+  const minted = new Map<string, string>()
+  return sql.replace(/\{\{mint:([a-z]{2,4}_)\}\}/g, (_match, prefix: string) => {
+    const existing = minted.get(prefix)
+    if (existing !== undefined) return existing
+    const fresh = mint(prefix as IdPrefix)
+    minted.set(prefix, fresh)
+    return fresh
+  })
 }
 
 /** Repairs known schema drift and says so — loudly, and only when it acted. */

@@ -16,7 +16,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Geometry,
   type SessionId,
   SessionMeta,
@@ -37,7 +37,7 @@ import { SessionTerminal } from './terminal'
 
 const SESSION = asSessionId('s-sizing')
 const MACHINE = asMachineId('m-sizing')
-const OWNER = asUserId(FIRST_ADMIN_USER_ID)
+const OWNER = asUserId(firstAdminMemberId())
 const GEO: Geometry = { cols: 80, rows: 24 }
 
 type Sent = ClientConn & { sent: ServerMessage[]; principal: ClientPrincipal }

@@ -11,7 +11,7 @@
  * Driven against the real dispatcher (`asIssueTrpc`), the same object the web
  * client and the in-process MCP tools call.
  */
-import { asIssueId, asSessionId, type Capability, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, type Capability, firstAdminMemberId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { SessionRegistry } from '../../relay'
@@ -104,7 +104,7 @@ describe('issues.setPlacement', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(origin.id) },
       actorSessionId: asSessionId('s-agent'),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     const asWorker = registry.issueCommands.asIssueTrpc(worker)
 

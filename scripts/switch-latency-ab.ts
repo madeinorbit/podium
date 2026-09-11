@@ -39,7 +39,7 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, firstAdminMemberId } from '@podium/model'
 import type { PerfPrincipalSlice, PerfSnapshot } from '@podium/protocol'
 import type { IssueRow } from '../apps/server/src/store'
 
@@ -211,7 +211,7 @@ async function runArm(label: string): Promise<ArmReport> {
           publications.push(JSON.stringify(message))
         }
       },
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       userRole: 'admin',
     })
     registry.clientGateway.routeClientFrame(clientId, {
@@ -233,7 +233,7 @@ async function runArm(label: string): Promise<ArmReport> {
     // would show honestly, and which would make the run useless.
     const observer = registry.clientGateway.attachClient({
       send: () => {},
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       userRole: 'admin',
     })
     registry.clientGateway.routeClientFrame(observer, {

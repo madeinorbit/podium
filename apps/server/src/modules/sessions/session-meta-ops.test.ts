@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -24,7 +24,7 @@ async function fixture(file = ':memory:') {
   const sessions = new Map<typeof sessionId, Session>()
   const session = new Session({
     sessionId,
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'claude-code',
     cwd: '/offer-test',
     title: 'Offer test',

@@ -7,8 +7,8 @@ import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
+  asUserId,
   controlPlaneAvailable,
-  FIRST_ADMIN_USER_ID,
   MachineServiceAssignment,
 } from '@podium/model'
 import {
@@ -101,7 +101,7 @@ import {
 import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
-import { applyEnvFirstAdminPassword, retireInstancePassword } from './instance-password-migration'
+import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
@@ -610,13 +610,13 @@ export async function startServer(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
-  // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
-  // before the open-exposure check below. Order matters between these two: the legacy
-  // hash in auth.json is the operator's REAL password and wins, so it is moved into the
-  // first admin's credential first; the PODIUM_PASSWORD seam then finds a credential and
-  // stays the no-op it has always been on an instance that already has one.
+  // THE FIRST ADMIN'S PASSWORD, from wherever it was left before this boot, and before
+  // anything can serve a login. Order matters between these two: a hash staged in
+  // auth.json by `podium setup` is the operator's REAL password and wins, so it is
+  // adopted first; the PODIUM_PASSWORD seam then finds a credential and stays the no-op
+  // it has always been on an instance that already has one.
   if (!recoveryOnly) {
-    await retireInstancePassword({ users: store.users })
+    await adoptStagedFirstAdminPassword({ users: store.users })
     await applyEnvFirstAdminPassword({ users: store.users })
   }
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
@@ -1417,17 +1417,47 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const requestPrincipal = async (headers: ClientCredentialHeaders) => {
-    const userId =
-      (await requestUserId(
-        store.auth,
-        headers.cookieHeader,
-        Date.now(),
-        headers.authorizationHeader,
-      )) ?? (!(await credentialsRequired()) ? FIRST_ADMIN_USER_ID : undefined)
+  /**
+   * OPEN MODE IS A POLICY ON A MEMBER, NOT A SPECIAL USER [A2, spec §8].
+   *
+   * It used to synthesise `FIRST_ADMIN_USER_ID` — a principal named by the
+   * build, which no row had to exist for. Now it RESOLVES the earliest admin
+   * member of this instance, so an unauthenticated request in open mode acts as
+   * an ordinary member row, and an instance with no member that may act (every
+   * admin disabled) serves nobody rather than serving a ghost.
+   *
+   * AND THE REQUEST MUST BE LOCAL, which is the one behavioural change. Open
+   * mode exists for loopback — the all-in-one desktop's embedded server, where
+   * there is no second human and a password would be theatre. Off-box it was an
+   * unauthenticated data plane that the boot log could only WARN about ("anyone
+   * who can reach this host can control your agents and shell"). A warning is
+   * what you write when you cannot refuse; the spec makes locality part of the
+   * policy, so now we can. A remote caller on a password-less instance gets the
+   * same answer as any other unauthenticated caller: no principal, and the login
+   * screen — which is the correct prompt, because setting a password is exactly
+   * what that instance has to do.
+   *
+   * `request` is optional because one caller — `/auth/status`, reporting whether
+   * this browser is signed in — is upstream of any transport that must be
+   * authorized. Absent, the open-mode arm does not fire: a resolver that cannot
+   * see where the request came from cannot claim it came from here.
+   */
+  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
+    const credentialed = await requestUserId(
+      store.auth,
+      headers.cookieHeader,
+      Date.now(),
+      headers.authorizationHeader,
+    )
+    const openMode =
+      credentialed === undefined &&
+      request !== undefined &&
+      isHostLocalRequest(request) &&
+      !(await credentialsRequired())
+    const userId = credentialed ?? (openMode ? (await store.users.earliestAdmin())?.id : undefined)
     if (userId === undefined) return undefined
-    const account = await store.users.get(userId)
-    return account ? userCommandPrincipal(userId, account.role) : undefined
+    const account = await store.users.get(asUserId(userId))
+    return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
   }
   const guard = clientAuthGuard({
     store: store.auth,
@@ -1475,8 +1505,8 @@ export async function startServer(
     // login screen loops forever against a server that just accepted the
     // password. It buys nothing else: every data-plane call is still 503 at the
     // readiness boundary, whoever is holding the cookie.
-    resolveUserId: async (headers) =>
-      controlPlaneAvailable(readiness()) ? (await requestPrincipal(headers))?.user : undefined,
+    resolveUserId: async (headers, request) =>
+      controlPlaneAvailable(readiness()) ? (await requestPrincipal(headers, request))?.user : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
@@ -1577,16 +1607,22 @@ export async function startServer(
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
       createContext: async (_request, hono) => {
+        // SETUP BOOTSTRAP, before there is anything to authenticate with: the
+        // first admin is RESOLVED here too, so the account this acts as is a row
+        // that exists rather than an id the build named.
         const bootstrapAccount = isHostSetupBootstrap(readiness(), hono.req.path, hono.req.raw)
-          ? await store.users.get(FIRST_ADMIN_USER_ID)
+          ? await store.users.earliestAdmin()
           : undefined
         const principal =
-          (await requestPrincipal({
-            cookieHeader: hono.req.header('cookie'),
-            authorizationHeader: hono.req.header('authorization'),
-          })) ??
+          (await requestPrincipal(
+            {
+              cookieHeader: hono.req.header('cookie'),
+              authorizationHeader: hono.req.header('authorization'),
+            },
+            hono.req.raw,
+          )) ??
           (bootstrapAccount
-            ? userCommandPrincipal(FIRST_ADMIN_USER_ID, bootstrapAccount.role)
+            ? userCommandPrincipal(asUserId(bootstrapAccount.id), bootstrapAccount.role)
             : undefined)
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         return {
@@ -1769,7 +1805,7 @@ export async function startServer(
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
           const credential = await resolveClientCredential(store.auth, headers)
-          const principal = await requestPrincipal(headers)
+          const principal = await requestPrincipal(headers, request)
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined

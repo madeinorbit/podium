@@ -56,37 +56,33 @@
 
 import { type Principal } from '@podium/protocol'
 import type { Capability, SessionId, UserRole } from '@podium/model'
-import { FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { firstAdminMemberId, type UserId } from '@podium/model'
 
 /**
- * THE INSTANCE'S ONE ACCOUNT — re-exported from `@podium/model`, which is now
- * its single home (POD-1075).
+ * THE INSTANCE'S FIRST ADMIN — re-exported from `@podium/model`, which is its
+ * single home.
  *
  * This module used to declare `INSTANCE_OWNER = 'instance-owner'` here, with a
  * promise attached: *"when that table lands, this constant is replaced by a
- * lookup and every call site below is unchanged."* The table has landed. The
- * constant is now `FIRST_ADMIN_USER_ID` in `packages/model`'s
- * `identity/user.ts`, beside the `User` aggregate and the account role, and the
- * re-export is what keeps that promise — no call site in this app changed.
+ * lookup and every call site below is unchanged."* POD-1075 landed the table and
+ * kept half of it — the constant became `FIRST_ADMIN_USER_ID`, still a constant,
+ * just one spelled `'user:sole'` because that is what the POD-380 migration had
+ * already written into every pin, snooze and saved tab order.
  *
- * WHY THE VALUE MOVED AND THE NAME WENT WITH IT (POD-1172). Two constants named
- * the one pre-accounts human and disagreed: this one, and `SOLE_USER_ID`
- * (`'user:sole'`) which `sessionOwner` stamps as every session's owner. Each was
- * internally consistent, so nothing compared them until POD-351's delegation
- * ceiling needed both — where, unreconciled, the intersection denied EVERY agent
- * write. `'user:sole'` won because it is the value the POD-380 migration already
- * WROTE INTO THE DATABASE for every pin, snooze and saved tab order, and a
- * migration is frozen history; this one was minted in memory and persisted
- * nowhere, so retiring it costs nothing. `rename-target-path.ts`'s
- * `samePrincipal` bridge and its tripwire are deleted with it.
+ * A2 keeps the other half. `firstAdminMemberId()` is a LOOKUP now — the earliest
+ * admin member of this instance, resolved from the database when the store opens
+ * and read from there — because the migration gives that member an ordinary
+ * `mem_` id minted per installation, so no build can name it. The call sites
+ * below are, as promised, unchanged apart from the parentheses.
  *
  * NOT a "default identity" — ADR 3 Amendment 1 D14's rule that there is no
  * default identity is about a principal being SYNTHESIZED for an unauthenticated
  * caller, and nothing here does that: an unauthenticated request never reaches a
- * resolver at all. This is the instance's one real account, and it now has a row
- * in `users` with `role = 'admin'`.
+ * resolver at all. This is the instance's own first admin, a row in `users` with
+ * `role = 'admin'`, and asking for it before any instance is open throws rather
+ * than inventing one.
  */
-export { FIRST_ADMIN_USER_ID }
+export { firstAdminMemberId }
 
 /** A person acting directly (tRPC cookie, local CLI, in-process MCP). */
 export interface UserCommandPrincipal {

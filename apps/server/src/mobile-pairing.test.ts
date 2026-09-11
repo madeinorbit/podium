@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { FIRST_ADMIN_USER_ID, asUserId } from '@podium/model'
+import { firstAdminMemberId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { MobilePairingManager } from './mobile-pairing'
 
@@ -26,7 +26,7 @@ const claimInput = {
 describe('MobilePairingManager', () => {
   it('binds approval to the minting user and completes exactly once', () => {
     const pairing = manager()
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
+    const grant = pairing.mint(firstAdminMemberId(), 100)
     const claim = pairing.claim({ ...claimInput, pairCode: grant.pairCode }, 'native', 101)
     expect(claim).toEqual({
       claimId: 'token-3',
@@ -37,13 +37,13 @@ describe('MobilePairingManager', () => {
       pairing.claim({ ...claimInput, pairCode: grant.pairCode }, 'native', 102),
     ).toBeUndefined()
     expect(pairing.decide(grant.pairingId, asUserId('user:other'), 'approved', 103)).toBe(false)
-    expect(pairing.decide(grant.pairingId, FIRST_ADMIN_USER_ID, 'approved', 103)).toBe(true)
+    expect(pairing.decide(grant.pairingId, firstAdminMemberId(), 'approved', 103)).toBe(true)
     expect(
       pairing.complete(claim!.claimId, Buffer.alloc(32, 8).toString('base64url'), 104),
     ).toBe('invalid-secret')
     expect(pairing.complete(claim!.claimId, SECRET.toString('base64url'), 104)).toEqual({
       pairingId: grant.pairingId,
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       deviceId: 'device-1',
       deviceName: "Sam's iPhone",
       platform: 'ios',
@@ -56,7 +56,7 @@ describe('MobilePairingManager', () => {
 
   it('reports pending only to the holder of the claim secret', () => {
     const pairing = manager()
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
+    const grant = pairing.mint(firstAdminMemberId(), 100)
     const claim = pairing.claim({ ...claimInput, pairCode: grant.pairCode }, 'native', 101)!
     expect(pairing.complete(claim.claimId, SECRET.toString('base64url'), 102)).toBe('pending')
     expect(
@@ -71,12 +71,12 @@ describe('MobilePairingManager', () => {
       randomToken: () => `token-${++token}`,
       phraseDigest: () => Uint8Array.from([0, 0, 0, 0, 0]),
     })
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
+    const grant = pairing.mint(firstAdminMemberId(), 100)
     const claim = pairing.claim({ ...claimInput, pairCode: grant.pairCode }, 'native', 101)!
     const wrong = Buffer.alloc(32, 3).toString('base64url')
     expect(pairing.complete(claim.claimId, wrong, 102)).toBe('invalid-secret')
     expect(pairing.complete(claim.claimId, wrong, 103)).toBe('invalid-secret')
-    expect(pairing.status(grant.pairingId, FIRST_ADMIN_USER_ID, 104)).toEqual({
+    expect(pairing.status(grant.pairingId, firstAdminMemberId(), 104)).toEqual({
       state: 'denied',
     })
     expect(pairing.complete(claim.claimId, SECRET.toString('base64url'), 104)).toBe('unavailable')
@@ -84,28 +84,28 @@ describe('MobilePairingManager', () => {
 
   it('expires on server time and treats absent restart state as expired', () => {
     const pairing = manager(10)
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
-    expect(pairing.status(grant.pairingId, FIRST_ADMIN_USER_ID, 109)).toEqual({
+    const grant = pairing.mint(firstAdminMemberId(), 100)
+    expect(pairing.status(grant.pairingId, firstAdminMemberId(), 109)).toEqual({
       state: 'pending',
       expiresAt: new Date(110).toISOString(),
     })
-    expect(pairing.status(grant.pairingId, FIRST_ADMIN_USER_ID, 110)).toEqual({
+    expect(pairing.status(grant.pairingId, firstAdminMemberId(), 110)).toEqual({
       state: 'expired',
     })
-    expect(manager().status(grant.pairingId, FIRST_ADMIN_USER_ID, 101)).toEqual({
+    expect(manager().status(grant.pairingId, firstAdminMemberId(), 101)).toEqual({
       state: 'expired',
     })
   })
 
   it('lets only the owner cancel an unclaimed grant while approval still requires a claim', () => {
     const pairing = manager()
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
-    expect(pairing.decide(grant.pairingId, FIRST_ADMIN_USER_ID, 'approved', 101)).toBe(false)
+    const grant = pairing.mint(firstAdminMemberId(), 100)
+    expect(pairing.decide(grant.pairingId, firstAdminMemberId(), 'approved', 101)).toBe(false)
     expect(
       pairing.decide(grant.pairingId, asUserId('user:other'), 'denied', 101),
     ).toBe(false)
-    expect(pairing.decide(grant.pairingId, FIRST_ADMIN_USER_ID, 'denied', 102)).toBe(true)
-    expect(pairing.status(grant.pairingId, FIRST_ADMIN_USER_ID, 103)).toEqual({
+    expect(pairing.decide(grant.pairingId, firstAdminMemberId(), 'denied', 102)).toBe(true)
+    expect(pairing.status(grant.pairingId, firstAdminMemberId(), 103)).toEqual({
       state: 'denied',
     })
     expect(
@@ -115,10 +115,10 @@ describe('MobilePairingManager', () => {
 
   it('denies without minting and does not expose wrong-kind daemon grants', () => {
     const pairing = manager()
-    const grant = pairing.mint(FIRST_ADMIN_USER_ID, 100)
+    const grant = pairing.mint(firstAdminMemberId(), 100)
     pairing.claim({ ...claimInput, pairCode: grant.pairCode }, 'native', 101)
-    expect(pairing.decide(grant.pairingId, FIRST_ADMIN_USER_ID, 'denied', 102)).toBe(true)
-    expect(pairing.status(grant.pairingId, FIRST_ADMIN_USER_ID, 103)).toEqual({
+    expect(pairing.decide(grant.pairingId, firstAdminMemberId(), 'denied', 102)).toBe(true)
+    expect(pairing.status(grant.pairingId, firstAdminMemberId(), 103)).toEqual({
       state: 'denied',
     })
     expect(pairing.complete('token-3', SECRET.toString('base64url'), 103)).toBe('unavailable')

@@ -33,11 +33,21 @@ const MIGRATION = 'user-accounts-first-admin'
 /** The literal the migration writes. Spelled out here for the same reason the
  *  migration spells it out: a migration is frozen history, so this test must
  *  keep asserting the id that was actually written even if the constant is
- *  later renamed. `FIRST_ADMIN_USER_ID` is asserted equal to it in
+ *  later renamed. `firstAdminMemberId()` is asserted equal to it in
  *  `packages/model/src/identity/user.test.ts`, which is where the two are tied
  *  together — importing it here would make this test follow a rename instead of
  *  catching one. */
 const FIRST_ADMIN = 'user:sole'
+
+/**
+ * The manifest UP TO AND INCLUDING this migration.
+ *
+ * It used to be the whole manifest, and stopping here is A2's doing: the
+ * solo-user retirement re-keys `'user:sole'` to a minted `mem_` id, so applying
+ * everything would make this file assert the state of a LATER migration and
+ * call it this one's. A migration test's subject is its own migration.
+ */
+const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
 
 const cutIndex = () => {
   const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.includes(MIGRATION))
@@ -93,7 +103,7 @@ describe('user-accounts migration: existing devices are ADOPTED, not logged out'
     seedSession(db, 'hash-phone', '2026-07-02T00:00:00.000Z', '2026-09-02T00:00:00.000Z')
     seedSession(db, 'hash-desktop', '2026-07-03T00:00:00.000Z', '2026-09-03T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const rows = db
       .prepare('SELECT token_hash, user_id, created_at, expires_at FROM client_sessions ORDER BY token_hash')
@@ -123,7 +133,7 @@ describe('user-accounts migration: existing devices are ADOPTED, not logged out'
     const before = db.prepare('SELECT COUNT(*) AS n FROM client_sessions').get() as { n: number }
     expect(before.n).toBe(1)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const after = db.prepare('SELECT COUNT(*) AS n FROM client_sessions').get() as { n: number }
     expect(after.n).toBe(1)
@@ -136,7 +146,7 @@ describe('user-accounts migration: existing devices are ADOPTED, not logged out'
     // refuting.
     const db = preMigrationDb()
     seedSession(db, 'hash-laptop', '2026-07-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     db.prepare('DELETE FROM client_sessions').run()
     const rows = db.prepare('SELECT token_hash FROM client_sessions').all() as { token_hash: string }[]
@@ -147,7 +157,7 @@ describe('user-accounts migration: existing devices are ADOPTED, not logged out'
 describe('user-accounts migration: a first admin exists afterwards', () => {
   it('mints exactly one account, and it is an admin', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const users = db
       .prepare('SELECT id, display_name, role, created_at, disabled_at FROM users')
@@ -167,7 +177,7 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
     // comparison over the space-separated `datetime('now')` form sorts wrongly
     // against them.
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const row = db.prepare('SELECT created_at FROM users WHERE id = ?').get(FIRST_ADMIN) as {
       created_at: string
@@ -178,8 +188,9 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
   it('leaves NO instance-password marker behind — POD-1554 retired that source', () => {
     // POD-1075 wrote a `source = 'instance-password'` marker with a NULL hash,
     // meaning *this account authenticates with the shared secret in auth.json*.
-    // It was explicitly a bridge. POD-1554 retired it, and this suite runs the
-    // WHOLE chain, so the end state is what it asserts: the marker is gone.
+    // It was explicitly a bridge. POD-1554 retired it in a LATER migration, so
+    // this one case deliberately runs the whole chain — the marker's absence is
+    // an end state, not this migration's own.
     //
     // Deleting it is safe rather than lossy — such a row is NULL-hashed by
     // construction, and the boot migration that moves the real hash keys on
@@ -190,8 +201,8 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
     const cred = db
-      .prepare('SELECT user_id, source, password_hash FROM user_credentials WHERE user_id = ?')
-      .get(FIRST_ADMIN)
+      .prepare("SELECT user_id, source, password_hash FROM user_credentials WHERE source = 'instance-password'")
+      .get()
 
     expect(cred).toBeUndefined()
   })
@@ -202,7 +213,7 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
     // resolves every unowned machine to this account, so its existence is a
     // precondition rather than a convenience.
     const fresh = openDatabase(':memory:')
-    runDrizzleMigrations(fresh, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(fresh, throughThisMigration())
 
     const users = fresh.prepare('SELECT id, role FROM users').all() as { id: string; role: string }[]
     expect(users).toEqual([{ id: FIRST_ADMIN, role: 'admin' }])
@@ -213,7 +224,7 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
     // Drizzle skips by NAME so this cannot happen through the normal path, but a
     // hand-run of the SQL during an incident must not mint a second admin.
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
     db.prepare(
       `INSERT OR IGNORE INTO users (id, display_name, role, created_at, disabled_at)
        VALUES (?, 'Operator', 'admin', '2026-01-01T00:00:00.000Z', NULL)`,
@@ -227,7 +238,7 @@ describe('user-accounts migration: a first admin exists afterwards', () => {
 describe('user-accounts migration: the identity tables land with the right shape', () => {
   it('creates users, user_credentials and grants', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     expect(tableExists(db, 'users')).toBe(true)
     expect(tableExists(db, 'user_credentials')).toBe(true)
@@ -236,7 +247,7 @@ describe('user-accounts migration: the identity tables land with the right shape
 
   it('keys the grant edge on (resource, grantee, verb) — the ADR 9 D2 triple', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     const insert = db.prepare(
       `INSERT INTO grants
@@ -259,7 +270,7 @@ describe('user-accounts migration: the identity tables land with the right shape
     // dimension multi-user adds is OWNER, not tenant. Asserted over the tables
     // this migration creates, where the mistake would land.
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughThisMigration())
 
     for (const table of ['users', 'user_credentials', 'grants', 'client_sessions']) {
       const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(

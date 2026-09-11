@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { controlPlaneAvailable, firstAdminMemberId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
@@ -13,6 +13,7 @@ import {
   isSecureRequest,
   registerAuthRoute,
   requestUserId,
+  resolveLoginIdentifier,
 } from './auth-route'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
@@ -36,7 +37,7 @@ function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
  */
 async function setPassword(password: string, target: SessionStore = store): Promise<void> {
   await target.users.setPasswordHash(
-    FIRST_ADMIN_USER_ID,
+    firstAdminMemberId(),
     await hashPassword(password),
     new Date().toISOString(),
   )
@@ -78,12 +79,12 @@ describe('auth-route', () => {
   })
 
   test('status reports the composition-root principal without deriving an open-mode user', async () => {
-    const res = await makeApp({ resolveUserId: () => FIRST_ADMIN_USER_ID }).request('/auth/status')
+    const res = await makeApp({ resolveUserId: () => firstAdminMemberId() }).request('/auth/status')
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       needsAuth: false,
       authed: true,
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
     })
   })
 
@@ -146,7 +147,7 @@ describe('auth-route', () => {
     expect(await status.json()).toMatchObject({
       needsAuth: true,
       authed: true,
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       // And the screen behind this login is told WHY it is stale, by name.
       readiness: { state: 'activation_pending', stale: ['persistence'] },
     })
@@ -201,7 +202,7 @@ describe('auth-route', () => {
       body: JSON.stringify({ password: 'hunter2' }),
     })
     expect(res.status).toBe(200)
-    expect(seen).toEqual([{ userId: FIRST_ADMIN_USER_ID, delivery: 'cookie' }])
+    expect(seen).toEqual([{ userId: firstAdminMemberId(), delivery: 'cookie' }])
   })
 
   test('does not report a rejected login', async () => {
@@ -267,7 +268,7 @@ describe('auth-route', () => {
     const claim = 'transfer-claim-token-abcdefghijklmnopqrstuvwxyz'
     store.auth.createClientSession(
       hashToken(claim),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(Date.now() + 60_000).toISOString(),
       'server-transfer-claim',
     )
@@ -287,7 +288,7 @@ describe('auth-route', () => {
     const status = await app.request('/auth/status', {
       headers: { cookie: `podium_session=${replacement}` },
     })
-    expect(await status.json()).toMatchObject({ authed: true, userId: FIRST_ADMIN_USER_ID })
+    expect(await status.json()).toMatchObject({ authed: true, userId: firstAdminMemberId() })
 
     const replay = await app.request('/auth/server-transfer-claim', {
       method: 'POST',
@@ -317,7 +318,7 @@ describe('auth-route', () => {
     const body = (await response.json()) as { token: string; userId: string; expiresAt: string }
     expect(body.token).toBeTruthy()
     expect(await store.auth.getClientSession(hashToken(body.token))).toMatchObject({
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       label: 'mobile',
       sessionId: expect.any(String),
       deviceId: 'phone-1',
@@ -340,7 +341,7 @@ describe('auth-route', () => {
       }),
     })
     expect(response.status).toBe(400)
-    expect(await store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.auth.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
   })
 
   test('browser-origin login cannot opt into response-body bearer delivery', async () => {
@@ -362,7 +363,7 @@ describe('auth-route', () => {
     })
     expect(response.status).toBe(400)
     expect(response.headers.get('set-cookie')).toBeNull()
-    expect(await store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.auth.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
   })
 
   test('the session cookie marks the client authed; logout clears it', async () => {
@@ -383,7 +384,7 @@ describe('auth-route', () => {
     expect(await status.json()).toEqual({
       needsAuth: true,
       authed: true,
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
     })
 
     const logout = await app.request('/auth/logout', {
@@ -475,7 +476,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const token = 'raw-session-token'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(Date.now() + 60_000).toISOString(),
     )
     return `podium_session=${token}`
@@ -507,7 +508,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const token = 'native-mobile-token-abcdefghijklmnopqrstuvwxyz'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(Date.now() + 60_000).toISOString(),
       'mobile',
       { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
@@ -539,7 +540,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const token = 'break-glass-bearer-abcdefghijklmnopqrstuvwxyz'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(Date.now() + 60_000).toISOString(),
       'break-glass',
     )
@@ -561,7 +562,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const token = 'native-cleartext-token-abcdefghijklmnopqrstuvwxyz'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(Date.now() + 60_000).toISOString(),
       'mobile',
     )
@@ -605,7 +606,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(nowMs + 28 * DAY).toISOString(),
     )
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
@@ -628,7 +629,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(nowMs + 30 * DAY - HOUR).toISOString(),
     )
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
@@ -644,7 +645,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const token = 'mobile-rolling-token-abcdefghijklmnopqrstuvwxyz'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(nowMs + 28 * DAY).toISOString(),
       'mobile',
       { deviceId: 'phone-1', deviceName: 'Phone', platform: 'ios' },
@@ -683,11 +684,11 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     const token = 'gate-valid-token'
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(nowMs + 60_000).toISOString(),
     )
     const cookie = cookieFor(token)
-    expect(await requestUserId(store.auth, cookie, nowMs)).toBe(FIRST_ADMIN_USER_ID)
+    expect(await requestUserId(store.auth, cookie, nowMs)).toBe(firstAdminMemberId())
     expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
   })
 
@@ -697,11 +698,11 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     // still refuse: expiry is enforced here, not only in the store helper.
     await store.auth.createClientSession(
       hashToken(token),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(nowMs - 1_000).toISOString(),
     )
     const cookie = cookieFor(token)
-    expect((await store.auth.getClientSession(hashToken(token)))?.userId).toBe(FIRST_ADMIN_USER_ID)
+    expect((await store.auth.getClientSession(hashToken(token)))?.userId).toBe(firstAdminMemberId())
     expect(await requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
     expect(await isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
   })
@@ -783,7 +784,7 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
     const minted = mintBreakGlassSession({ stateDir: mintDir })
     await mintStore.auth.createClientSession(
       hashToken('a-browser-login'),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       FAR_FUTURE,
     )
 
@@ -825,7 +826,7 @@ describe('session expiry at the gate', () => {
   async function expiredRow(): Promise<string> {
     await store.auth.createClientSession(
       hashToken(TOKEN),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       new Date(AT - 1_000).toISOString(),
     )
     return `podium_session=${TOKEN}`
@@ -871,8 +872,8 @@ describe('client session store', () => {
   test('a session validates until it expires, then no longer', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const past = new Date(Date.now() - 1_000).toISOString()
-    await store.auth.createClientSession('hash-a', FIRST_ADMIN_USER_ID, future)
-    await store.auth.createClientSession('hash-b', FIRST_ADMIN_USER_ID, past)
+    await store.auth.createClientSession('hash-a', firstAdminMemberId(), future)
+    await store.auth.createClientSession('hash-b', firstAdminMemberId(), past)
     const now = new Date().toISOString()
     expect((await store.auth.getClientSession('hash-a'))?.expiresAt).toBe(future)
     expect(await store.auth.isClientSessionValid('hash-a', now)).toBe(true)
@@ -883,7 +884,7 @@ describe('client session store', () => {
   test('extendClientSession pushes out the expiry of an existing session', async () => {
     const t1 = new Date(Date.now() + 1_000).toISOString()
     const t2 = new Date(Date.now() + 999_000).toISOString()
-    await store.auth.createClientSession('ext', FIRST_ADMIN_USER_ID, t1)
+    await store.auth.createClientSession('ext', firstAdminMemberId(), t1)
     await store.auth.extendClientSession('ext', t2)
     expect((await store.auth.getClientSession('ext'))?.expiresAt).toBe(t2)
   })
@@ -891,8 +892,8 @@ describe('client session store', () => {
   test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const now = new Date().toISOString()
-    await store.auth.createClientSession('one', FIRST_ADMIN_USER_ID, future)
-    await store.auth.createClientSession('two', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('one', firstAdminMemberId(), future)
+    await store.auth.createClientSession('two', firstAdminMemberId(), future)
     await store.auth.deleteClientSession('one')
     expect(await store.auth.isClientSessionValid('one', now)).toBe(false)
     expect(await store.auth.isClientSessionValid('two', now)).toBe(true)
@@ -910,8 +911,8 @@ describe('client session store', () => {
    */
   test('a session records WHICH PERSON the device belongs to', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
-    await store.auth.createClientSession('with-user', FIRST_ADMIN_USER_ID, future)
-    expect((await store.auth.getClientSession('with-user'))?.userId).toBe(FIRST_ADMIN_USER_ID)
+    await store.auth.createClientSession('with-user', firstAdminMemberId(), future)
+    expect((await store.auth.getClientSession('with-user'))?.userId).toBe(firstAdminMemberId())
   })
 
   test('device and person are separable — two devices, one person', async () => {
@@ -919,8 +920,8 @@ describe('client session store', () => {
     // had one answer; a test that only checked `userId` was non-empty could not
     // tell the two questions apart.
     const future = new Date(Date.now() + 60_000).toISOString()
-    await store.auth.createClientSession('laptop', FIRST_ADMIN_USER_ID, future)
-    await store.auth.createClientSession('phone', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('laptop', firstAdminMemberId(), future)
+    await store.auth.createClientSession('phone', firstAdminMemberId(), future)
 
     expect((await store.auth.getClientSession('laptop'))?.userId).toBe(
       (await store.auth.getClientSession('phone'))?.userId,
@@ -931,5 +932,73 @@ describe('client session store', () => {
     await store.auth.deleteClientSession('laptop')
     expect(await store.auth.isClientSessionValid('laptop', now)).toBe(false)
     expect(await store.auth.isClientSessionValid('phone', now)).toBe(true)
+  })
+})
+
+/**
+ * WHICH MEMBER A LOGIN IS FOR (A2, spec §5.6 "Existing installs").
+ *
+ * The login screen sends one password field and no name, because there was one
+ * account and the server knew which. It still means "this instance's first
+ * admin" — the server just resolves that member now instead of compiling its id
+ * in. And the id that member USED to have stays accepted, because an upgrade
+ * that locks the operator out of their own instance to tidy up a string is not
+ * a trade worth making.
+ */
+describe('the login identifier', () => {
+  test('with no identifier, means the earliest admin member', async () => {
+    expect(await resolveLoginIdentifier(undefined, store.users)).toBe(
+      (await store.users.earliestAdmin())?.id,
+    )
+  })
+
+  test('accepts the retired literal, and resolves it to the same member', async () => {
+    // The one place `'user:sole'` survives as an identity. A3 narrows this to a
+    // first admin whose email is still empty; the column does not exist yet.
+    expect(await resolveLoginIdentifier('user:sole', store.users)).toBe(
+      (await store.users.earliestAdmin())?.id,
+    )
+  })
+
+  test('takes any other identifier as the member id it is', async () => {
+    // Not resolved, not rewritten: a login for a member who does not exist must
+    // fail at the credential lookup, not silently become the first admin's.
+    expect(await resolveLoginIdentifier('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv', store.users)).toBe(
+      'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv',
+    )
+  })
+
+  test('has no answer when no member may act as the first admin', async () => {
+    // Every admin disabled. The caller answers this as a failed login, which is
+    // what it is from the outside: there is no account with that (absent) name.
+    const none = { earliestAdmin: async () => undefined } as Parameters<
+      typeof resolveLoginIdentifier
+    >[1]
+    expect(await resolveLoginIdentifier(undefined, none)).toBeUndefined()
+  })
+
+  test('a password set on the first admin still logs in with no identifier sent', async () => {
+    // End to end, through the real route: this is the upgrade case — the login
+    // screen has not changed, and the operator's password still works after
+    // their member id was re-keyed underneath them.
+    await setPassword('hunter2')
+    const app = makeApp()
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password: 'hunter2' }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { userId: string }).userId).toBe(firstAdminMemberId())
+  })
+
+  test('and with the retired literal sent as the identifier', async () => {
+    await setPassword('hunter2')
+    const app = makeApp()
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ userId: 'user:sole', password: 'hunter2' }),
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { userId: string }).userId).toBe(firstAdminMemberId())
   })
 })

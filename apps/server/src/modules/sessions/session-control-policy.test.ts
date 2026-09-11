@@ -8,7 +8,7 @@ import {
   agentIdentityFromSessionId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
@@ -26,7 +26,7 @@ import {
 const OWNER = asUserId('user:owner')
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
-const ADMIN = asUserId(FIRST_ADMIN_USER_ID)
+const ADMIN = asUserId(firstAdminMemberId())
 
 const ownerSubject = (user = OWNER): ControlSubject => ({
   kind: 'user',

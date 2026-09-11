@@ -103,7 +103,7 @@ import {
   asShipHoldId,
   asShipOrderId,
   asThreadId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type ShipAttempt,
   type ShipOrder,
 } from '@podium/model'
@@ -243,10 +243,10 @@ const issueRow = (overrides: Record<string, unknown> = {}) => ({
   seq: 1,
   title: 'Fix login',
   description: 'desc',
-  ownerUserId: FIRST_ADMIN_USER_ID,
+  ownerUserId: firstAdminMemberId(),
   visibility: 'personal' as const,
-  createdByActor: FIRST_ADMIN_USER_ID,
-  createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+  createdByActor: firstAdminMemberId(),
+  createdByOnBehalfOf: firstAdminMemberId(),
   stage: 'backlog',
   worktreePath: '/r/wt',
   branch: 'issue/1',
@@ -310,8 +310,8 @@ const shipOrderInput = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
     approvedHeadSha: 'approved-head',
     deliveryDependsOn: [],
     requestedBy: {
-      actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actor: { kind: 'user', id: firstAdminMemberId() },
+      onBehalfOf: firstAdminMemberId(),
     },
     requestedAt: AT,
     policyId: 'default',
@@ -351,8 +351,8 @@ async function seed(): Promise<Fixture> {
     command: 'settings.set',
     outcome: 'applied',
     actorKind: 'user',
-    actorId: FIRST_ADMIN_USER_ID,
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actorId: firstAdminMemberId(),
+    onBehalfOf: firstAdminMemberId(),
     detail: { path: 'roles.coding.model' },
     redactedPaths: ['roles.coding.model'],
     createdAt: AT,
@@ -490,7 +490,7 @@ async function seed(): Promise<Fixture> {
     scope: 'global',
     scopeRef: null,
     actor,
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     now: AT,
   })
   const revision = await store.workflows.insertRevision({
@@ -519,7 +519,7 @@ async function seed(): Promise<Fixture> {
       supersedesRunId: null,
       startedAt: AT,
       completedAt: null,
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     },
     steps: [
       {
@@ -536,13 +536,13 @@ async function seed(): Promise<Fixture> {
     runId: 'wfrun-1',
     kind: 'run.started',
     actor,
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    onBehalfOf: firstAdminMemberId(),
     payload: { note: 'started' },
     now: AT,
   })
 
   // --- superagent -----------------------------------------------------------
-  await store.superagent.seedGlobalThread(FIRST_ADMIN_USER_ID)
+  await store.superagent.seedGlobalThread(firstAdminMemberId())
   await store.superagent.appendSuperagentMessage(asThreadId('global'), {
     role: 'assistant',
     content: 'hi',
@@ -550,14 +550,14 @@ async function seed(): Promise<Fixture> {
   })
   await store.superagent.putQueuedInput({
     inputId: 'queued-1',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     threadId: asThreadId('global'),
     text: 'do it',
     focus: { view: 'issues', issueId: asIssueId('iss_1') },
   })
   await store.superagent.putPendingTurn({
     turnId: 'turn-1',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     threadId: asThreadId('global'),
     podiumSessionId: SESSION,
     payload: { agent: 'claude-code', cwd: '/r', prompt: 'do it' },

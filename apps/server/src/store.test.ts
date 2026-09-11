@@ -8,7 +8,7 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   SOLE_USER_ID,
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
@@ -121,7 +121,7 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 function row(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     id: asSessionId('id-1'),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'proj',
@@ -958,7 +958,7 @@ describe('SessionStore superagent threads', () => {
   it('creates a default global thread and scopes messages by thread', async () => {
     const s = await openTestStore(':memory:')
     expect(
-      (await s.superagent.listSuperagentThreads(FIRST_ADMIN_USER_ID)).some(
+      (await s.superagent.listSuperagentThreads(firstAdminMemberId())).some(
         (t) => t.id === 'global',
       ),
     ).toBe(true)
@@ -967,7 +967,7 @@ describe('SessionStore superagent threads', () => {
       content: 'hi',
     })
     await s.superagent.upsertSuperagentThread({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       id: 'btw_x',
       kind: 'btw',
       originSessionId: asSessionId('x'),
@@ -996,7 +996,7 @@ describe('SessionStore superagent threads', () => {
   it('stores and reads a btw watermark', async () => {
     const s = await openTestStore(':memory:')
     await s.superagent.upsertSuperagentThread({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       id: 'btw_y',
       kind: 'btw',
       originSessionId: asSessionId('y'),
@@ -1011,7 +1011,7 @@ describe('SessionStore superagent threads', () => {
     const s = await openTestStore(':memory:')
     await s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'g' })
     await s.superagent.upsertSuperagentThread({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       id: 'btw_z',
       kind: 'btw',
       originSessionId: asSessionId('z'),

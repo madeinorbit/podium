@@ -127,7 +127,7 @@ export const sessions = sqliteTable(
   'sessions',
   {
     id: text().$type<SessionId>().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     agentKind: text('agent_kind').notNull(),
     // Resolved launch placement, captured once at spawn [spec:SP-dae6].
     model: text(),
@@ -695,7 +695,7 @@ export const conversations = sqliteTable(
 
 export const superagentMessages = sqliteTable('superagent_messages', {
   id: integer().primaryKey({ autoIncrement: true }),
-  ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+  ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   role: text().notNull(),
   content: text().notNull(),
   toolCalls: text('tool_calls'),
@@ -707,7 +707,7 @@ export const superagentMessages = sqliteTable('superagent_messages', {
 
 export const superagentThreads = sqliteTable('superagent_threads', {
   id: text().$type<ThreadId>().primaryKey(),
-  ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+  ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   kind: text().notNull(),
   originSessionId: text('origin_session_id').$type<SessionId>(),
   title: text(),
@@ -1324,9 +1324,9 @@ export const issues = sqliteTable(
   'issues',
   {
     id: text().$type<IssueId>().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     visibility: text().default('personal').notNull(),
-    createdByActor: text('created_by_actor').default('user:sole').notNull(),
+    createdByActor: text('created_by_actor').notNull(),
     createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>(),
     repoPath: text('repo_path').notNull(),
     repoId: text('repo_id').$type<RepoId>(),
@@ -2005,7 +2005,7 @@ export const lockWaiters = sqliteTable(
 export const superagentQueuedInputs = sqliteTable(
   'superagent_queued_inputs',
   {
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     inputId: text('input_id').primaryKey(),
     threadId: text('thread_id').$type<ThreadId>().notNull(),
     text: text().notNull(),
@@ -2046,7 +2046,7 @@ export const superagentQueuedInputs = sqliteTable(
 export const superagentPendingTurns = sqliteTable(
   'superagent_pending_turns',
   {
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     turnId: text('turn_id').primaryKey(),
     threadId: text('thread_id').$type<ThreadId>().notNull(),
     podiumSessionId: text('podium_session_id').$type<SessionId>().notNull(),
@@ -2237,7 +2237,7 @@ export const workflows = sqliteTable(
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   },
   (table) => [
     uniqueIndex('workflows_scope_name_active')
@@ -2282,7 +2282,7 @@ export const workflowBindings = sqliteTable(
     updatedByKind: text('updated_by_kind').notNull(),
     updatedById: text('updated_by_id'),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.targetKind, table.targetId], name: 'workflow_bindings_pk' }),
@@ -2308,7 +2308,7 @@ export const executionProfiles = sqliteTable(
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   },
   (table) => [
     unique('execution_profiles_name_unique').on(table.name),
@@ -2334,7 +2334,7 @@ export const workflowRuns = sqliteTable(
     ),
     startedAt: text('started_at').notNull(),
     completedAt: text('completed_at'),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
   },
   (table) => [
     uniqueIndex('workflow_runs_one_live_subject')
@@ -2422,11 +2422,9 @@ export const automations = sqliteTable(
   'automations',
   {
     id: text().$type<AutomationId>().primaryKey(),
-    ownerUserId: text('owner_user_id').default('user:sole').$type<UserId>().notNull(),
-    createdByActor: text('created_by_actor').default('user:sole').notNull(),
-    createdByOnBehalfOf: text('created_by_on_behalf_of')
-      .default('user:sole')
-      .$type<UserId>()
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    createdByActor: text('created_by_actor').notNull(),
+    createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>()
       .notNull(),
     name: text().notNull(),
     enabled: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
@@ -2455,7 +2453,7 @@ export const automationRuns = sqliteTable(
   {
     id: text().$type<AutomationRunId>().primaryKey(),
     actor: text().default('system:automation-migration').notNull(),
-    onBehalfOf: text('on_behalf_of').default('user:sole').$type<UserId>().notNull(),
+    onBehalfOf: text('on_behalf_of').$type<UserId>().notNull(),
     automationId: brandedRef(text('automation_id').$type<AutomationId>(), () => automations.id, {
       onDelete: 'cascade',
     }).notNull(),

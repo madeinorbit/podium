@@ -1,4 +1,4 @@
-import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { type StatementProbeHolder, probeStatements } from './store/executor'
@@ -49,19 +49,19 @@ describe('account scope read cache', () => {
     const reads = readProbe(store)
 
     const afterFirst = await withReadScope(async () => {
-      const first = await store.users.get(FIRST_ADMIN_USER_ID)
+      const first = await store.users.get(firstAdminMemberId())
       const afterFirst = reads()
       expect(afterFirst).toBeGreaterThan(0)
 
-      await store.users.get(FIRST_ADMIN_USER_ID)
-      await store.users.roleOf(FIRST_ADMIN_USER_ID)
+      await store.users.get(firstAdminMemberId())
+      await store.users.roleOf(firstAdminMemberId())
       expect(reads()).toBe(afterFirst)
-      expect((await store.users.get(FIRST_ADMIN_USER_ID))?.role).toBe(first?.role)
+      expect((await store.users.get(firstAdminMemberId()))?.role).toBe(first?.role)
       return afterFirst
     })
 
     await withReadScope(async () => {
-      await store.users.get(FIRST_ADMIN_USER_ID)
+      await store.users.get(firstAdminMemberId())
       expect(reads()).toBeGreaterThan(afterFirst)
     })
   })
@@ -85,10 +85,10 @@ describe('account scope read cache', () => {
   it('hands every caller its own object', async () => {
     const store = await freshStore()
     await withReadScope(async () => {
-      const first = await store.users.get(FIRST_ADMIN_USER_ID)
+      const first = await store.users.get(firstAdminMemberId())
       expect(first).toBeDefined()
       if (first) first.displayName = 'Mutated by its reader'
-      expect((await store.users.get(FIRST_ADMIN_USER_ID))?.displayName).not.toBe('Mutated by its reader')
+      expect((await store.users.get(firstAdminMemberId()))?.displayName).not.toBe('Mutated by its reader')
     })
   })
 

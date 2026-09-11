@@ -1,4 +1,4 @@
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -137,7 +137,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
     handle = attachWebSockets(
       registry,
       {
-        userForClient: () => FIRST_ADMIN_USER_ID,
+        userForClient: () => firstAdminMemberId(),
         roleForClient: () => 'admin',
       },
       deps,

@@ -11,7 +11,7 @@
  *      orphans its PTY/daemon binding.
  */
 
-import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -43,7 +43,7 @@ describe('SessionStart: issue owner precedence', () => {
     const issueOwner = asUserId('user:issue-owner')
     const conflicting = asUserId('user:explicit-conflict')
     expect(issueOwner).not.toBe(conflicting)
-    expect(issueOwner).not.toBe(FIRST_ADMIN_USER_ID)
+    expect(issueOwner).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
     const issue = await reg.issues.create({

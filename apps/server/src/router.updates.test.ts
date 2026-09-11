@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/model'
+import { asMachineId, firstAdminMemberId, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -109,7 +109,7 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     repos,
     superagent,
     capability: OPERATOR,
-    principal: userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
+    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
     ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
@@ -151,7 +151,7 @@ describe('fleet default update channel', () => {
       name: id,
       hostname: id,
       tokenHash: `${id}-token`,
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     // This writes STRAIGHT TO THE STORE, behind the service, so the service's
     // machine cache cannot know. It used to not matter because boot left that
@@ -257,7 +257,7 @@ describe('one default channel', () => {
       name: id,
       hostname: id,
       tokenHash: `${id}-token`,
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     // Direct store write, behind the service: tell its cache. See above.
     registry.modules.machines.invalidateMachineCache()
@@ -308,7 +308,7 @@ describe('one default channel', () => {
       name: 'Shared machine',
       hostname: 'shared',
       tokenHash: 'shared-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       podiumManaged: false,
     })
     const sharedMachineId = asMachineId('shared')
@@ -503,7 +503,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       name: 'Packaged',
       hostname: 'packaged',
       tokenHash: 'packaged-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
     await registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
@@ -557,7 +557,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       name: 'VPS',
       hostname: 'vps',
       tokenHash: 'vps-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
     await registry.modules.machines.setMachineBuild(
@@ -590,7 +590,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       name: 'VPS',
       hostname: 'vps',
       tokenHash: 'vps-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('stable-vps'), 'stable')
     await registry.modules.machines.setMachineBuild(
@@ -759,7 +759,7 @@ describe('updates tRPC', () => {
       name: 'Source',
       hostname: 'source',
       tokenHash: 'source-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('source-machine'), 'dev')
     // The caps an INSTALLED daemon reports (`build-report.ts`): a feed, and
@@ -844,7 +844,7 @@ describe('updates tRPC', () => {
       name: 'Installed',
       hostname: 'installed',
       tokenHash: 'installed-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -897,7 +897,7 @@ describe('updates tRPC', () => {
       name: 'Installed',
       hostname: 'installed',
       tokenHash: 'installed-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -958,7 +958,7 @@ describe('updates tRPC', () => {
       name: 'Installed',
       hostname: 'installed',
       tokenHash: 'installed-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -1094,7 +1094,7 @@ describe('updates tRPC', () => {
       name: 'Installed',
       hostname: 'installed',
       tokenHash: 'installed-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('installed-edge'), 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -1119,7 +1119,7 @@ describe('updates tRPC', () => {
       name: 'Bundle machine',
       hostname: 'bundle-machine',
       tokenHash: 'bundle-machine-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -1424,7 +1424,7 @@ describe('updates tRPC', () => {
       name: 'Flatblock',
       hostname: 'flatblock',
       tokenHash: 'flatblock-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
     await registry.modules.machines.setMachineBuild(
@@ -1481,7 +1481,7 @@ describe('updates tRPC', () => {
       name: 'Stable machine',
       hostname: 'stable-machine',
       tokenHash: 'stable-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await registry.modules.machines.setUpdateChannel(asMachineId('stable-machine'), 'stable')
     await registry.modules.machines.setMachineBuild(
@@ -1592,7 +1592,7 @@ describe('the update operation', () => {
       name: 'Behind',
       hostname: 'behind',
       tokenHash: 'behind-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     registry.gateway.attachDaemon(behind, () => {})
     await registry.modules.machines.setMachineBuild(

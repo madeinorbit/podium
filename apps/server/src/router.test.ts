@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 
@@ -12,7 +12,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
-const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function caller() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -451,7 +451,7 @@ describe('repos router', () => {
     const { registry, call } = await caller()
     const store = registry.sessionStore
     await store.superagent.upsertSuperagentThread({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       id: 'btw_s9',
       kind: 'btw',
       originSessionId: asSessionId('s9'),

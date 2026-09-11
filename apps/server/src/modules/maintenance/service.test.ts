@@ -4,7 +4,7 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import {
   CHANGE_KEEP_ROWS,
@@ -288,7 +288,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
-      readerUserId: FIRST_ADMIN_USER_ID,
+      readerUserId: firstAdminMemberId(),
       archived: false as const,
       deletedAt: null,
     }
@@ -336,7 +336,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       sessionId: asSessionId('ses_done'),
       issueId: null,
       stoppedAt: '2026-07-01T00:00:00.000Z',
-      readerUserId: FIRST_ADMIN_USER_ID,
+      readerUserId: firstAdminMemberId(),
       archived: false as const,
     }
     const command = {

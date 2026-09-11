@@ -11,7 +11,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type Geometry,
 } from '@podium/model'
 import { CAP_DAEMON_GEOMETRY_APPLIED, type ServerMessage } from '@podium/protocol'
@@ -27,7 +27,7 @@ import { SessionTerminal, type ViewportRequest } from './terminal'
 
 const SESSION = asSessionId('s-request')
 const MACHINE = asMachineId('m-request')
-const OWNER = asUserId(FIRST_ADMIN_USER_ID)
+const OWNER = asUserId(firstAdminMemberId())
 const GEO: Geometry = { cols: 80, rows: 24 }
 
 type Sent = ClientConn & { sent: ServerMessage[]; principal: ClientPrincipal }

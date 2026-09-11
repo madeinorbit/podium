@@ -15,7 +15,7 @@ import { resolvePrincipal } from '../../command-principal'
  * THE ONE FACT THIS SUITE HAS TO FAKE, AND WHY IT IS THE HONEST CHOICE
  * ---------------------------------------------------------------------------
  *
- * Every transport call resolves to `FIRST_ADMIN_USER_ID` — `resolvePrincipal`
+ * Every transport call resolves to `firstAdminMemberId()` — `resolvePrincipal`
  * returns it for any capability without an `actorSessionId`, because
  * `CLIENT_PRINCIPAL_GRADE` is still `device` and per-user login is POD-315's.
  * There is no way to log in as a member, so a refusal cannot be produced through
@@ -34,7 +34,7 @@ import { resolvePrincipal } from '../../command-principal'
  * cannot be.
  */
 
-import { FIRST_ADMIN_USER_ID, type UserId, type UserRole } from '@podium/model'
+import { firstAdminMemberId, type UserId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { PairingManager } from '../../hub/pairing'
 
@@ -61,7 +61,7 @@ async function harness(role: UserRole | undefined) {
   // gate must see the requested role (including unreadable), while unrelated
   // session-state bootstrap remains a production-valid account read.
   const users = store.users as { roleOf: (id: UserId) => Promise<UserRole | undefined> }
-  users.roleOf = async (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
+  users.roleOf = async (id: string) => (id === firstAdminMemberId() ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -233,8 +233,8 @@ describe('the derived settings router WRITES the trail', () => {
     await call.settings.clearSecret({ key: 'apiKeys.openai' })
     const row = (await audit()).at(-1)
     expect(row?.actorKind).toBe('user')
-    expect(row?.actorId).toBe(FIRST_ADMIN_USER_ID)
-    expect(row?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
+    expect(row?.actorId).toBe(firstAdminMemberId())
+    expect(row?.onBehalfOf).toBe(firstAdminMemberId())
   })
 })
 
@@ -264,7 +264,7 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
         actorKind: 'system',
         actorId: 'system:steward',
         // The defect: a system write attributed to a person.
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
         detail: {},
         redactedPaths: [],
         createdAt: '2026-07-31T00:00:00.000Z',

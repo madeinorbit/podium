@@ -26,7 +26,7 @@ import { type HumanCeiling, placementDecision } from '@podium/commands'
 import {
   type AgentPhase,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -342,7 +342,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // the read-consumption semantics both run through them.
     mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: async (issueId, ids) =>
-      await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
+      await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
@@ -488,7 +488,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       role: 'worker',
       scope: { kind: 'subtree', rootId: issueId },
       ...(sessionId ? { actorSessionId: sessionId } : {}),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }),
     events: async (kinds) =>
       (await store.events

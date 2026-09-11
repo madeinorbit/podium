@@ -27,7 +27,7 @@
  * not that the STORAGE must stay a singleton. So POD-1076 gives the projection a
  * viewer: `Session.toMeta()` takes a {@link SessionUserOverlay} argument, and the
  * unscoped broadcast supplies the overlay of one named user
- * (`FIRST_ADMIN_USER_ID`) instead of reading a mirror field off the session. The
+ * (`firstAdminMemberId()`) instead of reading a mirror field off the session. The
  * wire is byte-identical, the durable row is per-user, and POD-1077's remaining
  * work at each site is to pass the real principal instead of the named constant —
  * a change the type system now demands an argument for, rather than one that

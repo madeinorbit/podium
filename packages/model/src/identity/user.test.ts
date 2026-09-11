@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
 import { asUserId } from '../ids/brands'
-import { SOLE_USER_ID } from '../user-state/session-state'
+import { firstAdminMemberId, primeFirstAdminMember } from './first-admin'
+import * as userModule from './user'
 import {
   CREDENTIAL_SOURCES,
   FIRST_ADMIN_ROLE,
-  FIRST_ADMIN_USER_ID,
   isAdminGrade,
   USER_ROLES,
   UserAccount,
@@ -158,29 +158,28 @@ describe('the account role is durable identity, not a capability snapshot (ADR 9
   })
 })
 
-describe('the first admin reconciles the two pre-accounts constants (POD-1172)', () => {
-  it('is the value that is already WRITTEN DOWN in the database', () => {
-    // The POD-380 migration backfilled every pin, snooze and tab-order row with
-    // the literal 'user:sole'. A migration is frozen history, so the surviving
-    // spelling is the one those rows carry — choosing the other constant would
-    // have meant a second data migration to re-key rows that are correct.
-    expect(FIRST_ADMIN_USER_ID).toBe('user:sole')
-    expect(FIRST_ADMIN_USER_ID).toBe(asUserId(SOLE_USER_ID))
+describe('the first admin is no longer a constant (A2)', () => {
+  it('is not exported from this module any more', () => {
+    // The retirement itself, asserted where the constant used to be defined: a
+    // re-export added "for compatibility" would put a build-time answer back in
+    // front of the database's, which is the entire failure A2 removes.
+    expect('FIRST_ADMIN_USER_ID' in userModule).toBe(false)
   })
 
-  it('is an ADMIN — on an upgraded instance it is the only account there is', () => {
+  it('is still an ADMIN — on an upgraded instance it is the only account there is', () => {
     expect(FIRST_ADMIN_ROLE).toBe('admin')
     expect(isAdminGrade(FIRST_ADMIN_ROLE)).toBe(true)
   })
 
   it('is a real account shape, not a sentinel string', () => {
+    primeFirstAdminMember('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
     const account = UserAccount.safeParse({
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       displayName: 'Operator',
       role: FIRST_ADMIN_ROLE,
       createdAt: '2026-07-30T00:00:00.000Z',
       disabledAt: null,
-      owner: FIRST_ADMIN_USER_ID,
+      owner: firstAdminMemberId(),
       visibility: 'personal',
       createdBy: {
         actor: { kind: 'system', job: 'user-accounts-migration' },

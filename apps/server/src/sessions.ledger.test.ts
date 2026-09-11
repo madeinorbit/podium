@@ -2,7 +2,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionMeta,
   SOLE_USER_ID,
 } from '@podium/model'
@@ -62,13 +62,13 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const sessions = registry.modules.sessions
-    await sessions.setSnooze({ userId: FIRST_ADMIN_USER_ID, sessionId, until: null })
-    expect(await registry.sessionStore.sessions.listSnoozes(FIRST_ADMIN_USER_ID)).toHaveProperty(sessionId)
-    await sessions.clearSnooze(FIRST_ADMIN_USER_ID, sessionId)
-    expect(await registry.sessionStore.sessions.listSnoozes(FIRST_ADMIN_USER_ID)).not.toHaveProperty(sessionId)
-    await sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+    await sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toHaveProperty(sessionId)
+    await sessions.clearSnooze(firstAdminMemberId(), sessionId)
+    expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).not.toHaveProperty(sessionId)
+    await sessions.markSessionRead(firstAdminMemberId(), sessionId)
     expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
-    await sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId)
+    await sessions.markSessionUnread(firstAdminMemberId(), sessionId)
     expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
   })
 
@@ -125,7 +125,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         write: async () =>
           await store.sessions.upsertSession({
             id: asSessionId('s-atomic'),
-            ownerUserId: FIRST_ADMIN_USER_ID,
+            ownerUserId: firstAdminMemberId(),
             agentKind: 'shell',
             cwd: '/w',
             title: 't',
@@ -638,8 +638,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     await registry.sessionStore.grants.upsert({
       resourceKind: 'session', resourceId: sessionId, grantee: viewer, verb: 'read',
-      owner: FIRST_ADMIN_USER_ID, visibility: 'personal', createdAt: new Date().toISOString(),
-      actorKind: 'user', actorId: FIRST_ADMIN_USER_ID, onBehalfOf: null,
+      owner: firstAdminMemberId(), visibility: 'personal', createdAt: new Date().toISOString(),
+      actorKind: 'user', actorId: firstAdminMemberId(), onBehalfOf: null,
     })
     for (const id of [owner, tab, granted]) {
       await registry.clientGateway.routeClientFrame(id, { type: 'presenceSubscribe', room })
@@ -648,7 +648,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(viewerMessages).toContainEqual(expect.objectContaining({
       type: 'presenceRoomState', room,
       members: [
-        expect.objectContaining({ identity: { kind: 'user', user: FIRST_ADMIN_USER_ID } }),
+        expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } }),
         expect.objectContaining({ identity: { kind: 'user', user: viewer } }),
       ],
     }))

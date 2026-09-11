@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID } from './identity/user'
+import { firstAdminMemberId } from './identity/first-admin'
 import { asIssueId, asRepoId, asShipOrderId } from './ids'
 import {
   descendantTipsMatch,
@@ -34,8 +34,8 @@ const orderInput = (over: Record<string, unknown> = {}) => ({
   deliveryDependsOn: [],
   currentIntegrationReceipt: receipt(),
   requestedBy: {
-    actor: { kind: 'user' as const, id: FIRST_ADMIN_USER_ID },
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actor: { kind: 'user' as const, id: firstAdminMemberId() },
+    onBehalfOf: firstAdminMemberId(),
   },
   requestedAt: '2026-08-13T00:00:00.000Z',
   policyId: 'default',

@@ -11,7 +11,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueWire,
   resolveTelegramPrincipal,
   type SessionId,
@@ -146,7 +146,7 @@ describe('SessionRegistry', () => {
         binding: {
           transitionId: `spawn:${sessionId}`,
           machineAccess: 'allowed',
-          principal: { kind: 'user', userId: FIRST_ADMIN_USER_ID },
+          principal: { kind: 'user', userId: firstAdminMemberId() },
         },
       }),
     )
@@ -213,14 +213,14 @@ describe('SessionRegistry', () => {
       name: 'remote',
       hostname: 'remote',
       tokenHash: 'remote-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
       id: store.hostMachineId,
       name: 'host',
       hostname: 'host',
       tokenHash: 'host-token',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
@@ -594,18 +594,18 @@ describe('SessionRegistry', () => {
 
   it('pins one exact workflow revision without exposing it in the human prompt, and starts a run', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await reg.modules.settings.getSettings(),
       experimental: { workflows: true, specs: true },
     })
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
-    const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+    const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
       capability: principal.capability,
       principal,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
       protectedWrite: true,
     }
     // POD-732: the eleven shims are deleted; every caller enters at `execute`.
@@ -628,7 +628,7 @@ describe('SessionRegistry', () => {
       targetKind: 'global',
       targetId: '',
       revisionId: created.revision.id,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -702,12 +702,12 @@ describe('SessionRegistry', () => {
       agentKind: 'codex',
       cwd: '/w',
     })).sessionId
-    const principal = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+    const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
       capability: principal.capability,
       principal,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
       protectedWrite: true,
     }
     const created = await reg.modules.workflows.execute(operator, 'create', {
@@ -728,7 +728,7 @@ describe('SessionRegistry', () => {
       sessionId: coordinator,
       cwd: '/w',
       revisionId: created.revision.id,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
     const coordinatorCapability = await reg.modules.sessions.capabilityForSession(coordinator)
     const coordinatorCaller = {
@@ -739,7 +739,7 @@ describe('SessionRegistry', () => {
         onBehalfOfFor: async (candidate) =>
           (await reg.modules.sessions.sessionOwner(candidate))?.owner,
       }),
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     }
     await reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
       runId: run.id,
@@ -756,7 +756,7 @@ describe('SessionRegistry', () => {
           onBehalfOfFor: async (candidate) =>
             (await reg.modules.sessions.sessionOwner(candidate))?.owner,
         }),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
       },
       'checkpoint',
       {
@@ -1112,8 +1112,8 @@ describe('SessionRegistry', () => {
       data: 'eA==',
       inputOrigin: 'human',
       attribution: {
-        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actor: { kind: 'user', id: firstAdminMemberId() },
+        onBehalfOf: firstAdminMemberId(),
       },
     })
   })
@@ -1211,7 +1211,7 @@ describe('SessionRegistry', () => {
   // registry probes exited rows and reattaches the ones still running.
   const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
     id: asSessionId(id),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'claude-code',
     cwd: '/proj',
     title: 'agent',
@@ -1269,7 +1269,7 @@ describe('SessionRegistry', () => {
     const probe = daemon.find((m) => m.type === 'reattach' && m.sessionId === id)
     expect(probe && 'binding' in probe ? probe.binding : undefined).toMatchObject({
       principal: { kind: 'system' },
-      adopt: { ownerUserId: FIRST_ADMIN_USER_ID },
+      adopt: { ownerUserId: firstAdminMemberId() },
     })
   })
 
@@ -1447,7 +1447,7 @@ describe('SessionRegistry', () => {
     await store.grants.upsert({
       resourceKind: 'machine',
       resourceId: 'shared',
-      grantee: FIRST_ADMIN_USER_ID,
+      grantee: firstAdminMemberId(),
       verb: 'see',
       owner: colleague,
       visibility: 'owned-compute',
@@ -1461,7 +1461,7 @@ describe('SessionRegistry', () => {
     const other = sink()
     attachTestClient(reg.clientGateway, {
       send: owner.send,
-      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')),
+      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(firstAdminMemberId(), 'admin')),
     })
     attachTestClient(reg.clientGateway, {
       send: other.send,
@@ -2002,7 +2002,7 @@ describe('SessionRegistry', () => {
           principal: { kind: 'system' },
           // The prober is the system; the OWNER rides alongside so the daemon
           // can adopt a survivor that has no binding record (POD-1647).
-          adopt: { ownerUserId: FIRST_ADMIN_USER_ID },
+          adopt: { ownerUserId: firstAdminMemberId() },
         },
       }),
     )
@@ -2178,7 +2178,7 @@ describe('SessionRegistry', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     await store.sessions.upsertSession({
       id: asSessionId('good'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/a',
       title: 'good',
@@ -2204,7 +2204,7 @@ describe('SessionRegistry', () => {
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
     await store.sessions.upsertSession({
       id: asSessionId('bad'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/b',
       title: 'bad',
@@ -2499,11 +2499,11 @@ describe('agent state', () => {
       reg.bus.on('notification.telegramRequested', telegramRequest)
       await store.telegramBindings.upsert({
         chatId: '-100123',
-        userId: FIRST_ADMIN_USER_ID,
+        userId: firstAdminMemberId(),
         boundAt: '2026-07-30T00:00:00.000Z',
         boundBy: {
-          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          actor: { kind: 'user', id: firstAdminMemberId() },
+          onBehalfOf: firstAdminMemberId(),
         },
       })
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -2539,7 +2539,7 @@ describe('agent state', () => {
         body: 'SQLite or Postgres?',
       })
       expect(telegramRequest).toHaveBeenCalledWith({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         sessionId,
         text: 'keyboard needs you\n\nSQLite or Postgres?',
       })
@@ -2674,7 +2674,7 @@ describe('agent state', () => {
         },
       )
 
-      const setup = await reg.modules.settings.startTelegramSetup(FIRST_ADMIN_USER_ID)
+      const setup = await reg.modules.settings.startTelegramSetup(firstAdminMemberId())
       expect(setup).toEqual({
         setupId: expect.any(String),
         code: 'PODIUM123',
@@ -2701,12 +2701,12 @@ describe('agent state', () => {
       const bindings = await store.telegramBindings.list()
       expect(bindings).toHaveLength(1)
       expect(bindings[0]?.chatId).toBe('129784115')
-      expect(bindings[0]?.userId).toBe(FIRST_ADMIN_USER_ID)
+      expect(bindings[0]?.userId).toBe(firstAdminMemberId())
       // …and it RESOLVES, which is what the inbound gate will ask. Asserting the
       // row exists is not the same claim as the chat being usable.
       expect(resolveTelegramPrincipal(bindings, '129784115')).toEqual({
         ok: true,
-        userId: FIRST_ADMIN_USER_ID,
+        userId: firstAdminMemberId(),
       })
       // The negative control on the same live table: any OTHER chat still
       // resolves to nobody, so the ceremony bound one chat rather than opening
@@ -2728,11 +2728,11 @@ describe('agent state', () => {
       reg.bus.on('notification.telegramRequested', telegramRequest)
       await store.telegramBindings.upsert({
         chatId: '-100123',
-        userId: FIRST_ADMIN_USER_ID,
+        userId: firstAdminMemberId(),
         boundAt: '2026-07-30T00:00:00.000Z',
         boundBy: {
-          actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          actor: { kind: 'user', id: firstAdminMemberId() },
+          onBehalfOf: firstAdminMemberId(),
         },
       })
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -2763,7 +2763,7 @@ describe('agent state', () => {
       // one goes through the online-sensitive command that exists for it.
       await reg.modules.settings.setSecret('notifications.telegramBotToken', '123456:secret')
       const settings = await reg.modules.settings.getSettings()
-      await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+      await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
         ...settings,
         experimental: { ...settings.experimental, notifications: true },
         notifications: {
@@ -2773,7 +2773,7 @@ describe('agent state', () => {
       })
 
       expect(telegramRequest).toHaveBeenCalledWith({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         sessionId,
         text: 'keyboard needs you\n\nSQLite or Postgres?',
       })
@@ -2782,7 +2782,7 @@ describe('agent state', () => {
 
       telegramRequest.mockClear()
       const updated = await reg.modules.settings.getSettings()
-      await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+      await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
         ...updated,
         notifications: {
           ...updated.notifications,
@@ -3019,7 +3019,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
 
     const p = reg.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     await expect.poll(() => daemon.some((m) => m.type === 'transcriptRead')).toBe(true)
     const req = daemon.find((m) => m.type === 'transcriptRead') as
@@ -3062,7 +3062,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
         direction: 'after',
         limit: 200,
       },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     await expect.poll(() => daemon.some((m) => m.type === 'transcriptRead')).toBe(true)
     const req = daemon.find((m) => m.type === 'transcriptRead') as
@@ -3102,7 +3102,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     await expect(
       reg.modules.rpc.readTranscript(
         { sessionId: asSessionId('nope'), direction: 'before', limit: 10 },
-        { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        { kind: 'user', id: firstAdminMemberId() },
       ),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
@@ -4385,7 +4385,7 @@ describe('hibernation', () => {
       const result = await dispatchSessionCommand(
         await sessionCommandCtx(
           reg.modules,
-          userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability,
+          userCommandPrincipal(firstAdminMemberId(), 'admin').capability,
         ),
         'sendText',
         { sessionId, text: 'accepted while Grok was busy' },
@@ -4920,7 +4920,7 @@ describe('hibernation', () => {
       delegation: asDelegationRef(actorSessionId),
       attribution: {
         actor: actorAgent(asAgentIdentityId(actorSessionId)),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     expect(
@@ -5289,8 +5289,8 @@ describe('reconnect identity (hello reclaim)', () => {
       data: 'eA==',
       inputOrigin: 'human',
       attribution: {
-        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actor: { kind: 'user', id: firstAdminMemberId() },
+        onBehalfOf: firstAdminMemberId(),
       },
     })
 
@@ -5310,8 +5310,8 @@ describe('reconnect identity (hello reclaim)', () => {
       data: 'eQ==',
       inputOrigin: 'human',
       attribution: {
-        actor: { kind: 'user', id: FIRST_ADMIN_USER_ID },
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actor: { kind: 'user', id: firstAdminMemberId() },
+        onBehalfOf: firstAdminMemberId(),
       },
     })
     // ...and the stale A is gone: its messages are dropped, not honored.
@@ -6135,7 +6135,7 @@ describe('SessionRegistry snooze', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     await store.sessions.upsertSession({
       id: asSessionId('s1'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
       title: 't',
@@ -6176,7 +6176,7 @@ describe('SessionRegistry — auto-continue', () => {
 
   async function enableAutoContinue(reg: SessionRegistry) {
     const s = await reg.modules.settings.getSettings()
-    await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...s,
       autoContinue: { enabled: true, promptDismissed: false },
     })
@@ -6205,7 +6205,7 @@ describe('SessionRegistry — auto-continue', () => {
       state: erroredState,
     })
     expect(daemon).not.toContainEqual(continueInput)
-    await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
@@ -6224,7 +6224,7 @@ describe('SessionRegistry — auto-continue', () => {
     })
     await expect.poll(() => daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
-    await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
@@ -6243,7 +6243,7 @@ describe('SessionRegistry — auto-continue', () => {
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     await enableAutoContinue(reg)
     await expect.poll(() => daemon).toContainEqual(continueInput) // flipping on arms the errored session
-    await reg.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
       ...await reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
@@ -6514,7 +6514,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
           kind: 'superagent',
           attribution: {
             actor: actorAgent(asAgentIdentityId('superagent')),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: 'superagent',
         },
@@ -7152,7 +7152,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
           kind: 'superagent',
           attribution: {
             actor: actorAgent(asAgentIdentityId('superagent')),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: 'superagent',
         },
@@ -7229,7 +7229,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
           delegation: asDelegationRef(ghost),
           attribution: {
             actor: actorAgent(asAgentIdentityId(ghost)),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
         },
       })
@@ -7238,9 +7238,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         text: 'the row behind it',
         principal: {
           kind: 'user',
-          principalRef: FIRST_ADMIN_USER_ID,
+          principalRef: firstAdminMemberId(),
           delegation: null,
-          attribution: { actor: actorUser(FIRST_ADMIN_USER_ID), onBehalfOf: FIRST_ADMIN_USER_ID },
+          attribution: { actor: actorUser(firstAdminMemberId()), onBehalfOf: firstAdminMemberId() },
         },
       })
       await vi.advanceTimersByTimeAsync(20_000)
@@ -7312,7 +7312,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
           delegation: asDelegationRef(worker),
           attribution: {
             actor: actorAgent(asAgentIdentityId(worker)),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
         },
       })
@@ -7371,7 +7371,7 @@ describe('pending interrupt retraction wiring', () => {
         sessionId,
         principal: {
           kind: 'agent', principalRef: sessionId, delegation: asDelegationRef(sessionId),
-          attribution: { actor: actorAgent(asAgentIdentityId(sessionId)), onBehalfOf: FIRST_ADMIN_USER_ID },
+          attribution: { actor: actorAgent(asAgentIdentityId(sessionId)), onBehalfOf: firstAdminMemberId() },
         },
       })).rejects.toThrow('wired pending cancellation write failed')
       expect(cancel).toHaveBeenCalledWith(sessionId, undefined)

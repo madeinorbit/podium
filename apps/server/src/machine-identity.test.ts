@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type RepoId } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId, type RepoId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory } from './gateway/machine-directory'
@@ -295,7 +295,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     const store = await openTestStore(':memory:', HOST)
     const row = {
       id: asSessionId('s-no-machine'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell' as const,
       cwd: '/w',
       title: 't',

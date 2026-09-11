@@ -1,4 +1,4 @@
-import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import {
@@ -302,7 +302,7 @@ describe('durable runtime observation gate', () => {
 
     const liveTranscript = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(liveTranscript.items).toEqual(items)
     expect(
@@ -323,7 +323,7 @@ describe('durable runtime observation gate', () => {
 
     const transcript = await restarted.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
     )
     expect(transcript.items).toEqual(items)
 

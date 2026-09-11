@@ -326,7 +326,7 @@ export class SettingsService {
    * this row — see `store/settings.ts`. Every consumer whose answer differs per
    * reader must call {@link getSettingsFor} with the person it is acting for;
    * `bun run typecheck` cannot catch a wrong choice here, so the call sites that
-   * pass `FIRST_ADMIN_USER_ID` today are deliberately greppable rather than
+   * pass `firstAdminMemberId()` today are deliberately greppable rather than
    * hidden behind a default.
    */
   async getSettings(): Promise<PodiumSettings> {

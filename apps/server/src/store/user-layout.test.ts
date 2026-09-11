@@ -2,13 +2,13 @@
  * UserLayoutRepository — per-user scoping and closed vocabulary (POD-1350).
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
 import { UserLayoutRepository } from './user-layout'
 
-const ALICE: UserId = FIRST_ADMIN_USER_ID
+const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
 const AT = '2026-08-02T09:00:00.000Z'
 
@@ -47,10 +47,10 @@ describe('UserLayoutRepository', () => {
   })
 
   it('clear deletes the row so absence means never set', async () => {
-    await layout.set(FIRST_ADMIN_USER_ID, 'panelMode', { s1: 'chat' }, AT)
-    await layout.clear(FIRST_ADMIN_USER_ID, 'panelMode')
-    expect(await layout.get(FIRST_ADMIN_USER_ID, 'panelMode')).toBeUndefined()
-    expect(await layout.keysFor(FIRST_ADMIN_USER_ID)).toEqual([])
+    await layout.set(firstAdminMemberId(), 'panelMode', { s1: 'chat' }, AT)
+    await layout.clear(firstAdminMemberId(), 'panelMode')
+    expect(await layout.get(firstAdminMemberId(), 'panelMode')).toBeUndefined()
+    expect(await layout.keysFor(firstAdminMemberId())).toEqual([])
   })
 
   it('refuses device-local keys that must stay on the client', async () => {

@@ -7,7 +7,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -76,7 +76,7 @@ describe('BindingStore schema lifecycle', () => {
     const second = await BindingStore.open({
       dir,
       legacyStateDir: stateDir,
-      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+      singleOperatorUserId: firstAdminMemberId(),
       legacyBindings: [
         {
           sessionId: asSessionId('late-arrival'),
@@ -526,7 +526,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+      singleOperatorUserId: firstAdminMemberId(),
       now,
       legacyBindings,
     })
@@ -542,7 +542,7 @@ describe('legacy daemon-state migration', () => {
     const observed = await store.read(asSessionId('observed-pane'))
     expect(observed?.claimantMachineId).toBe('machine-real')
     expect(observed?.attemptId).toBe('podium-observed-pane')
-    expect(store.currentDelegation(requiredBinding(observed))?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
+    expect(store.currentDelegation(requiredBinding(observed))?.onBehalfOf).toBe(firstAdminMemberId())
     expect(observed?.observations.map((entry) => entry.channel)).toEqual([
       'cwd',
       'resume-ref',
@@ -583,7 +583,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+      singleOperatorUserId: firstAdminMemberId(),
       now,
       legacyBindings: [{ sessionId: asSessionId('later-snapshot'), agentKind: 'grok' }],
     })
@@ -618,7 +618,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: FIRST_ADMIN_USER_ID,
+      singleOperatorUserId: firstAdminMemberId(),
     })
 
     const binding = requiredBinding(await store.read(asSessionId('same-pane')))
@@ -628,7 +628,7 @@ describe('legacy daemon-state migration', () => {
     expect(binding.observations.find((entry) => entry.value === 'thread-new')).toMatchObject({
       pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-new' },
     })
-    expect(await store.pendingReceiptsForOwner(FIRST_ADMIN_USER_ID)).toEqual([
+    expect(await store.pendingReceiptsForOwner(firstAdminMemberId())).toEqual([
       {
         sessionId: 'same-pane',
         nativeKind: 'codex-thread',

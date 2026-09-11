@@ -45,7 +45,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID } from '../../command-principal'
+import { firstAdminMemberId } from '../../command-principal'
 import { OPERATOR } from '../../test-support/capabilities'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
 
@@ -111,8 +111,8 @@ describe('oracle: the authenticated admin seam', () => {
     expect(OPERATOR).toEqual({
       role: 'admin',
       scope: { kind: 'all' },
-      actorUser: FIRST_ADMIN_USER_ID,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actorUser: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     })
     // And it writes sessions it has no relationship to whatsoever.
     const foreign = await o.reg.modules.sessions.createSession({

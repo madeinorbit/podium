@@ -7,13 +7,13 @@
  * cursor that difference is a privacy defect rather than a UX one.
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { UserReadPositionRepository } from './user-read-position'
 
-const ALICE: UserId = FIRST_ADMIN_USER_ID
+const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
 const AT = '2026-08-02T09:00:00.000Z'
 

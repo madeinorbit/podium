@@ -16,7 +16,7 @@ import {
   type AgentCommandPrincipal,
   attributionOf,
   type CommandPrincipal,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   resolvePrincipal,
   systemPrincipal,
 } from './command-principal'
@@ -32,7 +32,7 @@ import {
   ownershipFromMachines,
 } from './machine-access'
 
-const OWNER = FIRST_ADMIN_USER_ID
+const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
 
 const user = (id: UserId): CommandPrincipal => ({
@@ -41,8 +41,8 @@ const user = (id: UserId): CommandPrincipal => ({
   capability: {
     role: 'admin',
     scope: { kind: 'all' },
-    actorUser: FIRST_ADMIN_USER_ID,
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actorUser: firstAdminMemberId(),
+    onBehalfOf: firstAdminMemberId(),
   },
 })
 
@@ -346,25 +346,25 @@ describe('the principal itself', () => {
       {
         role: 'admin',
         scope: { kind: 'all' },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       },
       { parentSessionOf: () => undefined },
     )
 
     expect(human).toEqual({
       kind: 'user',
-      user: FIRST_ADMIN_USER_ID,
+      user: firstAdminMemberId(),
       capability: {
         role: 'admin',
         scope: { kind: 'all' },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       },
     })
     expect(attributionOf(human)).toEqual({
-      actor: FIRST_ADMIN_USER_ID,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actor: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     })
     expect(attributionOf(agent(asSessionId('agent-1'), OWNER))).toEqual({
       actor: 'session:agent-1',

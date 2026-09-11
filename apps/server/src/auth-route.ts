@@ -2,9 +2,11 @@ import { createHash, randomBytes } from 'node:crypto'
 import {
   asUserId,
   type CredentialSource,
-  FIRST_ADMIN_USER_ID,
+  newMemberId,
   type ServerReadiness,
+  SOLE_USER_ID,
   type UserId,
+  userIdFromMemberId,
   type UserRole,
 } from '@podium/model'
 import { NativeClientLoginRequest, SESSION_COOKIE } from '@podium/protocol'
@@ -252,6 +254,9 @@ export function clientAuthGuard(opts: {
 
 export interface AccountCredentialStore {
   get(userId: UserId): Promise<{ role: UserRole } | undefined>
+  /** The member a login with no identifier — or with the retired literal — means.
+   *  See {@link resolveLoginIdentifier}. */
+  earliestAdmin(): Promise<{ id: string } | undefined>
   create(
     account: {
       id: string
@@ -268,6 +273,41 @@ export interface AccountCredentialStore {
   hasPerUserCredentials(): Promise<boolean>
 }
 
+/**
+ * WHICH MEMBER A LOGIN IS FOR — and the one place the retired literal survives
+ * [A2, spec §5.6 "Existing installs"; A3 finishes it].
+ *
+ * Three inputs, one answer:
+ *
+ *  - **No identifier.** What the login screen sends today: one password field
+ *    and no name, because there was one account and the server knew which. It
+ *    still means "this instance's first admin", but the server RESOLVES that
+ *    member now instead of compiling its id in.
+ *  - **`'user:sole'`.** The id the first admin had before A2's migration re-keyed
+ *    it. Nothing in the product prints it, but a script, a saved request or a
+ *    node's stored credentials may still say it, and an upgrade that locks the
+ *    operator out of their own instance to tidy up a string is not a trade worth
+ *    making. It resolves to the same first admin.
+ *  - **Anything else** is taken as the member id it is, and fails at the
+ *    credential lookup if no such member exists.
+ *
+ * `undefined` when there is no member to resolve to — an instance whose admins
+ * are all disabled. The caller answers that as a failed login.
+ *
+ * WHAT A3 CHANGES. The identifier becomes an EMAIL, and this literal is accepted
+ * only while the first admin's email is still empty — the condition cannot be
+ * written yet because the column does not exist. When it does, the accepted-
+ * literal arm gains that guard and nothing else here moves.
+ */
+export async function resolveLoginIdentifier(
+  requested: string | undefined,
+  users: AccountCredentialStore | undefined,
+): Promise<UserId | undefined> {
+  if (requested !== undefined && requested !== SOLE_USER_ID) return asUserId(requested)
+  const first = await users?.earliestAdmin()
+  return first ? asUserId(first.id) : undefined
+}
+
 export interface AuthRouteOptions {
   store?: ClientSessionStore
   users?: AccountCredentialStore
@@ -279,7 +319,14 @@ export interface AuthRouteOptions {
    * This keeps the open/dev bootstrap policy in one place instead of growing a
    * second first-admin fallback at an unauthenticated status endpoint.
    */
-  resolveUserId?: (headers: ClientCredentialHeaders) => UserId | undefined | Promise<UserId | undefined>
+  resolveUserId?: (
+    headers: ClientCredentialHeaders,
+    /** The request itself, for a resolver whose answer depends on where the call
+     *  came from — open mode acts as the first admin only for a LOCAL caller
+     *  (A2). Passed through rather than re-derived here, so this route keeps
+     *  reporting the composition root's policy instead of holding one. */
+    request: Request,
+  ) => UserId | undefined | Promise<UserId | undefined>
   /**
    * IS LOGIN REQUIRED ON THIS INSTANCE — the one predicate every gate reads (POD-1554).
    *
@@ -333,7 +380,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       authorizationHeader: c.req.header('authorization'),
     }
     const userId = opts.resolveUserId
-      ? await opts.resolveUserId(headers)
+      ? await opts.resolveUserId(headers, c.req.raw)
       : store
         ? await requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
         : undefined
@@ -409,7 +456,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     }
 
     let password = ''
-    let userId: UserId = FIRST_ADMIN_USER_ID
+    let requestedUserId: string | undefined
     let nativeLogin: NativeClientLoginRequest | undefined
     try {
       const body = (await c.req.json()) as {
@@ -432,15 +479,24 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         if (!store) return c.json({ error: 'session store unavailable' }, 503)
         nativeLogin = parsed.data
       }
-      if (typeof body?.userId === 'string' && body.userId.trim()) userId = body.userId as UserId
+      if (typeof body?.userId === 'string' && body.userId.trim()) requestedUserId = body.userId.trim()
       if (typeof body?.password === 'string') password = body.password
     } catch {
       // fall through — empty password fails verification below
     }
 
+    const userId = await resolveLoginIdentifier(requestedUserId, users)
+    if (userId === undefined) {
+      // Nothing to verify against: an instance with no member that may act as
+      // its first admin, and a caller who named nobody. Answered as a failed
+      // login rather than a 5xx, because from the outside it IS one — there is
+      // no account here with that (absent) name.
+      return c.json({ error: 'invalid password' }, 401)
+    }
+
     // ONE WAY IN (POD-1554). A login is a per-account credential match or it is nothing.
     // Two arms used to live here: a `source === 'instance-password'` arm that verified
-    // against the shared hash in auth.json, and a `!users && userId === FIRST_ADMIN_USER_ID`
+    // against the shared hash in auth.json, and a `!users && userId === firstAdminMemberId()`
     // fallback for a server assembled without a user store. Both authenticated a person by
     // a secret that belonged to the INSTANCE, which is precisely what cannot survive
     // accounts — and the fallback did it while unable to name whose account it was. A
@@ -524,8 +580,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       return c.json({ error: 'invalid request body' }, 400)
     }
     if (
-      typeof body.userId !== 'string' ||
-      !body.userId.trim() ||
+      (body.userId !== undefined && (typeof body.userId !== 'string' || !body.userId.trim())) ||
       typeof body.displayName !== 'string' ||
       !body.displayName.trim() ||
       (body.role !== 'admin' && body.role !== 'member') ||
@@ -533,11 +588,17 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       body.password.length < 8
     ) {
       return c.json(
-        { error: 'userId, displayName, role, and an 8-character password are required' },
+        { error: 'displayName, role, and an 8-character password are required' },
         400,
       )
     }
-    const userId = asUserId(body.userId.trim())
+    // THE ID IS MINTED WHEN THE CALLER DOES NOT NAME ONE [A2]. Every member row
+    // this build creates should be a `mem_` id, the same kind A2's migration
+    // gave the first admin; a caller-supplied id stays accepted because this
+    // route has always taken one and a tool that imports accounts needs it.
+    // A4, which owns the members page and invite-and-claim, is where minting
+    // becomes the only path.
+    const userId = body.userId === undefined ? userIdFromMemberId(newMemberId()) : asUserId(body.userId.trim())
     if (await users.get(userId)) return c.json({ error: 'account already exists' }, 409)
     const createdAt = new Date(now()).toISOString()
     await users.create(

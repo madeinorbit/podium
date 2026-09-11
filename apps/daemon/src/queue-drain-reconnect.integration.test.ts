@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { actorAgent, asAgentIdentityId, FIRST_ADMIN_USER_ID, type MachineId } from '@podium/model'
+import { actorAgent, asAgentIdentityId, firstAdminMemberId, type MachineId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -165,7 +165,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
           kind: 'superagent',
           attribution: {
             actor: actorAgent(asAgentIdentityId('superagent')),
-            onBehalfOf: FIRST_ADMIN_USER_ID,
+            onBehalfOf: firstAdminMemberId(),
           },
           delegationRef: 'superagent',
         },

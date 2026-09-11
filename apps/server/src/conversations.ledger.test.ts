@@ -1,7 +1,7 @@
 import {
   type ConversationSummaryWire,
   type ConversationSummaryWireInput,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
@@ -233,7 +233,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
     await registry.modules.memory.setConversationMeta(
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
       { id: 'c1', name: 'My run', summary: 'sum' },
     )
     await registry.modules.sessions.flushBroadcasts()
@@ -273,7 +273,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const cursor = await cursorOf(registry)
     await expect(
       registry.modules.memory.setConversationMeta(
-        { kind: 'user', id: FIRST_ADMIN_USER_ID },
+        { kind: 'user', id: firstAdminMemberId() },
         { id: 'ghost', name: 'n' },
       ),
     ).rejects.toThrow('conversation not found')
@@ -338,7 +338,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await push(registry, [conv('c1', { title: 't' }), conv('c2')])
     await ownConversation(registry, 'c1')
     await registry.modules.memory.setConversationMeta(
-      { kind: 'user', id: FIRST_ADMIN_USER_ID },
+      { kind: 'user', id: firstAdminMemberId() },
       { id: 'c1', name: 'kept' },
     )
     await push(registry, [conv('c1', { title: 't' }), conv('c3')], { removed: ['c2'] })

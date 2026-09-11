@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { decodePairingEnvelope } from '@podium/protocol'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -46,7 +46,7 @@ beforeEach(async () => {
   store = new AuthRepository(stage)
   await store.createClientSession(
     hashToken(AUTH_TOKEN),
-    FIRST_ADMIN_USER_ID,
+    firstAdminMemberId(),
     '2999-01-01T00:00:00.000Z',
   )
   pairing = new MobilePairingManager()
@@ -135,7 +135,7 @@ describe('mobile pairing routes', () => {
     expect(completed).toMatchObject({ delivery: 'native' })
     expect(completed.token).toBeTruthy()
     expect(await store.getClientSession(hashToken(completed.token))).toMatchObject({
-      userId: FIRST_ADMIN_USER_ID,
+      userId: firstAdminMemberId(),
       label: 'mobile',
       sessionId: expect.any(String),
       deviceId: 'device-1',
@@ -169,7 +169,7 @@ describe('mobile pairing routes', () => {
       mobileUrl: 'http://podium.lan:18787/mobile',
       transport: { grade: 'insecure' },
     })
-    expect(await store.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.listMobileClientSessions(firstAdminMemberId())).toHaveLength(0)
   })
 
   it('delivers browser completion only as the existing HttpOnly session cookie', async () => {
@@ -405,7 +405,7 @@ describe('mobile pairing routes', () => {
   it('lists and remotely revokes only the caller-owned mobile row', async () => {
     await store.createClientSession(
       'a'.repeat(64),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       '2999-01-01T00:00:00.000Z',
       'mobile',
       {
@@ -417,7 +417,7 @@ describe('mobile pairing routes', () => {
     )
     await store.createClientSession(
       'b'.repeat(64),
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       '2999-01-01T00:00:00.000Z',
       'break-glass',
     )

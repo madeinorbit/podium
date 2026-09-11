@@ -3,7 +3,7 @@ import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 // Fixture-only: hand-build a pre-multi-machine ("v3-shape") db. The store under
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
@@ -118,7 +118,7 @@ describe('machines store', () => {
     await s1.repos.addRepo('/a', s1.hostMachineId)
     await s1.sessions.upsertSession({
       id: asSessionId('s1'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/',
       title: 't',

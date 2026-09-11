@@ -11,7 +11,7 @@ import {
   asThreadId,
   asUserId,
   BUILTIN_HARNESS_KINDS,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -177,15 +177,15 @@ describe('bounded headless session identity', () => {
     const issueId = asIssueId('issue:shipwright')
     const accountId = asAccountId('native:claude-code:fingerprint-1')
     const createdBy = {
-      actor: { kind: 'user' as const, id: FIRST_ADMIN_USER_ID },
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actor: { kind: 'user' as const, id: firstAdminMemberId() },
+      onBehalfOf: firstAdminMemberId(),
     }
     const input = {
       sessionId,
       agentKind: 'claude-code' as const,
       cwd: '/r',
       machineId: h.registry.sessionStore.hostMachineId,
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       createdBy,
       issueId,
       accountId,
@@ -207,7 +207,7 @@ describe('bounded headless session identity', () => {
       headless: true,
     })
     expect(await h.registry.sessionStore.sessions.getSession(sessionId)).toMatchObject({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       createdBy,
       issueId,
       accountId,
@@ -225,7 +225,7 @@ describe('bounded headless session identity', () => {
     const request = h.turnReqs.at(-1)
     if (!request) throw new Error('repair request was not dispatched')
     expect(request).toMatchObject({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       createdBy,
       issueId,
       accountId,
@@ -243,7 +243,7 @@ describe('bounded headless session identity', () => {
         ...input,
         createdBy: {
           actor: { kind: 'user', id: asUserId('user:different') },
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
         },
       }),
     ).rejects.toThrow(/mismatched headless session/)
@@ -296,7 +296,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('re-primes with the seed after clear() — a cleared thread starts a fresh harness session', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'one',
     })
@@ -307,7 +307,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     const oldSessionId = first?.podiumSessionId
     expect(oldSessionId).toBeTruthy()
 
-    await h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))
+    await h.sa.clear(firstAdminMemberId(), asThreadId('global'))
 
     // Binding dropped + old headless row disposed.
     const cleared = await h.registry.sessionStore.superagent.getSuperagentThread('global')
@@ -319,7 +319,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
 
     // The next turn is a FIRST turn again: new session, no resume, re-primed.
     const ack = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'two',
     })
@@ -333,7 +333,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('binds the harness session even when the FIRST turn fails — the thread keeps its conversation', async () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -355,7 +355,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(meta?.resume).toMatchObject({ kind: harnessResumeKind('claude-code'), value: 'h1' })
     // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
@@ -364,7 +364,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     await h.settle()
     // "Open in terminal" is available again (it gates on harnessSessionId).
     await expect(
-      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') }),
     ).resolves.toBeDefined()
   })
 
@@ -379,15 +379,15 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('ABANDONS a running turn rather than refusing to clear', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    await expect(h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).resolves.toBeUndefined()
+    await expect(h.sa.clear(firstAdminMemberId(), asThreadId('global'))).resolves.toBeUndefined()
     // The thread is usable again immediately — the whole point of the hatch.
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'after the reset',
       }),
@@ -397,25 +397,25 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('clear RELEASES a terminal lock — a locked thread can always be reset', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
     await h.settle()
     const { sessionId } = await h.sa.openInTerminal({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
     })
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'x',
       }),
     ).rejects.toThrow(/open in a terminal/)
 
-    await h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))
+    await h.sa.clear(firstAdminMemberId(), asThreadId('global'))
 
     const thread = await h.registry.sessionStore.superagent.getSuperagentThread('global')
     expect(thread?.terminalSessionId).toBeUndefined()
@@ -425,7 +425,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     ).toBeTruthy()
     // And chatting works again, from a freshly primed session.
     const ack = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'back to chat',
     })
@@ -448,7 +448,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     })
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'why is this stuck?',
       focus: {
@@ -472,7 +472,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
     await h.settle()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'and now?',
       focus: { view: 'issues' },
@@ -487,7 +487,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('omits the block entirely when the caller reports no focus (MCP/automation turns)', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -500,7 +500,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('cleans up an ordinary durable turn with the empty generic-account sentinel', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'ordinary turn',
     })
@@ -523,7 +523,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('acks before completion, creates the headless session, and dispatches the turn', async () => {
     const h = await harness()
     const ack = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',
     })
@@ -552,7 +552,7 @@ describe('sendTurn (headless harness turns)', () => {
       'claude-code',
     )
     expect(
-      (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).find((thread) => thread.id === 'global')?.turnRunning,
+      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(true)
     await expect(
       h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
@@ -562,7 +562,7 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     expect(
-      (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).find((thread) => thread.id === 'global')?.turnRunning,
+      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(false)
     await expect(
       h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
@@ -574,7 +574,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('forwards turn events + boundary markers as headlessActivity broadcasts', async () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -597,7 +597,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('persists the harness session id as the resume value after the first turn', async () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -619,7 +619,7 @@ describe('sendTurn (headless harness turns)', () => {
     expect(row).toMatchObject({ resumeKind: 'claude-session', resumeValue: 'harness-1' })
     // The second turn resumes — same session, resumeValue set, no new uuid.
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
@@ -632,7 +632,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('reasserts the normal budget on a resumed Claude thread after an expanded turn', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'Give me a detailed walkthrough.',
     })
@@ -642,7 +642,7 @@ describe('sendTurn (headless harness turns)', () => {
     await h.settle()
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'Why?',
     })
@@ -669,20 +669,20 @@ describe('sendTurn (headless harness turns)', () => {
   it('QUEUES a second send while a turn is running, and drains it in order', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'one',
     })
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'two',
       }),
     ).resolves.toMatchObject({ queued: true })
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'three',
       }),
@@ -705,7 +705,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('a failed turn records a persisted notice, broadcasts the error, and unlocks', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -715,7 +715,7 @@ describe('sendTurn (headless harness turns)', () => {
     // raw harness stderr is interpreted into a user-facing message (POD-1021):
     // "command not found" → a "CLI couldn't be launched" notice.
     const notice = (await h.sa
-      .history(FIRST_ADMIN_USER_ID, asThreadId('global')))
+      .history(firstAdminMemberId(), asThreadId('global')))
       .find((m) => m.content.startsWith(TURN_FAILED_MARKER))
     expect(notice?.content).toMatch(/Claude CLI couldn't be launched/)
     expect(
@@ -733,7 +733,7 @@ describe('sendTurn (headless harness turns)', () => {
     ).toBeUndefined()
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'retry',
       }),
@@ -752,14 +752,14 @@ describe('sendTurn (headless harness turns)', () => {
       content: 'old answer',
     })
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'new turn',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1', output: 'new answer' })
     await h.settle()
     // The transcript is the truth for new turns — superagent_messages is frozen.
-    expect((await h.sa.history(FIRST_ADMIN_USER_ID, asThreadId('global'))).map((m) => m.content)).toEqual([
+    expect((await h.sa.history(firstAdminMemberId(), asThreadId('global'))).map((m) => m.content)).toEqual([
       'old question',
       'old answer',
     ])
@@ -769,7 +769,7 @@ describe('sendTurn (headless harness turns)', () => {
     const h = await harness()
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('btw_nope'),
         text: 'x',
       }),
@@ -780,7 +780,7 @@ describe('sendTurn (headless harness turns)', () => {
     const h = await harness()
     await h.sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', ['list_sessions', 'issue_list'])
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -802,7 +802,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     const h = await harness()
     await h.registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const a = await h.sa.conciergeTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'status?',
     })
@@ -818,7 +818,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // New tracker activity → the next turn carries a delta, not a re-seed.
     await h.registry.issues.create({ repoPath: '/r', title: 'New work', startNow: false })
     const b = await h.sa.conciergeTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'what changed?',
     })
@@ -833,7 +833,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // No gap → no delta block on the third turn.
     h.resolveTurn(second)
     await h.settle()
-    await h.sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/r', text: 'and now?' })
+    await h.sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'and now?' })
     expect(h.turnReqs[2]?.prompt).toBe('and now?')
     expect(h.turnReqs[2]?.contextPrompt).toBeUndefined()
   })
@@ -841,10 +841,10 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
   it('rejects an unregistered repo without minting a thread', async () => {
     const h = await harness()
     await expect(
-      h.sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
+      h.sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
     expect(
-      (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'concierge'),
+      (await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
     ).toHaveLength(0)
   })
 
@@ -854,14 +854,14 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    const res = await h.sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId })
+    const res = await h.sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId })
     expect(res).toEqual({ threadId: `btw_${sessionId}`, isNew: true })
-    expect(await h.sa.startBtwTurn({ ownerUserId: FIRST_ADMIN_USER_ID, sessionId })).toEqual({
+    expect(await h.sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId })).toEqual({
       threadId: `btw_${sessionId}`,
       isNew: false,
     })
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: res.threadId,
       text: 'what is this session doing?',
     })
@@ -884,7 +884,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     })
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'what is this session doing?',
       attachSessionId: sessionId,
@@ -896,7 +896,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     expect(req.contextPrompt).toContain(sessionId)
     // NO SECOND THREAD. The old action minted one per session; a thread nothing
     // renders is the whole defect, so this path must not create one.
-    expect((await h.sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'btw')).toHaveLength(0)
+    expect((await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'btw')).toHaveLength(0)
     // The turn still runs where the GLOBAL thread runs — an attachment is
     // context, not a change of machine or checkout.
     expect(req.cwd).not.toBe('/w')
@@ -914,12 +914,12 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     })
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'first',
     })
     const second = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'and about this one?',
       attachSessionId: sessionId,
@@ -937,7 +937,7 @@ describe('openInTerminal + one-writer lock', () => {
   async function threadWithHarnessSession() {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -949,7 +949,7 @@ describe('openInTerminal + one-writer lock', () => {
   it('opens a normal PTY session with the per-agent resume ref and locks the thread', async () => {
     const h = await threadWithHarnessSession()
     const { sessionId } = await h.sa.openInTerminal({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
     })
     // A REAL spawn went to the daemon, carrying the harness resume ref.
@@ -967,7 +967,7 @@ describe('openInTerminal + one-writer lock', () => {
     // One writer: sendTurn refuses while the terminal session is alive.
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'x',
       }),
@@ -976,7 +976,7 @@ describe('openInTerminal + one-writer lock', () => {
     await h.registry.modules.sessions.killSession({ sessionId })
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'x',
       }),
@@ -989,29 +989,29 @@ describe('openInTerminal + one-writer lock', () => {
   it('refuses before a harness session exists and while a turn is running', async () => {
     const h = await harness()
     await expect(
-      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') }),
     ).rejects.toThrow(/no harness session/)
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
     await expect(
-      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') }),
     ).rejects.toThrow(/turn is running/)
   })
 
   it('interruptTurn routes to the headless session', async () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
-    await h.sa.interruptTurn({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') })
+    await h.sa.interruptTurn({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
     expect(h.interrupts).toEqual([podiumSessionId])
     await expect(
-      h.sa.interruptTurn({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('btw_none') }),
+      h.sa.interruptTurn({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('btw_none') }),
     ).rejects.toThrow(/unknown thread/)
   })
 })
@@ -1030,7 +1030,7 @@ describe('boot reconciliation for headless sessions', () => {
     }
 
     void h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'accepted before preparation',
       focus: { view: 'issues' },
@@ -1079,7 +1079,7 @@ describe('boot reconciliation for headless sessions', () => {
     }
 
     void h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'run on grok',
       agentKind: 'grok',
@@ -1111,7 +1111,7 @@ describe('boot reconciliation for headless sessions', () => {
   it('replays an accepted in-flight message with the same turn id after a server restart', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'survive restart',
     })
@@ -1163,7 +1163,7 @@ describe('boot reconciliation for headless sessions', () => {
     })
     await expect(
       superagent.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'next message',
       }),
@@ -1173,7 +1173,7 @@ describe('boot reconciliation for headless sessions', () => {
   it('stays live across a restart and rebinds tails via headlessBind (no reattach probe)', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -1241,7 +1241,7 @@ describe('harness switch + effort (#199)', () => {
     const h = await harness()
     // First turn freezes claude-code and learns a harness session id.
     const first = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -1252,7 +1252,7 @@ describe('harness switch + effort (#199)', () => {
     // User picks a different harness in settings.
     await setSuperagentHarness(h, { harness: 'codex' })
     const second = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'still there?',
     })
@@ -1273,14 +1273,14 @@ describe('harness switch + effort (#199)', () => {
   it('does not switch when the setting is unchanged (resumes)', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
@@ -1291,19 +1291,19 @@ describe('harness switch + effort (#199)', () => {
   it('restartThread resets the harness session so the next turn is fresh', async () => {
     const h = await harness()
     const first = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
-    await h.sa.restartThread({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') })
+    await h.sa.restartThread({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
     const row = await h.registry.sessionStore.superagent.getSuperagentThread('global')
     expect(row?.harnessSessionId).toBeFalsy()
     expect(row?.podiumSessionId).toBeFalsy()
     expect(row?.agentKind).toBe('claude-code') // agent kept, only the session reset
     const second = await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
@@ -1315,7 +1315,7 @@ describe('harness switch + effort (#199)', () => {
     const h = await harness()
     await setSuperagentHarness(h, { harness: 'claude-code', effort: 'high' })
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -1324,7 +1324,7 @@ describe('harness switch + effort (#199)', () => {
     const h2 = await harness()
     await setSuperagentHarness(h2, { harness: 'claude-code', effort: 'auto' })
     await h2.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -1334,7 +1334,7 @@ describe('harness switch + effort (#199)', () => {
   it('switches harness from a prompt-box agentKind without a settings change', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })
@@ -1343,7 +1343,7 @@ describe('harness switch + effort (#199)', () => {
     expect(h.turnReqs[0]?.agent).toBe('claude-code')
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'now grok',
       agentKind: 'grok',
@@ -1359,7 +1359,7 @@ describe('harness switch + effort (#199)', () => {
   it('Auto after an explicit pick returns the thread to the settings harness', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
       agentKind: 'grok',
@@ -1368,7 +1368,7 @@ describe('harness switch + effort (#199)', () => {
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'grok-1' })
     await h.settle()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'back to default',
       model: 'auto',
@@ -1380,13 +1380,13 @@ describe('harness switch + effort (#199)', () => {
   it('drains a queued connector pick onto a fresh harness session', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'one',
     })
     await expect(
       h.sa.sendTurn({
-        ownerUserId: FIRST_ADMIN_USER_ID,
+        ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'two on grok',
         agentKind: 'grok',
@@ -1406,7 +1406,7 @@ describe('harness switch + effort (#199)', () => {
   it('keeps a model override on its frozen harness when settings later change', async () => {
     const h = await harness()
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
       model: 'opus',
@@ -1415,7 +1415,7 @@ describe('harness switch + effort (#199)', () => {
     await h.settle()
     await setSuperagentHarness(h, { harness: 'codex' })
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'again',
     })
@@ -1447,7 +1447,7 @@ describe('harness switch + effort (#199)', () => {
     })
 
     await h.sa.sendTurn({
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
     })

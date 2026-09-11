@@ -130,6 +130,7 @@ export * from './aggregates/session'
 // and deliberately carries NO serializable effective capability (ADR 9 D5 A1).
 export * from './identity/client-session'
 export * from './identity/delegation'
+export * from './identity/first-admin'
 export * from './identity/git-identity'
 export * from './identity/grant'
 export * from './identity/session-identity'

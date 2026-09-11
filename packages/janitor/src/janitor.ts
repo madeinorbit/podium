@@ -9,7 +9,7 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type UserId,
 } from '@podium/model'
 import {
@@ -848,7 +848,7 @@ export class MaintenanceCommandsPrunePlanner {
  * picked: `IssueAttention.tryAutoArchiveObserved` and
  * `SessionService.tryAutoArchiveStoppedObserved` revalidate the proposal against
  * `issueOverlay(...)`/`viewerOverlay(...).readAt`, i.e. `broadcastViewer()` =
- * `FIRST_ADMIN_USER_ID`. A janitor that observed any other reader would emit
+ * `firstAdminMemberId()`. A janitor that observed any other reader would emit
  * proposals the server rejects as `precondition` — auto-archive would be dead a
  * SECOND time, silently, with a green integration test. The janitor observes;
  * the server decides; both must ask the same person.
@@ -861,14 +861,14 @@ export class MaintenanceCommandsPrunePlanner {
  *
  * POD-1229 closes the half of this POD-1210 left open. The agreement between
  * THIS constant and the server's `broadcastViewer()` used to be a coincidence of
- * two independent spellings of `FIRST_ADMIN_USER_ID`, invisible on the wire and
+ * two independent spellings of `firstAdminMemberId()`, invisible on the wire and
  * therefore untestable: change one and the sweep goes silently empty. The reader
  * now RIDES on the observation as `readerUserId`, and the server refuses any
  * observation that names someone other than the viewer it archives for. The
  * policy is unchanged; what changed is that a disagreement is now a refusal with
  * a reason instead of a sweep that finds nothing.
  */
-const ARCHIVE_VIEWER: UserId = FIRST_ADMIN_USER_ID
+const ARCHIVE_VIEWER: UserId = firstAdminMemberId()
 
 /**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.

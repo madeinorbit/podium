@@ -8,7 +8,7 @@ import {
   asIssueId,
   asSessionId,
   asThreadId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type SessionId,
 } from '@podium/model'
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
@@ -111,10 +111,10 @@ function session(over: Partial<SessionMetaInput>): SessionMeta {
 function issueRow(over: Partial<IssueRow>): IssueRow {
   return {
     id: asIssueId('iss_x'),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     repoPath: '/r',
     seq: 1,
     title: 'X',
@@ -283,11 +283,11 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       ? async (issueId, ids) => {
           await store.transact(
             async () =>
-              await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr'),
+              await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, 'tr'),
           )
         }
       : async (issueId, ids) => {
-          await store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, 'tr')
+          await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, 'tr')
         },
     ...(opts?.spawnOnWake ? { spawnOnWake: opts.spawnOnWake } : {}),
     notifyOperator: async (i) => {
@@ -3184,7 +3184,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     role: 'worker',
     scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
     actorSessionId: asSessionId('sX'),
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    onBehalfOf: firstAdminMemberId(),
   }
 
   it('a subtree-scoped peer sending to ANOTHER issue needs --outside-scope', async () => {
@@ -3234,8 +3234,8 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     const operatorCap: Capability = {
       role: 'admin',
       scope: { kind: 'all' },
-      actorUser: FIRST_ADMIN_USER_ID,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      actorUser: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     }
     const all = (await gate.dispatch(operatorCap, undefined, 'inbox', {
       issue: ISSUE.id,

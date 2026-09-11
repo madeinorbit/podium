@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asIssueId, asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import type { IssueRow, SessionStore } from './store'
@@ -20,10 +20,10 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     title: 'X',
     description: '',
     stage: 'backlog',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     worktreePath: null,
     branch: null,
     parentBranch: 'main',

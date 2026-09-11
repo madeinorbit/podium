@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -57,14 +57,14 @@ describe('server agent relay handler (P1b)', () => {
       name: 'ludovico',
       hostname: 'ludovico.local',
       tokenHash: 'hash-1',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
       id: 'm2',
       name: 'quiet-box',
       hostname: 'quiet-box.example.net',
       tokenHash: 'hash-2',
-      ownerUserId: FIRST_ADMIN_USER_ID,
+      ownerUserId: firstAdminMemberId(),
     })
     await store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
     await store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))

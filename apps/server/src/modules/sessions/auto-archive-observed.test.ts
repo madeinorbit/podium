@@ -10,13 +10,13 @@
  *
  * POD-1210 chose the reader (the viewer the shared `archived` flag speaks for)
  * but the wire never said so: janitor and server each supplied the reader from
- * their own copy of `FIRST_ADMIN_USER_ID`, so a disagreement between them was
+ * their own copy of `firstAdminMemberId()`, so a disagreement between them was
  * unrepresentable and therefore untestable. The observation now names its
  * reader and this method refuses any other. These tests are what fails if that
  * refusal is removed.
  */
 
-import { asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -39,7 +39,7 @@ async function stoppedAndRead(): Promise<{
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
-  await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
+  await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
   const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
   return { reg, sessionId, stoppedMs: Date.parse(meta?.stoppedAt ?? '') }
 }
@@ -59,7 +59,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
-        { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
+        { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 8 * DAY_MS,
       ),
     ).toBe('applied')
@@ -111,10 +111,10 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     // check below already refuses that — which is why the CAS was redundant.
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
-    await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId) // re-read, "now"
+    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId) // re-read, "now"
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
-        { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
+        { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 1000,
       ),
     ).toBe('not-due')
@@ -126,10 +126,10 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { reg, sessionId, stoppedMs } = await stoppedAndRead()
     const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
-    await reg.modules.sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId) // deletes the marker
+    await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId) // deletes the marker
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
-        { ...observation(sessionId, FIRST_ADMIN_USER_ID), stoppedAt: meta?.stoppedAt ?? '' },
+        { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
         stoppedMs + 8 * DAY_MS,
       ),
     ).toBe('precondition')
@@ -143,7 +143,7 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         {
-          ...observation(sessionId, FIRST_ADMIN_USER_ID),
+          ...observation(sessionId, firstAdminMemberId()),
           stoppedAt: '2020-01-01T00:00:00.000Z',
         },
         stoppedMs + 8 * DAY_MS,

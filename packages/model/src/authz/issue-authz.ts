@@ -43,7 +43,6 @@
  */
 
 import { assertUnreachable } from '../exhaustive'
-import { FIRST_ADMIN_USER_ID } from '../identity/user'
 import type { IssueId, SessionId, UserId } from '../ids/brands'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
@@ -211,7 +210,7 @@ export function capabilityAttribution(cap: Capability): AttributionPair {
 // FIXTURE at apps/server/src/test-support/capabilities.ts, where the reason it
 // is dangerous to reach for — `scope: 'all'` short-circuits `authorize()`, which
 // is how POD-351 lost a class of revocation coverage — is written down beside
-// it. The identity half keeps its own name: `FIRST_ADMIN_USER_ID` (ADR 9 D1.5).
+// it. The identity half keeps its own name: `firstAdminMemberId()` (ADR 9 D1.5).
 
 // The per-procedure action/target tables (PROC_ACTION / SCOPED_TARGET) are GONE
 // (#248 [spec:SP-3fe2]): a command's required action and its target extractor

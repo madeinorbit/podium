@@ -1,6 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
@@ -17,12 +17,12 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
       ? {
           ...rawCapability,
           actorSessionId: rawCapability.actorSessionId ?? asSessionId('test-agent'),
-          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
       : {
           ...rawCapability,
-          actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-          onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+          actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+          onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
   const registry = shared ?? await SessionRegistry.create(undefined, undefined, { instanceId: 'default' }) // in-memory :memory: store
   if (!shared) registries.push(registry)

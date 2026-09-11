@@ -23,7 +23,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
@@ -901,13 +901,13 @@ export class SessionRegistry {
      */
     const superagentDefaults = new SuperagentDefaultSeeder({
       // An install that has never created an account row still has a person: this
-      // build authenticates one shared password as FIRST_ADMIN_USER_ID, and that
+      // build authenticates one shared password as firstAdminMemberId(), and that
       // is the very install this seed exists for. Falling back to it here rather
       // than inside the seeder keeps the "who is this for" question at the
       // composition root, where POD-315 will replace it with real principals.
       users: async () => {
         const rows = (await this.store.users.list()).map((row) => asUserId(row.id))
-        return rows.length > 0 ? rows : [FIRST_ADMIN_USER_ID]
+        return rows.length > 0 ? rows : [firstAdminMemberId()]
       },
       settingsFor: async (userId) => await settings.getSettingsFor(userId),
       machines: async () => await machines.listMachines(),
@@ -1609,12 +1609,12 @@ export class SessionRegistry {
         // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
         // preferences, which no longer live on the instance blob — an unresolved
         // read would see the model's defaults instead of the operator's choices.
-        // `FIRST_ADMIN_USER_ID` is spelled out rather than defaulted, the shape
+        // `firstAdminMemberId()` is spelled out rather than defaulted, the shape
         // `IssueService.broadcastViewer` uses: this build's transport cannot name
         // a person (one shared password), so the sole account is the only true
         // answer, and POD-315/POD-1077 replace the argument rather than finding a
         // hidden read.
-        getSettings: async (ownerUserId = FIRST_ADMIN_USER_ID) =>
+        getSettings: async (ownerUserId = firstAdminMemberId()) =>
           await this.store.settings.getSettingsFor(ownerUserId),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: async () => await this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
@@ -1646,7 +1646,7 @@ export class SessionRegistry {
           [...sessionsSvc.sessions.values()].map((s) => ({
             info: noticeInfo(s),
             state: s.agentState,
-            ownerUserId: FIRST_ADMIN_USER_ID,
+            ownerUserId: firstAdminMemberId(),
           })),
         notificationsEnabled: () => featureEnabled('notifications'),
       },
@@ -1695,7 +1695,7 @@ export class SessionRegistry {
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
-      getSettings: async () => await this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+      getSettings: async () => await this.store.settings.getSettingsFor(firstAdminMemberId()),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           ...(o.sessionId ? { sessionId: o.sessionId } : {}),
@@ -1969,7 +1969,7 @@ export class SessionRegistry {
         await funnel.run({
           write: async () =>
             await this.store.issues.markIssueMessagesRead(
-              FIRST_ADMIN_USER_ID,
+              firstAdminMemberId(),
               issueId,
               ids,
               new Date().toISOString(),
@@ -2415,7 +2415,7 @@ export class SessionRegistry {
           // while issue-create honoured it. Continuing an existing session still
           // wins outright — that session's harness is already running.
           const spawnDefaults = resolveSpawnDefaults(
-            await this.store.settings.getSettingsFor(FIRST_ADMIN_USER_ID),
+            await this.store.settings.getSettingsFor(firstAdminMemberId()),
             {
               agentKind: existing?.agentKind ?? fresh?.agentKind,
               model: fresh?.model,

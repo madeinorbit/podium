@@ -24,6 +24,7 @@ import {
   saveCachedSessionToken,
   sessionTokenPath,
 } from './session-mint'
+import { earliestAdminMember } from './earliest-admin'
 import { openDatabase } from './sqlite'
 
 let dir: string
@@ -277,6 +278,76 @@ it('POD-1637: mints on a single-account instance, and the token validates', () =
   db.close?.()
   expect(row?.label).toBe(BREAK_GLASS_LABEL)
   expect(row?.expires_at).toBe(minted.expiresAt)
+})
+
+// ─── A2: the session is minted FOR the earliest admin member ───────────────
+//
+// The owner used to be the compile-time `FIRST_ADMIN_USER_ID`. It is now read
+// out of the database by `EARLIEST_ADMIN_MEMBER_SQL`, so these assert the value
+// the mint actually wrote — a mint carrying an id no member has would hand the
+// operator a token that authenticates as nobody, and the 401 that follows would
+// look like the mint having failed for some other reason.
+
+const mintedOwner = (at: string, token: string): string | undefined => {
+  const db = openDatabase(join(at, 'podium.db'))
+  try {
+    return (
+      db
+        .prepare('SELECT user_id FROM client_sessions WHERE token_hash = ?')
+        .get(createHash('sha256').update(token).digest('hex')) as { user_id: string } | undefined
+    )?.user_id
+  } finally {
+    db.close?.()
+  }
+}
+
+it('A2: mints for the member the database names, not a compiled-in id', () => {
+  seedDatabase(dir)
+  seedUsers(dir, 1)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.prepare("UPDATE users SET id = 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv'").run()
+  db.close?.()
+
+  const minted = mintBreakGlassSession({ stateDir: dir })
+  expect(mintedOwner(dir, minted.token)).toBe('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
+})
+
+it('A2: mints for the EARLIEST admin when a later admin exists', () => {
+  // The rule, at the one call site where getting it wrong is silent: a mint for
+  // the newest admin would still produce a working token, for the wrong person.
+  seedDatabase(dir)
+  seedUsers(dir, 1)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.prepare("UPDATE users SET id = 'mem_first', created_at = '2026-01-01T00:00:00.000Z'").run()
+  db.prepare(
+    "INSERT INTO users (id, display_name, role, created_at) VALUES ('mem_later', 'Later', 'admin', '2026-09-01T00:00:00.000Z')",
+  ).run()
+  db.close?.()
+
+  // Two accounts, so the POD-1637 guard refuses — which is the correct outcome
+  // and not what this case is about. Removing the second account would remove
+  // the ordering question with it, so the rule is asserted where it lives.
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/refusing to mint/)
+  const reader = openDatabase(join(dir, 'podium.db'))
+  try {
+    expect(earliestAdminMember(reader)).toBe('mem_first')
+  } finally {
+    reader.close?.()
+  }
+})
+
+it('A2: refuses when every admin is disabled, writing no session row', () => {
+  // There is a `users` table, so this instance CAN name a member — it just has
+  // none that may act. Different from the pre-accounts case below, and the two
+  // must not collapse into one answer.
+  seedDatabase(dir)
+  seedUsers(dir, 1)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.prepare("UPDATE users SET disabled_at = '2026-09-01T00:00:00.000Z'").run()
+  db.close?.()
+
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/every admin.*is disabled/s)
+  expect(sessionRowCount(dir), 'a refused mint must leave no credential behind').toBe(0)
 })
 
 it('POD-1637: refuses on a two-account instance, writing no session row', () => {

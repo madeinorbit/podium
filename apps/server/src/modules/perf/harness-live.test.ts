@@ -41,7 +41,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  * leak" is satisfied perfectly by a harness that recorded nothing at all.
  */
 
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { PHASE_MIGRATION } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { feedPrincipalOf, userClientPrincipal } from '../../gateway/client-principal'
@@ -53,7 +53,7 @@ import { perf } from './registry'
  *  a literal here would keep passing after `feedPrincipalOf` stopped returning
  *  this principal, which is the drift the dimension exists to catch. */
 const LIVE = perfPrincipal(
-  feedPrincipalOf(userClientPrincipal('perf-fixture', FIRST_ADMIN_USER_ID, 'admin')),
+  feedPrincipalOf(userClientPrincipal('perf-fixture', firstAdminMemberId(), 'admin')),
 )
 
 async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }> {

@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -15,7 +15,7 @@ import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
+const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring
@@ -69,10 +69,10 @@ function issueRow(i: number): IssueRow {
   // the row literal readable and the type honest.
   return {
     id: `iss_${i}`,
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     repoPath: '/repo',
     repoId: 'repo_1',
     seq: i,
@@ -129,7 +129,7 @@ async function seedSession(
   const id = `sess_${i}`
   await store.sessions.upsertSession({
     id: asSessionId(id),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
     cwd: `/repo/.worktrees/w${i % ISSUE_COUNT}`,
     title: `session ${i}`,

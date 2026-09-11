@@ -1,4 +1,4 @@
-import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { type StatementProbeHolder, probeStatements } from './store/executor'
@@ -58,10 +58,10 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
     seq: 1,
     title: 'A title',
     description: 'desc',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal' as const,
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     stage: 'backlog',
     worktreePath: null,
     branch: null,

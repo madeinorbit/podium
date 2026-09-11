@@ -37,7 +37,7 @@
  * concurrently, and pinning "last" makes a green test a function of merge order.
  */
 
-import { FIRST_ADMIN_USER_ID, settingsPathsInTier } from '@podium/model'
+import { firstAdminMemberId, settingsPathsInTier } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { UserPreferencesRepository } from '../store/user-preferences'
@@ -143,6 +143,16 @@ const INSTANCE = {
 
 type Db = ReturnType<typeof openDatabase>
 
+/**
+ * The manifest UP TO AND INCLUDING this migration.
+ *
+ * It used to be the whole manifest, and stopping here is A2's doing: the
+ * solo-user retirement re-keys `'user:sole'` to a minted `mem_` id, so applying
+ * everything would make this file assert the state of a LATER migration and
+ * call it this one's. A migration test's subject is its own migration.
+ */
+const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
+
 const cutIndex = () => {
   const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.includes(MIGRATION))
   expect(cut).toBeGreaterThan(0)
@@ -201,7 +211,7 @@ function preMigrationDb(blob: unknown = nestedBlob()): Db {
 
 const migrated = (blob?: unknown): Db => {
   const db = blob === undefined ? preMigrationDb() : preMigrationDb(blob)
-  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+  runDrizzleMigrations(db, throughThisMigration())
   return db
 }
 
@@ -259,11 +269,11 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // The `->` vs `->>` property, asserted as types rather than as values so it
     // cannot pass on a stringified `"true"`.
     const prefs = new UserPreferencesRepository(stageASeam(migrated()))
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.enabled')).toBe(true)
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'notifications.web')).toBe(true)
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.promptDismissed')).toBe(false)
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'roles.coding.seedCliTheme')).toBe(false)
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'sidebar.repoOrder')).toEqual([
+    expect(await prefs.get(firstAdminMemberId(), 'autoContinue.enabled')).toBe(true)
+    expect(await prefs.get(firstAdminMemberId(), 'notifications.web')).toBe(true)
+    expect(await prefs.get(firstAdminMemberId(), 'autoContinue.promptDismissed')).toBe(false)
+    expect(await prefs.get(firstAdminMemberId(), 'roles.coding.seedCliTheme')).toBe(false)
+    expect(await prefs.get(firstAdminMemberId(), 'sidebar.repoOrder')).toEqual([
       '/repo/DISTINCT-a',
       '/repo/DISTINCT-b',
     ])
@@ -278,7 +288,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // The migration's frozen literal and the shipped constant are the same id.
     // Asserted here rather than by importing it into the SQL, so a rename is
     // CAUGHT rather than silently followed.
-    expect(owners[0]?.user_id).toBe(FIRST_ADMIN_USER_ID)
+    expect(owners[0]?.user_id).toBe(firstAdminMemberId())
   })
 
   it('stamps a write time the blob never had', () => {
@@ -308,7 +318,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // topic means "mobile push off", which is a choice this person made.
     const db = migrated(nestedBlob({ notifications: { ntfyTopic: '', web: true } }))
     const prefs = new UserPreferencesRepository(stageASeam(db))
-    expect(await prefs.get(FIRST_ADMIN_USER_ID, 'notifications.ntfyTopic')).toBe('')
+    expect(await prefs.get(firstAdminMemberId(), 'notifications.ntfyTopic')).toBe('')
   })
 
   it('survives a corrupt blob instead of wedging boot', () => {
@@ -318,7 +328,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
       'settings',
       'not json at all',
     )
-    expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).not.toThrow()
+    expect(() => runDrizzleMigrations(db, throughThisMigration())).not.toThrow()
     expect(db.prepare('SELECT COUNT(*) AS n FROM user_preferences').get()).toEqual({ n: 0 })
   })
 })
@@ -360,7 +370,7 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
         cursor = (cursor as Record<string, unknown> | undefined)?.[segment]
       }
       expect(cursor, `${key} should be gone from the blob`).toBeUndefined()
-      expect(await prefs.get(FIRST_ADMIN_USER_ID, key), `${key} should be in user_preferences`).toEqual(
+      expect(await prefs.get(firstAdminMemberId(), key), `${key} should be in user_preferences`).toEqual(
         SEEDED[key],
       )
     }

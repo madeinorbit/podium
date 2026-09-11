@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -43,10 +43,10 @@ function issueRow(i: number): IssueRow {
   // the row literal readable and the type honest.
   return {
     id: `iss_${i}`,
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     repoPath: '/repo',
     repoId: 'repo_1',
     seq: i,
@@ -96,7 +96,7 @@ async function seedSession(store: SessionStore, i: number): Promise<string> {
   const id = `sess_${i}`
   await store.sessions.upsertSession({
     id: asSessionId(id),
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
     cwd: `/repo/.worktrees/w${i % ISSUE_COUNT}`,
     title: `session ${i}`,

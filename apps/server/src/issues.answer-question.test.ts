@@ -1,4 +1,4 @@
-import { asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -169,7 +169,7 @@ describe('issues.answerQuestion (issue #53)', () => {
         role: 'worker' as const,
         scope: { kind: 'subtree' as const, rootId: a.id },
         actorSessionId: asSessionId('sess_me'),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     // Pointing askedBy at another session (in-subtree write, so the scope gate
@@ -191,8 +191,8 @@ describe('issues.answerQuestion (issue #53)', () => {
       capability: {
         role: 'worker' as const,
         scope: { kind: 'subtree' as const, rootId: a.id },
-        actorUser: FIRST_ADMIN_USER_ID,
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     await expect(

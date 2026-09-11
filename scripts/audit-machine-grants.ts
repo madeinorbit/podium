@@ -140,7 +140,7 @@ export function soleOwnerSites(
  * The SAME hole, spelled without the placeholder.
  *
  * Check 1 counts calls to a named function, so it is evaded completely by
- * writing `ownerUserId: FIRST_ADMIN_USER_ID` — which is what the code did before
+ * writing `ownerUserId: firstAdminMemberId()` — which is what the code did before
  * the placeholder had a name, and is exactly as permissive. A detector that
  * covers one syntax for a concept covers the concept only by luck.
  */
@@ -162,7 +162,7 @@ export function bareFirstAdminOwnerSites(
       // column — sessions and issues have transitional sole-account answers of
       // their own (POD-1075's), and firing on those would make this gate about a
       // question it does not own, which is how a gate gets suppressed.
-      /owner(?:UserId|_user_id)\s*[:=]\s*(FIRST_ADMIN_USER_ID|SOLE_USER_ID|'user:sole'|"user:sole")/g,
+      /owner(?:UserId|_user_id)\s*[:=]\s*(firstAdminMemberId()|SOLE_USER_ID|'user:sole'|"user:sole")/g,
     )) {
       if (inComment(source, match.index)) continue
       findings.push({
@@ -408,7 +408,7 @@ function probe(): Finding[] {
 
   expectFinds(
     'bare-sole-owner',
-    bareFirstAdminOwnerSites(one('upsertMachine({ ownerUserId: FIRST_ADMIN_USER_ID })')),
+    bareFirstAdminOwnerSites(one('upsertMachine({ ownerUserId: firstAdminMemberId() })')),
     'owner assigned from the sole-account constant',
   )
   expectFinds(

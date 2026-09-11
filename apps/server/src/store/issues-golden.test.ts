@@ -19,7 +19,7 @@
  * direction is visible from a test that only writes rows.
  */
 
-import { asIssueId, asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -33,10 +33,10 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     title: 'X',
     description: '',
     stage: 'backlog',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     worktreePath: null,
     branch: null,
     parentBranch: 'main',
@@ -241,19 +241,19 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
   it('drops the rows of every user for one issue and leaves other issues alone', async () => {
     const store = await openTestStore(':memory:')
     const other = asUserId('usr_other')
-    await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_1'), { readAt: 't' })
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.setIssueUserState(other, asIssueId('iss_1'), { pinnedAt: 't' })
-    await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_2'), { readAt: 't' })
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_2'), { readAt: 't' })
 
     await store.issues.purgeIssueUserState(asIssueId('iss_1'))
 
     // The rows follow the USER, so the purge is keyed on the issue alone: both
     // people lose their markers for iss_1 and neither loses iss_2.
     expect(
-      await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_1')),
+      await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1')),
     ).toBeUndefined()
     expect(await store.issues.getIssueUserState(other, asIssueId('iss_1'))).toBeUndefined()
-    expect(await store.issues.getIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_2'))).toEqual({
+    expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_2'))).toEqual({
       readAt: 't',
       tuckedAt: null,
       pinnedAt: null,
@@ -263,9 +263,9 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
 
   it('is a no-op for an issue nobody has touched', async () => {
     const store = await openTestStore(':memory:')
-    await store.issues.setIssueUserState(FIRST_ADMIN_USER_ID, asIssueId('iss_1'), { readAt: 't' })
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
-    expect((await store.issues.listIssueUserState(FIRST_ADMIN_USER_ID)).size).toBe(1)
+    expect((await store.issues.listIssueUserState(firstAdminMemberId())).size).toBe(1)
     await store.close()
   })
 })

@@ -1,6 +1,6 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
@@ -89,13 +89,13 @@ describe('issues.* subtree scope (P1a)', () => {
       rawCapability.scope.kind === 'subtree'
         ? {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
         : {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
     return appRouter.createCaller({
       registry,
@@ -272,7 +272,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       role: 'worker',
       scope: { kind: 'subtree', rootId: i.id },
       actorSessionId: sid,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
 
     const { sessionId: sid2 } = await registry.modules.sessions.createSession({
@@ -283,7 +283,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       role: 'worker',
       scope: { kind: 'none' },
       actorSessionId: sid2,
-      onBehalfOf: FIRST_ADMIN_USER_ID,
+      onBehalfOf: firstAdminMemberId(),
     })
 
     // No session behind the id → no actor to name.
@@ -403,13 +403,13 @@ describe('issues.mail* (agent mail #103)', () => {
       rawCapability.scope.kind === 'subtree'
         ? {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
         : {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
     return appRouter.createCaller({
       registry,
@@ -567,13 +567,13 @@ describe('issues.subscription* authz (Phase B)', () => {
       rawCapability.scope.kind === 'subtree'
         ? {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
         : {
             ...rawCapability,
-            actorUser: rawCapability.actorUser ?? FIRST_ADMIN_USER_ID,
-            onBehalfOf: rawCapability.onBehalfOf ?? FIRST_ADMIN_USER_ID,
+            actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
+            onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
           }
     return appRouter.createCaller({
       registry,

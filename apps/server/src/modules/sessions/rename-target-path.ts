@@ -192,7 +192,7 @@ function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
  *
  * The bridge was deliberately ONE named place rather than an inline `||`, with a
  * tripwire asserting the constants still differed, so that whoever reconciled
- * them would be told to delete it. POD-1075's `FIRST_ADMIN_USER_ID` is that
+ * them would be told to delete it. POD-1075's `firstAdminMemberId()` is that
  * reconciliation — `'user:sole'` won, because it is the value the POD-380
  * migration already wrote into the database — and the comparison below has
  * collapsed to the plain equality it always should have been. The tripwire in

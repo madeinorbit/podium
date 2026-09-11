@@ -119,7 +119,7 @@ function sourceFiles(dir: string): Map<string, string> {
  * message that named no person at all. Same function, opposite meanings, which
  * is why the site matters and not the name.
  */
-const FALLBACK_IDENTITIES = ['FIRST_ADMIN_USER_ID', 'SOLE_USER_ID', 'deviceGradeSoleOwner']
+const FALLBACK_IDENTITIES = ['firstAdminMemberId()', 'SOLE_USER_ID', 'deviceGradeSoleOwner']
 
 export function fallbackIdentities(files: ReadonlyMap<string, string>): Finding[] {
   const findings: Finding[] = []
@@ -301,7 +301,7 @@ export function auditSources(): Finding[] {
 // ---------------------------------------------------------------------------
 
 const PROBE_FALLBACK = new Map([
-  ['<probe>/service.ts', 'const who = boundUser ?? FIRST_ADMIN_USER_ID\n'],
+  ['<probe>/service.ts', 'const who = boundUser ?? firstAdminMemberId()\n'],
 ])
 /** The clean fixture must NOT fire: the check must be able to say NO. */
 const PROBE_NO_FALLBACK = new Map([['<probe>/service.ts', 'const who = boundUser\n']])

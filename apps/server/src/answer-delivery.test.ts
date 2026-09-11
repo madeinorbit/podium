@@ -1,4 +1,4 @@
-import { actorUser, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { actorUser, asSessionId, firstAdminMemberId } from '@podium/model'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { InboxPrincipalReference } from './modules/sessions/inbox'
@@ -17,10 +17,10 @@ import {
 const principal: InboxPrincipalReference = {
   kind: 'user',
   attribution: {
-    actor: actorUser(FIRST_ADMIN_USER_ID),
-    onBehalfOf: FIRST_ADMIN_USER_ID,
+    actor: actorUser(firstAdminMemberId()),
+    onBehalfOf: firstAdminMemberId(),
   },
-  principalRef: FIRST_ADMIN_USER_ID,
+  principalRef: firstAdminMemberId(),
   delegation: null,
 }
 

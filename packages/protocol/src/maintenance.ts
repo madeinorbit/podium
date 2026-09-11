@@ -174,7 +174,7 @@ export type MaintenanceCommandsPruneObservation = z.infer<
  * `readAt: z.string().datetime()` is a per-user fact with no user attached — a
  * singleton in the exact sense `per-user-singletons` counts. The janitor picked
  * a reader (`ARCHIVE_VIEWER`) and the server picked one (`broadcastViewer()`),
- * and the two agreed only because both spell `FIRST_ADMIN_USER_ID`. Nothing on
+ * and the two agreed only because both spell `firstAdminMemberId()`. Nothing on
  * the wire could express a disagreement, so nothing could TEST for one — and the
  * next step of POD-1077, passing the request's real principal at one of those
  * two sites and not the other, would have killed auto-archive silently for the

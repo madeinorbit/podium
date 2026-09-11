@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -360,7 +360,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           issueId: asIssueId('iss_1'),
           stage: 'done',
           closedReason: null,
-          readerUserId: FIRST_ADMIN_USER_ID,
+          readerUserId: firstAdminMemberId(),
           archived: false,
           deletedAt: null,
         },
@@ -370,7 +370,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           sessionId: asSessionId('ses_1'),
           issueId: null,
           stoppedAt: '2026-07-01T00:00:00.000Z',
-          readerUserId: FIRST_ADMIN_USER_ID,
+          readerUserId: firstAdminMemberId(),
           archived: false,
         },
       ],

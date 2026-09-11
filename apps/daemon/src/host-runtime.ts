@@ -15,7 +15,8 @@ import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import {
   asMachineId,
   asSessionId,
-  FIRST_ADMIN_USER_ID,
+  asUserId,
+  SOLE_USER_ID,
   type MachineId,
   type SessionId,
 } from '@podium/model'
@@ -342,7 +343,14 @@ export async function createDaemonHostRuntime(args: {
     dir: join(instance.runtimeDir, 'session-bindings'),
     legacyStateDir: identityStateDir,
     codexReceiptDir: instance.codexReceiptDir,
-    singleOperatorUserId: FIRST_ADMIN_USER_ID,
+    // THE RETIRED LITERAL, DELIBERATELY [A2]. This is the owner stamped onto
+    // daemon-local bindings recovered from PRE-ACCOUNTS state, and the id those
+    // rows belonged to when they were written is `'user:sole'` — frozen history,
+    // the same reason the migrations spell it. The daemon is a separate process
+    // with no database, so it cannot resolve the member the server re-keyed
+    // those rows to; A5's principal hook is where it learns that from its
+    // server, and PDM-99 in the phase-A collector carries it.
+    singleOperatorUserId: asUserId(SOLE_USER_ID),
   })
   const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)

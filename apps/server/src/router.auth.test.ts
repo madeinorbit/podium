@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FIRST_ADMIN_USER_ID } from '@podium/model'
+import { firstAdminMemberId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -44,7 +44,7 @@ const hashOf = async (users: {
     | { passwordHash: string | null }
     | undefined
     | Promise<{ passwordHash: string | null } | undefined>
-}) => (await users.credentialFor(FIRST_ADMIN_USER_ID))?.passwordHash ?? ''
+}) => (await users.credentialFor(firstAdminMemberId()))?.passwordHash ?? ''
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -67,7 +67,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       canManageInstance: true,
     })
     await users.setPasswordHash(
-      FIRST_ADMIN_USER_ID,
+      firstAdminMemberId(),
       await hashPassword('hunter2'),
       new Date().toISOString(),
     )

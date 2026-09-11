@@ -5,7 +5,7 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
-import { FIRST_ADMIN_USER_ID, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 
 import { IssueToolProvider } from './issue-mcp'
 import { SessionRegistry } from './relay'
@@ -125,7 +125,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         role: 'worker',
         scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
         actorSessionId: asSessionId('test-agent'),
-        onBehalfOf: FIRST_ADMIN_USER_ID,
+        onBehalfOf: firstAdminMemberId(),
       })
       await runIssueClient(client, f)
       await verify(registry, f)
@@ -144,7 +144,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
           role: 'worker',
           scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
           actorSessionId: asSessionId('test-agent'),
-          onBehalfOf: FIRST_ADMIN_USER_ID,
+          onBehalfOf: firstAdminMemberId(),
         }),
       )
       for (const [name, input] of lifecycleInputs(f)) {
