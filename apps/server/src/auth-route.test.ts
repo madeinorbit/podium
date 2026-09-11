@@ -953,19 +953,17 @@ describe('the login identifier', () => {
   })
 
   test('accepts the retired literal, and resolves it to the same member', async () => {
-    // The one place `'user:sole'` survives as an identity. A3 narrows this to a
-    // first admin whose email is still empty; the column does not exist yet.
     expect(await resolveLoginIdentifier('user:sole', store.users)).toBe(
       (await store.users.earliestAdmin())?.id,
     )
   })
 
-  test('takes any other identifier as the member id it is', async () => {
+  test('does not accept member ids as email identifiers', async () => {
     // Not resolved, not rewritten: a login for a member who does not exist must
     // fail at the credential lookup, not silently become the first admin's.
-    expect(await resolveLoginIdentifier('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv', store.users)).toBe(
-      'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv',
-    )
+    expect(
+      await resolveLoginIdentifier('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv', store.users),
+    ).toBeUndefined()
   })
 
   test('has no answer when no member may act as the first admin', async () => {
@@ -1000,5 +998,115 @@ describe('the login identifier', () => {
     })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { userId: string }).userId).toBe(firstAdminMemberId())
+  })
+})
+
+describe('email sign-in', () => {
+  const login = (app: Hono, email: string, password = 'hunter2') =>
+    app.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })
+
+  test('resolves normalized email, preserves display name, and retires legacy login after setting email', async () => {
+    await setPassword('hunter2')
+    const before = await store.users.get(firstAdminMemberId())
+    const app = makeApp()
+    expect((await login(app, 'user:sole')).status).toBe(200)
+    await store.users.setEmail(firstAdminMemberId(), ' Alice@Example.COM ')
+    expect((await store.users.get(firstAdminMemberId()))?.displayName).toBe(before?.displayName)
+    const response = await login(app, ' ALICE@example.com ')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, userId: firstAdminMemberId() })
+    expect(cookieValue(response)).toBeTruthy()
+    expect((await login(app, 'user:sole')).status).toBe(401)
+    expect(
+      (
+        await app.request('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ password: 'hunter2' }),
+        })
+      ).status,
+    ).toBe(401)
+    expect((await login(app, firstAdminMemberId())).status).toBe(401)
+    expect(
+      (
+        await app.request('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ userId: firstAdminMemberId(), password: 'hunter2' }),
+        })
+      ).status,
+    ).toBe(400)
+  })
+
+  test('locks only the failed email, shares case variants, and expires its lockout', async () => {
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
+    await store.users.create(
+      {
+        id: 'user:bob',
+        displayName: 'Bob',
+        email: 'bob@example.com',
+        role: 'member',
+        createdAt: FAR_FUTURE,
+        disabledAt: null,
+      },
+      await hashPassword('bob-password'),
+    )
+    let at = Date.now()
+    const app = makeApp({ now: () => at, throttle: { maxFailures: 2, lockoutMs: 60_000 } })
+    expect((await login(app, 'alice@example.com', 'wrong')).status).toBe(401)
+    expect((await login(app, ' ALICE@example.com ', 'wrong')).status).toBe(401)
+    const locked = await login(app, 'alice@example.com')
+    expect(locked.status).toBe(429)
+    expect(locked.headers.get('retry-after')).toBe('60')
+    const bob = await login(app, 'bob@example.com', 'bob-password')
+    expect(bob.status).toBe(200)
+    expect(await bob.json()).toMatchObject({ userId: 'user:bob' })
+    expect((await login(app, 'alice@example.com')).status).toBe(429)
+    at += 60_000
+    expect((await login(app, 'alice@example.com')).status).toBe(200)
+  })
+
+  test('unknown emails are throttled and malformed identifiers never select the first admin', async () => {
+    await setPassword('hunter2')
+    const app = makeApp({ throttle: { maxFailures: 1 } })
+    expect((await login(app, 'missing@example.com')).status).toBe(401)
+    expect((await login(app, 'missing@example.com')).status).toBe(429)
+    expect((await login(app, '')).status).toBe(400)
+    expect((await login(app, 'user:sole')).status).toBe(200)
+  })
+
+  test('concurrent failures share one email counter', async () => {
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
+    const app = makeApp({ throttle: { maxFailures: 3 } })
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () => login(app, 'alice@example.com', 'wrong')),
+    )
+    expect(results.map((result) => result.status)).toEqual([401, 401, 401])
+    expect((await login(app, 'alice@example.com')).status).toBe(429)
+  })
+
+  test('native delivery accepts an email and returns that member session', async () => {
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')
+    const response = await makeApp().request('https://podium.example/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'alice@example.com',
+        password: 'hunter2',
+        delivery: 'native',
+        deviceId: 'phone-device',
+        deviceName: 'Phone',
+        platform: 'ios',
+      }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      delivery: 'native',
+      userId: firstAdminMemberId(),
+      token: expect.any(String),
+    })
   })
 })

@@ -50,10 +50,7 @@ describe('pairing envelope codec', () => {
     expect(parseMobilePairingUrl(`podium://pair/${encoded}`, now)).toEqual(pair)
     expect(parseMobilePairingUrl(`podium://pair/mobile#pair=${encoded}`, now)).toEqual(pair)
     expect(
-      parseMobilePairingUrl(
-        `podium://pair?url=${encodeURIComponent(mobilePairingUrl(pair))}`,
-        now,
-      ),
+      parseMobilePairingUrl(`podium://pair?url=${encodeURIComponent(mobilePairingUrl(pair))}`, now),
     ).toEqual(pair)
     expect(() => parseMobilePairingUrl(`podium://other/${encoded}`, now)).toThrow()
   })
@@ -124,26 +121,23 @@ describe('mobile device metadata', () => {
     'Phone\u2028line',
     'Phone\u202eadmin',
     'Phone\u2066safe',
-  ])(
-    'rejects control or bidi text in a device name: %s',
-    (deviceName) => {
-      expect(MobilePairClaimRequest.safeParse({ ...safe, deviceName }).success).toBe(false)
-      expect(
-        NativeClientLoginRequest.safeParse({
-          delivery: 'native',
-          password: 'secret',
-          deviceId: safe.deviceId,
-          deviceName,
-          platform: safe.platform,
-        }).success,
-      ).toBe(false)
-    },
-  )
+  ])('rejects control or bidi text in a device name: %s', (deviceName) => {
+    expect(MobilePairClaimRequest.safeParse({ ...safe, deviceName }).success).toBe(false)
+    expect(
+      NativeClientLoginRequest.safeParse({
+        delivery: 'native',
+        password: 'secret',
+        deviceId: safe.deviceId,
+        deviceName,
+        platform: safe.platform,
+      }).success,
+    ).toBe(false)
+  })
 
   it('rejects the same unsafe characters in opaque device ids', () => {
-    expect(MobilePairClaimRequest.safeParse({ ...safe, deviceId: 'phone\u200fadmin' }).success).toBe(
-      false,
-    )
+    expect(
+      MobilePairClaimRequest.safeParse({ ...safe, deviceId: 'phone\u200fadmin' }).success,
+    ).toBe(false)
   })
 })
 
@@ -158,4 +152,16 @@ it('maps the first 33 digest bits to a stable three-word phrase', () => {
     'violetstone',
     'violetstone',
   ])
+})
+
+it('preserves the email identifier in native password login requests', () => {
+  const request = {
+    delivery: 'native',
+    email: 'alice@example.com',
+    password: 'secret',
+    deviceId: 'phone-device',
+    deviceName: 'Phone',
+    platform: 'ios',
+  }
+  expect(NativeClientLoginRequest.parse(request)).toEqual(request)
 })

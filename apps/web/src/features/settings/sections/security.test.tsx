@@ -11,6 +11,8 @@ import { LoginPasswordSection } from './security'
 function fakeTrpc(enabled: boolean, canManageInstance = true) {
   return {
     auth: {
+      profile: { query: vi.fn().mockResolvedValue({ email: null }) },
+      setEmail: { mutate: vi.fn().mockResolvedValue({ email: 'alice@example.com' }) },
       status: {
         query: vi.fn().mockResolvedValue({
           hasOwnCredential: enabled,
@@ -115,5 +117,63 @@ describe('LoginPasswordSection', () => {
     render(<LoginPasswordSection trpc={trpc} />)
     expect(await screen.findByRole('button', { name: /change password/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /disable login/i })).toBeNull()
+  })
+})
+
+describe('profile email', () => {
+  it('loads and saves the caller email with their current password', async () => {
+    const trpc = fakeTrpc(true)
+    render(<LoginPasswordSection trpc={trpc} />)
+    const email = await screen.findByLabelText('Email')
+    await waitFor(() => expect((email as HTMLInputElement).disabled).toBe(false))
+    fireEvent.change(email, { target: { value: 'alice@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password to change email'), {
+      target: { value: 'secret' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
+    await waitFor(() =>
+      expect(trpc.auth.setEmail.mutate).toHaveBeenCalledWith({
+        email: 'alice@example.com',
+        current: 'secret',
+      }),
+    )
+    expect(await screen.findByText('Email saved. Use it the next time you sign in.')).toBeTruthy()
+  })
+
+  it('shows a conflict and preserves the entered email', async () => {
+    const trpc = fakeTrpc(false)
+    vi.mocked(trpc.auth.setEmail.mutate).mockRejectedValue(
+      new Error('Email is already used in this workspace.'),
+    )
+    render(<LoginPasswordSection trpc={trpc} />)
+    const email = await screen.findByLabelText('Email')
+    await waitFor(() => expect((email as HTMLInputElement).disabled).toBe(false))
+    fireEvent.change(email, { target: { value: 'alice@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save email' }))
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'Email is already used in this workspace.',
+    )
+    expect((email as HTMLInputElement).value).toBe('alice@example.com')
+  })
+
+  it('uses the saved email when refreshing the session after a password change', async () => {
+    const trpc = fakeTrpc(false)
+    vi.mocked(trpc.auth.profile.query).mockResolvedValue({ email: 'alice@example.com' })
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<LoginPasswordSection trpc={trpc} />)
+    await screen.findByDisplayValue('alice@example.com')
+    fireEvent.change(screen.getByPlaceholderText(/^password$/i), { target: { value: 'newpw' } })
+    fireEvent.change(screen.getByPlaceholderText(/confirm/i), { target: { value: 'newpw' } })
+    fireEvent.click(screen.getByRole('button', { name: /set password/i }))
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: JSON.stringify({ email: 'alice@example.com', password: 'newpw' }),
+        }),
+      ),
+    )
   })
 })

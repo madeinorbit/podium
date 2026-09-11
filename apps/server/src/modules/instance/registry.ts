@@ -76,6 +76,13 @@ export const SETUP_COMMANDS_TRPC = {
 } as const satisfies Record<SetupContractName, InstanceCommand>
 
 export const AUTH_COMMANDS_TRPC = {
+  setEmail: {
+    contract: AUTH_CONTRACTS.setEmail,
+    handler: (async (svc, input) => await svc.setEmail(input)) satisfies InstanceHandler<
+      In<typeof AUTH_CONTRACTS.setEmail>,
+      unknown
+    >,
+  },
   setPassword: {
     contract: AUTH_CONTRACTS.setPassword,
     handler: (async (svc, input) => await svc.setPassword(input)) satisfies InstanceHandler<

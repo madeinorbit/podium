@@ -73,6 +73,9 @@ import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import { UserIdField } from '../ids'
 
+/** A self-hosted login address. Stored locally, never verified or used as a display name. */
+export const LoginEmail = z.string().trim().toLowerCase().email().max(254)
+
 // ---------------------------------------------------------------------------
 // Roles — a closed enum with a totality obligation (ADR 9 D1.4)
 // ---------------------------------------------------------------------------

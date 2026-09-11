@@ -42,6 +42,7 @@
  * averaged down to the class most of its payload belongs to.
  */
 
+import { LoginEmail } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -434,6 +435,30 @@ export const authSetPasswordContract = {
     'ROW.serverSecrets declared rule; the later Authority commit wins outright — a password is never merged, and the previous value is not recoverable from the new one',
 } as const satisfies CommandContract<typeof authSetPasswordInput>
 
+export const authSetEmailInput = z.object({
+  email: LoginEmail,
+  current: z.string().optional(),
+})
+
+export const authSetEmailContract = {
+  ...authSetPasswordContract,
+  name: 'auth.setEmail',
+  input: authSetEmailInput,
+  policy: {
+    ...authSetPasswordContract.policy,
+    rationale:
+      'A member changes only their own login email. The current password is required when one exists, as for password changes.',
+  },
+  redaction: {
+    reviewed: true,
+    inputPaths: ['current', 'email'],
+    outputPaths: ['email'],
+    note: 'Keep the current credential and private login address out of command logs.',
+  } satisfies RedactionPolicy,
+  conflictRule:
+    'The latest committed email wins; a workspace-wide unique index rejects duplicate addresses.',
+} as const satisfies CommandContract<typeof authSetEmailInput>
+
 export const authSetLoginRequiredInput = z.object({
   /** `false` enters open mode — this instance serves everything with no login. */
   required: z.boolean(),
@@ -586,6 +611,7 @@ export type SetupContractName = keyof typeof SETUP_CONTRACTS
 export const SETUP_CONTRACT_NAMES = Object.keys(SETUP_CONTRACTS).sort() as SetupContractName[]
 
 export const AUTH_CONTRACTS = {
+  setEmail: authSetEmailContract,
   setPassword: authSetPasswordContract,
   setLoginRequired: authSetLoginRequiredContract,
 } as const

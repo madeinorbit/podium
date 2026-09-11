@@ -59,6 +59,7 @@ export const SETUP_QUERIES = {
 } as const
 
 export const AUTH_QUERIES = {
+  profile: query(noInput, (service) => service.profile()),
   status: query(noInput, (service) => service.status()),
 } as const
 

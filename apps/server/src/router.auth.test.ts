@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
+import type { Capability } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -18,21 +19,42 @@ import { OPERATOR } from './test-support/capabilities'
  * now, and a fake store would let the per-caller scoping pass without ever proving a row
  * moved. `loginRequired` is composed the way server.ts composes it.
  */
-async function harness() {
+async function harness(member = false) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
-  const loginRequired = async (): Promise<boolean> => !loadConfig().auth?.openMode && await users.hasPerUserCredentials()
+  const loginRequired = async (): Promise<boolean> =>
+    !loadConfig().auth?.openMode && (await users.hasPerUserCredentials())
+  const memberId = asUserId('user:profile-member')
+  if (member)
+    await users.create(
+      {
+        id: memberId,
+        displayName: 'Member',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      await hashPassword('member-password'),
+    )
+  const capability: Capability = member
+    ? {
+        role: 'worker',
+        scope: { kind: 'owned', userId: memberId },
+        actorUser: memberId,
+        onBehalfOf: memberId,
+      }
+    : OPERATOR
   const caller = appRouter.createCaller({
     registry,
     repos,
     superagent,
     users,
     loginRequired,
-    capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    capability,
+    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
   })
   return { caller, users, loginRequired }
 }
@@ -76,6 +98,56 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       hasOwnCredential: true,
       canManageInstance: true,
     })
+  })
+
+  it('reads and changes only the caller email, retaining the display name', async () => {
+    const { caller, users } = await harness()
+    const before = await users.get(firstAdminMemberId())
+    expect(await caller.auth.profile()).toEqual({ email: null })
+    await caller.auth.setEmail({ email: ' Alice@Example.COM ' })
+    expect(await caller.auth.profile()).toEqual({ email: 'alice@example.com' })
+    expect((await users.get(firstAdminMemberId()))?.displayName).toBe(before?.displayName)
+    await caller.auth.setPassword({ next: 'hunter2' })
+    await expect(caller.auth.setEmail({ email: 'next@example.com' })).rejects.toThrow(
+      'current password',
+    )
+    await expect(
+      caller.auth.setEmail({ email: 'next@example.com', current: 'wrong' }),
+    ).rejects.toThrow('current password')
+    await caller.auth.setEmail({ email: 'next@example.com', current: 'hunter2' })
+    expect(await caller.auth.profile()).toEqual({ email: 'next@example.com' })
+    await expect(caller.auth.setEmail({ email: '', current: 'hunter2' })).rejects.toThrow()
+    await expect(
+      caller.auth.setEmail({ email: 'not-an-email', current: 'hunter2' }),
+    ).rejects.toThrow()
+  })
+
+  it('lets a non-admin change their own email without changing the admin', async () => {
+    const { caller, users } = await harness(true)
+    await caller.auth.setEmail({ email: 'member@example.com', current: 'member-password' })
+    expect(await caller.auth.profile()).toEqual({ email: 'member@example.com' })
+    expect((await users.get(firstAdminMemberId()))?.email).toBeNull()
+    expect((await users.byEmail('member@example.com'))?.id).toBe('user:profile-member')
+  })
+
+  it('refuses a duplicate workspace email without changing either member', async () => {
+    const { caller, users } = await harness()
+    await users.create(
+      {
+        id: 'user:other',
+        displayName: 'Other',
+        email: 'other@example.com',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      await hashPassword('other-password'),
+    )
+    await expect(caller.auth.setEmail({ email: 'OTHER@example.com' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(await caller.auth.profile()).toEqual({ email: null })
+    expect((await users.byEmail('other@example.com'))?.id).toBe('user:other')
   })
 
   it('sets the caller’s own credential without requiring a current password', async () => {

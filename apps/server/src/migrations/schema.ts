@@ -873,13 +873,18 @@ export const offers = sqliteTable('offers', {
 // human. `disabled_at` is disable-before-remove: per-user rows cascade on
 // deletion, but OWNED entities need a transfer story, which is ADR 9 lifecycle
 // territory and not this migration's.
-export const users = sqliteTable('users', {
-  id: text().$type<UserId>().primaryKey(),
-  displayName: text('display_name').notNull(),
-  role: text().notNull(),
-  createdAt: text('created_at').notNull(),
-  disabledAt: text('disabled_at'),
-})
+export const users = sqliteTable(
+  'users',
+  {
+    id: text().$type<UserId>().primaryKey(),
+    displayName: text('display_name').notNull(),
+    email: text(),
+    role: text().notNull(),
+    createdAt: text('created_at').notNull(),
+    disabledAt: text('disabled_at'),
+  },
+  (table) => [uniqueIndex('users_email_unique').on(sql`lower(${table.email})`)],
+)
 
 // ACCOUNT CREDENTIAL MATERIAL (ADR 1 matrix row `account-credential`):
 // `secret-value`, never replicated, never enqueued (ADR 1 D6 unchanged).
@@ -2424,8 +2429,7 @@ export const automations = sqliteTable(
     id: text().$type<AutomationId>().primaryKey(),
     ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
     createdByActor: text('created_by_actor').notNull(),
-    createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>()
-      .notNull(),
+    createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>().notNull(),
     name: text().notNull(),
     enabled: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     repoPath: text('repo_path'),

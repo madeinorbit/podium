@@ -453,6 +453,7 @@ export type RevokeMobileClientSessionRequest = z.infer<typeof RevokeMobileClient
 
 export const NativeClientLoginRequest = z.object({
   delivery: z.literal('native'),
+  email: z.string().min(1).max(254).optional(),
   userId: z.string().min(1).optional(),
   password: z.string(),
   deviceId: safeDeviceId,
