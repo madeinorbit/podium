@@ -1539,6 +1539,10 @@ export async function startServer(
   registerAuthRoute(app, {
     mode: () => resolveAuthMode(),
     signInUrl: () => resolveAuthSignInUrl(),
+    // Read through the live object, not captured at registration: a plugin sets
+    // this while it registers, which is after this call. Same reason
+    // principalSource is consulted as auth.principalSource?.() at its call site.
+    admission: async (request) => await auth.admission?.(request),
     store: store.auth,
     users: store.users,
     // One principal resolver for every human-client transport. The status route

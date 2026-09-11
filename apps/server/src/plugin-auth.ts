@@ -26,6 +26,21 @@ export function createPluginAuth(users: UsersRepository) {
      * removal or role change; the socket must reconnect to acquire a new identity.
      * Rejections fail closed; a stalled check expires after two heartbeat intervals.
      */
+    /**
+     * WHY A RECOGNISED CALLER WAS REFUSED — reporting only, never authorization.
+     *
+     * The composition root sets this when it can distinguish "signed in to the
+     * provider but not a member of THIS workspace" from "nobody there". The auth
+     * route spreads the answer into /auth/status so the login gate can say so,
+     * instead of offering a sign-in button to somebody who just signed in.
+     *
+     * Nothing authorizes on it. Returning signedIn:true grants no access, and it
+     * is asked only when nobody was admitted, so it can never contradict the
+     * resolver that let somebody in.
+     */
+    admission: undefined as
+      | ((request: Request) => Promise<{ signedIn: boolean; deniedReason?: string } | undefined>)
+      | undefined,
     maintainPrincipal: undefined as
       | ((request: PrincipalRequest, principal: Principal) => Promise<boolean>)
       | undefined,

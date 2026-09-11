@@ -22,6 +22,11 @@ const source = vi.fn(
       ? { memberId, role: 'member' as const }
       : null,
 )
+const admission = vi.fn(async (request: Request) =>
+  request.headers.get('cookie')?.includes('cloud=stranger')
+    ? { signedIn: true, deniedReason: 'not a member of this workspace' }
+    : undefined,
+)
 const url = (path: string) => `http://127.0.0.1:${handle.port}${path}`
 const localCookie = 'podium_session=local-token'
 beforeAll(async () => {
@@ -48,6 +53,7 @@ beforeAll(async () => {
           memberId = (await auth.createMemberForAccount('acct_test', 'member', 'Test', null)).id
           auth.principalSource = source
           auth.maintainPrincipal = maintainPrincipal
+          auth.admission = admission
         },
       },
     ],
@@ -371,3 +377,23 @@ for (const identity of ['non-member', 'disabled member', 'missing member id'] as
     )
   })
 }
+
+test('the status route reports a refusal reason supplied by a plugin', async () => {
+  // A stranger: the provider knows them, this workspace does not. Before the
+  // hook was wired the gate saw authed:false and offered the sign-in button
+  // again, so signing in successfully returned them to the same screen none the
+  // wiser. This proves the value reaches /auth/status through the real server.
+  //
+  // The companion property — that an admitted caller is never asked, so a
+  // reporting hook can never contradict the resolver that let them in — is held
+  // by auth-route.test.ts in isolation, where this file's shared fixture state
+  // cannot drift underneath it.
+  const refused = await fetch(url('/auth/status'), {
+    headers: { cookie: 'cloud=stranger' },
+  })
+  expect(refused.status).toBe(200)
+  const body = (await refused.json()) as Record<string, unknown>
+  expect(body.authed).toBe(false)
+  expect(body.providerSignedIn).toBe(true)
+  expect(body.deniedReason).toBe('not a member of this workspace')
+})
