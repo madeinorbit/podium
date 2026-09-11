@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { AutomationRunWire, AutomationWire } from '../entities/automation'
 import { ConversationSummaryWire } from '../entities/conversation'
@@ -349,34 +350,91 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
     expect(composedFromBrand('NoSuchGroup.shape.machineId')).toBe(false)
   })
 
-  it('has no machine-id-shaped field left unbranded', () => {
-    const offenders: string[] = []
-    for (const [file, src] of sources) {
-      for (const [i, line] of src.split('\n').entries()) {
-        // Field forms in these schemas: `machineId:`, `sourceMachineId:`,
-        // `machine_id:`, and MachineWire's own bare `id:`.
-        const m = /^\s*(\w*[Mm]achine_?[Ii]d)\s*:\s*(.+)$/.exec(line)
-        if (!m) continue
-        const rhs = m[2] ?? ''
-        if (!rhs.includes('MachineIdField') && !composedFromBrand(rhs)) {
-          offenders.push(`${file}:${i + 1}: ${line.trim()}`)
+  // Inspect value properties, not parameter/type annotations. This remains a
+  // conservative source ratchet over ALL object literals (including extracted
+  // field groups), rather than guessing which calls construct Zod schemas.
+  const machineIdProperties = (src: string) => {
+    const source = ts.createSourceFile('entity.ts', src, ts.ScriptTarget.Latest, true)
+    const properties: Array<{ rhs: string; line: number; text: string }> = []
+    const visit = (node: ts.Node) => {
+      if (ts.isPropertyAssignment(node)) {
+        const name = node.name
+        const key = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : ''
+        if (/^\w*[Mm]achine_?[Ii]d$/.test(key)) {
+          properties.push({
+            rhs: node.initializer.getText(source),
+            line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+            text: node.getText(source),
+          })
         }
       }
+      ts.forEachChild(node, visit)
     }
+    visit(source)
+    return properties
+  }
+
+  const unbrandedProperties = (src: string) =>
+    machineIdProperties(src).filter(
+      ({ rhs }) => !rhs.includes('MachineIdField') && !composedFromBrand(rhs),
+    )
+
+  it('distinguishes helper parameters and type annotations from value fields', () => {
+    expect(machineIdProperties(`
+      function quotaAccountKey(
+        machineId: string,
+      ) { return machineId }
+      const helper = (sourceMachineId: MachineId) => sourceMachineId
+      type Input = { machineId: MachineId }
+      interface Context { machineId: string }
+      // machineId: z.string(),
+    `)).toEqual([])
+  })
+
+  it('still rejects unbranded fields regardless of layout or spelling', () => {
+    const src = `
+      const Inline = z.object({ machineId: z.string() })
+      const Fields = {
+        sourceMachineId:
+          z.string().optional(),
+        machine_id: z.string().nullable(),
+        "targetMachineId": z.string(),
+      }
+      const Nested = z.object({ nested: z.object({ machineId: z.string() }) })
+      const Composed = z.object({ machineId: IssueWorkspace.shape.branch })
+    `
+    expect(unbrandedProperties(src).map(({ rhs }) => rhs)).toEqual([
+      'z.string()',
+      'z.string().optional()',
+      'z.string().nullable()',
+      'z.string()',
+      'z.string()',
+      'IssueWorkspace.shape.branch',
+    ])
+  })
+
+  it('accepts direct brands and resolves shared field brands', () => {
+    const src = `const Fields = {
+      machineId: MachineIdField,
+      sourceMachineId: MachineIdField.optional(),
+      machine_id: IssueWorkspace.shape.machineId,
+    }`
+    expect(machineIdProperties(src)).toHaveLength(3)
+    expect(unbrandedProperties(src)).toEqual([])
+  })
+
+  it('has no machine-id-shaped field left unbranded', () => {
+    const offenders = sources.flatMap(([file, src]) =>
+      unbrandedProperties(src).map(({ line, text }) => `${file}:${line}: ${text}`),
+    )
     expect(offenders, 'POD-318 retired the sentinels: machine-id fields carry the brand').toEqual(
       [],
     )
   })
 
   it('has no machine-id-shaped field anywhere in entities/ that escaped the scan', () => {
-    // The counterfactual for the assertion above: prove the scan SEES sites, so
-    // "no offenders" cannot mean "no matches".
-    const seen = sources.flatMap(([file, src]) =>
-      src
-        .split('\n')
-        .filter((l) => /^\s*(\w*[Mm]achine_?[Ii]d)\s*:/.test(l))
-        .map((l) => `${file}: ${l.trim()}`),
-    )
+    // Exercise the same detector as the refusal, so zero matches cannot pass.
+    const seen = sources.flatMap(([, src]) => machineIdProperties(src))
     expect(seen.length).toBeGreaterThanOrEqual(6)
   })
 
