@@ -19,9 +19,11 @@
 
 import {
   canonicalShippingDestination,
+  InviteId,
   LAYOUT_EXACT_KEYS,
   LayoutKeyField,
   LayoutSnapshot,
+  MemberId,
   READ_STREAM_IDS,
   ReadPositionSnapshot,
   ReadStreamIdField,
@@ -59,6 +61,10 @@ export type SampleOverride = (opts: SampleOptions, path: string) => unknown
 // Explicit Map type params: a heterogeneous array of [ZodEffects<…>, fn]
 // otherwise collapses key/value types and fails typecheck.
 export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
+  // Prefix-validated KSUIDs need fixed valid bodies, not path-derived strings.
+  // Each …IdField aliases its …Id schema, so these also cover both field exports.
+  [MemberId, () => 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
+  [InviteId, () => 'inv_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],
