@@ -202,6 +202,9 @@ export function setSessionCookie(c: Context, token: string, trustedProxyHops: nu
  * clients can negotiate.
  */
 export function clientAuthGuard(opts: {
+  principalSource?: (
+    request: Request,
+  ) => Promise<import('./plugin-auth').Principal | null | undefined> | undefined
   store?: ClientSessionStore
   users?: AccountCredentialStore
   /** See {@link AuthRouteOptions.loginRequired} — the ONE predicate, shared. */
@@ -229,11 +232,12 @@ export function clientAuthGuard(opts: {
     opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return await next()
-    const openToThisCaller = !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
-    if (openToThisCaller) return await next()
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
+    if (await opts.principalSource?.(c.req.raw)) return await next()
+    const openToThisCaller = !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
+    if (openToThisCaller) return await next()
     const store = opts.store
     const nowMs = now()
     const credential = store
@@ -306,6 +310,7 @@ export async function resolveLoginIdentifier(
 }
 
 export interface AuthRouteOptions {
+  mode?: () => 'local' | 'cloud'
   store?: ClientSessionStore
   users?: AccountCredentialStore
   /**
@@ -384,6 +389,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     return c.json({
       needsAuth,
       authed,
+      ...(opts.mode ? { mode: opts.mode() } : {}),
       ...(userId ? { userId } : {}),
       ...(opts.readiness ? { readiness: opts.readiness() } : {}),
     })

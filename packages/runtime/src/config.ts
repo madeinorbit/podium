@@ -358,6 +358,7 @@ export const PodiumConfig = z.object({
   auth: z
     .object({
       openMode: z.boolean().optional(),
+      mode: z.enum(['local', 'cloud']).optional(),
     })
     .optional(),
   /**

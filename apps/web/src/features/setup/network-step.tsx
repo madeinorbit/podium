@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -274,7 +275,7 @@ function NetworkStepForm({
       // exactly as Settings → Security does after `auth.setPassword`. Unchecked on purpose:
       // a login hiccup must not turn a write that SUCCEEDED into an error message.
       if (payload.password !== undefined) {
-        await fetch(`${httpOrigin}/auth/login`, {
+        await workspaceFetch(`${httpOrigin}/auth/login`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           credentials: 'include',

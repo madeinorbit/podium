@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import type { LogsCrashInput, LogsForwardInput } from '@podium/commands'
 import { makeTrpc, serverConfig, type Trpc } from '@/app/trpc'
 import type { LogTransport, UnloadLogTransport } from './install'
@@ -70,7 +71,7 @@ export function unloadLogTransport(): UnloadLogTransport {
       try {
         trpc ??= makeTrpc(serverConfig(window.location).httpOrigin, {
           report: false,
-          fetch: (url, init) => fetch(url, { ...init, keepalive: true }),
+          fetch: (url, init) => workspaceFetch(url, { ...init, keepalive: true }),
         })
         // Fire and forget BY CONTRACT: the caller is inside `pagehide` and there
         // is no turn after this one. The rejection is swallowed here rather than

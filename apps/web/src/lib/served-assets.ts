@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { type AssetVerdict, classifyAssets, parseServerVersion } from '@podium/protocol'
 import { pageBundleVersion } from './logging/build-version'
 import { servedWebsiteForPage } from './served-website'
@@ -58,7 +59,7 @@ export async function askServedAssets(
 ): Promise<ServedAssets> {
   let server: ReturnType<typeof parseServerVersion>
   try {
-    const res = await fetch(`${httpOrigin}/version`)
+    const res = await workspaceFetch(`${httpOrigin}/version`)
     server = parseServerVersion(await res.json())
   } catch {
     return { answer: 'unreachable' }

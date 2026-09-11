@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * THE PANEL'S INPUTS (POD-2102, spec §6).
  *
@@ -187,7 +188,7 @@ export function surfaceFromDesktopBridge(): UpdateSurface {
 
 async function readJson(url: string): Promise<unknown> {
   try {
-    const response = await fetch(url)
+    const response = await workspaceFetch(url)
     if (!response.ok) return undefined
     return await response.json()
   } catch {

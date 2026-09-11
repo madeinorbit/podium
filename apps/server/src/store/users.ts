@@ -26,6 +26,7 @@ export interface UserAccountRow {
   displayName: string
   email: string | null
   accountId?: string | null
+  avatar?: string | null
   role: UserRole
   createdAt: string
   /** ADR 9's disable-before-remove. A disabled account is not an actor. */
@@ -128,6 +129,7 @@ export class UsersRepository {
       displayName: r.displayName,
       email: r.email,
       accountId: r.cloudAccountId,
+      avatar: r.avatar,
       role,
       createdAt: r.createdAt,
       disabledAt,
@@ -312,6 +314,28 @@ export class UsersRepository {
       })
       .run()
     currentReadScope().clear(this.accountsSlot)
+  }
+
+  async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
+    const row = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.cloudAccountId, accountId))
+      .get()
+    return row ? await this.get(row.id) : undefined
+  }
+
+  async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
+    if (!(await this.get(userId))) throw new Error('Member unavailable')
+    try {
+      await this.db
+        .update(users)
+        .set({ displayName: name, avatar })
+        .where(eq(users.id, userId))
+        .run()
+    } finally {
+      currentReadScope().clear(this.accountsSlot)
+    }
   }
 
   async attachAccount(userId: UserId, accountId: string): Promise<void> {

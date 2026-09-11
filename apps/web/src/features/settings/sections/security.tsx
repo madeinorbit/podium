@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
@@ -109,7 +110,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
     try {
       await trpc.auth.setPassword.mutate({ current: current || undefined, next })
       // Obtain/refresh this device's cookie so the guard we just enabled doesn't lock us out.
-      await fetch(`${httpOrigin}/auth/login`, {
+      await workspaceFetch(`${httpOrigin}/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',

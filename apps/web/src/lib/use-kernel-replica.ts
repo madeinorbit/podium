@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * THE BOOT GATE FOR THE PRIVATE REPLICA.
  *
@@ -153,7 +154,7 @@ export async function resolveReplicaPrincipal(
 ): Promise<string> {
   const fetchStatus =
     options.fetchStatus ??
-    (() => fetch(`${options.httpOrigin ?? ''}/auth/status`, { credentials: 'include' }))
+    (() => workspaceFetch(`${options.httpOrigin ?? ''}/auth/status`, { credentials: 'include' }))
   let response: Response
   try {
     response = await fetchStatus()

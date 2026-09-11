@@ -1,3 +1,4 @@
+import type { PluginAuth } from './plugin-auth'
 import type { PodiumConfig } from '@podium/runtime/config'
 import type { Hono } from 'hono'
 import type { EventBus } from './modules/bus'
@@ -27,6 +28,8 @@ import type { ServerRoleConfig } from './roles'
  * `hono` instead of mutating the core router.
  */
 export interface PodiumPluginHooks {
+  /** Install a principal source and manage its workspace members. */
+  auth: PluginAuth
   /** The server's Hono app — register routes/middleware here. */
   hono: Hono
   /** The composed module set (ctx.modules equivalent). */

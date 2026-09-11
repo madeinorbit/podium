@@ -267,3 +267,23 @@ describe('LoginGate success reveal', () => {
     }
   })
 })
+
+describe('cloud login gate', () => {
+  it('shows only the cloud sign-in link and keeps the workspace return path', async () => {
+    window.history.replaceState(null, '', '/w/anna/session/one')
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ needsAuth: true, authed: false, mode: 'cloud' })),
+        ),
+    )
+    render(<LoginGate>{child}</LoginGate>)
+    const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
+    expect(link.getAttribute('href')).toBe('/account/sign-in?returnTo=%2Fw%2Fanna%2Fsession%2Fone')
+    expect(document.querySelector('input[type="password"]')).toBeNull()
+    expect(document.querySelector('input[type="email"]')).toBeNull()
+    window.history.replaceState(null, '', '/')
+  })
+})

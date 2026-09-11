@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { type JSX, useEffect, useState } from 'react'
 import { LoginView } from '@/features/setup/LoginGate'
 import {
@@ -49,7 +50,7 @@ function useClearsItself(httpOrigin: string, active: boolean, win?: ReloadWindow
     if (!active) return
     let alive = true
     const timer = window.setInterval(() => {
-      void fetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
+      void workspaceFetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
         .then((res) => (res.ok ? res.json() : undefined))
         .then((body: { readiness?: { dataPlane?: string } } | undefined) => {
           if (!alive || !body) return
