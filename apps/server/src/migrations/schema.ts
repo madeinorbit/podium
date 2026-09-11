@@ -879,12 +879,29 @@ export const users = sqliteTable(
     id: text().$type<UserId>().primaryKey(),
     displayName: text('display_name').notNull(),
     email: text(),
+    /** UNBRANDED: cloud identity provider's account id, not the managed LLM AccountId. */
+    cloudAccountId: text('account_id'),
     role: text().notNull(),
     createdAt: text('created_at').notNull(),
     disabledAt: text('disabled_at'),
   },
-  (table) => [uniqueIndex('users_email_unique').on(sql`lower(${table.email})`)],
+  (table) => [
+    uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),
+    uniqueIndex('users_account_id_unique').on(table.cloudAccountId),
+  ],
 )
+
+/** Invite tokens are credentials: only their hash is persisted; no sync projection. */
+export const memberInvites = sqliteTable('member_invites', {
+  id: text().$type<import('@podium/model').InviteId>().primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  memberId: text('member_id').$type<UserId>(),
+  email: text(),
+  role: text().$type<import('@podium/model').UserRole>().notNull(),
+  expiresAt: text('expires_at').notNull(),
+  createdBy: text('created_by').$type<UserId>().notNull(),
+  createdAt: text('created_at').notNull(),
+})
 
 // ACCOUNT CREDENTIAL MATERIAL (ADR 1 matrix row `account-credential`):
 // `secret-value`, never replicated, never enqueued (ADR 1 D6 unchanged).

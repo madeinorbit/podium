@@ -9,15 +9,14 @@
  * the capability says what this connection was granted, the account role says
  * what grade of person is behind it.
  *
- * Writes stay out of scope on purpose — invite / disable / remove are ADR 9
- * lifecycle commands and POD-290's, and a repository that could mint an admin
- * would be a privilege-escalation surface this issue has no use for.
+ * Member writes are used by the invite-and-claim service. Its public routes
+ * enforce admin access; trusted account claims are an in-process capability.
  */
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
-import { userCredentials, users } from '../migrations/schema'
+import { clientSessions, memberInvites, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
@@ -26,6 +25,7 @@ export interface UserAccountRow {
   id: string
   displayName: string
   email: string | null
+  accountId?: string | null
   role: UserRole
   createdAt: string
   /** ADR 9's disable-before-remove. A disabled account is not an actor. */
@@ -127,6 +127,7 @@ export class UsersRepository {
       id: r.id,
       displayName: r.displayName,
       email: r.email,
+      accountId: r.cloudAccountId,
       role,
       createdAt: r.createdAt,
       disabledAt,
@@ -287,5 +288,76 @@ export class UsersRepository {
         set: { source: 'per-user-scrypt', passwordHash, updatedAt },
       })
       .run()
+  }
+  /** Runs invite consumption and identity writes in the same transaction. */
+  async claimTransaction<T>(run: () => Promise<T>): Promise<T> {
+    currentReadScope().clear(this.accountsSlot)
+    try {
+      return await this.createOrJoinTransaction(run)
+    } finally {
+      currentReadScope().clear(this.accountsSlot)
+    }
+  }
+
+  async createUnclaimed(account: UserAccountRow): Promise<void> {
+    await this.db
+      .insert(users)
+      .values({
+        id: asUserId(account.id),
+        displayName: account.displayName,
+        email: account.email,
+        role: account.role,
+        createdAt: account.createdAt,
+        disabledAt: null,
+      })
+      .run()
+    currentReadScope().clear(this.accountsSlot)
+  }
+
+  async attachAccount(userId: UserId, accountId: string): Promise<void> {
+    const result = await this.db
+      .update(users)
+      .set({ cloudAccountId: accountId })
+      .where(and(eq(users.id, userId), isNull(users.cloudAccountId), isNull(users.disabledAt)))
+      .run()
+    if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
+    currentReadScope().clear(this.accountsSlot)
+  }
+
+  async removeMember(userId: UserId, actor: UserId): Promise<void> {
+    await this.claimTransaction(async () => {
+      if ((await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
+      if (userId === actor) throw new Error('You cannot remove yourself')
+      if (!(await this.get(userId))) throw new Error('Member unavailable')
+      // Preserve ownership of issues and sessions; disabled members fail every principal lookup.
+      await this.db
+        .update(users)
+        .set({ disabledAt: new Date().toISOString() })
+        .where(eq(users.id, userId))
+        .run()
+      await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
+      await this.db.delete(userCredentials).where(eq(userCredentials.userId, userId)).run()
+      await this.db.delete(memberInvites).where(eq(memberInvites.memberId, userId)).run()
+    })
+  }
+
+  async insertInvite(invite: typeof memberInvites.$inferInsert): Promise<void> {
+    await this.db.insert(memberInvites).values(invite).run()
+  }
+
+  async pendingInvites(): Promise<(typeof memberInvites.$inferSelect)[]> {
+    return await this.db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).all()
+  }
+
+  async inviteByHash(hash: string): Promise<typeof memberInvites.$inferSelect | undefined> {
+    return await this.db.select().from(memberInvites).where(eq(memberInvites.tokenHash, hash)).get()
+  }
+
+  async deleteInvite(id: import('@podium/model').InviteId): Promise<boolean> {
+    return (
+      Number(
+        (await this.db.delete(memberInvites).where(eq(memberInvites.id, id)).run()).changes,
+      ) === 1
+    )
   }
 }

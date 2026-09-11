@@ -2,15 +2,13 @@ import { createHash, randomBytes } from 'node:crypto'
 import {
   asUserId,
   type CredentialSource,
-  newMemberId,
   type ServerReadiness,
   SOLE_USER_ID,
   type UserId,
-  userIdFromMemberId,
   type UserRole,
 } from '@podium/model'
 import { NativeClientLoginRequest, SESSION_COOKIE } from '@podium/protocol'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, setCookie } from 'hono/cookie'
 
@@ -573,51 +571,10 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     return c.json({ ok: true, userId })
   })
 
-  app.post('/auth/users', async (c) => {
-    if (!store || !users) return c.json({ error: 'account store unavailable' }, 503)
-    const actorId = await requestUserId(store, c.req.header('cookie'), now())
-    if (!actorId) return c.json({ error: 'authentication required' }, 401)
-    if ((await users.get(actorId))?.role !== 'admin') {
-      return c.json({ error: 'admin account required' }, 403)
-    }
-    let body: { userId?: unknown; displayName?: unknown; role?: unknown; password?: unknown }
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'invalid request body' }, 400)
-    }
-    if (
-      (body.userId !== undefined && (typeof body.userId !== 'string' || !body.userId.trim())) ||
-      typeof body.displayName !== 'string' ||
-      !body.displayName.trim() ||
-      (body.role !== 'admin' && body.role !== 'member') ||
-      typeof body.password !== 'string' ||
-      body.password.length < 8
-    ) {
-      return c.json({ error: 'displayName, role, and an 8-character password are required' }, 400)
-    }
-    // THE ID IS MINTED WHEN THE CALLER DOES NOT NAME ONE [A2]. Every member row
-    // this build creates should be a `mem_` id, the same kind A2's migration
-    // gave the first admin; a caller-supplied id stays accepted because this
-    // route has always taken one and a tool that imports accounts needs it.
-    // A4, which owns the members page and invite-and-claim, is where minting
-    // becomes the only path.
-    const userId =
-      body.userId === undefined ? userIdFromMemberId(newMemberId()) : asUserId(body.userId.trim())
-    if (await users.get(userId)) return c.json({ error: 'account already exists' }, 409)
-    const createdAt = new Date(now()).toISOString()
-    await users.create(
-      {
-        id: userId,
-        displayName: body.displayName.trim(),
-        role: body.role,
-        createdAt,
-        disabledAt: null,
-      },
-      await hashPassword(body.password),
-    )
-    return c.json({ id: userId, displayName: body.displayName.trim(), role: body.role }, 201)
-  })
+  // Enrollment is invite-and-claim; callers can no longer choose member ids or passwords.
+  app.post('/auth/users', (c) =>
+    c.json({ error: 'Create an invite through /auth/members/invite instead' }, 410),
+  )
 
   app.post('/auth/logout', async (c) => {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {

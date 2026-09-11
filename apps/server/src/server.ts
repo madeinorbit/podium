@@ -1,3 +1,5 @@
+import { MemberInvites } from './member-invites'
+import { registerMemberRoutes, type MemberInviteMail } from './member-routes'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -526,6 +528,7 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    sendMemberInviteMail?: MemberInviteMail
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
     /**
@@ -1008,8 +1011,7 @@ export async function startServer(
       supervisorOwnsUpdates: process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor',
       runningFromSource: developmentRuntime.runningFromSource,
       recoveryOnly,
-      participantDisabledForRun:
-        process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1',
+      participantDisabledForRun: process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1',
     })
     log[level](updateParticipantSkipNote(why))
   }
@@ -1509,12 +1511,34 @@ export async function startServer(
     // password. It buys nothing else: every data-plane call is still 503 at the
     // readiness boundary, whoever is holding the cookie.
     resolveUserId: async (headers, request) =>
-      controlPlaneAvailable(readiness()) ? (await requestPrincipal(headers, request))?.user : undefined,
+      controlPlaneAvailable(readiness())
+        ? (await requestPrincipal(headers, request))?.user
+        : undefined,
     loginRequired: credentialsRequired,
     trustedProxyHops,
     readiness,
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
+  })
+  registerMemberRoutes(app, {
+    users: store.users,
+    invites: new MemberInvites(store.users),
+    resolveUserId: async (request) =>
+      controlPlaneAvailable(readiness())
+        ? (
+            await requestPrincipal(
+              {
+                cookieHeader: request.headers.get('cookie') ?? undefined,
+                authorizationHeader: request.headers.get('authorization') ?? undefined,
+              },
+              request,
+            )
+          )?.user
+        : undefined,
+    appUrl: () =>
+      resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
+    allowedOrigins,
+    sendMail: opts.sendMemberInviteMail,
   })
   registerMobilePairingRoutes(app, {
     store: store.auth,

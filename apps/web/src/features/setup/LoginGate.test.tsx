@@ -112,6 +112,7 @@ describe('LoginGate', () => {
 
 describe('LoginView', () => {
   function typePasswordAndSubmit(value: string) {
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
   }
@@ -132,7 +133,7 @@ describe('LoginView', () => {
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body.password).toBe('hunter2')
+    expect(body).toEqual({ email: 'alice@example.com', password: 'hunter2' })
   })
 
   it('shows an error and does not proceed on a wrong password (401)', async () => {
@@ -186,6 +187,7 @@ describe('LoginView', () => {
     expect(status.textContent).toContain('waiting on you')
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
     expect(status.textContent).toContain('press ⏎ to sign in')
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
     expect(status.textContent).toContain('verifying')
     release({ ok: true, status: 200, json: async () => ({ ok: true, userId: 'alice' }) })
@@ -243,6 +245,9 @@ describe('LoginGate success reveal', () => {
       expect(screen.queryByText('APP-READY')).toBeNull()
 
       fireEvent.change(input, { target: { value: 'pw' } })
+      fireEvent.change(screen.getByLabelText(/^email$/i), {
+        target: { value: 'alice@example.com' },
+      })
       fireEvent.click(screen.getByRole('button', { name: /log in/i }))
       // App mounts behind the still-visible login layer at t=0…
       await vi.waitFor(() => {

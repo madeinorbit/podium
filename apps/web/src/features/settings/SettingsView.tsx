@@ -1,3 +1,4 @@
+import { MembersSection } from './sections/members'
 import { shallowEqual } from '@podium/client-core/store'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { HostMetricsWire, ServerSecretKey } from '@podium/model/browser'
@@ -67,6 +68,7 @@ export type SettingsTab =
   | 'devices'
   | 'repos'
   | 'machines'
+  | 'members'
   | 'security'
   | 'privacy'
   | 'updates'
@@ -90,6 +92,7 @@ const TAB_LABEL: Record<SettingsTab, string> = {
   machines: 'Machines',
   network: 'Network',
   devices: 'Connected devices',
+  members: 'Members',
   security: 'Profile & security',
   updates: 'Updates',
   secrets: 'Secrets',
@@ -220,6 +223,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
+  members: () => <MembersSection />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
   // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
   privacy: ({ settings, patch }) => <PrivacySection settings={settings} patch={patch} />,

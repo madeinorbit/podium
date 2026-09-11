@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { controlPlaneAvailable, firstAdminMemberId } from '@podium/model'
+import { asUserId, controlPlaneAvailable, firstAdminMemberId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
@@ -1109,4 +1109,19 @@ describe('email sign-in', () => {
       token: expect.any(String),
     })
   })
+})
+
+test('direct member creation is retired in favor of invite-and-claim', async () => {
+  const response = await makeApp().request('/auth/users', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      userId: 'chosen-id',
+      displayName: 'Chosen',
+      role: 'admin',
+      password: 'password123',
+    }),
+  })
+  expect(response.status).toBe(410)
+  expect(await store.users.get(asUserId('chosen-id'))).toBeUndefined()
 })
