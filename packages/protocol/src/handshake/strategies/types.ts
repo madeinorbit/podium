@@ -76,6 +76,7 @@ export type AuthOutcome =
        * the strategy — which is the only thing that knows what it resolved — so
        * the framing never branches on principal shape to find it.
        */
+      readonly legacyBindingOwners?: Readonly<Record<string, string>>
       readonly assignedId?: string
       /** Passed through from the directory's resolution; see `directoryContext`. */
       readonly directoryContext?: unknown
@@ -190,6 +191,7 @@ export interface PairingRequest {
 }
 
 export interface ResolvedMachine {
+  readonly legacyBindingOwners?: Readonly<Record<string, string>>
   readonly machine: MachineId
   /** Whoever paired it (readiness §3.1.4 M3); `null` for pre-ownership rows. */
   readonly owner: UserId | null

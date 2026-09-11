@@ -65,6 +65,7 @@ export const createMachineLocalSecretStrategy = (
       ok: true,
       name: machine.name,
       assignedId: machine.machine,
+      legacyBindingOwners: machine.legacyBindingOwners,
       ...(machine.directoryContext === undefined
         ? {}
         : { directoryContext: machine.directoryContext }),

@@ -99,7 +99,9 @@ export interface DaemonConnectionDeps {
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
   readonly queueDrainOutbox: QueueDrainOutbox
   readonly runtimeEventOutbox: RuntimeEventOutbox
-  readonly onConnected: () => { convergedVersion?: string } | void
+  readonly onConnected: (
+    legacyBindingOwners?: Readonly<Record<string, string>>,
+  ) => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
   readonly restartAfterUpdate?: () => void
@@ -423,6 +425,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     updateKeyRotations?: readonly UpdateKeyRotation[],
     active?: SocketLike,
     caps: readonly string[] = [],
+    legacyBindingOwners?: Readonly<Record<string, string>>,
   ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
@@ -476,7 +479,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
       ...(recoveredFrom ? { recoveredFrom } : {}),
     })
-    const boot = deps.onConnected() ?? {}
+    const boot = deps.onConnected(legacyBindingOwners) ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
     report({
       state: 'connected',
@@ -615,6 +618,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         step.updateKeyRotations,
         active,
         step.caps.accepted,
+        step.legacyBindingOwners,
       )
       return
     }

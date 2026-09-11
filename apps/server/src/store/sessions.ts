@@ -11,6 +11,7 @@ import {
   actorFromColumns,
   asSessionId,
   type IssueId,
+  type MachineId,
   type SessionId,
   type UserId,
 } from '@podium/model'
@@ -77,6 +78,16 @@ export class SessionsRepository {
   }
 
   // ---- sessions ----
+  /** Attribution facts for this machine only, including retained tombstones. */
+  async bindingOwnersForMachine(machineId: MachineId): Promise<Record<string, string>> {
+    const rows = await this.db
+      .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
+      .from(sessionsTable)
+      .where(eq(sessionsTable.machineId, machineId))
+      .all()
+    return Object.fromEntries(rows.map((row) => [row.id, row.owner]))
+  }
+
   async loadSessions(): Promise<SessionRow[]> {
     return await this.readSessions(isNull(sessionsTable.deletedAt))
   }

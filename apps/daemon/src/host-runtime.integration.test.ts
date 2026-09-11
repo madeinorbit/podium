@@ -74,8 +74,14 @@ async function createCloseHost(
   if (legacy) {
     mkdirSync(join(root, 'identity'), { recursive: true })
     mkdirSync(instance.codexReceiptDir, { recursive: true })
-    writeFileSync(join(root, 'identity', 'daemon.json'), JSON.stringify({ machineId: '11111111-1111-4111-8111-111111111111' }))
-    writeFileSync(join(instance.codexReceiptDir, 'legacy-pane.json'), JSON.stringify({ session_id: 'thread-live', hook_event_name: 'PodiumProcessBinding' }))
+    writeFileSync(
+      join(root, 'identity', 'daemon.json'),
+      JSON.stringify({ machineId: '11111111-1111-4111-8111-111111111111' }),
+    )
+    writeFileSync(
+      join(instance.codexReceiptDir, 'legacy-pane.json'),
+      JSON.stringify({ session_id: 'thread-live', hook_event_name: 'PodiumProcessBinding' }),
+    )
   }
   try {
     const host = await createDaemonHostRuntime({
@@ -264,13 +270,34 @@ describe('full-reap daemon close', () => {
   })
 })
 
-
 describe('legacy member recovery at host boot', () => {
   it('keeps legacy receipts unowned until the authenticated server supplies their owner', async () => {
-    const fixture = await createCloseHost({ registeredBindings: () => [], serverHandleFor: () => undefined, journalledServerProcess: async () => undefined, dispose: () => {} } as TestAgentRuntime, reapIo({ alive: false }), true)
+    const fixture = await createCloseHost(
+      {
+        registeredBindings: () => [],
+        serverHandleFor: () => undefined,
+        journalledServerProcess: () => undefined,
+        dispose: () => {},
+      } as TestAgentRuntime,
+      reapIo({ alive: false }),
+      true,
+    )
     try {
-      const store = await BindingStore.open({ dir: join(fixture.root, 'runtime', 'session-bindings') })
+      const store = await BindingStore.open({
+        dir: join(fixture.root, 'runtime', 'session-bindings'),
+      })
       expect(await store.read(asSessionId('legacy-pane'))).toBeNull()
+      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      await vi.waitFor(async () => {
+        const binding = await store.read(asSessionId('legacy-pane'))
+        expect(binding?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_migrated-owner')
+        expect(binding?.observations.some((row) => row.value === 'thread-live')).toBe(true)
+      })
+      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      await fixture.host.close()
+      expect(JSON.stringify(await store.read(asSessionId('legacy-pane')))).not.toContain(
+        'user:sole',
+      )
     } finally {
       await fixture.host.close()
       fixture.cleanup()

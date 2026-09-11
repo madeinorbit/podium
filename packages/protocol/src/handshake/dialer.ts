@@ -37,6 +37,7 @@ export type DialerStep =
       readonly agreedVersion: number
       /** Capabilities the acceptor accepted, intersected with what this end offers. */
       readonly caps: CapabilityNegotiation
+      readonly legacyBindingOwners?: Readonly<Record<string, string>>
       readonly name?: string
       /**
        * Present exactly once, on the pairing branch: the long-lived machine token
@@ -145,6 +146,9 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         // Intersect the acceptor's answer with what this end actually offered, so
         // an acceptor cannot switch on a capability this end never advertised.
         caps: negotiateCapabilities(reply.caps, offered),
+        ...(reply.legacyBindingOwners === undefined
+          ? {}
+          : { legacyBindingOwners: reply.legacyBindingOwners }),
         ...(reply.name === undefined ? {} : { name: reply.name }),
         ...(reply.issuedToken === undefined ? {} : { issuedToken: reply.issuedToken }),
         ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),

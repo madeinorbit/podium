@@ -19,6 +19,7 @@ import {
   type DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
+  createHandshakeDialer,
   machineUseAllowed,
   WIRE_VERSION,
 } from '@podium/protocol'
@@ -818,5 +819,77 @@ describe('the machine principal carries owner and grants, and fails closed witho
     // The all-in-one guard: authenticating to the server confers no execute on the
     // host machine, and an owner-less row confers it on nobody at all.
     expect(machineUseAllowed(resolved as NonNullable<typeof resolved>, null)).toBe(false)
+  })
+})
+
+describe('legacy binding ownership handoff', () => {
+  it('uses durable session owners and excludes sessions on other machines', async () => {
+    const store = await openTestStore(':memory:')
+    const owner = (await store.users.earliestAdmin())!.id
+    expect(owner).not.toBe('user:sole')
+    for (const machineId of ['m1', 'm2']) {
+      await store.machines.upsertMachine({
+        id: machineId,
+        name: machineId,
+        hostname: machineId,
+        tokenHash: sha256('tok'),
+        ownerUserId: owner,
+      })
+      await store.sessions.upsertSession({
+        id: asSessionId(`legacy-${machineId}`),
+        ownerUserId: owner,
+        agentKind: 'codex',
+        cwd: '/repo',
+        title: 'legacy',
+        name: null,
+        archived: false,
+        workState: null,
+        originKind: 'spawn',
+        conversationId: null,
+        resumeKind: null,
+        resumeValue: null,
+        status: 'hibernated',
+        exitCode: null,
+        durableLabel: `podium-legacy-${machineId}`,
+        createdAt: '2026-07-01T00:00:00.000Z',
+        lastActiveAt: '2026-07-01T00:00:00.000Z',
+        lastOutputAt: null,
+        lastInputAt: null,
+        lastResumedAt: null,
+        spawnedBy: null,
+        machineId: asMachineId(machineId),
+        headless: false,
+        issueId: null,
+      })
+    }
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const ws = fakeWs()
+      wireDaemonSocket(ws as never, registry)
+      const dialer = createHandshakeDialer({
+        credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
+        claims: { machineId: 'm2' },
+      })
+      await ws.emit('message', frame(dialer.hello()))
+      const step = dialer.receive(ws.sent[0]!)
+      expect(step.action).toBe('established')
+      if (step.action !== 'established') throw new Error('machine handshake failed')
+      expect(step.legacyBindingOwners).toEqual({ 'legacy-m1': owner })
+      const rejected = fakeWs()
+      wireDaemonSocket(rejected as never, registry)
+      await rejected.emit(
+        'message',
+        frame({
+          type: 'peerHello',
+          v: WIRE_VERSION,
+          caps: [],
+          credential: { kind: 'machineToken', token: 'wrong', machineHint: 'm1' },
+        }),
+      )
+      expect(rejected.sent.join('')).not.toContain('legacyBindingOwners')
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
   })
 })

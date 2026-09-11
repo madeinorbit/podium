@@ -12,14 +12,7 @@ import {
   resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
-import {
-  asMachineId,
-  asSessionId,
-  asUserId,
-  SOLE_USER_ID,
-  type MachineId,
-  type SessionId,
-} from '@podium/model'
+import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
@@ -155,7 +148,7 @@ export interface DaemonHostRuntime {
   readonly agentRelayPort: number
   /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
   readonly portableState: PortableStateControl
-  connected(): { convergedVersion?: string }
+  connected(legacyBindingOwners?: Readonly<Record<string, string>>): { convergedVersion?: string }
   receive(raw: RawData): void
   receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
@@ -341,16 +334,6 @@ export async function createDaemonHostRuntime(args: {
   await mkdir(instance.runtimeDir, { recursive: true })
   const bindingStore = await BindingStore.open({
     dir: join(instance.runtimeDir, 'session-bindings'),
-    legacyStateDir: identityStateDir,
-    codexReceiptDir: instance.codexReceiptDir,
-    // THE RETIRED LITERAL, DELIBERATELY [A2]. This is the owner stamped onto
-    // daemon-local bindings recovered from PRE-ACCOUNTS state, and the id those
-    // rows belonged to when they were written is `'user:sole'` — frozen history,
-    // the same reason the migrations spell it. The daemon is a separate process
-    // with no database, so it cannot resolve the member the server re-keyed
-    // those rows to; A5's principal hook is where it learns that from its
-    // server, and PDM-99 in the phase-A collector carries it.
-    singleOperatorUserId: asUserId(SOLE_USER_ID),
   })
   const sessionBinding = new SessionBinding(bindingStore)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
@@ -1397,7 +1380,28 @@ export async function createDaemonHostRuntime(args: {
     timer.unref?.()
   }
 
-  const connected = (): { convergedVersion?: string } => {
+  let bindingRecovery: Promise<void> | undefined
+  const connected = (owners?: Readonly<Record<string, string>>): { convergedVersion?: string } => {
+    // Serialize reconnects with recovery and hold application frames behind the
+    // same barrier. A missing owner fails closed and preserves the source files.
+    bindingRecovery = (bindingRecovery ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+          await bindingStore.recoverLegacyState({
+          dir: bindingStore.dir,
+          legacyStateDir: identityStateDir,
+          codexReceiptDir: instance.codexReceiptDir,
+          legacyOwnerForSession: (sessionId) =>
+            owners && Object.hasOwn(owners, sessionId) ? asUserId(owners[sessionId]!) : undefined,
+        })
+        startConnectedServices()
+      })
+    void bindingRecovery.catch((err) => log.error('legacy binding recovery blocked', { err }))
+    const convergedVersion = reconcilePendingUpdate()
+    return convergedVersion ? { convergedVersion } : {}
+  }
+
+  const startConnectedServices = (): void => {
     if (!kickedOff) {
       kickedOff = true
       discoveryLoop.start()
@@ -1419,7 +1423,6 @@ export async function createDaemonHostRuntime(args: {
       reapStaleAbducoBindTemps()
     }
     for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
-    const convergedVersion = reconcilePendingUpdate()
     pushDurableSessionCensus()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>
@@ -1429,10 +1432,10 @@ export async function createDaemonHostRuntime(args: {
     // A raise survives a reconnect (the TTL is the daemon's, not the link's),
     // so whatever the sink held while the socket was down goes out now.
     logForwarding.flush()
-    return convergedVersion ? { convergedVersion } : {}
   }
 
   const close = async (closeOpts?: { reapSessions?: boolean }): Promise<void> => {
+    await bindingRecovery?.catch(() => {})
     if (disposed) return
     disposed = true
     observers.stopAllTails()
@@ -1512,8 +1515,16 @@ export async function createDaemonHostRuntime(args: {
     agentRelayPort: agentRelay.port,
     portableState: portableStateFence,
     connected,
-    receive: (raw) => frameGuard.receive(raw),
-    receiveBinaryInput: (metadata, payload) => frameGuard.receiveBinaryInput(metadata, payload),
+    receive: (raw) => {
+      if (!bindingRecovery) return
+      void bindingRecovery.then(() => frameGuard.receive(raw)).catch(() => {})
+    },
+    receiveBinaryInput: (metadata, payload) => {
+      if (!bindingRecovery) return
+      void bindingRecovery
+        .then(() => frameGuard.receiveBinaryInput(metadata, payload))
+        .catch(() => {})
+    },
     close,
   }
 }
