@@ -82,19 +82,22 @@ export interface WsHandle {
   close(): Promise<void>
 }
 
+export interface WsClientPrincipal {
+  userId: UserId
+  userRole: UserRole
+  credentialId?: string
+  /** Revalidate this upgrade's external session; false or rejection closes its socket. */
+  maintain?: () => Promise<boolean>
+}
+
 export interface WsAuthOptions {
   readinessForClient?: () => ServerReadiness
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
   roleForClient?: (request: Request) => UserRole | undefined
-  principalForClient?: (request: Request) =>
-    | {
-        userId: UserId
-        userRole: UserRole
-        credentialId?: string
-      }
-    | undefined
-    | Promise<{ userId: UserId; userRole: UserRole; credentialId?: string } | undefined>
+  principalForClient?: (
+    request: Request,
+  ) => WsClientPrincipal | undefined | Promise<WsClientPrincipal | undefined>
   maintainClientCredential?: (credentialId: string) => Promise<boolean>
 }
 
@@ -185,6 +188,7 @@ interface SocketData {
   userId?: UserId
   userRole?: UserRole
   credentialId?: string
+  maintain?: () => Promise<boolean>
   machines?: readonly MachineWire[]
   socket?: NativeGatewaySocket
 }
@@ -251,6 +255,15 @@ export function attachWebSockets(
   const daemons = new Set<NativeGatewaySocket>()
   const aliveClients = new WeakSet<HeartbeatSocket>()
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
+  const principalValidity = new Map<
+    NativeGatewaySocket,
+    {
+      maintain: () => Promise<boolean>
+      refreshedAt: number
+      pending: boolean
+      valid: boolean
+    }
+  >()
   const clientsByCredential = new Map<string, Set<NativeGatewaySocket>>()
   const credentialValidity = new Map<string, { valid: boolean; refreshedAt: number }>()
   /**
@@ -298,6 +311,37 @@ export function attachWebSockets(
       })
   }
 
+  const maintainClientPrincipals = (): void => {
+    for (const [socket, state] of principalValidity) {
+      // A hung provider cannot keep a socket alive indefinitely or queue more work.
+      if (!state.valid || now() - state.refreshedAt > CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS) {
+        state.valid = false
+        socket.terminate()
+        continue
+      }
+      if (state.pending) continue
+      state.pending = true
+      void Promise.resolve()
+        .then(state.maintain)
+        .then(
+          (valid) => {
+            if (principalValidity.get(socket) !== state || !state.valid) return
+            state.valid = valid === true
+            state.refreshedAt = now()
+            if (!state.valid) socket.terminate()
+          },
+          () => {
+            if (principalValidity.get(socket) !== state) return
+            state.valid = false
+            socket.terminate()
+          },
+        )
+        .finally(() => {
+          state.pending = false
+        })
+    }
+  }
+
   const websocket: NativeWebSocketHandler<SocketData> = {
     data: {} as SocketData,
     perMessageDeflate: { compress: '3KB', decompress: '3KB' },
@@ -317,6 +361,14 @@ export function attachWebSockets(
         return
       }
       clients.add(socket)
+      if (native.data.maintain) {
+        principalValidity.set(socket, {
+          maintain: native.data.maintain,
+          refreshedAt: now(),
+          pending: false,
+          valid: true,
+        })
+      }
       if (native.data.credentialId) {
         const current = clientsByCredential.get(native.data.credentialId)
         if (current) current.add(socket)
@@ -331,6 +383,7 @@ export function attachWebSockets(
       })
       if (id === undefined) {
         clients.delete(socket)
+        principalValidity.delete(socket)
         if (native.data.credentialId) {
           const current = clientsByCredential.get(native.data.credentialId)
           current?.delete(socket)
@@ -380,6 +433,7 @@ export function attachWebSockets(
       const socket = native.data.socket
       if (!socket) return
       clients.delete(socket)
+      principalValidity.delete(socket)
       daemons.delete(socket)
       if (native.data.credentialId) {
         const current = clientsByCredential.get(native.data.credentialId)
@@ -394,7 +448,10 @@ export function attachWebSockets(
     clients,
     aliveClients,
     deps.timers,
-    maintainClientCredentials,
+    () => {
+      maintainClientCredentials()
+      maintainClientPrincipals()
+    },
   )
   const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemons, aliveDaemons, deps.timers)
 
@@ -459,6 +516,7 @@ export function attachWebSockets(
           userId,
           userRole,
           machines,
+          ...(resolved?.maintain ? { maintain: resolved.maintain } : {}),
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
@@ -486,6 +544,7 @@ export function attachWebSockets(
       daemons.clear()
       clientsByCredential.clear()
       credentialValidity.clear()
+      principalValidity.clear()
     },
   }
 }

@@ -20,6 +20,15 @@ export function createPluginAuth(users: UsersRepository) {
     principalSource: undefined as
       | ((request: PrincipalRequest) => Promise<Principal | null>)
       | undefined,
+    /**
+     * Revalidate an open socket against its original external session and member.
+     * Called on the client heartbeat (15s). Return false on sign-out, membership
+     * removal or role change; the socket must reconnect to acquire a new identity.
+     * Rejections fail closed; a stalled check expires after two heartbeat intervals.
+     */
+    maintainPrincipal: undefined as
+      | ((request: PrincipalRequest, principal: Principal) => Promise<boolean>)
+      | undefined,
     async createMemberForAccount(
       accountId: string,
       role: UserRole,
