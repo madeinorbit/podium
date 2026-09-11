@@ -1,3 +1,4 @@
+import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   asUserId,
@@ -202,6 +203,8 @@ export function setSessionCookie(c: Context, token: string, trustedProxyHops: nu
  * clients can negotiate.
  */
 export function clientAuthGuard(opts: {
+  /** Composition-root resolver, including enabled workspace membership validation. */
+  principalForRequest?: (request: Request) => Promise<ProviderPrincipal>
   principalSource?: (
     request: Request,
   ) => Promise<import('./plugin-auth').Principal | null | undefined> | undefined
@@ -235,7 +238,11 @@ export function clientAuthGuard(opts: {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }
-    if (await opts.principalSource?.(c.req.raw)) return await next()
+    const supplied = opts.principalForRequest
+      ? await opts.principalForRequest(c.req.raw)
+      : await enabledProviderPrincipal(await opts.principalSource?.(c.req.raw), opts.users)
+    if (supplied === false) return c.json({ error: 'unauthorized' }, 401)
+    if (supplied) return await next()
     const openToThisCaller = !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
     if (openToThisCaller) return await next()
     const store = opts.store
