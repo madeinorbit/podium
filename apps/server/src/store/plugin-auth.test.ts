@@ -52,3 +52,19 @@ test('claims the existing member without changing its id or role and refuses rea
   await expect(auth.createMemberForAccount('', 'member', 'Blank', null)).rejects.toThrow()
   await expect(auth.writeProfile('missing', 'No one', null)).rejects.toThrow()
 })
+
+test('offers the earliest admin, and says whether it is still unclaimed', async () => {
+  const auth = createPluginAuth(store.users)
+  const before = await auth.earliestAdminMember()
+  expect(before).toMatchObject({ role: 'admin', disabledAt: null })
+  // accountId absent is the whole signal: a hosted owner may adopt THIS member
+  // rather than minting a second one. Once it is set the member belongs to
+  // somebody, and a later sign-in must create instead of claiming.
+  expect(before?.accountId ?? null).toBeNull()
+
+  await auth.claimMemberForAccount(before!.id, 'acct_owner')
+
+  const after = await auth.earliestAdminMember()
+  expect(after?.id).toBe(before!.id)
+  expect(after?.accountId).toBe('acct_owner')
+})

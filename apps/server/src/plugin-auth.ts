@@ -60,6 +60,14 @@ export function createPluginAuth(users: UsersRepository) {
     writeProfile: (memberId: string, name: string, avatar: string | null) =>
       users.writeProfile(asUserId(memberId), name, avatar),
     findMemberByAccount: (accountId: string) => users.findMemberByAccount(accountId),
+    /**
+     * The member a hosted claim may adopt instead of creating a new one: the
+     * oldest admin that is not disabled, or undefined when no member may act as
+     * this instance's first admin. The row carries `accountId`, which is what
+     * tells a caller whether that member is still UNCLAIMED — a claimed one has
+     * an account attached and must never be handed to a second person.
+     */
+    earliestAdminMember: () => users.earliestAdmin(),
   }
 }
 
