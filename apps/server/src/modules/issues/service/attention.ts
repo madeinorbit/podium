@@ -536,7 +536,7 @@ export class IssueAttentionModule {
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
       // open question "auto-archived because WHO read it?" is POD-1136's, and it
       // is now askable because the value has an owner.
-      const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
+      const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(await this.store.broadcastViewer(), row.id))?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -544,7 +544,7 @@ export class IssueAttentionModule {
       // honour that here so a re-touched done issue isn't archived out from under them.
       sessionList ??= this.store.deps.sessionFacts()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
-      if (this.store.computeUnread(row, sessions)) continue
+      if (this.store.computeUnread(row, sessions, viewerReadAt)) continue
       out.push(await this.autoArchive(row, principal))
     }
     return out
@@ -596,7 +596,7 @@ export class IssueAttentionModule {
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     const sessions = (await this.store.sessionsFor(row))
-    if (this.store.computeUnread(row, sessions)) return 'precondition'
+    if (this.store.computeUnread(row, sessions, viewerReadAt)) return 'precondition'
     await this.autoArchive(row, principal)
     return 'applied'
   }

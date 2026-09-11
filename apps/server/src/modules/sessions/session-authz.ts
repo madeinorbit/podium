@@ -31,7 +31,7 @@ const log = createLogger('server:session-authz')
 
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
-  readonly users: Pick<SessionStore['users'], 'get' | 'roleOf'>
+  readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
   readonly sessions: Pick<SessionStore['sessions'], 'getSession'>
   readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
   readonly grants: Pick<SessionStore['grants'], 'listForResource' | 'listForResources'>

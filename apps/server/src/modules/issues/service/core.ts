@@ -517,11 +517,13 @@ export class IssueStore {
    *  DERIVED, NEVER STORED (POD-1076): it joins one person's `readAt` to a shared
    *  `lastActiveAt`, so it is a fact about a reader AND an issue and belongs to
    *  neither row alone. */
-  /** Generic over the row [POD-3857]: `lastActiveAt` is the only session field
-   *  this reads, and the auto-archive sweep now asks it with facts. */
-  computeUnread(row: IssueRow, sessions: readonly { lastActiveAt: string }[]): boolean {
+  /** Generic over the row: archive checks need only each session's activity time. */
+  computeUnread(
+    row: IssueRow,
+    sessions: readonly { lastActiveAt: string }[],
+    readAt = this.issueOverlay(row.id).readAt,
+  ): boolean {
     if (row.deletedAt) return false
-    const readAt = this.issueOverlay(row.id).readAt
     if (readAt == null) return true
     const readMs = Date.parse(readAt)
     if (!Number.isFinite(readMs)) return true

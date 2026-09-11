@@ -1,5 +1,6 @@
 import {
   firstAdminMemberId,
+  asUserId,
   NO_SESSION_USER_STATE,
   type SessionId,
   type SessionMeta,
@@ -256,9 +257,8 @@ export class SessionView {
 
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
     const member = await this.ports.store.users.earliestAdmin()
-    const role = member?.role
-    return role
-      ? sessionStatePrincipalFor(userCommandPrincipal(member!.id, role))
+    return member
+      ? sessionStatePrincipalFor(userCommandPrincipal(asUserId(member.id), member.role))
       : undefined
   }
 

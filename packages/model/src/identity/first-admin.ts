@@ -2,7 +2,7 @@
 import { type UserId, asUserId } from '../ids/brands'
 
 export interface FirstAdminSource {
-  users: { earliestAdmin(): Promise<{ id: UserId } | undefined> }
+  users: { earliestAdmin(): Promise<{ id: string } | undefined> }
 }
 
 // Only fixture setup primes this slot. Production must supply its store.
@@ -15,7 +15,7 @@ export function firstAdminMemberId(): UserId
 export function firstAdminMemberId(source?: FirstAdminSource): UserId | Promise<UserId> {
   if (source) return source.users.earliestAdmin().then(member => {
     if (!member) throw new Error('the first admin member is not resolved: no active administrator in this store')
-    return member.id
+    return asUserId(member.id)
   })
   const id = firstAdminMemberIdOrUndefined()
   if (id === undefined) throw new Error('the first admin member is not resolved: pass the owning store or prime a test fixture')
