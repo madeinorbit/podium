@@ -1,3 +1,4 @@
+import { InviteView } from './InviteView'
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -127,6 +128,7 @@ export function LoginView({
   onLoggedIn: (principal: string) => void
   leaving?: boolean
 }): ReactNode {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [ok, setOk] = useState(false)
@@ -141,7 +143,7 @@ export function LoginView({
   }, [])
 
   const submit = async (): Promise<void> => {
-    if (!password || busy || ok) return
+    if (!email.trim() || !password || busy || ok) return
     setBusy(true)
     setError(null)
     try {
@@ -149,7 +151,7 @@ export function LoginView({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       })
       if (res.ok) {
         let body: { userId?: unknown }
@@ -173,7 +175,7 @@ export function LoginView({
       setError(
         res.status === 429
           ? '✗ too many attempts — wait a moment, then try again'
-          : '✗ incorrect password — try again',
+          : '✗ incorrect email or password — try again',
       )
       setShaking(true)
     } catch {
@@ -226,7 +228,7 @@ export function LoginView({
           ? 'verifying…'
           : state === 'typing'
             ? 'press ⏎ to sign in'
-            : 'waiting on you — enter your password'
+            : 'waiting on you — enter your email and password'
   // Verifying wears the app's working mark, in the button's own ink — the gate
   // is the first thing anyone sees, and it should already speak the language.
   const btnGlyph =
@@ -310,6 +312,31 @@ export function LoginView({
       >
         <input
           ref={inputRef}
+          type="text"
+          inputMode="email"
+          aria-label="Email"
+          placeholder="Email or user:sole"
+          autoComplete="username"
+          autoCapitalize="none"
+          required
+          maxLength={254}
+          spellCheck={false}
+          value={email}
+          onChange={(e) => {
+            setEmail(e.target.value)
+            if (error) setError(null)
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: 'transparent',
+            border: 0,
+            color: C.text,
+            fontFamily: MONO,
+            fontSize: 16,
+          }}
+        />
+        <input
           type="password"
           aria-label="Password"
           placeholder="Password"
@@ -426,11 +453,15 @@ export function LoginGate({
 }: {
   children: ReactNode | ((auth: AuthBootstrap) => ReactNode)
 }): ReactNode {
+  const [inviteToken, setInviteToken] = useState(() =>
+    new URLSearchParams(window.location.hash.slice(1)).get('invite'),
+  )
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   const httpOrigin = serverConfig(window.location).httpOrigin
 
   useEffect(() => {
+    if (inviteToken) return
     let alive = true
     probeAuth(httpOrigin).then((decision) => {
       if (!alive) return
@@ -444,7 +475,7 @@ export function LoginGate({
     return () => {
       alive = false
     }
-  }, [httpOrigin])
+  }, [httpOrigin, inviteToken])
 
   useEffect(() => {
     if (phase === 'success') {
@@ -459,6 +490,17 @@ export function LoginGate({
 
   // The splash, not nothing: this used to `return null` for a whole network
   // round-trip — the first slice of the boot's black screen (POD-1249).
+  if (inviteToken)
+    return (
+      <InviteView
+        token={inviteToken}
+        httpOrigin={httpOrigin}
+        onDone={() => {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search)
+          setInviteToken(null)
+        }}
+      />
+    )
   if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
   const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
   if (phase === 'ready') return <>{app}</>

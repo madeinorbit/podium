@@ -70,7 +70,7 @@ async function login(
   userId: string,
   password: string,
 ): Promise<string> {
-  const response = await request.post(`${HTTP}/auth/login`, { data: { userId, password } })
+  const response = await request.post(`${HTTP}/auth/login`, { data: { email: userId, password } })
   if (!response.ok())
     throw new Error(`login ${userId} -> ${response.status()}: ${await response.text()}`)
   const cookie = response.headers()['set-cookie']?.match(/podium_session=([^;]+)/)?.[1]
@@ -356,7 +356,7 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
   if (!OWNER_PASSWORD) return
 
   const owner = 'user:sole'
-  const member = 'user:phase3-member'
+  const memberEmail = `phase3-member-${Date.now()}@example.com`
   const memberPassword = 'phase3-member-password'
   const ownerToken = await login(ownerContext.request, owner, OWNER_PASSWORD)
   await ownerContext.addCookies([
@@ -369,24 +369,29 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     },
   ])
 
-  const account = await ownerContext.request.post(`${HTTP}/auth/users`, {
+  const invitation = await ownerContext.request.post(`${HTTP}/auth/members/invite`, {
+    data: { email: memberEmail, role: 'member' },
+  })
+  if (!invitation.ok())
+    throw new Error(`invite member -> ${invitation.status()}: ${await invitation.text()}`)
+  const { invite } = (await invitation.json()) as { invite: { token: string } }
+  const account = await ownerContext.request.post(`${HTTP}/auth/members/complete`, {
     data: {
-      userId: member,
+      token: invite.token,
+      email: memberEmail,
       displayName: 'Phase 3 Member',
-      role: 'member',
       password: memberPassword,
     },
   })
-  if (!account.ok()) {
-    throw new Error(`create member -> ${account.status()}: ${await account.text()}`)
-  }
+  if (!account.ok()) throw new Error(`claim member -> ${account.status()}: ${await account.text()}`)
+  const { userId: member } = (await account.json()) as { userId: string }
 
   const repos = await rpc<string[]>(ownerContext.request, 'repos.list', undefined, 'get')
   const repoPath = repos[0]
   if (!repoPath) throw new Error('harness registered no repo')
   const memberContext = await browser.newContext({ baseURL: HTTP })
   try {
-    const memberToken = await login(memberContext.request, member, memberPassword)
+    const memberToken = await login(memberContext.request, memberEmail, memberPassword)
     await memberContext.addCookies([
       {
         name: 'podium_session',
@@ -501,7 +506,9 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const retried = `phase3-retry-${Date.now()}`
     await parkRevokedGrant(retried)
     await chip.click()
-    await expect(memberPage.getByRole('dialog', { name: 'Couldn’t save this change' })).toBeVisible()
+    await expect(
+      memberPage.getByRole('dialog', { name: 'Couldn’t save this change' }),
+    ).toBeVisible()
     await phase3Shot(memberPage, '01-live-authorization-dead-letter')
     await restore()
     await memberPage.getByTestId('outbox-retry').click()
@@ -512,7 +519,9 @@ test('kernel Outbox dead-letter retry, edit, and discard after a live apply refu
     const edited = `phase3-edit-recovered-${Date.now()}`
     await parkRevokedGrant(originalEdit)
     await chip.click()
-    await expect(memberPage.getByRole('dialog', { name: 'Couldn’t save this change' })).toBeVisible()
+    await expect(
+      memberPage.getByRole('dialog', { name: 'Couldn’t save this change' }),
+    ).toBeVisible()
     await memberPage.getByRole('button', { name: 'Edit', exact: true }).click()
     await memberPage.getByRole('textbox', { name: 'Your text' }).fill(edited)
     await phase3Shot(memberPage, '02-edit-recovery-before-send')

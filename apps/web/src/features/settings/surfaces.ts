@@ -98,6 +98,7 @@ export const TAB_PATHS = {
   repos: [],
   machines: [],
   network: [],
+  members: [],
   security: [],
   updates: [],
 
@@ -137,6 +138,7 @@ export const TAB_SURFACE = {
   repos: 'instance',
   machines: 'instance',
   network: 'instance',
+  members: 'instance',
   security: 'instance',
   updates: 'instance',
 
