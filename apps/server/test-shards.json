@@ -372,6 +372,7 @@
         "apps/server/src/migrations/dead-sync-feed.test.ts",
         "apps/server/src/migrations/integrity.test.ts",
         "apps/server/src/migrations/issue-blank-text-backfill.test.ts",
+        "apps/server/src/migrations/member-login-email.test.ts",
         "apps/server/src/migrations/out-of-order-rebuild.test.ts",
         "apps/server/src/migrations/per-user-state-family.test.ts",
         "apps/server/src/migrations/personal-preference-store.test.ts",
@@ -459,6 +460,7 @@
         "apps/server/src/store/user-preferences.test.ts",
         "apps/server/src/store/user-read-position.test.ts",
         "apps/server/src/store/users-earliest-admin.test.ts",
+        "apps/server/src/store/users-email.test.ts",
         "apps/server/src/store/workflows-golden.test.ts"
       ],
       "inputs": [
@@ -530,6 +532,7 @@
         "src/migrations/index.ts",
         "src/migrations/integrity.test.ts",
         "src/migrations/issue-blank-text-backfill.test.ts",
+        "src/migrations/member-login-email.test.ts",
         "src/migrations/out-of-order-rebuild.test.ts",
         "src/migrations/per-user-state-family.test.ts",
         "src/migrations/personal-preference-store.test.ts",
@@ -915,6 +918,7 @@
         "src/store/user-read-position.test.ts",
         "src/store/user-read-position.ts",
         "src/store/users-earliest-admin.test.ts",
+        "src/store/users-email.test.ts",
         "src/store/users.ts",
         "src/store/workflows-golden.test.ts",
         "src/store/workflows.ts",

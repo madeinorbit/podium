@@ -190,3 +190,13 @@ describe('the first admin is no longer a constant (A2)', () => {
     expect(account.success).toBe(true)
   })
 })
+
+describe('login email', () => {
+  it('normalizes addresses without adding email to the replicated display identity', () => {
+    expect(userModule.LoginEmail.parse(' Alice@EXAMPLE.com ')).toBe('alice@example.com')
+    expect(userModule.UserIdentity.shape).not.toHaveProperty('email')
+    for (const invalid of ['', 'user:sole', 'alice', 'a'.repeat(255) + '@example.com']) {
+      expect(userModule.LoginEmail.safeParse(invalid).success).toBe(false)
+    }
+  })
+})

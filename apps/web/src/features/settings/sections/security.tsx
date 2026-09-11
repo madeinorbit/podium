@@ -35,6 +35,10 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
     hasOwnCredential: boolean
     canManageInstance: boolean
   } | null>(null)
+  const [email, setEmail] = useState('')
+  const [savedEmail, setSavedEmail] = useState<string | null>(null)
+  const [emailCurrent, setEmailCurrent] = useState('')
+  const [profileLoaded, setProfileLoaded] = useState(false)
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -46,6 +50,14 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const [done, setDone] = useState<string | null>(null)
 
   useEffect(() => {
+    trpc.auth.profile
+      .query()
+      .then((profile) => {
+        setEmail(profile.email ?? '')
+        setSavedEmail(profile.email)
+        setProfileLoaded(true)
+      })
+      .catch(() => setError('Couldn’t load your profile.'))
     trpc.auth.status
       .query()
       .then(setStatus)
@@ -63,6 +75,23 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
     setNext('')
     setConfirm('')
     resetDisable()
+  }
+
+  const saveEmail = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    setDone(null)
+    try {
+      const profile = await trpc.auth.setEmail.mutate({ email, current: emailCurrent || undefined })
+      setSavedEmail(profile.email)
+      setEmail(profile.email)
+      setEmailCurrent('')
+      setDone('Email saved. Use it the next time you sign in.')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Couldn’t save your email.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const save = async (): Promise<void> => {
@@ -84,7 +113,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ password: next }),
+        body: JSON.stringify({ email: savedEmail ?? 'user:sole', password: next }),
       })
       setStatus((s) => (s ? { ...s, hasOwnCredential: true, loginRequired: true } : s))
       reset()
@@ -141,6 +170,54 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   return (
     <>
       <Section
+        title="Profile"
+        hint="Your email is your login identifier, separate from your display name. It is stored on this server and is not verified."
+      >
+        <form
+          className="flex max-w-sm flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void saveEmail()
+          }}
+        >
+          <Label htmlFor="profile-email">Email</Label>
+          <Input
+            id="profile-email"
+            type="email"
+            autoComplete="username"
+            required
+            maxLength={254}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={!profileLoaded || busy}
+          />
+          {!savedEmail && (
+            <p className="settings-prose">
+              Until you set an email, the first member can sign in as user:sole.
+            </p>
+          )}
+          {hasOwnCredential && (
+            <>
+              <Label htmlFor="profile-email-password">Password to change email</Label>
+              <Input
+                id="profile-email-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={emailCurrent}
+                onChange={(event) => setEmailCurrent(event.target.value)}
+              />
+            </>
+          )}
+          <Button
+            type="submit"
+            disabled={busy || !profileLoaded || !email.trim() || email === savedEmail}
+          >
+            Save email
+          </Button>
+        </form>
+      </Section>
+      <Section
         title="Your password"
         hint={
           hasOwnCredential
@@ -181,7 +258,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              disabled={!next}
+              disabled={!next || !profileLoaded}
               pending={busy}
               pendingLabel="Saving password…"
               onClick={() => void save()}

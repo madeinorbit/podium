@@ -514,6 +514,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
         get: () => ({ role: 'member' }),
         credentialFor: () => undefined,
         setPasswordHash: () => {},
+        setEmail: () => {},
       },
       readiness: () => pendingOn(['persistence']),
       requestCoordinatorRestart: restart,

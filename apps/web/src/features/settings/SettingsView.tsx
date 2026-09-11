@@ -90,7 +90,7 @@ const TAB_LABEL: Record<SettingsTab, string> = {
   machines: 'Machines',
   network: 'Network',
   devices: 'Connected devices',
-  security: 'Security',
+  security: 'Profile & security',
   updates: 'Updates',
   secrets: 'Secrets',
 }

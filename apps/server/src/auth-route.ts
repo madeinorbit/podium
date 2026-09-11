@@ -107,7 +107,8 @@ export async function maintainClientCredentialByHash(
   tokenHash: string,
   nowMs: number = Date.now(),
 ): Promise<{ session: ClientSessionRecord; renewed: boolean } | undefined> {
-  if (!await store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())) return undefined
+  if (!(await store.isClientSessionValid(tokenHash, new Date(nowMs).toISOString())))
+    return undefined
   const current = await store.getClientSession(tokenHash)
   if (!current) return undefined
   let session = current
@@ -134,8 +135,8 @@ export async function requestUserId(
   nowMs: number = Date.now(),
   authorizationHeader?: string,
 ): Promise<UserId | undefined> {
-  return (await resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs))?.session
-    .userId
+  return (await resolveClientCredential(store, { cookieHeader, authorizationHeader }, nowMs))
+    ?.session.userId
 }
 
 export async function isRequestAuthed(
@@ -226,11 +227,11 @@ export function clientAuthGuard(opts: {
   isLocalRequest?: (request: Request) => boolean
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
-  const loginRequired = opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
+  const loginRequired =
+    opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return await next()
-    const openToThisCaller =
-      !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
+    const openToThisCaller = !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
     if (openToThisCaller) return await next()
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
@@ -273,7 +274,8 @@ export interface AccountCredentialStore {
   get(userId: UserId): Promise<{ role: UserRole } | undefined>
   /** The member a login with no identifier — or with the retired literal — means.
    *  See {@link resolveLoginIdentifier}. */
-  earliestAdmin(): Promise<{ id: string } | undefined>
+  earliestAdmin(): Promise<{ id: string; email: string | null } | undefined>
+  byEmail(email: string): Promise<{ id: string } | undefined>
   create(
     account: {
       id: string
@@ -290,39 +292,19 @@ export interface AccountCredentialStore {
   hasPerUserCredentials(): Promise<boolean>
 }
 
-/**
- * WHICH MEMBER A LOGIN IS FOR — and the one place the retired literal survives
- * [A2, spec §5.6 "Existing installs"; A3 finishes it].
- *
- * Three inputs, one answer:
- *
- *  - **No identifier.** What the login screen sends today: one password field
- *    and no name, because there was one account and the server knew which. It
- *    still means "this instance's first admin", but the server RESOLVES that
- *    member now instead of compiling its id in.
- *  - **`'user:sole'`.** The id the first admin had before A2's migration re-keyed
- *    it. Nothing in the product prints it, but a script, a saved request or a
- *    node's stored credentials may still say it, and an upgrade that locks the
- *    operator out of their own instance to tidy up a string is not a trade worth
- *    making. It resolves to the same first admin.
- *  - **Anything else** is taken as the member id it is, and fails at the
- *    credential lookup if no such member exists.
- *
- * `undefined` when there is no member to resolve to — an instance whose admins
- * are all disabled. The caller answers that as a failed login.
- *
- * WHAT A3 CHANGES. The identifier becomes an EMAIL, and this literal is accepted
- * only while the first admin's email is still empty — the condition cannot be
- * written yet because the column does not exist. When it does, the accepted-
- * literal arm gains that guard and nothing else here moves.
+/** Email identifies a member. The retired literal only names an email-less first admin.
+ * Missing identifiers remain a bridge for the existing password-only gate until A4.
  */
 export async function resolveLoginIdentifier(
   requested: string | undefined,
   users: AccountCredentialStore | undefined,
 ): Promise<UserId | undefined> {
-  if (requested !== undefined && requested !== SOLE_USER_ID) return asUserId(requested)
+  if (requested !== undefined && requested !== SOLE_USER_ID) {
+    const member = await users?.byEmail(requested)
+    return member ? asUserId(member.id) : undefined
+  }
   const first = await users?.earliestAdmin()
-  return first ? asUserId(first.id) : undefined
+  return first && first.email === null ? asUserId(first.id) : undefined
 }
 
 export interface AuthRouteOptions {
@@ -378,14 +360,13 @@ export interface AuthRouteOptions {
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
   const store = opts.store
   const users = opts.users
-  const loginRequired = opts.loginRequired ?? (async () => Boolean(await users?.hasPerUserCredentials()))
+  const loginRequired =
+    opts.loginRequired ?? (async () => Boolean(await users?.hasPerUserCredentials()))
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
   const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
 
-  // Single-user: one global throttle is enough to blunt online password guessing.
-  let failures = 0
-  let lockedUntil = 0
+  const attempts = new Map<string, { failures: number; lockedUntil: number; expiresAt: number }>()
 
   app.get('/auth/status', async (c) => {
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
@@ -465,20 +446,14 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       return c.json({ error: 'auth disabled' }, 400)
     }
     const at = now()
-    if (at < lockedUntil) {
-      const retryAfter = Math.ceil((lockedUntil - at) / 1000)
-      return c.json({ error: 'too many attempts' }, 429, {
-        'retry-after': String(retryAfter),
-      })
-    }
-
     let password = ''
-    let requestedUserId: string | undefined
+    let identifier: string | undefined
     let nativeLogin: NativeClientLoginRequest | undefined
     try {
       const body = (await c.req.json()) as {
         delivery?: unknown
         userId?: unknown
+        email?: unknown
         password?: unknown
       }
       if (body?.delivery === 'native') {
@@ -496,20 +471,34 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         if (!store) return c.json({ error: 'session store unavailable' }, 503)
         nativeLogin = parsed.data
       }
-      if (typeof body?.userId === 'string' && body.userId.trim()) requestedUserId = body.userId.trim()
+      if (body?.email !== undefined) {
+        if (typeof body.email !== 'string' || !body.email.trim() || body.email.length > 254) {
+          return c.json({ error: 'invalid email' }, 400)
+        }
+        identifier = body.email.trim().toLowerCase()
+      } else if (body?.userId !== undefined) {
+        if (body.userId !== SOLE_USER_ID) return c.json({ error: 'email is required' }, 400)
+        identifier = SOLE_USER_ID
+      }
       if (typeof body?.password === 'string') password = body.password
     } catch {
       // fall through — empty password fails verification below
     }
 
-    const userId = await resolveLoginIdentifier(requestedUserId, users)
-    if (userId === undefined) {
-      // Nothing to verify against: an instance with no member that may act as
-      // its first admin, and a caller who named nobody. Answered as a failed
-      // login rather than a 5xx, because from the outside it IS one — there is
-      // no account here with that (absent) name.
-      return c.json({ error: 'invalid password' }, 401)
+    const key = identifier ?? SOLE_USER_ID
+    for (const [email, state] of attempts) {
+      if (state.expiresAt <= at) attempts.delete(email)
     }
+    const attempt = attempts.get(key) ?? { failures: 0, lockedUntil: 0, expiresAt: at + lockoutMs }
+    if (at < attempt.lockedUntil) {
+      return c.json({ error: 'too many attempts' }, 429, {
+        'retry-after': String(Math.ceil((attempt.lockedUntil - at) / 1000)),
+      })
+    }
+    // Publish the shared counter before password verification yields, so concurrent
+    // failures for one address accumulate rather than each starting from zero.
+    attempts.set(key, attempt)
+    const userId = await resolveLoginIdentifier(identifier, users)
 
     // ONE WAY IN (POD-1554). A login is a per-account credential match or it is nothing.
     // Two arms used to live here: a `source === 'instance-password'` arm that verified
@@ -518,22 +507,23 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // a secret that belonged to the INSTANCE, which is precisely what cannot survive
     // accounts — and the fallback did it while unable to name whose account it was. A
     // server with no user store now serves no login at all, which is the honest answer.
-    const credential = await users?.credentialFor(userId)
+    const credential = userId === undefined ? undefined : await users?.credentialFor(userId)
     const ok =
       password && credential?.passwordHash
         ? await verifyPasswordHash(password, credential.passwordHash)
         : false
-    if (!ok) {
-      failures += 1
-      if (failures >= maxFailures) {
-        lockedUntil = at + lockoutMs
-        failures = 0
+    if (!ok || userId === undefined) {
+      attempt.failures += 1
+      attempt.expiresAt = at + lockoutMs
+      if (attempt.failures >= maxFailures) {
+        attempt.lockedUntil = at + lockoutMs
+        attempt.failures = 0
       }
+      attempts.set(key, attempt)
       return c.json({ error: 'invalid password' }, 401)
     }
 
-    failures = 0
-    lockedUntil = 0
+    attempts.delete(key)
 
     // Best-effort and isolated: an observer must never turn a good login into a 500.
     const reportLogin = (event: {
@@ -604,10 +594,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       typeof body.password !== 'string' ||
       body.password.length < 8
     ) {
-      return c.json(
-        { error: 'displayName, role, and an 8-character password are required' },
-        400,
-      )
+      return c.json({ error: 'displayName, role, and an 8-character password are required' }, 400)
     }
     // THE ID IS MINTED WHEN THE CALLER DOES NOT NAME ONE [A2]. Every member row
     // this build creates should be a `mem_` id, the same kind A2's migration
@@ -615,7 +602,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // route has always taken one and a tool that imports accounts needs it.
     // A4, which owns the members page and invite-and-claim, is where minting
     // becomes the only path.
-    const userId = body.userId === undefined ? userIdFromMemberId(newMemberId()) : asUserId(body.userId.trim())
+    const userId =
+      body.userId === undefined ? userIdFromMemberId(newMemberId()) : asUserId(body.userId.trim())
     if (await users.get(userId)) return c.json({ error: 'account already exists' }, 409)
     const createdAt = new Date(now()).toISOString()
     await users.create(

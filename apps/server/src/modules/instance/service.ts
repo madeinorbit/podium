@@ -20,6 +20,7 @@
  */
 
 import type { ServerReadiness, UserId } from '@podium/model'
+import { LoginEmail } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
@@ -115,13 +116,19 @@ export interface InstanceDeps {
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
-  get(userId: UserId): { role: string } | undefined | Promise<{ role: string } | undefined>
+  get(
+    userId: UserId,
+  ):
+    | { role: string; email?: string | null }
+    | undefined
+    | Promise<{ role: string; email?: string | null } | undefined>
   credentialFor(
     userId: UserId,
   ):
     | { passwordHash: string | null }
     | undefined
     | Promise<{ passwordHash: string | null } | undefined>
+  setEmail(userId: UserId, email: string): void | Promise<void>
   setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
 }
 
@@ -495,6 +502,39 @@ export class InstanceService {
         this.deps.callerUserId !== undefined &&
         (await this.deps.users?.get(this.deps.callerUserId))?.role === 'admin',
     }
+  }
+
+  async profile() {
+    const { users, callerUserId } = this.requireAccountStore()
+    const member = await users.get(callerUserId)
+    if (!member) throw new TRPCError({ code: 'UNAUTHORIZED' })
+    return { email: member.email ?? null }
+  }
+
+  async setEmail(input: { email: string; current?: string | undefined }) {
+    const { users, callerUserId } = this.requireAccountStore()
+    const email = LoginEmail.parse(input.email)
+    const existing = (await users.credentialFor(callerUserId))?.passwordHash
+    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
+    }
+    try {
+      await users.setEmail(callerUserId, email)
+    } catch (error) {
+      // Drizzle may wrap SQLite's constraint error in a query error.
+      let cause: unknown = error
+      while (cause instanceof Error) {
+        if (/UNIQUE constraint failed:.*users\.email|users_email_unique/.test(cause.message)) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Email is already used in this workspace.',
+          })
+        }
+        cause = cause.cause
+      }
+      throw error
+    }
+    return { email }
   }
 
   /** MY OWN password. Requires the CURRENT one when the caller already has a

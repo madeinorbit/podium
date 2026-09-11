@@ -15,7 +15,7 @@
  */
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
-import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
+import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
@@ -25,6 +25,7 @@ import { currentTransaction } from './executor/sync-drizzle'
 export interface UserAccountRow {
   id: string
   displayName: string
+  email: string | null
   role: UserRole
   createdAt: string
   /** ADR 9's disable-before-remove. A disabled account is not an actor. */
@@ -87,10 +88,8 @@ export class UsersRepository {
    *
    * THE ACCOUNT READ IS AN AUTHORIZATION INPUT, and reading it through a slot
    * is the PER-PASS form of spec rule 18's open question. It is legitimate here
-   * for a reason that does not extend to grants: `create` is the table's ONLY
-   * writer in product code — there is no UPDATE or DELETE against `users`
-   * anywhere — and it drops the cache, so the only mutation that exists is one
-   * this cache already honours. A caller still gets its own object per call;
+   * for a reason that does not extend to grants: `create` and `setEmail` both invalidate the cache, so account
+   * reads after either write observe the committed identity. A caller still gets its own object per call;
    * `undefined` is cached as an answer too, because "no account" is the verdict
    * every caller acts on.
    */
@@ -127,6 +126,7 @@ export class UsersRepository {
     return {
       id: r.id,
       displayName: r.displayName,
+      email: r.email,
       role,
       createdAt: r.createdAt,
       disabledAt,
@@ -172,14 +172,39 @@ export class UsersRepository {
     return row ? await this.get(asUserId(row.id)) : undefined
   }
 
+  async byEmail(email: string): Promise<UserAccountRow | undefined> {
+    const parsed = LoginEmail.safeParse(email)
+    if (!parsed.success) return undefined
+    const row = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(sql`lower(${users.email})`, parsed.data))
+      .get()
+    return row ? await this.get(row.id) : undefined
+  }
+
+  async setEmail(userId: UserId, email: string): Promise<void> {
+    const normalized = LoginEmail.parse(email)
+    if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
+    try {
+      await this.db.update(users).set({ email: normalized }).where(eq(users.id, userId)).run()
+    } finally {
+      currentReadScope().clear(this.accountsSlot)
+    }
+  }
+
   async list(): Promise<UserAccountRow[]> {
-    const rows = await this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
+    const rows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .orderBy(asc(users.createdAt))
+      .all()
     const accounts = await Promise.all(rows.map(async (row) => await this.get(row.id)))
     return accounts.filter((account): account is UserAccountRow => account !== undefined)
   }
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
-    if (!await this.get(userId)) return undefined
+    if (!(await this.get(userId))) return undefined
     const row = await this.db
       .select()
       .from(userCredentials)
@@ -211,25 +236,29 @@ export class UsersRepository {
     return row?.present === 1
   }
 
-  async create(account: UserAccountRow, passwordHash: string): Promise<void> {
-    // The table's only writer drops the scope's cache, so the read after a mint
+  async create(
+    account: Omit<UserAccountRow, 'email'> & { email?: string | null },
+    passwordHash: string,
+  ): Promise<void> {
+    // Invalidate the scope's cache, so the read after a mint
     // sees the account rather than the "no account" this scope had cached.
     currentReadScope().clear(this.accountsSlot)
     try {
       await this.createOrJoinTransaction(async () => {
-        ;await (this.db
+        await this.db
           .insert(users)
           .values({
             // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
             // boundary and deliberately carries its source id as a string.
             id: asUserId(account.id),
             displayName: account.displayName,
+            email: account.email == null ? null : LoginEmail.parse(account.email),
             role: account.role,
             createdAt: account.createdAt,
             disabledAt: null,
-          }))
+          })
           .run()
-        ;await (this.db
+        await this.db
           .insert(userCredentials)
           .values({
             // Same external account id, branded independently for this write.
@@ -237,7 +266,7 @@ export class UsersRepository {
             source: 'per-user-scrypt',
             passwordHash,
             updatedAt: account.createdAt,
-          }))
+          })
           .run()
       })
     } finally {
@@ -249,10 +278,10 @@ export class UsersRepository {
   }
 
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
-    if (!await this.get(userId)) throw new Error(`unknown user: ${userId}`)
-    ;await (this.db
+    if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
+    await this.db
       .insert(userCredentials)
-      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
+      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt })
       .onConflictDoUpdate({
         target: userCredentials.userId,
         set: { source: 'per-user-scrypt', passwordHash, updatedAt },
