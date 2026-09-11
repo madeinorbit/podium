@@ -17,8 +17,7 @@ import { CommittedRows } from './committed-rows'
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
-import { EARLIEST_ADMIN_MEMBER_SQL } from '@podium/runtime/earliest-admin'
-import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -151,11 +150,19 @@ export class UsersRepository {
    * THE EARLIEST ADMIN MEMBER — who open mode acts as, who the break-glass CLI
    * mints for, and who `firstAdminMemberId()` is primed with [A2].
    *
-   * The rule is `@podium/runtime`'s, as one SQL statement, because the CLI path
-   * asks the same question on a raw handle with no drizzle in the process (see
-   * that module's header). Reaching for `sql.raw` here rather than rebuilding
-   * the ORDER BY in the query builder is what keeps the two askers unable to
-   * disagree.
+   * ONE RULE, TWO SPELLINGS, TIED BY A TEST. `@podium/runtime`'s
+   * `EARLIEST_ADMIN_MEMBER_SQL` asks this same question on a raw handle, because
+   * the break-glass CLI has no drizzle in the process. Splicing that constant in
+   * here through `sql.raw` would read as the tidier answer and is refused by
+   * rule 16 for a good reason: `sql.raw` splices UNBOUND, so a reviewer cannot
+   * rule out an injection by reading the line, and an exemption for a statement
+   * that happens to be safe today is an exemption for whatever it becomes.
+   *
+   * So this is the builder's spelling, and `users-earliest-admin.test.ts` pins
+   * the two together the way that actually matters — by running both against one
+   * database and asserting the same member comes back. A textual tie would have
+   * been weaker: it would catch an edit to the string and miss a divergence in
+   * what the two executors do with it.
    *
    * `undefined` means no member may act as this instance's first admin: a
    * database from before accounts, or one whose admins are all disabled. A
@@ -163,7 +170,13 @@ export class UsersRepository {
    * is the whole point of retiring the constant.
    */
   async earliestAdmin(): Promise<UserAccountRow | undefined> {
-    const row = await this.db.get<{ id: string }>(sql.raw(EARLIEST_ADMIN_MEMBER_SQL)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
+    const row = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))
+      .orderBy(asc(users.createdAt), asc(users.id))
+      .limit(1)
+      .get()
     return row ? await this.get(asUserId(row.id)) : undefined
   }
 

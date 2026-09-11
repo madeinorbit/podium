@@ -151,7 +151,7 @@ Converting a member with no caller and no test would be work spent on nothing. T
 | `apps/server/src/store/conversations/index.ts` | 8 | 0 | 3 |
 | `apps/server/src/store/settings.ts` | 8 | 0 | 0 |
 | `apps/server/src/store/user-layout.ts` | 7 | 0 | 1 |
-| `apps/server/src/store/users.ts` | 7 | 0 | 2 |
+| `apps/server/src/store/users.ts` | 8 | 0 | 2 |
 | `apps/server/src/store/transcript-costs.ts` | 6 | 1 | 3 |
 | `apps/server/src/store/approvals.ts` | 5 | 0 | 3 |
 | `apps/server/src/store/maintenance.ts` | 5 | 0 | 3 |
@@ -672,6 +672,7 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/user-read-position.ts` | UserReadPositionRepository | `advance` | 92 | yes | `apps/server/src/store/user-read-position.test.ts` — also server:services | `apps/server/src/modules/read-position/authz.test.ts`, `apps/server/src/store/user-read-position.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `get` | 99 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/modules/sessions/oracle-decomposition.test.ts` +1 |
 | `apps/server/src/store/users.ts` | UsersRepository | `roleOf` | 129 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/store-users-frame-cache.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `earliestAdmin` | 164 | yes | server:services, server:boundary | `apps/server/src/store/users-earliest-admin.test.ts`, `apps/server/src/server.open-mode.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `list` | 133 | yes | server:services, server:boundary | — |
 | `apps/server/src/store/users.ts` | UsersRepository | `credentialFor` | 143 | yes | server:boundary | `apps/server/src/router.setup.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `hasPerUserCredentials` | 162 | yes | server:boundary | — |
