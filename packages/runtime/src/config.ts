@@ -28,6 +28,8 @@
  * | PODIUM_HOST                   | config.bindHost → loopback | apps/server bindHost (promotion config is explicit)    |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
+ * | PODIUM_AUTH_MODE | config.auth.mode | `resolveAuthMode()` — local or cloud |
+ * | PODIUM_AUTH_SIGN_IN_URL | config.auth.signInUrl | `resolveAuthSignInUrl()` — hosted login destination |
  * | PODIUM_MODE                   | config.mode             | `resolveMode()` — the deployment owns the mode          |
  * | PODIUM_PUBLIC_URL             | config.publicUrl        | `resolvePublicUrl()` — https unless loopback, immutable |
  * | PODIUM_APP_URL                | config.appUrl           | `resolveAppUrl()` — where the web UI is served from     |
@@ -368,6 +370,17 @@ export const PodiumConfig = z.object({
     .object({
       openMode: z.boolean().optional(),
       mode: z.enum(['local', 'cloud']).optional(),
+      signInUrl: z
+        .string()
+        .refine((value) => {
+          try {
+            parseAuthSignInUrl(value, 'auth.signInUrl')
+            return true
+          } catch {
+            return false
+          }
+        }, 'must be an https:// URL (or http:// for loopback)')
+        .optional(),
     })
     .optional(),
   /**
@@ -1329,6 +1342,8 @@ export const LAYERED_KEYS = [
   'publicUrl',
   'appUrl',
   'allowedOrigins',
+  'authMode',
+  'authSignInUrl',
   'updateScope',
   'transcriptLake',
 ] as const
@@ -1346,6 +1361,8 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
   publicUrl: 'PODIUM_PUBLIC_URL',
   appUrl: 'PODIUM_APP_URL',
   allowedOrigins: 'PODIUM_ALLOWED_ORIGINS',
+  authMode: 'PODIUM_AUTH_MODE',
+  authSignInUrl: 'PODIUM_AUTH_SIGN_IN_URL',
   updateScope: 'PODIUM_UPDATE_SCOPE',
   transcriptLake: 'PODIUM_TRANSCRIPT_LAKE',
 }
@@ -1361,6 +1378,8 @@ export interface LayeredValues {
   mode: PodiumMode | undefined
   publicUrl: string | undefined
   appUrl: string | undefined
+  authMode: 'local' | 'cloud'
+  authSignInUrl: string | undefined
   allowedOrigins: string[]
   updateScope: UpdateScope
   transcriptLake: TranscriptLakeMode
@@ -1394,6 +1413,39 @@ function isLoopbackHostname(hostname: string): boolean {
     hostname === '[::1]' ||
     hostname.endsWith('.localhost')
   )
+}
+
+/** Login destinations may include paths and query parameters. */
+function parseAuthSignInUrl(raw: string, name: string): string {
+  const value = raw.trim()
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return envError(name, 'must be an https:// URL (or http:// for loopback)')
+  }
+  if (
+    url.protocol !== 'https:' &&
+    !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
+  ) {
+    envError(name, 'must be an https:// URL (or http:// for loopback)')
+  }
+  if (url.username || url.password) envError(name, 'must not contain credentials')
+  return value
+}
+
+export function resolveAuthMode(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): 'local' | 'cloud' {
+  return resolveSetting('authMode', config, env).value
+}
+
+export function resolveAuthSignInUrl(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  return resolveSetting('authSignInUrl', config, env).value
 }
 
 /**
@@ -1591,6 +1643,28 @@ const LAYERED_READERS: {
         : parseAppUrl(env.PODIUM_APP_URL, 'PODIUM_APP_URL'),
     file: (config) =>
       config.appUrl === undefined ? undefined : parseAppUrl(config.appUrl, 'appUrl'),
+    default: () => undefined,
+  },
+  authMode: {
+    env: (env) =>
+      env.PODIUM_AUTH_MODE === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_AUTH_MODE, ['local', 'cloud'] as const, 'PODIUM_AUTH_MODE'),
+    file: (config) =>
+      config.auth?.mode === undefined
+        ? undefined
+        : parseEnum(config.auth.mode, ['local', 'cloud'] as const, 'auth.mode'),
+    default: () => 'local',
+  },
+  authSignInUrl: {
+    env: (env) =>
+      env.PODIUM_AUTH_SIGN_IN_URL === undefined
+        ? undefined
+        : parseAuthSignInUrl(env.PODIUM_AUTH_SIGN_IN_URL, 'PODIUM_AUTH_SIGN_IN_URL'),
+    file: (config) =>
+      config.auth?.signInUrl === undefined
+        ? undefined
+        : parseAuthSignInUrl(config.auth.signInUrl, 'auth.signInUrl'),
     default: () => undefined,
   },
   allowedOrigins: {

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId } from '@podium/model'
+import { forgetConfig } from '@podium/runtime/config'
 import { WIRE_VERSION } from '@podium/protocol'
 import { hashToken } from './auth-route'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
@@ -91,6 +92,43 @@ test('cloud mode requires login even without local passwords', async () => {
     authed: false,
     mode: 'cloud',
   })
+})
+test('environment cloud mode overrides local open mode and advertises its sign-in destination', async () => {
+  const configPath = join(dir, 'config.json')
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      configVersion: 2,
+      mode: 'all-in-one',
+      persistence: 'systemd',
+      auth: { mode: 'local', openMode: true },
+    }),
+  )
+  forgetConfig(configPath)
+  vi.stubEnv('PODIUM_AUTH_MODE', 'cloud')
+  vi.stubEnv('PODIUM_AUTH_SIGN_IN_URL', 'https://accounts.example/login?org=one')
+  try {
+    expect(await (await fetch(url('/auth/status'))).json()).toMatchObject({
+      needsAuth: true,
+      authed: false,
+      mode: 'cloud',
+      signInUrl: 'https://accounts.example/login?org=one',
+    })
+    expect((await fetch(url('/files/missing'))).status).toBe(401)
+    expect(await socket('')).toBe(false)
+  } finally {
+    vi.unstubAllEnvs()
+    forgetConfig(configPath)
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        configVersion: 2,
+        mode: 'all-in-one',
+        persistence: 'systemd',
+        auth: { mode: 'cloud' },
+      }),
+    )
+  }
 })
 test('provider identity wins over a local admin session in tRPC and status', async () => {
   const headers = { cookie: `cloud=yes; ${localCookie}`, 'Podium-Workspace': 'ignored' }

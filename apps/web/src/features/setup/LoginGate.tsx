@@ -50,7 +50,7 @@ const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
  * preserve authoritative refusals and offline namespace selection without another request.
  */
 type AuthDecision =
-  | { readonly kind: 'login'; mode: 'local' | 'cloud' }
+  | { readonly kind: 'login'; mode: 'local' | 'cloud'; signInUrl?: string }
   | { readonly kind: 'ready'; auth: AuthBootstrap }
 
 async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
@@ -86,6 +86,7 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
     authed?: unknown
     readiness?: unknown
     mode?: unknown
+    signInUrl?: unknown
   }
   try {
     data = (await res.json()) as {
@@ -98,7 +99,11 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
     return { kind: 'ready', auth: { kind: 'provisional-failure' } }
   }
   if (data.needsAuth === true && data.authed !== true)
-    return { kind: 'login', mode: data.mode === 'cloud' ? 'cloud' : 'local' }
+    return {
+      kind: 'login',
+      mode: data.mode === 'cloud' ? 'cloud' : 'local',
+      signInUrl: typeof data.signInUrl === 'string' ? data.signInUrl : undefined,
+    }
   const outcome = classifyAuthStatus(data)
   return 'principal' in outcome
     ? { kind: 'ready', auth: { kind: 'principal', principal: outcome.principal } }
@@ -123,8 +128,10 @@ function originHost(httpOrigin: string): string {
 
 /* ── Login view ───────────────────────────────────────────────────────────── */
 
-export function CloudLoginView(): ReactNode {
+export function CloudLoginView({ signInUrl }: { signInUrl?: string }): ReactNode {
   const returnTo = window.location.pathname + window.location.search + window.location.hash
+  const destination = new URL(signInUrl ?? '/account/sign-in', window.location.origin)
+  destination.searchParams.set('returnTo', returnTo)
   return (
     <main
       style={{
@@ -136,7 +143,11 @@ export function CloudLoginView(): ReactNode {
       }}
     >
       <a
-        href={`/account/sign-in?returnTo=${encodeURIComponent(returnTo)}`}
+        href={
+          signInUrl
+            ? destination.href
+            : destination.pathname + destination.search + destination.hash
+        }
         style={{
           padding: '16px 24px',
           borderRadius: 8,
@@ -495,6 +506,7 @@ export function LoginGate({
     new URLSearchParams(window.location.hash.slice(1)).get('invite'),
   )
   const [mode, setMode] = useState<'local' | 'cloud'>('local')
+  const [signInUrl, setSignInUrl] = useState<string>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -506,6 +518,7 @@ export function LoginGate({
       if (!alive) return
       if (decision.kind === 'login') {
         setMode(decision.mode)
+        setSignInUrl(decision.signInUrl)
         setPhase('login')
         return
       }
@@ -545,7 +558,7 @@ export function LoginGate({
   const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
   if (phase === 'ready') return <>{app}</>
 
-  if (mode === 'cloud') return <CloudLoginView />
+  if (mode === 'cloud') return <CloudLoginView signInUrl={signInUrl} />
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
   const blurred = phase === 'success' && !reduced
