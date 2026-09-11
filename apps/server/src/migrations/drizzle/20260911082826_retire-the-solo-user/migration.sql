@@ -160,12 +160,12 @@ UPDATE `settings_audit_events` SET `on_behalf_of` = '{{mint:mem_}}' WHERE `on_be
 -- BEFORE replacing the unconditional guard: only this migration's exact member
 -- re-key is allowed, and no other approval evidence may change. Restore the
 -- original guard before leaving the transaction; rollback restores it on failure.
-CREATE TRIGGER`ship_orders_member_rekey_guard` BEFORE UPDATE OF
+CREATE TRIGGER `ship_orders_member_rekey_guard` BEFORE UPDATE OF
   `issue_id`, `repo_id`, `target_branch`, `destination`, `approved_base_sha`,
   `approved_head_sha`, `descendant_manifest`, `delivery_depends_on`,
   `evidence_manifest_ref`, `current_integration_receipt`, `provider_ref`,
   `requested_by_actor_kind`, `requested_by_actor_id`, `requested_by_on_behalf_of`,
-  `requested_at`, `policy_id`, `close_mode`
+  `requested_at`, `policy_id`, `validation_profile`, `validation_profile_digest`, `close_mode`
 ON `ship_orders`
 WHEN NOT (
   NEW.`issue_id` IS OLD.`issue_id`
@@ -182,6 +182,8 @@ WHEN NOT (
   AND NEW.`requested_by_actor_kind` IS OLD.`requested_by_actor_kind`
   AND NEW.`requested_at` IS OLD.`requested_at`
   AND NEW.`policy_id` IS OLD.`policy_id`
+  AND NEW.`validation_profile` IS OLD.`validation_profile`
+  AND NEW.`validation_profile_digest` IS OLD.`validation_profile_digest`
   AND NEW.`close_mode` IS OLD.`close_mode`
   AND (NEW.`requested_by_actor_id` IS OLD.`requested_by_actor_id` OR (OLD.`requested_by_actor_id` IS 'user:sole' AND NEW.`requested_by_actor_id` IS '{{mint:mem_}}'))
   AND (NEW.`requested_by_on_behalf_of` IS OLD.`requested_by_on_behalf_of` OR (OLD.`requested_by_on_behalf_of` IS 'user:sole' AND NEW.`requested_by_on_behalf_of` IS '{{mint:mem_}}'))
@@ -196,12 +198,12 @@ UPDATE `ship_orders` SET `requested_by_actor_id` = '{{mint:mem_}}' WHERE `reques
 --> statement-breakpoint
 UPDATE `ship_orders` SET `requested_by_on_behalf_of` = '{{mint:mem_}}' WHERE `requested_by_on_behalf_of` = 'user:sole';
 --> statement-breakpoint
-CREATE TRIGGER`ship_orders_frozen_fields` BEFORE UPDATE OF
+CREATE TRIGGER `ship_orders_frozen_fields` BEFORE UPDATE OF
   `issue_id`, `repo_id`, `target_branch`, `destination`, `approved_base_sha`,
   `approved_head_sha`, `descendant_manifest`, `delivery_depends_on`,
   `evidence_manifest_ref`, `current_integration_receipt`, `provider_ref`,
   `requested_by_actor_kind`, `requested_by_actor_id`, `requested_by_on_behalf_of`,
-  `requested_at`, `policy_id`, `close_mode`
+  `requested_at`, `policy_id`, `validation_profile`, `validation_profile_digest`, `close_mode`
 ON `ship_orders`
 BEGIN
   SELECT RAISE(ABORT, 'ship order approval is immutable');

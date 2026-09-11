@@ -341,7 +341,8 @@ describe('retire-the-solo-user: shipping approval custody', () => {
       })
       expect(triggers(db)).toEqual(guards)
       for (const column of ['requested_by_actor_id', 'requested_by_on_behalf_of', 'approved_head_sha',
-        'approved_base_sha', 'evidence_manifest_ref', 'current_integration_receipt']) {
+        'approved_base_sha', 'evidence_manifest_ref', 'current_integration_receipt',
+        'validation_profile', 'validation_profile_digest']) {
         expect(() => db.exec(`UPDATE ship_orders SET ${column} = 'tampered'`))
           .toThrow('ship order approval is immutable')
       }
