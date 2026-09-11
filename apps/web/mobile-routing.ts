@@ -25,7 +25,7 @@ export function mobileRedirectLocation(
  *
  * Two kinds of entry live here:
  *  - Live backend routes (/trpc, /health, …) and the Expo SPA at /mobile, which
- *    the shell must never shadow.
+ *    the shell must never shadow, plus the hosted /account and /org pages.
  *  - The redirect endpoints `/` and `/desktop`. These LOOK like they belong to
  *    the shell, which is exactly the trap: once the worker is installed it
  *    answers `/` from the precache and the server-side phone redirect never
@@ -46,6 +46,8 @@ export const NAVIGATION_FALLBACK_DENYLIST = [
   /^\/files/,
   /^\/setup/,
   /^\/auth/,
+  /^\/account/,
+  /^\/org/,
   /^\/client/,
   /^\/daemon/,
 ]
