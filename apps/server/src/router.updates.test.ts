@@ -1635,7 +1635,8 @@ describe('the update operation', () => {
   it('queues a version published mid-operation and does not change the running target', async () => {
     const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
     await caller.updates.start()
-    await registry.modules.updates.setTarget(target('0.4.3'))
+    // A publication during an operation must resolve the active operation.
+    await registry.modules.updates.setTargetFromProducer(target('0.4.3'))
 
     expect(registry.modules.updates.target('dev')?.version).toBe('0.4.2')
     const fleet = await caller.updates.fleet()

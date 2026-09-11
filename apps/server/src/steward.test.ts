@@ -333,7 +333,7 @@ describe('StewardService cursor', () => {
     const reborn = new StewardService(deps)
     const listSpy = vi.spyOn(store.events, 'listEventsSince')
     await reborn.tick()
-    expect(listSpy).toHaveBeenCalledWith(id2)
+    expect(listSpy).toHaveBeenCalledExactlyOnceWith(id2, undefined)
   })
 
   it('does not advance the cursor past a batch until its handlers ran', async () => {

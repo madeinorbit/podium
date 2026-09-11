@@ -72,7 +72,7 @@ describe('local update participant', () => {
     receive?.(grant)
 
     await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce())
-    expect(installTarget).toHaveBeenCalledWith(grant.target)
+    expect(installTarget).toHaveBeenCalledWith(grant.target, undefined)
     expect(writePending).toHaveBeenCalledWith(
       expect.objectContaining({ grantId: 'grant-1', targetVersion: '0.4.2' }),
     )

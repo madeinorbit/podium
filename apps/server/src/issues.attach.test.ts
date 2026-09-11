@@ -483,9 +483,13 @@ describe('soleOwnerForCwd', () => {
 
   it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', async () => {
     const { svc, store } = await harness()
-    await store.repos.addRepo('/r', store.hostMachineId)
     const squatter = await svc.create({ repoPath: '/other', title: 'Squatter', startNow: false })
+    // Model a pre-existing claim: new claims on a registered root are refused.
     await svc.update(squatter.id, { worktreePath: '/r' })
+    await store.repos.addRepo('/r', store.hostMachineId)
+    await expect(svc.update(squatter.id, { worktreePath: '/r' })).rejects.toThrow(
+      'a repository root cannot be recorded as an issue worktree',
+    )
     expect(await svc.soleOwnerForCwd('/r')).toBeNull()
     expect(await svc.soleOwnerForCwd('/r/sub')).toBeNull()
     // Dedicated worktrees under the root still attach.
