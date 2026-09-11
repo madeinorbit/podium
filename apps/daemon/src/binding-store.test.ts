@@ -7,9 +7,17 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
-  firstAdminMemberId,
+  SOLE_USER_ID,
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+
+/**
+ * The owner the legacy-binding migration stamps: the RETIRED LITERAL, matching
+ * what `host-runtime.ts` passes (A2). The rows this path recovers were written
+ * when the one human on the instance WAS `'user:sole'` — frozen history, and the
+ * daemon is a separate process with no database to resolve a member from.
+ */
+const SINGLE_OPERATOR = asUserId(SOLE_USER_ID)
 import {
   BINDING_STORE_SCHEMA_VERSION,
   BindingStore,
@@ -76,7 +84,7 @@ describe('BindingStore schema lifecycle', () => {
     const second = await BindingStore.open({
       dir,
       legacyStateDir: stateDir,
-      singleOperatorUserId: firstAdminMemberId(),
+      singleOperatorUserId: SINGLE_OPERATOR,
       legacyBindings: [
         {
           sessionId: asSessionId('late-arrival'),
@@ -526,7 +534,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: firstAdminMemberId(),
+      singleOperatorUserId: SINGLE_OPERATOR,
       now,
       legacyBindings,
     })
@@ -542,7 +550,7 @@ describe('legacy daemon-state migration', () => {
     const observed = await store.read(asSessionId('observed-pane'))
     expect(observed?.claimantMachineId).toBe('machine-real')
     expect(observed?.attemptId).toBe('podium-observed-pane')
-    expect(store.currentDelegation(requiredBinding(observed))?.onBehalfOf).toBe(firstAdminMemberId())
+    expect(store.currentDelegation(requiredBinding(observed))?.onBehalfOf).toBe(SINGLE_OPERATOR)
     expect(observed?.observations.map((entry) => entry.channel)).toEqual([
       'cwd',
       'resume-ref',
@@ -583,7 +591,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: firstAdminMemberId(),
+      singleOperatorUserId: SINGLE_OPERATOR,
       now,
       legacyBindings: [{ sessionId: asSessionId('later-snapshot'), agentKind: 'grok' }],
     })
@@ -618,7 +626,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: firstAdminMemberId(),
+      singleOperatorUserId: SINGLE_OPERATOR,
     })
 
     const binding = requiredBinding(await store.read(asSessionId('same-pane')))
@@ -628,7 +636,7 @@ describe('legacy daemon-state migration', () => {
     expect(binding.observations.find((entry) => entry.value === 'thread-new')).toMatchObject({
       pendingServerAck: { nativeKind: 'codex-thread', value: 'thread-new' },
     })
-    expect(await store.pendingReceiptsForOwner(firstAdminMemberId())).toEqual([
+    expect(await store.pendingReceiptsForOwner(SINGLE_OPERATOR)).toEqual([
       {
         sessionId: 'same-pane',
         nativeKind: 'codex-thread',

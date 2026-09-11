@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -10,6 +10,14 @@ import {
   worktreeGcRunKey,
 } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+
+/**
+ * A member id, as a FIXTURE (A2). These tests open no instance, so
+ * `firstAdminMemberId()` — which resolves the earliest admin member of one — has
+ * no answer here. They never needed the real first admin: they need A person,
+ * and naming one locally says so.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 import { describe, expect, it, vi } from 'vitest'
 import {
   ChangeLogPrunePlanner,
@@ -360,7 +368,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           issueId: asIssueId('iss_1'),
           stage: 'done',
           closedReason: null,
-          readerUserId: firstAdminMemberId(),
+          readerUserId: A_MEMBER,
           archived: false,
           deletedAt: null,
         },
@@ -370,7 +378,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           sessionId: asSessionId('ses_1'),
           issueId: null,
           stoppedAt: '2026-07-01T00:00:00.000Z',
-          readerUserId: firstAdminMemberId(),
+          readerUserId: A_MEMBER,
           archived: false,
         },
       ],

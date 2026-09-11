@@ -2,8 +2,22 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { actorAgent, asAgentIdentityId, firstAdminMemberId, type MachineId } from '@podium/model'
+import {
+  actorAgent,
+  asAgentIdentityId,
+  asUserId,
+  type MachineId,
+  SOLE_USER_ID,
+} from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+
+/**
+ * The owner the legacy-binding migration stamps: the RETIRED LITERAL, matching
+ * what `host-runtime.ts` passes (A2). The rows this path recovers were written
+ * when the one human on the instance WAS `'user:sole'` — frozen history, and the
+ * daemon is a separate process with no database to resolve a member from.
+ */
+const SINGLE_OPERATOR = asUserId(SOLE_USER_ID)
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -165,7 +179,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
           kind: 'superagent',
           attribution: {
             actor: actorAgent(asAgentIdentityId('superagent')),
-            onBehalfOf: firstAdminMemberId(),
+            onBehalfOf: SINGLE_OPERATOR,
           },
           delegationRef: 'superagent',
         },
