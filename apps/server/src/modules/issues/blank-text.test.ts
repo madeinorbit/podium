@@ -52,7 +52,7 @@ describe('blank issue text normalizes to null', () => {
     await svc.update(created.id, { assignee: firstAdminMemberId() })
 
     const row = await store.issues.getIssue(created.id)
-    expect(row?.assignee).toBe('user:sole')
+    expect(row?.assignee).toBe(firstAdminMemberId())
     // NOT NULL with a legitimate '' value — the rule is scoped to nullable text.
     expect(row?.description).toBe('')
   })

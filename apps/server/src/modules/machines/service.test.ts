@@ -588,7 +588,9 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     expect(await svc.machineName(MACHINE)).toBe('Builder')
     expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.name).toBe('Builder')
     // Ownership reads the same cache, and it is the authorization input.
-    expect((await svc.ownershipRows()).find((m) => m.id === MACHINE)?.ownerUserId).toBe('user:sole')
+    expect((await svc.ownershipRows()).find((m) => m.id === MACHINE)?.ownerUserId).toBe(
+      firstAdminMemberId(),
+    )
   })
 
   test('a hello’s restamped hostname is visible without a manual invalidate', async () => {
