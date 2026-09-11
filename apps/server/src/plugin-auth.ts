@@ -55,3 +55,20 @@ export function createPluginAuth(users: UsersRepository) {
 }
 
 export type PluginAuth = ReturnType<typeof createPluginAuth>
+
+/** null means no provider identity; false means a supplied identity must be refused. */
+export type ProviderPrincipal = Principal | null | undefined | false
+
+export async function enabledProviderPrincipal(
+  supplied: Principal | null | undefined,
+  users?: {
+    get(
+      id: ReturnType<typeof asUserId>,
+    ): Promise<{ role: UserRole; disabledAt?: string | null } | undefined>
+  },
+): Promise<ProviderPrincipal> {
+  if (supplied == null) return supplied
+  if (typeof supplied.memberId !== 'string' || !supplied.memberId) return false
+  const member = await users?.get(asUserId(supplied.memberId))
+  return member && !member.disabledAt ? { memberId: supplied.memberId, role: member.role } : false
+}

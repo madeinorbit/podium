@@ -151,7 +151,7 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
-import { createPluginAuth, type Principal } from './plugin-auth'
+import { enabledProviderPrincipal, type ProviderPrincipal, createPluginAuth } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
 import {
   authReadinessBoundary,
@@ -1448,16 +1448,19 @@ export async function startServer(
    */
   const auth = createPluginAuth(store.users)
   // The HTTP guard and tRPC context share one provider lookup per request.
-  const sourcePrincipals = new WeakMap<Request, Promise<Principal | null | undefined>>()
+  const sourcePrincipals = new WeakMap<Request, Promise<ProviderPrincipal>>()
   const sourcePrincipal = (request: Request) => {
     let resolved = sourcePrincipals.get(request)
     if (!resolved) {
-      resolved = Promise.resolve().then(() =>
-        auth.principalSource?.({
-          cookieHeader: request.headers.get('cookie') ?? undefined,
-          authorizationHeader: request.headers.get('authorization') ?? undefined,
-          url: request.url,
-        }),
+      resolved = Promise.resolve().then(async () =>
+        enabledProviderPrincipal(
+          await auth.principalSource?.({
+            cookieHeader: request.headers.get('cookie') ?? undefined,
+            authorizationHeader: request.headers.get('authorization') ?? undefined,
+            url: request.url,
+          }),
+          store.users,
+        ),
       )
       sourcePrincipals.set(request, resolved)
     }
@@ -1465,6 +1468,7 @@ export async function startServer(
   }
   const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
     const supplied = request ? await sourcePrincipal(request) : undefined
+    if (supplied === false) return undefined
     if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
     const credentialed = await requestUserId(
       store.auth,
@@ -1483,7 +1487,7 @@ export async function startServer(
     return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
   }
   const guard = clientAuthGuard({
-    principalSource: sourcePrincipal,
+    principalForRequest: sourcePrincipal,
     store: store.auth,
     users: store.users,
     loginRequired: credentialsRequired,
@@ -1862,6 +1866,7 @@ export async function startServer(
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
           const supplied = await sourcePrincipal(request)
+          if (supplied === false) return undefined
           if (supplied) return { userId: asUserId(supplied.memberId), userRole: supplied.role }
           const credential = await resolveClientCredential(store.auth, headers)
           const principal = await requestPrincipal(headers, request)
