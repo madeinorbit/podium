@@ -271,6 +271,17 @@ UPDATE `workflows` SET `owner_user_id` = '{{mint:mem_}}' WHERE `owner_user_id` =
 -- WITH its quotes is a complete JSON string token, and the id is the only thing
 -- in this database ever spelled that way. The `LIKE` keeps it off every row that
 -- does not mention it.
+-- Invalidate cursors that already consumed these sequences. The runner commits
+-- this generation and the payload rewrites in the same transaction. Guard on
+-- both feed tables before rewriting either, so replay does not bump again and
+-- compacted history represented only in change_latest is covered too.
+-- An opaque random epoch avoids reusing a generation after restoring a backup.
+UPDATE `feed_identity` SET `epoch` = 'owner-rewrite-' || lower(hex(randomblob(16)))
+WHERE `singleton` = 1 AND (
+  EXISTS (SELECT 1 FROM `changes` WHERE `payload` LIKE '%"user:sole"%')
+  OR EXISTS (SELECT 1 FROM `change_latest` WHERE `payload` LIKE '%"user:sole"%')
+);
+--> statement-breakpoint
 UPDATE `changes` SET `payload` = replace(`payload`, '"user:sole"', '"{{mint:mem_}}"') WHERE `payload` LIKE '%"user:sole"%';
 --> statement-breakpoint
 UPDATE `change_latest` SET `payload` = replace(`payload`, '"user:sole"', '"{{mint:mem_}}"') WHERE `payload` LIKE '%"user:sole"%';
