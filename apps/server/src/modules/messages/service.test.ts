@@ -6,7 +6,6 @@ import { statementBudget } from '../../test-support/statement-budget'
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import { WorldIndex } from '../world-index'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import {
   asIssueId,
@@ -4785,9 +4784,9 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     const before = listCalls.n
     if (queryAttributionEnabled) {
       const budget = await statementBudget(run)
-      // One pending-mail COUNT for the session and one for its issue. The
-      // membership lookup itself performs no SQL (POD-3852 counts each once).
-      expect(budget.statements).toBeLessThanOrEqual(400)
+      // Membership and pending-mail counters both use committed indexes after
+      // integration with POD-3871; all 200 events must remain SQL-free.
+      expect(budget.statements).toBe(0)
       expect([...budget.byQuery.keys()].filter((sql) => /from ["`]?issues["`]?\b/i.test(sql))).toEqual([])
     } else await run()
     expect(resolve).toHaveBeenCalledTimes(200)
