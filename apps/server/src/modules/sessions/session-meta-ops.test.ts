@@ -71,7 +71,7 @@ async function fixture(file = ':memory:') {
       setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
     },
     toPtyInput: vi.fn(),
-    view: { principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn(async (s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
+    view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
 }

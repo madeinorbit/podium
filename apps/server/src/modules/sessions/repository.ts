@@ -375,6 +375,11 @@ export class SessionRepository {
   ): Promise<MetadataChange[]> {
     if (pending.length === 0) return []
     const issueRelevant = pending.some(([, state]) => state.issueRelevant)
+    const candidates = pending.flatMap(([id]) => {
+      const session = this.sessions.get(id)
+      return session ? [session] : []
+    })
+    const pass = await this.view.buildProjectionPass(candidates)
     const specs: EntityChangeSpec[] = []
     for (const [sessionId] of pending) {
       const session = this.sessions.get(sessionId)
@@ -383,7 +388,7 @@ export class SessionRepository {
         entity: 'session',
         id: sessionId,
         op: 'upsert',
-        value: await this.view.wire(session),
+        value: await this.view.wire(session, pass),
       })
     }
     try {
@@ -648,7 +653,7 @@ export class SessionRepository {
             entity: 'session',
             id: session.sessionId,
             op: 'upsert',
-            value: await this.view.wire(session, undefined, undefined, toPersist),
+            value: await this.view.wire(session, await this.view.buildProjectionPass([{ ...toPersist, sessionId: session.sessionId }]), toPersist),
           },
         ],
       })

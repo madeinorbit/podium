@@ -518,6 +518,23 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
   },
+  /* --- captured projection inputs (POD-3855) ------------------------------ */
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.sessionFacts': {
+    kind: 'contained',
+    why: 'a zero-IO snapshot of the live session registry; reading it publishes nothing outside this process',
+  },
+  'apps/server/src/modules/machines/service.ts#MachineFactsSnapshot.loginCondition': {
+    kind: 'contained',
+    why: 'a login predicate over the captured machine facts map, with no store or service access',
+  },
+  'apps/server/src/modules/machines/service.ts#MachineFactsSnapshot.name': {
+    kind: 'contained',
+    why: 'a display-name lookup in the captured machine facts map, with no externally observable effect',
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#PreparedQueryForDb.PreparedQueryForDb': {
+    kind: 'opaque',
+    why: 'the caller-supplied prepared-query builder behind a per-drizzle-instance cache; current factories only prepare queries, but the generic callback is judged at its declaration rather than assumed pure here',
+  },
   /* --- POD-3366's shared staged layer -------------------------------------- */
   'packages/sync/src/authority/staged-projection.ts#StagedOverlay.commit': {
     kind: 'contained',

@@ -49,7 +49,7 @@ describe('SessionRepository.flushActivity single-flight (POD-3258)', () => {
         },
         capture: () => [],
       },
-      view: { wire: async (session: Session) => ({ sessionId: session.sessionId }) },
+      view: { buildProjectionPass: async () => ({}), wire: async (session: Session) => ({ sessionId: session.sessionId }) },
       now: () => Date.now(),
       broadcastSessions: vi.fn(),
       flushBroadcasts: vi.fn(),

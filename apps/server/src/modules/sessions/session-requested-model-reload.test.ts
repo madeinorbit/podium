@@ -82,7 +82,7 @@ const hydrator = (): SessionRepository =>
   new SessionRepository({
     sessions: new Map(),
     ledger: { capture: vi.fn(() => []) },
-    view: { wire: vi.fn() },
+    view: { buildProjectionPass: async () => ({}), wire: vi.fn() },
     now: () => Date.now(),
     runScheduledBroadcast: vi.fn(),
     broadcastSessions: vi.fn(),

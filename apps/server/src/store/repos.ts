@@ -234,6 +234,13 @@ export class ReposRepository {
     return await this.prefixForRepoId(await this.resolveRepoIdForPath(repoPath))
   }
 
+  /** Resolve display prefixes from one transaction-local registry snapshot. */
+  async prefixResolver(): Promise<(path: string) => string | null> {
+    const resolve = await this.repoIdResolver()
+    const prefixes = (await this.registry()).prefixes
+    return path => prefixes.get(resolve(path)) ?? null
+  }
+
   /** The registered repo owning `prefix` (its repoId + a representative path). */
   async repoForPrefix(prefix: string): Promise<{ repoId: RepoId; path: string } | null> {
     const row = await this.db

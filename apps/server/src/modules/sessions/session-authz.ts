@@ -17,7 +17,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
-import type { GrantRow } from '../../store/grants'
+import { granteesOf } from './session-state/grantees'
 import type { SessionStore } from '../../store'
 import type { SessionLifecycleDeps } from './session-lifecycle-types'
 import type { SessionAccessDeps } from './session-access'
@@ -47,26 +47,6 @@ export interface SessionAuthzPorts {
    *  durable reads survived the flip unseen [POD-3507]. */
   sessions: { get(sessionId: SessionId): Session | undefined }
   store: SessionAuthzStorePort
-}
-
-/**
- * The grantees a set of edges confers READ-or-better on — the ONE definition
- * [POD-1653].
- *
- * It is a free function because two paths now need it: the per-resource read
- * and the batched prime. A verb set spelled twice is the shape where a later
- * verb addition lands on one path only, and the failure would be silent and
- * security-relevant (a grantee visible through one path, invisible through the
- * other, depending purely on whether a pass primed).
- */
-function granteesOf(edges: readonly GrantRow[]): string[] {
-  return [
-    ...new Set(
-      edges
-        .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-        .map((edge) => edge.grantee),
-    ),
-  ]
 }
 
 export class SessionAuthz {

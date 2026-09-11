@@ -54,17 +54,19 @@ function viewOver(sessions: Session[], hidden: Set<string> = new Set()) {
   const ports: SessionViewPorts = {
     sessions: new Map(sessions.map((s) => [s.sessionId, s])),
     store: {
+      grants: { listForResources: async () => new Map() },
       sync: { queuedMessageCounts: async () => new Map() },
       users: { roleOf: () => 'admin' },
-      issues: { getIssue: () => undefined },
+      issues: { getIssue: () => undefined, getIssues: async () => new Map() },
       repos: { prefixForPath: () => null, resolveRepoIdForPath: () => undefined },
     } as unknown as SessionViewPorts['store'],
-    machines: { machineName: () => 'box' } as unknown as SessionViewPorts['machines'],
+    machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
     state: {
       canReadSession: (_p: unknown, id: string) => {
         canReadCalls.push(id)
         return !hidden.has(id)
       },
+      overlaySnapshot: async () => new Map(),
       overlay: () => ({}),
     } as unknown as SessionViewPorts['state'],
   }
@@ -257,18 +259,21 @@ describe('displayRef implies the parts it is formatted from [POD-3857]', () => {
     const ports: SessionViewPorts = {
       sessions: new Map([[row.sessionId, row]]),
       store: {
+        grants: { listForResources: async () => new Map() },
         sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
-        issues: { getIssue: async () => ISSUE_ROW, getIssues: async () => new Map() },
-        repos: { prefixForPath: async () => 'POD', resolveRepoIdForPath: async () => undefined },
+        issues: { getIssue: async () => ISSUE_ROW, getIssues: async (ids: string[]) => new Map(ids.map(id => [id, ISSUE_ROW])) },
+        repos: { prefixResolver: async () => () => 'POD', prefixForPath: async () => 'POD', resolveRepoIdForPath: async () => undefined },
       } as unknown as SessionViewPorts['store'],
-      machines: { machineName: async () => 'box' } as unknown as SessionViewPorts['machines'],
+      machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
       state: {
         canReadSession: async () => true,
+        overlaySnapshot: async () => new Map(),
         overlay: async () => ({}),
       } as unknown as SessionViewPorts['state'],
     }
-    return await new SessionView(ports).wire(row, PRINCIPAL)
+    const view = new SessionView(ports)
+    return view.wire(row, await view.buildProjectionPass([row], PRINCIPAL))
   }
 
   it('an issue-born ref carries refLetter', async () => {
@@ -531,12 +536,13 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
     const ports: SessionViewPorts = {
       sessions: new Map(sessions.map((s) => [s.sessionId, s])),
       store: {
+        grants: { listForResources: async () => new Map() },
         sync: { queuedMessageCounts: async () => new Map() },
         users: { roleOf: async () => 'admin' },
         issues: { getIssue: async () => undefined, getIssues: async () => new Map() },
         repos: { prefixForPath: async () => null, resolveRepoIdForPath: async () => undefined },
       } as unknown as SessionViewPorts['store'],
-      machines: { machineName: async () => 'box' } as unknown as SessionViewPorts['machines'],
+      machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) } as unknown as SessionViewPorts['machines'],
       state: {
         primeOwnerMemo: async (memo: SessionOwnerMemo, ids: readonly string[]) => {
           // A REAL round trip, not a microtask. The prime reads the store twice;
@@ -559,6 +565,7 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
           }
           return primed.includes(READER.userId)
         },
+        overlaySnapshot: async () => new Map(),
         overlay: async () => ({}),
       } as unknown as SessionViewPorts['state'],
     }
@@ -636,12 +643,12 @@ describe('SessionView durable queue display', () => {
       expect((await view.byId(current.sessionId, PRINCIPAL))?.queuedMessageCount).toBe(2)
       const draft = current.captureDurableState()
       draft.queuedMessageCount = 45
-      expect((await view.wire(current, PRINCIPAL, undefined, draft)).queuedMessageCount).toBe(2)
+      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).queuedMessageCount).toBe(2)
       await store.sync.deleteQueuedMessage('first')
-      expect((await view.wire(current, PRINCIPAL, undefined, draft)).queuedMessageCount).toBe(1)
+      expect((await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).queuedMessageCount).toBe(1)
       await store.sync.deleteQueuedMessage('second')
       current.queuedMessageCount = 99
-      expect(await view.wire(current, PRINCIPAL, undefined, draft)).not.toHaveProperty('queuedMessageCount')
+      expect(await view.wire(current, await view.buildProjectionPass([{ ...draft, sessionId: current.sessionId }], PRINCIPAL), draft)).not.toHaveProperty('queuedMessageCount')
       expect((await view.list(PRINCIPAL, 'rpc'))[0]).not.toHaveProperty('queuedMessageCount')
     } finally {
       await store.close()

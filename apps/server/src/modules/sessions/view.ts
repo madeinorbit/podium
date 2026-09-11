@@ -13,44 +13,23 @@ import { harnessCapabilitiesFor } from '../../harness-manifest'
 import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
-import type { MachinesService } from '../machines/service'
+import type { MachineFactsSnapshot, MachinesService } from '../machines/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
+import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 
-/**
- * Read-through memo for ONE full-list pass [POD-1618].
- *
- * Building the reader-scoped list asks the same few questions once per session:
- * the visibility check resolves the session's owning issue and that resource's
- * grant edges, and `computeDisplayRef` resolves the ref issue and its repo
- * prefix. Those keys are shared HEAVILY — every session attached to one issue
- * repeats that issue's row and grant query, and every session under one repo
- * repeats that repo's prefix — so a 1119-session list ran ~5 queries per
- * session where a few dozen distinct answers exist.
- *
- * Lifetime is exactly one `list()` call, which is why this is a plain object
- * passed down rather than a field: nothing can observe a stale entry, because
- * nothing outside the pass holds one. The SET of sessions returned and every
- * field on them is unchanged — the same answers, asked fewer times.
- */
-export interface SessionListMemo {
-  /** Queue sizes read once for this projection pass. */
-  queuedMessageCounts?: Map<SessionId, number>
-  /** Issue rows by id (null = looked up and absent). */
+/** Immutable inputs for one projection. No live service is reachable by wireSession. */
+export interface ProjectionPass {
+  queuedMessageCounts: ReadonlyMap<SessionId, number>
   issues: Map<string, IssueRow | null>
-  /** Grantee lists by `${resourceKind}:${resourceId}`. */
   grants: Map<string, string[]>
-  /** Repo prefix by path (null = looked up and absent). */
-  prefixes: Map<string, string | null>
+  prefixes: ReadonlyMap<string, string | null>
+  overlays: ReadonlyMap<SessionId, SessionUserOverlay>
+  machines: MachineFactsSnapshot
+  occupancy: ReadonlyMap<SessionId, number | undefined>
 }
-
-export const newSessionListMemo = (): SessionListMemo => ({
-  issues: new Map(),
-  grants: new Map(),
-  prefixes: new Map(),
-})
 
 export interface SessionViewPorts {
   sessions: Map<SessionId, Session>
@@ -200,7 +179,7 @@ export class SessionView {
       if (!session) return undefined
       const principal = forPrincipal ?? await this.defaultPrincipal()
       if (!principal) return undefined
-      if (!(await this.ports.state.canReadSession(principal, sessionId, newSessionListMemo()))) {
+      if (!(await this.ports.state.canReadSession(principal, sessionId, { issues: new Map(), grants: new Map() }))) {
         return undefined
       }
       return session.spawnedBy
@@ -215,39 +194,8 @@ export class SessionView {
   private async project(candidates: Session[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
-    // ONE memo for the whole pass [POD-1618] — see {@link SessionListMemo}.
-    const memo = newSessionListMemo()
-    // ...and fill its grant half up front [POD-1653]. Sessions with no issue key
-    // their grants on their own id, so the memo alone can never coalesce them:
-    // ~1145 distinct keys per pass, each its own zero-row statement. Primed, the
-    // whole pass costs two reads. Same rows, same freshness — see
-    // `GrantsRepository.listForResources` on why this is batching, not caching.
-    await this.ports.state.primeOwnerMemo?.(
-      memo,
-      candidates.map((session) => session.sessionId),
-    )
-    // ...and its ISSUE half the same way [POD-1931]. `computeDisplayRef` resolves
-    // `refIssueId` per session for the ref string. The memo already collapses
-    // repeats, but the ids are DISTINCT — one per issue a session was born on —
-    // so a pass over the live fleet still issued ~693 single-row statements,
-    // measured in one event-loop frame on the live server. Asking for them
-    // together makes the whole pass two reads.
-    //
-    // Same rows, same freshness: this fills the memo with exactly what
-    // `memoIssue` would have put there one statement at a time. An id that has
-    // no row is recorded as null, because `memoIssue` reads a `has()` miss as
-    // "not looked up yet" and would re-issue the statement this removes.
-    const refIssueIds = [
-      ...new Set(
-        candidates.flatMap((session) =>
-          session.refIssueId && session.refLetter ? [session.refIssueId] : [],
-        ),
-      ),
-    ]
-    if (refIssueIds.length > 0) {
-      const found = await this.ports.store.issues.getIssues(refIssueIds)
-      for (const id of refIssueIds) memo.issues.set(id, found.get(id) ?? null)
-    }
+    const pass = await this.buildProjectionPass(candidates, principal)
+    await this.ports.state.primeOwnerMemo?.(pass, candidates.map(s => s.sessionId))
     // The visibility verdicts are awaited into an ARRAY before the filter.
     // `.filter(async p)` keeps every element, because a pending promise is
     // truthy — which at this exact site would project every session in the
@@ -255,61 +203,54 @@ export class SessionView {
     const visible = await Promise.all(
       candidates.map(
         async (session) =>
-          await this.ports.state.canReadSession(principal, session.sessionId, memo),
+          await this.ports.state.canReadSession(principal, session.sessionId, pass),
       ),
     )
     const readable = candidates.filter((_session, index) => visible[index] === true)
     if (readable.length === 0) return []
-    // One fresh store read per projection pass, never an incremented session mirror.
-    memo.queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(
-      readable.length === 1 ? readable[0]!.sessionId : undefined,
-    )
-    return await Promise.all(
-      readable.map(async (session) => await this.wire(session, principal, memo)),
-    )
+    return readable.map(session => this.wire(session, pass))
   }
 
-  /**
-   * `d` is the DURABLE SOURCE this projection answers from [POD-3330], and it
-   * defaults to the live object. A write in flight passes its DRAFT, so the
-   * change the commit declares describes what is being written rather than what
-   * the live object happens to hold — which, until the install after the commit,
-   * is the previous committed state.
-   */
-  async wire(
-    session: Session,
+  /** Build after any transaction writes; drafts supply the fields being committed. */
+  async buildProjectionPass(
+    sessions: readonly (SessionDurableFields & { sessionId: SessionId })[],
     forPrincipal?: SessionStatePrincipal,
-    memo?: SessionListMemo,
-    d: SessionDurableFields = session,
-  ): Promise<SessionMeta> {
-    const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
-    const viewer = forPrincipal ?? await this.defaultPrincipal()
-    const loginCondition = await this.ports.machines.agentLoginCondition?.(d.machineId, session.agentKind)
-    const meta = session.toMeta(
-      viewer ? await this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
-      d,
-    )
-    // Commit publications call wire after their queue writes, inside the transaction.
-    const counts = memo?.queuedMessageCounts ??
-      await this.ports.store.sync.queuedMessageCounts(session.sessionId)
-    const queuedMessageCount = counts.get(session.sessionId) ?? 0
-    const occupancy = this.ports.sessionOccupancyCount?.(session.sessionId)
-    return await this.stampRef(d, memo, {
-      ...meta,
-      ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
-      // Presence-room occupancy is the product "who is watching" count when the
-      // stream plane is wired; attach-set size remains the fallback for fixtures.
-      ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
-      machineName: await this.ports.machines.machineName(d.machineId),
-      ...(loginCondition ? { condition: loginCondition } : {}),
-      ...(harnessCapabilities
-        ? {
-            harnessHandoff: harnessCapabilities.handoff,
-            harnessPromptModeHints: harnessCapabilities.promptModeHints,
-          }
-        : {}),
-    })
+  ): Promise<ProjectionPass> {
+    const principal = forPrincipal ?? await this.defaultPrincipal()
+    const ids = sessions.map(s => s.sessionId)
+    const issueIds = [...new Set(sessions.flatMap(s =>
+      [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
+    ))]
+    const found = issueIds.length ? await this.ports.store.issues.getIssues(issueIds) : new Map<string, IssueRow>()
+    const issues = new Map(issueIds.map(id => [id, found.get(id) ?? null]))
+    const grants = new Map<string, string[]>()
+    for (const kind of ['issue', 'session'] as const) {
+      const resources = [...new Set(sessions.flatMap<string>(s =>
+        kind === 'issue' ? (s.issueId ? [s.issueId] : []) : (!s.issueId ? [s.sessionId] : []),
+      ))]
+      if (!resources.length) continue
+      const edges = await this.ports.store.grants.listForResources(kind, resources)
+      for (const id of resources) grants.set(`${kind}:${id}`, granteesOf(edges.get(id) ?? []))
+    }
+    const paths = new Set(sessions.flatMap(s => {
+      const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined
+      return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
+    }))
+    const prefixes = new Map<string, string | null>()
+    if (paths.size) {
+      const prefixForPath = await this.ports.store.repos.prefixResolver()
+      for (const path of paths) prefixes.set(path, prefixForPath(path))
+    }
+    const queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(ids)
+    const overlays = principal
+      ? await this.ports.state.overlaySnapshot(principal.userId, ids)
+      : new Map<SessionId, SessionUserOverlay>()
+    const machines = await this.ports.machines.factsSnapshot()
+    const occupancy = new Map(sessions.map(s => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]))
+    return { issues, grants, prefixes, queuedMessageCounts, overlays, machines, occupancy }
   }
+
+  readonly wire = wireSession
 
   broadcastViewer(): UserId {
     return FIRST_ADMIN_USER_ID
@@ -358,53 +299,41 @@ export class SessionView {
     }
   }
 
-  private async stampRef(
-    session: SessionDurableFields,
-    memo: SessionListMemo | undefined,
-    meta: SessionMeta,
-  ): Promise<SessionMeta> {
-    const displayRef = await this.computeDisplayRef(session, memo)
-    return {
-      ...meta,
-      ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
-      ...(session.refLetter ? { refLetter: session.refLetter } : {}),
-      ...(session.refDraft != null ? { refDraft: session.refDraft } : {}),
-      ...(displayRef ? { displayRef } : {}),
-    }
-  }
+}
 
-  private async computeDisplayRef(
-    session: SessionDurableFields,
-    memo?: SessionListMemo,
-  ): Promise<string | undefined> {
-    if (session.refIssueId && session.refLetter) {
-      const issue = await this.memoIssue(session.refIssueId, memo)
-      if (!issue) return undefined
-      const prefix = await this.memoPrefix(issue.repoPath, memo)
-      return prefix
-        ? formatSessionRef({ prefix, seq: issue.seq, letter: session.refLetter })
-        : undefined
-    }
-    if (session.refDraft != null) {
-      const prefix = await this.memoPrefix(session.cwd, memo)
-      return prefix ? formatSessionRef({ prefix, draft: session.refDraft }) : undefined
-    }
-    return undefined
+/** Pure projection: only the session, its optional durable draft, and captured facts. */
+export function wireSession(
+  session: Session,
+  pass: ProjectionPass,
+  d: SessionDurableFields = session,
+): SessionMeta {
+  const meta = session.toMeta(pass.overlays.get(session.sessionId) ?? NO_SESSION_USER_STATE, d)
+  const queuedMessageCount = pass.queuedMessageCounts.get(session.sessionId) ?? 0
+  const occupancy = pass.occupancy.get(session.sessionId)
+  const loginCondition = pass.machines.loginCondition(d.machineId, session.agentKind)
+  const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
+  let displayRef: string | undefined
+  if (d.refIssueId && d.refLetter) {
+    const issue = pass.issues.get(d.refIssueId)
+    const prefix = issue && pass.prefixes.get(issue.repoPath)
+    if (prefix && issue) displayRef = formatSessionRef({ prefix, seq: issue.seq, letter: d.refLetter })
+  } else if (d.refDraft != null) {
+    const prefix = pass.prefixes.get(d.cwd)
+    if (prefix) displayRef = formatSessionRef({ prefix, draft: d.refDraft })
   }
-
-  /** Same lookup, memoized for the pass — see {@link SessionListMemo}. */
-  private async memoIssue(id: string, memo?: SessionListMemo): Promise<{ repoPath: string; seq: number } | null> {
-    if (!memo) return await this.ports.store.issues.getIssue(id) as never
-    if (!memo.issues.has(id)) memo.issues.set(id, await this.ports.store.issues.getIssue(id))
-    return memo.issues.get(id) as never
-  }
-
-  private async memoPrefix(path: string, memo?: SessionListMemo): Promise<string | null> {
-    if (!memo) return await this.ports.store.repos.prefixForPath(path) ?? null
-    const hit = memo.prefixes.get(path)
-    if (hit !== undefined) return hit
-    const value = await this.ports.store.repos.prefixForPath(path) ?? null
-    memo.prefixes.set(path, value)
-    return value
+  return {
+    ...meta,
+    ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
+    ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
+    machineName: pass.machines.name(d.machineId),
+    ...(loginCondition ? { condition: loginCondition } : {}),
+    ...(harnessCapabilities ? {
+      harnessHandoff: harnessCapabilities.handoff,
+      harnessPromptModeHints: harnessCapabilities.promptModeHints,
+    } : {}),
+    ...(d.refIssueId ? { refIssueId: d.refIssueId } : {}),
+    ...(d.refLetter ? { refLetter: d.refLetter } : {}),
+    ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),
+    ...(displayRef ? { displayRef } : {}),
   }
 }

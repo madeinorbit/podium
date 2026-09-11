@@ -59,7 +59,7 @@ async function fixture() {
     // The composition root's wiring (`session-wiring.ts`), which is the whole
     // subject here.
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
-    view: { wire: (s: Session) => ({ sessionId: s.sessionId, title: s.title }) },
+    view: { buildProjectionPass: async () => ({}), wire: (s: Session) => ({ sessionId: s.sessionId, title: s.title }) },
     now: () => Date.now(),
     broadcastSessions: vi.fn(),
     flushBroadcasts: vi.fn(),

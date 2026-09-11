@@ -42,7 +42,7 @@ function fixture(count: number) {
   const repo = new SessionRepository({
     sessions,
     ledger: { capture },
-    view: { wire },
+    view: { buildProjectionPass: async () => ({}), wire },
     now: () => Date.now(),
     runScheduledBroadcast,
     broadcastSessions: vi.fn(),

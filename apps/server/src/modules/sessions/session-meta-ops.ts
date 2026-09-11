@@ -46,7 +46,7 @@ export interface SessionMetaOpsPorts {
   state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts' | 'invalidateAllOverlays'>
   store: SessionStore
   toPtyInput: MachinesService['toPtyInput']
-  view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire'>
+  view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'>
 }
 
 export class SessionMetaOps {
@@ -460,9 +460,10 @@ export class SessionMetaOps {
     const installDrafts = await this.ports.state.prepareStoredDrafts(restored.map(({ session }) => session.sessionId))
     const installs: Awaited<ReturnType<SessionRepository['prepareStoredSessionInstall']>>[] = []
     for (const { session } of restored) installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
-    const view: Pick<SessionView, 'wire'> = this.ports.view
+    const view: Pick<SessionView, 'wire' | 'buildProjectionPass'> = this.ports.view
+    const pass = await view.buildProjectionPass(restored.map(({ session }) => session))
     const restoredSessions: SessionMeta[] = []
-    for (const { session } of restored) restoredSessions.push(await view.wire(session))
+    for (const { session } of restored) restoredSessions.push(await view.wire(session, pass))
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),
       restoredSessions,

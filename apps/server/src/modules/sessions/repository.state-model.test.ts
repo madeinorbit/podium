@@ -74,8 +74,8 @@ function fixture() {
       },
       capture: () => [],
     },
-    view: {
-      wire: (s: Session, _p: unknown, _m: unknown, d: { title: string; name: string } = s) => ({
+    view: { buildProjectionPass: async () => ({}),
+      wire: (s: Session, _pass: unknown, d: { title: string; name: string } = s) => ({
         sessionId: s.sessionId,
         title: d.title,
         name: d.name,
@@ -309,7 +309,7 @@ describe('driver columns participate in draft commits', () => {
             return { changes: [] }
           },
         },
-        view: { wire: () => ({}) },
+        view: { buildProjectionPass: async () => ({}), wire: () => ({}) },
       } as never)
       await repo.persist(session)
       const lifecycle = new SessionDaemonLifecycle({
@@ -394,8 +394,8 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
         },
         capture: () => [],
       },
-      view: {
-        wire: (s: Session, _p: unknown, _m: unknown, d: { title: string; name: string } = s) => ({
+      view: { buildProjectionPass: async () => ({}),
+        wire: (s: Session, _pass: unknown, d: { title: string; name: string } = s) => ({
           sessionId: s.sessionId,
           title: d.title,
           name: d.name,

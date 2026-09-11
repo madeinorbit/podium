@@ -195,6 +195,9 @@ export type StoreDrizzle = Omit<
   'transaction'
 >
 
+/** Named callback seam so the effect graph never classifies every anonymous function here. */
+export type PreparedQueryForDb<P> = (db: StoreDrizzle) => P
+
 /**
  * ONE PREPARED QUERY PER DRIZZLE INSTANCE [POD-3854].
  *
@@ -223,7 +226,7 @@ export type StoreDrizzle = Omit<
  * transaction and is collected with it, and once per transaction is strictly
  * less than the once per CALL the fluent form was already paying.
  */
-export function preparedPerDb<P>(build: (db: StoreDrizzle) => P): (db: StoreDrizzle) => P {
+export function preparedPerDb<P>(build: (db: StoreDrizzle) => P): PreparedQueryForDb<P> {
   const cache = new WeakMap<object, P>()
   return (db) => {
     const key = db as unknown as object

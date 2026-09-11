@@ -594,12 +594,15 @@ export class SyncRepository {
     }))
   }
 
-  /** Read current queue sizes, optionally restricted to one session. */
-  async queuedMessageCounts(sessionId?: SessionId): Promise<Map<SessionId, number>> {
+  /** Read current queue sizes, optionally restricted to one session or one set. */
+  async queuedMessageCounts(sessionId?: SessionId | readonly SessionId[]): Promise<Map<SessionId, number>> {
     const rows = await this.db
       .select({ sessionId: this.queuedMessages.sessionId, n: count() })
       .from(this.queuedMessages)
-      .where(sessionId === undefined ? undefined : eq(this.queuedMessages.sessionId, sessionId))
+      .where(sessionId === undefined ? undefined : typeof sessionId === 'string'
+        ? eq(this.queuedMessages.sessionId, sessionId)
+        // One bound JSON value keeps a fleet-sized set below SQLite's parameter limit.
+        : inArray(this.queuedMessages.sessionId, sql`(select value from json_each(${JSON.stringify(sessionId)}))`))
       .groupBy(this.queuedMessages.sessionId)
       .all()
     return new Map(rows.map((r) => [r.sessionId, r.n]))

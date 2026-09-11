@@ -337,6 +337,15 @@ export class SessionStateService {
     }
   }
 
+  /** Capture the reader cache once; the returned overlays have no service access. */
+  async overlaySnapshot(userId: UserId, sessionIds: readonly SessionId[]): Promise<ReadonlyMap<SessionId, SessionUserOverlay>> {
+    const cached = await this.cachedOverlay(userId)
+    return new Map(sessionIds.map(id => [id, {
+      readAt: cached.readAt[id] ?? null,
+      snoozedUntil: id in cached.snoozes ? cached.snoozes[id] : undefined,
+    }]))
+  }
+
   async readOverlay(
     principal: SessionStatePrincipal,
     sessionId: SessionId,
