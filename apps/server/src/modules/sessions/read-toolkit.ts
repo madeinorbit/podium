@@ -22,13 +22,14 @@ import type {
   TranscriptItem,
   MachineId,
 } from '@podium/model'
-import { resolveSessionIdentifier } from '@podium/protocol'
+import { parseSessionRef, resolveSessionIdentifier } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { buildBtwDelta, buildBtwRecap, lineForItem } from '../superagent/btw'
+import type { SessionFacts } from './facts'
 
 /** Hard caps: transcript lines per read call and turns per window. */
 export const READ_LINE_CAP = 200
@@ -50,7 +51,18 @@ export type {
 }
 
 export interface SessionReadToolkitDeps {
-  listSessions(): Promise<SessionMeta[]>
+  /**
+   * THE CHEAP FLEET READ [POD-3857]. Every question this toolkit asks of the
+   * fleet — which session does this ref name, which issue's members are
+   * candidates, which sessions descend from this one — is decided by fields the
+   * live registry already holds. Only the sessions that SURVIVE those decisions
+   * are wired, through the two narrow reads below.
+   */
+  sessionFacts(): SessionFacts[]
+  /** ONE session by id, wired [POD-1646]. */
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** A KNOWN SET, wired [POD-2322] — the subagent tree, once it is known. */
+  sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
   issues: IssueService
   messages: MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
@@ -91,17 +103,33 @@ export type ReaderRef = SessionId | 'operator' | 'superagent' | `superagent:${st
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
 
-  private phaseOf(session: SessionMeta): string {
+  private phaseOf(session: {
+    agentState?: { phase?: string | undefined } | undefined
+    busy?: boolean | undefined
+  }): string {
     const phase = session.agentState?.phase
     if (phase === 'needs_user') return 'blocked'
     return phase ?? (session.busy ? 'working' : 'idle')
   }
 
-  private async subagentsOf(target: SessionMeta): Promise<SessionStatusSubagent[]> {
-    const all = await this.deps.listSessions()
-    const result: SessionStatusSubagent[] = []
+  /**
+   * The spawn subtree under one session.
+   *
+   * The WALK runs on facts — `spawnedBy` is a plain durable field — and only
+   * the descendants it finds are wired [POD-3857]. That matters here more than
+   * anywhere else in this file: the walk is over the WHOLE fleet at every level
+   * of the queue, and a status read on a session with no children used to build
+   * the full reader-scoped projection to discover exactly that.
+   *
+   * `displayRef` is why the survivors still need wiring: it resolves the ref
+   * issue's row and its repo prefix, which is a store read per session and so
+   * cannot come from memory.
+   */
+  private async subagentsOf(target: { sessionId: SessionId }): Promise<SessionStatusSubagent[]> {
+    const all = this.deps.sessionFacts()
+    const found: Array<{ child: SessionFacts; parentSessionId: SessionId }> = []
     const seen = new Set([target.sessionId])
-    const queue = [target.sessionId]
+    const queue: SessionId[] = [target.sessionId]
     while (queue.length > 0) {
       const parentSessionId = queue.shift()
       if (!parentSessionId) break
@@ -110,28 +138,113 @@ export class SessionReadToolkit {
         if (child.spawnedBy !== `session:${parentSessionId}`) continue
         seen.add(child.sessionId)
         queue.push(child.sessionId)
-        result.push({
-          sessionId: child.sessionId,
-          ...(child.displayRef ? { displayRef: child.displayRef } : {}),
-          parentSessionId,
-          harness: child.agentKind,
-          model: child.observedModel ?? child.requestedModel ?? child.model ?? null,
-          effort: child.observedEffort ?? child.requestedEffort ?? child.effort ?? null,
-          contextUsagePercent: child.contextUsagePercent ?? null,
-          status: child.status,
-          phase: this.phaseOf(child),
-        })
+        found.push({ child, parentSessionId })
       }
     }
+    if (found.length === 0) return []
+    const wired = new Map(
+      (await this.deps.sessionsById(found.map((f) => f.child.sessionId))).map((s) => [
+        s.sessionId,
+        s,
+      ]),
+    )
+    // AN INVISIBLE ANCESTOR HIDES ITS DESCENDANTS, as it did before POD-3857.
+    //
+    // The walk above runs on facts, which have no visibility rule, so it
+    // reaches children the old walk never got to: that one enumerated a
+    // reader-scoped list, so an unreadable child was simply not there to be
+    // queued, and its own children were unreachable through it. Dropping only
+    // the unreadable rows at the end would therefore PROMOTE a hidden session's
+    // children into a reader's view. Re-walk from the target instead, admitting
+    // a session only when it is readable AND its parent was kept.
+    const visible = new Set([target.sessionId])
+    let grew = true
+    while (grew) {
+      grew = false
+      for (const { child, parentSessionId } of found) {
+        if (visible.has(child.sessionId)) continue
+        if (!visible.has(parentSessionId) || !wired.has(child.sessionId)) continue
+        visible.add(child.sessionId)
+        grew = true
+      }
+    }
+    const result: SessionStatusSubagent[] = []
+    for (const { child, parentSessionId } of found) {
+      if (!visible.has(child.sessionId)) continue
+      const displayRef = wired.get(child.sessionId)?.displayRef
+      result.push({
+        sessionId: child.sessionId,
+        ...(displayRef ? { displayRef } : {}),
+        parentSessionId,
+        harness: child.agentKind,
+        model: child.observedModel ?? child.requestedModel ?? child.model ?? null,
+        effort: child.observedEffort ?? child.requestedEffort ?? child.effort ?? null,
+        contextUsagePercent: child.contextUsagePercent ?? null,
+        status: child.status,
+        phase: this.phaseOf(child),
+      })
+    }
     return result
+  }
+
+  /**
+   * A SESSION IDENTIFIER, RESOLVED WITHOUT A FLEET PASS [POD-3857].
+   *
+   * An internal id answers off facts alone — that is the overwhelmingly common
+   * case and it costs a `find`. A human-facing BIRTH REF cannot: `displayRef`
+   * is formatted from the ref issue's row and its repo's prefix, so it lives
+   * only on the projection.
+   *
+   * What makes the ref case cheap anyway is that the ref's own SHAPE narrows
+   * the candidates first. `PREFIX-seq-LETTER` can only be a session holding
+   * that letter, and `PREFIX-DRAFT-n` only one holding that draft ordinal — a
+   * handful of sessions across the fleet, and usually exactly one. Those are
+   * wired, and {@link resolveSessionIdentifier} then makes the SAME comparison
+   * against the SAME formatted string it always did. A ref that matches nothing
+   * still matches nothing.
+   */
+  private async resolveFacts(
+    identifier: string,
+    all: readonly SessionFacts[],
+  ): Promise<SessionFacts | undefined> {
+    const direct = all.find((session) => session.sessionId === identifier)
+    if (direct) return direct
+    const parsed = parseSessionRef(identifier)
+    if (!parsed) return undefined
+    const candidates = all.filter((session) =>
+      parsed.letter !== undefined
+        ? session.refLetter === parsed.letter
+        : session.refDraft === parsed.draft,
+    )
+    if (candidates.length === 0) return undefined
+    const wired = await this.deps.sessionsById(candidates.map((c) => c.sessionId))
+    const hit = resolveSessionIdentifier(identifier, wired)
+    return hit ? all.find((session) => session.sessionId === hit.sessionId) : undefined
+  }
+
+  /**
+   * A session identifier the READER MAY SEE.
+   *
+   * Facts carry no visibility — they are the server's own view of its fleet —
+   * so a transcript read resolves through them and then confirms against the
+   * by-id projection, which applies `canReadSession` for the same principal the
+   * full list applied it for. Before POD-3857 the visibility check came for
+   * free, because the list this resolved against was already reader-scoped;
+   * this keeps that property rather than inheriting it. It matters here more
+   * than anywhere else in this file: what follows a successful resolve is
+   * transcript text, which can carry secrets.
+   */
+  private async resolveVisible(identifier: string): Promise<SessionMeta | undefined> {
+    const found = await this.resolveFacts(identifier, this.deps.sessionFacts())
+    return found ? await this.deps.sessionById(found.sessionId) : undefined
   }
 
   /** Resolve a status ref — a session id/birth ref, or an issue ref
    *  (#N/seq/id) whose best member session (live preferred, else most recent
    *  agent) is picked. */
-  async resolveTarget(ref: string): Promise<SessionMeta | undefined> {
-    const all = await this.deps.listSessions()
-    const direct = resolveSessionIdentifier(ref, all)
+  async resolveTarget(ref: string): Promise<SessionFacts | undefined> {
+    const all = this.deps.sessionFacts()
+    const direct = await this.resolveFacts(ref, all)
     if (direct) return direct
     let issueId: string
     try {
@@ -151,7 +264,14 @@ export class SessionReadToolkit {
   }
 
   async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
-    const target = await this.resolveTarget(ref)
+    const found = await this.resolveTarget(ref)
+    if (!found) throw new Error(`no session found for ${ref}`)
+    // SELECTED from facts, WIRED once [POD-3857]. The status payload names the
+    // machine and the bound driver, and `machineName` is resolved by the
+    // machines service rather than held on the session, so the ONE session this
+    // read is about goes through the by-id projection. Everything above chose
+    // it without projecting anything.
+    const target = await this.deps.sessionById(found.sessionId)
     if (!target) throw new Error(`no session found for ${ref}`)
     await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
@@ -226,7 +346,7 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; turns?: number; cursor?: string },
     reader: ReaderRef,
   ): Promise<SessionReadResult> {
-    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
+    const target = await this.resolveVisible(input.sessionId)
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     await this.logRead('session.transcript_read', target.sessionId, reader)
     const limit = Math.min(Math.max(1, input.turns ?? 20), READ_TURN_CAP)
@@ -281,7 +401,7 @@ export class SessionReadToolkit {
     input: { sessionId: SessionId; since?: string },
     reader: ReaderRef,
   ): Promise<SessionRecapResult> {
-    const target = resolveSessionIdentifier(input.sessionId, await this.deps.listSessions())
+    const target = await this.resolveVisible(input.sessionId)
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     await this.logRead('session.recap_read', target.sessionId, reader)
     const since =

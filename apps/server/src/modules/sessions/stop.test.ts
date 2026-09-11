@@ -139,14 +139,14 @@ describe('stopSession [spec:SP-9904]', () => {
       issueId: issue.id,
     })
     await bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     await reg.modules.sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
-    expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.unread).toBe(false)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
-    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.status).toBe('hibernated')
     expect(meta?.stoppedAt).toBeTruthy()
     // A plain (no --force) operator stop is an orderly park — never 'forced'.
@@ -181,7 +181,7 @@ describe('stopSession [spec:SP-9904]', () => {
 
     await expect(reg.modules.issueSessionLifecycle.stopSession({ sessionId })).rejects.toBe(failure)
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status)
       .toBe('live')
   })
 
@@ -213,7 +213,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.reason).toMatch(/unsaved changes/)
     expect(r.reason).toMatch(/dirty\.ts/)
     // Still live — not parked.
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     // Branch and worktree unchanged.
     expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBe('/r/.worktrees/issue-2-dirty')
   })
@@ -249,7 +249,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.stopReason,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.stopReason,
     ).toBe('forced')
     expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/3-force')
     expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
@@ -267,7 +267,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.ok).toBe(true)
     expect(r.deferredKill).toBe(true)
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.stopReason,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.stopReason,
     ).toBe('self')
     // No timer — kill is not sent until the relay replies.
     expect(daemon.some((m) => m.type === 'kill')).toBe(false)
@@ -532,7 +532,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     await reg.modules.issues.update(issue.id, { stage: 'done' })
 
     await vi.waitFor(async () => {
-      expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
         'hibernated',
       )
       expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
@@ -594,7 +594,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     expect(r.stopped.sort()).toEqual([a, b].sort())
     expect(r.worktreeFreed).toBe(true)
     for (const id of [a, b]) {
-      expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === id)?.status).toBe(
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)?.status).toBe(
         'hibernated',
       )
     }

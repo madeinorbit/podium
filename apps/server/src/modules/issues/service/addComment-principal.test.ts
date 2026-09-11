@@ -5,6 +5,7 @@ import { systemPrincipal, userCommandPrincipal } from '../../../command-principa
 import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './index'
 import { issueTestPlumbing } from './test-plumbing'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 
 /**
  * `addComment` must never invent a caller identity (POD-1315).
@@ -34,7 +35,7 @@ async function harness() {
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

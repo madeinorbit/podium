@@ -141,7 +141,7 @@ describe('oracle: two-user SessionService fixture', () => {
     }
     expect(
       (await f.o.reg.modules.sessions
-        .listSessions(narrowBob))
+        .listSessions(narrowBob, 'rpc'))
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.bob.sessionId])
@@ -414,7 +414,7 @@ describe('oracle: native identity receipts', () => {
     expect((await f.o.meta(f.bob.sessionId)).resume).toBeUndefined()
     expect(
       (await f.o.reg.modules.sessions
-        .listSessions())
+        .listSessions(undefined, 'rpc'))
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.alice.sessionId, f.bob.sessionId].sort())
@@ -516,7 +516,7 @@ describe('oracle: spawn placement fails closed', () => {
         { id: asMachineId('offline'), name: 'Offline' },
       ],
     })
-    const sessions = async () => (await o.reg.modules.sessions.listSessions()).length
+    const sessions = async () => (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length
 
     expect(
       await messageOf(() =>

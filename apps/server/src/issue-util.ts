@@ -24,13 +24,25 @@ export function isMemberCwd(issueWorktree: string | null, cwd: string): boolean 
 
 /** Sessions belonging to an issue. Precedence (issue-as-workspace): a session
  *  with an EXPLICIT issueId belongs to that issue only; sessions without one
- *  fall back to cwd containment in the issue's worktree. */
-export function sessionsForIssue(
+ *  fall back to cwd containment in the issue's worktree.
+ *
+ *  GENERIC OVER THE ROW, not fixed to `SessionMeta` [POD-3857]: membership is
+ *  decided by two fields, and the internal callers that ask this question now
+ *  hold a cheap `SessionFacts` snapshot rather than a reader-scoped projection.
+ *  Naming the two fields it reads is also what stops this helper from quietly
+ *  acquiring a dependency on a projection-only field. */
+export function sessionsForIssue<T extends IssueMemberFields>(
   worktreePath: string | null,
-  sessions: SessionMeta[],
+  sessions: readonly T[],
   issueId?: IssueId,
-): SessionMeta[] {
+): T[] {
   return sessions.filter((s) => isIssueMember(worktreePath, issueId, s))
+}
+
+/** The two fields issue membership is decided by. */
+export interface IssueMemberFields {
+  issueId?: IssueId | undefined
+  cwd: string
 }
 
 /**
@@ -48,7 +60,7 @@ export function sessionsForIssue(
 export function isIssueMember(
   worktreePath: string | null,
   issueId: IssueId | undefined,
-  session: { issueId?: IssueId; cwd: string },
+  session: IssueMemberFields,
 ): boolean {
   return session.issueId ? session.issueId === issueId : isMemberCwd(worktreePath, session.cwd)
 }
@@ -59,11 +71,13 @@ export function isIssueMember(
  * excludes sessions with a different explicit issueId even when they share the
  * path — freeing under those would delete a worktree still in use.
  */
-export function liveSessionsUsingWorktree(
+export function liveSessionsUsingWorktree<
+  T extends { sessionId: SessionId; status: SessionMeta['status']; cwd: string },
+>(
   worktreePath: string | null,
-  sessions: SessionMeta[],
+  sessions: readonly T[],
   exceptSessionId?: SessionId,
-): SessionMeta[] {
+): T[] {
   if (!worktreePath) return []
   return sessions.filter(
     (s) =>
@@ -75,7 +89,9 @@ export function liveSessionsUsingWorktree(
 
 /** The wire's `sessionSummary` (#175): counts by agent phase, so a client can
  *  render "3 working" without the session list. Shells count under 'shell'. */
-export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary {
+export function summarizeSessions(
+  sessions: readonly { agentState?: { phase?: string | undefined } | undefined }[],
+): IssueSessionSummary {
   const byPhase: Record<string, number> = {}
   for (const s of sessions) {
     const key = s.agentState?.phase ?? 'shell'
@@ -91,7 +107,7 @@ export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary 
  *  - none → null (mail waits for prime / the stop-hook).
  *  Shells never get nudged. */
 export function selectMailNudgeSession(
-  sessions: SessionMeta[],
+  sessions: readonly NudgeCandidate[],
   coordinatorSessionId?: SessionId | null,
 ): { sessionId: SessionId; mode: 'send' | 'queue' } | null {
   const live = sessions.filter((s) => s.agentKind !== 'shell' && s.status === 'live')
@@ -111,13 +127,23 @@ export function selectMailNudgeSession(
  * sessions, while steward issue nudges also accept starting sessions and apply
  * self/causer exclusions first. A missing, dangling, or excluded coordinator
  * leaves the caller's existing fallback set unchanged. */
-export function preferIssueCoordinator(
-  sessions: SessionMeta[],
+export function preferIssueCoordinator<T extends { sessionId: SessionId }>(
+  sessions: readonly T[],
   coordinatorSessionId?: SessionId | null,
-): SessionMeta[] {
-  if (!coordinatorSessionId) return sessions
+): T[] {
+  if (!coordinatorSessionId) return [...sessions]
   const coordinator = sessions.find((session) => session.sessionId === coordinatorSessionId)
-  return coordinator ? [coordinator] : sessions
+  return coordinator ? [coordinator] : [...sessions]
+}
+
+/** What nudge target selection reads off a session — see
+ *  {@link selectMailNudgeSession}. */
+export interface NudgeCandidate {
+  sessionId: SessionId
+  agentKind: SessionMeta['agentKind']
+  status: SessionMeta['status']
+  lastActiveAt: string
+  agentState?: { phase?: string | undefined } | undefined
 }
 
 export function stageIndex(stage: IssueStage): number {

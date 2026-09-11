@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueWire, MachineId, SessionId, SessionMeta, UserId } from '@podium/model'
+import type { IssueId, IssueWire, MachineId, SessionId, UserId } from '@podium/model'
 import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
@@ -12,6 +12,7 @@ import {
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
+import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
@@ -527,7 +528,7 @@ export class IssueAttentionModule {
   ): Promise<IssueWire[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueWire[] = []
-    let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
+    let sessionList: SessionFacts[] | undefined // taken lazily — only if a row clears the cheap gates
     for (const row of this.store.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
@@ -541,7 +542,7 @@ export class IssueAttentionModule {
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
       // Post-read activity re-marks the issue unread (the operator hasn't seen it):
       // honour that here so a re-touched done issue isn't archived out from under them.
-      sessionList ??= await this.store.deps.listSessions()
+      sessionList ??= this.store.deps.sessionFacts()
       const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
       if (this.store.computeUnread(row, sessions)) continue
       out.push(await this.autoArchive(row, principal))

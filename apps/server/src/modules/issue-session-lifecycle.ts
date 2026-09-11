@@ -221,11 +221,7 @@ export class IssueSessionLifecycle {
       current.id,
       current.worktreePath,
     )
-    const deletedIds = new Set(sessionPlan.sessionIds)
-    const remainingSessions = (await this.deps.sessions
-      .listSessions(undefined, 'issueDeleteRestore'))
-      .filter((s) => !deletedIds.has(s.sessionId))
-    const issuePlan = await this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
+    const issuePlan = await this.deps.issues.prepareSoftDelete(current.id)
 
     await this.deps.ledger.commit({
       write: async () => {
@@ -274,14 +270,7 @@ export class IssueSessionLifecycle {
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
-    const restoredIds = new Set(sessionPlan.sessionIds)
-    const restoredSessions = [
-      ...(await this.deps.sessions
-        .listSessions(undefined, 'issueDeleteRestore'))
-        .filter((s) => !restoredIds.has(s.sessionId)),
-      ...sessionPlan.restoredSessions,
-    ]
-    const issuePlan = await this.deps.issues.prepareRestore(current.id, restoredSessions)
+    const issuePlan = await this.deps.issues.prepareRestore(current.id)
 
     await this.deps.ledger.commit({
       write: async () => {

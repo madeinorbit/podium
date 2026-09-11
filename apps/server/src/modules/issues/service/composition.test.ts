@@ -6,6 +6,7 @@ import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '.'
 import { DEFAULT_ISSUE_REPORT_VISIBILITY } from './reads'
 import { issueTestPlumbing } from './test-plumbing'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 
 const source = (relative: string): string =>
   readFileSync(new URL(relative, import.meta.url), 'utf8')
@@ -14,7 +15,7 @@ describe('issue tracker capability composition', () => {
   it('exposes all capability interfaces over the same live store', async () => {
     const deps: IssueDeps = {
       store: await openTestStore(':memory:'),
-      listSessions: async () => [],
+      ...sessionReadPorts(() => []),
       getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {

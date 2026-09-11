@@ -22,6 +22,8 @@ import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
+import { metasAsFacts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -50,7 +52,7 @@ async function harness(
   }
   const issueDeps: IssueDeps = {
     store,
-    listSessions: async () => sessions,
+    ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
@@ -67,7 +69,8 @@ async function harness(
     facts: store.notificationFacts,
     messages: store.messages,
     issues,
-    listSessions: async () => sessions,
+    sessionFacts: () => metasAsFacts(sessions),
+    sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     sendTextWhenReady,
     notify,
     getSettings: async () => settings,

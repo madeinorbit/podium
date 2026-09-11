@@ -6,6 +6,7 @@ import { captureLogs } from '../test-support/capture-logs'
 import { openTestStore } from '../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './issues/service'
 import { issueTestPlumbing } from './issues/service/test-plumbing'
+import { sessionReadPorts } from '../test-support/session-facts'
 
 /**
  * `onIssueClosed` (crud.ts) reaches `IssueSessionLifecycle.stopClosedIssue`,
@@ -65,7 +66,7 @@ describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
     const closed: string[] = []
     const deps: IssueDeps = {
       store,
-      listSessions: async () => [],
+      ...sessionReadPorts(() => []),
       getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {

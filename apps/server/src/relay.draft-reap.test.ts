@@ -80,7 +80,7 @@ describe('draft retention on session death', () => {
     expect(await reg.issues.get(draft.id)).not.toBeNull()
     await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(draft.id)).not.toBeNull()
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 
@@ -108,7 +108,7 @@ describe('draft retention on session death', () => {
 
     expect(await reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
-    expect(await reg.modules.sessions.listSessions()).toContainEqual(
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
     )
 
@@ -117,7 +117,7 @@ describe('draft retention on session death', () => {
     })
     expect(await restarted.issues.get(draft.id)).not.toBeNull()
     expect(restarted.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
-    expect(await restarted.modules.sessions.listSessions()).toContainEqual(
+    expect(await restarted.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
     )
   })
@@ -211,7 +211,7 @@ describe('explicit rehome draft cleanup', () => {
 
     expect(await reg.issues.get(exited.draft.id)).not.toBeNull()
     expect(reg.modules.sessions.getSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
-    expect(await reg.modules.sessions.listSessions()).toContainEqual(
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({
         sessionId: exited.sessionId,
         status: 'exited',

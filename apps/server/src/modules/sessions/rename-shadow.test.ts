@@ -71,7 +71,7 @@ async function stack() {
 
 /** What both paths write, read back off the row. The shared observable truth. */
 async function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: string) {
-  const row = (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
+  const row = (await sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
   return { name: row?.name, nameSource: row?.nameSource }
 }
 

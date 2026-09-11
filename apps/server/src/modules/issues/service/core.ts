@@ -41,6 +41,7 @@ import {
 } from '../projection'
 import type { PublishSpec } from '../publish'
 import { IssueNotFound } from './not-found'
+import type { SessionFacts } from '../../sessions/facts'
 import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
@@ -152,17 +153,21 @@ export class IssueStore {
    * issue. `listSessionsForIssue` asks the question directly, so the projection
    * is built for members only.
    *
-   * The fallback is not decoration. `IssueDeps` is satisfied by a dozen test
-   * fixtures that supply `listSessions` and nothing else, and by definition the
-   * fallback computes the identical answer — same predicate, applied after the
-   * pass instead of before. A fixture that never wired the narrow port is slow,
-   * not wrong.
+   * WIRED, and only the callers that hand these sessions to a reader should be
+   * here [POD-3857]: the members carry `displayRef`, which exists only on the
+   * projection. Everything the service decides for ITSELF asks
+   * {@link factsFor} instead.
    */
   async sessionsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): Promise<SessionMeta[]> {
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
-    const narrow = this.deps.listSessionsForIssue
-    if (narrow) return await narrow(row.worktreePath, row.id)
-    return sessionsForIssue(row.worktreePath, await this.deps.listSessions(), row.id)
+    return await this.deps.listSessionsForIssue(row.worktreePath, row.id)
+  }
+
+  /** The same membership question, answered from memory — see
+   *  {@link SessionFacts}. No visibility check, no wire fields, no I/O. */
+  factsFor(row: Pick<IssueRow, 'id' | 'worktreePath' | 'stage'>): SessionFacts[] {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) return []
+    return sessionsForIssue(row.worktreePath, this.deps.sessionFacts(), row.id)
   }
 
   /** One issue's markers for the broadcast viewer, as the wire wants them. */
@@ -512,7 +517,9 @@ export class IssueStore {
    *  DERIVED, NEVER STORED (POD-1076): it joins one person's `readAt` to a shared
    *  `lastActiveAt`, so it is a fact about a reader AND an issue and belongs to
    *  neither row alone. */
-  computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
+  /** Generic over the row [POD-3857]: `lastActiveAt` is the only session field
+   *  this reads, and the auto-archive sweep now asks it with facts. */
+  computeUnread(row: IssueRow, sessions: readonly { lastActiveAt: string }[]): boolean {
     if (row.deletedAt) return false
     const readAt = this.issueOverlay(row.id).readAt
     if (readAt == null) return true

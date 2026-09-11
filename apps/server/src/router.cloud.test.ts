@@ -193,7 +193,7 @@ describe('cloud router', () => {
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status,
     ).toBe('hibernated')
     expect(cloud.createdAgents.at(-1)).toMatchObject({
       sourceSession: {

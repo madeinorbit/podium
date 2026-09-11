@@ -209,10 +209,9 @@ export interface HandoffPorts {
   readonly rpc: HandoffRpcPort
   /** The live row, or undefined. Absence maps to this command's pinned throw. */
   getSession(sessionId: SessionId): Session | undefined
-  /** Every session, for the target worktree-occupancy guard. */
-  listSessions(): Promise<
-    { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
-  >
+  /** Every session, for the target worktree-occupancy guard. Four fields, all
+   *  of them held in memory — see `sessionFacts` [POD-3857]. */
+  sessionFacts(): { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
   listRepos(): Promise<HandoffRepo[]>
   listMachines(): Promise<HandoffMachine[]>
   /** Join a freshly attached target's first current-generation inventory report. */

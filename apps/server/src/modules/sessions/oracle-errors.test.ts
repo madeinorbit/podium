@@ -62,7 +62,7 @@ describe('oracle: not-found shape, per write', () => {
     ).resolves.toBeUndefined()
 
     expect(await o.store.sessions.loadSessions()).toEqual([])
-    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
   })
 
   it(`${SESSION_STATE_CLOSED_DEFAULT}: snooze writes on an unknown session are silent no-ops with no row`, async () => {
@@ -207,7 +207,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p', machineId: 'gone' }),
       ),
     ).toBe("machine 'Gone' is offline")
-    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
   })
 
   it(`${MUST_NOT_CHANGE}: resume against an OFFLINE machine throws the same reachability message as create, and spawns nothing`, async () => {
@@ -224,7 +224,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         }),
       ),
     ).toBe("machine 'Gone' is offline")
-    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
     expect(o.daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 

@@ -13,7 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
-import { findSessionByIdAsync } from './modules/sessions/session-by-id'
+import type { SessionFacts } from './modules/sessions/facts'
 import type { SessionStore, Subscription } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
@@ -300,12 +300,15 @@ export interface StewardDeps {
    *  steward's own nudge for the same fact would just be a duplicate? */
   messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
-  listSessions: () => Promise<SessionMeta[]>
-  /** ONE session by id, without the full reader-scoped pass [POD-1646].
-   *  Optional for the same reason `listSessionsForIssue` is — the many test
-   *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?: (sessionId: SessionId) => Promise<SessionMeta | undefined>
+  /**
+   * THE CHEAP FLEET READ [POD-3857]. The steward decides who to nudge from
+   * `issueId`, `cwd`, `status`, `agentKind`, `spawnedBy` and a label — none of
+   * which the reader-scoped projection adds anything to. It used to take the
+   * projection, four times per tick.
+   */
+  sessionFacts: () => SessionFacts[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
+  sessionById: (sessionId: SessionId) => Promise<SessionMeta | undefined>
   /** Widened to a PROMISE, not to `UserId | undefined | Promise<...>` [POD-3507,
    *  spec rule 52b]: the union form is what lets an unawaited call read as an
    *  always-truthy value at the consumer, and this one feeds a notification's
@@ -679,7 +682,7 @@ export class StewardService {
   private async dispatchSubscriptions(events: StewardEvent[]): Promise<void> {
     const subs = await this.deps.store.listEnabledSubscriptions()
     if (subs.length === 0) return
-    const sessions = await this.deps.listSessions()
+    const sessions = this.deps.sessionFacts()
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
@@ -711,7 +714,7 @@ export class StewardService {
   private async sourceMatches(
     sub: Subscription,
     ev: { isSession: boolean; subject: string; srcIssueId: IssueId | null },
-    sessions: SessionMeta[],
+    sessions: readonly SessionFacts[],
   ): Promise<boolean> {
     if (sub.sourceKind === 'session') {
       return ev.isSession && sub.sourceRef === ev.subject
@@ -735,7 +738,7 @@ export class StewardService {
 
   /** The issue a subscription's relationship source is anchored on: the subscriber
    *  issue itself, or (for a session subscriber) that session's bound issue. */
-  private subscriberIssueId(sub: Subscription, sessions: SessionMeta[]): IssueId | undefined {
+  private subscriberIssueId(sub: Subscription, sessions: readonly SessionFacts[]): IssueId | undefined {
     if (sub.subscriberKind === 'issue') return asIssueId(sub.subscriberId)
     return sessions.find((s) => s.sessionId === sub.subscriberId)?.issueId ?? undefined
   }
@@ -747,7 +750,7 @@ export class StewardService {
    *  dedup and the event log are keyed on; the push is what the switch's label
    *  ("Send an external notification") has always promised.
    *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
-  private async deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): Promise<void> {
+  private async deliverSubscription(sub: Subscription, e: StewardEvent, sessions: readonly SessionFacts[]): Promise<void> {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
     if (!await this.deps.store.markDelivered(sub.id, e.id)) return
     const factKey = `sub:${sub.event}:${e.subject}`
@@ -836,7 +839,7 @@ export class StewardService {
   /** The sessions a subscriber's nudge reaches: the one session for a `session`
    *  subscriber, or the member sessions of an `issue` subscriber's worktree (same
    *  no-resurrect/no-shell filtering the caller applies). */
-  private async subscriberNudgeTargets(sub: Subscription, sessions: SessionMeta[]): Promise<SessionMeta[]> {
+  private async subscriberNudgeTargets(sub: Subscription, sessions: readonly SessionFacts[]): Promise<SessionFacts[]> {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
@@ -879,7 +882,7 @@ export class StewardService {
       // the note lives in the issue comment only.
       const candidates = sessionsForIssue(
         dependent.worktreePath,
-        await this.deps.listSessions(),
+        this.deps.sessionFacts(),
         dependent.id,
       ).filter(
         (s) =>
@@ -954,7 +957,7 @@ export class StewardService {
     if (!sub) return
     const last = batch[batch.length - 1]
     if (!last) return
-    const sessions = await this.deps.listSessions()
+    const sessions = this.deps.sessionFacts()
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
@@ -1061,7 +1064,7 @@ export class StewardService {
     const lastChild = (await this.deps.issues.list(parent.repoPath)).find((w) => w.seq === lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
-      await this.deps.listSessions(),
+      this.deps.sessionFacts(),
       parent.id,
     ).filter(
       (s) =>
@@ -1110,7 +1113,7 @@ export class StewardService {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
-    const issueId = (await findSessionByIdAsync(this.deps, sessionId))?.issueId
+    const issueId = (await this.deps.sessionById(sessionId))?.issueId
     const factKey = `settle:${sessionId}`
     if (
       !await this.arbiter.claim(factKey, sessionId, {

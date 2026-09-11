@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
+import { metasAsFacts } from '../../test-support/session-facts'
 
 function session(over: Partial<SessionMetaInput>): SessionMeta {
   return {
@@ -35,8 +36,14 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
   const repoOps: string[] = []
   const watermarks = new Map<string, string>()
   const reads: { anchor?: string; direction: string }[] = []
+  const all = (): SessionMeta[] => opts?.sessions ?? [session({ issueId: ISSUE.id })]
   const toolkit = new SessionReadToolkit({
-    listSessions: async () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
+    sessionFacts: () => metasAsFacts(all()),
+    sessionById: async (sessionId) => all().find((s) => s.sessionId === sessionId),
+    sessionsById: async (sessionIds) => {
+      const wanted = new Set(sessionIds)
+      return all().filter((s) => wanted.has(s.sessionId))
+    },
     issues: ({
         resolveRef: (ref: string) => {
           if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
@@ -200,7 +207,19 @@ describe('session status (tier 1)', () => {
     const birthRef = 'POD-529-A'
     const { toolkit } = harness({
       sessions: [
-        session({ sessionId: asSessionId('dc9086cd-8bc9-4eb5-b1da-83094fafa7e4'), displayRef: birthRef }),
+        // `displayRef` NEVER stands alone: `SessionView.computeDisplayRef`
+        // formats it from `refIssueId` + `refLetter` (or `refDraft`), so a
+        // session carrying the ref carries the parts too. Stating them here is
+        // what makes this fixture a session that can exist — and POD-3857's ref
+        // lookup narrows its candidates on exactly those parts before wiring
+        // any of them, so a fixture that omitted them described a session the
+        // production code could never be asked about.
+        session({
+          sessionId: asSessionId('dc9086cd-8bc9-4eb5-b1da-83094fafa7e4'),
+          displayRef: birthRef,
+          refIssueId: ISSUE.id,
+          refLetter: 'A',
+        }),
       ],
     })
     const s = await toolkit.status(birthRef, 'operator')
@@ -245,7 +264,14 @@ describe('session read (tier 2)', () => {
 
   it('accepts a permanent session birth ref and reads the canonical session id', async () => {
     const { toolkit, reads } = harness({
-      sessions: [session({ sessionId: asSessionId('s1'), displayRef: 'POD-529-A' })],
+      sessions: [
+        session({
+          sessionId: asSessionId('s1'),
+          displayRef: 'POD-529-A',
+          refIssueId: ISSUE.id,
+          refLetter: 'A',
+        }),
+      ],
     })
     const r = await toolkit.read({ sessionId: asSessionId('POD-529-A') }, asSessionId('op'))
     expect(r.sessionId).toBe('s1')
@@ -317,7 +343,14 @@ describe('session recap (tier 3)', () => {
 
   it('accepts a permanent session birth ref and keys watermarks by canonical session id', async () => {
     const { toolkit, watermarks } = harness({
-      sessions: [session({ sessionId: asSessionId('s1'), displayRef: 'POD-529-A' })],
+      sessions: [
+        session({
+          sessionId: asSessionId('s1'),
+          displayRef: 'POD-529-A',
+          refIssueId: ISSUE.id,
+          refLetter: 'A',
+        }),
+      ],
       items: ITEMS,
     })
     const r = await toolkit.recap({ sessionId: asSessionId('POD-529-A') }, asSessionId('parent-1'))

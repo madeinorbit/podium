@@ -1393,7 +1393,8 @@ export async function startServer(
       worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
       liveSessionIds: async () =>
         new Set(
-          (await registry.modules.sessions.listSessions(undefined, 'steward'))
+          registry.modules.sessions
+            .sessionFacts()
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),

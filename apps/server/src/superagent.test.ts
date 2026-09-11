@@ -174,7 +174,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       ),
     ) as { sessionId: string; cwd: string; agentKind: string }
     expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
-    const meta = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+    const meta = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
     expect(meta?.title).toBe('Investigate flake')
     expect(meta?.spawnedBy).toBe('superagent:global')
   })
@@ -185,7 +185,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: string }
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
         ?.spawnedBy,
     ).toBe('superagent:btw_s1')
   })
@@ -207,7 +207,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       ),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
-    const meta = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+    const meta = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
     expect(meta?.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(meta?.spawnedBy).toBe('superagent:global')
   })
@@ -229,7 +229,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     ) as { sessionId?: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
     expect(out.sessionId).toBeDefined()
-    const meta = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+    const meta = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
     // IssueService owns worktree creation, but the initiating thread remains the parent.
     expect(meta?.spawnedBy).toBe('superagent:btw_parent')
     expect((await registry.issues.get(issue.id))?.stage).toBe('in_progress')
@@ -252,7 +252,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)?.cwd,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)?.cwd,
     ).toBe('/r/.worktrees/issue-1-x')
   })
 
@@ -260,7 +260,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const { registry, sa } = await harness()
     const out = await sa.callMcpTool('start_agent', { agentKind: 'claude-code', confirmed: true })
     expect(out).toMatch(/pass cwd or issueId/)
-    expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
   })
 
   // Fail-closed identity (issue #67): a thread-blind MCP call can't be told apart
@@ -270,7 +270,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect(await sa.callMcpTool('start_agent', { agentKind: 'claude-code', cwd: '/w' })).toBe(
       NOT_CONFIRMED_MSG,
     )
-    expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
   })
 
   it('leaves non-spawning tools ungated for identity-less callers', async () => {
@@ -284,7 +284,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('global')),
     ) as { sessionId: string }
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
         ?.spawnedBy,
     ).toBe('superagent:global')
   })
@@ -308,7 +308,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       confirmed: true,
     })
     expect(out).toMatch(/unknown issue/)
-    expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
   })
 })
 
@@ -408,7 +408,7 @@ describe('session-steering tool belt (issue #62)', () => {
     }
 
     const metaOf = async (id: string) =>
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === id)
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
     return { registry, sa, inputs, spawn, answer, metaOf }
   }
 

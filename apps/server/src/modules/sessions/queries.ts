@@ -61,8 +61,12 @@ async function filterAsync<T>(
 }
 
 export const SESSION_QUERIES = {
+  /** ONE of the three surfaces that may build the full reader-scoped
+   *  projection [POD-3857] — this is the client's own session list, so it is
+   *  the projection by definition. Labelled `rpc` so the perf phase can tell it
+   *  apart from boot. */
   list: q(z.object({}).passthrough().optional(), async (s) =>
-    await filterAsync(await s.modules.sessions.listSessions(), (session) =>
+    await filterAsync(await s.modules.sessions.listSessions(undefined, 'rpc'), (session) =>
       mayReadSession(s, session.sessionId),
     ),
   ),

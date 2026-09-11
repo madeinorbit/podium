@@ -22,13 +22,13 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
       .sessionId
     const b = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
-    expect((await reg.modules.sessions.listSessions()).filter((s) => s.archived)).toHaveLength(0)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((s) => s.archived)).toHaveLength(0)
 
     await reg.issues.archive(issue.id)
 
     const archived = new Set(
       (await reg
-        .modules.sessions.listSessions())
+        .modules.sessions.listSessions(undefined, 'rpc'))
         .filter((s) => s.archived)
         .map((s) => s.sessionId),
     )
@@ -78,7 +78,7 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     await reg.issues.archive(issue.id)
     await new Promise((resolve) => setTimeout(resolve, 0)) // the free is fire-and-forget
 
-    const parked = (await reg.modules.sessions.listSessions()).find((x) => x.sessionId === s)
+    const parked = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)
     expect(parked?.archived).toBe(true)
     expect(parked?.status === 'hibernated' || parked?.status === 'exited').toBe(true)
     expect(repoOps.find((o) => o.op === 'worktreeRemove')?.args).toEqual({ path: '/repo/wt' })
@@ -94,6 +94,6 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
       .sessionId
     await reg.issues.archive(issue.id)
     await reg.issues.update(issue.id, { archived: false })
-    expect((await reg.modules.sessions.listSessions()).find((x) => x.sessionId === s)?.archived).toBe(true)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)?.archived).toBe(true)
   })
 })

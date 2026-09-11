@@ -127,7 +127,7 @@ async function ctxFor(
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
-      listSessions: async () => await modules.sessions.listSessions(),
+      sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
@@ -199,7 +199,7 @@ describe('draft launch compensation', () => {
     ).rejects.toThrow('spawn failed')
 
     expect((await o.reg.issues.list('/p')).filter((issue) => issue.draft)).toEqual([])
-    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
   })
 
   it('refuses compensation once the session has been registered against the draft', async () => {
@@ -220,7 +220,7 @@ describe('draft launch compensation', () => {
 
     const draft = (await o.reg.issues.list('/p')).find((issue) => issue.draft)
     expect(draft).toBeDefined()
-    expect(await o.reg.modules.sessions.listSessions()).toContainEqual(
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({ issueId: draft?.id }),
     )
   })
@@ -289,7 +289,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
       ),
     ).toBe("you do not have access to run agents on machine 'The Box'")
     // Nothing was spawned, and nothing was persisted.
-    expect(await o.reg.modules.sessions.listSessions()).toEqual([])
+    expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
   })
 
   it.each([
@@ -547,7 +547,7 @@ describe('invisible fails exactly like nonexistent', () => {
       await dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
     )
     // And the hidden session is still alive: the refusal refused, it did not act.
-    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
   })
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {

@@ -306,7 +306,7 @@ describe('durable runtime observation gate', () => {
     )
     expect(liveTranscript.items).toEqual(items)
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId),
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
     ).toMatchObject({ transcriptAvailable: true })
     expect(await store.events.listRuntimeTranscriptEvents(sessionId)).toHaveLength(2)
     const newest = await store.events.listRuntimeTranscriptEvents(sessionId, 1)

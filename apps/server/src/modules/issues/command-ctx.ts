@@ -31,7 +31,6 @@ import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
-import { findSessionByIdAsync } from '../sessions/session-by-id'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -83,15 +82,19 @@ export interface IssueCommandDeps {
    * to omit.
    */
   mutations: MutationLedgerPort
-  /** Session list — subscription source checks resolve session→issue through it. */
-  listSessions(): Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
-   *  Optional for the same reason `listSessionsForIssue` is — the many test
-   *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionByIdAsync}'s fallback, just slower. */
-  sessionById?(
+   *  REQUIRED since POD-3857 — the full-list port it used to fall back to is
+   *  gone, so the compiler keeps issue commands off the projection. */
+  sessionById(
     sessionId: SessionId,
   ): Promise<SessionMeta | undefined>
+  /** The member sessions of ONE issue, wired [POD-1639]. `issues.get` embeds
+   *  them in its reply, so these do cross to a reader — but only an issue's
+   *  own handful, never the fleet. */
+  listSessionsForIssue(
+    worktreePath: string | null,
+    issueId: IssueId,
+  ): Promise<SessionMeta[]>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
@@ -395,7 +398,7 @@ export class IssueCommandCtx {
     }
     // session source: the caller's own session, or one bound to an in-subtree issue.
     if (source.ref === this.caller.capability.actorSessionId) return
-    const bound = (await findSessionByIdAsync(this.deps, asSessionId(source.ref)))?.issueId
+    const bound = (await this.deps.sessionById(asSessionId(source.ref)))?.issueId
     const ok =
       bound != null &&
       authorize(this.caller.capability, 'write', {

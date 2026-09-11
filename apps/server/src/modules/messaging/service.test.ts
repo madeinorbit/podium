@@ -8,6 +8,7 @@ import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './servi
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import { TOPIC_INACTIVITY_MS } from './topic-recap'
 import type { ChannelAdapter, InboundChatMessage } from './types'
+import { metasAsFacts } from '../../test-support/session-facts'
 
 /** The bound chat every inbound fixture in this file speaks from. Without a
  *  binding the gate refuses the message and nothing below would run — which is
@@ -291,7 +292,8 @@ async function makeHarness(
     },
     topics,
     sessions: {
-      listSessions: async () => [
+      sessionFactsByIssue: (_worktreePath, issueId) =>
+        metasAsFacts([
         {
           sessionId: 'sess_1',
           agentKind: 'grok',
@@ -310,7 +312,7 @@ async function makeHarness(
           unread: false,
           issueId: 'iss_i1',
         } as SessionMeta,
-      ],
+        ]).filter((facts) => facts.issueId === issueId),
     },
     ...(opts.issues ? { issues: opts.issues } : {}),
     ...(opts.sessionIssueId ? { sessionIssueId: opts.sessionIssueId } : {}),

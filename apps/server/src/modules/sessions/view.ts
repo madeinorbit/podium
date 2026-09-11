@@ -65,24 +65,36 @@ export interface SessionViewPorts {
   sessionOccupancyCount?(sessionId: SessionId): number | undefined
 }
 
-export type SessionListCaller =
-  | 'bootstrap'
-  | 'listAllTool'
-  | 'issueDeleteRestore'
-  | 'attentionPass'
-  | 'steward'
-  | 'superagent'
-  | 'fixtureFallback'
-  | 'repositoryReconcile'
-  | 'unlabeled'
+/**
+ * WHO ASKED FOR THE FULL PROJECTION — and, since POD-3857, an exhaustive list
+ * of the places that still may.
+ *
+ * There is deliberately no `'unlabeled'` member and no default value on
+ * {@link SessionView.list}. The label used to be optional with an
+ * `'unlabeled'` fallback, and roughly forty internal call sites took it: the
+ * perf phase then reported one 733 ms bucket 6.2 times a minute with nothing to
+ * say about who caused it. Every internal caller now reads
+ * `sessionFacts()` instead, and making the argument REQUIRED over a union with
+ * no escape hatch is what keeps it that way — a new full-list caller cannot
+ * compile without naming itself here, in a diff a reviewer sees.
+ *
+ *  - `bootstrap` — the boot ledger reconcile. This is the client-visible
+ *    session baseline (`sync.changesSince` is served from it), so it is the
+ *    projection by definition. Once per server start.
+ *  - `rpc` — the `sessions.list` procedure. A client read, per request.
+ *  - `listAllTool` — the superagent's `list_sessions` tool. Agent-facing and
+ *    on demand; it reports each session's SNOOZE state, which lives in the
+ *    per-user overlay and so exists only on the projection.
+ */
+export type SessionListCaller = 'bootstrap' | 'rpc' | 'listAllTool'
 
 /** The single live-model → reader-scoped SessionMeta projection. */
 export class SessionView {
   constructor(private readonly ports: SessionViewPorts) {}
 
   async list(
-    forPrincipal?: SessionStatePrincipal,
-    caller: SessionListCaller = 'unlabeled',
+    forPrincipal: SessionStatePrincipal | undefined,
+    caller: SessionListCaller,
   ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {

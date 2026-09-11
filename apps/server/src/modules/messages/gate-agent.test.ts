@@ -19,6 +19,8 @@ import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageGate, type MessageGateDeps } from './gate'
 import { MessageDeliveryService } from './service'
+import { metasAsFacts } from '../../test-support/session-facts'
+import { sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -112,7 +114,10 @@ async function harness(opts?: {
     events: store.events,
     issues: fakeIssues(),
     sessions: {
-      listSessions: async () => sessions,
+      sessionFacts: () => metasAsFacts(sessions),
+      sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+      listSessionsForIssue: async (worktreePath, issueId) =>
+        sessionsForIssue(worktreePath, sessions, issueId),
       sendText: async (i) => {
         sent.push({ fn: 'sendText', ...i })
         return { ok: true }
@@ -135,7 +140,7 @@ async function harness(opts?: {
   const gate = new MessageGate({
     messages: svc,
     issues,
-    listSessions: async () => sessions,
+    sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     spawnSession:
       opts?.spawnSession ??
       (async (i) => {

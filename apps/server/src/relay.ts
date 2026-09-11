@@ -1696,13 +1696,17 @@ export class SessionRegistry {
       // the baseline fold does [POD-3366, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
-      listSessions: async () => await sessionsSvc.listSessions(),
+      // The cheap fleet read [POD-3857]: the issue service's own reasoning —
+      // worktree occupancy, the close cascade, auto-archive — runs on facts.
+      sessionFacts: () => sessionsSvc.sessionFacts(),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not
       // for all of them. Same set, same fields — see SessionView.listForIssue.
       listSessionsForIssue: async (worktreePath, issueId) =>
         await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // A known set, wired [POD-2322] — the issue tree's members.
+      sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
@@ -2226,7 +2230,6 @@ export class SessionRegistry {
       {
         messages: messagesSvc,
         issues,
-        listSessions: async () => await sessionsSvc.listSessions(),
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
@@ -2283,7 +2286,10 @@ export class SessionRegistry {
       mail.gateOptions,
     )
     const readToolkit = new SessionReadToolkit({
-      listSessions: async () => await sessionsSvc.listSessions(),
+      // Select on facts, wire only the survivors [POD-3857].
+      sessionFacts: () => sessionsSvc.sessionFacts(),
+      sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+      sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       issues,
       messages: messagesSvc,
       events: this.store.events,
@@ -2335,8 +2341,8 @@ export class SessionRegistry {
       },
       liveSessionIds: async () =>
         new Set(
-          (await sessionsSvc
-            .listSessions())
+          sessionsSvc
+            .sessionFacts()
             .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
             .map((s) => s.sessionId),
         ),
@@ -2490,9 +2496,11 @@ export class SessionRegistry {
       deleteIssue: async (id) => await issueSessionLifecycle.deleteIssue(id),
       restoreIssue: async (id) => await issueSessionLifecycle.restoreIssue(id),
       mutations,
-      listSessions: async () => await sessionsSvc.listSessions(),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+      // The narrow issue read [POD-1639] — `issues.get` embeds its members.
+      listSessionsForIssue: async (worktreePath, issueId) =>
+        await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) => inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
@@ -3273,7 +3281,8 @@ export class SessionRegistry {
       facts: this.store.notificationFacts,
       messages: this.store.messages,
       issues,
-      listSessions: async () => await sessionsSvc.listSessions(),
+      // The cheap fleet read [POD-3857]: the steward nudges from facts.
+      sessionFacts: () => sessionsSvc.sessionFacts(),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,

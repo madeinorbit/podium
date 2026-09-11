@@ -54,7 +54,7 @@ it('rejects an unlisted model before spawning — no frame, no session', async (
   expect(err).toBeInstanceOf(ModelValidationError)
   expect((err as ModelValidationError).message).toContain('Did you mean "gpt-5.6"?')
   expect(spawnFrames(daemon)).toHaveLength(0)
-  expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
+  expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
 })
 
 it('rejects an unlisted effort with a suggestion', async () => {

@@ -384,7 +384,7 @@ async function handoffFixture(
 }
 
 const meta = async (f: HandoffFixture) =>
-  (await f.reg.modules.sessions.listSessions()).find((s) => s.sessionId === f.sessionId)
+  (await f.reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === f.sessionId)
 
 /**
  * An ownership index that answers for a two-person fleet — POD-381's
@@ -1109,7 +1109,7 @@ describe('oracle: duplicate dispatch', () => {
     // only in the daemon legs above.
     expect(
       (await f.reg.modules.sessions
-        .listSessions())
+        .listSessions(undefined, 'rpc'))
         .map((s) => ({ machineId: s.machineId, cwd: s.cwd, status: s.status })),
     ).toEqual([{ machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' }])
   })

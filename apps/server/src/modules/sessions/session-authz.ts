@@ -38,8 +38,7 @@ export interface SessionAuthzStorePort {
 export interface SessionAuthzPorts {
   clientControl: import('./client-control').SessionClientControl
   deps: Pick<SessionLifecycleDeps, 'issueAccess' | 'authorizeQueuedMessage'>
-  listSessions: SessionAccessDeps['listSessions']
-  sessionById: NonNullable<SessionAccessDeps['sessionById']>
+  sessionById: SessionAccessDeps['sessionById']
   machines: import('../../machine-access').AsyncMachineRowSource
   /** The LIVE registry — an in-memory map, synchronous and staying that way.
    *  Typed rather than `any` because every durable fallback in this file is
@@ -187,7 +186,6 @@ export class SessionAuthz {
     // Every apply — including outbox replay — re-runs the session gate against
     // CURRENT rights. The source message proves intent and ordering, never rights.
     const access = {
-      listSessions: () => this.ports.listSessions(),
       sessionById: (sessionId: SessionId) => this.ports.sessionById(sessionId),
       issues: this.ports.deps.issueAccess,
       visibility: () => true,

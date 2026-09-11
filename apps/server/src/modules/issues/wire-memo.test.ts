@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
 import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 
 // POD-723: allWire() memoizes each issue's built wire payload, keyed by that
 // issue's own inputs (a generation counter bumped on any issue-side mutation +
@@ -16,7 +17,7 @@ async function harness(sessions: SessionMeta[]) {
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
-    listSessions: async () => sessions,
+    ...sessionReadPorts(() => sessions),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },

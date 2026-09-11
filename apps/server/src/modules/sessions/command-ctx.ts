@@ -40,7 +40,6 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     configureSession: sessions.configureSession,
     answerAskUserQuestion: sessions.answerAskUserQuestion,
     continueSession: sessions.continueSession.bind(sessions),
-    listSessions: sessions.listSessions.bind(sessions),
     sessionById: sessions.sessionById.bind(sessions),
     resumeSession: issueSessions.resumeSession.bind(issueSessions),
     resurrectSession: issueSessions.resurrectSession.bind(issueSessions),
@@ -121,7 +120,6 @@ export async function sessionCommandCtx(
     discardUnlaunchedDraft: async (issueId) => await issues.discardUnlaunchedDraft(issueId),
     issueOwner: async (issueId) => (await issues.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
-      listSessions: async () => await sessions.listSessions(),
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       issues: asyncSessionIssueAccess(issues),
       // POD-1075 supplies the owner/grant answer; today one account sees all.

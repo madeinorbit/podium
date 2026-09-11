@@ -361,7 +361,7 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
     // can say YES — without it, the rejection below would prove nothing.
     const queued = { sessionId, name: 'from the outbox', mutationId: 'm-offline-1' }
     expect((await sessionState.execute('sessions.rename', queued, grantee)).outcome).toBe('applied')
-    expect((await reg.modules.sessions.listSessions())[0]?.name).toBe('from the outbox')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.name).toBe('from the outbox')
 
     revoke()
 
@@ -369,7 +369,7 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
     // after it. Rejected at apply time.
     const laterQueued = { sessionId, name: 'authored before revocation', mutationId: 'm-offline-2' }
     expect((await sessionState.execute('sessions.rename', laterQueued, grantee)).outcome).toBe('denied')
-    expect((await reg.modules.sessions.listSessions())[0]?.name).toBe('from the outbox')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.name).toBe('from the outbox')
   })
 
   it('a REPLAY of an already-applied write is re-authorized, not served from the dedup cache', async () => {

@@ -70,7 +70,7 @@ const SOURCE_RELEASE_MS = 500
 export type HandoffTransferPorts = Pick<
   HandoffPorts,
   | 'rpc'
-  | 'listSessions'
+  | 'sessionFacts'
   | 'write'
   | 'broadcastSessions'
   | 'onSessionGone'
@@ -186,7 +186,8 @@ export class HandoffTransfer {
       // A retained target checkout may still belong to another resumable
       // session. The daemon resolves the actual registered worktree; these cwds
       // are the server-authoritative guard against resetting a shared workspace.
-      const occupiedWorktreePaths = (await this.ports.listSessions())
+      const occupiedWorktreePaths = this.ports
+        .sessionFacts()
         .filter(
           (other) =>
             other.sessionId !== session.sessionId &&

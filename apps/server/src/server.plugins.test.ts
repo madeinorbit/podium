@@ -33,7 +33,7 @@ describe('startServer plugin seam', () => {
             seen = hooks
             registered.push('test-cloud')
             hooks.hono.get('/cloud/ping', async (c) =>
-              c.json({ pong: true, sessions: (await hooks.modules.sessions.listSessions()).length }),
+              c.json({ pong: true, sessions: (await hooks.modules.sessions.listSessions(undefined, 'rpc')).length }),
             )
           },
         },

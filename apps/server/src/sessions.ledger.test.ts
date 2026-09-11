@@ -67,9 +67,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await sessions.clearSnooze(FIRST_ADMIN_USER_ID, sessionId)
     expect(await registry.sessionStore.sessions.listSnoozes(FIRST_ADMIN_USER_ID)).not.toHaveProperty(sessionId)
     await sessions.markSessionRead(FIRST_ADMIN_USER_ID, sessionId)
-    expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
+    expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
     await sessions.markSessionUnread(FIRST_ADMIN_USER_ID, sessionId)
-    expect((await sessions.listSessions()).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
+    expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
   })
 
   async function deltaClient(registry: SessionRegistry): Promise<{ inbox: ServerMessage[] }> {
@@ -496,8 +496,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       expect(event.changes.every((change) => change.entity === 'session')).toBe(true)
       expect(event.ledgerCursor).toBe(event.changes.at(-1)?.seq)
     }
-    expect((await registry.modules.sessions.listSessions())[0]).not.toHaveProperty('generation')
-    expect((await registry.modules.sessions.listSessions())[0]).not.toHaveProperty('revision')
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('generation')
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('revision')
   })
 
   it('resets the internal generation across restart without disturbing durable ledger order', async () => {
@@ -545,8 +545,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       cursor: cursorAfterRecovery,
       changes: [],
     })
-    expect((await second.modules.sessions.listSessions())[0]).not.toHaveProperty('generation')
-    expect((await second.modules.sessions.listSessions())[0]).not.toHaveProperty('revision')
+    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('generation')
+    expect((await second.modules.sessions.listSessions(undefined, 'rpc'))[0]).not.toHaveProperty('revision')
   })
 
   it('publishes the final state when coalesced changes revert to identical bytes', async () => {
@@ -555,7 +555,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const originalSession = (await registry.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((session) => session.sessionId === sessionId)
     expect(originalSession).toBeDefined()
     const original = originalSession?.name
@@ -656,7 +656,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(denied, { type: 'presenceSubscribe', room, token: 'denied' })
     expect(deniedMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
     await registry.modules.sessions.flushBroadcasts()
-    expect((await registry.modules.sessions.listSessions())
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc'))
       .find((row) => row.sessionId === sessionId)?.clientCount).toBe(2)
 
     // A fresh join must read current grants, never reuse the earlier allowance.
@@ -813,7 +813,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('rename append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.name,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name,
     ).toBeUndefined()
     expect(
       (await registry.sessionStore.sessions.loadSessions()).find((row) => row.id === sessionId)
@@ -825,7 +825,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.name,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name,
     ).toBeUndefined()
     expect(await registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
@@ -872,7 +872,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).rejects.toThrow('snooze append failed')
     append.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.snoozedUntil,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
     expect(
       await registry.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID)),
@@ -883,7 +883,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.broadcastSessions()
     await registry.modules.sessions.flushBroadcasts()
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.snoozedUntil,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
     expect(await registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
       kind: 'delta',
@@ -950,7 +950,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     spy.mockRestore()
     // Memory truth survived: the session is still listed; the store rolled the
     // tombstone write back inside the same transact span.
-    expect((await registry.modules.sessions.listSessions()).some((s) => s.sessionId === sessionId)).toBe(
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       true,
     )
     expect(
@@ -966,7 +966,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
     // And the kill still works once the append path recovers.
     await registry.modules.sessions.killSession({ sessionId })
-    expect((await registry.modules.sessions.listSessions()).some((s) => s.sessionId === sessionId)).toBe(
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
     expect(await registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
@@ -990,7 +990,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       if (c.op === 'upsert') folded.set(c.id, c.value)
       else folded.delete(c.id)
     }
-    const live = await registry.modules.sessions.listSessions()
+    const live = await registry.modules.sessions.listSessions(undefined, 'rpc')
     expect([...folded.keys()].sort()).toEqual(live.map((s) => s.sessionId).sort())
     expect(folded.get(a.sessionId)).toEqual(live.find((s) => s.sessionId === a.sessionId))
   })
@@ -1017,7 +1017,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     await registry.modules.sessions.flushBroadcasts()
 
-    const listed = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const listed = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(listed).toBeDefined()
 
     const after = await registry.modules.sessions.syncChangesSince(cursor)

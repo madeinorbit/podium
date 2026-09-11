@@ -19,6 +19,7 @@ import type { IssueRow, MessageRow, SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
 import { captureLogs } from '../../test-support/capture-logs'
 import { openTestStore } from '../../test-support/open-test-store'
+import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
@@ -237,13 +238,17 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       opts?.prefix,
     ),
     sessions: {
-      listSessions: async () => {
+      // The FLEET ENUMERATION, counted. POD-1653 removed the reader-scoped
+      // projection from delivery and POD-3857 removed even the port for it;
+      // what remains is the in-memory facts read, and the scaling assertions
+      // below are stated over that — a sweep must not walk the fleet per row,
+      // cheaply or otherwise.
+      sessionFacts: () => {
         listCalls.n += 1
-        return sessions
+        return metasAsFacts(sessions)
       },
       // The narrow reads production wires [POD-1653]. They are counted
-      // SEPARATELY from listSessions so a test can assert the thing that
-      // actually costs: full reader-scoped passes, not lookups.
+      // SEPARATELY so a test can assert the thing that actually costs.
       sessionById: async (sessionId) => {
         narrowCalls.byId += 1
         return sessions.find((s) => s.sessionId === sessionId)
@@ -3177,7 +3182,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     return new MessageGate({
       messages: svc,
       issues: fakeIssues(),
-      listSessions: async () => sessions,
+      sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     })
   }
   const peerCap: Capability = {

@@ -28,8 +28,8 @@ import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
-import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
+import type { SessionFacts } from '../../sessions/facts'
 import { IssueNotFound } from './not-found'
 import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
@@ -438,7 +438,7 @@ export class IssueCrudModule {
     const store = this.store.deps.artifacts
     const terminalEvidence = input.terminalEvidence === true
     const session = opts?.actorSessionId
-      ? await findSessionByIdAsync(this.store.deps, opts.actorSessionId)
+      ? await this.store.deps.sessionById(opts.actorSessionId)
       : undefined
 
     if (input.sourceRoot && !terminalEvidence) {
@@ -735,8 +735,8 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(parentId: string, sessionList?: SessionMeta[]): Promise<void> {
-    sessionList ??= await this.store.deps.listSessions()
+  private async archiveClosedSubtree(parentId: string, sessionList?: SessionFacts[]): Promise<void> {
+    sessionList ??= this.store.deps.sessionFacts()
     const skipped: Array<{ seq: number; why: string }> = []
     for (const child of this.store.rows.values()) {
       if (child.parentId !== parentId || child.archived || child.deletedAt) continue
@@ -1434,7 +1434,10 @@ export class IssueCrudModule {
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating
    *  memory before the durable transaction succeeds. */
-  async prepareSoftDelete(id: string, _remainingSessions: SessionMeta[]): Promise<IssueLifecyclePlan> {
+  /** The remaining-sessions argument this used to take was never read
+   *  [POD-3857]: both callers built a full reader-scoped projection of the
+   *  fleet, filtered it, and handed it to a parameter named `_`. */
+  async prepareSoftDelete(id: string): Promise<IssueLifecyclePlan> {
     id = await this.store.resolveRef(id)
     const current = await this.store.rowOrThrow(id)
     if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
@@ -1570,7 +1573,8 @@ export class IssueCrudModule {
 
   /** Build the issue half of a cross-aggregate restore without exposing the row
    *  before its issue and session tombstones have committed together. */
-  async prepareRestore(id: string, _restoredSessions: SessionMeta[]): Promise<IssueLifecyclePlan> {
+  /** Same as {@link prepareSoftDelete}: the session list was never read. */
+  async prepareRestore(id: string): Promise<IssueLifecyclePlan> {
     id = await this.store.resolveRef(id)
     const current = await this.store.rowOrThrow(id)
     if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)

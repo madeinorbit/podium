@@ -47,7 +47,7 @@ describe('issue/session deletion lifecycle', () => {
     expect(result.issue).not.toHaveProperty('sessions')
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
-    expect((await registry.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([unrelated])
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([unrelated])
     expect((await store.sessions.loadSessions()).map((s) => s.id)).toEqual([unrelated])
     const tombstones = await store.sessions.loadDeletedSessionsForIssue(issue.id)
     expect(new Set(tombstones.map((s) => s.id))).toEqual(new Set([attached, inWorktree]))
@@ -77,7 +77,7 @@ describe('issue/session deletion lifecycle', () => {
       new Set([attached, inWorktree, unrelated]),
     )
     const restoredMetas = (await registry.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .filter((s) => restored.restoredSessionIds.includes(s.sessionId))
     expect(restoredMetas.map((s) => s.status)).toEqual(['exited', 'exited'])
     expect(projectionEvents).toHaveLength(2)
@@ -99,11 +99,11 @@ describe('issue/session deletion lifecycle', () => {
       const plan = await registry.modules.sessions.prepareIssueSessionRestore(issue.id)
       const times = vi.spyOn(store.sessions, 'loadDraftTimes').mockRejectedValue(new Error('read during apply'))
       const docs = vi.spyOn(store.sessions, 'loadDraftDocs').mockRejectedValue(new Error('read during apply'))
-      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(false)
+      expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some(s => s.sessionId === sessionId)).toBe(false)
       expect(plan.apply([], 1)).toBeUndefined()
       expect(times).not.toHaveBeenCalled()
       expect(docs).not.toHaveBeenCalled()
-      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(true)
+      expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some(s => s.sessionId === sessionId)).toBe(true)
       times.mockRestore()
       docs.mockRestore()
     } finally {
@@ -129,7 +129,7 @@ describe('issue/session deletion lifecycle', () => {
         expect(write).toHaveBeenCalledOnce()
         expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
         expect(await store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
-        expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(true)
+        expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some(s => s.sessionId === sessionId)).toBe(true)
       } finally {
         await registry.dispose()
       }
@@ -149,7 +149,7 @@ describe('issue/session deletion lifecycle', () => {
       await expect(registry.modules.issueSessionLifecycle.restoreIssue(issue.id)).rejects.toThrow('session restore failed')
       expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
       expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(s => s.id)).toEqual([sessionId])
-      expect((await registry.modules.sessions.listSessions()).some(s => s.sessionId === sessionId)).toBe(false)
+      expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some(s => s.sessionId === sessionId)).toBe(false)
     } finally {
       await registry.dispose()
     }
@@ -174,7 +174,7 @@ describe('issue/session deletion lifecycle', () => {
 
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeUndefined()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
-    expect((await registry.modules.sessions.listSessions()).some((s) => s.sessionId === sessionId)).toBe(
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       true,
     )
     expect((await store.sessions.loadSessions()).some((s) => s.id === sessionId)).toBe(true)
@@ -213,7 +213,7 @@ describe('issue/session deletion lifecycle', () => {
 
     expect((await registry.issues.get(issue.id))?.deletedAt).toBeTruthy()
     expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
-    expect((await registry.modules.sessions.listSessions()).some((s) => s.sessionId === sessionId)).toBe(
+    expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
     expect((await store.sessions.loadSessions()).some((s) => s.id === sessionId)).toBe(false)
@@ -263,7 +263,7 @@ describe('issue/session deletion lifecycle', () => {
       expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
       expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map(row => row.id)).toEqual([sessionId])
       expect((await store.sessions.loadSessions()).some(row => row.id === sessionId)).toBe(false)
-      expect((await registry.modules.sessions.listSessions()).some(row => row.sessionId === sessionId)).toBe(false)
+      expect((await registry.modules.sessions.listSessions(undefined, 'rpc')).some(row => row.sessionId === sessionId)).toBe(false)
       // The delete may publish a tombstoned issueProjection after the baseline.
       // Reject restored state, rather than treating that valid publication as a leak.
       const remaining = await store.sync.changesSince(before)

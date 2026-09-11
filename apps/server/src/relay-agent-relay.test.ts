@@ -153,7 +153,7 @@ describe('server agent relay handler (P1b)', () => {
       return await reply
     }
     const offerOf = async () =>
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sA)?.offer
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sA)?.offer
 
     const before = await setOffer('ir-offer-open')
     expect((before.result as { retired?: boolean }).retired).toBeUndefined()
@@ -208,7 +208,7 @@ describe('server agent relay handler (P1b)', () => {
     expect(spawned.ok).toBe(true)
     expect(spawned.result).toMatchObject({ ok: true, issueId: A.id })
     const childId = (spawned.result as { sessionId: SessionId }).sessionId
-    expect(await registry.modules.sessions.listSessions()).toContainEqual(
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toContainEqual(
       expect.objectContaining({
         sessionId: childId,
         issueId: A.id,
@@ -600,7 +600,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     // this agentRelayResult is sent (finalizeDeferredStopKill).
     expect(r.result).toMatchObject({ ok: true, deferredKill: true })
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sA)?.status,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sA)?.status,
     ).toMatch(/hibernated|exited/)
   })
 
@@ -730,7 +730,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   }
 
   const nameOf = async (sessionId: SessionId): Promise<string | undefined> =>
-    (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.name
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.name
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -870,7 +870,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   }
 
   const offerOf = async (sessionId: SessionId) =>
-    (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.offer
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.offer
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })

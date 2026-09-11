@@ -517,7 +517,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
@@ -531,7 +531,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     const { sessionId } = await reg.modules.sessions.createSession(input)
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
   })
 
@@ -587,7 +587,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
   it('the schema REFUSES a session row without geometry', async () => {
     const { reg } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row).toBeDefined()
     expect(SessionMeta.safeParse(row).success).toBe(true)
 
@@ -618,7 +618,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     session?.terminal.attachClient(client)
     session?.terminal.handleResize(client.id, 132, 43)
 
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
   })
 })
@@ -741,7 +741,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(SessionMeta.safeParse(row).success).toBe(true)
     // The grid still RENDERS at last-known (rule 6) — the row carries it — but it
     // is labelled for what it is.

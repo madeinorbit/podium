@@ -337,7 +337,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
       // Inert: never auto-started, never board-facing.
       expect(sub.audience).toBe('agent')
       expect(
-        (await reg.modules.sessions.listSessions()).filter((session) => session.issueId === sub.id),
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((session) => session.issueId === sub.id),
       ).toHaveLength(0)
       await expect(proposalWorker.issues.start({ id: sub.id })).rejects.toThrow(/operator/i)
       await expect(proposalWorker.issues.start({ id: proposal.id })).rejects.toThrow(/operator/i)

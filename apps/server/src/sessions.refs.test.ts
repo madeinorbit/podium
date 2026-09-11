@@ -13,7 +13,7 @@ async function harness() {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const issue = await reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
   const meta = async (id: string) =>
-    (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === id)
+    (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
   return { store, reg, issue, meta }
 }
 
@@ -38,8 +38,8 @@ describe('session birth naming (#474)', () => {
     const { store, reg } = await harness()
     // A session in an unregistered cwd has no prefix — no DRAFT allocation either.
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
-    await reg.modules.sessions.listSessions()
-    await reg.modules.sessions.listSessions()
+    await reg.modules.sessions.listSessions(undefined, 'rpc')
+    await reg.modules.sessions.listSessions(undefined, 'rpc')
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row?.refIssueId).toBeNull()
     expect(row?.refDraft).toBeNull()

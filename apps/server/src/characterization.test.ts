@@ -95,7 +95,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // Daemon connection drops: the session degrades to reconnecting (not exited).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
       'reconnecting',
     )
 
@@ -103,7 +103,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     const daemon2: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
 

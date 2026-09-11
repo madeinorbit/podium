@@ -565,7 +565,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
     })
 
     expect(reopened.sessionId).toBe(sessionId)
-    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
     expect((await o.store.sessions.loadSessions()).map((r) => r.id)).toEqual([sessionId])
     expect((await o.meta(sessionId)).status).toBe('starting')
     // It is the resurrect path, so it fences too — one frame, under the old id.

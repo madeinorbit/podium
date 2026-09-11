@@ -36,17 +36,7 @@ import {
  */
 export type SessionWirePrincipal = SessionStatePrincipal
 
-/** Trusted server-only fields used to route queued work without a wire projection. */
 const log = createLogger('server:sessions')
-
-export interface SessionRoutingFacts {
-  sessionId: SessionId
-  issueId?: IssueId
-  cwd: string
-  status: SessionMeta['status']
-  archived: boolean
-  agentKind: SessionMeta['agentKind']
-}
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
@@ -106,6 +96,7 @@ import {
 } from '../../harness-manifest'
 import type { Capability } from '../../issue-authz'
 import type { MachineListing } from '../machines/service'
+import { SessionFactsReader, type SessionFacts } from './facts'
 import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
@@ -443,9 +434,14 @@ export class SessionLifecycle {
   private pushPriorities(): void {
     this.state.pushPriorities()
   }
+  /**
+   * THE FULL READER-SCOPED PROJECTION. Three callers, and the label names which
+   * one [POD-3857] — see {@link SessionListCaller}. Everything else on the
+   * server wants {@link sessionFacts}.
+   */
   async listSessions(
-    forPrincipal?: SessionWirePrincipal,
-    caller: SessionListCaller = 'unlabeled',
+    forPrincipal: SessionWirePrincipal | undefined,
+    caller: SessionListCaller,
   ): Promise<SessionMeta[]> {
     return await this.view.list(forPrincipal, caller)
   }
@@ -494,20 +490,43 @@ export class SessionLifecycle {
     return await this.view.spawnedByOf(sessionId, forPrincipal)
   }
   /**
-   * Trusted internal routing facts for every live session [POD-2322].
+   * THE CHEAP FLEET READ [POD-3857] — see {@link SessionFacts}.
    *
-   * This intentionally skips visibility and wire projection. The throwaway
-   * DTO is for server supervision only and must never cross a client boundary.
+   * Trusted server-internal data: no visibility check, no wire projection, and
+   * no I/O of any kind. It must never cross a client boundary. Generalizes
+   * POD-2322's `sessionRoutingFacts`, which asked the same question with six of
+   * these fields.
    */
-  sessionRoutingFacts(): SessionRoutingFacts[] {
-    return [...this.sessions.values()].map((session) => ({
-      sessionId: session.sessionId,
-      ...(session.issueId ? { issueId: session.issueId } : {}),
-      cwd: session.cwd,
-      status: session.status,
-      archived: session.archived === true,
-      agentKind: session.agentKind,
-    }))
+  sessionFacts(): SessionFacts[] {
+    return this.facts.all()
+  }
+
+  /** ONE session's facts, straight off the registry map. */
+  sessionFactsById(sessionId: SessionId): SessionFacts | undefined {
+    return this.facts.byId(sessionId)
+  }
+
+  /** The member sessions of ONE issue, as facts. Same set as
+   *  `listSessionsForIssue`, without the projection. */
+  sessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): SessionFacts[] {
+    return this.facts.byIssue(worktreePath, issueId)
+  }
+
+  /** Every session whose cwd sits inside a path, whatever issue it is on. */
+  sessionFactsByWorktree(worktreePath: string | null): SessionFacts[] {
+    return this.facts.byWorktree(worktreePath)
+  }
+
+  sessionFactsByMachine(machineId: MachineId): SessionFacts[] {
+    return this.facts.byMachine(machineId)
+  }
+
+  /** Built lazily: `sessions` is assigned by the wiring pass, so a field
+   *  initializer here would capture `undefined`. */
+  private factsReader: SessionFactsReader | undefined
+  private get facts(): SessionFactsReader {
+    this.factsReader ??= new SessionFactsReader(this.sessions)
+    return this.factsReader
   }
   // RETIRED at POD-309 (ADR 5 D8): the hub-mirror apply path lived here —
   // `upstreamSessions` / `upstreamStale` / `upstreamOwnMachineIds`, the

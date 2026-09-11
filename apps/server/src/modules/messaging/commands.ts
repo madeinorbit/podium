@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta, IssueId } from '@podium/model'
+import type { IssueWire, SessionMeta, IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import type { InlineButton } from './types'
 
@@ -169,10 +169,18 @@ export function buildIssuesMessage(
 }
 
 /** Pick the agent session whose btw thread should back an issue topic. */
-export function pickIssueSession(
-  issue: Pick<IssueWire, 'id'>,
-  heldSessions: readonly SessionMeta[],
-): SessionMeta | undefined {
+export function pickIssueSession<
+  T extends {
+    sessionId: SessionId
+    issueId?: IssueId | undefined
+    archived?: boolean | undefined
+    headless?: boolean | undefined
+    status: SessionMeta['status']
+    lastActiveAt: string
+    name?: string | undefined
+    title: string
+  },
+>(issue: Pick<IssueWire, 'id'>, heldSessions: readonly T[]): T | undefined {
   const sessions = heldSessions.filter(
     (session) => session.issueId === issue.id && !session.archived && !session.headless,
   )

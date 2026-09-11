@@ -16,6 +16,7 @@ import { createPrimeInjector } from '../../daemon/src/prime-injector'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
@@ -26,13 +27,14 @@ async function harness(sessions: SessionMeta[] = []) {
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
-    listSessions: async () =>
+    ...sessionReadPorts(() =>
       sessions.map((s) => ({
         ...s,
         ...(issueBySession.get(s.sessionId)
           ? { issueId: asIssueId(issueBySession.get(s.sessionId)!) }
           : {}),
       })),
+    ),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

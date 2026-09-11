@@ -36,7 +36,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
   }
 
   const liveSessionIds = async (registry: SessionRegistry) =>
-    (await registry.modules.sessions.listSessions()).map((session) => session.sessionId)
+    (await registry.modules.sessions.listSessions(undefined, 'rpc')).map((session) => session.sessionId)
 
   it('does not tear a session down for a kill the enclosing span rolled back (site 8)', async () => {
     const { store, registry } = await build()

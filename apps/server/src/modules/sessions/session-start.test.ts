@@ -83,7 +83,7 @@ describe('SessionStart: creation-owned first prompt', () => {
 
     const queued = await reg.sessionStore.sync.listQueuedMessages(sessionId)
     expect(queued.map((row) => row.text)).toEqual(['hello'])
-    const session = (await reg.modules.sessions.listSessions()).find((item) => item.sessionId === sessionId)
+    const session = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((item) => item.sessionId === sessionId)
     expect(session?.draftUpdatedAt).toBeDefined()
     // Non-empty draft writes are intentionally debounced; wait for the durable
     // composer record rather than coupling this launch test to that interval.
@@ -114,7 +114,7 @@ describe('resolved runtime driver projection', () => {
     })
 
     const degraded = (await reg.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((session) => session.sessionId === sessionId)
     expect(degraded).toMatchObject({
       status: 'live',
@@ -144,7 +144,7 @@ describe('resolved runtime driver projection', () => {
     })
 
     const recovered = (await reg.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((session) => session.sessionId === sessionId)
     expect(recovered).toMatchObject({
       status: 'live',
@@ -393,7 +393,7 @@ describe('SessionStart: live session-id collision guard', () => {
     const first = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(first).toBeDefined()
     const durableLabel = first!.durableLabel
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
     expect(spawns(daemon).filter((m) => m.sessionId === sessionId)).toHaveLength(1)
@@ -413,7 +413,7 @@ describe('SessionStart: live session-id collision guard', () => {
     expect(after[0]?.durableLabel).toBe(durableLabel)
     expect(after[0]?.cwd).toBe('/proj')
     expect(after[0]?.title).toBe('first')
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
       'live',
     )
     // No second spawn frame — an overwrite would re-fire spawn for the same id.

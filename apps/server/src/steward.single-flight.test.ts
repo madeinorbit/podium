@@ -5,6 +5,8 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService } from './steward'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
+import { metasAsFacts } from './test-support/session-facts'
 
 /**
  * THE CURSOR IS THE THING BEING FENCED (POD-3258). A poll reads one durable
@@ -31,7 +33,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     const now = () => new Date(clockMs++).toISOString()
     const issueDeps: IssueDeps = {
       store,
-      listSessions: async () => sessions,
+      ...sessionReadPorts(() => sessions),
       getSettings: async () => settings,
       spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
@@ -60,7 +62,8 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       facts: store.notificationFacts,
       messages: store.messages,
       issues,
-      listSessions: async () => sessions,
+      sessionFacts: () => metasAsFacts(sessions),
+      sessionById: async (sessionId) => sessions.find((x) => x.sessionId === sessionId),
       sendTextWhenReady: vi.fn(),
       notify: vi.fn(),
       getSettings: () => settings,

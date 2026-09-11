@@ -6,6 +6,7 @@ import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { SessionReadToolkit } from './read-toolkit'
 import { openTestStore } from '../../test-support/open-test-store'
+import { metasAsFacts } from '../../test-support/session-facts'
 
 const ISSUE = {
   id: 'iss_status',
@@ -70,7 +71,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   expect(row?.effort).not.toBe(ISSUE.defaultEffort)
 
   const meta = (await registry.modules.sessions
-    .listSessions())
+    .listSessions(undefined, 'rpc'))
     .find((candidate) => candidate.sessionId === spawned.sessionId)
   expect(meta).toMatchObject({
     model: 'spawn-selected-model',
@@ -82,7 +83,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   })
 
   const toolkit = new SessionReadToolkit({
-    listSessions: async () => [meta as SessionMeta],
+    sessionFacts: () => metasAsFacts([meta as SessionMeta]),
+    sessionById: async (sessionId) =>
+      sessionId === (meta as SessionMeta).sessionId ? (meta as SessionMeta) : undefined,
+    sessionsById: async (sessionIds) => {
+      const wanted = new Set(sessionIds)
+      return [meta as SessionMeta].filter((s) => wanted.has(s.sessionId))
+    },
     issues: ({
         resolveRef: async () => ISSUE.id,
         getMeta: async () => ISSUE,

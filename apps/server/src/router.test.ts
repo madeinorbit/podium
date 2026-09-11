@@ -327,10 +327,10 @@ describe('markRead mutations (#124)', () => {
       cwd: '/p',
     })
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(true)
     await call.sessions.markRead({ sessionId })
-    const s = (await registry.modules.sessions.listSessions()).find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
@@ -351,10 +351,10 @@ describe('markRead mutations (#124)', () => {
     })
     await call.sessions.markRead({ sessionId })
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(false)
     await call.sessions.markUnread({ sessionId })
-    const s = (await registry.modules.sessions.listSessions()).find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
     expect(s?.readAt).toBeNull()
   })

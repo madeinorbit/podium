@@ -5,6 +5,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { BLANK_TO_NULL_COLUMNS, normalizeBlankIssueText } from './blank-text'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { sessionReadPorts } from '../../test-support/session-facts'
 
 /**
  * POD-820 — `''` and `null` were two spellings of "absent" on every nullable
@@ -15,7 +16,7 @@ async function harness() {
   const store = await openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

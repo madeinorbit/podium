@@ -1,7 +1,6 @@
 import type { IssueWire, SessionId } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
-import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 
 /**
@@ -39,7 +38,7 @@ export class IssueAssistantDigestModule {
    *  owns its worktree — 120s after the LAST activity, not once per event. */
   async onSessionActivity(sessionId: SessionId): Promise<void> {
     if (!(await this.store.d.getSettings()).issues?.assistantEnabled) return
-    const sess = await findSessionByIdAsync(this.store.d, sessionId)
+    const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return
     const row = [...this.store.rows.values()].find(
       (r) =>

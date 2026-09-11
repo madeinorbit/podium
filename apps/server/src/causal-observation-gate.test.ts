@@ -77,7 +77,7 @@ describe('causal session observation gate', () => {
 
     await observe(base)
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(10) })
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
@@ -143,14 +143,14 @@ describe('causal session observation gate', () => {
       state: runtime('working', 40),
     })
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
 
     await reg.dispose()
     const restartedSent: ControlMessage[] = []
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(
-      (await restarted.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
+      (await restarted.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(30) })
     await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, (msg) =>
       restartedSent.push(msg),
@@ -316,7 +316,7 @@ describe('causal session observation gate', () => {
       checkpoint: null,
     })
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.resume,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(effects).toEqual([])
     expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
@@ -400,7 +400,7 @@ describe('causal session observation gate', () => {
       rejectionReason: 'provider_binding_mismatch',
     })
     expect(
-      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
@@ -502,11 +502,11 @@ describe('causal session observation gate', () => {
       bindingVersion: 1,
     })
     expect(
-      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === fresh.sessionId)
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === fresh.sessionId)
         ?.resume,
     ).toBeUndefined()
     expect(
-      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === owner.sessionId)
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === owner.sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-owned' })
 
@@ -595,7 +595,7 @@ describe('causal session observation gate', () => {
     // The gateway owns handler rejections; the observable contract is rollback.
     expect(linkSegment).toHaveBeenCalledTimes(1)
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.resume,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-1' })
     expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       providerSessionId: 'thread-1',

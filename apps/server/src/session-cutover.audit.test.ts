@@ -187,7 +187,7 @@ async function ctxFor(
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
-      listSessions: async () => await modules.sessions.listSessions(),
+      sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
@@ -300,7 +300,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect((await o.meta(sessionId)).name).toBe('typed later')
 
     // COMMAND PLANE. Two identical creates under one id produce ONE session.
-    const before = (await o.reg.modules.sessions.listSessions()).length
+    const before = (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length
     const first = await o.call.sessions.create({
       agentKind: 'shell',
       cwd: '/dup',
@@ -312,7 +312,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       mutationId: 'dup-2',
     })
     expect(replay.sessionId).toBe(first.sessionId)
-    expect((await o.reg.modules.sessions.listSessions()).length).toBe(before + 1)
+    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length).toBe(before + 1)
 
     // The receipt is durable, under the command's dotted name, for both.
     expect(await o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()

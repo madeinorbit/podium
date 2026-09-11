@@ -36,7 +36,6 @@ import { resolvePrincipalAsync, type CommandPrincipal } from '../../command-prin
 import type { MessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { IssueService } from '../issues/service'
-import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   type MachineAccess,
   MailAccess,
@@ -51,12 +50,10 @@ import type { MessageDeliveryService } from './service'
 export interface MessageGateDeps {
   messages: MessageDeliveryService
   issues: IssueService
-  listSessions(): Promise<SessionMeta[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
-   *  Optional for the same reason `listSessionsForIssue` is — the many test
-   *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
+   *  REQUIRED since POD-3857: the full-list port it used to fall back to is
+   *  gone, so the compiler is what keeps the gate off the projection. */
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
@@ -287,7 +284,7 @@ export class MessageGate {
       // rule 51 case 2 protects.
       (await resolvePrincipalAsync(capability, {
         parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy),
+          spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
       }))
     const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access

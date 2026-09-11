@@ -20,6 +20,7 @@ import type {
   LedgerCommitResult,
 } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
+import type { SessionFacts } from '../../sessions/facts'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
 import type { PublishSpec } from '../publish'
@@ -182,20 +183,24 @@ export interface IssueDeps {
    * happens today.
    */
   applyCommit?: BaselineFoldPort
-  listSessions(): Promise<SessionMeta[]>
-  /** ONE session by id, without the full reader-scoped pass [POD-1646].
-   *  Optional for the same reason `listSessionsForIssue` is — the many test
-   *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via {@link findSessionById}'s fallback, just slower. */
-  sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
-  /** The member sessions of ONE issue, without wiring every other session
-   *  [POD-1639]. Optional so the test fixtures that satisfy this interface with
-   *  `listSessions` alone keep working — `IssueStore.sessionsFor` falls back to
-   *  filtering the full list, which is the same answer at the old price. */
-  listSessionsForIssue?(
+  /**
+   * THE CHEAP FLEET READ [POD-3857] — every session as in-memory facts, with no
+   * visibility check and no I/O. This is what the issue service's own reasoning
+   * runs on: worktree occupancy, the close cascade's live-session guard, the
+   * auto-archive sweep, boot totalization. None of them read a projected field.
+   */
+  sessionFacts(): SessionFacts[]
+  /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
+   *  whose output carries the sessions to a client (`issues.get`, the tree). */
+  listSessionsForIssue(
     worktreePath: string | null,
     issueId: IssueId,
   ): Promise<SessionMeta[]>
+  /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
+   *  ids across the whole subtree from facts, then projects only those. */
+  sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
   getSettings(): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —

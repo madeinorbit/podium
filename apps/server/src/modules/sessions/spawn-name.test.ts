@@ -28,7 +28,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
       cwd: '/proj',
       name: '  Spawn placement worker  ',
     })
-    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Spawn placement worker')
     expect(meta?.nameSource).toBe('agent')
     // Derived title is still the cwd basename default — name is the curated slot.
@@ -41,7 +41,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
       agentKind: 'shell',
       cwd: '/proj',
     })
-    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBeUndefined()
     expect(meta?.nameSource).toBeUndefined()
   })
@@ -55,7 +55,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
         name: '   ',
       }),
     ).rejects.toThrow(/title is empty/)
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
   })
 
   it('a user-set name is never clobbered by setAgentName', async () => {
@@ -72,7 +72,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
     })
     expect(r).toMatchObject({ ok: false })
     expect(r.reason).toMatch(/named by the user/i)
-    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Mike’s pet session')
     expect(meta?.nameSource).toBe('user')
   })
@@ -86,7 +86,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
     })
     const r = await reg.modules.sessions.setAgentName({ sessionId, name: 'Clearer name' })
     expect(r).toEqual({ ok: true, name: 'Clearer name' })
-    const meta = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.name).toBe('Clearer name')
     expect(meta?.nameSource).toBe('agent')
   })
@@ -124,7 +124,7 @@ describe('session naming write completion', () => {
     expect((await store.loadSessions()).find((row) => row.id === sessionId)).toMatchObject({
       name: 'New curated name', nameSource: actor === 'human' ? 'user' : 'agent',
     })
-    expect((await reg.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId))
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((row) => row.sessionId === sessionId))
       .toMatchObject({ name: 'New curated name' })
   })
 
@@ -142,7 +142,7 @@ describe('session naming write completion', () => {
       spy.mockRestore()
     }
     expect((await store.loadSessions()).find((row) => row.id === sessionId)?.name).toBeFalsy()
-    expect((await reg.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId)?.name)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((row) => row.sessionId === sessionId)?.name)
       .toBeUndefined()
   })
 })

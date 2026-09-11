@@ -354,7 +354,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     // A shell parks as 'hibernated' (a fresh spawn IS its recovery, so stop keeps
     // it resumable) — the row survives the self-stop.
     expect(
-      (await o.reg.modules.sessions.listSessions()).find((s) => s.sessionId === agentSessionId)?.status,
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === agentSessionId)?.status,
     ).toBe('hibernated')
   })
 

@@ -1280,8 +1280,11 @@ export class SuperagentService {
     return { threadId, isNew: true }
   }
 
-  private async listSessions() {
-    return await this.modules.sessions.listSessions(undefined, 'superagent')
+  /** The fleet as cheap in-memory facts [POD-3857]. Both readers below filter
+   *  on `status`/`archived`/`headless`/`cwd` and then report a label, a kind and
+   *  a phase — nothing the reader-scoped projection adds. */
+  private sessionFacts() {
+    return this.modules.sessions.sessionFacts()
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
   private async sessionById(sessionId: SessionId) {
@@ -1511,7 +1514,7 @@ export class SuperagentService {
       })
     }
     const sessions: ConciergeSessionInfo[] = await Promise.all(
-      (await this.listSessions())
+      this.sessionFacts()
         .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
         .map(async (s) => (await this.sessionInfo(s.sessionId)) ?? { sessionId: s.sessionId }),
     )
@@ -1597,7 +1600,7 @@ export class SuperagentService {
     const issues = this.modules.issues
     const all = await issues.list(repoPath)
     const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [i.worktreePath, i]))
-    const sessions: ConciergeSessionInfo[] = (await this.listSessions())
+    const sessions: ConciergeSessionInfo[] = this.sessionFacts()
       .filter(
         (s) =>
           s.status !== 'exited' &&

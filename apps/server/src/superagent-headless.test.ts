@@ -197,7 +197,7 @@ describe('bounded headless session identity', () => {
     expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
     expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
     expect(
-      (await h.registry.modules.sessions.listSessions()).find((row) => row.sessionId === sessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((row) => row.sessionId === sessionId),
     ).toMatchObject({
       createdBy,
       issueId,
@@ -314,7 +314,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(cleared?.harnessSessionId).toBeUndefined()
     expect(cleared?.podiumSessionId).toBeUndefined()
     expect(
-      (await h.registry.modules.sessions.listSessions()).find((s) => s.sessionId === oldSessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === oldSessionId),
     ).toBeUndefined()
 
     // The next turn is a FIRST turn again: new session, no resume, re-primed.
@@ -350,7 +350,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(thread?.harnessSessionId).toBe('h1')
     // The headless session carries the resume ref, so its transcript binds...
     const meta = (await h.registry.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === podiumSessionId)
     expect(meta?.resume).toMatchObject({ kind: harnessResumeKind('claude-code'), value: 'h1' })
     // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
@@ -421,7 +421,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(thread?.terminalSessionId).toBeUndefined()
     // The PTY session the user opened keeps running — only the binding was dropped.
     expect(
-      (await h.registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
     ).toBeTruthy()
     // And chatting works again, from a freshly primed session.
     const ack = await h.sa.sendTurn({
@@ -543,7 +543,7 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid
     // The headless Podium session exists: live, PTY-less (no spawn message), flagged.
     const meta = (await h.registry.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === ack.podiumSessionId)
     expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
     expect(h.spawns).toHaveLength(0)
@@ -609,7 +609,7 @@ describe('sendTurn (headless harness turns)', () => {
     )
     // …and the session's resume ref uses the same per-kind convention PTY rows use.
     const meta = (await h.registry.modules.sessions
-      .listSessions())
+      .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === podiumSessionId)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'harness-1' })
     // Persisted (survives a reload).
@@ -959,7 +959,7 @@ describe('openInTerminal + one-writer lock', () => {
       agentKind: 'claude-code',
       resume: { kind: harnessResumeKind('claude-code'), value: 'h1' },
     })
-    const meta = (await h.registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.headless).toBeUndefined() // a normal PTY session
     expect(
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.terminalSessionId,
@@ -1201,7 +1201,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (m.type === 'reattach') reattaches.push(m.sessionId)
     })
     await new Promise((r) => setTimeout(r))
-    const meta = (await reborn.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta = (await reborn.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     // Not demoted to reconnecting/exited — headless sessions have no PTY to probe.
     expect(meta?.status).toBe('live')
     expect(meta?.headless).toBe(true)

@@ -118,7 +118,7 @@ describe('SessionRegistry', () => {
       recoveryOnly: true,
     })
     expect(await queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
-    expect(await recovery.modules.sessions.listSessions()).toEqual([])
+    expect(await recovery.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
     await recovery.dispose()
     await queryOnly.close()
 
@@ -150,7 +150,7 @@ describe('SessionRegistry', () => {
         },
       }),
     )
-    expect(await reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
       {
         sessionId,
         status: 'starting',
@@ -312,7 +312,7 @@ describe('SessionRegistry', () => {
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'shell', cwd: '/proj' }),
     )
-    expect(await reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
       { sessionId, agentKind: 'shell', cwd: '/proj' },
     ])
   })
@@ -332,7 +332,7 @@ describe('SessionRegistry', () => {
       cwd: '/other',
     })).sessionId
     const metaOf = async (id: string, r: SessionRegistry = reg) =>
-      (await r.modules.sessions.listSessions()).find((s) => s.sessionId === id)
+      (await r.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
     expect((await metaOf(sessionId))?.spawnedBy).toBe('issue:iss_1')
     // No default at the registry layer: an untagged programmatic create stays unknown.
     expect((await metaOf(anon))?.spawnedBy).toBeUndefined()
@@ -357,7 +357,7 @@ describe('SessionRegistry', () => {
       sessionId: asSessionId(clientId),
     })
     expect(sessionId).toBe(clientId)
-    expect(await reg.modules.sessions.listSessions()).toMatchObject([
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toMatchObject([
       { sessionId: clientId, cwd: '/proj' },
     ])
     expect(daemon).toContainEqual(expect.objectContaining({ type: 'spawn', sessionId: clientId }))
@@ -393,7 +393,7 @@ describe('SessionRegistry', () => {
       }),
     ).rejects.toThrow()
     // The original session is intact — not overwritten by the second cwd.
-    const mine = (await reg.modules.sessions.listSessions()).filter((s) => s.sessionId === clientId)
+    const mine = (await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((s) => s.sessionId === clientId)
     expect(mine).toHaveLength(1)
     expect(mine[0]?.cwd).toBe('/proj')
   })
@@ -410,7 +410,7 @@ describe('SessionRegistry', () => {
       sessionId,
       cwd: '/repo/.worktrees/feat',
     })
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.cwd).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.cwd).toBe(
       '/repo/.worktrees/feat',
     )
   })
@@ -423,7 +423,7 @@ describe('SessionRegistry', () => {
       cwd: '/repo',
     })
     const cwdOf = async () =>
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.cwd
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.cwd
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionCwd',
       sessionId,
@@ -833,7 +833,7 @@ describe('SessionRegistry', () => {
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code' }),
     )
-    expect((await reg.modules.sessions.listSessions())[0]?.agentKind).toBe('claude-code')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.agentKind).toBe('claude-code')
   })
 
   it('still sends welcome + the world when the issues payload build throws', async () => {
@@ -897,7 +897,7 @@ describe('SessionRegistry', () => {
         ]),
       }),
     )
-    expect((await reg.modules.sessions.listSessions()).at(0)).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)).toMatchObject({
       origin: { kind: 'resume', conversationId: 'c9' },
       title: 'old',
     })
@@ -925,7 +925,7 @@ describe('SessionRegistry', () => {
       conversationId: 'c9',
     })
     expect(second.sessionId).toBe(first.sessionId)
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(1)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(1)
     // No second durable master spawned for the same conversation.
     expect(daemon.filter((m) => m.type === 'spawn').length).toBe(spawnsBefore)
   })
@@ -949,9 +949,9 @@ describe('SessionRegistry', () => {
       conversationId: 'c9',
     })
     expect(second.sessionId).toBe(first.sessionId)
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(1)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(1)
     // Reusing a parked row resurrects it (respawn under the same id).
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
   })
 
   it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', async () => {
@@ -979,7 +979,7 @@ describe('SessionRegistry', () => {
     })
     expect(reused.sessionId).toBe(sessionId)
     const metaOf = async (id: string) =>
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === id)
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
     expect((await metaOf(sessionId))?.spawnedBy).toBe('issue:iss_1')
     // No existing row for this ref → fresh spawn carries the caller's tag.
     const fresh = await reg.modules.issueSessionLifecycle.resumeSession({
@@ -1008,7 +1008,7 @@ describe('SessionRegistry', () => {
       resume: { kind: 'codex-thread', value: 't2' },
       conversationId: 'c2',
     })
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(2)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(2)
   })
 
   it('answers a client ping with pong (browser-level keepalive)', async () => {
@@ -1129,7 +1129,7 @@ describe('SessionRegistry', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     await reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
-    expect((await reg.modules.sessions.listSessions()).find((m) => m.sessionId === s2)?.epoch).toBe(0)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === s2)?.epoch).toBe(0)
   })
 
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', async () => {
@@ -1187,7 +1187,7 @@ describe('SessionRegistry', () => {
       retiredAt: expect.any(String),
       durableLabel: `podium-${s1}`,
     })
-    expect(await reg.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
   })
 
   it('agentExit marks the session exited but keeps it listed', async () => {
@@ -1199,7 +1199,7 @@ describe('SessionRegistry', () => {
       sessionId: s1,
       code: 0,
     })
-    expect((await reg.modules.sessions.listSessions()).find((m) => m.sessionId === s1)).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === s1)).toMatchObject({
       status: 'exited',
       exitCode: 0,
     })
@@ -1307,7 +1307,7 @@ describe('SessionRegistry', () => {
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(id)))
-    const healed = (await reg.modules.sessions.listSessions()).find((m) => m.sessionId === id)
+    const healed = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === id)
     expect(healed).toMatchObject({ status: 'live' })
     expect(healed?.exitCode).toBeUndefined()
   })
@@ -1325,7 +1325,7 @@ describe('SessionRegistry', () => {
       sessionId: asSessionId(id),
       reason: 'session not found',
     })
-    expect((await reg.modules.sessions.listSessions()).find((m) => m.sessionId === id)).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === id)).toMatchObject({
       status: 'exited',
       exitCode: 0,
     })
@@ -1386,10 +1386,10 @@ describe('SessionRegistry', () => {
       cwd: '/proj',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId)) // → live
-    expect((await reg.modules.sessions.listSessions()).at(0)?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     // Daemon-only restart: its WS closes while the server keeps running.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect((await reg.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('reconnecting')
     // A fresh daemon attaches with no bridges → it must be asked to reattach.
     const daemon2: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon2.push(m))
@@ -1558,7 +1558,7 @@ describe('SessionRegistry', () => {
     const first = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const second = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const meta = async (sessionId: string) =>
-      (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
@@ -1728,7 +1728,7 @@ describe('SessionRegistry', () => {
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
     // Late joiners see it via listSessions() — also without the frame, so the
     // session does not keep whichever one the spinner happened to stop on.
-    expect((await reg.modules.sessions.listSessions()).at(0)).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)).toMatchObject({
       sessionId,
       title: 'rename functionality',
     })
@@ -1804,7 +1804,7 @@ describe('SessionRegistry', () => {
     })
 
     expect(
-      (await reg2.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId),
+      (await reg2.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
     ).toMatchObject({ title: 'rename functionality' })
     expect(
       c.sent.filter((m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality'),
@@ -1889,7 +1889,7 @@ describe('SessionRegistry', () => {
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
     })
-    expect((await reg.modules.sessions.listSessions()).find((m) => m.sessionId === sessionId)?.busy).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === sessionId)?.busy).toBe(
       true,
     )
     expect(spy).toHaveBeenCalled()
@@ -1978,7 +1978,7 @@ describe('SessionRegistry', () => {
     const store2 = await openTestStore(file, TEST_MACHINE)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     expect(
-      (await reg2.modules.sessions.listSessions()).find((m) => m.sessionId === sessionId),
+      (await reg2.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === sessionId),
     ).toMatchObject({
       status: 'reconnecting',
       title: 'old',
@@ -2026,9 +2026,9 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
-    expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('reconnecting')
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
-    expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('live')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
   })
 
   /**
@@ -2062,7 +2062,7 @@ describe('SessionRegistry', () => {
       sessionId,
       driverId: 'opencode-server',
     })
-    expect((await reg1.modules.sessions.listSessions()).at(0)?.driverFamily).toBe('server')
+    expect((await reg1.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.driverFamily).toBe('server')
     await reg1.dispose()
     await store1.close()
 
@@ -2070,7 +2070,7 @@ describe('SessionRegistry', () => {
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    const restored = (await reg2.modules.sessions.listSessions()).at(0)
+    const restored = (await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)
     expect(restored?.status).toBe('reconnecting')
     expect(restored?.driverFamily).toBe('server')
     // …and still no claim that a live handle exists, which is the other half:
@@ -2102,14 +2102,14 @@ describe('SessionRegistry', () => {
       driverId: 'generic-pty',
       attachKinds: ['engine'],
     })
-    expect((await reg1.modules.sessions.listSessions()).at(0)?.attachKinds).toEqual(['engine'])
+    expect((await reg1.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.attachKinds).toEqual(['engine'])
     await reg1.dispose()
     await store1.close()
 
     const reg2 = await SessionRegistry.create(await openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
-    expect((await reg2.modules.sessions.listSessions()).at(0)?.driverFamily).toBe('terminal')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.driverFamily).toBe('terminal')
   })
 
   it('clears a persisted pre-launch driver decision when the spawn is refused', async () => {
@@ -2141,7 +2141,7 @@ describe('SessionRegistry', () => {
 
     const store2 = await openTestStore(file, TEST_MACHINE)
     const reg2 = await SessionRegistry.create(store2, undefined, { instanceId: 'default' })
-    const restored = (await reg2.modules.sessions.listSessions()).at(0)
+    const restored = (await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)
     expect(restored?.status).toBe('exited')
     expect(restored?.driverFamily).toBeUndefined()
     expect((await store2.sessions.loadSessions()).at(0)?.selectedDriverId).toBeNull()
@@ -2165,13 +2165,13 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
-    expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('reconnecting') // handler must drive the transition
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('reconnecting') // handler must drive the transition
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
       reason: 'no abduco session',
     })
-    expect((await reg2.modules.sessions.listSessions()).at(0)?.status).toBe('exited')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('exited')
   })
 
   it('skips a persisted session with an invalid agentKind on load', async () => {
@@ -2230,7 +2230,7 @@ describe('SessionRegistry', () => {
       .run()
     const logs = captureLogs()
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const ids = (await reg.modules.sessions.listSessions()).map((m) => m.sessionId)
+    const ids = (await reg.modules.sessions.listSessions(undefined, 'rpc')).map((m) => m.sessionId)
     expect(ids).toContain('good')
     expect(ids).not.toContain('bad')
     expect(logs.at('warn')).not.toHaveLength(0)
@@ -2392,7 +2392,7 @@ describe('agent state', () => {
     expect(client.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
     // Late joiners still see the state via listSessions().
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toEqual(STATE)
   })
   it('rebases daemon tracker resets and broadcasts the canonical persisted total', async () => {
@@ -2428,7 +2428,7 @@ describe('agent state', () => {
     const updates = client.sent.filter((m) => m.type === 'sessionAgentStateChanged')
     expect(updates.at(-1)).toMatchObject({ state: { workingMsTotal: 7_000 } })
     expect(
-      (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.agentState,
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ workingMsTotal: 7_000 })
   })
 
@@ -3699,7 +3699,7 @@ describe('hibernation', () => {
         }),
       ).resolves.toBeUndefined()
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toBeUndefined()
-      expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
       expect(clearReadAt).not.toHaveBeenCalled()
 
       await store.endTransferFence()
@@ -3708,7 +3708,7 @@ describe('hibernation', () => {
       expect((await store.machines.getMachine(reg.sessionStore.hostMachineId))?.inventory).toMatchObject({
         podiumVersion: 'fenced-report',
       })
-      expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
       expect(clearReadAt).toHaveBeenCalledOnce()
     } finally {
       await reg.dispose()
@@ -3793,7 +3793,7 @@ describe('hibernation', () => {
 
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
-    expect((await reg.modules.sessions.listSessions())[0]).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]).toMatchObject({
       sessionId,
       status: 'hibernated',
     })
@@ -3803,7 +3803,7 @@ describe('hibernation', () => {
       sessionId,
       code: 0,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
   })
 
   // POD-1953. A park flips the row before the kill is on the wire, so 'hibernated'
@@ -3817,7 +3817,7 @@ describe('hibernation', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await liveSession(reg, daemon)
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
 
     daemon.length = 0
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3830,7 +3830,7 @@ describe('hibernation', () => {
 
     // Reconnecting, not live: the daemon disposed the PTY bridge when it took the
     // kill, so the row is only honest once the reattach below binds a new one.
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('reconnecting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('reconnecting')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -3871,7 +3871,7 @@ describe('hibernation', () => {
     })
 
     // Parked, held: no reattach means no adopt means no second codex child.
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -3918,7 +3918,7 @@ describe('hibernation', () => {
       reason: 'the server-driver process is still running',
     })
 
-    expect((await reg2.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon2.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -3958,7 +3958,7 @@ describe('hibernation', () => {
       labels: [`podium-${sessionId}`],
     })
 
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('reconnecting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('reconnecting')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4021,14 +4021,14 @@ describe('hibernation', () => {
     daemon.length = 0
     await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
 
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
 
     // …and once per receipt, unbounded, is the shape that made this a spawn
     // loop rather than a single stray child. Repeat it.
     await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
     await unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -4057,7 +4057,7 @@ describe('hibernation', () => {
     daemon.length = 0
     await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -4082,7 +4082,7 @@ describe('hibernation', () => {
     daemon2.length = 0
     await unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
 
-    expect((await reg2.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon2.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -4104,7 +4104,7 @@ describe('hibernation', () => {
     daemon.length = 0
     await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('reconnecting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('reconnecting')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4122,7 +4122,7 @@ describe('hibernation', () => {
       durableLabel: `podium-${sessionId}`,
       killed: true,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('hibernated')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('hibernated')
     expect(daemon.map((m) => m.type)).not.toContain('reattach')
   })
 
@@ -4145,7 +4145,7 @@ describe('hibernation', () => {
       labels: [`podium-${ghost}`],
     })
 
-    const byId = new Map((await reg.modules.sessions.listSessions()).map((s) => [s.sessionId, s.status]))
+    const byId = new Map((await reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => [s.sessionId, s.status]))
     expect(byId.get(ghost)).toBe('reconnecting')
     // Absent from the census = the park told the truth. It must stay parked, or
     // every deliberate hibernation would come back on the next daemon connect.
@@ -4218,7 +4218,7 @@ describe('hibernation', () => {
         ]),
       }),
     )
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
   })
 
   // The daemon REFUSES a spawn frame carrying neither `binding` nor
@@ -4256,7 +4256,7 @@ describe('hibernation', () => {
       sessionId,
       code: 0,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('exited')
     daemon.length = 0
 
     expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
@@ -4269,7 +4269,7 @@ describe('hibernation', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
       }),
     )
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
   })
 
   it('rejects a fenced Grok exit when both live and durable leases are absent', async () => {
@@ -4316,7 +4316,7 @@ describe('hibernation', () => {
       observerGeneration: generation,
     })
 
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
     await reg.dispose()
   })
@@ -4439,7 +4439,7 @@ describe('hibernation', () => {
       })
 
       await vi.waitFor(() => expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1))
-      expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
       expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
       expect(await reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
@@ -4596,7 +4596,7 @@ describe('hibernation', () => {
     const recoveryGeneration = recoverySpawn?.observationGeneration
     expect(recoveryGeneration).toBeGreaterThan(initialGeneration)
     if (recoveryGeneration === undefined) throw new Error('recovery spawn was not fenced')
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
 
     // The real exit must publish before its synchronous wake mutates the same row.
     expect(lifecycle).toEqual(['exit', 'spawn'])
@@ -4611,7 +4611,7 @@ describe('hibernation', () => {
     })
     expect(lifecycle).toEqual(['exit', 'spawn'])
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     // The durable process event may arrive after the ordinary exit frame. The
     // recovery above has already advanced the lease, so this same-generation
     // replay must not apply a second exit or spawn another replacement.
@@ -4631,7 +4631,7 @@ describe('hibernation', () => {
     })
     expect(lifecycle).toEqual(['exit', 'spawn'])
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
 
     // The automatic replacement can fail before bind. Its spawnError closes
     // that attempt, while the accepted row remains durable for an authorized
@@ -4641,7 +4641,7 @@ describe('hibernation', () => {
       sessionId,
       message: 'grok session/load timed out',
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('exited')
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
 
     daemon.length = 0
@@ -4657,7 +4657,7 @@ describe('hibernation', () => {
     const retryGeneration = retrySpawn?.observationGeneration
     expect(retryGeneration).toBeGreaterThan(recoveryGeneration)
     if (retryGeneration === undefined) throw new Error('authorized retry was not fenced')
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
 
     for (const staleGeneration of [initialGeneration, recoveryGeneration]) {
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4668,7 +4668,7 @@ describe('hibernation', () => {
       })
     }
     await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1))
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4684,7 +4684,7 @@ describe('hibernation', () => {
       code: 137,
       observerGeneration: recoveryGeneration,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
 
     // A matching current-generation exit after bind is the replacement's real
@@ -4695,7 +4695,7 @@ describe('hibernation', () => {
       code: 139,
       observerGeneration: retryGeneration,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2))
     const postBindSpawns = daemon.filter(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
@@ -4712,7 +4712,7 @@ describe('hibernation', () => {
       code: 139,
       observerGeneration: retryGeneration,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2)
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
     await reg.dispose()
@@ -4803,7 +4803,7 @@ describe('hibernation', () => {
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(
       spawnCountAfterDurableExit,
     )
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
 
     await vi.waitFor(() => expect(lifecycle).toEqual(['exit', 'spawn']))
     const recoverySpawn = daemon.find(
@@ -4816,7 +4816,7 @@ describe('hibernation', () => {
       resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
     })
     expect(recoverySpawn?.observationGeneration).toBeGreaterThan(initialGeneration)
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     expect(lifecycle).toEqual(['exit', 'spawn'])
     expect(daemon).toContainEqual({
       type: 'runtimeEventAck',
@@ -4863,7 +4863,7 @@ describe('hibernation', () => {
       code: 137,
     })
     await vi.waitFor(() => expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1))
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4871,7 +4871,7 @@ describe('hibernation', () => {
       sessionId,
       message: 'legacy replacement failed before bind',
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('exited')
 
     daemon.length = 0
     await expect(
@@ -4884,7 +4884,7 @@ describe('hibernation', () => {
       sessionId,
       code: 138,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('exited')
     expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
     await reg.dispose()
@@ -4943,7 +4943,7 @@ describe('hibernation', () => {
     })
 
     expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
-    expect((await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status).toBe(
       'exited',
     )
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
@@ -4961,7 +4961,7 @@ describe('hibernation', () => {
       sessionId,
       code: 137,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('exited')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('exited')
     daemon.length = 0
 
     expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
@@ -5005,7 +5005,7 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await exitedCodex(reg, daemon)
-    expect((await reg.modules.sessions.listSessions())[0]).toMatchObject({
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]).toMatchObject({
       status: 'exited',
       neverBound: true,
     })
@@ -5016,7 +5016,7 @@ describe('hibernation', () => {
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({ sessionId, agentKind: 'codex', cwd: '/w' })
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('starting')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
   })
 
   it('still refuses one that HAD a ref and lost it to identity arbitration', async () => {
@@ -5041,7 +5041,7 @@ describe('hibernation', () => {
       resume: { kind: 'codex-thread', value: 'thread-1' },
       confidence: 'exact',
     })
-    const stripped = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const stripped = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(stripped?.resumable).toBeUndefined()
     expect(stripped?.neverBound).toBeUndefined() // NOT proof — it was bound once
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -5066,7 +5066,7 @@ describe('hibernation', () => {
   async function reboot(file: string): Promise<{ reg: SessionRegistry; frames: ControlMessage[] }> {
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const frames: ControlMessage[] = []
-    const machineId = (await reg.modules.sessions.listSessions())[0]?.machineId
+    const machineId = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.machineId
     if (!machineId) throw new Error('the rebooted registry loaded no placed session')
     await reg.gateway.attachDaemon(machineId, (m) => frames.push(m))
     frames.length = 0 // reattach probes are not what these tests are reading
@@ -5090,7 +5090,7 @@ describe('hibernation', () => {
     await reg.dispose()
     await reg.sessionStore.close()
     const { reg: rebooted, frames } = await reboot(file)
-    expect((await rebooted.modules.sessions.listSessions())[0]?.neverBound).toBeUndefined()
+    expect((await rebooted.modules.sessions.listSessions(undefined, 'rpc'))[0]?.neverBound).toBeUndefined()
     expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
       ok: false,
       reason: 'no resume ref',
@@ -5108,7 +5108,7 @@ describe('hibernation', () => {
     await reg.dispose()
     await reg.sessionStore.close()
     const { reg: rebooted, frames } = await reboot(file)
-    expect((await rebooted.modules.sessions.listSessions())[0]?.neverBound).toBe(true)
+    expect((await rebooted.modules.sessions.listSessions(undefined, 'rpc'))[0]?.neverBound).toBe(true)
     expect(await rebooted.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
       ok: true,
     })
@@ -5157,7 +5157,7 @@ describe('hibernation', () => {
         idle: { kind: 'done' },
       },
     })
-    const session = (await reg.modules.sessions.listSessions())[0]
+    const session = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
     expect(session?.agentState?.phase).toBe('idle')
     // agentState bumps lastActiveAt to now — rewind it via the store round-trip.
     // (The idle cutoff compares lastActiveAt; simulate an hour of silence.)
@@ -5176,7 +5176,7 @@ describe('hibernation', () => {
         swapFreeBytes: 0,
       },
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {
@@ -5219,7 +5219,7 @@ describe('hibernation', () => {
       sampledAt: new Date().toISOString(),
       memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
   })
 
   it('keeps a session awake when the user typed recently, even with no agent activity', async () => {
@@ -5264,7 +5264,7 @@ describe('hibernation', () => {
       sampledAt: new Date().toISOString(),
       memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.status).toBe('live')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
   })
 })
 
@@ -5987,18 +5987,18 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    const before = (await reg.modules.sessions.listSessions())[0]
+    const before = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
     await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
-    const after = (await reg.modules.sessions.listSessions())[0]
+    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
 
     // read_at is durable — a fresh registry over the same store reads it back.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions())[0]?.readAt).toBe(after?.readAt)
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBe(after?.readAt)
     await reg.dispose()
     await reg2.dispose()
   })
@@ -6034,7 +6034,7 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     await reg.modules.sessions.markSessionRead(asUserId(SOLE_USER_ID), sessionId)
-    expect((await reg.modules.sessions.listSessions())[0]?.unread).toBe(false)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.unread).toBe(false)
 
     const c = sink()
     await attachCurrent(reg, c.send)
@@ -6042,12 +6042,12 @@ describe('SessionRegistry read state (#124)', () => {
     await reg.modules.sessions.markSessionUnread(asUserId(SOLE_USER_ID), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
-    const after = (await reg.modules.sessions.listSessions())[0]
+    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
     expect(after?.readAt).toBeNull()
     expect(after?.unread).toBe(true)
     // Durable: a fresh registry over the same store reads readAt back as null.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions())[0]?.readAt).toBeNull()
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBeNull()
     // And the scoped-feed change was broadcast to clients.
     await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
       expect.objectContaining({ sessionId, unread: true }),
@@ -6082,11 +6082,11 @@ describe('SessionRegistry snooze', () => {
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
       [sessionId]: null,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
 
     await reg.modules.sessions.clearSnooze(asUserId(SOLE_USER_ID), sessionId)
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
-    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions())[0] ?? {})).toBe(false)
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
   })
 
   it('a submitted prompt (sendText) clears the snooze', async () => {
@@ -6158,7 +6158,7 @@ describe('SessionRegistry snooze', () => {
     })
     await store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
   })
 })
 

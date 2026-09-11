@@ -202,7 +202,7 @@ describe('durable terminal hibernation proof', () => {
     const candidate = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
     expect(candidate?.facts.lastActiveAt).toBe(ahead)
     expect(
-      (await h.registry.modules.sessions.listSessions()).find((s) => s.sessionId === h.sessionId)
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === h.sessionId)
         ?.lastActiveAt,
       'and the session the row describes says the same thing',
     ).toBe(ahead)
@@ -403,7 +403,7 @@ describe('durable terminal hibernation proof', () => {
       await registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }),
     ).toEqual({ ok: false, reason: 'terminal proof changed before hibernation' })
     expect(
-      (await registry.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
         ?.status,
     ).toBe('live')
     expect(await store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
@@ -424,7 +424,7 @@ describe('durable terminal hibernation proof', () => {
     ).rejects.toThrow('session row write failed')
     upsert.mockRestore()
     expect(
-      (await registry.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId)
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId)
         ?.status,
     ).toBe('live')
     expect(
@@ -918,7 +918,7 @@ describe('durable terminal hibernation proof', () => {
       state: runtime('working', 31),
     })
     expect(
-      (await h.registry.modules.sessions.listSessions()).find((row) => row.sessionId === h.sessionId)
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((row) => row.sessionId === h.sessionId)
         ?.status,
     ).toBe('hibernated')
     expect(await h.store.observationCheckpoints.get(h.sessionId)).toEqual(checkpoint)

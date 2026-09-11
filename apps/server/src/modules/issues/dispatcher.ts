@@ -21,7 +21,6 @@ import { spawnedByParentSessionId } from '@podium/model'
 import { z } from 'zod'
 import { resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
-import { findSessionByIdAsync } from '../sessions/session-by-id'
 import {
   commandAccess,
   type IssueCaller,
@@ -98,7 +97,7 @@ export class IssueCommandDispatcher {
           principal: await resolvePrincipalAsync(caller.capability, {
             parentSessionOf: async (sessionId) =>
               spawnedByParentSessionId(
-                (await findSessionByIdAsync(this.deps, sessionId))?.spawnedBy,
+                (await this.deps.sessionById(sessionId))?.spawnedBy,
               ),
           }),
         }

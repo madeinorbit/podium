@@ -29,6 +29,7 @@ import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
+import type { SessionFacts } from '../../sessions/facts'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
 import { countContextAwarePendingMail } from './mail-pending'
@@ -227,8 +228,18 @@ export class IssueReportsModule {
       if (list) list.push(r)
       else byParent.set(r.parentId, [r])
     }
-    // One session list for the whole walk — same membership rules as IssueWire.
-    const sessionList = await this.store.deps.listSessions()
+    // ONE FACTS SNAPSHOT FOR THE WHOLE WALK, and the wiring deferred [POD-3857].
+    //
+    // The tree DOES hand sessions to a reader — `displayRef` is on them — so it
+    // cannot answer from facts alone. What it does not need is the projection
+    // for every session on the box: membership is decided by `issueId` and
+    // `cwd`, both of which facts carry, so the walk selects with facts and the
+    // pass below wires only the members it actually found. Visibility is
+    // unchanged — `sessionsById` runs the same `canReadSession` per candidate
+    // that the full list ran, so a session the reader may not see is dropped
+    // exactly where it was dropped before.
+    const sessionList = this.store.deps.sessionFacts()
+    const wiring: Array<{ node: IssueTreeNode; members: SessionFacts[]; row: IssueRow }> = []
     // ...and one dep read for the whole walk, for the same reason: `node` below
     // recurses over the subtree and asked for its own row's deps at every step
     // (POD-3257).
@@ -257,21 +268,9 @@ export class IssueReportsModule {
         row.deletedAt || (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage))
           ? []
           : sessionsForIssue(row.worktreePath, sessionList, row.id)
-      // One named mapper owns this projection (inventory §6.5) — including the
-      // name/title -> label and agentState.phase -> phase flattenings.
-      const sessions: IssueTreeSession[] = members.map((s) =>
-        toIssueTreeSession({
-          ...s,
-          // OBSERVED beats configured: what the harness is actually running is
-          // what a reader of the tree needs (ab75ab1e).
-          model: s.observedModel ?? s.model,
-          effort: s.observedEffort ?? s.effort,
-          ...(row.coordinatorSessionId && row.coordinatorSessionId === s.sessionId
-            ? { coordinator: true }
-            : {}),
-        }),
-      )
-      return {
+      // Filled by the wiring pass after the walk — see `sessionList` above.
+      const sessions: IssueTreeSession[] = []
+      const built: IssueTreeNode = {
         id: row.id,
         seq: row.seq,
         title: row.title,
@@ -296,8 +295,39 @@ export class IssueReportsModule {
         children,
         omittedChildren,
       }
+      if (members.length > 0) wiring.push({ node: built, members, row })
+      return built
     }
     const root = await node(rootRow, 0)
+    // ONE projection pass for every member the walk kept, together.
+    const wired = new Map(
+      (
+        await this.store.deps.sessionsById(
+          wiring.flatMap((entry) => entry.members.map((m) => m.sessionId)),
+        )
+      ).map((session) => [session.sessionId, session]),
+    )
+    for (const entry of wiring) {
+      for (const member of entry.members) {
+        const s = wired.get(member.sessionId)
+        if (!s) continue // not readable by this principal — as before
+        // One named mapper owns this projection (inventory §6.5) — including the
+        // name/title -> label and agentState.phase -> phase flattenings.
+        entry.node.sessions.push(
+          toIssueTreeSession({
+            ...s,
+            // OBSERVED beats configured: what the harness is actually running is
+            // what a reader of the tree needs (ab75ab1e).
+            model: s.observedModel ?? s.model,
+            effort: s.observedEffort ?? s.effort,
+            ...(entry.row.coordinatorSessionId &&
+            entry.row.coordinatorSessionId === s.sessionId
+              ? { coordinator: true }
+              : {}),
+          }),
+        )
+      }
+    }
     return { root, totalNodes: count, omitted, maxDepth, maxNodes }
   }
 

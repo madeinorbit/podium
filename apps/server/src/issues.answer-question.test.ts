@@ -9,6 +9,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /**
  * issues.answerQuestion end-to-end over the command dispatcher (issue #53):
@@ -24,7 +25,7 @@ async function harness(
   const store = await openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
@@ -67,7 +68,8 @@ async function harness(
       { getAppliedMutation: () => undefined, recordAppliedMutation: () => {} },
       () => 0,
     ),
-    listSessions: async () => [],
+    sessionById: async () => undefined,
+    listSessionsForIssue: async () => [],
     repoPaths: () => ['/r'],
     inferRepoFromPath: () => undefined,
     ...(answerSessionQuestion ? { answerSessionQuestion } : {}),

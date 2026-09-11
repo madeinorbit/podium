@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
 
 /**
  * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
@@ -33,7 +34,7 @@ async function harness() {
   const plumbing = issueTestPlumbing()
   const deps: IssueDeps = {
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
@@ -284,7 +285,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const plumbing2 = issueTestPlumbing()
     const svc2 = await IssueService.create({
       store,
-      listSessions: async () => [],
+      ...sessionReadPorts(() => []),
       getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'claude-code' } }),
       spawnSession: async () => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' }),
       repoOp: async () => ({ ok: true, output: '' }),

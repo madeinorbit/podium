@@ -225,7 +225,7 @@ describe('concierge threads (issue #64)', () => {
     expect(await sa.callMcpTool('start_agent', { agentKind: 'claude-code', cwd: '/r' }, tid)).toBe(
       NOT_CONFIRMED_MSG,
     )
-    expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     expect((await registry.issues.get(issue.id))?.stage).toBe('backlog')
     // Confirmed → runs (confirmed stripped before the underlying tool).
     const out = JSON.parse(
@@ -244,7 +244,7 @@ describe('concierge threads (issue #64)', () => {
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, asThreadId('btw_s1')),
     ) as { sessionId: SessionId }
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId),
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId),
     ).toBeDefined()
   })
 
@@ -266,7 +266,7 @@ describe('concierge threads (issue #64)', () => {
       await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Big', start: true }, tid),
     ).toBe(NOT_CONFIRMED_MSG)
     expect(await registry.issues.list('/r')).toHaveLength(0)
-    expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+    expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     // Plain create (no start) stays ungated — filing issues is always allowed.
     const plain = await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Note' }, tid)
     expect(plain).toContain('created #1 Note')
@@ -371,7 +371,7 @@ describe('concierge threads (issue #64)', () => {
       expect(await call('start_agent', { agentKind: 'claude-code', cwd: '/r' }, tok)).toBe(
         NOT_CONFIRMED_MSG,
       )
-      expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+      expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
       expect((await registry.issues.get(issue.id))?.stage).toBe('backlog')
     })
 
@@ -383,7 +383,7 @@ describe('concierge threads (issue #64)', () => {
         await call('start_agent', { agentKind: 'shell', cwd: '/r', confirmed: true }, tok),
       ) as { sessionId: SessionId }
       expect(
-        (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === out.sessionId)
+        (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === out.sessionId)
           ?.spawnedBy,
       ).toBe(`superagent:${tid}`)
     })
@@ -395,7 +395,7 @@ describe('concierge threads (issue #64)', () => {
       expect(await call('start_agent', { agentKind: 'shell', cwd: '/r' }, 'forged')).toBe(
         NOT_CONFIRMED_MSG,
       )
-      expect(await registry.modules.sessions.listSessions()).toHaveLength(0)
+      expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
       // Non-spawning tools stay ungated for identity-less callers.
       expect(JSON.parse(await call('list_sessions', {}))).toEqual([])
     })

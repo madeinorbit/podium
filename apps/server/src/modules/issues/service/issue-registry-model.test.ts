@@ -27,6 +27,7 @@ import { StaleIssueRevisionError } from '../../../store/issue-revision'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../service'
 import { issueTestPlumbing } from './test-plumbing'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 
 interface Harness {
   store: SessionStore
@@ -62,7 +63,7 @@ const open = async (): Promise<Harness> => {
   }
   const deps: IssueDeps = {
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

@@ -13,7 +13,6 @@ import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
-import { sessionsForIssue } from '../../issue-util'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 
@@ -389,10 +388,8 @@ const defs = {
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
-        const sessions = sessionsForIssue(
-          issue.worktreePath,
-          await ctx.deps.listSessions(),
-          issue.id,
+        const sessions = (
+          await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)
         ).filter((session) => session.agentKind !== 'shell')
         return { ...issue, sessions }
       }),

@@ -232,7 +232,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
       expect(await reg.sessionStore.sync.listQueuedMessages(target)).toEqual([])
       expect(
-        (await reg.modules.sessions.listSessions()).find((session) => session.sessionId === target)
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === target)
           ?.queuedMessageCount,
       ).toBeUndefined()
     } finally {
@@ -267,7 +267,7 @@ describe('queueText (durable outbox sends)', () => {
         ),
       )
       // The queued count rides the session meta while the message waits...
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(1)
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
@@ -285,14 +285,14 @@ describe('queueText (durable outbox sends)', () => {
       // TYPED IS NOT DELIVERED. The bytes are in the CLI and the row is still
       // the operator's: counted, durable, and visible in the meta. Claiming
       // delivery here is the silent loss the queue exists to refuse.
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(1)
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
       await confirmUserTurn(reg, sessionId, 'wake-up-msg')
       await advanceUntilSettled(reg, sessionId, 'wake-up-msg')
 
       // Delivered: the count leaves the meta and the durable row is gone.
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBeUndefined()
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
       expect(await reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       // And still exactly one paste — the confirmation settles the row, it
       // never retypes it.
@@ -339,7 +339,7 @@ describe('queueText (durable outbox sends)', () => {
       const daemon: ControlMessage[] = []
       await regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
       expect(
-        (await regB.modules.sessions.listSessions()).find((session) => session.sessionId === sessionId),
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
 
       await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
@@ -457,7 +457,7 @@ describe('queueText (durable outbox sends)', () => {
     })
     // No durable row, no count on the meta, no wake attempt.
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
-    expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBeUndefined()
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
@@ -490,7 +490,7 @@ describe('queueText (durable outbox sends)', () => {
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       expect(
-        (await regB.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
       ).toBe(1)
 
@@ -510,7 +510,7 @@ describe('queueText (durable outbox sends)', () => {
       await advanceUntilSettled(regB, sessionId, 'survive-restart')
       expect(await regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       expect(
-        (await regB.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
       ).toBeUndefined()
       // Exactly once across the restart — the row the old process queued was
@@ -537,7 +537,7 @@ describe('queueText (durable outbox sends)', () => {
 
       await reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
       await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(2)
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
 
       // Silent TUI → the readiness window falls back to its ceiling and the head
       // is typed. Stepped, not jumped: the old `advanceTimersByTime(6_400)` wrote
@@ -548,7 +548,7 @@ describe('queueText (durable outbox sends)', () => {
       // ATTEMPTED yet: the head is typed but unconfirmed, so both rows are still
       // durable and still counted.
       expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(2)
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
 
       await confirmUserTurn(reg, sessionId, 'first-msg')
       // Settle the head, and stop on the step that settles it — inside the
@@ -570,7 +570,7 @@ describe('queueText (durable outbox sends)', () => {
       // Both delivered, in enqueue order, as SEPARATE bracketed-paste inputs.
       const pastes = decodedInputs(daemon).filter((t) => t.startsWith('\x1b[200~'))
       expect(pastes).toEqual(['\x1b[200~first-msg\x1b[201~', '\x1b[200~second-msg\x1b[201~'])
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBeUndefined()
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
@@ -594,7 +594,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
       // The attempt gave up but the ROWS REMAIN — nothing was dropped.
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-      expect((await reg.modules.sessions.listSessions())[0]?.queuedMessageCount).toBe(1)
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and types after settle.
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
@@ -668,10 +668,10 @@ describe('queueText (durable outbox sends)', () => {
       sessionId: asSessionId(sessionId),
       until: null,
     })
-    expect((await reg.modules.sessions.listSessions())[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
 
     await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
-    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions())[0] ?? {})).toBe(false)
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
     expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
   })
 })

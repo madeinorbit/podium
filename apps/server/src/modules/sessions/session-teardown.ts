@@ -43,6 +43,7 @@ import type { EventBus } from '../bus'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
+import type { SessionFacts } from './facts'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionRepository } from './repository'
@@ -72,7 +73,9 @@ export interface SessionTeardownPorts {
   rpc: DaemonRpcService
   daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
-  listSessions(): Promise<SessionMeta[]>
+  /** Worktree occupancy, from memory [POD-3857]: the free guard asks which
+   *  live sessions sit inside a path, which is `status` and `cwd`. */
+  sessionFacts(): SessionFacts[]
   setArchived(input: { sessionId: SessionId; archived: boolean }): Promise<void>
   rearmUnread(sessionId: SessionId): Promise<void>
   toMachine(machineId: MachineId, message: ControlMessage): void
@@ -351,7 +354,7 @@ export class SessionTeardown {
     if (issueId && worktreePath) {
       const stillUsing = liveSessionsUsingWorktree(
         worktreePath,
-        await this.ports.listSessions(),
+        this.ports.sessionFacts(),
         input.sessionId,
       )
       if (stillUsing.length === 0) {
@@ -480,7 +483,7 @@ export class SessionTeardown {
     const current = await this.ports.issueAccess.getMeta(input.issueId)
     const wt = current?.worktreePath ?? null
     if (wt) {
-      const stillUsing = liveSessionsUsingWorktree(wt, await this.ports.listSessions())
+      const stillUsing = liveSessionsUsingWorktree(wt, this.ports.sessionFacts())
       if (stillUsing.length === 0) {
         const freed = await issues.freeWorktreeKeepBranch(input.issueId, principal, {
           force: input.force === true,

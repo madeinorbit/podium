@@ -10,6 +10,8 @@ import type { IssueService } from '../issues/service'
 import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
 import { openTestStore } from '../../test-support/open-test-store'
+import { metasAsFacts } from '../../test-support/session-facts'
+import { sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -137,7 +139,10 @@ describe('wake → spawn → first prompt (service integration)', () => {
       events: store.events,
       issues: fakeIssues(),
       sessions: {
-        listSessions: async () => sessions,
+        sessionFacts: () => metasAsFacts(sessions),
+        sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+        listSessionsForIssue: async (worktreePath, issueId) =>
+          sessionsForIssue(worktreePath, sessions, issueId),
         sendText: async () => ({ ok: true }),
         queueText: async (i) => {
           queued.push(i)

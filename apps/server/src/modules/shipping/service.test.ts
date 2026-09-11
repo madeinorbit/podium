@@ -26,6 +26,7 @@ import {
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
+import { sessionReadPorts } from '../../test-support/session-facts'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -72,7 +73,7 @@ async function harness(
   })
   const issues = await IssueService.create({
     store,
-    listSessions: async () => [],
+    ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

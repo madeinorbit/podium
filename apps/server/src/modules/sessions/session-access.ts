@@ -66,13 +66,11 @@ export type SessionVisibility = (
 export const everythingVisible: SessionVisibility = () => true
 
 export interface SessionAccessDeps {
-  /** Live sessions, as the wire lists them. */
-  listSessions(): Promise<SessionTargetRow[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
-   *  Optional for the same reason `listSessionsForIssue` is — the many test
-   *  fixtures that satisfy this interface with `listSessions` alone stay
-   *  correct via the list-and-find fallback below, just slower. */
-  sessionById?(
+   *  REQUIRED since POD-3857. This resolver runs on the authorization path of
+   *  essentially every command; the full-list port it used to fall back to made
+   *  a by-id lookup cost a whole reader-scoped pass, and it is gone. */
+  sessionById(
     sessionId: SessionId,
   ): Promise<SessionTargetRow | undefined>
   /** Issue index for the subtree gate, and cwd → issue derivation. */
@@ -110,9 +108,7 @@ export async function resolveSessionTarget(
   sessionId: SessionId,
   deps: SessionAccessDeps,
 ): Promise<SessionTarget> {
-  const session = deps.sessionById
-    ? await deps.sessionById(sessionId)
-    : (await deps.listSessions()).find((candidate) => candidate.sessionId === sessionId)
+  const session = await deps.sessionById(sessionId)
   if (!session) return { kind: 'absent' }
   const visible = await (deps.visibility ?? everythingVisible)(principal, session)
   return visible ? { kind: 'visible', session } : { kind: 'absent' }

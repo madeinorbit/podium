@@ -20,7 +20,6 @@
  */
 
 import type { ContractInput, mailAskContract } from '@podium/commands'
-import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
@@ -44,7 +43,7 @@ export async function askHandler(
     ...(deps.awaitPollMs !== undefined ? { pollMs: deps.awaitPollMs } : {}),
     ...(sleep ? { sleep } : {}),
   })
-  const target = await findSessionByIdAsync(deps, input.sessionId)
+  const target = await deps.sessionById(input.sessionId)
   const snapshot = target
     ? {
         sessionId: target.sessionId,

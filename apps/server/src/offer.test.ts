@@ -33,7 +33,7 @@ const OFFER = {
 }
 
 async function metaOffer(reg: SessionRegistry, sessionId: string) {
-  return (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.offer
+  return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.offer
 }
 
 describe('agent action offer [spec:SP-c7f1]', () => {

@@ -117,7 +117,11 @@ export interface SessionRepositoryPorts {
   broadcastSessions(): void
   flushBroadcasts(): Promise<void>
   runScheduledBroadcast(): Promise<void>
-  listSessions(): Promise<SessionMeta[]>
+  /** THE CLIENT-VISIBLE SESSION BASELINE, for the boot ledger reconcile.
+   *  Genuinely the reader-scoped projection: `sync.changesSince` is served from
+   *  what this publishes, so a cheaper read here would ship a different value to
+   *  every client [POD-3857]. Once per server start. */
+  listSessionsForBootBaseline(): Promise<SessionMeta[]>
   now(): number
   appliedMutationMaxAgeMs: number
 }
@@ -255,7 +259,8 @@ export class SessionRepository {
   private readonly toMachine = (machineId: MachineId, message: ControlMessage): void =>
     this.ports.toMachine(machineId, message)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
-  private readonly listSessions = (): Promise<SessionMeta[]> => this.ports.listSessions()
+  private readonly listSessionsForBootBaseline = (): Promise<SessionMeta[]> =>
+    this.ports.listSessionsForBootBaseline()
   private readonly now = (): number => this.ports.now()
 
   hasPendingVolatile(): boolean {
@@ -967,7 +972,7 @@ export class SessionRepository {
     // this runs. `SessionStore` folds any pre-POD-318 sentinel rows onto this host's
     // minted id as it OPENS — ahead of this reconcile, and ahead of the registry that
     // calls it — so there is no stale machine baseline here to be captured later.
-    const sessions = await this.listSessions()
+    const sessions = await this.listSessionsForBootBaseline()
     const recovered = await this.ports.ledger.reconcile(
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),

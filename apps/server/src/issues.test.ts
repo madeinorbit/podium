@@ -27,6 +27,7 @@ import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -41,7 +42,7 @@ async function harness(sessions: SessionMeta[] = []) {
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
-    listSessions: async () => sessions,
+    ...sessionReadPorts(() => sessions),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
@@ -491,7 +492,7 @@ describe('IssueService unread (#124)', () => {
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
-      listSessions: async () => [],
+      ...sessionReadPorts(() => []),
       getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {
@@ -593,7 +594,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
       store,
-      listSessions: async () => [],
+      ...sessionReadPorts(() => []),
       getSettings: async () =>
         normalizeSettings({
           gitWorkflow: {
@@ -6262,12 +6263,15 @@ describe('POD-3500 — async guards behind void ports', () => {
  * the meaningful mutation sites (removing only `return await` is equivalent).
  */
 describe('POD-3504 — promise-only issue ports', () => {
-  it('listSessions: tree includes the resolved member list', async () => {
+  it('sessionFacts + sessionsById: tree includes the resolved member list', async () => {
     const { svc, deps } = await harness()
     const issue = await svc.create({ repoPath: '/r', title: 'Members', startNow: false })
     await svc.update(issue.id, { stage: 'planning' })
     const member = { ...sess('/elsewhere'), issueId: issue.id }
-    deps.listSessions = vi.fn(async () => [member])
+    // The tree SELECTS members from the synchronous facts read and WIRES only
+    // those [POD-3857], so both halves have to answer for a member to appear.
+    deps.sessionFacts = vi.fn(() => metasAsFacts([member]))
+    deps.sessionsById = vi.fn(async () => [member])
 
     expect((await svc.tree(issue.id)).root.sessions).toEqual([
       expect.objectContaining({ sessionId: member.sessionId }),
@@ -6280,13 +6284,15 @@ describe('POD-3504 — promise-only issue ports', () => {
     await svc.defer(issue.id, 'next-message')
     const member = { ...sess('/elsewhere', 'awaiting_input'), issueId: issue.id }
     deps.sessionById = vi.fn(async () => member)
-    deps.listSessions = vi.fn(async () => { throw new Error('unexpected full-list fallback') })
+    deps.sessionFacts = vi.fn(() => {
+      throw new Error('unexpected fleet enumeration')
+    })
 
     await svc.onSessionAttention(member.sessionId)
 
     expect(deps.sessionById).toHaveBeenCalledWith(member.sessionId)
     expect((await svc.get(issue.id))!.deferred).toBe(false)
-    expect(deps.listSessions).not.toHaveBeenCalled()
+    expect(deps.sessionFacts).not.toHaveBeenCalled()
   })
 
   it('listSessionsForIssue: start reuses resolved members without spawning', async () => {

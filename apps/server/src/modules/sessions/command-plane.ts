@@ -103,8 +103,9 @@ export type SessionCommandServices = Pick<
   | 'configureSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
-  | 'listSessions'
-  // POD-1646: the by-id read, so a command handler need not build the full list.
+  // POD-1646: the by-id read. POD-3857 removed the full-list member beside it:
+  // no command handler ever read it, and leaving it exposed the projection to
+  // every handler that takes this bundle.
   | 'sessionById'
 > &
   Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'>

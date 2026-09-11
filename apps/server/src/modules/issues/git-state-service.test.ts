@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
+import { sessionReadPorts } from '../../test-support/session-facts'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
@@ -33,7 +34,7 @@ async function harness(
   const plumbing = issueTestPlumbing((msg) => broadcast(msg))
   const deps: IssueDeps = {
     store,
-    listSessions: async () => sessions,
+    ...sessionReadPorts(() => sessions),
     getSettings: async () => {
       if (opts.storeBackedSettings) await store.issues.getIssue(asIssueId('iss_settings'))
       return normalizeSettings({

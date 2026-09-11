@@ -23,6 +23,7 @@ import {
   pickIssueSession,
   registerTelegramCommands,
 } from './commands'
+import type { SessionFacts } from '../sessions/facts'
 import { TelegramChannel } from './telegram'
 import { formatTopicRecap, TOPIC_INACTIVITY_MS, transcriptSessionIdForThread } from './topic-recap'
 import type {
@@ -99,10 +100,12 @@ export interface MessagingDeps {
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
   issues?: { list(): Promise<IssueWire[]> }
-  /** Sessions held by this server, resolved by explicit issueId membership. */
+  /** Sessions held by this server, resolved by explicit issueId membership.
+   *  Facts, not the projection [POD-3857]: {@link pickIssueSession} reads
+   *  `issueId`, `archived`, `headless`, `status` and `lastActiveAt`, and the
+   *  only thing done with its answer is to start a thread on that session. */
   sessions?: {
-    listSessions(): Promise<SessionMeta[]>
-    listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
+    sessionFactsByIssue(worktreePath: string | null, issueId: IssueId): SessionFacts[]
   }
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
@@ -439,9 +442,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async resolveIssueThread(issue: IssueWire, ownerUserId: UserId): Promise<ThreadId> {
     const sessions =
-      (await this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id)) ??
-      (await this.deps.sessions?.listSessions()) ??
-      []
+      this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
     if (session) {
       return (await this.deps.superagent.startBtwTurn({ ownerUserId, sessionId: session.sessionId }))
@@ -454,9 +455,7 @@ export class MessagingService implements TelegramNoticePort {
 
   private async issueThreadNote(issue: IssueWire): Promise<string> {
     const sessions =
-      (await this.deps.sessions?.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id)) ??
-      (await this.deps.sessions?.listSessions()) ??
-      []
+      this.deps.sessions?.sessionFactsByIssue(issue.worktreePath ?? null, issue.id) ?? []
     const session = pickIssueSession(issue, sessions)
     if (session) {
       return `Agent session ${session.name ?? session.title} is wired to this topic.`

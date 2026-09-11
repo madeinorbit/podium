@@ -73,8 +73,7 @@ import type { NotificationFactsRepository } from '../../store/notification-facts
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import type { InboxPrincipalReference } from '../sessions/inbox'
-import type { SessionRoutingFacts } from '../sessions/lifecycle'
-import { findSessionByIdAsync } from '../sessions/session-by-id'
+import type { SessionFacts } from '../sessions/facts'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
@@ -189,23 +188,23 @@ export interface MessageDeliveryDeps {
   events: EventsRepository
   issues: IssueService
   sessions: {
-    listSessions(): Promise<SessionMeta[]>
-    /** The two NARROW reads delivery actually needs [POD-1653]. `listSessions()`
-     *  is not an accessor — it is a reader-scoped projection that runs an
+    /** The NARROW reads delivery actually needs [POD-1653]. The full list is
+     *  not an accessor — it is a reader-scoped projection that runs an
      *  authorization check (one issue row + one grants read) and a display-ref
      *  resolution PER SESSION, so resolving one recipient through it cost a full
-     *  1208-session pass. Both questions delivery asks already have a direct
-     *  answer: `sessionById` (POD-1646) and `listSessionsForIssue` (POD-1639).
-     *  Optional for the same reason those are: many test fixtures supply
-     *  `listSessions` and nothing else, and the fallback computes the identical
-     *  answer — the same predicate applied after the pass rather than instead of
-     *  it — so an unwired fixture is slow, never wrong. */
-    sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
-    listSessionsForIssue?(
+     *  1208-session pass. Both questions delivery asks have a direct answer:
+     *  `sessionById` (POD-1646) and `listSessionsForIssue` (POD-1639). Both are
+     *  REQUIRED since POD-3857 — the full-list port they used to fall back to is
+     *  gone, so a fixture cannot silently reintroduce the pass. */
+    sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+    listSessionsForIssue(
       worktreePath: string | null,
       issueId: IssueId,
     ): Promise<SessionMeta[]>
-    sessionRoutingFacts?(): SessionRoutingFacts[]
+    /** The whole fleet as cheap in-memory facts [POD-3857] — what the two
+     *  membership sweeps below actually read. Generalizes POD-2322's
+     *  `sessionRoutingFacts`. */
+    sessionFacts(): SessionFacts[]
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
     queuedMessagePosition?(
@@ -581,8 +580,7 @@ export class MessageDeliveryService {
       messages: deps.messages,
       issues: deps.issues,
       notificationArbiter: this.notificationArbiter,
-      listSessions: () => deps.sessions.listSessions(),
-      sessionById: async (id) => await findSessionByIdAsync(deps.sessions, id),
+      sessionById: async (id) => await deps.sessions.sessionById(id),
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
@@ -601,8 +599,7 @@ export class MessageDeliveryService {
     })
     this.render = new MessageRenderer({
       issues: deps.issues,
-      listSessions: () => deps.sessions.listSessions(),
-      sessionById: async (id) => await findSessionByIdAsync(deps.sessions, id),
+      sessionById: async (id) => await deps.sessions.sessionById(id),
       ...(deps.machineName ? { machineName: (id: string) => deps.machineName!(id) } : {}),
     })
   }
@@ -626,7 +623,7 @@ export class MessageDeliveryService {
       boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
     },
   ): Promise<void> {
-    const session = changed ?? await findSessionByIdAsync(this.deps.sessions, sessionId)
+    const session = changed ?? await this.deps.sessions.sessionById(sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
     if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
@@ -707,7 +704,7 @@ export class MessageDeliveryService {
   }
 
   /** Fleet-scan equivalent when no preferred session or boundary cursor exists. */
-  private async onRoutingEligibilityChanged(session: SessionRoutingFacts): Promise<void> {
+  private async onRoutingEligibilityChanged(session: SessionFacts): Promise<void> {
     const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
     const nextIssueId = this.issueForSession(session)
     if (nextIssueId) this.sessionIssueTargets.set(session.sessionId, nextIssueId)
@@ -734,7 +731,7 @@ export class MessageDeliveryService {
     if (!session) return undefined
     const coordinatorId = (await this.deps.issues.get(issueId))?.coordinatorSessionId
     if (typeof coordinatorId !== 'string' || coordinatorId === session.sessionId) return session
-    const coordinator = await findSessionByIdAsync(this.deps.sessions, asSessionId(coordinatorId))
+    const coordinator = await this.deps.sessions.sessionById(asSessionId(coordinatorId))
     const coordinatorOwns =
       coordinator !== undefined &&
       coordinator.agentKind !== 'shell' &&
@@ -770,7 +767,7 @@ export class MessageDeliveryService {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
     for (const issueId of changed) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? await this.deps.sessions.listSessions()
+    const sessions = this.deps.sessions.sessionFacts()
     for (const session of sessions) {
       const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
       const nextIssueId = this.issueForSession(session)
@@ -838,7 +835,7 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. The session→issue before-state is this
    *  service's to restore; the walk itself is the scheduler's. */
   async reconcileQueued(): Promise<void> {
-    const sessions = this.deps.sessions.sessionRoutingFacts?.() ?? await this.deps.sessions.listSessions()
+    const sessions = this.deps.sessions.sessionFacts()
     if (await this.scheduler.queueIsEmpty()) {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
@@ -966,7 +963,7 @@ export class MessageDeliveryService {
 
     const targetSession =
       input.to.kind === 'session'
-        ? await findSessionByIdAsync(this.deps.sessions, asSessionId(toId!))
+        ? await this.deps.sessions.sessionById(asSessionId(toId!))
         : undefined
 
     // v1 defaults: mail stays fyi+wait; session sends declare next-turn.
@@ -1248,7 +1245,7 @@ export class MessageDeliveryService {
       if (message.fromSession && message.toId === message.fromSession) {
         return await this.suppressSelf(message)
       }
-      target = message.toId ? await findSessionByIdAsync(sessions, asSessionId(message.toId)) : undefined
+      target = message.toId ? await sessions.sessionById(asSessionId(message.toId)) : undefined
       if (!target) {
         // The session row is GONE (not merely parked — parked sessions still
         // list). A session-addressed row records no issue to re-route to, so
@@ -1276,14 +1273,11 @@ export class MessageDeliveryService {
       if (isIssueClosed(issue))
         return await this.deadLetter(message, `issue #${issue.seq} is closed`, { notifySender })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
-      // projection is built (POD-1639); `sessionsForIssue` applies the SAME
-      // predicate after it. Filtering the narrow result again is therefore a
-      // no-op that keeps one spelling of membership on both paths.
-      const candidates = await (
-        sessions.listSessionsForIssue?.(issue.worktreePath ?? null, issue.id) ??
-        sessions.listSessions()
-      )
-      const allMembers = sessionsForIssue(issue.worktreePath ?? null, candidates, issue.id)
+      // projection is built (POD-1639) — the same predicate `sessionsForIssue`
+      // applied after it, so the set is unchanged. The post-filter that used to
+      // sit here re-ran that predicate on an already-narrowed list; POD-3857
+      // dropped it along with the full-list fallback it existed to cover.
+      const allMembers = await sessions.listSessionsForIssue(issue.worktreePath ?? null, issue.id)
       // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the single live
@@ -1888,7 +1882,7 @@ export class MessageDeliveryService {
   /** One recipient's live meta, through the narrow read when the composition
    *  root wired it [POD-1653]. Undefined for a session this service cannot see. */
   private async targetOf(sessionId: SessionId): Promise<SessionMeta | undefined> {
-    return await findSessionByIdAsync(this.deps.sessions, sessionId)
+    return await this.deps.sessions.sessionById(sessionId)
   }
 
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
@@ -2329,7 +2323,7 @@ export class MessageDeliveryService {
     // By-id, not a full pass [POD-1653]: this runs per stored row on the sweep.
     const target =
       m.toKind === 'session' && m.toId
-        ? await findSessionByIdAsync(this.deps.sessions, asSessionId(m.toId))
+        ? await this.deps.sessions.sessionById(asSessionId(m.toId))
         : undefined
     const issueKey = m.toKind === 'issue' ? m.toId : this.issueForSession(target)
     return `${this.senderKeyOfRow(m)}|${issueKey ?? m.toId ?? ''}`

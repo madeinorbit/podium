@@ -146,7 +146,7 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
     })
-    const meta1 = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta1 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     const podiumId = meta1?.conversationPodiumId
     expect(podiumId).toMatch(/^conv_/)
 
@@ -156,7 +156,7 @@ describe('SessionRegistry conversation registry', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },
     })
-    const meta2 = (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const meta2 = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta2?.conversationPodiumId).toBe(podiumId)
     expect(meta2?.resume?.value).toBe('native-rolled')
   })

@@ -11,13 +11,14 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
 import { openTestStore } from './test-support/open-test-store'
+import { sessionReadPorts } from './test-support/session-facts'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
-    listSessions: async () => sessions,
+    ...sessionReadPorts(() => sessions),
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {

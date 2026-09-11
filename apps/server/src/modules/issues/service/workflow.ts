@@ -20,7 +20,6 @@ import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
-import { findSessionByIdAsync } from '../../sessions/session-by-id'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -1464,7 +1463,7 @@ export class IssueGitWorkflowModule {
    *  so they resurface exactly when there's something new (the issue mirror of a
    *  session's `snoozedUntil: null` snooze). */
   async onSessionAttention(sessionId: SessionId): Promise<void> {
-    const sess = await findSessionByIdAsync(this.store.d, sessionId)
+    const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return
     for (const row of [...this.store.rows.values()]) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -1577,7 +1576,7 @@ export class IssueGitWorkflowModule {
   private async issueForSession(
     sessionId: SessionId,
   ): Promise<{ row: IssueRow; sess: SessionMeta } | null> {
-    const sess = await findSessionByIdAsync(this.store.d, sessionId)
+    const sess = await this.store.d.sessionById(sessionId)
     if (!sess) return null
     const row = [...this.store.rows.values()].find(
       (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,

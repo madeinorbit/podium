@@ -52,6 +52,7 @@ import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
+import type { SessionFacts } from './facts'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -68,12 +69,11 @@ export interface SessionRevivalPorts {
   sessions: Map<SessionId, Session>
   machines: MachinesService
   rpc: DaemonRpcService
-  /** Declared as the PROMISE it actually is [POD-3507, spec rule 56]. Every
-   *  supplier of this port is `async () => await sessionsSvc.listSessions()`;
-   *  while the declaration said `SessionMeta[]` the compiler had no way to see
-   *  that, and `handoffs()` below crashed with `.flatMap is not a function` on
-   *  every handoff. Widen the port, and the compiler names the site. */
-  listSessions(): Promise<SessionMeta[]>
+  /** THE CHEAP FLEET READ [POD-3857]. Revival's only fleet question is the
+   *  handoff occupancy guard below — `machineId`, `cwd`, `status` — so it no
+   *  longer takes the reader-scoped projection, and being synchronous it can no
+   *  longer be the un-awaited promise POD-3507 had to widen this port for. */
+  sessionFacts(): SessionFacts[]
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
   /** Fresh-mint path of resume — owned by SessionStart. */
@@ -237,19 +237,13 @@ export class SessionRevival {
     const ports: HandoffPorts = {
       rpc: this.ports.rpc,
       getSession: (sessionId) => this.ports.sessions.get(sessionId),
-      listSessions: async () =>
-        (await this.ports.listSessions()).flatMap((meta) =>
-          meta.machineId
-            ? [
-                {
-                  sessionId: meta.sessionId,
-                  machineId: meta.machineId,
-                  cwd: meta.cwd,
-                  status: meta.status,
-                },
-              ]
-            : [],
-        ),
+      sessionFacts: () =>
+        this.ports.sessionFacts().map((facts) => ({
+          sessionId: facts.sessionId,
+          machineId: facts.machineId,
+          cwd: facts.cwd,
+          status: facts.status,
+        })),
       listRepos: async () => await this.ports.store.repos.listRepos(),
       listMachines: async () => await this.ports.machines.listMachines(),
       waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),

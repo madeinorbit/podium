@@ -21,7 +21,6 @@ import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import { sanitizeForInjection } from '../sessions/paste'
-import { findSessionByIdAsync } from '../sessions/session-by-id'
 
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
@@ -150,8 +149,8 @@ export function renderEnvelope(
  */
 export interface MessageRenderDeps {
   issues: Pick<IssueService, 'getMeta' | 'niceRef'>
-  listSessions(): Promise<SessionMeta[]>
-  sessionById?(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** ONE session by id — the only session read the renderer makes [POD-3857]. */
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** Human-readable machine name for cross-machine provenance [POD-658];
    *  absent (tests) = raw machine id. */
   machineName?(id: string): string | Promise<string>
@@ -251,7 +250,7 @@ export class MessageRenderer {
     receiverSessionId?: SessionId,
   ): Promise<string | undefined> {
     if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
-    const find = async (id: SessionId) => await findSessionByIdAsync(this.deps, id)
+    const find = async (id: SessionId) => await this.deps.sessionById(id)
     const senderMachine = (await find(message.fromSession))?.machineId
     const receiverMachine = (await find(receiverSessionId))?.machineId
     if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined

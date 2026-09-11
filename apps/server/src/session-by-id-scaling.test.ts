@@ -11,7 +11,7 @@
  * issue dispatcher, the machine-use gate — supplied `parentSessionOf` as:
  *
  *     spawnedByParentSessionId(
- *       sessions.listSessions().find((s) => s.sessionId === id)?.spawnedBy,
+ *       sessions.listSessions(undefined, 'rpc').find((s) => s.sessionId === id)?.spawnedBy,
  *     )
  *
  * `listSessions()` is `SessionView.list()`: it visibility-checks and WIRES
@@ -99,7 +99,7 @@ describe('POD-1646 — resolving a principal does not project every session', ()
     // CONTROL: the corpus really exists and the chain really links, so a count
     // of 0 below cannot pass against an empty or unlinked world — the one way
     // this assertion could be satisfied for the wrong reason.
-    expect((await reg.modules.sessions.listSessions()).length).toBe(CORPUS)
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).length).toBe(CORPUS)
     expect(await reg.modules.sessions.sessionSpawnedBy(asSessionId(leaf))).toBeDefined()
 
     // Before the fix: CORPUS x (chain links + 1) = 80.

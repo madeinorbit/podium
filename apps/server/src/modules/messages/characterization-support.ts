@@ -36,7 +36,9 @@ import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import type { SessionStore } from '../../store'
+import { sessionsForIssue } from '../../issue-util'
 import { openTestStore } from '../../test-support/open-test-store'
+import { metaAsFacts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
 import { issueTestPlumbing } from '../issues/service/test-plumbing'
 import { MessageGate, type MessageGateDeps } from './gate'
@@ -257,7 +259,14 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
 
   const issueDeps: IssueDeps = {
     store,
-    listSessions: async () => sessions,
+    sessionFacts: () => sessions.map(metaAsFacts),
+    sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+    listSessionsForIssue: async (worktreePath, issueId) =>
+      sessionsForIssue(worktreePath, sessions, issueId),
+    sessionsById: async (sessionIds) => {
+      const wanted = new Set(sessionIds)
+      return sessions.filter((s) => wanted.has(s.sessionId))
+    },
     getSettings: async () =>
       normalizeSettings({
         gitWorkflow: {
@@ -332,7 +341,10 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     events: store.events,
     issues,
     sessions: {
-      listSessions: async () => sessions,
+      sessionFacts: () => sessions.map(metaAsFacts),
+      sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+      listSessionsForIssue: async (worktreePath, issueId) =>
+        sessionsForIssue(worktreePath, sessions, issueId),
       sendText: record('sendText'),
       queueText: record('queueText'),
       interruptText: record('interruptText'),
@@ -382,7 +394,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     {
       messages: svc,
       issues,
-      listSessions: async () => sessions,
+      sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       spawnSession:
         opts?.spawnSession ??
         (async (input) => {

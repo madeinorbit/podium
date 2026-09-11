@@ -85,7 +85,7 @@ async function revocableStack() {
     mutations: reg.modules.mutations,
   }
 
-  const nameNow = async () => (await sessions.listSessions()).find((s) => s.sessionId === created.sessionId)?.name
+  const nameNow = async () => (await sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === created.sessionId)?.name
 
   return { deps, sessions, store, sessionId: created.sessionId, ownership, nameNow }
 }

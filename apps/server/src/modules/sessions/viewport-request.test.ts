@@ -606,7 +606,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
       cause: 'request',
     })
 
-    const row = (await reg.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
+    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
     expect(row?.geometryState).toBe('current')
     // …AND IT WAS PUBLISHED. The row above is derived from the live object on
