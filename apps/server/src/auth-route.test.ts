@@ -1088,6 +1088,87 @@ describe('email sign-in', () => {
     expect((await login(app, 'alice@example.com')).status).toBe(429)
   })
 
+  test('saturation retains only the configured number of unknown email counters', async () => {
+    const app = makeApp({
+      loginRequired: () => true,
+      now: () => 1000,
+      throttle: { maxFailures: 1, maxTracked: 2 },
+    })
+    for (let i = 0; i < 10; i++) {
+      expect((await login(app, `missing-${i}@example.com`)).status).toBe(401)
+    }
+    // Exactly the two newest admissions remain locked; a third was evicted.
+    expect((await login(app, 'missing-8@example.com')).status).toBe(429)
+    expect((await login(app, ' MISSING-9@example.com ')).status).toBe(429)
+    expect((await login(app, 'missing-7@example.com')).status).toBe(401)
+    expect((await login(app, 'missing-9@example.com')).status).toBe(429)
+    expect((await login(app, 'missing-8@example.com')).status).toBe(401)
+  })
+
+  test('the default capacity is 10,000 identifiers', async () => {
+    const app = makeApp({
+      loginRequired: () => true,
+      now: () => 1000,
+      throttle: { maxFailures: 1 },
+    })
+    for (let i = 0; i < 10_000; i++) {
+      expect((await login(app, `missing-${i}@example.com`)).status).toBe(401)
+    }
+    expect((await login(app, 'missing-0@example.com')).status).toBe(429)
+    expect((await login(app, 'overflow@example.com')).status).toBe(401)
+    expect((await login(app, 'missing-9999@example.com')).status).toBe(429)
+    expect((await login(app, 'missing-0@example.com')).status).toBe(401)
+  })
+
+  test('saturation evicts the oldest unlocked counter before an active lock', async () => {
+    let at = 1000
+    const app = makeApp({
+      loginRequired: () => true,
+      now: () => at,
+      throttle: { maxFailures: 2, lockoutMs: 100, maxTracked: 3 },
+    })
+    await login(app, 'locked@example.com')
+    await login(app, 'locked@example.com')
+    at++
+    await login(app, 'older@example.com')
+    at++
+    await login(app, 'newer@example.com')
+    at++
+    await login(app, 'incoming@example.com')
+    expect((await login(app, 'locked@example.com')).status).toBe(429)
+    expect((await login(app, 'newer@example.com')).status).toBe(401)
+    expect((await login(app, 'newer@example.com')).status).toBe(429)
+    expect((await login(app, 'older@example.com')).status).toBe(401)
+    expect((await login(app, 'older@example.com')).status).toBe(401)
+    expect((await login(app, 'older@example.com')).status).toBe(429)
+    at += 100
+    expect((await login(app, 'locked@example.com')).status).toBe(401)
+  })
+
+  test('concurrent saturation cannot reinsert evicted counters after verification', async () => {
+    const app = makeApp({
+      loginRequired: () => true,
+      now: () => 1000,
+      throttle: { maxFailures: 1, maxTracked: 2 },
+    })
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => login(app, `missing-${i}@example.com`)),
+    )
+    expect(results.map((result) => result.status)).toEqual(Array(10).fill(401))
+    expect((await login(app, 'missing-8@example.com')).status).toBe(429)
+    expect((await login(app, 'missing-9@example.com')).status).toBe(429)
+    expect((await login(app, 'missing-0@example.com')).status).toBe(401)
+  })
+
+  test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid throttle capacity: %s',
+    (maxTracked) => {
+      expect(() => makeApp({ throttle: { maxTracked } })).toThrow(
+        'throttle.maxTracked must be a positive safe integer',
+      )
+    },
+  )
+
   test('native delivery accepts an email and returns that member session', async () => {
     await setPassword('hunter2')
     await store.users.setEmail(firstAdminMemberId(), 'alice@example.com')

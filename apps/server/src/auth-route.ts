@@ -351,7 +351,7 @@ export interface AuthRouteOptions {
   loginRequired?: () => boolean | Promise<boolean>
   /** Same public lifecycle projection served by GET /readiness. */
   readiness?: () => ServerReadiness
-  throttle?: { maxFailures?: number; lockoutMs?: number }
+  throttle?: { maxFailures?: number; lockoutMs?: number; maxTracked?: number }
   now?: () => number
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
   trustedProxyHops?: number
@@ -375,6 +375,11 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? DEFAULT_MAX_FAILURES
   const lockoutMs = opts.throttle?.lockoutMs ?? DEFAULT_LOCKOUT_MS
+
+  const maxTracked = opts.throttle?.maxTracked ?? 10_000
+  if (!Number.isSafeInteger(maxTracked) || maxTracked < 1) {
+    throw new RangeError('throttle.maxTracked must be a positive safe integer')
+  }
 
   const attempts = new Map<string, { failures: number; lockedUntil: number; expiresAt: number }>()
 
@@ -497,9 +502,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     }
 
     const key = identifier ?? SOLE_USER_ID
-    for (const [email, state] of attempts) {
-      if (state.expiresAt <= at) attempts.delete(email)
-    }
+    const previous = attempts.get(key)
+    if (previous && previous.expiresAt <= at) attempts.delete(key)
     const attempt = attempts.get(key) ?? { failures: 0, lockedUntil: 0, expiresAt: at + lockoutMs }
     if (at < attempt.lockedUntil) {
       return c.json({ error: 'too many attempts' }, 429, {
@@ -508,6 +512,19 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     }
     // Publish the shared counter before password verification yields, so concurrent
     // failures for one address accumulate rather than each starting from zero.
+    if (!attempts.has(key) && attempts.size >= maxTracked) {
+      // Only scan at capacity. Prefer the least recently failed unlocked entry;
+      // if every entry is locked, evict the oldest admission to keep memory bounded.
+      let victim = attempts.keys().next().value!
+      let oldest = Number.POSITIVE_INFINITY
+      for (const [email, state] of attempts) {
+        if (state.lockedUntil <= at && state.expiresAt < oldest) {
+          oldest = state.expiresAt
+          victim = email
+        }
+      }
+      attempts.delete(victim)
+    }
     attempts.set(key, attempt)
     const userId = await resolveLoginIdentifier(identifier, users)
 
@@ -530,11 +547,12 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         attempt.lockedUntil = at + lockoutMs
         attempt.failures = 0
       }
-      attempts.set(key, attempt)
+      // The shared object is already stored. An in-flight attempt evicted while
+      // verification yielded must not reinsert itself or replace a newer counter.
       return c.json({ error: 'invalid password' }, 401)
     }
 
-    attempts.delete(key)
+    if (attempts.get(key) === attempt) attempts.delete(key)
 
     // Best-effort and isolated: an observer must never turn a good login into a 500.
     const reportLogin = (event: {
