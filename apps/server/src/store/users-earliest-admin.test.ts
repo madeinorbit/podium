@@ -14,7 +14,12 @@
  * test that opens a store first would keep passing.
  */
 
-import { firstAdminMemberId, clearFirstAdminMember, MemberId } from '@podium/model'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { clearFirstAdminMember, firstAdminMemberId, MemberId } from '@podium/model'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
 
@@ -27,13 +32,27 @@ describe('UsersRepository.earliestAdmin', () => {
     expect(first?.role).toBe('admin')
   })
 
-  it('agrees with what opening the store primed', async () => {
-    // The two askers, compared. They are one statement of the rule in
-    // `@podium/runtime`, run by two different executors — drizzle here, a raw
-    // prepared statement in the migrator — and this is where a divergence
-    // between them would show up.
-    const store = await openTestStore(':memory:')
-    expect(firstAdminMemberId()).toBe((await store.users.earliestAdmin())?.id)
+  it('agrees with the SQL the CLI asks the same question with', async () => {
+    // THE TIE BETWEEN THE TWO SPELLINGS, and the reason it is behavioural rather
+    // than textual. The repository builds the query with drizzle (rule 16
+    // refuses splicing a constant through `sql.raw`), while the break-glass mint
+    // runs `EARLIEST_ADMIN_MEMBER_SQL` on a raw handle. Two executors, one
+    // question — so they are compared by ANSWER, against one database. A string
+    // comparison would catch an edit to the constant and miss the thing that
+    // actually bites: the two disagreeing about what they do with it.
+    // A FILE, not `:memory:` — the raw handle has to open the same database,
+    // and an in-memory one is private to the connection that made it.
+    const path = join(mkdtempSync(join(tmpdir(), 'podium-earliest-admin-')), 'podium.db')
+    const store = await openTestStore(path)
+    const throughDrizzle = (await store.users.earliestAdmin())?.id
+    const raw = openDatabase(path)
+    const throughRawSql = earliestAdminMember(raw)
+    raw.close?.()
+
+    expect(throughDrizzle).toBeDefined()
+    expect(throughRawSql).toBe(throughDrizzle)
+    // …and it is what opening the store primed for every ambient site.
+    expect(firstAdminMemberId()).toBe(throughDrizzle)
   })
 
   it('prefers the earliest admin over one created later', async () => {

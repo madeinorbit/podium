@@ -54,6 +54,8 @@
         "src/file-asset-route.ts",
         "src/file-relay-policy.ts",
         "src/file-relay.test.ts",
+        "src/first-admin-password.test.ts",
+        "src/first-admin-password.ts",
         "src/gateway/client-principal.ts",
         "src/gateway/daemon-frame-routing.ts",
         "src/gateway/daemon-mux.test.ts",
