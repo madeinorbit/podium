@@ -111,6 +111,7 @@ export class IssueSessionLifecycle {
     const task = (async (): Promise<void> => {
       const current = await this.deps.issues.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
+      log.info('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,
         // This is a persisted server close intent, not an agent's interactive

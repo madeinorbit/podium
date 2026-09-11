@@ -766,6 +766,16 @@ export class MachinesService {
   /** Route a control message to the daemon that owns `machineId`; queue it if that
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
+    // Keep target and origin together: aggregate task timings cannot distinguish
+    // a repeated target from a sweep, or an offline queue from a fresh request.
+    if (msg.type === 'kill') {
+      log.info('session kill requested', {
+        sessionId: msg.sessionId,
+        machineId,
+        delivery: this.daemons.has(machineId) ? 'connected' : 'queued',
+        caller: new Error('kill origin').stack,
+      })
+    }
     if (msg.type === 'updateGrant') {
       const supervisor = this.supervisors.get(machineId)
       if (supervisor) {

@@ -165,10 +165,26 @@ export function createFrameGuard(
         warnDropped(error, 'inbound')
         return
       }
+      const killStartedAt = msg.type === 'kill' ? performance.now() : undefined
+      if (msg.type === 'kill') {
+        log.info('session kill received', {
+          sessionId: msg.sessionId,
+          hasBridge: ctx.bridges.has(msg.sessionId),
+          hasDurableLabel: ctx.durableLabels.has(msg.sessionId),
+        })
+      }
       try {
         timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
       } finally {
         finish(msg.type)
+        if (msg.type === 'kill' && killStartedAt !== undefined) {
+          // Dispatch returns before asynchronous reap completion. Do not label
+          // this as process death or conflate it with the loop-stall interval.
+          log.info('session kill dispatch returned', {
+            sessionId: msg.sessionId,
+            durationMs: performance.now() - killStartedAt,
+          })
+        }
       }
     },
     receiveBinaryInput(metadata, payload) {
