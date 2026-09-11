@@ -55,8 +55,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/terminal-client:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit --incremental",
+    "typecheck:tsc": "tsc --noEmit --incremental",
     "clean": "rm -rf dist"
   },
   "devDependencies": {

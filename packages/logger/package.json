@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit --incremental && tsc --noEmit --incremental -p tsconfig.node.json",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/logger:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {

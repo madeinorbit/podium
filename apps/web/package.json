@@ -68,8 +68,8 @@
     "bundle:budget": "bun ../../scripts/web-bundle-budget.ts dist --check",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit --incremental",
+    "typecheck:tsc": "tsc --noEmit --incremental",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test -- bun --bun vitest --config vitest.config.ts run",
     "test:unit": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:unit -- bun --bun vitest --config vitest.config.ts run",
     "test:perf:large-state": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:perf -- bun --bun vitest --config vitest.frontend-perf.config.ts run"

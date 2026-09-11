@@ -16,6 +16,7 @@ import {
   accountingRefusal,
   admissionRefusal,
   availableMb,
+  decideAdaptiveConcurrency,
   decideConcurrency,
   decideContinue,
   decideForce,
@@ -648,41 +649,52 @@ describe('sharedTurboCacheDir', () => {
 })
 
 describe('decideConcurrency', () => {
-  // The machine this was measured on: 6 cores, 11.9GB, ~817MB peak per tsgo.
+  const box = (mb: number) => ({ cores: 6, availableMb: mb })
+
+  it('is FIXED at one compiler per run for now, however roomy the box looks', () => {
+    // 2026-09-11: the adaptive cap is per process. Two agents reaching their
+    // gates in the same minute each read 6GB free and each started three
+    // compilers; the box got six. Until the cap is machine-wide, one per run is
+    // the only number a second caller cannot double.
+    expect(decideConcurrency([], box(859)).cap).toBe(1)
+    expect(decideConcurrency([], box(32_000)).cap).toBe(1)
+    expect(decideConcurrency([], box(32_000)).reason).toContain('fixed at 1')
+  })
+
+  it('still gets out of the way when the caller sets --concurrency, in either spelling', () => {
+    expect(decideConcurrency(['--concurrency=8'], box(859)).cap).toBeNull()
+    expect(decideConcurrency(['--concurrency', '8'], box(859)).cap).toBeNull()
+    // A different flag that merely starts the same way must NOT count as one.
+    expect(decideConcurrency(['--concurrency-limit=8'], box(32_000)).cap).toBe(1)
+  })
+})
+
+describe('decideAdaptiveConcurrency (kept for the machine-wide cap to come)', () => {
+  // The box this was re-measured on: 8 cores, 24GB, ~3GB peak per tsgo on apps/server.
   const box = (mb: number) => ({ cores: 6, availableMb: mb })
 
   it('caps by MEMORY when memory is the scarce thing', () => {
     // The incident: load 90, 859MB available, turbo happily starting ten.
-    expect(decideConcurrency([], box(859)).cap).toBe(1)
-    // 5GB looks roomy and is not: the cap must not spend all of it, because the
-    // daemon and every other session are in the same 12GB.
-    expect(decideConcurrency([], box(5000)).cap).toBe(3)
+    expect(decideAdaptiveConcurrency(box(859)).cap).toBe(1)
+    // 5GB looks roomy and is not: after the 1.5GB reserve one 3GB compiler fits.
+    expect(decideAdaptiveConcurrency(box(5000)).cap).toBe(1)
+    // 8GB is two; 6GB was what three compilers were admitted on before the
+    // constant was corrected, and it is one.
+    expect(decideAdaptiveConcurrency(box(8000)).cap).toBe(2)
+    expect(decideAdaptiveConcurrency(box(6000)).cap).toBe(1)
   })
 
   it('reserves headroom for everything else on the box', () => {
-    // Without a reserve, 2000MB would read as "two compilers", i.e. 1.8GB of the
-    // 2GB left, and the daemon dies instead of the gate.
-    expect(decideConcurrency([], box(2000)).cap).toBe(1)
+    expect(decideAdaptiveConcurrency(box(2000)).cap).toBe(1)
   })
 
   it('caps by CORES when memory is plentiful, leaving one for everything else', () => {
-    // 32GB would allow 35 by memory; the box still has six cores, and the daemon,
-    // the live sessions and any running instance are on them too.
-    expect(decideConcurrency([], box(32_000)).cap).toBe(5)
+    expect(decideAdaptiveConcurrency(box(32_000)).cap).toBe(5)
   })
 
   it('never proposes zero, however starved the box is', () => {
-    // Refusing to run at all is the failure this cap exists to avoid, not a
-    // safety feature: one at a time is slow, but it finishes.
-    expect(decideConcurrency([], box(0)).cap).toBe(1)
-    expect(decideConcurrency([], box(10)).cap).toBe(1)
-  })
-
-  it('gets out of the way when the caller sets --concurrency, in either spelling', () => {
-    expect(decideConcurrency(['--concurrency=8'], box(859)).cap).toBeNull()
-    expect(decideConcurrency(['--concurrency', '8'], box(859)).cap).toBeNull()
-    // A different flag that merely starts the same way must NOT count as one.
-    expect(decideConcurrency(['--concurrency-limit=8'], box(32_000)).cap).toBe(5)
+    expect(decideAdaptiveConcurrency(box(0)).cap).toBe(1)
+    expect(decideAdaptiveConcurrency(box(10)).cap).toBe(1)
   })
 })
 

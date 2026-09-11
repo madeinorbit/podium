@@ -24,8 +24,8 @@
     "test": "bun validation-admission.ts focused --label scripts:test -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "test:rearch": "bun validation-admission.ts focused --label scripts:test:rearch -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.rearch.config.ts",
     "lint:span-effects": "bun check-span-effects.ts",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit --incremental",
+    "typecheck:tsc": "tsc --noEmit --incremental"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14",

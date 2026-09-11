@@ -190,10 +190,26 @@ export function sharedTurboCacheDir(root: string, env = process.env, home = home
   return sharedCacheDir('turbo', root, env, home)
 }
 
-/** Peak RSS of one tsgo, rounded up from 817MB measured on this repo. The cap is
- *  built on this number rather than on core count because RAM, not CPU, is what
- *  runs out first: a 28-task graph at turbo's default of 10 wants ~8GB. */
-const COMPILER_MB = 900
+/** Peak RSS of one compiler. 817MB was measured in 2026-07 and was stale by a
+ *  factor of three by 2026-09-11: `tsgo --noEmit` on apps/server peaks at 2.6GB
+ *  cold in the main checkout and 4.1GB in a fresh worktree, apps/web is in the
+ *  same class. Three compilers admitted on the old number took 7GB on a box with
+ *  4GB of headroom, four times in one day, and each time the swap storm froze
+ *  the daemon and the server together. The cap is built on this number rather
+ *  than on core count because RAM, not CPU, is what runs out first. */
+const COMPILER_MB = 3000
+
+/**
+ * FIXED CONCURRENCY, for now. `null` restores the adaptive cap below.
+ *
+ * The adaptive math is per PROCESS: two agents running this wrapper in the same
+ * minute each see the same MemAvailable and each start their own compilers, so
+ * the box gets the sum. Until the cap is a machine-wide slot (a semaphore in
+ * the shared cache directory), one compiler per wrapper run is the only number
+ * that cannot be doubled by a second caller. The adaptive code is kept, tested
+ * and reachable so the switch back is a one-line change.
+ */
+const FIXED_CONCURRENCY: number | null = 1
 
 /** Headroom this gate refuses to spend. The daemon, every other agent session and
  *  any live Podium instance share this machine, and a typecheck that takes the box
@@ -232,6 +248,18 @@ export function decideConcurrency(args: string[], env: { cores: number; availabl
   if (args.some((a) => a === '--concurrency' || a.startsWith('--concurrency='))) {
     return { cap: null as number | null, reason: 'caller set --concurrency' }
   }
+  if (FIXED_CONCURRENCY !== null) {
+    return {
+      cap: FIXED_CONCURRENCY,
+      reason: `fixed at ${FIXED_CONCURRENCY}: the per-process memory cap cannot see other callers`,
+    }
+  }
+  return decideAdaptiveConcurrency(env)
+}
+
+/** The adaptive cap: how many compilers THIS process thinks the box can hold.
+ *  Kept behind {@link FIXED_CONCURRENCY}; see the note there. */
+export function decideAdaptiveConcurrency(env: { cores: number; availableMb: number }) {
   const byMemory = Math.floor(Math.max(0, env.availableMb - RESERVE_MB) / COMPILER_MB)
   // Leave a core for the daemon and whatever else is live; never propose zero,
   // because refusing to run at all is the failure mode we are avoiding, not a
