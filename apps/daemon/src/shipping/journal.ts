@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fsyncDirectory } from '@podium/runtime/durable-fs'
 import {
   type ShippingJobRequestMessage as ShippingJobRequest,
   ShippingJobRequestMessage,
@@ -97,12 +98,7 @@ export class ShippingJobJournal {
     const existed = existsSync(dir)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (!existed) {
-      const parent = openSync(dirname(dir), 'r')
-      try {
-        fsyncSync(parent)
-      } finally {
-        closeSync(parent)
-      }
+      fsyncDirectory(dirname(dir))
       this.crashPoint?.('after-parent-directory-fsync')
     }
   }
@@ -211,12 +207,7 @@ export class ShippingJobJournal {
     this.crashPoint?.('after-file-fsync')
     renameSync(temporary, target)
     this.crashPoint?.('after-rename')
-    const directory = openSync(this.dir, 'r')
-    try {
-      fsyncSync(directory)
-    } finally {
-      closeSync(directory)
-    }
+    fsyncDirectory(this.dir)
     this.crashPoint?.('after-directory-fsync')
     return next
   }

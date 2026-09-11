@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { fsyncDirectory } from './durable-fs'
 import { UpdateGrantMessage, type UpdateStatusMessage, type UpdateTarget } from '@podium/protocol'
 import { z } from 'zod'
 
@@ -122,14 +123,7 @@ function persist(runtimeDir: string, value: MachineUpdateJournal): void {
     closeSync(fd)
   }
   renameSync(temporary, path)
-  // Windows does not expose directory handles through Node's openSync.
-  if (process.platform === 'win32') return
-  const directory = openSync(runtimeDir, 'r')
-  try {
-    fsyncSync(directory)
-  } finally {
-    closeSync(directory)
-  }
+  fsyncDirectory(runtimeDir)
 }
 
 export interface MachineUpdateAdapter {

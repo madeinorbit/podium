@@ -9,6 +9,7 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./durable-fs": "./src/durable-fs.ts",
     "./sqlite": "./src/sqlite/index.ts",
     "./config": "./src/config.ts",
     "./instance": "./src/instance.ts",

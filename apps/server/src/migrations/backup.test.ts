@@ -120,6 +120,19 @@ describe('backupDatabase preflight', () => {
 })
 
 describe('backupDatabase partial-copy cleanup', () => {
+  it('refuses publication when a regular-file flush fails, including on Windows', () => {
+    const { db, dbPath, dir } = tmpDb()
+    const failure = Object.assign(new Error('EIO: flush failed'), { code: 'EIO' })
+    vi.mocked(fsyncSync).mockImplementationOnce(() => { throw failure })
+    try {
+      expect(() => backupDatabase(db, dbPath, 'flush-failed', PLENTY)).toThrow(failure)
+      expect(renameSync).not.toHaveBeenCalled()
+      expect(readdirSync(dir).filter((name) => name.includes('.backup-v'))).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+
   it('never publishes the truncated file when a copy fails mid-way', () => {
     const { db, dbPath, dir } = tmpDb()
     vi.mocked(copyFileSync).mockImplementationOnce((_src, dest) => {
