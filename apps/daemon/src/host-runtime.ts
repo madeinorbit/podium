@@ -1387,7 +1387,7 @@ export async function createDaemonHostRuntime(args: {
     bindingRecovery = (bindingRecovery ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
-          await bindingStore.recoverLegacyState({
+        await bindingStore.recoverLegacyState({
           dir: bindingStore.dir,
           legacyStateDir: identityStateDir,
           codexReceiptDir: instance.codexReceiptDir,
