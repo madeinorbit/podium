@@ -1,0 +1,302 @@
+{
+  "apps/server/src/feed-visibility.ts :: issues :: issues.getIssues": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/feed-visibility.ts :: row :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/accounts/queries.ts :: ACCOUNT_QUERIES :: machines.listMachines": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/cost/service.ts :: issues :: issues.getIssues": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/fleet/authz.ts :: accountRoleOf :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/fleet/handlers.ts :: result :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: ancestorIds :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: getMeta :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: has :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: issueForCwd :: issues.listIssueCwdRows": {
+    "count": 1,
+    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: ownedTarget :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: owners :: issues.listIssueCwdRows": {
+    "count": 1,
+    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: parent :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: row :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/access-index.ts :: worktreePaths :: issues.listIssueCwdRows": {
+    "count": 1,
+    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
+  },
+  "apps/server/src/modules/issues/service/core.ts :: hydrate :: issues.listIssueRows": {
+    "count": 1,
+    "reason": "Boot hydration of the full IssueStore rows; the world index only owns worktree lookup keys."
+  },
+  "apps/server/src/modules/issues/service/crud.ts :: create :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/issues/service/reads.ts :: ownedTarget :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/layout/authz.ts :: layoutAuthzDeps :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/machines/enrollment.ts :: authenticateDaemon :: machines.getMachine": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/enrollment.ts :: effectiveOwner :: machines.getMachine": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/enrollment.ts :: machine :: machines.getMachine": {
+    "count": 2,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/enrollment.ts :: row :: machines.getMachine": {
+    "count": 3,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/login-propagation.ts :: machines :: machines.listMachines": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/login-propagation.ts :: target :: machines.getMachine": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/service.ts :: existing :: machines.getMachine": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/service.ts :: grantsForMachine :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/machines/service.ts :: machine :: machines.getMachine": {
+    "count": 3,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/machines/service.ts :: rows :: machines.listMachines": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/maintenance/service.ts :: machine :: machines.getMachine": {
+    "count": 1,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/modules/memory/search.ts :: issues :: issues.listIssueRows": {
+    "count": 1,
+    "reason": "Search builds documents from complete issue rows, not just indexed worktree keys."
+  },
+  "apps/server/src/modules/memory/visibility.ts :: grantees :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/memory/visibility.ts :: grants :: grants.listForResources": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/memory/visibility.ts :: issueById :: issues.getIssue": {
+    "count": 2,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/memory/visibility.ts :: rows :: issues.getIssues": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/messages/scheduler.ts :: queueIsEmpty :: messages.countQueued": {
+    "count": 1,
+    "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
+  },
+  "apps/server/src/modules/read-position/authz.ts :: readPositionAuthzDeps :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: authorizeQueuedInputAtApply :: users.get": {
+    "count": 2,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: compute :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: found :: grants.listForResources": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: found :: issues.getIssues": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: memoIssueOwner :: issues.getIssue": {
+    "count": 2,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/sessions/session-authz.ts :: role :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/sessions/session-start.ts :: parentOwner :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/sessions/view.ts :: edges :: grants.listForResources": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/modules/sessions/view.ts :: found :: issues.getIssues": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/sessions/view.ts :: issue :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/modules/sessions/view.ts :: role :: users.roleOf": {
+    "count": 2,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/settings/authz.ts :: settingsAuthzDeps :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/world-index/index.ts :: grants :: grants.loadWorldGrants": {
+    "count": 1,
+    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+  },
+  "apps/server/src/modules/world-index/index.ts :: issues :: issues.loadWorldIssuePaths": {
+    "count": 1,
+    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+  },
+  "apps/server/src/modules/world-index/index.ts :: machines :: machines.listMachines": {
+    "count": 1,
+    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+  },
+  "apps/server/src/modules/world-index/index.ts :: pending :: messages.loadWorldPending": {
+    "count": 1,
+    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+  },
+  "apps/server/src/modules/world-index/index.ts :: users :: users.loadWorldUsers": {
+    "count": 1,
+    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+  },
+  "apps/server/src/relay.ts :: <module> :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/relay.ts :: <module> :: users.list": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: liveRole :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: liveSessionOwnership :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/relay.ts :: machines :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: role :: users.roleOf": {
+    "count": 5,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: rows :: users.list": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: shipping :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/relay.ts :: user :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/relay.ts :: workflows :: grants.listForResource": {
+    "count": 1,
+    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
+  },
+  "apps/server/src/server.ts :: account :: users.get": {
+    "count": 2,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/server.ts :: bootstrapAccount :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/server.ts :: devPublisher :: machines.listMachines": {
+    "count": 2,
+    "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
+  },
+  "apps/server/src/server.ts :: startServer :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/server.ts :: userRole :: users.roleOf": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/store/issues.ts :: row :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  },
+  "apps/server/src/store/users.ts :: account :: users.read": {
+    "count": 2,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/store/users.ts :: accounts :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/store/users.ts :: credentialFor :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/store/users.ts :: roleOf :: users.get": {
+    "count": 1,
+    "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "scripts/measure-hot-paths.ts :: row :: issues.getIssue": {
+    "count": 1,
+    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+  }
+}

@@ -1,3 +1,5 @@
+import { censusProgram, readerCensus } from './world-index-readers'
+import readerAllowlist from './world-index-reader-allowlist.json'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
@@ -90,4 +92,41 @@ it('every owned fact-table mutation in the repository reaches committed.write', 
     'apps/server/src/store/messages.ts': 14,
     'apps/server/src/store/users.ts': 2,
   })
+})
+
+// Unlike the import boundary above, this census follows repository method
+// symbols everywhere, including aliases and structurally narrowed Pick ports.
+// Every retained SQL reader needs an explicit reason; removals fail as well.
+it('every indexed fact reader is declared with a reason', () => {
+  const actual = readerCensus(censusProgram())
+  for (const entry of Object.values(readerAllowlist)) expect(entry.reason.trim().length).toBeGreaterThan(15)
+  expect(actual).toEqual(Object.fromEntries(Object.entries(readerAllowlist).map(([site, entry]) => [site, entry.count])))
+}, 120_000)
+
+it('arms the reader census against new direct, aliased and port readers', () => {
+  const root = process.cwd()
+  const repository = join(root, 'apps/server/src/store/grants.ts')
+  const caller = join(root, 'apps/census-mutation.ts')
+  const sources: Record<string, string> = {
+    [repository]: 'export class GrantsRepository { listForResource() { return [] } }',
+    [caller]: `import { GrantsRepository } from './server/src/store/grants'
+      declare const repo: GrantsRepository;
+      repo.listForResource();
+      const alias = repo; alias['listForResource']();
+      const { listForResource: extracted } = repo;
+      const bound = repo.listForResource.bind(repo);
+      declare const port: Pick<GrantsRepository, 'listForResource'>;
+      port.listForResource();`,
+  }
+  const options = { module: ts.ModuleKind.Preserve, moduleResolution: ts.ModuleResolutionKind.Bundler }
+  const host = ts.createCompilerHost(options)
+  const original = host.getSourceFile.bind(host)
+  host.getSourceFile = (file, language, onError, fresh) => sources[file] === undefined
+    ? original(file, language, onError, fresh)
+    : ts.createSourceFile(file, sources[file], language, true)
+  host.fileExists = file => sources[file] !== undefined || ts.sys.fileExists(file)
+  const program = ts.createProgram(Object.keys(sources), options, host)
+  const actual = readerCensus(program)
+  expect(Object.values(actual).reduce((a, b) => a + b, 0)).toBe(5)
+  expect(actual).not.toEqual({})
 })
