@@ -93,7 +93,9 @@ test('provider identity wins over a local admin session in tRPC and status', asy
   expect(await (await fetch(url('/auth/status'), { headers })).json()).toMatchObject({
     userId: memberId,
   })
+  source.mockClear()
   const response = await fetch(url('/trpc/auth.status'), { headers })
+  expect(source).toHaveBeenCalledTimes(1)
   expect(response.status).toBe(200)
   expect(await response.json()).toMatchObject({ result: { data: { canManageInstance: false } } })
   expect(source).toHaveBeenCalledWith(

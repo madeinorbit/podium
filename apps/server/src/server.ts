@@ -151,7 +151,7 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
-import { createPluginAuth } from './plugin-auth'
+import { createPluginAuth, type Principal } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
 import {
   authReadinessBoundary,
@@ -1447,18 +1447,24 @@ export async function startServer(
    * see where the request came from cannot claim it came from here.
    */
   const auth = createPluginAuth(store.users)
-  const sourcePrincipal = (request: Request) =>
-    auth.principalSource?.({
-      cookieHeader: request.headers.get('cookie') ?? undefined,
-      authorizationHeader: request.headers.get('authorization') ?? undefined,
-      url: request.url,
-    })
-  const requestPrincipal = async (
-    headers: ClientCredentialHeaders,
-    request?: Request,
-    consultSource = true,
-  ) => {
-    const supplied = request && consultSource ? await sourcePrincipal(request) : undefined
+  // The HTTP guard and tRPC context share one provider lookup per request.
+  const sourcePrincipals = new WeakMap<Request, Promise<Principal | null | undefined>>()
+  const sourcePrincipal = (request: Request) => {
+    let resolved = sourcePrincipals.get(request)
+    if (!resolved) {
+      resolved = Promise.resolve().then(() =>
+        auth.principalSource?.({
+          cookieHeader: request.headers.get('cookie') ?? undefined,
+          authorizationHeader: request.headers.get('authorization') ?? undefined,
+          url: request.url,
+        }),
+      )
+      sourcePrincipals.set(request, resolved)
+    }
+    return resolved
+  }
+  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
+    const supplied = request ? await sourcePrincipal(request) : undefined
     if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
     const credentialed = await requestUserId(
       store.auth,
@@ -1858,7 +1864,7 @@ export async function startServer(
           const supplied = await sourcePrincipal(request)
           if (supplied) return { userId: asUserId(supplied.memberId), userRole: supplied.role }
           const credential = await resolveClientCredential(store.auth, headers)
-          const principal = await requestPrincipal(headers, request, false)
+          const principal = await requestPrincipal(headers, request)
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined
