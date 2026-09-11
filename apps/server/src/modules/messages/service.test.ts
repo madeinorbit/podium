@@ -1,3 +1,6 @@
+import { WorldIndex, type WorldIndexReader } from '../world-index'
+import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
+import { statementBudget } from '../../test-support/statement-budget'
 // Unified agent messaging (#237) [spec:SP-34d7] — store CRUD, server-stamped
 // sender, envelope rendering + spoof containment, the full delivery
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
@@ -245,6 +248,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       // what remains is the in-memory facts read, and the scaling assertions
       // below are stated over that — a sweep must not walk the fleet per row,
       // cheaply or otherwise.
+      sessionFactsById: (id) => metasAsFacts(sessions).find((s) => s.sessionId === id),
       sessionFacts: () => {
         listCalls.n += 1
         return metasAsFacts(sessions)
@@ -4766,6 +4770,71 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
 
     expect(batched).toEqual(perChange)
     expect(batched.length).toBeGreaterThan(0)
+  })
+
+  it('resolves 200 session changes exactly once each without issue scans or fleet reads', async () => {
+    const sessions = Array.from({ length: 200 }, (_, i) => session({ sessionId: asSessionId(`changed_${i}`), cwd: ISSUE.worktreePath }))
+    let world: WorldIndexReader
+    const { svc, store, listCalls } = await harness(sessions, { issueForCwd: (cwd) => world.issueForWorktree(cwd) ?? null })
+    world = (await WorldIndex.load(store)).reader
+    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const scan = vi.spyOn(store.issues, 'listIssueCwdRows')
+    const run = async () => {
+      for (const s of sessions) await svc.onSessionEligibilityChanged(s.sessionId, s)
+    }
+    const before = listCalls.n
+    if (queryAttributionEnabled) {
+      const budget = await statementBudget(run)
+      // One pending-mail COUNT for the session and one for its issue. The
+      // membership lookup itself performs no SQL (POD-3852 counts each once).
+      expect(budget.statements).toBeLessThanOrEqual(400)
+      expect([...budget.byQuery.keys()].filter((sql) => /from ["`]?issues["`]?\b/i.test(sql))).toEqual([])
+    } else await run()
+    expect(resolve).toHaveBeenCalledTimes(200)
+    expect(scan).not.toHaveBeenCalled()
+    expect(listCalls.n).toBe(before)
+  })
+
+  it('issue changes visit only members and explicit attachment beats cwd', async () => {
+    const sessions = [
+      session({ sessionId: asSessionId('inferred'), cwd: ISSUE.worktreePath }),
+      session({ sessionId: asSessionId('explicit'), cwd: ISSUE.worktreePath, issueId: SENDER_ISSUE.id }),
+      ...Array.from({ length: 200 }, (_, i) => session({ sessionId: asSessionId(`unrelated_${i}`), cwd: '/unrelated' })),
+    ]
+    const { svc, listCalls } = await harness(sessions)
+    await svc.reconcileQueued()
+    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const before = listCalls.n
+    await svc.onIssueEligibilityChanged(ISSUE.id)
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(resolve.mock.calls[0]?.[0].sessionId).toBe('inferred')
+    expect(listCalls.n).toBe(before)
+  })
+
+  it('revisits both sides of nested worktree creation and deletion without a fleet read', async () => {
+    let nested = false
+    const sessions = [session({ sessionId: asSessionId('nested'), cwd: `${ISSUE.worktreePath}/nested/src` })]
+    const { svc, listCalls } = await harness(sessions, {
+      issueForCwd: () => nested ? SENDER_ISSUE.id : ISSUE.id,
+    })
+    const issues = (svc as unknown as { deps: { issues: IssueService } }).deps.issues
+    const original = issues.getMeta.bind(issues)
+    vi.spyOn(issues, 'getMeta').mockImplementation(async (id) => {
+      const row = await original(id)
+      return id === SENDER_ISSUE.id ? nested && row ? { ...row, worktreePath: `${ISSUE.worktreePath}/nested` } : null : row
+    })
+    await svc.reconcileQueued()
+    const resolve = vi.spyOn(svc as unknown as { issueForSession: (s: SessionMeta) => string | null }, 'issueForSession')
+    const before = listCalls.n
+    nested = true
+    await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(resolve.mock.results[0]?.value).toBe(SENDER_ISSUE.id)
+    nested = false
+    await svc.onIssueEligibilityChanged(SENDER_ISSUE.id)
+    expect(resolve).toHaveBeenCalledTimes(2)
+    expect(resolve.mock.results[1]?.value).toBe(ISSUE.id)
+    expect(listCalls.n).toBe(before)
   })
 
   it('resolves session membership once per session for a whole issue batch', async () => {

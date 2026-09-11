@@ -1,3 +1,4 @@
+import type { WorldIndexReader } from '../../world-index'
 import type {
   AccountId,
   ArtifactId,
@@ -171,6 +172,7 @@ export interface SpawnedSessionResult {
  * This rejects synchronous implementations; callers still need behavioral
  * coverage because a promise can be inspected without awaiting its value. */
 export interface IssueDeps {
+  worldIndex?: WorldIndexReader
   store: SessionStore
   /**
    * Where a ROW INSTALL waits for the outermost commit [POD-3366].

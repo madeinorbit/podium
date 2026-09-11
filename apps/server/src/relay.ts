@@ -1701,6 +1701,7 @@ export class SessionRegistry {
     let stopClosedIssue: ((input: { issueId: IssueId }) => Promise<void>) | undefined
 
     const issues = IssueService.compose({
+      worldIndex: this.worldIndex,
       store: this.store,
       // The issue row map is the authoritative in-memory projection and it is
       // installed behind a `ledger.commit` that may be a savepoint inside a

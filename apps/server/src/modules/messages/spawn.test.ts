@@ -142,6 +142,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
       issues: fakeIssues(),
       sessions: {
         sessionFacts: () => metasAsFacts(sessions),
+        sessionFactsById: (id) => metasAsFacts(sessions).find((s) => s.sessionId === id),
         sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
         listSessionsForIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, sessions, issueId),

@@ -313,6 +313,37 @@ describe('world index committed facts', () => {
     }
   })
 
+  it('resolves deepest literal prefixes and excludes tombstones at load and commit', async () => {
+    const store = await setup()
+    const broad = issueRow({ worktreePath: '/tree' })
+    const narrow = issueRow({ id: asIssueId('iss_nested'), seq: 2, worktreePath: '/tree/nested' })
+    const deleted = issueRow({ id: asIssueId('iss_deleted'), seq: 3, worktreePath: '/tree/nested/deleted', deletedAt: at })
+    for (const row of [broad, narrow, deleted]) await store.issues.upsertIssue(row)
+    const index = await WorldIndex.load(store)
+    expect(index.reader.issueForWorktree('/tree/nested/src')).toBe(narrow.id)
+    expect(index.reader.issueForWorktree('/tree/nested/deleted/src')).toBe(narrow.id)
+    expect(index.reader.issueForWorktree('/tree-other')).toBeUndefined()
+    expect(index.reader.issueForWorktree('/tree/nested-other')).toBe(broad.id)
+    expect(index.reader.issueForWorktree('/tree/')).toBe(broad.id)
+    const scan = vi.spyOn(store.issues, 'listIssueCwdRows')
+    const read = () => {
+      for (let i = 0; i < 200; i++) expect(index.reader.issueForWorktree(`/tree/nested/src/${i}`)).toBe(narrow.id)
+    }
+    if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
+    else read()
+    expect(scan).not.toHaveBeenCalled()
+    await expect(store.transact(async () => {
+      await store.issues.upsertIssue({ ...narrow, deletedAt: at })
+      expect(index.reader.issueForWorktree('/tree/nested/src')).toBe(narrow.id)
+      throw new Error('rollback membership')
+    })).rejects.toThrow('rollback membership')
+    expect(index.reader.issueForWorktree('/tree/nested/src')).toBe(narrow.id)
+    await store.issues.upsertIssue({ ...narrow, deletedAt: at })
+    expect(index.reader.issueForWorktree('/tree/nested/src')).toBe(broad.id)
+    await store.issues.upsertIssue(narrow)
+    expect(index.reader.issueForWorktree('/tree/nested/src')).toBe(narrow.id)
+  })
+
   it('moves issue worktrees and follows shipping, reassignment, bulk backfill and deletion', async () => {
     const store = await setup()
     const index = await WorldIndex.load(store)

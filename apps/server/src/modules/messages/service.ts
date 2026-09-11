@@ -183,6 +183,56 @@ interface InboxDeliveryInput {
   sourceMessageId: string
 }
 
+/** Membership candidates maintained by the same session events as the routing
+ * before-state. Cwd nodes contain only unattached sessions; explicit attachments
+ * never become candidates merely because their directory matches another issue.
+ * Each node retains descendant IDs so an issue change reads its members directly.
+ */
+class RoutingMembership {
+  private readonly byIssue = new Map<string, Set<SessionId>>()
+  private readonly byPath = new Map<string, Set<SessionId>>()
+  private readonly members = new Map<SessionId, { issueId: IssueId | null; paths: string[] }>()
+
+  update(id: SessionId, session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined, issueId: IssueId | null): void {
+    const old = this.members.get(id)
+    const remove = (map: Map<string, Set<SessionId>>, key: string) => {
+      const ids = map.get(key)
+      ids?.delete(id)
+      if (!ids?.size) map.delete(key)
+    }
+    if (old?.issueId) remove(this.byIssue, old.issueId)
+    for (const path of old?.paths ?? []) remove(this.byPath, path)
+    this.members.delete(id)
+    if (!session) return
+    const add = (map: Map<string, Set<SessionId>>, key: string) => {
+      let ids = map.get(key)
+      if (!ids) map.set(key, (ids = new Set()))
+      ids.add(id)
+    }
+    const paths: string[] = []
+    if (!session.issueId) {
+      let end = session.cwd.length
+      while (end > 0) {
+        const path = session.cwd.slice(0, end)
+        paths.push(path)
+        add(this.byPath, path)
+        end = session.cwd.lastIndexOf('/', end - 1)
+      }
+    }
+    if (issueId) add(this.byIssue, issueId)
+    this.members.set(id, { issueId, paths })
+  }
+
+  has(id: SessionId): boolean { return this.members.has(id) }
+
+  candidates(issueId: string, worktreePath: string | null | undefined): Set<SessionId> {
+    return new Set([
+      ...(this.byIssue.get(issueId) ?? []),
+      ...(worktreePath ? this.byPath.get(worktreePath) ?? [] : []),
+    ])
+  }
+}
+
 export interface MessageDeliveryDeps {
   worldIndex: Pick<WorldIndexReader, 'pendingCount'>
   messages: MessagesRepository
@@ -207,6 +257,7 @@ export interface MessageDeliveryDeps {
      *  membership sweeps below actually read. Generalizes POD-2322's
      *  `sessionRoutingFacts`. */
     sessionFacts(): SessionFacts[]
+    sessionFactsById(sessionId: SessionId): SessionFacts | undefined
     /** Live position in the SessionInbox FIFO for a ledger row already handed
      * to it by a receipt/queue delivery. */
     queuedMessagePosition?(
@@ -616,6 +667,22 @@ export class MessageDeliveryService {
   /** Last resolved issue per session. This is the before-state needed for detach,
    * reassignment, inferred-cwd movement, and remove events. */
   private readonly sessionIssueTargets = new Map<SessionId, IssueId>()
+  private readonly routingMembership = new RoutingMembership()
+  private routingMembershipReady = false
+
+  private rememberMembership(sessionId: SessionId, session: Pick<SessionFacts, 'cwd' | 'issueId'> | undefined, issueId: IssueId | null): void {
+    this.routingMembership.update(sessionId, session, issueId)
+    if (issueId) this.sessionIssueTargets.set(sessionId, issueId)
+    else this.sessionIssueTargets.delete(sessionId)
+  }
+
+  private seedMembership(sessions: readonly SessionFacts[], preserveKnown = false): void {
+    for (const session of sessions) {
+      if (preserveKnown && this.routingMembership.has(session.sessionId)) continue
+      this.rememberMembership(session.sessionId, session, this.issueForSession(session))
+    }
+    this.routingMembershipReady = true
+  }
 
   /** Queue the session principal plus both sides of its issue-resolution change. */
   async onSessionEligibilityChanged(
@@ -629,8 +696,7 @@ export class MessageDeliveryService {
     const session = changed ?? await this.deps.sessions.sessionById(sessionId)
     const previousIssueId = this.sessionIssueTargets.get(sessionId)
     const nextIssueId = this.issueForSession(session)
-    if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
-    else this.sessionIssueTargets.delete(sessionId)
+    this.rememberMembership(sessionId, session, nextIssueId)
 
     const preferred =
       opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
@@ -710,8 +776,7 @@ export class MessageDeliveryService {
   private async onRoutingEligibilityChanged(session: SessionFacts): Promise<void> {
     const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
     const nextIssueId = this.issueForSession(session)
-    if (nextIssueId) this.sessionIssueTargets.set(session.sessionId, nextIssueId)
-    else this.sessionIssueTargets.delete(session.sessionId)
+    this.rememberMembership(session.sessionId, session, nextIssueId)
 
     await this.queueDeliveryTarget({ kind: 'session', id: session.sessionId })
     if (previousIssueId && previousIssueId !== nextIssueId) {
@@ -749,43 +814,26 @@ export class MessageDeliveryService {
     await this.onIssuesEligibilityChanged([issueId])
   }
 
-  /**
-   * The BATCH form, and the one a change-log batch must call (POD-1597).
-   *
-   * Membership is a SET operation: which sessions resolve into which issue. Run
-   * per change it is O(changes x sessions x issues) — the boot catch-up publishes
-   * every issue at once (1272 changes over 1172 sessions over 1570 issue rows,
-   * measured on the live database) and spent 573 SECONDS here, synchronously,
-   * before the server would listen.
-   *
-   * The set of targets queued is unchanged; only the number of times each is
-   * queued is. Per change, a session fired when its own resolution named the
-   * changed issue on either side, or when it had drifted (`previous !==
-   * next`) — and the first fire updated `sessionIssueTargets`, so every later
-   * change in the same batch re-derived the SAME answer and re-queued the same
-   * coalescing key. One pass over sessions against the whole changed set decides
-   * the same thing once.
+  /** Issue events revisit previous owners plus unattached sessions under the
+   * current worktree. This includes both sides of rehome/deletion and newly
+   * introduced nested worktrees, without resolving unrelated sessions. The
+   * initial seed is a boot-only fleet read; ordinary session events update one
+   * member and issue events use the reverse indexes.
    */
   async onIssuesEligibilityChanged(issueIds: readonly string[]): Promise<void> {
     const changed = new Set(issueIds)
     if (changed.size === 0) return
-    for (const issueId of changed) await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
-    const sessions = this.deps.sessions.sessionFacts()
-    for (const session of sessions) {
-      const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
-      const nextIssueId = this.issueForSession(session)
-      if (
-        (previousIssueId !== undefined && changed.has(previousIssueId)) ||
-        (nextIssueId !== null && changed.has(nextIssueId)) ||
-        // Deliberately the same loose comparison the per-change form used:
-        // `undefined !== null` is TRUE, so a session that resolves to no issue
-        // at all is queued (its own principal, which `countPending` then drops
-        // when it has no mail). Tightening that here would change WHO is
-        // recomputed, which is not this change's business.
-        previousIssueId !== nextIssueId
-      ) {
-        await this.onRoutingEligibilityChanged(session)
-      }
+    if (!this.routingMembershipReady) this.seedMembership(this.deps.sessions.sessionFacts(), true)
+    const candidates = new Set<SessionId>()
+    for (const issueId of changed) {
+      await this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+      const issue = await this.deps.issues.getMeta(issueId)
+      for (const id of this.routingMembership.candidates(issueId, issue?.worktreePath)) candidates.add(id)
+    }
+    for (const id of candidates) {
+      const session = this.deps.sessions.sessionFactsById(id)
+      if (session) await this.onRoutingEligibilityChanged(session)
+      else this.rememberMembership(id, undefined, null)
     }
   }
 
@@ -843,15 +891,13 @@ export class MessageDeliveryService {
       // Preserve the before-state needed by detach/reassign events without
       // issuing two principal COUNTs per live session on the overwhelmingly
       // common empty-queue boot path.
-      for (const session of sessions) {
-        const issueId = this.issueForSession(session)
-        if (issueId) this.sessionIssueTargets.set(session.sessionId, issueId)
-      }
+      this.seedMembership(sessions)
       return
     }
     for (const session of sessions) {
       await this.onRoutingEligibilityChanged(session)
     }
+    this.routingMembershipReady = true
     await this.scheduler.reconcile()
   }
 

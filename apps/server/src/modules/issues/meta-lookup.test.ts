@@ -1,3 +1,4 @@
+import { WorldIndex } from '../world-index'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -13,6 +14,7 @@ async function harness() {
   const sessionFacts = vi.fn(() => [])
   const deps: IssueDeps = {
     store,
+    worldIndex: (await WorldIndex.load(store)).reader,
     sessionFacts,
     sessionById: async () => undefined,
     listSessionsForIssue: async () => [],
@@ -32,7 +34,7 @@ async function harness() {
     setSessionArchived: vi.fn(),
     now: () => '2026-07-17T00:00:00.000Z',
   }
-  return { sessionFacts, svc: await IssueService.create(deps) }
+  return { deps, store, sessionFacts, svc: await IssueService.create(deps) }
 }
 
 describe('POD-826 lightweight issue lookups', () => {
@@ -53,6 +55,25 @@ describe('POD-826 lightweight issue lookups', () => {
     expect(await svc.has(`#${created.seq}`)).toBe(true)
     expect(await svc.has('missing')).toBe(false)
     expect(sessionFacts).not.toHaveBeenCalled()
+  })
+
+  it('uses the committed index without enumerating rows and retains staged reads', async () => {
+    const { deps, svc } = await harness()
+    const created = await svc.create({ repoPath: '/repo', title: 'indexed', startNow: false })
+    const row = (await svc.getMeta(created.id))!
+    const rows = (svc as unknown as { rows: Map<string, typeof row> }).rows
+    const scan = vi.spyOn(rows, 'values')
+    const indexed = vi.fn(deps.worldIndex!.issueForWorktree)
+    deps.worldIndex = { ...deps.worldIndex!, issueForWorktree: indexed }
+    // The row map deliberately differs to model a staged worktree installation.
+    rows.set(created.id, { ...row, worktreePath: '/staged' })
+    for (let i = 0; i < 200; i++) expect(svc.issueForCwd('/staged/src')).toBeNull()
+    expect(indexed).toHaveBeenCalledTimes(200)
+    expect(scan).not.toHaveBeenCalled()
+    deps.applyCommit = { spanOpen: () => true, onCommit: () => ({ live: () => true }) }
+    expect(svc.issueForCwd('/staged/src')).toBe(created.id)
+    expect(indexed).toHaveBeenCalledTimes(200)
+    expect(scan).toHaveBeenCalledTimes(1)
   })
 
   it('keeps get as a session-free wire lookup', async () => {

@@ -61,7 +61,7 @@ const log = createLogger('server:store')
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
  * ids and repo-path resolution still returns a string. Query/write casts decode
  * those inputs; selected issue fields are schema-branded. */
-export type IssueWorktreeRow = Pick<IssueRow, 'id' | 'repoPath' | 'seq' | 'worktreePath'>
+export type IssueWorktreeRow = Pick<IssueRow, 'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'>
 
 export class IssuesRepository {
   readonly committed: CommittedRows<typeof issues.$inferSelect>
@@ -652,7 +652,7 @@ export class IssuesRepository {
    * This one statement loads only the additional worktree lookup keys. */
   async loadWorldIssuePaths(): Promise<IssueWorktreeRow[]> {
     return this.db
-      .select({ id: issues.id, repoPath: issues.repoPath, seq: issues.seq, worktreePath: issues.worktreePath })
+      .select({ id: issues.id, repoPath: issues.repoPath, seq: issues.seq, worktreePath: issues.worktreePath, deletedAt: issues.deletedAt })
       .from(issues)
       .all()
   }

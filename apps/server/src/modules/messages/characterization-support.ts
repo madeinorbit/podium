@@ -344,6 +344,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     issues,
     sessions: {
       sessionFacts: () => sessions.map(metaAsFacts),
+      sessionFactsById: (id) => sessions.map(metaAsFacts).find((s) => s.sessionId === id),
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),

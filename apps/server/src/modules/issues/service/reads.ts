@@ -676,6 +676,11 @@ export class IssueReportsModule {
 
   /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
   issueForCwd(cwd: string): IssueId | null {
+    // IssueStore exposes staged rows inside mutation spans. Keep that read for
+    // orchestrated read-your-writes; the world reader is committed-only.
+    if (this.store.deps.worldIndex && !this.store.deps.applyCommit?.spanOpen()) {
+      return this.store.deps.worldIndex.issueForWorktree(cwd) ?? null
+    }
     // Most-specific match (POD-529): with nested worktrees (or a worktree under the
     // repo root), first-match could attribute a session to the broader owner.
     let best: { id: IssueId; len: number } | null = null

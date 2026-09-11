@@ -98,7 +98,18 @@ export class WorldIndex {
 
   readonly reader: WorldIndexReader = Object.freeze({
     grantsFor: (kind: string, id: string) => clone(this.grantsByResource.get(key(kind, id)) ?? []),
-    issueForWorktree: (path: string) => this.issuesByWorktree.get(path),
+    issueForWorktree: (path: string) => {
+      // Probe only component boundaries, deepest first: O(cwd depth), never
+      // O(issue count). Preserve literal path semantics, including trailing '/'.
+      let end = path.length
+      while (end >= 0) {
+        const issue = this.issuesByWorktree.get(path.slice(0, end))
+        if (issue) return issue
+        end = path.lastIndexOf('/', end - 1)
+        if (end === 0) return this.issuesByWorktree.get('')
+      }
+      return undefined
+    },
     pendingCount: (target: DeliveryTarget) =>
       this.pendingByTarget.get(key(target.kind, target.id)) ?? 0,
     user: (id: string) => clone(this.usersById.get(id)),
@@ -121,7 +132,7 @@ export class WorldIndex {
       for (const row of grants) index.putGrant(row)
       for (const row of issues) {
         index.issuesById.set(row.id, row)
-        if (!row.worktreePath) continue
+        if (!row.worktreePath || row.deletedAt) continue
         const members = index.worktreeMembers.get(row.worktreePath) ?? new Set<string>()
         members.add(row.id)
         index.worktreeMembers.set(row.worktreePath, members)
@@ -170,7 +181,7 @@ export class WorldIndex {
         break
       case 'issues':
         for (const raw of change.rows) {
-          if (change.operation === 'upsert') this.putIssue(raw.id, raw)
+          if (change.operation === 'upsert' && !raw.deletedAt) this.putIssue(raw.id, raw)
           else this.putIssue(raw.id, undefined)
         }
         break
@@ -228,6 +239,7 @@ export class WorldIndex {
         repoPath: next.repoPath,
         seq: next.seq,
         worktreePath: next.worktreePath,
+        deletedAt: next.deletedAt,
       })
     else this.issuesById.delete(id)
     if (next?.worktreePath) {
