@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -27,14 +27,14 @@ describe('bind-storm regression', () => {
       name: 'one',
       hostname: 'one',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
       id: 'm2',
       name: 'two',
       hostname: 'two',
       tokenHash: 'y',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await registry.gateway.attachDaemon('m1', () => {})

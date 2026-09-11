@@ -13,7 +13,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import type { SessionId } from '@podium/model'
-import { asMachineId, asUserId, asSessionId, SOLE_USER_ID } from '@podium/model'
+import { asMachineId, asUserId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -124,7 +124,7 @@ describe('oracle: create', () => {
       name: 'other',
       hostname: 'o',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const other: ControlMessage[] = []
     // Finish attachment (including machine-cache invalidation) before authorizing a command.
@@ -1167,7 +1167,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     // resurfaces the session, where archive deliberately does not.
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.
-    expect((await o.store.sessions.listReadAt(asUserId(SOLE_USER_ID)))[sessionId]).toBeUndefined()
+    expect((await o.store.sessions.listReadAt(firstAdminMemberId()))[sessionId]).toBeUndefined()
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 

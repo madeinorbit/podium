@@ -1,4 +1,4 @@
-import { asThreadId, asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
+import { firstAdminMemberId, asThreadId, asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import type { TelegramChatBinding } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionMeta, TranscriptItem } from '@podium/model'
@@ -13,7 +13,7 @@ import { metasAsFacts } from '../../test-support/session-facts'
 /** The bound chat every inbound fixture in this file speaks from. Without a
  *  binding the gate refuses the message and nothing below would run — which is
  *  itself the load-bearing behaviour, asserted in `telegram-binding.test.ts`. */
-const BOUND_USER = asUserId('user:sole')
+const BOUND_USER = firstAdminMemberId()
 const boundChat = (chatId: string): TelegramChatBinding => ({
   userId: BOUND_USER,
   chatId,

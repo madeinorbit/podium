@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -21,7 +21,7 @@ async function captureSpawn(over: {
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.setMachineInventory(
     'm1',

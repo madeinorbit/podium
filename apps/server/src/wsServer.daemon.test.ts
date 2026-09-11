@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { wireDaemonSocket } from './gateway/daemon-socket'
 import { PairingManager } from './hub/pairing'
@@ -48,7 +48,7 @@ describe('daemon socket auth', () => {
       name: 'box',
       hostname: 'box',
       tokenHash: sha256('tok'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -81,7 +81,7 @@ describe('daemon socket auth', () => {
       name: 'thishost',
       hostname: 'thishost',
       tokenHash: sha256('sekret'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -203,7 +203,7 @@ describe('daemon socket auth', () => {
       name: 'h',
       hostname: 'h',
       tokenHash: sha256('tok'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
@@ -227,7 +227,7 @@ describe('daemon socket auth', () => {
       name: 'h',
       hostname: 'h',
       tokenHash: sha256('tok'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')

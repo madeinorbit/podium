@@ -160,14 +160,14 @@ async function handoffFixture(
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'target',
     hostname: 'target',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const inventory: Inventory = {
     os: 'linux',
@@ -1124,7 +1124,7 @@ describe('oracle: duplicate dispatch', () => {
       name: 'third',
       hostname: 'third',
       tokenHash: 'z',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await f.store.machines.setMachineInventory(
       'm3',

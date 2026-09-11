@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -96,7 +96,7 @@ const registryWithMachine = async (id = 'm1', token = 'tok', updatePubkey?: stri
     name: 'box',
     hostname: 'box',
     tokenHash: sha256(token),
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   return await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
@@ -141,7 +141,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       name: 'Durable machine',
       hostname: 'stored.local',
       tokenHash: sha256(token),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
   }
   await seeded.close()
@@ -628,7 +628,7 @@ describe('recovery-only daemon handshake verification', () => {
 
   it('rejects pairing before consuming its code', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
-    const code = world.machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
+    const code = world.machines.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const machineId = asMachineId('new-machine')
     try {
       const outcome = receiveDaemonFrame(

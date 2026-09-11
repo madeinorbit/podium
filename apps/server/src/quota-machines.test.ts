@@ -1,4 +1,4 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 /**
  * #136: per-machine agent quota + machine-scoped memory breakdown.
  *
@@ -39,14 +39,14 @@ async function regWithTwoDaemons() {
     name: 'podium-host',
     hostname: 'podium-host',
     tokenHash: 'x',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
     id: 'm2',
     name: 'VMI',
     hostname: 'vmi',
     tokenHash: 'y',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1Out: ControlMessage[] = []
@@ -120,7 +120,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
       name: 'Solo',
       hostname: 'solo',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const out: ControlMessage[] = []

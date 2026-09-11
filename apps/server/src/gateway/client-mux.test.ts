@@ -10,7 +10,7 @@ import { attachTestClient } from '../test-support/client-transport'
  * routes nothing at all.
  */
 
-import { asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CLIENT_PLANE_CLASS,
@@ -206,7 +206,7 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     const principal = h.mux.principalOf(h.id)
     expect(CLIENT_PRINCIPAL_GRADE).toBe('user')
     expect(principal?.kind).toBe('user')
-    expect(principal?.user).toBe('user:sole')
+    expect(principal?.user).toBe(firstAdminMemberId())
   })
 
   it('fails closed when an in-process peer has no authenticated identity', async () => {

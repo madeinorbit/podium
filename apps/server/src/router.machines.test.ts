@@ -1,4 +1,4 @@
-import { asUserId } from '@podium/model'
+import { firstAdminMemberId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
@@ -19,7 +19,7 @@ async function machineCaller() {
     name: 'machine-one',
     hostname: 'host-one',
     tokenHash: 'h1',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = await SessionRegistry.create(store, undefined, {
@@ -92,7 +92,7 @@ describe('sessions.create with machineId', () => {
       name: 'machine-two',
       hostname: 'host-two',
       tokenHash: 'h2',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],

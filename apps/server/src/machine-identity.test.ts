@@ -97,9 +97,11 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     ;await (await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
-      INSERT INTO issues (id, owner_user_id, repo_path, seq, title, stage, parent_branch,
+      INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of,
+                          repo_path, seq, title, stage, parent_branch,
                           default_agent, created_at, updated_at, machine_id)
-        VALUES ('iss_1', '${firstAdminMemberId()}', '/r', 1, 'pinned', 'backlog', 'main',
+        VALUES ('iss_1', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+                '${firstAdminMemberId()}', '/r', 1, 'pinned', 'backlog', 'main',
                 'claude-code', 't', 't', 'local');
     `)
     db.close()

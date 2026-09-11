@@ -26,7 +26,7 @@
  * poll seam.
  */
 
-import { asSessionId, SOLE_USER_ID } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import { WAKE_COOLDOWN_MS } from './brakes'
@@ -281,9 +281,9 @@ describe('characterization: urgency x target state (D3)', () => {
         sourceMessageId: expect.stringMatching(/^msg_/),
         principal: {
           kind: 'user',
-          principalRef: SOLE_USER_ID,
+          principalRef: firstAdminMemberId(),
           delegation: null,
-          attribution: { actor: { kind: 'user', id: SOLE_USER_ID }, onBehalfOf: SOLE_USER_ID },
+          attribution: { actor: { kind: 'user', id: firstAdminMemberId() }, onBehalfOf: firstAdminMemberId() },
         },
       },
     ])
@@ -349,9 +349,9 @@ describe('characterization: urgency x target state (D3)', () => {
         sourceMessageId: expect.stringMatching(/^msg_/),
         principal: {
           kind: 'user',
-          principalRef: SOLE_USER_ID,
+          principalRef: firstAdminMemberId(),
           delegation: null,
-          attribution: { actor: { kind: 'user', id: SOLE_USER_ID }, onBehalfOf: SOLE_USER_ID },
+          attribution: { actor: { kind: 'user', id: firstAdminMemberId() }, onBehalfOf: firstAdminMemberId() },
         },
       },
     ])

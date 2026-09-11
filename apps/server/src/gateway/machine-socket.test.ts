@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { asUserId } from '@podium/model'
+import { firstAdminMemberId, asUserId } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
@@ -80,7 +80,7 @@ async function registryWithMachine() {
     name: 'box',
     hostname: 'box',
     tokenHash: sha256('tok'),
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   return { store, registry }

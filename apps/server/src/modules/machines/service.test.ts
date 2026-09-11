@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
@@ -57,7 +57,7 @@ async function storedService(
     name: 'vmi',
     hostname: 'vmi.local',
     tokenHash: 'token-hash',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const svc = new MachinesService({
     instanceId: 'default',
@@ -420,7 +420,7 @@ describe('promoted server host identity', () => {
         name: id,
         hostname: id,
         tokenHash: sha256(`${id}-secret`),
-        ownerUserId: asUserId('user:sole'),
+        ownerUserId: firstAdminMemberId(),
       })
     }
     const svc = new MachinesService({
@@ -575,7 +575,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     const before = (await svc.listMachines()).map((m) => m.id)
     expect(before).not.toContain(MACHINE)
 
-    const code = svc.mintPairingCode({ ownerUserId: asUserId('user:sole') })
+    const code = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const result = await svc.authenticateDaemon({
       type: 'pair',
       code,
@@ -599,7 +599,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       name: 'Builder',
       hostname: 'old.local',
       tokenHash: sha256(token),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
 
     // Warm on the pre-hello row — the upsert went straight to the store, so this
@@ -662,7 +662,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
       id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.repos.addRepo('/repo', MACHINE)
     await svc.attach(MACHINE, recorder().send)
@@ -679,7 +679,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'vmi',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
 
     await svc.recordInventory(MACHINE, INV)
@@ -698,7 +698,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'vmi',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const latest: Inventory = {
       ...INV,
@@ -725,7 +725,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Builder',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await svc.recordInventory(MACHINE, {
       ...INV,
@@ -753,7 +753,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Builder',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await svc.recordInventory(MACHINE, {
       ...INV,
@@ -792,7 +792,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Builder',
       hostname: 'vmi',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await svc.attach(MACHINE, recorder().send)
 
@@ -817,14 +817,14 @@ describe('MachinesService inventory persistence (#222)', () => {
       name: 'Missing',
       hostname: 'a',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
       id: other,
       name: 'Capable',
       hostname: 'b',
       tokenHash: 'y',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await store.repos.addRepo('/repo', MACHINE)
     await store.repos.addRepo('/repo', asMachineId(other))

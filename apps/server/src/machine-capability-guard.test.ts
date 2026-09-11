@@ -18,7 +18,7 @@
  * of "no daemon answered" 35 seconds later, which is precisely the confusing
  * failure this work replaces.
  */
-import { asMachineId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
@@ -42,7 +42,7 @@ async function fleet() {
     name: 'mango',
     hostname: 'mango.local',
     tokenHash: 'h',
-    ownerUserId: asUserId('user:sole'),
+    ownerUserId: firstAdminMemberId(),
   })
   const laptop = asMachineId('laptop')
   // A daemon attaching is what records the durable `daemon` component.

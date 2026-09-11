@@ -4,7 +4,6 @@ import {
   asUserId,
   firstAdminMemberId,
   type SessionMeta,
-  SOLE_USER_ID,
 } from '@podium/model'
 import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
@@ -865,7 +864,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // throwing [POD-3507].
     await expect(
       registry.modules.sessions.setSnooze({
-        userId: asUserId(SOLE_USER_ID),
+        userId: firstAdminMemberId(),
         sessionId,
         until: '2999-07-20T12:00:00.000Z',
       }),
@@ -875,7 +874,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
     expect(
-      await registry.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID)),
+      await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId()),
     ).not.toHaveProperty(sessionId)
     expect(await cursorOf(registry)).toBe(cursor)
     expect(events).toEqual([])
@@ -894,7 +893,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     // Same future deadline as the failed attempt, for the same reason: a lapsed
     // timed snooze is pruned on read and would produce no change to project.
     await registry.modules.sessions.setSnooze({
-      userId: asUserId(SOLE_USER_ID),
+      userId: firstAdminMemberId(),
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })

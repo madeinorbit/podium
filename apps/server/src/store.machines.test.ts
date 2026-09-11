@@ -25,7 +25,7 @@ describe('machines store', () => {
       name: 'box',
       hostname: 'box',
       tokenHash: hash('secret'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
       podiumManaged: false,
     })
     expect((await s.machines.listMachines()).map((m) => m.id)).toEqual(['m1'])
@@ -77,7 +77,7 @@ describe('machines store', () => {
       name: 'server',
       hostname: 'srv',
       tokenHash: hash('tok'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     const m = await s.machines.getMachine('m2')
     expect(m?.id).toBe('m2')
@@ -93,7 +93,7 @@ describe('machines store', () => {
       name: 'box',
       hostname: 'old-host',
       tokenHash: hash('t'),
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await s.machines.touchMachine('m3', 'new-host')
     const m = await s.machines.getMachine('m3')
@@ -113,7 +113,7 @@ describe('machines store', () => {
       name: 'a',
       hostname: 'h',
       tokenHash: 'x',
-      ownerUserId: asUserId('user:sole'),
+      ownerUserId: firstAdminMemberId(),
     })
     await s1.repos.addRepo('/a', s1.hostMachineId)
     await s1.sessions.upsertSession({

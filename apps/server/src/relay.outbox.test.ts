@@ -11,7 +11,6 @@ import {
   firstAdminMemberId,
   type SessionId,
   type SessionMeta,
-  SOLE_USER_ID,
 } from '@podium/model'
 import { asDelegationRef, type MetadataChange, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -394,7 +393,7 @@ describe('queueText (durable outbox sends)', () => {
           enabled: true,
           sessionMode: 'resume',
         },
-        userCommandPrincipal(asUserId(SOLE_USER_ID), 'admin'),
+        userCommandPrincipal(firstAdminMemberId(), 'admin'),
       )
 
       vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))
@@ -664,7 +663,7 @@ describe('queueText (durable outbox sends)', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const sessionId = await hibernatedSession(reg)
     await reg.modules.sessions.setSnooze({
-      userId: asUserId(SOLE_USER_ID),
+      userId: firstAdminMemberId(),
       sessionId: asSessionId(sessionId),
       until: null,
     })
@@ -672,7 +671,7 @@ describe('queueText (durable outbox sends)', () => {
 
     await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
     expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
-    expect(await reg.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 })
 

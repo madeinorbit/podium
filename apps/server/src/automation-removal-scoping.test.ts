@@ -39,7 +39,7 @@
  */
 
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
-import { asAutomationRunId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { asAutomationRunId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { Ledger, ScopedDelivery } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -51,9 +51,9 @@ interface AutomationRunWriter {
   addRun(run: AutomationRunRow): void
 }
 
-/** `SOLE_USER_ID` is declared as a plain string; the brand is applied here, at
+/** `firstAdminMemberId()` is declared as a plain string; the brand is applied here, at
  *  the one edge this suite has, rather than at four call sites. */
-const OWNER = asUserId(SOLE_USER_ID)
+const OWNER = firstAdminMemberId()
 
 /** The principal a real connection is served under — `relay.ts` builds this same
  *  shape from the authenticated transport, never from a payload. */
@@ -107,7 +107,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
   it("delivers the automation's `remove` to its owner, not a bare watermark", async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
-    const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
+    const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
 
     const created = await reg.modules.automations.create(automationInput, principal)
 
@@ -140,7 +140,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
   it("delivers a run's `remove` too — the cascade no longer fires, so it is stamped", async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const principal = userCommandPrincipal(OWNER, 'admin')
-    const delivered = deliveriesFor(reg, feedPrincipalFor(SOLE_USER_ID))
+    const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
     const store = (reg as unknown as { store: { automations: AutomationRunWriter } }).store
 
     const created = await reg.modules.automations.create(automationInput, principal)
