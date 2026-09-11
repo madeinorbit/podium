@@ -111,11 +111,11 @@ describe('EventBus', () => {
       err: { name: 'TypeError', message: 'boom' },
     })
 
-    expect(login).toHaveBeenCalledWith({ userId: 'user:sole', delivery: 'cookie' })
+    expect(login).toHaveBeenCalledWith({ userId: firstAdminMemberId(), delivery: 'cookie' })
     expect(created).toHaveBeenCalledWith({
       issueId: 'iss_1',
       title: 'a title',
-      ownerUserId: 'user:sole',
+      ownerUserId: firstAdminMemberId(),
     })
     expect(crashed).toHaveBeenCalledTimes(1)
   })
