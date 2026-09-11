@@ -198,8 +198,9 @@ export function setSessionCookie(c: Context, token: string, trustedProxyHops: nu
 
 /**
  * Hono middleware that gates a client surface (e.g. /trpc, /files) behind the login session.
- * Open (passes through) when no password is configured; otherwise requires a valid session
- * cookie. CORS preflight (OPTIONS) is always allowed so cross-origin clients can negotiate.
+ * Open (passes through) when no password is configured AND the request is local; otherwise
+ * requires a valid session cookie. CORS preflight (OPTIONS) is always allowed so cross-origin
+ * clients can negotiate.
  */
 export function clientAuthGuard(opts: {
   store?: ClientSessionStore
@@ -209,12 +210,28 @@ export function clientAuthGuard(opts: {
   now?: () => number
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
   trustedProxyHops?: number
+  /**
+   * IS THIS REQUEST LOCAL — the other half of open mode (A2, spec §8).
+   *
+   * The pass-through has to agree with the principal resolver behind it, and the
+   * resolver now acts as the first admin only for a LOCAL caller. Without this
+   * the two disagree in the worst direction: the guard lets a remote caller
+   * through, the resolver declines to name a principal, and the context throws —
+   * so a request that should have been answered "log in" is answered with a 500.
+   *
+   * Optional, and absent means "do not check". A server assembled without it —
+   * an embedded one, a test — keeps the behaviour it had, so this cannot quietly
+   * close a door somebody was relying on. The composition root wires it.
+   */
+  isLocalRequest?: (request: Request) => boolean
 }): MiddlewareHandler {
   const now = opts.now ?? (() => Date.now())
   const loginRequired = opts.loginRequired ?? (async () => Boolean(await opts.users?.hasPerUserCredentials()))
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return await next()
-    if (!(await loginRequired())) return await next()
+    const openToThisCaller =
+      !(await loginRequired()) && (opts.isLocalRequest?.(c.req.raw) ?? true)
+    if (openToThisCaller) return await next()
     if (c.req.header('authorization') && !isHttps(c, opts.trustedProxyHops)) {
       return c.json({ error: 'secure HTTPS is required for bearer authentication' }, 400)
     }

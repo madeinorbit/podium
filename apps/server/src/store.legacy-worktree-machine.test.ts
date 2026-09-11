@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openTestStore } from './test-support/open-test-store'
@@ -76,10 +76,10 @@ async function seedV010ShapedDb(path: string): Promise<void> {
     `INSERT OR REPLACE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
        VALUES ('${id}', '${name}', '${name}', '${sha256(id)}', 't', 't');`
   const issue = (id: string, seq: number, worktree: string | null, pin: string | null): string =>
-    `INSERT INTO issues (id, repo_id, repo_path, seq, title, stage, default_agent,
+    `INSERT INTO issues (id, owner_user_id, repo_id, repo_path, seq, title, stage, default_agent,
                          created_at, updated_at, worktree_path, machine_id)
-       VALUES ('${id}', 'repo:one', '/r', ${seq}, '${id}', 'backlog', 'claude-code',
-               't', 't', ${worktree === null ? 'NULL' : `'${worktree}'`},
+       VALUES ('${id}', '${firstAdminMemberId()}', 'repo:one', '/r', ${seq}, '${id}', 'backlog',
+               'claude-code', 't', 't', ${worktree === null ? 'NULL' : `'${worktree}'`},
                ${pin === null ? 'NULL' : `'${pin}'`});`
   const session = (
     id: string,

@@ -56,13 +56,13 @@ async function seedLegacyDb(path: string): Promise<void> {
   db.exec(`
     DELETE FROM machines;
     INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
-      VALUES ('local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't', 'user:sole');
+      VALUES ('local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't', '${firstAdminMemberId()}');
     INSERT INTO sessions
       (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
        created_at, last_active_at, machine_id)
-      VALUES ('s-local', 'user:sole', 'shell', '/w', 'a', 'spawn', 'live', 'podium-s-local',
+      VALUES ('s-local', '${firstAdminMemberId()}', 'shell', '/w', 'a', 'spawn', 'live', 'podium-s-local',
               't', 't', 'local'),
-             ('s-placeholder', 'user:sole', 'shell', '/w', 'b', 'spawn', 'live',
+             ('s-placeholder', '${firstAdminMemberId()}', 'shell', '/w', 'b', 'spawn', 'live',
               'podium-s-placeholder', 't', 't', '__local__');
     INSERT INTO repos (machine_id, path, repo_name, added_at)
       VALUES ('__local__', '/legacy/repo', 'repo', 't');
@@ -97,9 +97,10 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     ;await (await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
-      INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-                          created_at, updated_at, machine_id)
-        VALUES ('iss_1', '/r', 1, 'pinned', 'backlog', 'main', 'claude-code', 't', 't', 'local');
+      INSERT INTO issues (id, owner_user_id, repo_path, seq, title, stage, parent_branch,
+                          default_agent, created_at, updated_at, machine_id)
+        VALUES ('iss_1', '${firstAdminMemberId()}', '/r', 1, 'pinned', 'backlog', 'main',
+                'claude-code', 't', 't', 'local');
     `)
     db.close()
 
@@ -177,7 +178,7 @@ describe('a database that already ran the retired upgrades', () => {
       expect(machines[0]?.id).toBe(HOST)
       // The RENAME is why this survived: a fresh insert would have dropped the
       // owner the legacy row carried, and split the fleet in half.
-      expect(machines[0]?.ownerUserId).toBe('user:sole')
+      expect(machines[0]?.ownerUserId).toBe(firstAdminMemberId())
       await store.close()
     } finally {
       warn.mockRestore()

@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/model'
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
@@ -297,10 +297,10 @@ describe('IssueService event emission', () => {
     const seen: unknown[] = []
     const { svc } = await harness([], { onIssueCreated: (event) => seen.push(event) })
     const w = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    // 'user:sole' is what create() defaults the owner to (crud.ts), and the
+    // The first admin is what create() defaults the owner to (crud.ts), and the
     // callback reports the ROW's owner rather than the wire's, because the wire
     // does not carry one.
-    expect(seen).toEqual([{ issueId: w.id, title: 'A', ownerUserId: 'user:sole' }])
+    expect(seen).toEqual([{ issueId: w.id, title: 'A', ownerUserId: firstAdminMemberId() }])
 
     await svc.update(w.id, { title: 'renamed' })
     expect(seen).toHaveLength(1)
