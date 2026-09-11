@@ -5,9 +5,12 @@
  * Why a runner and not `tsc --noEmit` in 24 manifests:
  *
  *   1. ONE COMPILER. TypeScript 7 is the Go compiler; the `typescript` package at the
- *      repository root is the only one that runs. Workspace packages that still declare
- *      TypeScript 6 do so because they need its JavaScript API as a LIBRARY (the audit
- *      scripts in `scripts/`), never to typecheck. The runner resolves the root binary
+ *      repository root is the only one that runs. A workspace package that declares
+ *      TypeScript 6 itself does so because it needs the JavaScript API as a LIBRARY —
+ *      the audit scripts in `scripts/`, the AST-walking tests in apps/server, apps/web
+ *      and apps/mobile — never to typecheck; TypeScript 7 exports no such API. A package
+ *      that imports 'typescript' without declaring it resolves the root 7.x and fails
+ *      with "no exported member forEachChild". The runner resolves the root binary
  *      by path — `node_modules/.bin/tsc` is whichever install linked last — and refuses
  *      a compiler that is not a 7.x, so a stale install cannot silently typecheck with
  *      the wrong engine.
