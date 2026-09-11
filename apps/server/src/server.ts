@@ -1464,6 +1464,9 @@ export async function startServer(
     users: store.users,
     loginRequired: credentialsRequired,
     trustedProxyHops,
+    // The same locality the principal resolver above applies, so the gate and
+    // the principal behind it cannot disagree about who open mode is open to.
+    isLocalRequest: isHostLocalRequest,
   })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   /**

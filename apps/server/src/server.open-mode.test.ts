@@ -83,6 +83,18 @@ describe('open mode acts as the earliest admin member', () => {
     expect(status.userId).toBe(firstAdminMemberId())
   })
 
+  it('gates the data plane on the same locality, not just the principal', async () => {
+    // The guard and the resolver must agree about who open mode is open to. They
+    // used to be one question — "is a password configured" — and the locality
+    // clause splits it in two, which is exactly the shape that lets a gate pass a
+    // caller the resolver then declines to name. That combination is a 500 where
+    // the honest answer is "log in".
+    const res = await fetch(url('/trpc/instance.info?input=%7B%7D'), {
+      headers: { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-host': 'podium.example.com' },
+    })
+    expect(res.status).toBe(401)
+  })
+
   it('refuses a request that did not come from this host', async () => {
     // THE ONE BEHAVIOURAL CHANGE (spec §8). Open mode exists for loopback — the
     // all-in-one desktop's embedded server, where a password would be theatre.

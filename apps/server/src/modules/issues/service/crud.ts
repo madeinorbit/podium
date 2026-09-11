@@ -7,6 +7,7 @@ import {
   asRepoId,
   asSessionId,
   asUserId,
+  firstAdminMemberId,
   canonicalIssueCloseReason,
   type GrantVerb,
   type IssueId,
@@ -1017,7 +1018,12 @@ export class IssueCrudModule {
     // makes `upsertIssue` refuse rather than overwrite if a row with this id
     // somehow already exists by the time the write reaches the database.
     const row: IssueRow = this.store.registerNewDraft(toStorage(issue, { repoPath: input.repoPath }))
-    row.ownerUserId = input.ownerUserId ?? asUserId('user:sole')
+    // THE OWNER, WHEN THE CALLER DID NOT NAME ONE. It spelled the raw literal
+    // `'user:sole'` until A2 — a string this build compiled in, which after the
+    // migration names no member, so a row created without an owner would be
+    // owned by nobody and visible to nobody. Resolved now, like every other
+    // ambient site; a caller that knows whose issue it is still says so.
+    row.ownerUserId = input.ownerUserId ?? firstAdminMemberId()
     row.visibility = input.visibility ?? 'personal'
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId

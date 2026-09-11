@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 /**
  * Boot crash-loop hardening (Phase 1, deliverable 3): a corrupt issue row must
@@ -55,8 +55,10 @@ describe('IssueService boot quarantine', () => {
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
     rawDb(store)
       .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, default_agent, created_at, updated_at)
-         VALUES (NULL, '/r', 99, 'poisoned', 'backlog', 'claude-code', 't', 't')`,
+        `INSERT INTO issues (id, owner_user_id, repo_path, seq, title, stage, default_agent,
+           created_at, updated_at)
+         VALUES (NULL, '${firstAdminMemberId()}', '/r', 99, 'poisoned', 'backlog', 'claude-code',
+                 't', 't')`,
       )
       .run()
 
