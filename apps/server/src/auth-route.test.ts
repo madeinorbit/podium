@@ -78,6 +78,43 @@ describe('auth-route', () => {
     expect(await res.json()).toEqual({ needsAuth: false, authed: false })
   })
 
+  test('status says a recognised caller was refused, and why', async () => {
+    const res = await makeApp({
+      admission: async () => ({ signedIn: true, deniedReason: 'not a member of this workspace' }),
+    }).request('/auth/status')
+    expect(res.status).toBe(200)
+    // authed stays false — the person is NOT in. The extra fields only let the
+    // gate say why, instead of offering a sign-in button to somebody who just
+    // signed in successfully and would land straight back here.
+    expect(await res.json()).toEqual({
+      needsAuth: false,
+      authed: false,
+      providerSignedIn: true,
+      deniedReason: 'not a member of this workspace',
+    })
+  })
+
+  test('status never asks for a refusal reason when the caller was admitted', async () => {
+    let asked = 0
+    const res = await makeApp({
+      resolveUserId: () => firstAdminMemberId(),
+      admission: async () => {
+        asked += 1
+        return { signedIn: true, deniedReason: 'not a member of this workspace' }
+      },
+    }).request('/auth/status')
+    expect(res.status).toBe(200)
+    // The hook reports; it must never look like the decision. An admitted caller
+    // needs no reason, so it is not consulted at all and cannot contradict the
+    // resolver that actually let them in.
+    expect(asked).toBe(0)
+    expect(await res.json()).toEqual({
+      needsAuth: false,
+      authed: true,
+      userId: firstAdminMemberId(),
+    })
+  })
+
   test('status reports the composition-root principal without deriving an open-mode user', async () => {
     const res = await makeApp({ resolveUserId: () => firstAdminMemberId() }).request('/auth/status')
     expect(res.status).toBe(200)

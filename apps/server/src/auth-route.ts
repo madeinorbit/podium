@@ -319,6 +319,25 @@ export async function resolveLoginIdentifier(
 export interface AuthRouteOptions {
   mode?: () => 'local' | 'cloud'
   signInUrl?: () => string | undefined
+  /**
+   * WHY A RECOGNISED CALLER IS STILL REFUSED — reporting only, never authorization.
+   *
+   * A hosted workspace can recognise somebody perfectly well and still not admit
+   * them: they signed in to the provider, but they are not a member of THIS
+   * workspace (spec §11). The status endpoint could not say so. It reports
+   * `authed: false`, which is true but useless, and the login gate reads that as
+   * "not signed in" and offers the sign-in button again — so the person clicks
+   * it, succeeds, and lands back where they started with no idea why.
+   *
+   * This answers that question and nothing else. Its result is spread into the
+   * status payload and is consulted by NO authorization path: it cannot admit a
+   * caller, cannot refuse one, and returning `signedIn: true` grants nothing.
+   * Reporting and enforcement stay separate on purpose, so a mistake here is a
+   * wrong message rather than a wrong door.
+   */
+  admission?: (
+    request: Request,
+  ) => Promise<{ signedIn: boolean; deniedReason?: string } | undefined>
   store?: ClientSessionStore
   users?: AccountCredentialStore
   /**
@@ -399,9 +418,14 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         ? await requestUserId(store, headers.cookieHeader, now(), headers.authorizationHeader)
         : undefined
     const authed = userId !== undefined
+    // Only asked when nobody was admitted: an admitted caller needs no reason,
+    // and this must never run where it could be mistaken for the decision.
+    const admission = !authed && opts.admission ? await opts.admission(c.req.raw) : undefined
     return c.json({
       needsAuth,
       authed,
+      ...(admission?.signedIn ? { providerSignedIn: true } : {}),
+      ...(admission?.deniedReason ? { deniedReason: admission.deniedReason } : {}),
       ...(opts.mode ? { mode: opts.mode() } : {}),
       ...(opts.signInUrl ? { signInUrl: opts.signInUrl() } : {}),
       ...(userId ? { userId } : {}),
