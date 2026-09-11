@@ -1,3 +1,9 @@
+import { readResourceGrants, readResourcesGrants } from './grant-reader'
+import { SessionAuthz, type SessionAuthzPorts } from '../sessions/session-authz'
+import { SessionView, type SessionViewPorts } from '../sessions/view'
+import { Session } from '../sessions/session'
+import { sessionStatePrincipalFor } from '../sessions/session-state/registry'
+import { userCommandPrincipal } from '../../command-principal'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -624,5 +630,83 @@ describe('pending message counter properties', () => {
     } finally {
       scheduler.dispose()
     }
+  })
+})
+
+// The production grant adapter is shared by all census-converted readers. The
+// dangerous consumers below exercise it after a write, not just after commit.
+describe('transaction-aware grant readers', () => {
+  it('uses no grant SQL outside spans and preserves insert/revoke/rollback visibility', async () => {
+    const store = await setup()
+    const index = await WorldIndex.load(store)
+    const read = async () => {
+      const one = await readResourceGrants(store.grants, 'issue', 'iss_x')
+      const many = await readResourcesGrants(store.grants, 'issue', ['iss_x', 'missing'])
+      expect(many.has('missing')).toBe(false)
+      expect(many.get('iss_x') ?? []).toEqual(one)
+      return one
+    }
+    await store.transact(async () => {
+      await store.grants.upsert(grant)
+      expect(index.reader.grantsFor('issue', 'iss_x')).toEqual([])
+      expect(await read()).toEqual([grant])
+    })
+    if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
+    else expect(await read()).toEqual([grant])
+    await expect(store.transact(async () => {
+      await store.grants.removeAllForResource('issue', 'iss_x')
+      expect(index.reader.grantsFor('issue', 'iss_x')).toEqual([grant])
+      expect(await read()).toEqual([])
+      throw new Error('rollback grant')
+    })).rejects.toThrow('rollback grant')
+    expect(await read()).toEqual([grant])
+    await store.grants.removeAllForResource('issue', 'iss_x')
+    expect(await read()).toEqual([])
+    const other = await setup()
+    await WorldIndex.load(other)
+    await other.grants.upsert(grant)
+    expect(await readResourceGrants(other.grants, 'issue', 'iss_x')).toEqual([grant])
+    expect(await read()).toEqual([])
+  })
+
+  it('session authorization and projection deny an in-span revocation, including primed memos', async () => {
+    const store = await setup()
+    await WorldIndex.load(store)
+    const target = new Session({
+      sessionId: session, durableLabel: 'grant-reader', agentKind: 'claude-code',
+      cwd: '/tmp', title: 'Grant reader', origin: { kind: 'spawn' }, createdAt: at,
+      geometry: { cols: 80, rows: 24 }, machineId: asMachineId('world-machine'),
+      ownerUserId: alice, toDaemon: vi.fn(),
+    })
+    const authz = new SessionAuthz({ store, sessions: new Map([[session, target]]) } as SessionAuthzPorts)
+    const view = new SessionView({
+      store, sessions: new Map([[session, target]]),
+      machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) },
+      state: { overlaySnapshot: async () => new Map() },
+    } as unknown as SessionViewPorts)
+    const principal = sessionStatePrincipalFor(userCommandPrincipal(alice, 'admin'))
+    const memo = { issues: new Map(), grants: new Map() }
+    const sessionGrant = { ...grant, resourceKind: 'session', resourceId: session }
+    await store.grants.upsert(sessionGrant)
+    await authz.primeOwnerMemo(memo, [session])
+    expect((await authz.sessionOwner(session, memo))?.grants).toEqual([alice])
+    const liveOne = vi.spyOn(store.grants, 'listForResource')
+    const liveMany = vi.spyOn(store.grants, 'listForResources')
+    await authz.sessionOwner(session)
+    await view.buildProjectionPass([target], principal)
+    expect(liveOne).not.toHaveBeenCalled()
+    expect(liveMany).not.toHaveBeenCalled()
+    await expect(store.transact(async () => {
+      await store.grants.removeAllForResource('session', session)
+      expect((await authz.sessionOwner(session, memo))?.grants).toEqual([])
+      await authz.primeOwnerMemo(memo, [session])
+      expect(memo.grants.get(`session:${session}`)).toEqual([])
+      expect((await view.buildProjectionPass([target], principal)).grants.get(`session:${session}`)).toEqual([])
+      throw new Error('rollback authz')
+    })).rejects.toThrow('rollback authz')
+    expect((await authz.sessionOwner(session))?.grants).toEqual([alice])
+    expect((await view.buildProjectionPass([target], principal)).grants.get(`session:${session}`)).toEqual([alice])
+    await store.grants.removeAllForResource('session', session)
+    expect((await authz.sessionOwner(session))?.grants).toEqual([])
   })
 })

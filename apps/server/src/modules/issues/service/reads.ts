@@ -1,3 +1,4 @@
+import { readResourceGrants } from '../../world-index/grant-reader'
 import {
   type DoctorReport,
   type DuplicateCandidate,
@@ -654,8 +655,7 @@ export class IssueReportsModule {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: (await this.store.deps.store.grants
-        .listForResource('issue', row.id))
+      grants: (await readResourceGrants(this.store.deps.store.grants, 'issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }

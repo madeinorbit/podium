@@ -195,12 +195,7 @@ describe('MemoryService omni-search', () => {
         .map((row) => row.id)
         .concat(liveRows.flatMap((row) => (row.issueId ? [row.issueId] : []))),
     )
-    const expectedGrantResources = new Set([
-      ...issueRows.filter((row) => !row.deletedAt).map((row) => 'issue\0' + row.id),
-      ...liveRows.map(
-        (row) => (row.issueId ? 'issue' : 'session') + '\0' + (row.issueId ?? row.id),
-      ),
-    ])
+
 
     const loadSessions = store.sessions.loadSessions.bind(store.sessions)
     let loadCalls = 0
@@ -238,9 +233,9 @@ describe('MemoryService omni-search', () => {
     // conserved quantity is one snapshot containing exactly the live rows.
     expect(loadCalls).toBe(1)
     expect(materializedRows).toBe(liveRows.length)
-    // Each issue and grant resource is read at most once within this request.
+    // Issue owners are request-local; committed grant facts issue no SQL.
     expect(issueLookups).toBe(expectedIssueIds.size)
-    expect(grantLookups).toBe(expectedGrantResources.size)
+    expect(grantLookups).toBe(0)
   })
 
   it('batches issue ownership and grant reads for the native conversation list', async () => {
@@ -342,8 +337,7 @@ describe('MemoryService omni-search', () => {
     expect(new Set(batchReads[0])).toEqual(new Set(issueIds))
     expect(batchReads[1]).toEqual([issueIds[3]])
     expect(singleGrantReads).toBe(0)
-    expect(batchGrantReads).toHaveLength(1)
-    expect(new Set(batchGrantReads[0])).toEqual(new Set(issueIds))
+    expect(batchGrantReads).toHaveLength(0)
   })
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {

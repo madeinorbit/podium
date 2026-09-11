@@ -1,3 +1,4 @@
+import { readResourceGrants } from './modules/world-index/grant-reader'
 import { WorldIndex, type WorldIndexReader } from './modules/world-index'
 import { Buffer } from 'node:buffer'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -1375,8 +1376,7 @@ export class SessionRegistry {
       if (!session) return undefined
       return {
         owner: session.ownerUserId,
-        grants: (await this.store.grants
-          .listForResource('session', sessionId))
+        grants: (await readResourceGrants(this.store.grants, 'session', sessionId))
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
           .map((edge) => edge.grantee),
       }
@@ -2151,7 +2151,7 @@ export class SessionRegistry {
             const entityKey = key(entity)
             if (owners.has(entityKey)) continue
             owners.set(entityKey, await this.store.workflows.ownerOf(entity.kind, entity.id))
-            for (const grant of await this.store.grants.listForResource(entity.kind, entity.id)) {
+            for (const grant of await readResourceGrants(this.store.grants, entity.kind, entity.id)) {
               grants.add(`${grant.grantee}\u0000${entityKey}\u0000${grant.verb}`)
             }
           }

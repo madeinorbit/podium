@@ -116,7 +116,8 @@ it('arms the reader census against new direct, aliased and port readers', () => 
       const { listForResource: extracted } = repo;
       const bound = repo.listForResource.bind(repo);
       declare const port: Pick<GrantsRepository, 'listForResource'>;
-      port.listForResource();`,
+      port.listForResource();
+      declare const key: keyof GrantsRepository; alias[key]();`,
   }
   const options = { module: ts.ModuleKind.Preserve, moduleResolution: ts.ModuleResolutionKind.Bundler }
   const host = ts.createCompilerHost(options)
@@ -127,6 +128,6 @@ it('arms the reader census against new direct, aliased and port readers', () => 
   host.fileExists = file => sources[file] !== undefined || ts.sys.fileExists(file)
   const program = ts.createProgram(Object.keys(sources), options, host)
   const actual = readerCensus(program)
-  expect(Object.values(actual).reduce((a, b) => a + b, 0)).toBe(5)
+  expect(Object.values(actual).reduce((a, b) => a + b, 0)).toBe(6)
   expect(actual).not.toEqual({})
 })

@@ -1,3 +1,5 @@
+import { spanOpen } from '../../store/executor/executor'
+import { readResourceGrants, readResourcesGrants } from '../world-index/grant-reader'
 import {
   asIssueId,
   asSessionId,
@@ -156,7 +158,7 @@ export class MemoryVisibilityPolicy {
         // not repeat the query. Sessions without issueId resolve grants against
         // their own session id; leave those keys lazy because they are outside
         // this issue-owner fanout and the live fallback preserves their semantics.
-        const grants = await this.store.grants.listForResources('issue', issueIds)
+        const grants = await readResourcesGrants(this.store.grants, 'issue', issueIds)
         for (const id of issueIds) {
           request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
         }
@@ -277,8 +279,8 @@ export class MemoryVisibilityPolicy {
    */
   private async readGranteesOf(resourceKind: string, resourceId: string): Promise<string[]> {
     const key = `${resourceKind}\0${resourceId}`
-    if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = readGranteesFrom(await this.store.grants.listForResource(resourceKind, resourceId))
+    if (!spanOpen() && this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
+    const grantees = readGranteesFrom(await readResourceGrants(this.store.grants, resourceKind, resourceId))
     this.request?.grants.set(key, grantees)
     return grantees
   }

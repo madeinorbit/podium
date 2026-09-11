@@ -1,3 +1,4 @@
+import { readResourceGrants } from '../world-index/grant-reader'
 import { machineRecordFromRow } from '../../store/machines'
 import type { WorldIndexReader } from '../world-index'
 import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
@@ -1454,7 +1455,7 @@ export class MachinesService {
    * working until somebody remembers to invalidate.
    */
   async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string }[]> {
-    return await this.deps.store.grants.listForResource('machine', machineId)
+    return await readResourceGrants(this.deps.store.grants, 'machine', machineId)
   }
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */

@@ -1,3 +1,4 @@
+import { readResourcesGrants } from '../world-index/grant-reader'
 import {
   firstAdminMemberId,
   asUserId,
@@ -222,7 +223,7 @@ export class SessionView {
         kind === 'issue' ? (s.issueId ? [s.issueId] : []) : (!s.issueId ? [s.sessionId] : []),
       ))]
       if (!resources.length) continue
-      const edges = await this.ports.store.grants.listForResources(kind, resources)
+      const edges = await readResourcesGrants(this.ports.store.grants, kind, resources)
       for (const id of resources) grants.set(`${kind}:${id}`, granteesOf(edges.get(id) ?? []))
     }
     const paths = new Set(sessions.flatMap(s => {

@@ -39,10 +39,6 @@
     "count": 1,
     "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
   },
-  "apps/server/src/modules/issues/access-index.ts :: ownedTarget :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
   "apps/server/src/modules/issues/access-index.ts :: owners :: issues.listIssueCwdRows": {
     "count": 1,
     "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
@@ -66,10 +62,6 @@
   "apps/server/src/modules/issues/service/crud.ts :: create :: issues.getIssue": {
     "count": 1,
     "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/service/reads.ts :: ownedTarget :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
   },
   "apps/server/src/modules/layout/authz.ts :: layoutAuthzDeps :: users.roleOf": {
     "count": 1,
@@ -103,10 +95,6 @@
     "count": 1,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
   },
-  "apps/server/src/modules/machines/service.ts :: grantsForMachine :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
   "apps/server/src/modules/machines/service.ts :: machine :: machines.getMachine": {
     "count": 3,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
@@ -122,14 +110,6 @@
   "apps/server/src/modules/memory/search.ts :: issues :: issues.listIssueRows": {
     "count": 1,
     "reason": "Search builds documents from complete issue rows, not just indexed worktree keys."
-  },
-  "apps/server/src/modules/memory/visibility.ts :: grantees :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
-  "apps/server/src/modules/memory/visibility.ts :: grants :: grants.listForResources": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
   },
   "apps/server/src/modules/memory/visibility.ts :: issueById :: issues.getIssue": {
     "count": 2,
@@ -151,14 +131,6 @@
     "count": 2,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
-  "apps/server/src/modules/sessions/session-authz.ts :: compute :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
-  "apps/server/src/modules/sessions/session-authz.ts :: found :: grants.listForResources": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
   "apps/server/src/modules/sessions/session-authz.ts :: found :: issues.getIssues": {
     "count": 1,
     "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
@@ -175,10 +147,6 @@
     "count": 1,
     "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
   },
-  "apps/server/src/modules/sessions/view.ts :: edges :: grants.listForResources": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
   "apps/server/src/modules/sessions/view.ts :: found :: issues.getIssues": {
     "count": 1,
     "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
@@ -194,6 +162,14 @@
   "apps/server/src/modules/settings/authz.ts :: settingsAuthzDeps :: users.roleOf": {
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
+  },
+  "apps/server/src/modules/world-index/grant-reader.ts :: readResourceGrants :: grants.listForResource": {
+    "count": 1,
+    "reason": "Live read-your-writes fallback inside mutation spans, or before WorldIndex boot binding; committed readers use the index."
+  },
+  "apps/server/src/modules/world-index/grant-reader.ts :: readResourcesGrants :: grants.listForResources": {
+    "count": 1,
+    "reason": "Live read-your-writes fallback inside mutation spans, or before WorldIndex boot binding; committed readers use the index."
   },
   "apps/server/src/modules/world-index/index.ts :: grants :: grants.loadWorldGrants": {
     "count": 1,
@@ -227,10 +203,6 @@
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
-  "apps/server/src/relay.ts :: liveSessionOwnership :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
-  },
   "apps/server/src/relay.ts :: machines :: users.get": {
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
@@ -250,10 +222,6 @@
   "apps/server/src/relay.ts :: user :: users.get": {
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: workflows :: grants.listForResource": {
-    "count": 1,
-    "reason": "Existing live authorization reader; switch only through a transaction-aware index adapter in this issue."
   },
   "apps/server/src/server.ts :: account :: users.get": {
     "count": 2,

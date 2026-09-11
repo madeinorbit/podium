@@ -1,3 +1,4 @@
+import { readResourceGrants } from '../world-index/grant-reader'
 import type { IssueAction, IssueId } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
 import { isMemberCwd } from '../../issue-util'
@@ -54,8 +55,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
       kind: 'owned' as const,
       id: row.id,
       owner: row.ownerUserId ?? null,
-      grants: (await this.grants
-        .listForResource('issue', row.id))
+      grants: (await readResourceGrants(this.grants, 'issue', row.id))
         .filter((edge) => covers(edge.verb))
         .map((edge) => edge.grantee),
     }

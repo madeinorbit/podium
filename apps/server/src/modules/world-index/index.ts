@@ -1,3 +1,4 @@
+import { bindCommittedGrantReader } from './grant-reader'
 /**
  * Server-owned facts at the write funnel (POD-3869).
  *
@@ -156,6 +157,7 @@ export class WorldIndex {
         store.messages.committed.subscribe((change) => index.apply({ kind: 'messages', ...change }))
         store.users.committed.subscribe((change) => index.apply({ kind: 'users', ...change }))
         store.machines.committed.subscribe((change) => index.apply({ kind: 'machines', ...change }))
+        bindCommittedGrantReader(store.grants, index.reader)
       }, 'world-index:load')
       return index
     })

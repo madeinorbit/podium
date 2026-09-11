@@ -1,3 +1,5 @@
+import { spanOpen } from '../../store/executor/executor'
+import { readResourceGrants, readResourcesGrants } from '../world-index/grant-reader'
 /**
  * Session apply-time authorization and ownership (POD-1396).
  * Queued-input authorize-at-apply, drive gate, machine use, session owner.
@@ -308,9 +310,9 @@ export class SessionAuthz {
    * distinct keys; only asking for them together can.
    *
    * Freshness is unchanged. This runs at the START of the pass the memo belongs
-   * to, reads live rows, and writes the same values `memoGrantees` would have
+   * to, reads transaction-aware grant facts, and writes the same values `memoGrantees` would have
    * computed. A pass that primes and a pass that does not see the same edges;
-   * the difference is 2 statements instead of ~1200.
+   * outside mutation spans the grant portion issues no SQL.
    *
    * The empty array matters: a primed key with no edges must be RECORDED as
    * empty, or `memoGrantees` reads the miss as "not looked at yet" and issues
@@ -319,6 +321,8 @@ export class SessionAuthz {
    * ones the batched read returned.
    */
   async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
+    // A memo prepared before an in-span revocation is not an authority fact.
+    if (spanOpen()) memo.grants.clear()
     const byKind = new Map<string, Set<string>>()
     const issueIds = new Set<string>()
     for (const sessionId of sessionIds) {
@@ -344,7 +348,7 @@ export class SessionAuthz {
     for (const [kind, ids] of byKind) {
       const wanted = [...ids].filter((id) => !memo.grants.has(`${kind}:${id}`))
       if (wanted.length === 0) continue
-      const found = await this.ports.store.grants.listForResources(kind, wanted)
+      const found = await readResourcesGrants(this.ports.store.grants, kind, wanted)
       for (const id of wanted) {
         memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
       }
@@ -373,8 +377,8 @@ export class SessionAuthz {
     memo?: SessionOwnerMemo,
   ): Promise<string[]> {
     const compute = async (): Promise<string[]> =>
-      granteesOf(await this.ports.store.grants.listForResource(resourceKind, resourceId))
-    if (!memo) return compute()
+      granteesOf(await readResourceGrants(this.ports.store.grants, resourceKind, resourceId))
+    if (!memo || spanOpen()) return compute()
     const key = `${resourceKind}:${resourceId}`
     const hit = memo.grants.get(key)
     if (hit !== undefined) return hit
