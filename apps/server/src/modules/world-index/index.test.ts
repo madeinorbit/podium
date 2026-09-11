@@ -678,7 +678,7 @@ describe('transaction-aware grant readers', () => {
       geometry: { cols: 80, rows: 24 }, machineId: asMachineId('world-machine'),
       ownerUserId: alice, toDaemon: vi.fn(),
     })
-    const authz = new SessionAuthz({ store, sessions: new Map([[session, target]]) } as SessionAuthzPorts)
+    const authz = new SessionAuthz({ store, sessions: new Map([[session, target]]) } as unknown as SessionAuthzPorts)
     const view = new SessionView({
       store, sessions: new Map([[session, target]]),
       machines: { factsSnapshot: async () => ({ name: () => 'box', loginCondition: () => undefined }) },
