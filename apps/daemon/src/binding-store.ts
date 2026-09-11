@@ -249,11 +249,9 @@ export interface OpenBindingStoreOptions {
   legacyStateDir?: string
   /** Live in-memory facts harvested at cutover; absent on later boots. */
   legacyBindings?: readonly LegacyBindingSnapshot[]
-  /**
-   * POD-1075's first-admin UserId. Required when legacy binding facts exist;
-   * there is intentionally no synthetic/placeholder fallback.
-   */
+  /** Authenticated server ownership for each legacy session; missing owners fail closed. */
   legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
+  /** Explicit single-operator identity for offline cutover callers and fixtures. */
   singleOperatorUserId?: UserId
   /** Runtime/fixture override for the SP-15aa receipt directory. */
   codexReceiptDir?: string
