@@ -502,15 +502,39 @@ export class UpdatesService {
     return channel ? this.target(channel) : undefined
   }
 
-  /** Explain why a machine's selected authority cannot currently advertise a target. */
-  async targetUnavailableReasonFor(machineId: MachineId): Promise<string | undefined> {
-    const channel = await this.channelForMachine(machineId)
-    if (!channel) return 'Machine is no longer registered.'
+  /**
+   * The version published for one channel — {@link targetVersion} for a caller
+   * that already knows the channel (POD-3858).
+   *
+   * A target IS a per-channel fact; the machine-keyed form only adds the channel
+   * resolution, and `listMachines` was paying for that resolution twice per
+   * machine having already done it itself.
+   */
+  targetVersionForChannel(channel: UpdateChannel): string | undefined {
+    return this.target(channel)?.version
+  }
+
+  /**
+   * Why one channel cannot currently advertise a target — the other half of
+   * {@link targetVersionForChannel}, and `undefined` when it can.
+   *
+   * Note what it cannot say, and does not need to: "Machine is no longer
+   * registered." A channel is not a machine, so a caller holding a channel has
+   * already answered that question.
+   */
+  targetUnavailableReasonForChannel(channel: UpdateChannel): string | undefined {
     if (this.target(channel)) return undefined
     return (
       this.unavailableReasons.get(channel) ??
       `${channel} target has not been resolved by this coordinator.`
     )
+  }
+
+  /** Explain why a machine's selected authority cannot currently advertise a target. */
+  async targetUnavailableReasonFor(machineId: MachineId): Promise<string | undefined> {
+    const channel = await this.channelForMachine(machineId)
+    if (!channel) return 'Machine is no longer registered.'
+    return this.targetUnavailableReasonForChannel(channel)
   }
 
   /**

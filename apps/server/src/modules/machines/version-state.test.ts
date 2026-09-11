@@ -101,7 +101,7 @@ describe('deriveVersionState', () => {
       instanceId: 'default',
       store,
       hostMachineId: asMachineId('host'),
-      targetVersion: async () => target,
+      channelTarget: () => (target === undefined ? {} : { version: target }),
       clients: () => [],
       machinesForPrincipal: async () => [],
     })

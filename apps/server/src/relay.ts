@@ -707,14 +707,25 @@ export class SessionRegistry {
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
       instanceId,
-      ...(options.targetVersion ? { targetVersion: options.targetVersion } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
       store: this.store,
       recoveryOnly,
-      targetVersion: async (machineId) =>
-        updates ? await updates.targetVersion(machineId) : options.targetVersion?.(),
-      targetUnavailableReason: async (machineId) => await updates?.targetUnavailableReasonFor(machineId),
+      // BY CHANNEL (POD-3858). `listMachines` resolves each machine's channel in
+      // order to report it; asking the authority per machine made it resolve the
+      // same channel again, twice, and each resolution read the config file.
+      channelTarget: (channel) => {
+        if (!updates) {
+          const version = options.targetVersion?.()
+          return version === undefined ? {} : { version }
+        }
+        const version = updates.targetVersionForChannel(channel)
+        const unavailableReason = updates.targetUnavailableReasonForChannel(channel)
+        return {
+          ...(version === undefined ? {} : { version }),
+          ...(unavailableReason === undefined ? {} : { unavailableReason }),
+        }
+      },
       // POD-1882: read per call, not captured — Settings → Updates writes the fleet
       // default into config.json, and an unpinned machine must follow the CURRENT
       // value rather than whatever it was when this server booted.

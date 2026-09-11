@@ -968,6 +968,7 @@
         "src/modules/machines/diagnostics.test.ts",
         "src/modules/machines/diagnostics.ts",
         "src/modules/machines/enrollment.ts",
+        "src/modules/machines/facts.test.ts",
         "src/modules/machines/login-propagation.test.ts",
         "src/modules/machines/login-propagation.ts",
         "src/modules/machines/rpc.ts",

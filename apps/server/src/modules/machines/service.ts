@@ -184,6 +184,40 @@ export interface PairingGrant {
   podiumManaged?: boolean
 }
 
+/**
+ * The machine facts one operation resolves once and then reads per row — see
+ * {@link MachinesService.factsSnapshot}, which is the only thing that builds one.
+ *
+ * PLAIN FUNCTIONS OVER A CAPTURED MAP, not a live view of the service: a row
+ * reading this cannot reach the store, the update authority or the config, and
+ * so cannot turn a per-row question into a per-fleet one by accident. That is
+ * what it is for.
+ */
+/**
+ * The slice of a machine's wire row that decides what it can RUN — the fields
+ * every availability predicate in `@podium/model` reads, and nothing else.
+ *
+ * Expressed as a `Pick` of the listing rather than as its own shape so the two
+ * cannot describe the same fact differently: this IS what the listing puts on
+ * the wire for these fields, and it satisfies `HandoffMachine`, which is what
+ * the predicates take.
+ */
+type MachineCapabilityFacts = Pick<
+  MachineListing,
+  'id' | 'online' | 'services' | 'components' | 'inventory'
+>
+
+export interface MachineFactsSnapshot {
+  /** `'logged-out'` when a started session on this machine would report it. */
+  loginCondition(machineId: MachineId, agentKind: AgentKind): 'logged-out' | undefined
+  /** The display name, falling back to the id for a machine not in the snapshot. */
+  name(machineId: MachineId): string
+  /** Presence as of the snapshot; `false` for a machine not in it. */
+  online(machineId: MachineId): boolean
+  /** The channel this machine updates from; `undefined` = NOT REGISTERED. */
+  channel(machineId: MachineId): UpdateChannel | undefined
+}
+
 export interface MachinesDeps {
   /** Deployment configuration only; never an owner or grant input. */
   instanceId: string
@@ -192,12 +226,18 @@ export interface MachinesDeps {
   /** Old-key-signed path published with the current update key. */
   updateKeyRotations?: () => readonly UpdateKeyRotation[]
   /**
-   * The version in the server's injected update target. Absent means this
-   * deployment has no target descriptor yet, so every machine is unreported.
+   * What the update authority publishes for ONE CHANNEL: the version, and the
+   * actionable reason there is none. Absent means this deployment has no update
+   * authority yet, so every machine is unreported.
+   *
+   * KEYED BY CHANNEL, NOT BY MACHINE (POD-3858). A target is a per-channel fact
+   * — the authority stores it that way — and the per-machine form made the
+   * caller pay to have the machine's channel resolved AGAIN on the far side of
+   * the call, having already resolved it in order to report it. `listMachines`
+   * asked twice per machine, once for the version and once for the reason, and
+   * each answer came back through a config read.
    */
-  targetVersion?: (machineId: MachineId) => Promise<string | undefined>
-  /** Actionable reason the selected authority has no trusted target. */
-  targetUnavailableReason?: (machineId: MachineId) => Promise<string | undefined>
+  channelTarget?: (channel: UpdateChannel) => { version?: string; unavailableReason?: string }
   /**
    * The instance's fleet default update channel — what a machine with no pin of
    * its own follows (POD-1882). Injected rather than read from config here so the
@@ -1188,10 +1228,55 @@ export class MachinesService {
     return resolveMachineChannel(machine.updateChannelOverride, this.fleetChannel())
   }
 
+  /**
+   * THE CAPABILITY FACTS of one machine record — exactly the fields the
+   * availability predicates in `@podium/model` read, and nothing else.
+   *
+   * It exists so the wire listing and the single-machine questions below cannot
+   * drift. `agentLoginCondition` used to answer by building the WHOLE listing
+   * and discarding every row but one, which is how a per-session question came
+   * to cost a fleet-wide projection. Answering it from the record directly is
+   * only safe if it reads the SAME facts the listing would have shown it, and
+   * "the same" has to be one piece of code rather than a resemblance.
+   *
+   * `use` is deliberately absent: none of these callers has resolved a
+   * principal, and ABSENT means NOT EVALUATED — never granted. See
+   * `SelectableMachine.use`.
+   */
+  private capabilityFacts(m: MachineRecord): MachineCapabilityFacts {
+    // A supervisor attached while the daemon is NOT speaks for the execution
+    // plane, and what it last reported as available is not available now.
+    const services =
+      m.serviceReport &&
+      this.supervisors.has(m.id) &&
+      m.serviceReport.agentExecution.state === 'available' &&
+      !this.daemons.has(m.id)
+        ? {
+            ...m.serviceReport,
+            agentExecution: {
+              ...m.serviceReport.agentExecution,
+              state: 'stopped' as const,
+              reason: 'agent execution plane is disconnected',
+              observedAt: new Date().toISOString(),
+            },
+          }
+        : m.serviceReport
+    return {
+      id: m.id,
+      online: this.isMachineOnline(m.id),
+      ...(services ? { services } : {}),
+      // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
+      // Omitted when the row has NOT been evaluated, which is how a reader
+      // tells "we have not recorded this" from "[] — evaluated, runs nothing".
+      ...(m.components !== null ? { components: m.components } : {}),
+      // A durable snapshot remains useful while OFFLINE, but it is not evidence
+      // about a newly attached daemon until that connection reports once.
+      ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
+    }
+  }
+
   async listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): Promise<MachineListing[]> {
-    // A SEQUENTIAL LOOP, NOT `.map`. Both target lookups resolve the machine's
-    // channel durably now, and an async `.map` callback would build an array of
-    // PROMISES rather than of listings. The per-machine try/catch is the reason
+    // A SEQUENTIAL LOOP, NOT `.map`. The per-machine try/catch is the reason
     // this is a loop rather than one Promise.all up front: a machine whose
     // target cannot be resolved must degrade to `null` on its own row without
     // taking the rest of the fleet's listing with it.
@@ -1203,33 +1288,24 @@ export class MachinesService {
     const fleetChannel = this.fleetChannel()
     const listings: MachineListing[] = []
     for (const m of await this.machineRecords()) {
+      // COMPUTE THE CHANNEL, THEN DERIVE BOTH TARGET FACTS FROM IT (POD-3858).
+      // The row reports the channel anyway, and the authority publishes its
+      // target per channel, so asking it per machine only bought a second and
+      // a third resolution of what this line already holds.
+      const updateChannel = resolveMachineChannel(m.updateChannelOverride, fleetChannel)
       let target: string | undefined
       let targetUnavailableReason: string | undefined
       try {
-        target = await this.deps.targetVersion?.(m.id)
-        targetUnavailableReason = await this.deps.targetUnavailableReason?.(m.id)
+        const published = this.deps.channelTarget?.(updateChannel)
+        target = published?.version
+        targetUnavailableReason = published?.unavailableReason
       } catch {
         target = undefined
       }
-      const services =
-        m.serviceReport &&
-        this.supervisors.has(m.id) &&
-        m.serviceReport.agentExecution.state === 'available' &&
-        !this.daemons.has(m.id)
-          ? {
-              ...m.serviceReport,
-              agentExecution: {
-                ...m.serviceReport.agentExecution,
-                state: 'stopped' as const,
-                reason: 'agent execution plane is disconnected',
-                observedAt: new Date().toISOString(),
-              },
-            }
-          : m.serviceReport
-      const online = this.daemons.has(m.id)
+      const facts = this.capabilityFacts(m)
       const serverMoveEligibility = deriveServerMoveEligibility({
         currentServer: m.id === this.deps.hostMachineId,
-        online,
+        online: this.daemons.has(m.id),
         reportedWireSchemaDigest: m.wireSchemaDigest,
         deliveryCaps: m.deliveryCaps,
       })
@@ -1238,15 +1314,16 @@ export class MachinesService {
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
         // omitted means NOT evaluated, and never "yes" by default.
         ...(owned ? { owned: owned(m.id) } : {}),
-        id: m.id,
+        // id / online / services / components / inventory all come from the ONE
+        // projection `agentLoginCondition` and `factsSnapshot` also read, so the
+        // three can never disagree about what a machine can run.
+        ...facts,
         name: m.name,
         hostname: m.hostname,
-        online: this.isMachineOnline(m.id),
         lastSeenAt: m.lastSeenAt,
         ...(m.presenceSource ? { presenceSource: m.presenceSource } : {}),
-        ...(services ? { services } : {}),
         serviceAssignment: m.serviceAssignment,
-        updateChannel: resolveMachineChannel(m.updateChannelOverride, fleetChannel),
+        updateChannel,
         updateChannelOverride: m.updateChannelOverride,
         targetVersion: target ?? null,
         targetUnavailableReason: targetUnavailableReason ?? null,
@@ -1256,24 +1333,70 @@ export class MachinesService {
         deliveryCaps: m.deliveryCaps,
         serverMoveEligibility,
         buildReportedAt: m.buildReportedAt,
-        // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
-        // Omitted when the row has NOT been evaluated, which is how a reader
-        // tells "we have not recorded this" from "[] — evaluated, runs nothing".
-        ...(m.components !== null ? { components: m.components } : {}),
         versionState: deriveVersionState(m.appVersion, target),
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
-        // A durable snapshot remains useful while OFFLINE, but it is not evidence
-        // about a newly attached daemon until that connection reports once.
-        ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
       })
     }
     return listings
   }
 
-  /** Current login condition for a session's machine and harness. */
+  /**
+   * Current login condition for a session's machine and harness.
+   *
+   * ONE RECORD, NOT A FLEET PROJECTION (POD-3858). The session projection asks
+   * this once per session, and it used to answer by building the entire machine
+   * listing — every row's target resolved through the update authority, each
+   * resolution a config read — and then discarding all but one row. None of
+   * that work is read here: the condition is a function of the machine's
+   * presence, its structural components and its inventory, all already in
+   * memory.
+   */
   async agentLoginCondition(machineId: MachineId, agentKind: AgentKind): Promise<'logged-out' | undefined> {
-    const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
-    return machine ? agentLoginCondition(machine, agentKind) : undefined
+    const machine = (await this.machineRecords()).find((candidate) => candidate.id === machineId)
+    return machine ? agentLoginCondition(this.capabilityFacts(machine), agentKind) : undefined
+  }
+
+  /**
+   * EVERY MACHINE FACT A PER-ROW PROJECTION NEEDS, RESOLVED ONCE (POD-3858).
+   *
+   * The session projection asks four questions per row — what is this machine
+   * called, is it online, which channel does it follow, and is its harness
+   * logged out — and asking the service each time made a per-fleet answer out
+   * of a per-row question. A snapshot is built once per operation, from the
+   * record cache and the in-memory presence sets, and handed to the pass that
+   * walks the rows; per-row code then calls nothing.
+   *
+   * IT IS A SNAPSHOT, AND THAT IS THE POINT: it answers for the fleet as it
+   * stood when it was taken. Take it inside the operation that uses it, and do
+   * not hold one across an await that could let a machine attach, detach or be
+   * written — {@link invalidateMachineCache} refreshes the SERVICE, not a
+   * snapshot somebody already took.
+   *
+   * A machine it was not built from answers "not known" — never a default that
+   * reads like a live, named, logged-in host.
+   */
+  async factsSnapshot(): Promise<MachineFactsSnapshot> {
+    const fleetChannel = this.fleetChannel()
+    const byId = new Map<
+      string,
+      { facts: MachineCapabilityFacts; name: string; channel: UpdateChannel }
+    >()
+    for (const m of await this.machineRecords()) {
+      byId.set(m.id, {
+        facts: this.capabilityFacts(m),
+        name: m.name,
+        channel: resolveMachineChannel(m.updateChannelOverride, fleetChannel),
+      })
+    }
+    return {
+      loginCondition: (machineId, agentKind) => {
+        const entry = byId.get(machineId)
+        return entry ? agentLoginCondition(entry.facts, agentKind) : undefined
+      },
+      name: (machineId) => byId.get(machineId)?.name ?? machineId,
+      online: (machineId) => byId.get(machineId)?.facts.online ?? false,
+      channel: (machineId) => byId.get(machineId)?.channel,
+    }
   }
 
   /**
