@@ -202,6 +202,7 @@ interface Report {
 interface Fixture {
   registry: SessionRegistry
   store: SessionStore
+  ownerUserId: import('@podium/model').UserId
   /** The seeded issues, so a driver can age the change-log baseline out from
    *  under them the way retention does. */
   issueIds: IssueId[]
@@ -281,6 +282,7 @@ async function buildFixture(): Promise<Fixture> {
   return {
     registry,
     store,
+    ownerUserId: await firstAdminMemberId(store),
     issueIds,
     bound,
     inbox,
@@ -296,7 +298,7 @@ function attachClient(fixture: Fixture, sink: (message: ServerMessage) => void):
     // The fixture's issues and sessions are the admin's. A connection for any
     // OTHER principal is scoped out of every change and receives frames carrying
     // no rows — which reads as a beautifully low number and measures nothing.
-    userId: firstAdminMemberId(),
+    userId: fixture.ownerUserId,
     userRole: 'admin',
   })
   fixture.registry.clientGateway.routeClientFrame(clientId, {

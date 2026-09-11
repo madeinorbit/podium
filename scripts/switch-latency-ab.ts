@@ -211,7 +211,7 @@ async function runArm(label: string): Promise<ArmReport> {
           publications.push(JSON.stringify(message))
         }
       },
-      userId: firstAdminMemberId(),
+      userId: await firstAdminMemberId(store),
       userRole: 'admin',
     })
     registry.clientGateway.routeClientFrame(clientId, {
@@ -233,7 +233,7 @@ async function runArm(label: string): Promise<ArmReport> {
     // would show honestly, and which would make the run useless.
     const observer = registry.clientGateway.attachClient({
       send: () => {},
-      userId: firstAdminMemberId(),
+      userId: await firstAdminMemberId(store),
       userRole: 'admin',
     })
     registry.clientGateway.routeClientFrame(observer, {

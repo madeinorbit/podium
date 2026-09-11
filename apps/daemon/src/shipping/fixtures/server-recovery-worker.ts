@@ -26,6 +26,7 @@ const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
 const machineId = asMachineId('shipping-recovery-machine')
 const store = await SessionStore.open(dbPath, machineId)
+const ownerUserId = await firstAdminMemberId(store)
 const ledger = new Ledger({
   repo: store.sync,
   now: Date.now,
@@ -121,8 +122,8 @@ const service = new ShippingService({
   daemon: rpc,
   authorization: {
     attribution: () => ({
-      actor: { kind: 'user', id: firstAdminMemberId() },
-      onBehalfOf: firstAdminMemberId(),
+      actor: { kind: 'user', id: ownerUserId },
+      onBehalfOf: ownerUserId,
     }),
     authorize: async () => {},
     reauthorize: async () => {},
@@ -167,12 +168,12 @@ if (phase === 'crash') {
     issueId: created.id,
     principal: {
       kind: 'user',
-      user: firstAdminMemberId(),
+      user: ownerUserId,
       capability: {
         role: 'admin',
         scope: { kind: 'all' },
-        actorUser: firstAdminMemberId(),
-        onBehalfOf: firstAdminMemberId(),
+        actorUser: ownerUserId,
+        onBehalfOf: ownerUserId,
       },
     },
     overrideScope: false,
