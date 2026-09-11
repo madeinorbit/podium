@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 // A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
@@ -1255,12 +1256,19 @@ export async function startJanitor(options: {
   const db = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), { readOnly: true })
   db.exec('PRAGMA query_only = ON')
   db.exec('PRAGMA busy_timeout = 1000')
+  // Worker threads do not inherit the server's process-local first-admin slot.
+  // Resolve against this worker's database and inject the same viewer into both readers.
+  const viewer = earliestAdminMember(db)
+  if (!viewer) {
+    db.close()
+    throw new Error('janitor requires an active admin member')
+  }
   const expiryReader = new MessageExpiryReader(db)
   const eventPlanner = new EventLogPrunePlanner(db)
   const changePlanner = new ChangeLogPrunePlanner(db)
   const commandPlanner = new MaintenanceCommandsPrunePlanner(db)
-  const archiveReader = new IssueAutoArchiveReader(db)
-  const sessionArchiveReader = new SessionAutoArchiveReader(db)
+  const archiveReader = new IssueAutoArchiveReader(db, viewer)
+  const sessionArchiveReader = new SessionAutoArchiveReader(db, viewer)
   const worktreeGcReader = new WorktreeGcReader(db)
   const automationReader = new AutomationDueReader(db)
   const stewardReader = new StewardPollReader(db)
