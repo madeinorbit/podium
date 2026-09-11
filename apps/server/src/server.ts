@@ -1492,9 +1492,7 @@ export async function startServer(
     // An invalid provider identity cannot fall through to open-mode authorization.
     if (request && (await sourcePrincipal(request)) === false) return undefined
     const openMode =
-      request !== undefined &&
-      isHostLocalRequest(request) &&
-      !(await credentialsRequired())
+      request !== undefined && isHostLocalRequest(request) && !(await credentialsRequired())
     const userId = openMode ? (await store.users.earliestAdmin())?.id : undefined
     if (userId === undefined) return undefined
     const account = await store.users.get(asUserId(userId))
@@ -1593,8 +1591,7 @@ export async function startServer(
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
     // first-admin policy must never authorize session mutation.
-    resolveUserId: async (headers, request) =>
-      (await credentialPrincipal(headers, request))?.user,
+    resolveUserId: async (headers, request) => (await credentialPrincipal(headers, request))?.user,
     trustedProxyHops,
     localControlRequest: isHostLocalRequest,
     // `app.fetch` receives the observed Request carrying the native peer header,

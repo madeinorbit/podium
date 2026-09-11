@@ -97,10 +97,21 @@ describe('open mode acts as the earliest admin member', () => {
 
   it('does not use open-mode authorization for pairing control or device management', async () => {
     expect((await fetch(url('/auth/client-sessions'))).status).toBe(401)
-    for (const path of ['mobile-pair/status', 'mobile-pair/approve', 'mobile-pair/deny', 'client-sessions/revoke']) {
-      expect((await fetch(url(`/auth/${path}`), {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
-      })).status).toBe(401)
+    for (const path of [
+      'mobile-pair/status',
+      'mobile-pair/approve',
+      'mobile-pair/deny',
+      'client-sessions/revoke',
+    ]) {
+      expect(
+        (
+          await fetch(url(`/auth/${path}`), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+        ).status,
+      ).toBe(401)
     }
   })
 

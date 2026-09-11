@@ -358,29 +358,27 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
     const userId = await opts.resolveUserId(headersFor(c), c.req.raw)
     if (!userId) return c.json({ error: 'authentication required' }, 401)
     const credential = await resolveClientCredential(opts.store, headersFor(c), now())
-    const sessions = (await opts.store
-      .listMobileClientSessions(userId))
-      .flatMap((row) =>
-        row.sessionId
-          ? [
-              {
-                sessionId: row.sessionId,
-                userId: row.userId,
-                label: 'mobile' as const,
-                deviceId: row.deviceId ?? 'unknown',
-                deviceName: row.deviceName ?? 'Mobile device',
-                platform:
-                  row.platform === 'ios' || row.platform === 'android' || row.platform === 'web'
-                    ? row.platform
-                    : ('unknown' as const),
-                createdAt: row.createdAt,
-                expiresAt: row.expiresAt,
-                lastSeenAt: row.lastSeenAt ?? null,
-                current: row.tokenHash === credential?.tokenHash,
-              },
-            ]
-          : [],
-      )
+    const sessions = (await opts.store.listMobileClientSessions(userId)).flatMap((row) =>
+      row.sessionId
+        ? [
+            {
+              sessionId: row.sessionId,
+              userId: row.userId,
+              label: 'mobile' as const,
+              deviceId: row.deviceId ?? 'unknown',
+              deviceName: row.deviceName ?? 'Mobile device',
+              platform:
+                row.platform === 'ios' || row.platform === 'android' || row.platform === 'web'
+                  ? row.platform
+                  : ('unknown' as const),
+              createdAt: row.createdAt,
+              expiresAt: row.expiresAt,
+              lastSeenAt: row.lastSeenAt ?? null,
+              current: row.tokenHash === credential?.tokenHash,
+            },
+          ]
+        : [],
+    )
     return c.json({ sessions })
   })
 
