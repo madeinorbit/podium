@@ -41,6 +41,8 @@
  */
 
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { primeFirstAdminMember } from '@podium/model'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { installStoreDatabaseOpener, resetStoreDatabaseOpener } from '../store-database'
 
@@ -103,7 +105,37 @@ export function installPreMigratedStoreFixtureFor(testPath: string): boolean {
   if (usesRealMigrationChain(testPath)) return false
   if (schemaImagePath() === undefined) return false
   installPreMigratedStoreFixture()
+  primeFirstAdminFromImage()
   return true
+}
+
+/**
+ * PRIME THE FIRST ADMIN BEFORE THE TEST FILE IS IMPORTED (A2).
+ *
+ * `firstAdminMemberId()` is a minted `mem_` id now, resolved from whatever
+ * database is open, and roughly forty test files name it at MODULE SCOPE —
+ * `const OWNER = firstAdminMemberId()`. That runs while the file is being
+ * imported, before any `beforeEach` has opened a store, so without this the read
+ * would throw and the file would not even collect.
+ *
+ * Priming from the IMAGE rather than from a constant is what keeps those
+ * fixtures true: every store in this fork is a clone of this image, so the id
+ * named at module scope is the id those stores actually hold. A fixed test
+ * constant would be a second answer, and the first authorization check against
+ * the seeded row would be comparing two different members.
+ *
+ * Only on the fixture path, deliberately. A file under `src/migrations/**` runs
+ * the real chain and mints per store, which is the behaviour those files exist
+ * to test; none of them names the first admin at module scope.
+ */
+function primeFirstAdminFromImage(): void {
+  const db = openSchemaClone()
+  try {
+    const id = earliestAdminMember(db)
+    if (id !== undefined) primeFirstAdminMember(id)
+  } finally {
+    db.close()
+  }
 }
 
 /** Install the fixture unconditionally (for the fixture's own tests). */

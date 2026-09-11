@@ -233,42 +233,26 @@ export const census = (root = ROOT): Map<string, Site[]> => {
  */
 export const BASELINE: Readonly<Record<string, number>> = {
   /**
-   * 46 usage sites (POD-1669). RAISED FROM 41, and the five are named below —
-   * a baseline bumped without naming its sites is how this gate went invisible.
+   * 42 usage sites (A2). LOWERED FROM 46, and the four are real reductions —
+   * places that assumed the first admin and now RESOLVE a member instead. The
+   * spelling changed in the same commit (`FIRST_ADMIN_USER_ID` became
+   * `firstAdminMemberId()`), which moves no site: a rename is exactly the
+   * artefact this census was built to be immune to, and the file-by-file counts
+   * are unchanged apart from the four below.
    *
-   * The +5 is a NET of ten added sites against five removed. Diffing the census
-   * at e635e9b77 (where 41 was set) against the current tree, by file:
+   *   REMOVED (-4, callers now resolve)
+   *      -3  apps/server/src/server.ts   open mode, the setup bootstrap account
+   *                                      and its principal all read the earliest
+   *                                      admin member out of the store
+   *      -1  apps/server/src/auth-route.ts  a login with no identifier resolves
+   *                                      that member rather than defaulting to a
+   *                                      compiled-in id
    *
-   *   REMOVED (-5, real reductions, callers now resolved)
-   *      -1  apps/server/src/auth-route.ts
-   *      -2  apps/server/src/modules/messages/characterization-support.ts
-   *      -2  packages/model/src/authz/issue-authz.ts
-   *
-   *   MOVED (net 0 — `sessions/lifecycle.ts` decomposed, as this instrument was
-   *   built to tolerate)
-   *      -4  apps/server/src/modules/sessions/lifecycle.ts
-   *      +2  apps/server/src/modules/sessions/session-start.ts
-   *      +1  apps/server/src/modules/sessions/session-revival.ts
-   *      +1  apps/server/src/modules/sessions/session-authz.ts
-   *
-   *   ADDED (+10, every one judged for whether a caller exists to resolve)
-   *      +7  apps/server/src/instance-password-migration.ts — POD-1554's one-shot
-   *          that moves `auth.json`'s hash into the first admin's credential row.
-   *          NO CALLER EXISTS: it runs at boot, before the server can serve a
-   *          login, and the account it targets is by definition the first admin
-   *          of a pre-multi-user instance. Permanent and correct.
-   *      +2  apps/server/src/test-support/capabilities.ts — the `OPERATOR`
-   *          fixture, moved out of `packages/model` by POD-333 precisely because
-   *          no production caller reads it. NO CALLER EXISTS: it is a test
-   *          capability shape, not a runtime principal resolution.
-   *      +1  packages/runtime/src/session-mint.ts — the break-glass mint.
-   *          NO CALLER EXISTS BY CONSTRUCTION: authority comes from state-dir
-   *          write access, not an authenticated request. This is the accepted
-   *          ADR 3 D14 violation POD-1636 owns; the mint already refuses when
-   *          the instance holds more than one account. NOT this issue's to move.
-   *
-   * None of the ten can resolve a caller, so none is droppable today. What the
-   * gate now protects is that the ELEVENTH must argue for itself.
+   * One of the 42 is the accessor's own definition in
+   * `packages/model/src/identity/first-admin.ts`. It is left in rather than
+   * special-cased: the census counts a spelling, and carving out the one file
+   * that may legitimately use it is the kind of exception that later hides a
+   * second one.
    *
    * The journey to the original 41 is still the point:
    *   77  the hand grep everyone quoted (content filter dropped 2 lines)
@@ -286,7 +270,7 @@ export const BASELINE: Readonly<Record<string, number>> = {
    * hand-authored, so an ambient principal appearing in one is a property of its
    * GENERATOR and should be audited there, where a human could fix it.
    */
-  firstAdminMemberId: 46,
+  firstAdminMemberId: 42,
 }
 
 export const checkDrift = (

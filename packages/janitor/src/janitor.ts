@@ -868,7 +868,12 @@ export class MaintenanceCommandsPrunePlanner {
  * policy is unchanged; what changed is that a disagreement is now a refusal with
  * a reason instead of a sweep that finds nothing.
  */
-const ARCHIVE_VIEWER: UserId = firstAdminMemberId()
+/** A FUNCTION, not a module-level constant (A2). The first admin is resolved
+ *  from the open instance now, and this module is imported long before one
+ *  exists — a constant here would read the ambient at import time and throw. It
+ *  is a default parameter below, so it is evaluated per construction, which is
+ *  after the store that primed it. */
+const archiveViewer = (): UserId => firstAdminMemberId()
 
 /**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
@@ -878,7 +883,7 @@ const ARCHIVE_VIEWER: UserId = firstAdminMemberId()
 export class SessionAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: UserId = ARCHIVE_VIEWER,
+    private readonly viewer: UserId = archiveViewer(),
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
@@ -919,7 +924,7 @@ export class SessionAutoArchiveReader {
 export class IssueAutoArchiveReader {
   constructor(
     private readonly db: SqlDatabase,
-    private readonly viewer: UserId = ARCHIVE_VIEWER,
+    private readonly viewer: UserId = archiveViewer(),
   ) {}
 
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {

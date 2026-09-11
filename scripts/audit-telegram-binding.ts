@@ -119,7 +119,7 @@ function sourceFiles(dir: string): Map<string, string> {
  * message that named no person at all. Same function, opposite meanings, which
  * is why the site matters and not the name.
  */
-const FALLBACK_IDENTITIES = ['firstAdminMemberId()', 'SOLE_USER_ID', 'deviceGradeSoleOwner']
+const FALLBACK_IDENTITIES = ['firstAdminMemberId', 'SOLE_USER_ID', 'deviceGradeSoleOwner']
 
 export function fallbackIdentities(files: ReadonlyMap<string, string>): Finding[] {
   const findings: Finding[] = []

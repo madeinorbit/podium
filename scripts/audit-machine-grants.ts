@@ -162,7 +162,7 @@ export function bareFirstAdminOwnerSites(
       // column — sessions and issues have transitional sole-account answers of
       // their own (POD-1075's), and firing on those would make this gate about a
       // question it does not own, which is how a gate gets suppressed.
-      /owner(?:UserId|_user_id)\s*[:=]\s*(firstAdminMemberId()|SOLE_USER_ID|'user:sole'|"user:sole")/g,
+      /owner(?:UserId|_user_id)\s*[:=]\s*(firstAdminMemberId\(\)|SOLE_USER_ID|'user:sole'|"user:sole")/g,
     )) {
       if (inComment(source, match.index)) continue
       findings.push({
