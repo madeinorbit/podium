@@ -42,6 +42,7 @@ export interface MachineAuthenticationInput {
 export type MachineAuthenticationResult =
   | {
       ok: true
+      legacyBindingOwners?: Readonly<Record<string, string>>
       machineId: MachineId
       name: string
       token?: string
@@ -82,8 +83,10 @@ const resolved = (
   pairingGrant?: PairingGrant,
   updatePubkey?: string,
   updateKeyRotations?: readonly UpdateKeyRotation[],
+  legacyBindingOwners?: Readonly<Record<string, string>>,
 ): ResolvedMachine => ({
   machine: machineId as MachineId,
+  ...(legacyBindingOwners === undefined ? {} : { legacyBindingOwners }),
   // POD-1079's deliverable. `null` means "grants `use` to nobody" — see the
   // header note and `machineUseAllowed`.
   owner: null,
@@ -126,7 +129,7 @@ export const createMachineDirectory = (
     observed?: PeerObservations,
   ): Promise<ResolvedMachine | null> {
     const auth = await machines.authenticateDaemon(
-  {
+      {
         type: 'hello',
         machineId: machines.hostMachineId,
         token: secret,
@@ -135,7 +138,14 @@ export const createMachineDirectory = (
       options,
     )
     return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      ? resolved(
+          auth.machineId,
+          auth.name,
+          undefined,
+          auth.updatePubkey,
+          auth.updateKeyRotations,
+          auth.legacyBindingOwners,
+        )
       : null
   },
 
@@ -154,7 +164,7 @@ export const createMachineDirectory = (
   ): Promise<ResolvedMachine | null> {
     if (machineHint === undefined) return null
     const auth = await machines.authenticateDaemon(
-  {
+      {
         type: 'hello',
         machineId: asMachineId(machineHint),
         token,
@@ -163,7 +173,14 @@ export const createMachineDirectory = (
       options,
     )
     return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      ? resolved(
+          auth.machineId,
+          auth.name,
+          undefined,
+          auth.updatePubkey,
+          auth.updateKeyRotations,
+          auth.legacyBindingOwners,
+        )
       : null
   },
 
@@ -181,7 +198,7 @@ export const createMachineDirectory = (
     // proposal through and reports back whatever came out (or null on refuse).
     if (options.verifyOnly || request?.machineId === undefined) return null
     const auth = await machines.authenticateDaemon(
-  {
+      {
         type: 'pair',
         code,
         machineId: request.machineId,
@@ -198,6 +215,7 @@ export const createMachineDirectory = (
         auth.pairingGrant,
         auth.updatePubkey,
         auth.updateKeyRotations,
+        auth.legacyBindingOwners,
       ),
       issuedToken: auth.token,
     }
@@ -215,7 +233,7 @@ export const createResolvedMachineDirectory = (
 ): MachineDirectory => ({
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
     const auth = machines.authenticateDaemon(
-  {
+      {
         type: 'hello',
         machineId: machines.hostMachineId,
         token: secret,
@@ -224,7 +242,14 @@ export const createResolvedMachineDirectory = (
       options,
     )
     return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      ? resolved(
+          auth.machineId,
+          auth.name,
+          undefined,
+          auth.updatePubkey,
+          auth.updateKeyRotations,
+          auth.legacyBindingOwners,
+        )
       : null
   },
 
@@ -235,7 +260,7 @@ export const createResolvedMachineDirectory = (
   ): ResolvedMachine | null {
     if (machineHint === undefined) return null
     const auth = machines.authenticateDaemon(
-  {
+      {
         type: 'hello',
         machineId: asMachineId(machineHint),
         token,
@@ -244,14 +269,21 @@ export const createResolvedMachineDirectory = (
       options,
     )
     return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      ? resolved(
+          auth.machineId,
+          auth.name,
+          undefined,
+          auth.updatePubkey,
+          auth.updateKeyRotations,
+          auth.legacyBindingOwners,
+        )
       : null
   },
 
   redeemPairCode(code: string, request?: PairingRequest): PairedMachine | null {
     if (options.verifyOnly || request?.machineId === undefined) return null
     const auth = machines.authenticateDaemon(
-  {
+      {
         type: 'pair',
         code,
         machineId: request.machineId,
@@ -268,6 +300,7 @@ export const createResolvedMachineDirectory = (
         auth.pairingGrant,
         auth.updatePubkey,
         auth.updateKeyRotations,
+        auth.legacyBindingOwners,
       ),
       issuedToken: auth.token,
     }

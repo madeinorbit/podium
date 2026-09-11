@@ -293,6 +293,8 @@ export const PeerHelloOk = z.object({
    * actually got.
    */
   assignedId: z.string().optional(),
+  /** Server-owned legacy session attribution, restricted to the authenticated machine. */
+  legacyBindingOwners: z.record(z.string(), z.string().min(1)).optional(),
   /**
    * Set exactly once, on the pairing branch, when the acceptor mints a
    * long-lived machine token for the peer to persist (ADR 5 D5, remote row).

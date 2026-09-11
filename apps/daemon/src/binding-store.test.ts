@@ -673,3 +673,65 @@ describe('legacy daemon-state migration', () => {
     expect(await readFile(join(receiptDir, 'pane.json'), 'utf8')).toContain('native')
   })
 })
+
+describe('server-resolved legacy owners', () => {
+  it('repairs persisted retired owners without changing modern owners or native evidence', async () => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: root })
+    for (const [id, owner] of [
+      ['old', 'user:sole'],
+      ['modern', 'mem_other'],
+    ] as const) {
+      await store.ensureBinding({
+        sessionId: asSessionId(id),
+        agentKind: 'codex',
+        claimantMachineId: asMachineId('machine'),
+        delegation: {
+          actor: asAgentIdentityId(id),
+          onBehalfOf: asUserId(owner),
+          grantedScope: { kind: 'all' },
+          parentBindingId: null,
+        },
+      })
+    }
+    const old = await store.read(asSessionId('old'))
+    const modern = await store.read(asSessionId('modern'))
+    await store.recoverLegacyState({
+      dir: root,
+      legacyOwnerForSession: () => asUserId('mem_rekeyed'),
+    })
+    const repaired = await store.read(asSessionId('old'))
+    expect(repaired?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_rekeyed')
+    expect(repaired?.observations).toEqual(old?.observations)
+    expect(await store.read(asSessionId('modern'))).toEqual(modern)
+    const reopened = await BindingStore.open({ dir: root })
+    expect(await reopened.read(asSessionId('old'))).toEqual(repaired)
+  })
+
+  it('preserves a receipt when the server cannot establish its owner, then recovers on reconnect', async () => {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    await mkdir(receipts)
+    await writeFile(join(root, 'daemon.json'), JSON.stringify({ machineId: 'machine' }))
+    const receipt = join(receipts, 'orphan.json')
+    await writeFile(
+      receipt,
+      JSON.stringify({ session_id: 'thread', hook_event_name: 'PodiumProcessBinding' }),
+    )
+    const store = await BindingStore.open({ dir: join(root, 'bindings') })
+    const options = { dir: store.dir, legacyStateDir: root, codexReceiptDir: receipts }
+    await expect(
+      store.recoverLegacyState({ ...options, legacyOwnerForSession: () => undefined }),
+    ).rejects.toThrow()
+    expect(await store.read(asSessionId('orphan'))).toBeNull()
+    expect(await readFile(receipt, 'utf8')).toContain('thread')
+    await store.recoverLegacyState({
+      ...options,
+      legacyOwnerForSession: () => asUserId('mem_owner'),
+    })
+    expect((await store.read(asSessionId('orphan')))?.delegationHistory.at(-1)?.onBehalfOf).toBe(
+      'mem_owner',
+    )
+    await expect(access(receipt)).rejects.toThrow()
+  })
+})

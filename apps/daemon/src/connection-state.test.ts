@@ -1154,3 +1154,39 @@ it('repeats an abandonment report until the server acknowledges its durable corr
   expect(clearTimeout).toHaveBeenCalled()
   await state.close()
 })
+
+describe('authenticated legacy owner handoff', () => {
+  it('passes the parsed server map to host recovery on the local transport', async () => {
+    const owners = { 'legacy-session': 'mem_owner' }
+    const onConnected = vi.fn()
+    const options = localOptions(() => {})
+    options.localLink = {
+      attach: async () => ({
+        established: true,
+        reply: { ...ok, legacyBindingOwners: owners },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+    const conn = createDaemonConnection({
+      options,
+      build: buildReport(process.env, undefined),
+      machineId: MACHINE_ID,
+      identity: {},
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(() => true),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+      onConnected,
+      onTerminal: vi.fn(),
+    })
+    try {
+      await conn.start()
+      expect(onConnected).toHaveBeenCalledWith(owners)
+    } finally {
+      await conn.close()
+    }
+  })
+})

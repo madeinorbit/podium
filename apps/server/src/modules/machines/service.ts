@@ -821,13 +821,26 @@ export class MachinesService {
   async authenticateDaemon(
     frame: DaemonHandshake,
     options: credentials.DaemonAuthenticationOptions = {},
-  ):
-    Promise<| { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
-    | { ok: false; reason: string }> {
-    return credentials.authenticateDaemon(this.enrollmentHost, frame, {
+  ): Promise<
+    | {
+        ok: true
+        machineId: MachineId
+        name: string
+        token?: string
+        pairingGrant?: PairingGrant
+        legacyBindingOwners?: Readonly<Record<string, string>>
+      }
+    | { ok: false; reason: string }
+  > {
+    const result = await credentials.authenticateDaemon(this.enrollmentHost, frame, {
       ...options,
       ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
     })
+    if (!result.ok) return result
+    return {
+      ...result,
+      legacyBindingOwners: await this.deps.store.sessions.bindingOwnersForMachine(result.machineId),
+    }
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).

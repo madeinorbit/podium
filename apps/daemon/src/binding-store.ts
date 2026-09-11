@@ -253,6 +253,7 @@ export interface OpenBindingStoreOptions {
    * POD-1075's first-admin UserId. Required when legacy binding facts exist;
    * there is intentionally no synthetic/placeholder fallback.
    */
+  legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
   singleOperatorUserId?: UserId
   /** Runtime/fixture override for the SP-15aa receipt directory. */
   codexReceiptDir?: string
@@ -1084,26 +1085,56 @@ export class BindingStore {
       await atomicJsonWrite(manifestPath, manifest)
     }
     const store = new BindingStore(options.dir, manifest, now)
-    if (options.legacyStateDir && manifest.legacyMigration === null) {
-      await store.migrateLegacyState({
+    await store.recoverLegacyState(options)
+    return store
+  }
+
+  /** Run only after the server has supplied authoritative session ownership. */
+  async recoverLegacyState(options: OpenBindingStoreOptions): Promise<void> {
+    if (options.legacyOwnerForSession) {
+      for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+        const row = parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name)))
+        if (this.bindingOwner(row) !== 'user:sole') continue
+        const owner = options.legacyOwnerForSession(row.sessionId)
+        if (!owner || owner === 'user:sole')
+          throw new LegacyBindingMigrationError(
+            `server owner unavailable for legacy binding ${row.sessionId}`,
+          )
+        await this.update(row.sessionId, (current) => {
+          if (!current) throw new Error(`binding ${row.sessionId} disappeared`)
+          return {
+            ...current,
+            delegationHistory: current.delegationHistory.map((delegation) =>
+              delegation.onBehalfOf === 'user:sole'
+                ? { ...delegation, onBehalfOf: owner }
+                : delegation,
+            ),
+          }
+        })
+      }
+    }
+    if (options.legacyStateDir && this.manifest.legacyMigration === null) {
+      await this.migrateLegacyState({
         stateDir: options.legacyStateDir,
         bindings: options.legacyBindings ?? [],
         singleOperatorUserId: options.singleOperatorUserId,
+        legacyOwnerForSession: options.legacyOwnerForSession,
         codexReceiptDir:
           options.codexReceiptDir ??
           join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
       })
     }
     if (options.legacyStateDir) {
-      await store.foldLegacyCodexReceipts({
+      await this.foldLegacyCodexReceipts({
         stateDir: options.legacyStateDir,
         codexReceiptDir:
           options.codexReceiptDir ??
           join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
         singleOperatorUserId: options.singleOperatorUserId,
+        legacyOwnerForSession: options.legacyOwnerForSession,
       })
     }
-    return store
   }
 
   get schemaVersion(): number {
@@ -1378,8 +1409,7 @@ export class BindingStore {
               {
                 ...current,
                 attemptId: input.attemptId ?? current.attemptId,
-                observationGeneration:
-                  input.observationGeneration ?? current.observationGeneration,
+                observationGeneration: input.observationGeneration ?? current.observationGeneration,
               },
               input,
               this.now(),
@@ -1994,6 +2024,7 @@ export class BindingStore {
   private async foldLegacyCodexReceipts(input: {
     stateDir: string
     codexReceiptDir: string
+    legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
     singleOperatorUserId?: UserId
   }): Promise<void> {
     const receipts = await legacyReceipts(input.codexReceiptDir)
@@ -2002,7 +2033,9 @@ export class BindingStore {
       for (const receipt of receipts) {
         let binding = await this.read(receipt.sessionId)
         if (!binding) {
-          if (!input.singleOperatorUserId) {
+          const owner =
+            input.legacyOwnerForSession?.(receipt.sessionId) ?? input.singleOperatorUserId
+          if (!owner || (owner === 'user:sole' && input.legacyOwnerForSession)) {
             throw new LegacyBindingMigrationError(
               'legacy Codex receipts exist but POD-1075 first-admin UserId was not supplied',
             )
@@ -2019,7 +2052,7 @@ export class BindingStore {
             createdAt: receipt.observedAt,
             delegation: {
               actor: asAgentIdentityId(receipt.sessionId),
-              onBehalfOf: input.singleOperatorUserId,
+              onBehalfOf: owner,
               grantedScope: { kind: 'all' },
               parentBindingId: null,
             },
@@ -2098,13 +2131,14 @@ export class BindingStore {
   async migrateLegacyState(input: {
     stateDir: string
     bindings: readonly LegacyBindingSnapshot[]
+    legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
     singleOperatorUserId?: UserId
     codexReceiptDir: string
   }): Promise<LegacyMigrationResult> {
     if (this.manifest.legacyMigration) return this.manifest.legacyMigration
     const receipts = await legacyReceipts(input.codexReceiptDir)
     const hasBindingFacts = input.bindings.length > 0 || receipts.length > 0
-    if (hasBindingFacts && !input.singleOperatorUserId) {
+    if (hasBindingFacts && !input.singleOperatorUserId && !input.legacyOwnerForSession) {
       throw new LegacyBindingMigrationError(
         'legacy bindings exist but POD-1075 first-admin UserId was not supplied',
       )
@@ -2116,7 +2150,6 @@ export class BindingStore {
       )
     }
     const migratedAt = this.now()
-    const owner = input.singleOperatorUserId
     const snapshots = new Map(input.bindings.map((binding) => [binding.sessionId, binding]))
     for (const receipt of receipts) {
       if (!snapshots.has(receipt.sessionId)) {
@@ -2171,7 +2204,8 @@ export class BindingStore {
     }
 
     for (const snapshot of snapshots.values()) {
-      if (!machineId || !owner) {
+      const owner = input.legacyOwnerForSession?.(snapshot.sessionId) ?? input.singleOperatorUserId
+      if (!machineId || !owner || (owner === 'user:sole' && input.legacyOwnerForSession)) {
         throw new LegacyBindingMigrationError(
           'legacy binding migration lost its validated machine or first-admin identity',
         )
