@@ -68,6 +68,7 @@ function admitStaleAssetLog(now: number): { admit: boolean; suppressed: number }
  * Backend route prefixes that must never be shadowed by the SPA index.html.
  * A superset of the backend prefixes in apps/web NAVIGATION_FALLBACK_DENYLIST:
  * it also covers /version, /mcp, and /hooks (which the vite dev proxy doesn't list).
+ * Hosted shell prefixes /account and /org are excluded because the OSS server never serves them.
  * Do NOT trim it down to match that list — that would let the SPA shell shadow a
  * backend route. When adding a backend route, add its prefix here.
  *
