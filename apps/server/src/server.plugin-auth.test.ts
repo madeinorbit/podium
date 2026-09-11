@@ -198,8 +198,8 @@ test('provider credentials own pairing and device management before local sessio
   }
   const store = handle.registry.sessionStore.auth
   for (const [sessionId, owner] of [
-    ['provider-device', memberId],
-    ['admin-device', firstAdminMemberId()],
+    ['provider-device-session-id', memberId],
+    ['admin-device-session-id', firstAdminMemberId()],
   ]) {
     await store.createClientSession(
       hashToken(sessionId!),
@@ -213,7 +213,7 @@ test('provider credentials own pairing and device management before local sessio
   const listed = await fetch(url('/auth/client-sessions'), { headers })
   expect(listed.status).toBe(200)
   expect(await listed.json()).toMatchObject({
-    sessions: [{ sessionId: 'provider-device', userId: memberId, current: false }],
+    sessions: [{ sessionId: 'provider-device-session-id', userId: memberId, current: false }],
   })
   const revoke = (sessionId: string) =>
     fetch(url('/auth/client-sessions/revoke'), {
@@ -221,9 +221,9 @@ test('provider credentials own pairing and device management before local sessio
       headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     })
-  expect((await revoke('admin-device')).status).toBe(404)
-  expect((await revoke('provider-device')).status).toBe(200)
-  expect(await store.getClientSession(hashToken('provider-device'))).toBeUndefined()
+  expect((await revoke('admin-device-session-id')).status).toBe(404)
+  expect((await revoke('provider-device-session-id')).status).toBe(200)
+  expect(await store.getClientSession(hashToken('provider-device-session-id'))).toBeUndefined()
   expect(
     (await fetch(url('/auth/client-sessions'), { headers: { cookie: localCookie } })).status,
   ).toBe(200)
