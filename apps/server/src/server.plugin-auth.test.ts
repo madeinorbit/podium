@@ -1,22 +1,23 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { hashToken } from './auth-route'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
-import type { PrincipalRequest } from './plugin-auth'
+import type { Principal, PrincipalRequest } from './plugin-auth'
 const prior = process.env.PODIUM_STATE_DIR
 let dir: string
 let handle: Awaited<ReturnType<typeof startServer>>
 let memberId: string
-const source = vi.fn(async (request: PrincipalRequest) =>
-  request.cookieHeader?.includes('cloud=yes') || request.authorizationHeader === 'Bearer cloud'
-    ? { memberId, role: 'member' as const }
-    : null,
+const source = vi.fn(
+  async (request: PrincipalRequest): Promise<Principal | null> =>
+    request.cookieHeader?.includes('cloud=yes') || request.authorizationHeader === 'Bearer cloud'
+      ? { memberId, role: 'member' as const }
+      : null,
 )
 const url = (path: string) => `http://127.0.0.1:${handle.port}${path}`
 const localCookie = 'podium_session=local-token'
@@ -139,3 +140,45 @@ test('passes bearer credentials and request URLs to the provider on all transpor
     expect.objectContaining({ authorizationHeader: 'Bearer cloud' }),
   )
 })
+
+test('uses workspace membership instead of an inflated provider role', async () => {
+  await source.withImplementation(
+    async () => ({ memberId, role: 'admin' }),
+    async () => {
+      source.mockClear()
+      const headers = { cookie: 'cloud=yes' }
+      const response = await fetch(url('/trpc/auth.status'), { headers })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        result: { data: { canManageInstance: false } },
+      })
+      expect(source).toHaveBeenCalledTimes(1)
+      expect((await fetch(url('/files/missing'), { headers })).status).not.toBe(401)
+      expect(await socket(headers.cookie)).toBe(true)
+    },
+  )
+})
+
+for (const identity of ['non-member', 'disabled member', 'missing member id'] as const) {
+  test(`rejects a provider ${identity} on files, commands and sockets`, async () => {
+    let rejectedId = identity === 'non-member' ? 'acct_not_a_workspace_member' : ''
+    if (identity === 'disabled member') {
+      const users = handle.registry.sessionStore.users
+      // Disable a real workspace member, preserving the stale provider identity.
+      const member = await users.findMemberByAccount('acct_test')
+      expect(member).toBeDefined()
+      rejectedId = member!.id
+      await users.removeMember(asUserId(rejectedId), firstAdminMemberId())
+    }
+    await source.withImplementation(
+      async () => ({ memberId: rejectedId, role: 'member' }),
+      async () => {
+        // An invalid provider identity must not fall back to this local admin cookie.
+        const headers = { cookie: `cloud=yes; ${localCookie}` }
+        expect((await fetch(url('/files/missing'), { headers })).status).toBe(401)
+        expect((await fetch(url('/trpc/auth.status'), { headers })).status).toBe(401)
+        expect(await socket(headers.cookie)).toBe(false)
+      },
+    )
+  })
+}
