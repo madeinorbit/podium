@@ -157,6 +157,9 @@ worktree is not a cold start, and re-running to "warm it up" achieves nothing. R
 `bun run typecheck` (or `bun run typecheck -- --filter <package>` for one project) and let
 turbo pick the set; never force it. The compiler is TypeScript 7 with `--incremental` forced,
 reached only through `scripts/typecheck-project.ts`, which refuses to run outside Turbo.
+A checkout installed before the move to TypeScript 7 needs `bun run deps:repair`, not
+`setup:worktree`: the frozen reconcile never prunes the dangling `.bin/tsserver` the 6.x
+install leaves behind, and the topology census refuses the gate on it.
 
 Two caveats worth knowing rather than guarding against. The cache currently lives under `/tmp`
 (`XDG_CACHE_HOME` is unset), so a **reboot wipes it** and the first runs afterwards really are

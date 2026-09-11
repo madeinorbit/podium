@@ -35,8 +35,13 @@ describe('typecheck-project', () => {
     expect(seven.error).toBeNull()
     expect(seven.compiler?.bin).toMatch(/node_modules\/typescript\/bin\/tsc$/)
 
-    expect(resolveCompiler(fakeRoot('6.0.3')).error).toContain('not the 7.x Go compiler')
-    expect(resolveCompiler(fakeRoot(null)).error).toContain('setup:worktree')
+    const stale = resolveCompiler(fakeRoot('6.0.3')).error
+    expect(stale).toContain('not the 7.x Go compiler')
+    // setup:worktree cannot repair this: a frozen reconcile never prunes the dangling
+    // .bin/tsserver the 6.x install leaves, and that is what the topology census refuses.
+    expect(stale).toContain('deps:repair')
+    expect(stale).not.toMatch(/run `bun run setup:worktree`/)
+    expect(resolveCompiler(fakeRoot(null)).error).toContain('deps:repair')
   })
 
   it('forces --noEmit and --incremental ahead of whatever the manifest passes', () => {

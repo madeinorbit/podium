@@ -40,7 +40,7 @@ export function resolveCompiler(root: string): { compiler: Compiler | null; erro
   if (!existsSync(manifest)) {
     return {
       compiler: null,
-      error: `typecheck refused: ${manifest} is missing — run \`bun run setup:worktree\` (or \`bun run deps:repair\`).`,
+      error: `typecheck refused: ${manifest} is missing — run \`bun run deps:repair\`.`,
     }
   }
   const { version } = JSON.parse(readFileSync(manifest, 'utf8')) as { version?: string }
@@ -49,7 +49,8 @@ export function resolveCompiler(root: string): { compiler: Compiler | null; erro
       compiler: null,
       error:
         `typecheck refused: the root \`typescript\` is ${version ?? 'unversioned'}, not the 7.x Go compiler ` +
-        'this repository typechecks with. The install is stale — run `bun run setup:worktree`.',
+        'this repository typechecks with. The install predates the move to 7 — run `bun run deps:repair` ' +
+        '(`setup:worktree` is a frozen reconcile: it never prunes the dangling .bin/tsserver the old install leaves, and the topology census then refuses the gate).',
     }
   }
   return {
