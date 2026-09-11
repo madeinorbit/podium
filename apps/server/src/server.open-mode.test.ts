@@ -95,6 +95,15 @@ describe('open mode acts as the earliest admin member', () => {
     expect(res.status).toBe(401)
   })
 
+  it('does not use open-mode authorization for pairing control or device management', async () => {
+    expect((await fetch(url('/auth/client-sessions'))).status).toBe(401)
+    for (const path of ['mobile-pair/status', 'mobile-pair/approve', 'mobile-pair/deny', 'client-sessions/revoke']) {
+      expect((await fetch(url(`/auth/${path}`), {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      })).status).toBe(401)
+    }
+  })
+
   it('refuses a request that did not come from this host', async () => {
     // THE ONE BEHAVIOURAL CHANGE (spec §8). Open mode exists for loopback — the
     // all-in-one desktop's embedded server, where a password would be theatre.

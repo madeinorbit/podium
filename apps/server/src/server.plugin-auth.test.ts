@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { forgetConfig } from '@podium/runtime/config'
-import { WIRE_VERSION } from '@podium/protocol'
+import { decodePairingEnvelope, WIRE_VERSION } from '@podium/protocol'
 import { hashToken } from './auth-route'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 import { WebSocket } from 'ws'
@@ -33,6 +33,7 @@ beforeAll(async () => {
       configVersion: 2,
       mode: 'all-in-one',
       persistence: 'systemd',
+      publicUrl: 'https://podium.example',
       auth: { mode: 'cloud' },
     }),
   )
@@ -130,6 +131,62 @@ test('environment cloud mode overrides local open mode and advertises its sign-i
     )
   }
 })
+const pairPost = (action: string, body: unknown, cookie = 'cloud=yes') =>
+  fetch(url(`/auth/mobile-pair/${action}`), {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+    body: JSON.stringify(body),
+  })
+
+test('provider credentials own pairing and device management before local sessions', async () => {
+  // Restore the public URL after the preceding config-override test.
+  const configPath = join(dir, 'config.json')
+  writeFileSync(configPath, JSON.stringify({ configVersion: 2, mode: 'all-in-one',
+    persistence: 'systemd', publicUrl: 'https://podium.example', auth: { mode: 'cloud' } }))
+  forgetConfig(configPath)
+  const cookie = `cloud=yes; ${localCookie}`
+  for (const decision of ['approve', 'deny']) {
+    source.mockClear()
+    const start = await pairPost('start', {}, cookie)
+    expect(start.status).toBe(200)
+    expect(source).toHaveBeenCalledTimes(1)
+    expect(source).toHaveBeenCalledWith(expect.objectContaining({
+      cookieHeader: cookie, url: url('/auth/mobile-pair/start'),
+    }))
+    const started = await start.json() as { pairingId: string; envelope: string }
+    const envelope = decodePairingEnvelope(started.envelope)
+    if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')
+    expect((await pairPost('claim', { pairCode: envelope.pairCode,
+      claimHash: hashToken('pairing-secret'), deviceId: 'provider-phone',
+      deviceName: 'Provider phone', platform: 'ios', delivery: 'native' }, '')).status).toBe(200)
+    expect(await (await pairPost('status', { pairingId: started.pairingId })).json())
+      .toMatchObject({ state: 'claimed' })
+    expect((await pairPost(decision, { pairingId: started.pairingId }, localCookie)).status).toBe(400)
+    expect((await pairPost(decision, { pairingId: started.pairingId })).status).toBe(200)
+  }
+  const store = handle.registry.sessionStore.auth
+  for (const [sessionId, owner] of [['provider-device', memberId], ['admin-device', firstAdminMemberId()]]) {
+    await store.createClientSession(hashToken(sessionId!), asUserId(owner!), '2999-01-01T00:00:00.000Z',
+      'mobile', { sessionId: sessionId!, deviceId: sessionId!, deviceName: 'Phone', platform: 'ios' })
+  }
+  const headers = { cookie }
+  const listed = await fetch(url('/auth/client-sessions'), { headers })
+  expect(listed.status).toBe(200)
+  expect(await listed.json()).toMatchObject({ sessions: [{ sessionId: 'provider-device', userId: memberId, current: false }] })
+  const revoke = (sessionId: string) => fetch(url('/auth/client-sessions/revoke'), {
+    method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId }),
+  })
+  expect((await revoke('admin-device')).status).toBe(404)
+  expect((await revoke('provider-device')).status).toBe(200)
+  expect(await store.getClientSession(hashToken('provider-device'))).toBeUndefined()
+  expect((await fetch(url('/auth/client-sessions'), { headers: { cookie: localCookie } })).status).toBe(200)
+  expect((await fetch(url('/auth/client-sessions'), { headers: {
+    authorization: 'Bearer cloud', 'x-forwarded-proto': 'https',
+  } })).status).toBe(200)
+  expect((await pairPost('start', {}, localCookie)).status).toBe(200)
+})
+
 test('provider identity wins over a local admin session in tRPC and status', async () => {
   const headers = { cookie: `cloud=yes; ${localCookie}`, 'Podium-Workspace': 'ignored' }
   expect(await (await fetch(url('/auth/status'), { headers })).json()).toMatchObject({
@@ -244,6 +301,13 @@ for (const identity of ['non-member', 'disabled member', 'missing member id'] as
         expect((await fetch(url('/files/missing'), { headers })).status).toBe(401)
         expect((await fetch(url('/trpc/auth.status'), { headers })).status).toBe(401)
         expect(await socket(headers.cookie)).toBe(false)
+        for (const action of ['start', 'status', 'approve', 'deny']) {
+          expect((await pairPost(action, {}, headers.cookie)).status).toBe(401)
+        }
+        expect((await fetch(url('/auth/client-sessions'), { headers })).status).toBe(401)
+        expect((await fetch(url('/auth/client-sessions/revoke'), {
+          method: 'POST', headers, body: '{}',
+        })).status).toBe(401)
       },
     )
   })

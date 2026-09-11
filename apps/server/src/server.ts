@@ -1472,7 +1472,7 @@ export async function startServer(
     }
     return resolved
   }
-  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
+  const credentialPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
     const supplied = request ? await sourcePrincipal(request) : undefined
     if (supplied === false) return undefined
     if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
@@ -1482,12 +1482,20 @@ export async function startServer(
       Date.now(),
       headers.authorizationHeader,
     )
+    if (credentialed === undefined) return undefined
+    const account = await store.users.get(asUserId(credentialed))
+    return account ? userCommandPrincipal(asUserId(credentialed), account.role) : undefined
+  }
+  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
+    const credentialed = await credentialPrincipal(headers, request)
+    if (credentialed) return credentialed
+    // An invalid provider identity cannot fall through to open-mode authorization.
+    if (request && (await sourcePrincipal(request)) === false) return undefined
     const openMode =
-      credentialed === undefined &&
       request !== undefined &&
       isHostLocalRequest(request) &&
       !(await credentialsRequired())
-    const userId = credentialed ?? (openMode ? (await store.users.earliestAdmin())?.id : undefined)
+    const userId = openMode ? (await store.users.earliestAdmin())?.id : undefined
     if (userId === undefined) return undefined
     const account = await store.users.get(asUserId(userId))
     return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
@@ -1584,9 +1592,9 @@ export async function startServer(
     }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
-    // synthetic first-admin principal must never authorize session mutation.
-    resolveUserId: (headers) =>
-      requestUserId(store.auth, headers.cookieHeader, Date.now(), headers.authorizationHeader),
+    // first-admin policy must never authorize session mutation.
+    resolveUserId: async (headers, request) =>
+      (await credentialPrincipal(headers, request))?.user,
     trustedProxyHops,
     localControlRequest: isHostLocalRequest,
     // `app.fetch` receives the observed Request carrying the native peer header,
