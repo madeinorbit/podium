@@ -31,4 +31,3 @@ export function soleHumanSessionStateWsPrincipal(
 ): SessionStatePrincipal {
   return { ...soleHumanSessionStatePrincipal(capability), clientId }
 }
-
