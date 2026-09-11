@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   eventLogPruneRunKey,
@@ -14,6 +14,14 @@ import {
   WorktreeGcObservation,
   worktreeGcRunKey,
 } from './maintenance'
+
+/**
+ * A member id, as a FIXTURE (A2). These tests open no instance, so
+ * `firstAdminMemberId()` — which resolves the earliest admin member of one — has
+ * no answer here. They never needed the real first admin: they need A person,
+ * and naming one locally says so.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
 describe('maintenance protocol [spec:SP-c29e]', () => {
   const observed = {
@@ -123,7 +131,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
       issueId: asIssueId('iss_1'),
       stage: 'done',
       closedReason: null,
-      readerUserId: firstAdminMemberId(),
+      readerUserId: A_MEMBER,
       archived: false as const,
       deletedAt: null,
     }
@@ -222,7 +230,7 @@ describe('session-auto-archive is a gate, not a projection [POD-366]', () => {
     sessionId: asSessionId('ses_1'),
     issueId: asIssueId('iss_1'),
     stoppedAt: '2026-07-01T00:00:00.000Z',
-    readerUserId: firstAdminMemberId(),
+    readerUserId: A_MEMBER,
     archived: false as const,
   }
   const command = (observed: unknown) => ({
@@ -313,7 +321,7 @@ describe('IssueAutoArchiveObservation refuses what it exists to refuse', () => {
     issueId: asIssueId('iss_a'),
     stage: 'done',
     closedReason: 'shipped',
-    readerUserId: firstAdminMemberId(),
+    readerUserId: A_MEMBER,
     archived: false as const,
     deletedAt: null,
   }

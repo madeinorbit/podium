@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { firstAdminMemberId } from './identity/first-admin'
 import { asIssueId, asRepoId, asShipOrderId } from './ids'
+import { asUserId } from './ids/brands'
 import {
   descendantTipsMatch,
   integrationReceiptMatchesOrder,
@@ -9,6 +9,14 @@ import {
   type DescendantTip,
   type RootIntegrationReceipt as RootIntegrationReceiptValue,
 } from './shipping'
+
+/**
+ * A member id, as a FIXTURE (A2). This package has no database and opens no
+ * instance, so `firstAdminMemberId()` — which resolves the earliest admin member
+ * of an open one — has no answer here and would throw. These tests never needed
+ * the real first admin: they need A person, and naming one locally says so.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
 const childA: DescendantTip = { issueId: asIssueId('iss_child_a'), approvedHeadSha: 'sha-a' }
 const childB: DescendantTip = { issueId: asIssueId('iss_child_b'), approvedHeadSha: 'sha-b' }
@@ -34,8 +42,8 @@ const orderInput = (over: Record<string, unknown> = {}) => ({
   deliveryDependsOn: [],
   currentIntegrationReceipt: receipt(),
   requestedBy: {
-    actor: { kind: 'user' as const, id: firstAdminMemberId() },
-    onBehalfOf: firstAdminMemberId(),
+    actor: { kind: 'user' as const, id: A_MEMBER },
+    onBehalfOf: A_MEMBER,
   },
   requestedAt: '2026-08-13T00:00:00.000Z',
   policyId: 'default',

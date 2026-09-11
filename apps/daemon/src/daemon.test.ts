@@ -20,8 +20,15 @@ import type {
 } from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+
+/**
+ * A member id, as a FIXTURE (A2). The daemon opens no instance, so
+ * `firstAdminMemberId()` — which resolves the earliest admin member of one — has
+ * no answer in this process.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 import {
   type DaemonMessage,
   parseDaemonMessage,
@@ -2964,7 +2971,7 @@ describe('Codex identity receipt recovery', () => {
             type: 'sessionResumeRefAck',
             sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
-            ownerId: firstAdminMemberId(),
+            ownerId: A_MEMBER,
           }),
         )
         await waitFor(() => !readFileSync(bindingPath, 'utf8').includes('pendingServerAck'))

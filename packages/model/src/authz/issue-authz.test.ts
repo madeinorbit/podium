@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { firstAdminMemberId } from '../identity/first-admin'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
 import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
+
+/**
+ * A member id, as a FIXTURE (A2). This package has no database and opens no
+ * instance, so `firstAdminMemberId()` — which resolves the earliest admin member
+ * of an open one — has no answer here and would throw. These tests never needed
+ * the real first admin: they need A person, and naming one locally says so.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
 /**
  * The unconstrained admin capability, CONSTRUCTED HERE.
@@ -16,8 +23,8 @@ import { type AuthDecision, authorize, type Capability, type IssueScope } from '
 const UNCONSTRAINED_ADMIN: Capability = {
   role: 'admin',
   scope: { kind: 'all' },
-  actorUser: firstAdminMemberId(),
-  onBehalfOf: firstAdminMemberId(),
+  actorUser: A_MEMBER,
+  onBehalfOf: A_MEMBER,
 }
 const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({
   role,
@@ -304,7 +311,7 @@ describe('the unconstrained admin capability keeps its reach across the new targ
    * scoped user, not an unconstrained operator.
    *
    * WHAT CHANGED: a first admin now EXISTS as a row, with `role = 'admin'` and
-   * `firstAdminMemberId()` as its id.
+   * `A_MEMBER` as its id.
    *
    * WHAT DID NOT: the short-circuit, and deliberately. `OPERATOR` is
    * `admin`/`all`, and the two halves of that are independent gates — the

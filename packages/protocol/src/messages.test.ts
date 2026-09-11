@@ -6,8 +6,8 @@ import {
   asAutomationRunId,
   asSessionId,
   asThreadId,
+  asUserId,
   ConversationSummaryWire,
-  firstAdminMemberId,
   GitRepositoryWire,
   MachineWire,
   ResumeRef,
@@ -38,6 +38,14 @@ import {
 } from './messages'
 // Daemon-plane frame: reachable only through the daemon subpath since POD-2470.
 import { RuntimeQueueDrainAbandonedMessage } from './messages/runtime'
+
+/**
+ * A member id, as a FIXTURE (A2). These tests open no instance, so
+ * `firstAdminMemberId()` — which resolves the earliest admin member of one — has
+ * no answer here. They never needed the real first admin: they need A person,
+ * and naming one locally says so.
+ */
+const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 
 describe('shared schemas', () => {
   it('names an at-least-once queue teardown report distinctly from a never-live deadline', () => {
@@ -602,7 +610,7 @@ describe('ControlMessage (server -> daemon)', () => {
       type: 'sessionResumeRefAck',
       sessionId: asSessionId('s1'),
       resume: { kind: 'codex-thread', value: 'thread-1' },
-      ownerId: firstAdminMemberId(),
+      ownerId: A_MEMBER,
     },
     {
       type: 'sessionOpenUrlCallback',
