@@ -303,7 +303,15 @@ export class SessionStateService {
     /** Per-pass memo when a full-list caller is asking [POD-1618]. */
     memo?: SessionOwnerMemo,
   ): Promise<boolean> {
-    return (await this.visibleSessions(principal, [sessionId], memo)).has(sessionId)
+    // Keep single-session reads on their original path: batching inserts an
+    // await before ownership resolution and can duplicate durable fallback reads.
+    const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
+    if (!target) return false
+    if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
+      return true
+    }
+    // Narrow agent scopes never widen the on-behalf-of human's visibility.
+    return principal.capability.scope.kind === 'all'
   }
 
   /** One reader-scoped set computation. Principals are already admitted by the
