@@ -1159,7 +1159,7 @@ describe('authenticated legacy owner handoff', () => {
   it('passes the parsed server map to host recovery on the local transport', async () => {
     const owners = { 'legacy-session': 'mem_owner' }
     const onConnected = vi.fn()
-    const options = localOptions(() => {})
+    const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
     options.localLink = {
       attach: async () => ({
         established: true,

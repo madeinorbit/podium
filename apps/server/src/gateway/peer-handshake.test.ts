@@ -825,7 +825,7 @@ describe('the machine principal carries owner and grants, and fails closed witho
 describe('legacy binding ownership handoff', () => {
   it('uses durable session owners and excludes sessions on other machines', async () => {
     const store = await openTestStore(':memory:')
-    const owner = (await store.users.earliestAdmin())!.id
+    const owner = asUserId((await store.users.earliestAdmin())!.id)
     expect(owner).not.toBe('user:sole')
     for (const machineId of ['m1', 'm2']) {
       await store.machines.upsertMachine({
