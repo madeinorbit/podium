@@ -15,6 +15,7 @@ import {
   JSC_DEFAULT_SAMPLE_US,
   LAYERED_ENV,
   LAYERED_KEYS,
+  PodiumConfig,
   LOGGING_MODE_ENV,
   loadConfig,
   localServerUrl,
@@ -27,6 +28,8 @@ import {
   resolveAgentRelay,
   resolveAgentRelayPort,
   resolveAllowedOrigins,
+  resolveAuthMode,
+  resolveAuthSignInUrl,
   resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveEffectiveSampleUs,
@@ -1012,5 +1015,57 @@ describe('resolveProfileStallMs', () => {
         DEFAULT_PROFILE_STALL_MS,
       )
     }
+  })
+})
+
+describe('layered authentication configuration', () => {
+  it('resolves mode from env, file, then the local default with provenance', () => {
+    expect(resolveAuthMode({}, {})).toBe('local')
+    expect(resolveAuthMode({ auth: { mode: 'cloud' } }, {})).toBe('cloud')
+    expect(resolveAuthMode({ auth: { mode: 'cloud' } }, { PODIUM_AUTH_MODE: 'local' })).toBe(
+      'local',
+    )
+    expect(
+      resolveSetting('authMode', { auth: { mode: 'local' } }, { PODIUM_AUTH_MODE: 'cloud' }),
+    ).toEqual({ value: 'cloud', source: 'env', env: 'PODIUM_AUTH_MODE' })
+    expect(() => resolveAuthMode({}, { PODIUM_AUTH_MODE: 'weird' })).toThrow(/PODIUM_AUTH_MODE/)
+    expect(() => resolveAuthMode({}, { PODIUM_AUTH_MODE: '' })).toThrow(/PODIUM_AUTH_MODE/)
+  })
+  it('resolves the destination from env, file, then undefined', () => {
+    const config = { auth: { signInUrl: 'https://file.example/account/sign-in' } }
+    expect(resolveAuthSignInUrl({}, {})).toBeUndefined()
+    expect(resolveAuthSignInUrl(config, {})).toBe(config.auth.signInUrl)
+    expect(
+      resolveSetting('authSignInUrl', config, {
+        PODIUM_AUTH_SIGN_IN_URL: 'https://env.example/login?org=one#start',
+      }),
+    ).toEqual({
+      value: 'https://env.example/login?org=one#start',
+      source: 'env',
+      env: 'PODIUM_AUTH_SIGN_IN_URL',
+    })
+    expect(PodiumConfig.parse(config).auth?.signInUrl).toBe(config.auth.signInUrl)
+  })
+  it.each([
+    'https://cloud.example/login',
+    'http://localhost:3000/login',
+    'http://127.0.0.1/login',
+    'http://[::1]/login',
+  ])('accepts secure or loopback destination %s', (value) => {
+    expect(resolveAuthSignInUrl({}, { PODIUM_AUTH_SIGN_IN_URL: value })).toBe(value)
+    expect(PodiumConfig.safeParse({ auth: { signInUrl: value } }).success).toBe(true)
+  })
+  it.each([
+    'http://cloud.example/login',
+    'javascript:alert(1)',
+    '/account/sign-in',
+    '',
+    'https://user:password@cloud.example/login',
+  ])('rejects invalid destination %s in both layers', (value) => {
+    expect(() => resolveAuthSignInUrl({}, { PODIUM_AUTH_SIGN_IN_URL: value })).toThrow(
+      /PODIUM_AUTH_SIGN_IN_URL/,
+    )
+    expect(() => resolveAuthSignInUrl({ auth: { signInUrl: value } }, {})).toThrow(/auth.signInUrl/)
+    expect(PodiumConfig.safeParse({ auth: { signInUrl: value } }).success).toBe(false)
   })
 })

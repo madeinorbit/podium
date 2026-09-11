@@ -31,6 +31,8 @@ import {
   assertAppUrlCompatible,
   loadConfig,
   resolveAllowedOrigins,
+  resolveAuthMode,
+  resolveAuthSignInUrl,
   resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveInstanceId,
@@ -559,6 +561,9 @@ export async function startServer(
   } = {},
 ): Promise<ServerHandle> {
   const config = loadConfig()
+  // Fail invalid deployment overrides before allocating server resources.
+  resolveAuthMode(config)
+  resolveAuthSignInUrl(config)
   // A promoted server's durable listen contract outranks the target daemon's
   // process environment; an explicit caller option still wins.
   const host = resolveBindHost({
@@ -626,7 +631,7 @@ export async function startServer(
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
-    loadConfig().auth?.mode === 'cloud' ||
+    resolveAuthMode() === 'cloud' ||
     (!loadConfig().auth?.openMode && (await store.users.hasPerUserCredentials()))
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
@@ -1526,7 +1531,8 @@ export async function startServer(
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
-    mode: () => loadConfig().auth?.mode ?? 'local',
+    mode: () => resolveAuthMode(),
+    signInUrl: () => resolveAuthSignInUrl(),
     store: store.auth,
     users: store.users,
     // One principal resolver for every human-client transport. The status route

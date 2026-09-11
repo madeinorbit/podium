@@ -318,6 +318,7 @@ export async function resolveLoginIdentifier(
 
 export interface AuthRouteOptions {
   mode?: () => 'local' | 'cloud'
+  signInUrl?: () => string | undefined
   store?: ClientSessionStore
   users?: AccountCredentialStore
   /**
@@ -402,6 +403,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       needsAuth,
       authed,
       ...(opts.mode ? { mode: opts.mode() } : {}),
+      ...(opts.signInUrl ? { signInUrl: opts.signInUrl() } : {}),
       ...(userId ? { userId } : {}),
       ...(opts.readiness ? { readiness: opts.readiness() } : {}),
     })

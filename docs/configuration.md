@@ -36,6 +36,8 @@ applied by `apps/server`. Today that is `transcriptLake` — see below.
 | `PODIUM_AGENT_HOME` | `agentHome` | `$HOME` (named instances isolate) | `resolveAgentHomeDir()` |
 | `PODIUM_UPDATE_CHANNEL` | `updateChannel` | `stable` | `resolveUpdateChannel()` |
 | `PODIUM_UPDATE_FEED` | `updateFeed` | GitHub Releases | `resolveUpdateFeed()` |
+| `PODIUM_AUTH_MODE` | `auth.mode` | `local` | `resolveAuthMode()` |
+| `PODIUM_AUTH_SIGN_IN_URL` | `auth.signInUrl` | unset (same-origin `/account/sign-in`) | `resolveAuthSignInUrl()` |
 | `PODIUM_MODE` | `mode` | unset (needs setup) | `resolveMode()` |
 | `PODIUM_PUBLIC_URL` | `publicUrl` | unset | `resolvePublicUrl()` |
 | `PODIUM_APP_URL` | `appUrl` | unset (this server serves its own UI) | `resolveAppUrl()` |
@@ -257,3 +259,10 @@ PODIUM_TELEMETRY=off
 `apps/server/src/headless-boot.integration.test.ts` runs exactly this shape and
 asserts that `/readiness` reports `dataPlane: "available"`, `/setup/config`
 reports `needsSetup: false`, and no `config.json` is written.
+
+
+### Cloud authentication
+
+`PODIUM_AUTH_MODE=cloud` overrides `auth.mode` in the file and requires authentication even when `auth.openMode` is true or no local credentials exist. The default is `local`. `auth.openMode` remains file-and-command only; there is no environment override for it.
+
+`PODIUM_AUTH_SIGN_IN_URL` overrides `auth.signInUrl`. Both accept an absolute HTTPS URL, or HTTP on loopback for development, without embedded credentials. Invalid environment values fail server startup; invalid file values fail config-schema validation. `/auth/status` advertises the resolved destination to the cloud login gate; when unset the gate uses same-origin `/account/sign-in`. Existing destination query parameters and fragments are preserved, and `returnTo` is set to the current workspace path including query and fragment, matching the hosted account routes.

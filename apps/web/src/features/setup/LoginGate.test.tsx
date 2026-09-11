@@ -287,3 +287,27 @@ describe('cloud login gate', () => {
     window.history.replaceState(null, '', '/')
   })
 })
+
+it('uses the configured cloud destination and preserves query, fragment, and workspace return path', async () => {
+  window.history.replaceState(null, '', '/w/anna/issues/one?view=full#comment')
+  vi.stubGlobal(
+    'fetch',
+    statusFetch({
+      needsAuth: true,
+      authed: false,
+      mode: 'cloud',
+      signInUrl: 'https://accounts.example/login?org=one&returnTo=old#start',
+    }),
+  )
+  render(<LoginGate>{child}</LoginGate>)
+  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
+  const destination = new URL(link.getAttribute('href')!)
+  expect(destination.origin + destination.pathname).toBe('https://accounts.example/login')
+  expect(destination.searchParams.get('org')).toBe('one')
+  expect(destination.searchParams.getAll('returnTo')).toEqual([
+    '/w/anna/issues/one?view=full#comment',
+  ])
+  expect(destination.hash).toBe('#start')
+  expect(screen.queryByLabelText(/password/i)).toBeNull()
+  window.history.replaceState(null, '', '/')
+})
