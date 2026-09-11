@@ -26,6 +26,7 @@
  * finite snapshot and takes back which rows were consumed.
  */
 
+import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
 import type { SessionMeta, SessionId } from '@podium/model'
 import type { MessageRow, MessagePageCursor, DeliveryMessages } from '../../hot-path-ports'
@@ -99,6 +100,7 @@ export interface DeliveryRunner {
 
 export interface DeliverySchedulerDeps {
   messages: DeliveryMessages
+  worldIndex: Pick<WorldIndexReader, 'pendingCount'>
   now(): string
   runner: DeliveryRunner
 }
@@ -141,7 +143,11 @@ export class DeliveryScheduler {
     }
 
     try {
-      if (await this.deps.messages.countPending(target) === 0) return
+      // Eligibility bus listeners run at root after commit (ModuleBus.emit).
+      // Boot, cooldown timers and boundary drains likewise enter outside a span;
+      // boundary writes are awaited before this read. This is a committed reader,
+      // never a read-your-writes seam inside an open mutation.
+      if (this.deps.worldIndex.pendingCount(target) === 0) return
     } catch (error) {
       this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
       return

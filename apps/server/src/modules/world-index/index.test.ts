@@ -19,6 +19,7 @@ import { withReadScope } from '../../store/executor/read-scope'
 import { openTestStore } from '../../test-support/open-test-store'
 import { statementBudget } from '../../test-support/statement-budget'
 import { WorldIndex } from './index'
+import { DeliveryScheduler } from '../messages/scheduler'
 import { MachinesService } from '../machines/service'
 
 const stores: SessionStore[] = []
@@ -489,6 +490,92 @@ describe('world index committed facts', () => {
       const budget = await statementBudget(() => store.messages.markCancelled('absent'))
       expect([...budget.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toEqual([])
       expect([...budget.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
+    }
+  })
+})
+
+
+describe('pending message counter properties', () => {
+  it.each([1, 17, 3852, 3871])('matches SQLite after each random transition (seed %i)', async (seed) => {
+    const store = await setup()
+    const targets = [
+      { kind: 'issue' as const, id: 'iss_target' },
+      { kind: 'issue' as const, id: 'iss_other' },
+      { kind: 'session' as const, id: 'world-reader' },
+      { kind: 'operator' as const },
+    ]
+    let state = seed
+    const random = (n: number) => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+      return state % n
+    }
+    const ids: string[] = []
+    // Exercise boot hydration as well as subsequent commit projections.
+    await store.messages.addMessage(message({ id: 'initial' }))
+    ids.push('initial')
+    const index = await WorldIndex.load(store)
+    const check = async () => {
+      for (const target of targets) {
+        expect(index.reader.pendingCount(target), JSON.stringify({ seed, state, target })).toBe(
+          await store.messages.countPending(target),
+        )
+      }
+    }
+    await check()
+    for (let step = 0; step < 200; step++) {
+      const operation = random(5)
+      const id = ids[random(ids.length)]!
+      if (operation === 0) {
+        const target = targets[random(targets.length)]!
+        const next = `random-${step}`
+        await store.messages.addMessage(message({ id: next, toKind: target.kind, toId: target.id ?? null }))
+        ids.push(next)
+      } else if (operation === 1) {
+        await store.messages.markDelivered(id, session, at)
+      } else if (operation === 2) {
+        await store.messages.markCancelled(id)
+      } else if (operation === 3) {
+        await store.messages.expireObserved({ id, createdAt: 't0', lifecycle: 'wait', expiresAt: null })
+      } else {
+        await store.messages.retractOptimisticDelivery(id, session)
+      }
+      await check()
+      if (step % 25 === 0) {
+        await expect(store.transact(async () => {
+          await store.messages.addMessage(message({ id: `rollback-${step}` }))
+          await store.messages.markCancelled(id)
+          throw new Error('rollback property')
+        })).rejects.toThrow('rollback property')
+        await check()
+      }
+    }
+  })
+
+  it.skipIf(!queryAttributionEnabled)('200 delivery triggers execute zero SQL statements', async () => {
+    const store = await setup()
+    await store.messages.addMessage(message({ id: 'pending' }))
+    const index = await WorldIndex.load(store)
+    const scheduler = new DeliveryScheduler({
+      messages: store.messages,
+      worldIndex: index.reader,
+      now: () => at,
+      runner: {
+        targetOf: () => null,
+        nowMs: () => 0,
+        drainPreferred: () => [],
+        attemptOne: () => {},
+      },
+    })
+    try {
+      const budget = await statementBudget(async () => {
+        for (let i = 0; i < 200; i++) {
+          await scheduler.queueDeliveryTarget({ kind: 'issue', id: i % 2 ? 'empty' : 'iss_target' })
+        }
+      })
+      expect(budget.statements).toBe(0)
+      expect(scheduler.deliveryStats()).toMatchObject({ pendingTargetCount: 1, coalescedTriggerCount: 99 })
+    } finally {
+      scheduler.dispose()
     }
   })
 })

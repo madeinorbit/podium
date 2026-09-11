@@ -3,6 +3,7 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
+import { WorldIndex } from '../world-index'
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import {
   asIssueId,
@@ -227,6 +228,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const narrowCalls = { byId: 0, byIssue: 0 }
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
+    worldIndex: (await WorldIndex.load(store)).reader,
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,

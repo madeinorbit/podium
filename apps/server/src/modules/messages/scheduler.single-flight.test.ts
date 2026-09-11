@@ -43,8 +43,8 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
     let listQueuedPageCalls = 0
     let onAttempt: () => void = () => {}
     const scheduler = new DeliveryScheduler({
+      worldIndex: { pendingCount: () => 0 },
       messages: {
-        countPending: async () => 0,
         countQueued: async () => 1,
         listQueuedPage: async () => {
           listQueuedPageCalls += 1
@@ -96,8 +96,8 @@ describe('DeliveryScheduler.sweep single-flight (POD-3258)', () => {
   it('a failed page query releases the fence rather than wedging the backstop', async () => {
     let calls = 0
     const scheduler = new DeliveryScheduler({
+      worldIndex: { pendingCount: () => 0 },
       messages: {
-        countPending: async () => 0,
         countQueued: async () => 1,
         listQueuedPage: async () => {
           calls += 1

@@ -25,6 +25,7 @@
  *    operator is an invariant).
  */
 
+import type { WorldIndexReader } from '../world-index'
 import { createLogger } from '@podium/logger'
 import { asThreadId, isSpawnedBy, type IssueId, type MachineId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
@@ -183,6 +184,7 @@ interface InboxDeliveryInput {
 }
 
 export interface MessageDeliveryDeps {
+  worldIndex: Pick<WorldIndexReader, 'pendingCount'>
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
   events: EventsRepository
@@ -572,6 +574,7 @@ export class MessageDeliveryService {
       },
     })
     this.scheduler = new DeliveryScheduler({
+      worldIndex: deps.worldIndex,
       messages: deps.messages,
       now: deps.now,
       runner: this.deliveryRunner(),
