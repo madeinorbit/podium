@@ -1,6 +1,7 @@
 import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, MachineId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import type { Capability } from '../../issue-authz'
 
 const log = createLogger('server:issues')
@@ -223,10 +224,16 @@ export class AgentRelayGate {
         sessionId: msg.sessionId,
         err,
       })
-      // The chain, not the outermost message: what the agent saw was Drizzle's
-      // `Failed query: …` with the refusal that explains it dropped. An error
-      // with no cause renders exactly as it did before.
-      reply({ ok: false, error: describeError(err) })
+      // Expected refusals already carry their public message. Diagnostic class
+      // names and causes must not rewrite that contract. Unexpected failures
+      // still include the cause that explains an opaque database wrapper.
+      reply({
+        ok: false,
+        error:
+          err instanceof TRPCError && err.code !== 'INTERNAL_SERVER_ERROR'
+            ? err.message
+            : describeError(err),
+      })
     }
   }
 }

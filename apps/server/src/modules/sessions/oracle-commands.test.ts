@@ -116,9 +116,9 @@ describe('oracle: create', () => {
     expect(await o.store.sessions.loadSessions()).toEqual([])
   })
 
-  it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: placement is ambient — any authenticated caller may spawn on any paired machine`, async () => {
+  it(`${MUST_NOT_CHANGE}: an operator may explicitly spawn on a paired machine owned by another user`, async () => {
     const o = await makeOracle()
-    // A second paired machine nobody "owns": there is no owner column today.
+    // The oracle caller is an operator; machine ownership is explicit (POD-1079).
     await o.store.machines.upsertMachine({
       id: 'other',
       name: 'other',
@@ -127,7 +127,8 @@ describe('oracle: create', () => {
       ownerUserId: asUserId('user:sole'),
     })
     const other: ControlMessage[] = []
-    o.reg.gateway.attachDaemon('other', (m) => other.push(m))
+    // Finish attachment (including machine-cache invalidation) before authorizing a command.
+    await o.reg.gateway.attachDaemon('other', (m) => other.push(m))
 
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',

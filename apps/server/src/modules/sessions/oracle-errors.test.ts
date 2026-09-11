@@ -383,8 +383,8 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         message:
           "could not determine whether claude-code is installed on target machine 'Loaded' (inventory not reported yet); retry shortly",
       })
-      await vi.advanceTimersByTimeAsync(25_000)
-      await refusal
+      // Observe the assertion immediately, including while the timer advances.
+      await Promise.all([refusal, vi.advanceTimersByTimeAsync(25_000)])
     } finally {
       vi.useRealTimers()
     }

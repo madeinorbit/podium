@@ -1,5 +1,6 @@
 import { asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { captureLogs } from '../../test-support/capture-logs'
@@ -49,6 +50,43 @@ function wrappedRefusal(): Error {
 }
 
 describe('a relayed agent command that fails', () => {
+  it('preserves an expected refusal message while logging its diagnostic cause', async () => {
+    const logs = captureLogs()
+    try {
+      const { gate, sent } = gateFor(() =>
+        Promise.reject(new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 're-run with --outside-scope to confirm',
+          cause: new Error('private policy context'),
+        })),
+      )
+      await relay(gate)
+      const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+      expect(reply.error).toBe('re-run with --outside-scope to confirm')
+      expect(logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.err).toMatchObject({
+        cause: { message: 'private policy context' },
+      })
+    } finally {
+      logs.restore()
+    }
+  })
+
+  it('retains diagnostic causes for an internal tRPC failure', async () => {
+    const { gate, sent } = gateFor(() =>
+      Promise.reject(new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'command failed',
+        cause: wrappedRefusal(),
+      })),
+    )
+    await relay(gate)
+    const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+    expect(reply.error).toBe(
+      'TRPCError: command failed ← Failed query: insert into "locks" ← ' +
+      'ParallelNestedTransactionError: transaction 4 has an open nested scope (5)',
+    )
+  })
+
   it('leaves a server log line naming the command, the session and the whole error', async () => {
     const logs = captureLogs()
     try {
