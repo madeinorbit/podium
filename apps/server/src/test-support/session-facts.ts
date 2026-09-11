@@ -1,6 +1,6 @@
 import {
   asMachineId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
   type IssueId,
   type SessionId,
   type SessionMeta,
@@ -29,7 +29,7 @@ export function metaAsFacts(meta: SessionMeta): SessionFacts {
     // `SessionMeta` carries no owner — ownership is asked for separately
     // (`sessionOwner`) — so a fixture's fleet is the one account a test store
     // has, which is the same default the mint path applies.
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     agentKind: meta.agentKind,
     cwd: meta.cwd,
     ...(meta.issueId ? { issueId: meta.issueId } : {}),

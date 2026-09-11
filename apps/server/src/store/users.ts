@@ -294,7 +294,7 @@ export class UsersRepository {
             source: 'per-user-scrypt',
             passwordHash,
             updatedAt: account.createdAt,
-          })
+          }))
           .run()
       })
     } finally {
@@ -308,11 +308,14 @@ export class UsersRepository {
   async setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): Promise<void> {
     await this.committed.write(async () => {
       // A credential write must not republish an older pass-scoped account.
-      const account = await this.read(userId)
+      // The funnel publishes the COMMITTED ROW, not UserAccountRow: the two
+      // diverged once accounts grew `accountId` and `avatar` (A4, A5), and the
+      // index is keyed on the stored column names.
+      const account = await this.accountById(this.db).get({ id: userId })
       if (!account) throw new Error(`unknown user: ${userId}`)
       await (this.db
       .insert(userCredentials)
-      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt })
+      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
       .onConflictDoUpdate({
         target: userCredentials.userId,
         set: { source: 'per-user-scrypt', passwordHash, updatedAt },

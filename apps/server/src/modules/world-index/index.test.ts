@@ -9,7 +9,7 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  FIRST_ADMIN_USER_ID,
+  firstAdminMemberId,
 } from '@podium/model'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -68,10 +68,10 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     title: 'X',
     description: '',
     stage: 'backlog',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     worktreePath: null,
     branch: null,
     parentBranch: 'main',
