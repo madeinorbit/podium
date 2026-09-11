@@ -525,6 +525,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'The repository-supplied write callback; every CommittedRows.write argument is a span root, so its effects are checked where the query is declared.',
   },
+  'packages/model/src/identity/first-admin.ts#<module>.firstAdminMemberId': {
+    kind: 'contained',
+    why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
+  },
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',
     why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
