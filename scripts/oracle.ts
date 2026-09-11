@@ -17,7 +17,12 @@
 /** Lanes constituting the oracle. `heavy` ones spawn real processes/PTYs/servers. */
 export const ORACLE_LANES = [
   { name: 'typecheck', script: 'typecheck', heavy: false },
-  { name: 'unit', script: 'test:full', heavy: false },
+  {
+    name: 'unit',
+    script: 'test:full',
+    heavy: false,
+    args: ['--full-because=oracle: the multi-lane sweep is exhaustive by definition'],
+  },
   { name: 'integration', script: 'test:integration', heavy: true },
   { name: 'e2e', script: 'test:e2e', heavy: true },
   { name: 'multi-instance', script: 'test:multi-instance', heavy: true },
@@ -29,8 +34,11 @@ export const HEAVY_LANES = ORACLE_LANES.filter((l) => l.heavy).map((l) => l.name
 
 type Result = { name: string; code: number; seconds: number }
 
-async function runLane(script: string): Promise<number> {
-  const proc = Bun.spawn(['bun', 'run', script], { stdout: 'inherit', stderr: 'inherit' })
+async function runLane(script: string, args: readonly string[] = []): Promise<number> {
+  const proc = Bun.spawn(['bun', 'run', script, ...(args.length > 0 ? ['--', ...args] : [])], {
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
   return await proc.exited
 }
 
@@ -41,7 +49,7 @@ async function main() {
     const start = Date.now()
     // Exit code comes straight off the process — never through a pipe, which
     // would report the LAST command's status and launder a red lane green.
-    const code = await runLane(lane.script)
+    const code = await runLane(lane.script, 'args' in lane ? lane.args : [])
     results.push({ name: lane.name, code, seconds: Math.round((Date.now() - start) / 1000) })
     // Deliberately no early exit: one red lane must not mask another's status.
   }

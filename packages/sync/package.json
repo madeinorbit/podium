@@ -43,8 +43,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit --incremental",
-    "typecheck:tsc": "tsc --noEmit --incremental",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/sync:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "test:perf:apply-scaling": "bun ../../scripts/validation-admission.ts heavy --label @podium/sync:test:perf -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.perf.config.ts"
   },
@@ -62,7 +61,6 @@
   "devDependencies": {
     "@types/ws": "^8.5.13",
     "fake-indexeddb": "^6.2.5",
-    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   }
 }

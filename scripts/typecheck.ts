@@ -34,6 +34,7 @@ import { arch, cpus, freemem, homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { type InstallTopology, readInstallTopology } from './install-topology'
 import { sharedCacheDir } from './shared-cache-dir'
+import { runWithValidationAdmission } from './validation-admission'
 import { readWorkspaceResolutionCensus, workspaceDirectories } from './workspace-resolution-census'
 
 export interface ForceDecision {
@@ -501,7 +502,13 @@ async function main() {
   const summarize = decideSummarize(decision.forwardArgs)
   const runsDir = join(root, '.turbo', 'runs')
   const before = summaryNames(runsDir)
-  const proc = Bun.spawn(
+  // The turbo run takes ONE validation slot for the whole graph (POD-3890): the
+  // concurrency cap above bounds compilers inside this run, the slot bounds how
+  // many such runs the host admits at once. The slot marks its child with
+  // PODIUM_VALIDATION_RESOURCE_HELD, which turbo passes through, so a package
+  // test lane nested under this run never queues behind its own parent.
+  const exitCode = await runWithValidationAdmission(
+    'typecheck',
     [
       join(root, 'node_modules', '.bin', 'turbo'),
       'run',
@@ -511,13 +518,8 @@ async function main() {
       ...summarize.add,
       ...decision.forwardArgs,
     ],
-    {
-      cwd: root,
-      stdio: ['inherit', 'inherit', 'inherit'],
-      env: turboEnv(root, census),
-    },
+    { cwd: root, label: 'typecheck', env: turboEnv(root, census) },
   )
-  const exitCode = await proc.exited
   const summaryPath = findRunSummary(runsDir, before)
   const accounting = summaryPath ? readRunAccounting(readFileSync(summaryPath, 'utf8')) : null
   if (summaryPath && !summarize.callerOwnsFile) rmSync(summaryPath, { force: true })

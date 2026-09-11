@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "tsc *": "deny",
+      "tsgo *": "deny",
+      "vitest *": "deny",
+      "playwright *": "deny",
+      "turbo *": "deny",
+      "bunx tsc*": "deny",
+      "bunx tsgo*": "deny",
+      "bunx vitest*": "deny",
+      "bunx playwright*": "deny",
+      "bunx turbo*": "deny",
+      "bun x tsc*": "deny",
+      "bun x tsgo*": "deny",
+      "bun x vitest*": "deny",
+      "npx tsc*": "deny",
+      "npx tsgo*": "deny",
+      "npx vitest*": "deny",
+      "npx playwright*": "deny",
+      "bun test *": "deny",
+      "bun --bun vitest*": "deny",
+      "*node_modules/vitest/vitest.mjs*": "deny",
+      "*node_modules/.bin/tsc*": "deny",
+      "*node_modules/.bin/tsgo*": "deny",
+      "*node_modules/.bin/vitest*": "deny",
+      "* && tsc *": "deny",
+      "* && tsgo *": "deny",
+      "* && vitest *": "deny"
+    }
+  }
+}

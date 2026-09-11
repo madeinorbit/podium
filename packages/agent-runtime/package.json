@@ -41,13 +41,11 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsgo --noEmit --incremental",
-    "typecheck:tsc": "tsc --noEmit --incremental",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/agent-runtime:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "tsup": "^8.5.1",
-    "typescript": "^6.0.3"
+    "tsup": "^8.5.1"
   }
 }

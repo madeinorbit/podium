@@ -13,8 +13,7 @@
   },
   "scripts": {
     "start": "tsx src/cli.tsx",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/keyecho:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "dependencies": {
@@ -26,7 +25,6 @@
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   }
 }

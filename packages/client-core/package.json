@@ -127,8 +127,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit --incremental",
-    "typecheck:tsc": "tsc --noEmit --incremental",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/client-core:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "dependencies": {
@@ -144,7 +143,6 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6",
     "@types/react": "^19.0.0",
     "react": "19.2.7",

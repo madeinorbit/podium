@@ -7,8 +7,7 @@
   "scripts": {
     "bench": "bun benchmark.ts",
     "compare-drivers": "bun driver-comparison.ts",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:tsc": "tsc --noEmit"
+    "typecheck": "bun ../../scripts/typecheck-project.ts"
   },
   "dependencies": {
     "@xterm/headless": "^5.5.0",
@@ -17,7 +16,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "@types/ws": "^8.5.13",
-    "typescript": "^6.0.3"
+    "@types/ws": "^8.5.13"
   }
 }

@@ -3,5 +3,49 @@
     "commit": "",
     "pr": "",
     "sessionUrl": false
+  },
+  "permissions": {
+    "deny": [
+      "Bash(tsc:*)",
+      "Bash(tsgo:*)",
+      "Bash(vitest:*)",
+      "Bash(playwright:*)",
+      "Bash(turbo:*)",
+      "Bash(bunx tsc:*)",
+      "Bash(bunx tsgo:*)",
+      "Bash(bunx vitest:*)",
+      "Bash(bunx playwright:*)",
+      "Bash(bunx turbo:*)",
+      "Bash(bun x tsc:*)",
+      "Bash(bun x tsgo:*)",
+      "Bash(bun x vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx tsgo:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx playwright:*)",
+      "Bash(bun test:*)",
+      "Bash(bun --bun vitest:*)",
+      "Bash(bun --bun node_modules/vitest:*)",
+      "Bash(node_modules/.bin/tsc:*)",
+      "Bash(node_modules/.bin/tsgo:*)",
+      "Bash(node_modules/.bin/vitest:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(./node_modules/.bin/tsgo:*)",
+      "Bash(./node_modules/.bin/vitest:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun scripts/agent-command-guard.ts",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

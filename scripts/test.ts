@@ -24,9 +24,12 @@
  * the repository trees its architecture/configuration audits read. The environment
  * fingerprint below is global to every task, so install/linker drift is a miss too.
  */
+
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runWithHeavyTestLease } from './test-heavy'
 import { admissionRefusal, decideForce, readCensus, turboEnv } from './typecheck'
+import { workspaceDirectories } from './workspace-resolution-census'
 
 const REFUSAL = `\
 uncached test run refused.
@@ -46,6 +49,89 @@ and consider filing the reason as an issue — a real gap in the cache key shoul
 be closed there, not worked around with --force forever.`
 
 const FOCUSED_TEST_PACKAGES = new Set(['@podium/web', '@podium/mobile'])
+
+/** Every task `turbo run test` will attempt: one per workspace declaring the script. */
+export function expectedTestTasks(root: string): string[] {
+  const tasks: string[] = []
+  for (const directory of workspaceDirectories(root)) {
+    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')) as {
+      name?: string
+      scripts?: Record<string, string>
+    }
+    if (typeof manifest.name === 'string' && manifest.scripts?.test) {
+      tasks.push(`${manifest.name}#test`)
+    }
+  }
+  return tasks.sort()
+}
+
+/**
+ * The sweep is not a default (POD-3890). It is the one lane whose cost is the whole
+ * repository — every package's unit task, serially, under the host-wide heavy lease —
+ * and an agent reaches for it because it is called `test:full`, not because the change
+ * needs it. So a bare run is refused with the map of what it would do and the focused
+ * lane that almost always answers the question instead. The same shape as the cache
+ * refusal in scripts/typecheck.ts: state the reason, and the run goes ahead.
+ */
+export function fullSweepRefusal(root: string): string {
+  const tasks = expectedTestTasks(root)
+  return `\
+full test sweep refused: say why the focused lanes are not enough.
+
+WHAT THIS RUNS. \`turbo run test\` over every package that owns a unit lane —
+${tasks.length} tasks, one at a time, each capped at two vitest workers:
+
+  ${tasks.join('\n  ')}
+
+(@podium/server is five import-graph shards plus their reconciliation; @podium/web is
+the happy-dom suite; @podium/scripts includes the repository audits that read every
+tree under apps/, packages/, services/ and tests/.) The run holds the host-wide
+\`test:heavy\` lease for its whole duration, so every other heavy lane on this machine
+queues behind it. Cached tasks replay; a changed package re-runs in full.
+
+WHAT USUALLY ANSWERS THE QUESTION INSTEAD:
+
+  bun run test                              the lean gate: typecheck, span-effects, boot wiring
+  bun run test:file -- <test files...>      exactly those files, right config, admission taken
+  bun run test:related -- <source file>     the unit tests that import a changed source
+  bun run test:changed                      unit tests touched since HEAD
+  bun run test:lane -- <lane> [args]        one named lane: node, normalized-wire, web, mobile,
+                                            server-contracts|store|services|boundary, ...
+  bun run test:affected                     the packages a change reaches, and their dependents
+
+If the change genuinely needs suite-level evidence, state why:
+
+  bun run test:full -- --full-because="<why the focused lanes are not enough>"
+
+and the sweep runs. The reason is printed at the top of the run.`
+}
+
+export interface FullSweepDecision {
+  reason: string | null
+  forwardArgs: string[]
+  error: string | null
+}
+
+/** Pure decision: did the caller own the cost of the sweep? */
+export function decideFullSweep(argv: string[], root: string): FullSweepDecision {
+  const forwardArgs: string[] = []
+  let reason: string | null = null
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index] as string
+    if (arg === '--full-because') {
+      reason = argv[++index] ?? ''
+    } else if (arg.startsWith('--full-because=')) {
+      reason = arg.slice('--full-because='.length)
+    } else {
+      forwardArgs.push(arg)
+    }
+  }
+  if (reason !== null && reason.trim() === '') {
+    return { reason, forwardArgs, error: 'empty --full-because reason' }
+  }
+  if (reason === null) return { reason, forwardArgs, error: fullSweepRefusal(root) }
+  return { reason, forwardArgs, error: null }
+}
 
 export function decideTestAdmission(argv: string[]): {
   shared: boolean
@@ -103,10 +189,17 @@ async function main() {
     console.error(`test refused: ${admission.error}`)
     process.exit(1)
   }
-  const decision = decideForce(
-    admission.forwardArgs,
-    process.env as Record<string, string | undefined>,
-  )
+  let forwardArgs = admission.forwardArgs
+  if (!admission.shared) {
+    const sweep = decideFullSweep(forwardArgs, root)
+    if (sweep.error) {
+      console.error(sweep.error)
+      process.exit(1)
+    }
+    console.error(`full sweep, reason: ${sweep.reason}`)
+    forwardArgs = sweep.forwardArgs
+  }
+  const decision = decideForce(forwardArgs, process.env as Record<string, string | undefined>)
   if (decision.forceRequested && decision.reason === null) {
     console.error(REFUSAL)
     process.exit(1)

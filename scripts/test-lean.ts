@@ -367,7 +367,7 @@ export function footer(
   }
 
   lines.push(
-    'Package sweep: bun run test:full · which lane covers your change: docs/agents/testing.md',
+    'Named files: bun run test:file -- <paths> · package sweep: bun run test:full -- --full-because="…" · lane map: docs/agents/testing.md',
     RULE,
   )
   return lines.join('\n')

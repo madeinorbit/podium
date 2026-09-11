@@ -373,7 +373,7 @@ jobs:
       # Lane spec (drift guard): scripts/test-configuration.test.ts asserts the
       # package/integration/agent-smoke lane split and package.json script shape.
       - name: unit tests (cached package tasks)
-        run: bun run test:full
+        run: bun run test:full -- --full-because="CI runs the whole unit graph on every push"
       # Deterministic Ludovico-scale work/DOM budgets. Wall-clock values are
       # diagnostics only; the gates use cardinality and operation proxies.
       - name: large-state frontend benchmark

@@ -64,6 +64,26 @@ already proves the relevant basic wiring, use it instead of `test`; otherwise ru
 two commands once each, sequentially, at the end. “More confidence” without a concrete risk
 is not a reason to add a lane.
 
+## Only the wrappers reach the compiler and the runners
+
+Every agent harness this repository is driven from refuses a shell command that calls `tsc`,
+`tsgo`, `vitest`, `bun test`, `playwright` or `turbo` directly, in any spelling (`bunx`, `npx`,
+`bun x`, a path into `node_modules`), and refuses `bun run typecheck` / `bun run test*` from
+inside a package directory. The refusal names the lane to use instead. The judgement lives in
+`scripts/agent-command-guard.ts` and is wired as a PreToolUse hook in `.claude/settings.json`
+(Claude Code and Grok), as execpolicy rules in `.codex/rules/default.rules` (Codex) and as a
+bash permission map in `opencode.json` (OpenCode).
+
+The hook is the early message, not the enforcement. `scripts/typecheck-project.ts` — the one
+`typecheck` script every package has — refuses to run unless Turbo started it, and every
+package `test*` script takes admission itself, so a bypass that slips past a rule file still
+cannot skip the slot budget, the install fingerprint, or the forced flags.
+
+Typecheck is TypeScript 7 (the Go compiler) everywhere, `--incremental` forced on the command
+line, with each project's `*.tsbuildinfo` declared as a Turbo output so a cache hit in a fresh
+worktree restores it. TypeScript 6 remains installed under `scripts/` only, as the JavaScript
+API the repository audits are written against; it never typechecks anything.
+
 ## Exhaustive command and ownership map
 
 ### Lean, package, and selection lanes
@@ -72,8 +92,10 @@ is not a reason to add a lane.
 | --- | --- | --- | --- |
 | `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
-| `bun run test:full` | Cached lock-free typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
-| `bun run test:unit` | The exhaustive package sweep without the leading typecheck | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
+| `bun run test:full -- --full-because="<reason>"` | Cached typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts`. **A bare `test:full` is refused**: it prints every task the sweep would run and the focused lane that usually answers instead, and runs only once the reason is stated (same shape as `--uncached-because`) | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
+| `bun run test:unit -- --full-because="<reason>"` | The exhaustive package sweep without the leading typecheck; same refusal | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
+| `bun run test:file -- <test files...> [vitest args]` | Exactly the named files. Each is routed to the config that can collect it (`apps/server` and `apps/web` as `bun --bun`, `apps/mobile` under Node, `*.bun.test.ts` under `bun test`, everything else the root unit config), one process per group, admission taken. Extra arguments (`-t <pattern>`, `--reporter`) go to vitest; a file that does not exist is an error, not a silent no-op | No parent command | A regression or a new test needs exact evidence from named files — this replaces every hand-rolled vitest command |
+| `bun run test:lane -- <lane> [vitest args]` | One named lane from `scripts/test-lanes.ts`: `node`, `normalized-wire`, `server`, `server-contracts`, `server-store`, `server-services`, `server-boundary`, `server-normalized-wire`, `web`, `mobile`, `scripts`, `integration`, `acceptance`, `e2e`. `--list` prints them with their admission class; heavy lanes take `test:heavy` and build the clients first | No parent command | A change matches one lane's trigger and you need that lane with a filter or name pattern |
 | `bun run test:web` | `apps/web/**/*.{test,spec}.*` through `apps/web/vitest.config.ts` | `test:cached`; full `test:full` | A broad web package change where a few exact tests cannot represent the risk |
 | `bun run test:mobile` | `apps/mobile/**/*.{test,spec}.*` through `apps/mobile/vitest.config.ts` | `test:cached`; full `test:full` | A broad mobile package change |
 | `bun run test:cached` | The web and mobile package tasks above | No parent command | A deliberately cross-client change; never as generic confidence |
@@ -86,16 +108,18 @@ is not a reason to add a lane.
 ### Server package shards
 
 The generated `apps/server/test-shards.json` is the authoritative file roster. Each shard is
-independently Turbo-cached inside the server aggregate used by `bun run test:full`.
+independently Turbo-cached inside the server aggregate used by `bun run test:full`. The
+package scripts (`bun run --cwd apps/server test:store`) still exist for Turbo; from a session
+use the `test:lane` form, which is the same command with admission taken from the root.
 
 | Command | Tests live in / config | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run --cwd apps/server test:contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test:full` | Request/response contracts, schemas, command parsing, validation |
-| `bun run --cwd apps/server test:store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test:full` | Database access, migrations, repositories, durable state |
-| `bun run --cwd apps/server test:services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test:full` | Server service logic without a real process boundary |
-| `bun run --cwd apps/server test:boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test:full` | Routers, auth boundaries, external-facing composition |
-| `bun run --cwd apps/server test:normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test:full` | Normalized wire encoding and its bounded benchmark guard |
-| `bun run --cwd apps/server test:unsharded` | Old whole-package configs | No parent command | Diagnose a suspected shard/configuration discrepancy only |
+| `bun run test:lane -- server-contracts` | Generated contracts roster; `apps/server/vitest.contracts.config.ts` | Server aggregate → full `test:full` | Request/response contracts, schemas, command parsing, validation |
+| `bun run test:lane -- server-store` | Generated store roster; `apps/server/vitest.store.config.ts` | Server aggregate → full `test:full` | Database access, migrations, repositories, durable state |
+| `bun run test:lane -- server-services` | Generated services roster; `apps/server/vitest.services.config.ts` | Server aggregate → full `test:full` | Server service logic without a real process boundary |
+| `bun run test:lane -- server-boundary` | Generated boundary roster; `apps/server/vitest.boundary.config.ts` | Server aggregate → full `test:full` | Routers, auth boundaries, external-facing composition |
+| `bun run test:lane -- server-normalized-wire` | Generated normalized-wire roster; `apps/server/vitest.normalized-wire.config.ts` | Server aggregate → full `test:full` | Normalized wire encoding and its bounded benchmark guard |
+| `bun run test:lane -- server` | The whole-package config (every file the five shards split between them) | No parent command | Diagnose a suspected shard/configuration discrepancy only |
 
 ### Explicit process, browser, rewrite, and performance lanes
 

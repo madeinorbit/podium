@@ -1,5 +1,5 @@
-import { StatusBar } from 'expo-status-bar'
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router'
+import { StatusBar } from 'expo-status-bar'
 import type { ComponentType, ReactNode } from 'react'
 import { Platform, StyleSheet, useColorScheme } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -19,6 +19,13 @@ import { MobileClientProvider } from './MobileClientProvider'
 import { ReadinessGate } from './ReadinessGate'
 import { ServerProfileGate, useServerProfile } from './ServerProfileGate'
 import { activeServerBearer, activeServerHttpOrigin } from './trpc'
+
+// TypeScript 7 applies `moduleSuffixes` to a package's `types` entry as well, so with
+// `.web` first `expo-status-bar` resolves to its web declaration, whose StatusBar takes no
+// props (the web build ignores them). The native build takes `style`; type it as such.
+const PlatformStatusBar = StatusBar as ComponentType<{
+  style?: 'auto' | 'light' | 'dark' | 'inverted'
+}>
 
 // Before the first navigation, not inside an effect: the web stack's keyboard
 // manager reaches for this on the very first page change [POD-402].
@@ -94,7 +101,7 @@ function RootLayoutContent({ Navigation }: { Navigation: ComponentType<RootNavig
             </ThemeProvider>
           </KeyboardRoot>
         </GestureHandlerRootView>
-        <StatusBar style="auto" />
+        <PlatformStatusBar style="auto" />
       </VisualViewportRoot>
     </LaunchBoundary>
   )

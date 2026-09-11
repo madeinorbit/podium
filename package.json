@@ -2,7 +2,7 @@
   "name": "podium",
   "private": true,
   "version": "0.1.1-edge.4",
-  "description": "Mission control for coding agents \u2014 run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
+  "description": "Mission control for coding agents — run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/madeinorbit/podium#readme",
   "repository": {
@@ -64,6 +64,10 @@
     "test:affected": "bun scripts/test-affected.ts",
     "test:changed": "bun scripts/validation-admission.ts focused --label test:changed -- bun --bun node_modules/vitest/vitest.mjs run --changed HEAD --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",
     "test:related": "bun scripts/validation-admission.ts focused --label test:related -- bun --bun node_modules/vitest/vitest.mjs related --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",
+    "//test:file": "Exactly the named test files, each under the config that can collect it (server and web as bun --bun, *.bun.test.ts under bun test), with admission taken; extra args go to vitest. Replaces the hand-rolled vitest line AGENTS.md used to hand out for one server file (POD-3890).",
+    "test:file": "bun scripts/test-file.ts",
+    "//test:lane": "One named lane from scripts/test-lanes.ts with vitest args: node, normalized-wire, server and its five shards, web, mobile, scripts, integration, acceptance, e2e. `--list` prints them (POD-3890).",
+    "test:lane": "bun scripts/test-lane.ts",
     "test:watch": "PODIUM_TEST_WORKERS=1 bun scripts/validation-admission.ts watch --label test:watch -- bun --bun node_modules/vitest/vitest.mjs --passWithNoTests --config vitest.unit.config.ts --project node --project normalized-wire",
     "test:perf:frontend": "bun run --cwd apps/web test:perf:large-state",
     "test:perf:sync": "bun run --cwd packages/sync test:perf:apply-scaling",
@@ -151,7 +155,6 @@
     "@biomejs/biome": "^2.4.16",
     "@changesets/cli": "^2.31.0",
     "@playwright/test": "^1.60.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
     "drizzle-kit": "1.0.0-rc.4",
     "drizzle-orm": "1.0.0-rc.4",
     "@testing-library/dom": "^10.4.1",
@@ -163,7 +166,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "turbo": "^2.10.5",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "5.0.0-beta.6"
   },
   "patchedDependencies": {

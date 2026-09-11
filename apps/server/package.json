@@ -29,8 +29,7 @@
     "zod": "^3.24.0"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit --incremental",
-    "typecheck:tsc": "tsc --noEmit --incremental",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test -- bun ../../scripts/server-test-shards.ts",
     "test:contracts": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:contracts -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.contracts.config.ts",
     "test:store": "bun ../../scripts/validation-admission.ts focused --label @podium/server:test:store -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.store.config.ts",
@@ -42,7 +41,6 @@
   "devDependencies": {
     "@libsql/client": "^0.18.0",
     "@types/ws": "^8.5.13",
-    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   }
 }

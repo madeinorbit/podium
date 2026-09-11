@@ -7,7 +7,8 @@
     "types": ["node", "chai", "react", "react-dom"],
     "moduleSuffixes": [".web", ".native", ""],
     "preserveSymlinks": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "incremental": true
   },
   "include": ["app", "src"]
 }

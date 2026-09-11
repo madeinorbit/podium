@@ -68,13 +68,11 @@
     "./release-build-timing": "./src/release-build-timing.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit --incremental",
-    "typecheck:tsc": "tsc --noEmit --incremental",
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/runtime:test -- bash -c \"bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests && bun test --conditions=@podium/source test/sqlite.bun.test.ts --test-name-pattern ''\""
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   },
   "dependencies": {

@@ -309,7 +309,9 @@ async function main() {
   )
   console.error('\nthis lane does NOT run, at any time:')
   for (const lane of NOT_COVERED) console.error(`  ${lane}`)
-  console.error('run `bun run test:full` when an exhaustive sweep is required.\n')
+  console.error(
+    'run `bun run test:full -- --full-because="…"` when an exhaustive sweep is required.\n',
+  )
 
   if (uncovered.length > 0 && !allowUncovered) {
     console.error(
@@ -320,7 +322,7 @@ async function main() {
     if (uncovered.length > 25) console.error(`  … and ${uncovered.length - 25} more`)
     console.error(
       '\nRun the full lane instead:\n' +
-        '  bun run test:full\n\n' +
+        '  bun run test:full -- --full-because="<why the focused lanes are not enough>"\n\n' +
         'or, once you have run it yourself and want the fast loop back:\n' +
         '  bun run test:affected -- --allow-uncovered',
     )

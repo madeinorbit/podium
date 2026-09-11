@@ -140,26 +140,23 @@ instead of `test` when it already covers the relevant basic check; otherwise run
 does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
 Never overlap other validation commands in one session.
 
-**Running ONE test file: `apps/server` needs `bun --bun`.** The obvious command —
-`./node_modules/.bin/vitest run --config vitest.unit.config.ts <file>` — collects **zero
-tests** for anything under `apps/server`, failing with *"Only URLs with a scheme in: file,
-data, and node are supported by the default ESM loader. Received protocol 'bun:'"*. Those
-suites import `bun:` builtins, so they must run under Bun's runtime, not Node's:
-
-```
-cd apps/server && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts <file>
-```
-
-That is what the package's own scripts already do. Two agents have written a server test,
-been unable to collect it, and reported the change with the test unexecuted — a test nobody
-has seen go red is not evidence. Elsewhere in the repo the plain `vitest.unit.config.ts` form
-is correct.
+**Running ONE test file: `bun run test:file -- <paths...>`.** Never a raw vitest command.
+`apps/server` and `apps/web` suites import `bun:` builtins and collect **zero tests** under
+Node's vitest — a hand-rolled `vitest run <file>` there exits 0 having run nothing, which is
+how two agents reported a server test as green that had never executed. `test:file` routes
+each named file to the config that can collect it, takes admission, passes any extra
+arguments (`-t "name"`) to vitest, and errors on a file that does not exist. `bun run
+test:lane -- <lane> [args]` does the same for a named lane (`--list` shows them). Every agent
+harness refuses `tsc`, `tsgo`, `vitest`, `bun test`, `playwright` and `turbo` typed directly,
+and `bun run typecheck`/`test*` from inside a package directory; the refusal names the lane.
 
 **The typecheck cache is SHARED across worktrees — trust it.** `scripts/typecheck.ts` points
 turbo at one cache keyed by the repository's common git dir, so every worktree of this repo
 reuses it. Measured in a worktree with no local cache at all: **22 of 28 tasks HIT**. A fresh
 worktree is not a cold start, and re-running to "warm it up" achieves nothing. Run
-`bun run typecheck` and let turbo pick the set; never force it.
+`bun run typecheck` (or `bun run typecheck -- --filter <package>` for one project) and let
+turbo pick the set; never force it. The compiler is TypeScript 7 with `--incremental` forced,
+reached only through `scripts/typecheck-project.ts`, which refuses to run outside Turbo.
 
 Two caveats worth knowing rather than guarding against. The cache currently lives under `/tmp`
 (`XDG_CACHE_HOME` is unset), so a **reboot wipes it** and the first runs afterwards really are
@@ -175,7 +172,9 @@ other than `test`.
 
 `bun run test:full`, `bun run test:unit`, and `bun run oracle` are exhaustive or multi-lane
 validation reserved for scheduled CI, merge/release validation, or explicit requests—not routine
-agent work. `bun run test:rearch` owns the whole-repository rewrite audit and is likewise not an
+agent work. A bare `test:full` is refused: it prints what the sweep would run and which focused
+lane answers instead, and runs only as `bun run test:full -- --full-because="<why the focused
+lanes are not enough>"`. `bun run test:rearch` owns the whole-repository rewrite audit and is likewise not an
 ordinary gate.
 
 Trust typecheck and Turbo cache hits. Never use a forced cache bypass as routine verification.
