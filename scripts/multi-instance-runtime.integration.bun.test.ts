@@ -24,7 +24,8 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { firstAdminMemberId, asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
 import {
   ABDUCO_SUN_PATH_MAX,
@@ -1755,15 +1756,19 @@ exec "$CANARY_REAL_CLI" "$@"
       ),
     ).toBeLessThan(ABDUCO_SUN_PATH_MAX)
 
+    const instanceOwners = new Set<string>()
     const inspectBoot = (spec: InstanceSpec) => {
       const db = openDatabase(join(spec.stateDir, 'podium.db'))
       const rows = db
         .prepare('SELECT id, owner_user_id AS ownerUserId FROM machines ORDER BY id')
         .all() as { id: string; ownerUserId: string | null }[]
       const columns = db.prepare('PRAGMA table_info(machines)').all() as { name: string }[]
+      const owner = earliestAdminMember(db)
       db.close()
       expect(rows).toHaveLength(1)
-      expect(rows[0]?.ownerUserId).toBe(firstAdminMemberId())
+      expect(owner).toBeDefined()
+      expect(rows[0]?.ownerUserId).toBe(owner)
+      if (owner) instanceOwners.add(owner)
       expect(rows.some((row) => row.ownerUserId === null)).toBe(false)
       expect(rows.some((row) => row.id === 'local' || row.id === '__local__')).toBe(false)
       expect(columns.some((column) => column.name === 'instance_id')).toBe(false)
@@ -1771,6 +1776,7 @@ exec "$CANARY_REAL_CLI" "$@"
     }
     const compatMachineId = inspectBoot(compat)
     const namedMachineId = inspectBoot(named)
+    expect(instanceOwners.size).toBe(2)
     expect(readFileSync(join(compat.stateDir, 'machine.id'), 'utf8').trim()).toBe(compatMachineId)
     expect(readFileSync(join(named.stateDir, 'machine.id'), 'utf8').trim()).toBe(namedMachineId)
 
