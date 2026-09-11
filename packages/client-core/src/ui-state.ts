@@ -666,6 +666,7 @@ export type MainView =
   | 'workflows'
 
 export interface RouteState {
+  workspaceSlug?: string
   view: MainView
   issueId: IssueId | null
   settingsTab: string | null
@@ -687,10 +688,27 @@ function decode(seg: string): string {
   }
 }
 
+/** Hosted workspace identity lives in the URL, independently of the selected view. */
+export function workspaceSlug(pathname: string): string | undefined {
+  const segment = /^\/w\/([^/]+)(?:\/|$)/.exec(pathname)?.[1]
+  if (!segment) return undefined
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return undefined
+  }
+}
+
+function workspaceRoutePath(pathname: string): string {
+  return workspaceSlug(pathname) === undefined ? pathname : pathname.replace(/^\/w\/[^/]+/, '')
+}
+
 export function parseRoute(pathname: string, search: string): RouteState | null {
   const params = new URLSearchParams(search)
-  const segs = pathname.split('/').filter(Boolean).map(decode)
+  const slug = workspaceSlug(pathname)
+  const segs = workspaceRoutePath(pathname).split('/').filter(Boolean).map(decode)
   const base: Omit<RouteState, 'view'> = {
+    ...(slug === undefined ? {} : { workspaceSlug: slug }),
     issueId: null,
     settingsTab: null,
     worktree: params.get('wt'),
@@ -731,6 +749,7 @@ export function routePath(route: RouteState, currentSearch = ''): string {
     default:
       path = `/${route.view}`
   }
+  if (route.workspaceSlug) path = `/w/${encodeURIComponent(route.workspaceSlug)}${path}`
   const params = new URLSearchParams(currentSearch)
   for (const p of ROUTE_PARAMS) params.delete(p)
   if (route.view === 'workspace') {
@@ -763,17 +782,21 @@ export interface Router {
 export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView } = {}): Router {
   const win = init.win ?? (window as unknown as RouterWindow)
   const listeners = new Set<(route: RouteState) => void>()
+  const defaults = (view: MainView): RouteState => {
+    const slug = workspaceSlug(win.location.pathname)
+    return { ...routeDefaults(view), ...(slug === undefined ? {} : { workspaceSlug: slug }) }
+  }
   const parsed = parseRoute(win.location.pathname, win.location.search)
   let route: RouteState
   if (parsed === null) {
-    route = routeDefaults(init.fallbackView ?? 'workspace')
+    route = defaults(init.fallbackView ?? 'workspace')
     win.history.replaceState(null, '', routePath(route, win.location.search))
   } else if (
     init.fallbackView &&
     init.fallbackView !== 'workspace' &&
-    win.location.pathname.replace(/\/+$/, '') === ''
+    workspaceRoutePath(win.location.pathname).replace(/\/+$/, '') === ''
   ) {
-    route = routeDefaults(init.fallbackView)
+    route = defaults(init.fallbackView)
     win.history.replaceState(null, '', routePath(route, win.location.search))
   } else route = parsed
 
@@ -781,7 +804,7 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
     for (const cb of [...listeners]) cb(route)
   }
   const onPopState = (): void => {
-    route = parseRoute(win.location.pathname, win.location.search) ?? routeDefaults('workspace')
+    route = parseRoute(win.location.pathname, win.location.search) ?? defaults('workspace')
     if (parseRoute(win.location.pathname, win.location.search) === null) {
       win.history.replaceState(null, '', routePath(route, win.location.search))
     }
@@ -795,6 +818,8 @@ export function createRouter(init: { win?: RouterWindow; fallbackView?: MainView
   }
   attach()
   const apply = (next: RouteState, mode: 'push' | 'replace'): void => {
+    // View callers use routeDefaults; retain the workspace even when they omit it.
+    next = { ...defaults(next.view), ...next }
     const nextUrl = routePath(next, win.location.search)
     if (nextUrl === `${win.location.pathname}${win.location.search}`) {
       route = next

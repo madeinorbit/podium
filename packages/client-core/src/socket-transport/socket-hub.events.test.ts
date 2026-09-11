@@ -6,7 +6,7 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { resetLevels, resetLogging, setProcessContext } from '@podium/logger'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLevelController, setActiveLevelController } from '../logging/level-command'
 import { type SessionScopedServerMessage, SocketHub, type WebSocketLike } from './socket-hub'
 
@@ -155,6 +155,45 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(viaSeam).toEqual([[m]])
     expect(viaSeam[0]).toBe(viaWrapper[1])
     expect(viaSeam[0]).toBe(hub.sessions())
+  })
+
+  it.each([
+    undefined,
+    'anna/team',
+  ])('retains workspace %s through relocation and reconnect', (workspace) => {
+    vi.useFakeTimers()
+    const sockets: FakeSocket[] = []
+    const urls: string[] = []
+    const source = new URL('wss://source.example/client?token=old')
+    if (workspace) source.searchParams.set('workspace', workspace)
+    const hub = new SocketHub({
+      url: source.toString(),
+      makeSocket: (url) => {
+        urls.push(url)
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+    })
+    try {
+      hub.connect()
+      sockets[0]!.open()
+      sockets[0]!.recv({
+        type: 'serverRelocation',
+        transferId: '00000000-0000-4000-8000-000000000001',
+        publicUrl: 'https://target.example/path?workspace=other&token=target#fragment',
+      })
+      const expected = new URL('wss://target.example/client')
+      if (workspace) expected.searchParams.set('workspace', workspace)
+      expect(urls).toEqual([source.toString(), expected.toString()])
+      sockets[1]!.open()
+      sockets[1]!.close()
+      vi.advanceTimersByTime(2_000)
+      expect(urls).toEqual([source.toString(), expected.toString(), expected.toString()])
+    } finally {
+      hub.dispose()
+      vi.useRealTimers()
+    }
   })
 
   it('delivers the promoted origin and one-time claim to the platform relocation boundary', () => {
