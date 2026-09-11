@@ -1,3 +1,4 @@
+import { readIssue } from '../world-index/issue-reader'
 import { createLogger } from '@podium/logger'
 import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 /**
@@ -278,7 +279,7 @@ export class SessionStart {
     // issue owner; otherwise a binding resolves to its on-behalf-of human. The
     // final fallback exists only for legacy in-process callers with no binding.
     const parentOwner = issueId
-      ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId
+      ? (await readIssue(this.ports.store.issues, issueId))?.ownerUserId
       : undefined
     const bindingOwner =
       input.binding?.principal.kind === 'user'

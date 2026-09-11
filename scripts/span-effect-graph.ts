@@ -521,6 +521,14 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/modules/world-index/issue-reader.ts#CommittedIssueReader.rows': {
+    kind: 'contained',
+    why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
+  },
+  'apps/server/src/modules/world-index/index.ts#WorldIndexReader.grantsFor': {
+    kind: 'contained',
+    why: 'Reads grant edges from the committed in-memory world index; the lookup performs no I/O or externally observable effect.',
+  },
   'apps/server/src/store/committed-rows.ts#CommittedRows.query': {
     kind: 'opaque',
     why: 'The repository-supplied write callback; every CommittedRows.write argument is a span root, so its effects are checked where the query is declared.',

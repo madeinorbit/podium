@@ -1,3 +1,4 @@
+import { readIssue, readIssueCwdRows } from '../world-index/issue-reader'
 import { readResourceGrants } from '../world-index/grant-reader'
 import type { IssueAction, IssueId } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
@@ -6,19 +7,9 @@ import type { GrantsRepository } from '../../store/grants'
 import type { IssuesRepository } from '../../store/issues'
 import type { ReposRepository } from '../../store/repos'
 
-/**
- * Live issue authorization facts for lower-layer consumers.
- *
- * The three cwd questions read `listIssueCwdRows()` rather than
- * `listIssueRows()` [POD-1653]: they only ever touch worktree/repo/deleted/
- * archived, and the full read materialized every issue row — JSON columns and
- * all — on a per-message path. Still one live read per call; just not the whole
- * table's payload.
- *
- * Reads the durable repositories on every call: no capability or delegation
- * snapshot survives until an outbox replay. The higher-level IssueService is
- * intentionally absent so sessions can be assembled before issue workflows.
- */
+/** Issue authorization reads the committed IssueStore rows outside mutation
+ * spans and live repository rows inside them. Boot quarantine disables snapshot binding so cwd ambiguity and ownership
+ * semantics remain identical for structurally corrupt rows. */
 export class DurableIssueAccessIndex implements IssueAccessIndex {
   constructor(
     private readonly issues: IssuesRepository,
@@ -27,23 +18,23 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   ) {}
 
   async has(id: IssueId): Promise<boolean> {
-    return await this.issues.getIssue(id) !== null
+    return await readIssue(this.issues, id) !== null
   }
 
   async ancestorIds(id: IssueId): Promise<string[]> {
     const ancestors: string[] = []
     const seen = new Set<string>()
-    let parent = (await this.issues.getIssue(id))?.parentId ?? null
+    let parent = (await readIssue(this.issues, id))?.parentId ?? null
     while (parent && !seen.has(parent)) {
       seen.add(parent)
       ancestors.push(parent)
-      parent = (await this.issues.getIssue(parent))?.parentId ?? null
+      parent = (await readIssue(this.issues, parent))?.parentId ?? null
     }
     return ancestors
   }
 
   async ownedTarget(id: IssueId, action: IssueAction) {
-    const row = await this.issues.getIssue(id)
+    const row = await readIssue(this.issues, id)
     if (!row) return undefined
     const covers = (verb: string): boolean =>
       action === 'read'
@@ -62,20 +53,18 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   }
 
   async getMeta(id: IssueId) {
-    return await this.issues.getIssue(id)
+    return await readIssue(this.issues, id)
   }
 
   async worktreePaths(): Promise<string[]> {
-    return (await this.issues
-      .listIssueCwdRows())
+    return (await readIssueCwdRows(this.issues))
       .filter((row) => !row.deletedAt && row.worktreePath)
       .map((row) => row.worktreePath as string)
   }
 
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
     const repoRoots = new Set(await this.repos.listRepoPaths())
-    const owners = (await this.issues
-      .listIssueCwdRows())
+    const owners = (await readIssueCwdRows(this.issues))
       .filter(
         (row) =>
           !row.deletedAt &&
@@ -94,7 +83,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
 
   async issueForCwd(cwd: string): Promise<IssueId | null> {
     let best: { id: IssueId; length: number } | undefined
-    for (const row of await this.issues.listIssueCwdRows()) {
+    for (const row of await readIssueCwdRows(this.issues)) {
       if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
       const length = row.worktreePath?.length ?? 0
       if (!best || length > best.length) best = { id: row.id, length }

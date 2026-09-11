@@ -1,3 +1,4 @@
+import { readIssue, readIssues } from './modules/world-index/issue-reader'
 /**
  * THE FEED'S VISIBILITY POLICY (POD-418).
  *
@@ -218,11 +219,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     userId: UserId,
     issueId: IssueId,
   ): Promise<boolean> => {
-    // Authority publishes after the transaction commits but before IssueService
-    // installs a newly-created row in its live map. Read the durable row here so
-    // the creation frame is scoped from the same committed truth catch-up sees.
+    // The repository commit installs the owned row map before publication.
+    // Open mutation spans still read their own writes through the live fallback.
     const row = await measure('visibility.issue.getIssue', async () =>
-      await store.issues.getIssue(issueId),
+      await readIssue(store.issues, issueId),
     )
     if (row?.ownerUserId === userId) return true
     return worldIndex.grantsFor('issue', issueId).some((edge) =>
@@ -439,7 +439,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const issues =
       issueIds.size === 0
         ? new Map<string, IssueRow>()
-        : await measure('visibility.issue.getIssue', async () => await store.issues.getIssues([...issueIds]))
+        : await measure('visibility.issue.getIssue', async () => await readIssues(store.issues, [...issueIds]))
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()

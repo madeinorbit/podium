@@ -103,21 +103,21 @@ it('every indexed fact reader is declared with a reason', () => {
   expect(actual).toEqual(Object.fromEntries(Object.entries(readerAllowlist).map(([site, entry]) => [site, entry.count])))
 }, 120_000)
 
-it('arms the reader census against new direct, aliased and port readers', () => {
+it.each([['grants', 'GrantsRepository', 'listForResource'], ['issues', 'IssuesRepository', 'getIssue']])('arms the %s census against new direct, aliased and port readers', (fact, className, method) => {
   const root = process.cwd()
-  const repository = join(root, 'apps/server/src/store/grants.ts')
+  const repository = join(root, `apps/server/src/store/${fact}.ts`)
   const caller = join(root, 'apps/census-mutation.ts')
   const sources: Record<string, string> = {
-    [repository]: 'export class GrantsRepository { listForResource() { return [] } }',
-    [caller]: `import { GrantsRepository } from './server/src/store/grants'
-      declare const repo: GrantsRepository;
-      repo.listForResource();
-      const alias = repo; alias['listForResource']();
-      const { listForResource: extracted } = repo;
-      const bound = repo.listForResource.bind(repo);
-      declare const port: Pick<GrantsRepository, 'listForResource'>;
-      port.listForResource();
-      declare const key: keyof GrantsRepository; alias[key]();`,
+    [repository]: `export class ${className} { ${method}() { return [] } }`,
+    [caller]: `import { ${className} } from './server/src/store/${fact}'
+      declare const repo: ${className};
+      repo.${method}();
+      const alias = repo; alias['${method}']();
+      const { ${method}: extracted } = repo;
+      const bound = repo.${method}.bind(repo);
+      declare const port: Pick<${className}, '${method}'>;
+      port.${method}();
+      declare const key: keyof ${className}; alias[key]();`,
   }
   const options = { module: ts.ModuleKind.Preserve, moduleResolution: ts.ModuleResolutionKind.Bundler }
   const host = ts.createCompilerHost(options)

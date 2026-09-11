@@ -1,3 +1,4 @@
+import { readIssue, readIssues } from '../world-index/issue-reader'
 import { readResourcesGrants } from '../world-index/grant-reader'
 import {
   firstAdminMemberId,
@@ -215,7 +216,7 @@ export class SessionView {
     const issueIds = [...new Set(sessions.flatMap(s =>
       [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
     ))]
-    const found = issueIds.length ? await this.ports.store.issues.getIssues(issueIds) : new Map<string, IssueRow>()
+    const found = issueIds.length ? await readIssues(this.ports.store.issues, issueIds) : new Map<string, IssueRow>()
     const issues = new Map(issueIds.map(id => [id, found.get(id) ?? null]))
     const grants = new Map<string, string[]>()
     for (const kind of ['issue', 'session'] as const) {
@@ -278,7 +279,7 @@ export class SessionView {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
-      const issue = await this.ports.store.issues.getIssue(birthIssueId)
+      const issue = await readIssue(this.ports.store.issues, birthIssueId)
       if (issue) {
         return async () => {
           session.refLetter = await this.ports.store.issues.allocateSessionLetter(birthIssueId)

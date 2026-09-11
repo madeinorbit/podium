@@ -1,3 +1,4 @@
+import { readIssue, readIssues } from '../world-index/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
 import { readResourceGrants, readResourcesGrants } from '../world-index/grant-reader'
 import {
@@ -150,7 +151,7 @@ export class MemoryVisibilityPolicy {
         ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
       ]
       if (issueIds.length > 0) {
-        const rows = await this.store.issues.getIssues(issueIds)
+        const rows = await readIssues(this.store.issues, issueIds)
         for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
 
         // The same distinct issue ids drive the grant read in mayReadSessionRow.
@@ -222,9 +223,9 @@ export class MemoryVisibilityPolicy {
   }
 
   private async issueById(issueId: IssueId): Promise<IssueRow | null> {
-    if (!this.request) return await this.store.issues.getIssue(issueId)
+    if (!this.request || spanOpen()) return await readIssue(this.store.issues, issueId)
     if (!this.request.issues.has(issueId)) {
-      this.request.issues.set(issueId, await this.store.issues.getIssue(issueId))
+      this.request.issues.set(issueId, await readIssue(this.store.issues, issueId))
     }
     return this.request.issues.get(issueId) ?? null
   }

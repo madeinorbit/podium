@@ -1,3 +1,4 @@
+import { readIssue, readClosedIssueIds } from './modules/world-index/issue-reader'
 import { readResourceGrants } from './modules/world-index/grant-reader'
 import { WorldIndex, type WorldIndexReader } from './modules/world-index'
 import { Buffer } from 'node:buffer'
@@ -1557,7 +1558,7 @@ export class SessionRegistry {
     const closedIssueIdsInScope = async (): Promise<Set<string>> => {
       const held = currentReadScope().slot(closedIssueIdsSlot)
       if (held.ids !== undefined) return held.ids
-      const closed = await this.store.issues.closedIssueIds()
+      const closed = await readClosedIssueIds(this.store.issues)
       held.ids = closed
       return closed
     }
@@ -2564,7 +2565,7 @@ export class SessionRegistry {
         },
         repoPath: async (machineId) =>
           (await this.store.repos.listRepoPaths(machineId))[0] ?? (await this.store.repos.listRepoPaths())[0],
-        issueExists: async (id) => await this.store.issues.getIssue(id) !== null,
+        issueExists: async (id) => await readIssue(this.store.issues, id) !== null,
         createIssue: async (input) => await issues.create(input),
         sendMail: async (issueId, body) => await issues.sendMail(issueId, 'machine-diagnostic', body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -2928,7 +2929,7 @@ export class SessionRegistry {
             ts: new Date(this.now()).toISOString(),
             kind,
             subject: issueId,
-            repoPath: (await this.store.issues.getIssue(issueId))?.repoPath ?? null,
+            repoPath: (await readIssue(this.store.issues, issueId))?.repoPath ?? null,
             payload,
           })
         } catch {}

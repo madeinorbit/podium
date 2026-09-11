@@ -1,3 +1,4 @@
+import { readIssueRows } from '../world-index/issue-reader'
 import { asIssueId, asMachineId, machineScopedKey } from '@podium/model'
 import type { SearchResultWire } from '@podium/protocol'
 import type { SessionStore } from '../../store'
@@ -120,7 +121,7 @@ export class MemorySearchService {
       })
     }
 
-    const issues = await this.store.issues.listIssueRows()
+    const issues = await readIssueRows(this.store.issues)
     // As with session visibility, no authorization result outlives this request.
     const issueReadable = await Promise.all(issues.map(async (row) =>
       !row.deletedAt && await visibility.mayRead(reader, { class: 'issue', id: row.id }),

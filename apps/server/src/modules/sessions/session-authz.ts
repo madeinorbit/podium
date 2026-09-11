@@ -1,3 +1,4 @@
+import { readIssue, readIssues } from '../world-index/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
 import { readResourceGrants, readResourcesGrants } from '../world-index/grant-reader'
 /**
@@ -322,7 +323,7 @@ export class SessionAuthz {
    */
   async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
     // A memo prepared before an in-span revocation is not an authority fact.
-    if (spanOpen()) memo.grants.clear()
+    if (spanOpen()) { memo.grants.clear(); memo.issues.clear() }
     const byKind = new Map<string, Set<string>>()
     const issueIds = new Set<string>()
     for (const sessionId of sessionIds) {
@@ -342,7 +343,7 @@ export class SessionAuthz {
     // reads a `has()` miss as "not looked up yet" and would re-query it.
     const wantedIssues = [...issueIds].filter((id) => !memo.issues.has(id))
     if (wantedIssues.length > 0) {
-      const found = await this.ports.store.issues.getIssues(wantedIssues)
+      const found = await readIssues(this.ports.store.issues, wantedIssues)
       for (const id of wantedIssues) memo.issues.set(id, found.get(id) ?? null)
     }
     for (const [kind, ids] of byKind) {
@@ -364,9 +365,9 @@ export class SessionAuthz {
     issueId: IssueId,
     memo?: SessionOwnerMemo,
   ): Promise<UserId | undefined> {
-    if (!memo) return (await this.ports.store.issues.getIssue(issueId))?.ownerUserId ?? undefined
+    if (!memo || spanOpen()) return (await readIssue(this.ports.store.issues, issueId))?.ownerUserId ?? undefined
     if (!memo.issues.has(issueId)) {
-      memo.issues.set(issueId, await this.ports.store.issues.getIssue(issueId))
+      memo.issues.set(issueId, await readIssue(this.ports.store.issues, issueId))
     }
     return (memo.issues.get(issueId) ?? null)?.ownerUserId ?? undefined
   }

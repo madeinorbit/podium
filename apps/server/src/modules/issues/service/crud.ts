@@ -1,3 +1,4 @@
+import { readIssue } from '../../world-index/issue-reader'
 import { randomUUID } from 'node:crypto'
 import { afterCommit } from '../../../store/executor/executor'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
@@ -932,7 +933,7 @@ export class IssueCrudModule {
     // insert is not. Refuse it before allocating a sequence or touching storage:
     // IssuesRepository upserts by id for ordinary updates, so allowing create to
     // reach that seam would turn an additive command into an overwrite.
-    if (input.id && await this.store.deps.store.issues.getIssue(input.id) !== null) {
+    if (input.id && await readIssue(this.store.deps.store.issues, input.id) !== null) {
       throw new Error(`refusing to reuse an existing issue id: ${input.id}`)
     }
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a

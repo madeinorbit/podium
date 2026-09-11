@@ -1,3 +1,5 @@
+import { bindCommittedIssueReader } from '../../world-index/issue-reader'
+import { issueFromRow } from '../../../store/issues'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -28,7 +30,7 @@ import { formatIssueRef, parseIssueRef } from '@podium/protocol'
 import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
-import { afterCommit } from '../../../store/executor/executor'
+import { afterCommit, applyAfterCommit } from '../../../store/executor/executor'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
 import { normalizeBlankIssueText } from '../blank-text'
 import { countIssueWireBuild } from '../instrumentation'
@@ -460,25 +462,36 @@ export class IssueStore {
     await this.hydrate()
   }
 
+  private unsubscribeRows: (() => void) | undefined
+
   private async hydrate(): Promise<void> {
-    // A wholesale reload replaces the committed truth, so the composed view
-    // built over it is meaningless. Anything STAGED is dropped by the overlay
-    // itself the next time it is read with no span open.
-    this.composedRows = undefined
-    const map = new Map<string, IssueRow>()
-    for (const r of await this.deps.store.issues.listIssueRows()) map.set(r.id, r)
-    this.hydrated = map
-    // The per-user markers are re-read for the same reason the rows are re-read:
-    // a test (or a future external mutator) that wrote them directly must not
-    // keep serving a stale overlay. They are re-read HERE rather than on next
-    // touch (POD-3256) — `issueOverlay` is called from the synchronous wire
-    // serializer, so its read has to have happened already.
-    this.viewerState = await this.deps.store.issues.listIssueUserState((await this.broadcastViewer()))
-    // Wholesale row replacement invalidates every cached wire, and dropping the
-    // map also prunes entries for purged issues (bounds memory to live issues)
-    // [POD-723].
-    this.wireCache.clear()
-    this.bumpIssueInputs()
+    // Load and subscribe under the same transaction. No repository commit can
+    // fall between the snapshot and its subscription, including direct writes
+    // (shipping CAS, renumber, reassignment and machine backfill).
+    await this.deps.store.transact(async () => {
+      const map = new Map<string, IssueRow>()
+      for (const r of await this.deps.store.issues.listIssueRows()) map.set(r.id, r)
+      const viewerState = await this.deps.store.issues.listIssueUserState(await this.broadcastViewer())
+      applyAfterCommit(() => {
+        this.composedRows = undefined
+        this.hydrated = map
+        this.viewerState = viewerState
+        this.unsubscribeRows?.()
+        this.unsubscribeRows = this.deps.store.issues.committed.subscribe(change => {
+          for (const raw of change.rows) {
+            this.applyRow(raw.id, change.operation === 'delete' ? null : issueFromRow(raw))
+          }
+          this.bumpIssueInputs()
+        })
+        // Point and cwd reads quarantine fewer columns than listIssueRows.
+        // If boot omitted anything, use SQL rather than turn a quarantined
+        // row into a missing ownership fact or change cwd ambiguity rules.
+        bindCommittedIssueReader(this.deps.store.issues,
+          this.deps.store.issues.quarantinedRowCount === 0 ? () => this.requireHydrated().rows : undefined)
+        this.wireCache.clear()
+        this.bumpIssueInputs()
+      }, 'issue-rows:load')
+    })
   }
 
   /** Worktree paths of all issues (for cwd-based worker-role resolution). */

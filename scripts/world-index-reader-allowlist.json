@@ -1,19 +1,7 @@
 {
-  "apps/server/src/feed-visibility.ts :: issues :: issues.getIssues": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/feed-visibility.ts :: row :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
   "apps/server/src/modules/accounts/queries.ts :: ACCOUNT_QUERIES :: machines.listMachines": {
     "count": 1,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
-  },
-  "apps/server/src/modules/cost/service.ts :: issues :: issues.getIssues": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
   },
   "apps/server/src/modules/fleet/authz.ts :: accountRoleOf :: users.roleOf": {
     "count": 1,
@@ -23,45 +11,13 @@
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
-  "apps/server/src/modules/issues/access-index.ts :: ancestorIds :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: getMeta :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: has :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: issueForCwd :: issues.listIssueCwdRows": {
-    "count": 1,
-    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: owners :: issues.listIssueCwdRows": {
-    "count": 1,
-    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: parent :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: row :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/issues/access-index.ts :: worktreePaths :: issues.listIssueCwdRows": {
-    "count": 1,
-    "reason": "Enumerates paths or applies archived/repository-root ambiguity rules beyond the deepest indexed worktree lookup."
-  },
   "apps/server/src/modules/issues/service/core.ts :: hydrate :: issues.listIssueRows": {
     "count": 1,
-    "reason": "Boot hydration of the full IssueStore rows; the world index only owns worktree lookup keys."
+    "reason": "Boot/reload hydration of the single full IssueStore row map, loaded under the transaction that installs its repository commit subscription."
   },
-  "apps/server/src/modules/issues/service/crud.ts :: create :: issues.getIssue": {
+  "apps/server/src/modules/issues/service/crud.ts :: seq :: issues.nextIssueSeq": {
     "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+    "reason": "Sequence allocation requires the live repository maximum, including rows created in the enclosing mutation span; the committed map cannot allocate ids."
   },
   "apps/server/src/modules/layout/authz.ts :: layoutAuthzDeps :: users.roleOf": {
     "count": 1,
@@ -107,18 +63,6 @@
     "count": 1,
     "reason": "Machine enrollment, service, or inventory reader retained pending its transaction and full-record requirements audit."
   },
-  "apps/server/src/modules/memory/search.ts :: issues :: issues.listIssueRows": {
-    "count": 1,
-    "reason": "Search builds documents from complete issue rows, not just indexed worktree keys."
-  },
-  "apps/server/src/modules/memory/visibility.ts :: issueById :: issues.getIssue": {
-    "count": 2,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/memory/visibility.ts :: rows :: issues.getIssues": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
   "apps/server/src/modules/messages/scheduler.ts :: queueIsEmpty :: messages.countQueued": {
     "count": 1,
     "reason": "Global queued total is not the per-target indexed counter; retain until its separate semantics are covered."
@@ -131,29 +75,9 @@
     "count": 2,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
-  "apps/server/src/modules/sessions/session-authz.ts :: found :: issues.getIssues": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/sessions/session-authz.ts :: memoIssueOwner :: issues.getIssue": {
-    "count": 2,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
   "apps/server/src/modules/sessions/session-authz.ts :: role :: users.roleOf": {
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/modules/sessions/session-start.ts :: parentOwner :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/sessions/view.ts :: found :: issues.getIssues": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
-  },
-  "apps/server/src/modules/sessions/view.ts :: issue :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
   },
   "apps/server/src/modules/sessions/view.ts :: role :: users.roleOf": {
     "count": 2,
@@ -177,7 +101,7 @@
   },
   "apps/server/src/modules/world-index/index.ts :: issues :: issues.loadWorldIssuePaths": {
     "count": 1,
-    "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
+    "reason": "Boot worktree-key snapshot load under the transaction that installs commit subscriptions; full rows remain owned by IssueStore."
   },
   "apps/server/src/modules/world-index/index.ts :: machines :: machines.listMachines": {
     "count": 1,
@@ -191,9 +115,29 @@
     "count": 1,
     "reason": "Boot snapshot load under the transaction that installs commit subscriptions."
   },
-  "apps/server/src/relay.ts :: <module> :: issues.getIssue": {
+  "apps/server/src/modules/world-index/issue-reader.ts :: readClosedIssueIds :: issues.closedIssueIds": {
     "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+    "reason": "Live read-your-writes or unbound/quarantined boot fallback; committed readers apply the same closed/deleted predicate to IssueStore."
+  },
+  "apps/server/src/modules/world-index/issue-reader.ts :: readIssue :: issues.getIssue": {
+    "count": 1,
+    "reason": "Live read-your-writes fallback inside mutation spans, before IssueStore boot binding, or when boot quarantine prevents equivalent snapshot reads."
+  },
+  "apps/server/src/modules/world-index/issue-reader.ts :: readIssueCwdRows :: issues.listIssueCwdRows": {
+    "count": 1,
+    "reason": "Live read-your-writes or unbound/quarantined boot fallback; healthy committed readers use IssueStore with the same cwd ordering and ambiguity rules."
+  },
+  "apps/server/src/modules/world-index/issue-reader.ts :: readIssueParentEdges :: issues.listIssueParentEdges": {
+    "count": 1,
+    "reason": "Live read-your-writes or unbound/quarantined boot fallback; committed readers derive non-deleted parent edges from IssueStore."
+  },
+  "apps/server/src/modules/world-index/issue-reader.ts :: readIssueRows :: issues.listIssueRows": {
+    "count": 1,
+    "reason": "Live read-your-writes fallback inside mutation spans, before IssueStore boot binding, or when boot quarantine prevents equivalent snapshot reads."
+  },
+  "apps/server/src/modules/world-index/issue-reader.ts :: readIssues :: issues.getIssues": {
+    "count": 1,
+    "reason": "Live read-your-writes fallback inside mutation spans, before IssueStore boot binding, or when boot quarantine prevents equivalent snapshot reads."
   },
   "apps/server/src/relay.ts :: <module> :: users.list": {
     "count": 1,
@@ -214,10 +158,6 @@
   "apps/server/src/relay.ts :: rows :: users.list": {
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
-  },
-  "apps/server/src/relay.ts :: shipping :: issues.getIssue": {
-    "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
   },
   "apps/server/src/relay.ts :: user :: users.get": {
     "count": 1,
@@ -243,9 +183,21 @@
     "count": 1,
     "reason": "Live account or role reader retained for the separate account-reader migration; transaction freshness must be audited before switching."
   },
+  "apps/server/src/store.ts :: issuesMissing :: issues.issuesMissingRepoId": {
+    "count": 1,
+    "reason": "Boot migration refusal runs before IssueStore binding and must count every durable row, including rows full hydration would quarantine."
+  },
+  "apps/server/src/store/issues.ts :: legacyWorktreeContradictionSql :: issues.legacyWorktreeSkippedQuery": {
+    "count": 1,
+    "reason": "Boot backfill diagnostic uses the same live SQL predicate and session join as the migration; no committed issue-only snapshot can answer it."
+  },
   "apps/server/src/store/issues.ts :: row :: issues.getIssue": {
     "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+    "reason": "Shipping compare-and-swap returns the durable post-write row inside a possible enclosing transaction; retain the repository read-your-writes path."
+  },
+  "apps/server/src/store/issues.ts :: skipped :: issues.legacyWorktreeSkippedQuery": {
+    "count": 1,
+    "reason": "Boot machine backfill counts the live SQL session-contradiction predicate inside its mutation transaction; committed issue rows do not include this joined evidence."
   },
   "apps/server/src/store/users.ts :: account :: users.read": {
     "count": 2,
@@ -265,6 +217,6 @@
   },
   "scripts/measure-hot-paths.ts :: row :: issues.getIssue": {
     "count": 1,
-    "reason": "Reads full issue ownership or metadata beyond the indexed worktree lookup; retain the repository read."
+    "reason": "Measurement fixture deliberately reads and rewrites durable rows to model retention outside the service projection; this is setup, not a production reader."
   }
 }
