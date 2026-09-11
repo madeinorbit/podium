@@ -1,5 +1,6 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 export async function memberRequest<T>(origin: string, action: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${origin}/auth/members/${action}`, {
+  const response = await workspaceFetch(`${origin}/auth/members/${action}`, {
     method: body === undefined ? 'GET' : 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },

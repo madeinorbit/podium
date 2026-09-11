@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   MobileClientSession as MobileClientSessionSchema,
@@ -156,7 +157,7 @@ async function readJson(response: Response): Promise<unknown> {
 async function requestJson(input: string, init: RequestInit): Promise<unknown> {
   let response: Response
   try {
-    response = await fetch(input, init)
+    response = await workspaceFetch(input, init)
   } catch {
     throw new MobilePairingNetworkError()
   }

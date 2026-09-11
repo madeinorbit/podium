@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * MOBILE HANDOFF — the two surfaces that hand a desk session to a phone.
  *
@@ -100,7 +101,7 @@ export function useMobileHandoffUrl(
       try {
         const [info, versionResponse] = await Promise.all([
           trpc.setup.info.query(undefined, { signal: controller.signal }),
-          fetch(`${httpOrigin}/version`, {
+          workspaceFetch(`${httpOrigin}/version`, {
             cache: 'no-store',
             credentials: 'omit',
             signal: controller.signal,

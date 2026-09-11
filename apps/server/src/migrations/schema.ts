@@ -881,6 +881,7 @@ export const users = sqliteTable(
     email: text(),
     /** UNBRANDED: cloud identity provider's account id, not the managed LLM AccountId. */
     cloudAccountId: text('account_id'),
+    avatar: text(),
     role: text().notNull(),
     createdAt: text('created_at').notNull(),
     disabledAt: text('disabled_at'),

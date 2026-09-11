@@ -1,3 +1,4 @@
+import { workspaceRequestInit, workspaceSocketUrl } from '@/lib/workspace-request'
 import {
   parseServer,
   parseServerOrigin,
@@ -7,12 +8,7 @@ import {
 } from '@podium/client-core/transport'
 import { createLogger } from '@podium/logger'
 import type { AppRouter } from '@podium/server'
-import {
-  createTRPCClient,
-  httpBatchLink,
-  TRPCClientError,
-  type TRPCLink,
-} from '@trpc/client'
+import { createTRPCClient, httpBatchLink, TRPCClientError, type TRPCLink } from '@trpc/client'
 import { observable, type Unsubscribable } from '@trpc/server/observable'
 
 export type { ServerConfig, ServerOrigin }
@@ -48,7 +44,8 @@ const DEFAULT_RECOVERY_DELAYS_MS = [
  */
 export function serverConfig(loc: Location): ServerConfig {
   const injected = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__
-  return resolveServerConfig(loc, injected)
+  const config = resolveServerConfig(loc, injected)
+  return { ...config, wsClientUrl: workspaceSocketUrl(config.wsClientUrl, loc.pathname) }
 }
 
 /**
@@ -128,12 +125,15 @@ async function waitForServer(
   for (const delayMs of delaysMs) {
     await wait(delayMs, signal)
     try {
-      const response = await base(readinessUrl, {
-        method: 'GET',
-        credentials: 'include',
-        cache: 'no-store',
-        ...(signal ? { signal } : {}),
-      })
+      const response = await base(
+        readinessUrl,
+        workspaceRequestInit(readinessUrl, {
+          method: 'GET',
+          credentials: 'include',
+          cache: 'no-store',
+          ...(signal ? { signal } : {}),
+        }),
+      )
       // A 503 here is a server that IS up and is telling us its data plane is
       // blocked (PDM-26). That is the end of this wait — it answered — and
       // spinning on it would stall every reconnect behind an activation that
@@ -178,7 +178,10 @@ export function reportingFetch(
     try {
       // Send the login session cookie with every tRPC call. Same-origin already does this
       // by default; being explicit keeps it working if the client is ever cross-origin.
-      const response = await base(input, { ...init, credentials: 'include' })
+      const response = await base(
+        input,
+        workspaceRequestInit(input, { ...init, credentials: 'include' }),
+      )
       if (reportable && !response.ok) {
         log.warn('trpc call failed', { path, status: response.status })
       }

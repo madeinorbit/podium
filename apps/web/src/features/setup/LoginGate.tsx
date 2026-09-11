@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { InviteView } from './InviteView'
 import {
   type CSSProperties,
@@ -48,12 +49,14 @@ const MONO = "'Geist Mono Variable', ui-monospace, Menlo, monospace"
  * this client isn't authed yet. Every other answer is handed to the replica gate so it can
  * preserve authoritative refusals and offline namespace selection without another request.
  */
-type AuthDecision = { readonly kind: 'login' } | { readonly kind: 'ready'; auth: AuthBootstrap }
+type AuthDecision =
+  | { readonly kind: 'login'; mode: 'local' | 'cloud' }
+  | { readonly kind: 'ready'; auth: AuthBootstrap }
 
 async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
   let res: Response
   try {
-    res = await fetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
+    res = await workspaceFetch(`${httpOrigin}/auth/status`, { credentials: 'include' })
   } catch {
     // This request alone cannot distinguish a dead server from a transient
     // failure. Let the replica gate re-probe before it considers retained data.
@@ -77,7 +80,13 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
       },
     }
   }
-  let data: { userId?: unknown; needsAuth?: unknown; authed?: unknown; readiness?: unknown }
+  let data: {
+    userId?: unknown
+    needsAuth?: unknown
+    authed?: unknown
+    readiness?: unknown
+    mode?: unknown
+  }
   try {
     data = (await res.json()) as {
       userId?: unknown
@@ -88,7 +97,8 @@ async function probeAuth(httpOrigin: string): Promise<AuthDecision> {
   } catch {
     return { kind: 'ready', auth: { kind: 'provisional-failure' } }
   }
-  if (data.needsAuth === true && data.authed !== true) return { kind: 'login' }
+  if (data.needsAuth === true && data.authed !== true)
+    return { kind: 'login', mode: data.mode === 'cloud' ? 'cloud' : 'local' }
   const outcome = classifyAuthStatus(data)
   return 'principal' in outcome
     ? { kind: 'ready', auth: { kind: 'principal', principal: outcome.principal } }
@@ -112,6 +122,34 @@ function originHost(httpOrigin: string): string {
 }
 
 /* ── Login view ───────────────────────────────────────────────────────────── */
+
+export function CloudLoginView(): ReactNode {
+  const returnTo = window.location.pathname + window.location.search + window.location.hash
+  return (
+    <main
+      style={{
+        minHeight: '100dvh',
+        display: 'grid',
+        placeItems: 'center',
+        background: C.bg,
+        color: C.text,
+      }}
+    >
+      <a
+        href={`/account/sign-in?returnTo=${encodeURIComponent(returnTo)}`}
+        style={{
+          padding: '16px 24px',
+          borderRadius: 8,
+          background: C.accent,
+          color: C.accentText,
+          fontFamily: MONO,
+        }}
+      >
+        Continue with Podium Cloud
+      </a>
+    </main>
+  )
+}
 
 type LoginState = 'empty' | 'typing' | 'busy' | 'error' | 'ok'
 
@@ -147,7 +185,7 @@ export function LoginView({
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch(`${httpOrigin}/auth/login`, {
+      const res = await workspaceFetch(`${httpOrigin}/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         credentials: 'include',
@@ -456,6 +494,7 @@ export function LoginGate({
   const [inviteToken, setInviteToken] = useState(() =>
     new URLSearchParams(window.location.hash.slice(1)).get('invite'),
   )
+  const [mode, setMode] = useState<'local' | 'cloud'>('local')
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
   const httpOrigin = serverConfig(window.location).httpOrigin
@@ -466,6 +505,7 @@ export function LoginGate({
     probeAuth(httpOrigin).then((decision) => {
       if (!alive) return
       if (decision.kind === 'login') {
+        setMode(decision.mode)
         setPhase('login')
         return
       }
@@ -505,6 +545,7 @@ export function LoginGate({
   const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
   if (phase === 'ready') return <>{app}</>
 
+  if (mode === 'cloud') return <CloudLoginView />
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
   const blurred = phase === 'success' && !reduced

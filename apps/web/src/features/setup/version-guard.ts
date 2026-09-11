@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { WIRE_RELOAD_COUNTER_KEY } from '@podium/client-core/ui-state'
 import { createLogger } from '@podium/logger'
 import {
@@ -147,7 +148,7 @@ export async function checkServerVersion(
 ): Promise<VersionCheck> {
   let server: ReturnType<typeof parseServerVersion>
   try {
-    const res = await fetch(`${httpOrigin}/version`)
+    const res = await workspaceFetch(`${httpOrigin}/version`)
     server = parseServerVersion(await res.json())
   } catch {
     return 'ok' // unreachable or non-JSON /version → proceed rather than block

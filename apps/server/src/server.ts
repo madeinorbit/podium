@@ -151,6 +151,7 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
+import { createPluginAuth } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
 import {
   authReadinessBoundary,
@@ -625,7 +626,8 @@ export async function startServer(
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
-    !loadConfig().auth?.openMode && (await store.users.hasPerUserCredentials())
+    loadConfig().auth?.mode === 'cloud' ||
+    (!loadConfig().auth?.openMode && (await store.users.hasPerUserCredentials()))
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -1445,7 +1447,20 @@ export async function startServer(
    * authorized. Absent, the open-mode arm does not fire: a resolver that cannot
    * see where the request came from cannot claim it came from here.
    */
-  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
+  const auth = createPluginAuth(store.users)
+  const sourcePrincipal = (request: Request) =>
+    auth.principalSource?.({
+      cookieHeader: request.headers.get('cookie') ?? undefined,
+      authorizationHeader: request.headers.get('authorization') ?? undefined,
+      url: request.url,
+    })
+  const requestPrincipal = async (
+    headers: ClientCredentialHeaders,
+    request?: Request,
+    consultSource = true,
+  ) => {
+    const supplied = request && consultSource ? await sourcePrincipal(request) : undefined
+    if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
     const credentialed = await requestUserId(
       store.auth,
       headers.cookieHeader,
@@ -1463,6 +1478,7 @@ export async function startServer(
     return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
   }
   const guard = clientAuthGuard({
+    principalSource: sourcePrincipal,
     store: store.auth,
     users: store.users,
     loginRequired: credentialsRequired,
@@ -1500,6 +1516,7 @@ export async function startServer(
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
+    mode: () => loadConfig().auth?.mode ?? 'local',
     store: store.auth,
     users: store.users,
     // One principal resolver for every human-client transport. The status route
@@ -1720,7 +1737,14 @@ export async function startServer(
   // catch-alls below so plugin routes are reachable at all. Awaited in order;
   // a failing plugin aborts startup loudly rather than half-composing.
   for (const plugin of opts.plugins ?? []) {
-    await plugin.register({ hono: app, modules: registry.modules, bus: registry.bus, config, role })
+    await plugin.register({
+      hono: app,
+      modules: registry.modules,
+      bus: registry.bus,
+      config,
+      role,
+      auth,
+    })
   }
 
   // Serve the built web UIs for external clients (browser/phone/other desktop) —
@@ -1832,8 +1856,10 @@ export async function startServer(
             cookieHeader: request.headers.get('cookie') ?? undefined,
             authorizationHeader: request.headers.get('authorization') ?? undefined,
           }
+          const supplied = await sourcePrincipal(request)
+          if (supplied) return { userId: asUserId(supplied.memberId), userRole: supplied.role }
           const credential = await resolveClientCredential(store.auth, headers)
-          const principal = await requestPrincipal(headers, request)
+          const principal = await requestPrincipal(headers, request, false)
           if (!principal) return undefined
           const userRole = await store.users.roleOf(principal.user)
           if (!userRole) return undefined

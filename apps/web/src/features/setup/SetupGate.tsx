@@ -1,3 +1,4 @@
+import { workspaceFetch } from '@/lib/workspace-request'
 import { isServerReadiness, type ServerReadiness } from '@podium/model'
 import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react'
 import { LoadingScreen } from '@/app/LoadingScreen'
@@ -120,7 +121,7 @@ interface ProbeResult {
 }
 
 async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
-  const res = await fetch(`${httpOrigin}/setup/config`) // rejects only when unreachable → caller retries
+  const res = await workspaceFetch(`${httpOrigin}/setup/config`) // rejects only when unreachable → caller retries
   if (res.status === 404) return { phase: 'ready' } // backend without the route → don't block the app
   if (!res.ok) throw new Error(`setup probe failed: ${res.status}`)
   // A backend without the setup route serves the SPA's index.html for /setup/config (a 200 whose
@@ -146,7 +147,7 @@ async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
  * invalid, or unreachable probe retains their historical pass-through behavior. */
 async function probeRemoteReadiness(httpOrigin: string): Promise<ProbeResult> {
   try {
-    const response = await fetch(`${httpOrigin}/readiness`)
+    const response = await workspaceFetch(`${httpOrigin}/readiness`)
     // 503 IS AN ANSWER, not a failure (PDM-26): a blocked data plane now says so
     // in the status code as well as the body, and the body is exactly what it
     // always was. Treating it as unreachable here would wave a remote desktop

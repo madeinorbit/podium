@@ -276,6 +276,12 @@ describe('layered resolvers (#251): env → config.json → default', () => {
       }),
     ).toEqual({ a: true, b: false })
   })
+  it('round-trips cloud auth mode and leaves the default unchanged', () => {
+    saveConfig({ mode: 'server' })
+    expect(loadConfig().auth?.mode).toBeUndefined()
+    saveConfig({ mode: 'server', auth: { mode: 'cloud' } })
+    expect(loadConfig().auth?.mode).toBe('cloud')
+  })
   it('PodiumConfig accepts features record and round-trips via save/load', () => {
     saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
     expect(loadConfig().features).toEqual({ 'sample-experiment': true, other: false })
