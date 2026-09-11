@@ -31,12 +31,11 @@ import { runDrizzleMigrations } from './index'
 
 const MIGRATION = 'user-accounts-first-admin'
 /** The literal the migration writes. Spelled out here for the same reason the
- *  migration spells it out: a migration is frozen history, so this test must
- *  keep asserting the id that was actually written even if the constant is
- *  later renamed. `firstAdminMemberId()` is asserted equal to it in
- *  `packages/model/src/identity/user.test.ts`, which is where the two are tied
- *  together — importing it here would make this test follow a rename instead of
- *  catching one. */
+ *  migration spells it out: a migration is frozen history, so this test keeps
+ *  asserting the id that was actually written. Nothing ties it to a constant any
+ *  more — A2 retired the constant and re-keys this very row to a minted `mem_`
+ *  id, which is why every case here stops at this migration rather than running
+ *  the chain to its head. */
 const FIRST_ADMIN = 'user:sole'
 
 /**
