@@ -9,6 +9,8 @@ export const MachineJoinEnvelope = z.object({
   kind: z.literal('machine').optional(),
   serverUrl: z.string().min(1),
   pairCode: z.string().min(1),
+  /** Immutable hosted workspace registry id; absent for self-hosted pairing. */
+  workspaceId: z.string().min(1).optional(),
   podiumManaged: z.boolean().optional(),
   name: z.string().optional(),
 })

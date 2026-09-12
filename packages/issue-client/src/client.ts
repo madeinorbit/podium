@@ -135,6 +135,8 @@ export interface IssueClientOptions {
    *  cookie on every call. Absent = no cookie, which is correct on an instance with no
    *  password configured: `clientAuthGuard` passes those through. */
   sessionToken?: string
+  /** Stable hosted workspace selector sent before authentication. */
+  workspaceId?: string
   /** Injected in tests. */
   fetchImpl?: typeof fetch
 }
@@ -162,6 +164,7 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     const headers = new Headers(init?.headers)
     if (opts.sessionToken)
       headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)
+    if (opts.workspaceId) headers.set('Podium-Workspace-Id', opts.workspaceId)
     const res = await doFetch(input as never, { ...init, headers })
     if (res.ok) return res
     // Read once: a Response body can only be consumed once, so hand the link a fresh

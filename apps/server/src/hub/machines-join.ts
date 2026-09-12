@@ -36,6 +36,7 @@ function installerUrl(channel: 'stable' | 'edge'): string {
 export function buildJoinCommand(p: {
   publicUrl?: string
   pairCode: string
+  workspaceId?: string
   podiumManaged?: boolean
   name?: string
   channel?: 'stable' | 'edge'
@@ -47,6 +48,7 @@ export function buildJoinCommand(p: {
     v: 1,
     serverUrl: wssFrom(p.publicUrl),
     pairCode: p.pairCode,
+    ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}),
     ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
     ...(p.name ? { name: p.name } : {}),
   })

@@ -4,6 +4,7 @@ import { asMachineId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { SUPERVISOR_MACHINE_ID_ENV } from '@podium/runtime/machine-supervisor'
+import { workspaceRequestUrl } from '@podium/runtime/workspace-target'
 import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
@@ -159,7 +160,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     },
     endpointHandoff: {
       probeServerTransferCandidate: async (input) => {
-        const endpoint = new URL(`/server-transfer/candidate/${input.transferId}`, input.publicUrl)
+        const endpoint = workspaceRequestUrl(
+          new URL(`/server-transfer/candidate/${input.transferId}`, input.publicUrl).toString(),
+          options.workspaceId,
+        )
         const response = await fetch(endpoint, {
           headers: { authorization: `Bearer ${input.reachabilityToken}` },
           signal: AbortSignal.timeout(10_000),

@@ -32,6 +32,8 @@ const log = createLogger('server:trpc')
 export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
+  /** Stable hosted workspace identity for pre-auth join URLs; absent on self-hosted. */
+  workspaceId?: string
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional so test
    *  callers that don't exercise discovery need not construct one. */
   discovery?: MachineRepoDiscovery

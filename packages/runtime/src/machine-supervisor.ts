@@ -32,6 +32,7 @@ import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-t
 import { writeConnectivity } from './connectivity'
 import { stateDir, type PodiumConfig } from './config'
 import type { MachineUpdateAuthority } from './machine-update'
+import { workspaceEndpoint } from './workspace-target'
 
 const log = createLogger('runtime:machine-supervisor')
 const STATE_FILE = 'supervisor.json'
@@ -45,6 +46,7 @@ const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
 
 export interface SupervisorState {
+  workspaceId?: string
   machineId: MachineId
   token?: string
   updatePubkey?: string
@@ -70,6 +72,7 @@ function parseState(raw: unknown): SupervisorState | null {
   const assignment = MachineServiceAssignment.safeParse(value.assignment)
   return {
     machineId: asMachineId(value.machineId),
+    ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}),
     ...(typeof value.token === 'string' ? { token: value.token } : {}),
     ...(typeof value.updatePubkey === 'string' ? { updatePubkey: value.updatePubkey } : {}),
     ...(assignment.success ? { assignment: assignment.data } : {}),
@@ -260,6 +263,7 @@ export interface MachineSupervisorConnectionDeps {
   serverUrl: string | (() => string)
   stateDir: string
   state: SupervisorState
+  workspaceId?: string | (() => string | undefined)
   pairCode?: string
   bootstrapToken?: string | (() => string | undefined)
   name?: string
@@ -297,8 +301,12 @@ export function createMachineSupervisorConnection(
   const resolveServerUrl = (): string =>
     typeof deps.serverUrl === 'function' ? deps.serverUrl() : deps.serverUrl
   let activeServerUrl = resolveServerUrl()
-  let firstSettled = false
+  const resolveWorkspaceId = (): string | undefined =>
+    typeof deps.workspaceId === 'function'
+      ? deps.workspaceId()
+      : (deps.workspaceId ?? deps.state.workspaceId)
   let resolveFirst!: (connected: boolean) => void
+  let firstSettled = false
   const firstConnection = new Promise<boolean>((resolve) => {
     resolveFirst = resolve
   })
@@ -398,7 +406,7 @@ export function createMachineSupervisorConnection(
     }
     activeServerUrl = resolveServerUrl()
     const grantServerUrl = activeServerUrl
-    const active = new WebSocket(activeServerUrl.replace(/\/$/, '') + '/machine')
+    const active = new WebSocket(workspaceEndpoint(activeServerUrl, '/machine', resolveWorkspaceId()))
     socket = active
     active.addEventListener('open', () => {
       if (socket === active) active.send(JSON.stringify(dialer.hello()))

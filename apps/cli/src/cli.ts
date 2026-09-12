@@ -76,6 +76,7 @@ import { declareFlags, type FlagDeclaration, tryParseFlags } from './argv'
 export interface ModePlan {
   mode: PodiumMode
   serverUrl?: string
+  workspaceId?: string
   pairCode?: string
   name?: string
   showSetupHint: boolean
@@ -172,6 +173,7 @@ export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan 
   return {
     mode,
     showSetupHint,
+    ...(config.workspaceId ? { workspaceId: config.workspaceId } : {}),
     ...(serverUrl ? { serverUrl } : {}),
     ...(pairCode ? { pairCode } : {}),
     ...(name ? { name } : {}),
@@ -1105,6 +1107,7 @@ export async function resolveCliFeatures(
 
 export interface DaemonStartOptions {
   serverUrl: string
+  workspaceId?: string
   bootstrapToken?: string
   machineId?: MachineId
   pairCode?: string
@@ -1150,6 +1153,7 @@ export function daemonOptionsForPlan(
 
   return {
     serverUrl,
+    ...(plan.mode === 'daemon' && plan.workspaceId ? { workspaceId: plan.workspaceId } : {}),
     ...localAuth,
     // THE FACT ONLY THIS FUNCTION KNOWS (POD-2210). `all-in-one` here is by
     // construction the IN-PROCESS one: the systemd and detached shapes are
@@ -1363,6 +1367,7 @@ async function runInProcess(
       const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
       daemonOptions = {
         serverUrl: modePlan.serverUrl ?? localServerWsUrl(port),
+        ...(modePlan.workspaceId ? { workspaceId: modePlan.workspaceId } : {}),
         bootstrapToken: readOrCreateDaemonSecret(),
         machineId: readOrCreateLocalMachineId(),
         installCodexHooks: true,
@@ -1705,6 +1710,10 @@ export async function main(
       const compiled = import.meta.url.includes('/$bunfs/')
       const supervisorState = loadSupervisorState(stateDir())
       let topologyConfig = config
+      if (config.workspaceId && supervisorState.workspaceId !== config.workspaceId) {
+        supervisorState.workspaceId = config.workspaceId
+        saveSupervisorState(stateDir(), supervisorState)
+      }
       const targetRecovery = targetTransferRecovery(supervisorState, config)
       const localBootstrapToken = plan.includeServer ? readOrCreateDaemonSecret() : undefined
       if (plan.includeServer && !targetRecovery) {
@@ -1945,6 +1954,7 @@ export async function main(
         serverUrl: machineServerUrl,
         stateDir: stateDir(),
         state: supervisorState,
+        workspaceId: () => loadConfig().workspaceId ?? supervisorState.workspaceId,
         ...(config.pairCode ? { pairCode: config.pairCode } : {}),
         bootstrapToken: () => (runningAssignment.server ? readOrCreateDaemonSecret() : undefined),
         build: {

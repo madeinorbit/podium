@@ -481,6 +481,7 @@ describe('supervisor endpoint reconfiguration', () => {
     const dir = stateDir()
     const state = loadSupervisorState(dir)
     let endpoint = 'ws://old.example'
+    state.workspaceId = 'ws_test'
     let token = 'old-secret'
     let acceptAssignment = true
     const service = {
@@ -503,6 +504,7 @@ describe('supervisor endpoint reconfiguration', () => {
       connection.start()
       const old = Socket.all[0]!
       old.accept()
+      expect(old.url).toBe('ws://old.example/machine?workspace=ws_test')
       expect(old.sent[0]!.caps).toEqual([SERVER_MOVE_CAPABILITY, 'update.delivery.feed'])
       token = 'new-secret'
       connection.reconfigure()

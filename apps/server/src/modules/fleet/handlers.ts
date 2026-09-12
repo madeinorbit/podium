@@ -40,7 +40,7 @@ export interface FleetPorts {
    * this instance has no public URL to join to. Built from `hub/machines-join`
    * at the composition root.
    */
-  joinCommand: (pairCode: string, podiumManaged?: boolean) => string | null
+  joinCommand: (pairCode: string, podiumManaged?: boolean, workspaceId?: string) => string | null
 }
 
 /**
@@ -280,7 +280,10 @@ export const machinePairingCodeHandler = async ({
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
     podiumManaged: input?.podiumManaged ?? true,
   })
-  return { code, joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true) }
+  return {
+    code,
+    joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId),
+  }
 }
 
 /**

@@ -40,6 +40,8 @@ export interface DaemonHooksOptions {
 
 export interface DaemonOptions {
   serverUrl: string
+  /** Immutable hosted workspace target; omitted for self-hosted servers. */
+  workspaceId?: string
   installCodexHooks?: boolean
   installGrokHooks?: boolean
   /** Local machine secret (`daemonSecret` credential), never ambient trust. */

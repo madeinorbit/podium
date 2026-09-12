@@ -251,7 +251,7 @@ import type { PinState, SnoozeMap } from './store/types'
  * importing it. This file is a composition root, so it supplies the port.
  */
 const fleet = fleetProcedures({
-  joinCommand: (pairCode, podiumManaged) => {
+  joinCommand: (pairCode, podiumManaged, workspaceId) => {
     const config = loadConfig()
     const publicUrl = resolvePublicUrl(config, process.env)
     return publicUrl
@@ -259,6 +259,7 @@ const fleet = fleetProcedures({
           publicUrl,
           pairCode,
           podiumManaged,
+          ...(workspaceId ? { workspaceId } : {}),
           channel: resolveUpdateChannel(config) === 'stable' ? 'stable' : 'edge',
         })
       : null

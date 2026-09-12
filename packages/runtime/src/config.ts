@@ -203,6 +203,8 @@ export const PodiumConfig = z.object({
   configVersion: z.number().int().positive().optional(),
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
+  /** Immutable hosted workspace registry id carried by joined machines. */
+  workspaceId: z.string().min(1).optional(),
   port: z.number().int().positive().optional(),
   /** Durable server listen contract. Set by promotion; absent preserves legacy env/default. */
   bindHost: z.enum(['127.0.0.1', '0.0.0.0']).optional(),

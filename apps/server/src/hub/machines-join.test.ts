@@ -64,4 +64,18 @@ describe('buildJoinCommand', () => {
     expect(parsed.stderr).toBe('')
     expect(parsed.status).toBe(0)
   })
+  it('embeds the stable workspace target for hosted pairing', () => {
+    const line = buildJoinCommand({
+      publicUrl: 'https://box.ts.net',
+      pairCode: 'AB12',
+      workspaceId: 'ws_hosted',
+    })
+    const marker = '--join '
+    const token = line.slice(line.indexOf(marker) + marker.length).trim()
+    expect(decodeJoin(token)).toMatchObject({
+      serverUrl: 'wss://box.ts.net',
+      pairCode: 'AB12',
+      workspaceId: 'ws_hosted',
+    })
+  })
 })
