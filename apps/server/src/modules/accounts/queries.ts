@@ -33,12 +33,17 @@
  * left the other answering the same question differently — the shape where a
  * scoped read and an unscoped sibling both survive review.
  *
- * THE MANAGED HALF IS NOT SCOPED HERE, and saying so is deliberate. The
- * `accounts` table has no owner column and its ids are per-provider singletons
- * derived server-side (`managed:anthropic`), so there is no per-person managed
- * row to return; `accounts.connect` DECLARES the row owned by the human it was
- * written on behalf of, and that ownership is not stored. Closing that is a
- * schema change on B2's credential boundary and is filed rather than done here.
+ * THE MANAGED HALF IS NOW SCOPED TOO (PDM-280). It was not, and the paragraph
+ * that used to sit here explained why: the `accounts` table had no owner column
+ * and its ids were per-provider singletons, so there was no per-person managed
+ * row to return even though `accounts.connect` DECLARED the row owned by the
+ * human it was written on behalf of. That ownership is stored now —
+ * `managed_credentials` is keyed (owner_user_id, id) — so the same
+ * `callerUserId` resolved above decides both halves of this read, and
+ * `accounts.list` is caller-scoped whichever arm you follow.
+ *
+ * What remains instance-wide is the LEGACY arm, `settings.apiKeyFor`, which
+ * reads `server_secrets`. See `accountViews` for why it is not narrowed.
  */
 
 import type { TransportTag } from '@podium/commands'
@@ -75,6 +80,7 @@ export const ACCOUNT_QUERIES = {
     return await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
+      state.callerUserId,
       (await state.machines.listMachines()).filter((machine) => usable.has(machine.id)),
     )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account

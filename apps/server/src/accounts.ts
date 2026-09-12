@@ -6,7 +6,7 @@
 // server-only accounts table and only their masked identities are projected.
 
 import { harnessDetectLogin } from '@podium/harness/metadata'
-import { asAccountId, type HarnessAgent, type MachineId } from '@podium/model'
+import { asAccountId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
 import type { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
@@ -139,15 +139,28 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
 
 /**
  * All accounts for the hub: the catalog of native CLI logins plus the managed
- * credentials Podium holds. Managed rows are read from the accounts table, never
- * from the settings blob, so credential bytes cannot reach a client.
+ * credentials `viewer` holds. Managed rows are read from the credential table,
+ * never from the settings blob, so credential bytes cannot reach a client.
  *
- * The third argument accepts an explicit HOME only for legacy unit tests. The
+ * WHOSE MANAGED ROWS (PDM-280). `viewer` is the human whose hub this is, and the
+ * four managed slots are projected out of THEIR credentials. Before this the
+ * slots were instance-wide singletons, so the same four rows were shown to
+ * everybody — the disclosure PDM-271 could scope on the native half and not on
+ * this one, because there was no owner stored to scope by.
+ *
+ * THE LEGACY ARM IS DELIBERATELY NOT SCOPED. `legacyApiKey` resolves pre-hub keys
+ * out of `server_secrets`, which is instance-wide and records no owner anywhere —
+ * so there is nothing to narrow it BY, and inventing one would be a guess about
+ * who typed it. Those rows still say `credentialSource: 'legacy'`, and
+ * `resolveAccountEnv` has never injected them.
+ *
+ * The last argument accepts an explicit HOME only for legacy unit tests. The
  * production query passes machine records and therefore has no homedir fallback.
  */
 export async function accountViews(
   legacyApiKey: (provider: string) => string | undefined | Promise<string | undefined>,
   accounts: AccountsRepository,
+  viewer: UserId,
   machinesOrHome: readonly MachineRecord[] | string = [],
 ): Promise<AccountView[]> {
   const native =
@@ -160,7 +173,7 @@ export async function accountViews(
         ]
       : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
 
-  const stored = new Map((await accounts.list()).map((a) => [a.id, a]))
+  const stored = new Map((await accounts.list(viewer)).map((a) => [a.id, a]))
   const managed: AccountView[] = await Promise.all(MANAGED_KEY_PROVIDERS.map(async (provider) => {
     const id = `managed:${provider}`
     const row = stored.get(asAccountId(id))

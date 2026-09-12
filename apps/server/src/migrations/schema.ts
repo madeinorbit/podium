@@ -2652,6 +2652,28 @@ export const workflowEvents = sqliteTable(
   ],
 )
 
+/**
+ * THE INSTANCE-WIDE CREDENTIAL TABLE — REPLACED AND UNREAD (PDM-280).
+ * ITS REMOVAL IS PDM-296; DO NOT ADD A READER.
+ *
+ * Its primary key is the account id ALONE, and the ids are per-provider
+ * singletons minted server-side (`managed:anthropic`), so this table can hold
+ * exactly one Anthropic key for the whole instance and records nothing about
+ * whose it is. `accounts.connect` meanwhile DECLARES the row owned by the human
+ * the write was made on behalf of, and its conflict rule says "one live
+ * credential per (user, provider)" — two statements of intent this shape
+ * implements neither of. {@link managedCredentials} below is the replacement,
+ * and every reader moved to it in one commit.
+ *
+ * WHY THE DECLARATION IS STILL HERE, given that nothing reads it. The rows are
+ * the rollback path for exactly one release: an older binary swapped back in
+ * finds them untouched. And deleting the declaration is not available anyway —
+ * `audit:migration-drift` fails unless the head snapshot IS this file, so
+ * removing it while the table exists in every database makes drizzle want to
+ * emit `DROP TABLE`, which is precisely what `audit:expand-only` forbids in the
+ * release that adds the replacement. The two gates close the door from opposite
+ * sides. PDM-296 opens it a release later.
+ */
 export const accounts = sqliteTable('accounts', {
   id: text().$type<AccountId>().primaryKey(),
   provider: text().notNull(),
@@ -2661,6 +2683,58 @@ export const accounts = sqliteTable('accounts', {
   scope: text().default('role').notNull(),
   createdAt: integer('created_at').notNull(),
 })
+
+/**
+ * A MANAGED CREDENTIAL BELONGS TO A PERSON (PDM-280, ADR 1 row
+ * `managedCredentials`, ADR 9 D5 A4).
+ *
+ * The key is the PAIR. `managed:anthropic` stays a SLOT NAME — the same string
+ * `managedAccountId()` mints, the settings blob persists in `roles[role]
+ * .accountId` and the Accounts hub offers — but it now names a slot INSIDE one
+ * person's credentials rather than the instance's single row. Minting
+ * `managed:anthropic:<userId>` instead would have broken every one of those
+ * spellings for no gain.
+ *
+ * `owner_user_id` rather than the `user_id` the per-user state family uses
+ * (`pins`, `tab_order`, `user_preferences`): those key a person's VIEW of
+ * something, while this records who is ACCOUNTABLE for a credential — the
+ * `owner_user_id` vocabulary `automations` and the session rows already use, and
+ * the word `accounts.connect`'s `ownership.owner` says.
+ *
+ * NO FOREIGN KEY TO `users`, deliberately, and for the reason the ownership
+ * dispositions table gives: a credential's owner must not become unresolvable by
+ * a cascade. A row whose owner no longer exists is unreachable by every read
+ * here (they are all keyed by a live caller) rather than silently reassigned.
+ *
+ * `provenance` IS THE ADOPTION RECORD. The upgrade hands the instance's existing
+ * unowned rows to the earliest admin, and a later reader must be able to tell a
+ * key that person CONNECTED from one the upgrade GAVE them — PDM-247's
+ * requirement, from the phase A reviewer's rejection of A2's first attempt. A
+ * CHECKed vocabulary rather than prose so adopted keys are countable by class.
+ * The other half of that record is that nothing was destroyed to write it: the
+ * source rows are still in {@link accounts} until PDM-296.
+ */
+export const managedCredentials = sqliteTable(
+  'managed_credentials',
+  {
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    id: text().$type<AccountId>().notNull(),
+    provider: text().notNull(),
+    kind: text().notNull(),
+    credential: text().notNull(),
+    identity: text().default('').notNull(),
+    scope: text().default('role').notNull(),
+    createdAt: integer('created_at').notNull(),
+    provenance: text().default('connected').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerUserId, table.id], name: 'managed_credentials_pk' }),
+    check(
+      'managed_credentials_provenance',
+      sql`provenance IN ('connected', 'adopted-instance-credential')`,
+    ),
+  ],
+)
 
 export const automations = sqliteTable(
   'automations',

@@ -47,6 +47,7 @@ import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
+import type { SessionFacts } from './facts'
 import { HandoffCoordinator } from './handoff/coordinator'
 import type { AssertMachineUse, HandoffCaller, HandoffPorts } from './handoff/ports'
 import type { PreparedSessionInstructions } from './instructions'
@@ -54,7 +55,6 @@ import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
-import type { SessionFacts } from './facts'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -155,7 +155,7 @@ export class SessionRevival {
       input.agentKind,
       input.use,
     )
-    const issueId = await this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
+    const issueId = (await this.ports.issueAccess.soleOwnerForCwd(input.cwd)) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
     const sessionId = asSessionId(randomUUID())
@@ -244,7 +244,11 @@ export class SessionRevival {
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return await this.handoffs(issues).handoff(input, caller, await this.ports.machineUseGate(caller))
+    return await this.handoffs(issues).handoff(
+      input,
+      caller,
+      await this.ports.machineUseGate(caller),
+    )
   }
 
   /**
@@ -268,7 +272,7 @@ export class SessionRevival {
       listRepos: async () => await this.ports.store.repos.listRepos(),
       listMachines: async () => await this.ports.machines.listMachines(),
       waitForInventory: async (machineId) => await this.ports.machines.waitForInventory(machineId),
-      issueMeta: async (issueId) => await this.ports.issueAccess.getMeta(issueId) ?? undefined,
+      issueMeta: async (issueId) => (await this.ports.issueAccess.getMeta(issueId)) ?? undefined,
       rehomeIssue: async (issueId, where) => {
         await issues.rehome(issueId, where)
       },
@@ -284,7 +288,8 @@ export class SessionRevival {
       onWorktreesChanged: (repoPath, machineId) =>
         this.ports.onWorktreesChanged(repoPath, machineId),
       resumeSession: async (resumeInput) => await this.resumeSession(resumeInput, issues),
-      resurrectSession: async (resurrectInput) => await this.resurrectSession(resurrectInput, issues),
+      resurrectSession: async (resurrectInput) =>
+        await this.resurrectSession(resurrectInput, issues),
       recordEvent: async (event) => {
         await this.ports.store.events.appendEvent(event)
       },
@@ -451,8 +456,16 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...await this.ports.launchConfig.modelDefaults(session.agentKind),
-      ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
+      ...(await this.ports.launchConfig.modelDefaults(session.agentKind)),
+      // A revived session keeps its OWN owner's credential: the row is durable
+      // (B1), so a session that comes back after a restart bills the same human
+      // it billed before rather than whoever the server resolves by default
+      // (PDM-280).
+      ...(await this.ports.launchConfig.accountEnv(
+        session.agentKind,
+        session.ownerUserId,
+        session.accountId,
+      )),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

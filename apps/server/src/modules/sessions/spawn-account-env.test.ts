@@ -12,7 +12,7 @@
  *     frame shape every existing user already spawns with.
  */
 
-import { asAccountId } from '@podium/model'
+import { asAccountId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -24,13 +24,23 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-/** A store whose coding role points at `accountId`, with the managed rows seeded. */
+/**
+ * A store whose coding role points at `accountId`, with the managed rows seeded
+ * FOR THE OWNER THE SPAWN WILL RESOLVE (PDM-280).
+ *
+ * That owner is the instance's first admin here, because `createSession` is
+ * called below without an explicit `ownerUserId` and `create()`'s last-term
+ * fallback resolves one (PDM-276 owns closing that). Seeding under any other id
+ * would make every positive case below fail for a reason unrelated to the wiring
+ * they exist to pin.
+ */
 async function storeWith(
   accountId: string,
-  ...accounts: Array<Parameters<SessionStore['accounts']['upsert']>[0]>
+  ...accounts: Array<Parameters<SessionStore['accounts']['upsert']>[1]>
 ): Promise<SessionStore> {
   const store = await openTestStore(':memory:')
-  for (const a of accounts) await store.accounts.upsert(a)
+  const owner = await firstAdminMemberId(store)
+  for (const a of accounts) await store.accounts.upsert(owner, a)
   const settings = await store.settings.getSettings()
   await store.settings.setSettings({
     ...settings,
@@ -53,7 +63,9 @@ const MANAGED_ANTHROPIC = {
 } as const
 
 /** Registry + the daemon's inbox of control frames. */
-async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+async function makeRegistry(
+  store: SessionStore,
+): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -64,7 +76,10 @@ async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry
 const spawns = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
 /** The frame for a fresh create (call site 1: SessionLifecycle.spawn). */
-async function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
+async function createFrame(
+  store: SessionStore,
+  agentKind: 'claude-code' | 'shell' = 'claude-code',
+) {
   const { reg, daemon } = await makeRegistry(store)
   await reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
   const frame = spawns(daemon).at(-1)
@@ -132,4 +147,48 @@ it('never injects the managed credential into a SHELL pane (#216)', async () => 
   expect(frame.agentKind).toBe('shell')
   expect(Object.hasOwn(frame, 'env')).toBe(false)
   expect(JSON.stringify(frame)).not.toContain('sk-ant-managed')
+})
+
+/**
+ * THE REFUSAL AT THE WIRING (PDM-280), which is where it has to be provable:
+ * `resolveAccountEnv` throwing is a unit fact, but what matters is that the
+ * spawn does not happen and the frame carrying somebody else's key is never
+ * built.
+ */
+it('refuses to spawn for an owner with no credential, rather than borrowing the admin’s', async () => {
+  const store = await storeWith('managed:anthropic', MANAGED_ANTHROPIC)
+  const { reg, daemon } = await makeRegistry(store)
+  const before = spawns(daemon).length
+  const stranger: UserId = asUserId('mem_stranger')
+
+  await expect(
+    reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      ownerUserId: stranger,
+    }),
+  ).rejects.toThrow(/no managed credential for 'anthropic'/)
+
+  // NOT MERELY "no env": no spawn frame at all, and the credential that was
+  // sitting in the store one row away never reached the daemon.
+  expect(spawns(daemon).length).toBe(before)
+  expect(JSON.stringify(daemon)).not.toContain('sk-ant-managed')
+})
+
+it('still spawns for an owner who has their OWN credential at that slot', async () => {
+  // The other direction: the refusal above must be about the missing row, not
+  // about the caller being someone other than the first admin.
+  const store = await storeWith('managed:anthropic', MANAGED_ANTHROPIC)
+  const stranger: UserId = asUserId('mem_stranger')
+  await store.accounts.upsert(stranger, { ...MANAGED_ANTHROPIC, credential: 'sk-ant-stranger' })
+  const { reg, daemon } = await makeRegistry(store)
+
+  await reg.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: '/proj',
+    ownerUserId: stranger,
+  })
+
+  const frame = spawns(daemon).at(-1) as Extract<ControlMessage, { type: 'spawn' }>
+  expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-stranger' })
 })
