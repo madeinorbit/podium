@@ -8,10 +8,12 @@ import { PressableScale } from './PressableScale'
 export function HostedSignInButton({
   server = HOSTED_API_ORIGIN,
   signInUrl = HOSTED_SIGN_IN_URL,
+  workspaceId,
   label = 'Continue with Podium Cloud',
   onBegin,
 }: {
   server?: string
+  workspaceId?: string
   signInUrl?: string
   label?: string
   onBegin?(): void | Promise<void>
@@ -56,8 +58,7 @@ export function HostedSignInButton({
             setBusy(true)
             try {
               await onBegin?.()
-              setStatus('Opening your browser…')
-              await hostedSignIn.begin(server, signInUrl)
+              await hostedSignIn.begin(server, signInUrl, workspaceId)
               setStatus('Finish signing in in your browser, then return to Podium.')
             } catch {
               setStatus('Could not start sign-in. Try again.')

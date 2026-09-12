@@ -1,6 +1,8 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   parseServer,
+  workspaceRequestInit,
+  type WorkspaceSelector,
   parseServerOrigin,
   resolveServerConfig,
   type ServerConfig,
@@ -311,11 +313,26 @@ export function activeServerHttpOrigin(): string | undefined {
 export function activeServerBearer(): string | null {
   return activeRuntimeBearer
 }
+function configuredWorkspaceSelector(): WorkspaceSelector | undefined {
+  if (!activeRuntimeConfig) return undefined
+  if (activeRuntimeConfig.workspaceId) return { workspaceId: activeRuntimeConfig.workspaceId }
+  if (activeRuntimeConfig.workspaceSlug) return { workspaceSlug: activeRuntimeConfig.workspaceSlug }
+  return undefined
+}
 
-export function bearerHeaders(bearer: string | null, headers?: HeadersInit): Headers {
+export function bearerHeaders(
+  bearer: string | null,
+  headers?: HeadersInit,
+  selector?: WorkspaceSelector,
+): Headers {
   const result = new Headers(headers)
-  if (bearer) result.set('Authorization', `Bearer ${bearer}`)
-  return result
+  if (bearer) result.set("Authorization", `Bearer ${bearer}`)
+  const scoped = workspaceRequestInit(
+    new URL("https://podium.invalid"),
+    { headers: result },
+    selector ?? configuredWorkspaceSelector(),
+  )
+  return new Headers(scoped?.headers ?? result)
 }
 
 export async function fetchMobileTransport(
@@ -323,11 +340,12 @@ export async function fetchMobileTransport(
   init: RequestInit | undefined,
   bearer: string | null,
   onAuthExpired?: (error: MobileAuthExpiredError) => void,
+  selector?: WorkspaceSelector,
 ): Promise<Response> {
   const response = await fetch(input, {
     ...init,
-    credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: bearerHeaders(bearer, init?.headers),
+    credentials: Platform.OS === "web" ? "include" : "omit",
+    headers: bearerHeaders(bearer, init?.headers, selector),
   })
   if (bearer && response.status === 401) {
     onAuthExpired?.(new MobileAuthExpiredError())
@@ -339,12 +357,14 @@ export function makeMobileTrpc(
   httpOrigin: string,
   bearer: string | null = null,
   onAuthExpired?: (error: MobileAuthExpiredError) => void,
+  selector?: WorkspaceSelector,
 ): MobileTrpc {
   return createTRPCClient<any>({
     links: [
       httpBatchLink({
-        url: httpOrigin + '/trpc',
-        fetch: (url, opts) => fetchMobileTransport(url, opts, bearer, onAuthExpired),
+        url: httpOrigin + "/trpc",
+        fetch: (url, opts) =>
+          fetchMobileTransport(url, opts, bearer, onAuthExpired, selector),
       }),
     ],
   }) as unknown as MobileTrpc

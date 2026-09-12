@@ -151,6 +151,8 @@ export interface MobilePairingRouteOptions {
     /** Where the web UI lives when it is not this server (PDM-26); absent means here. */
     appUrl?: string
     instanceId: string
+    /** Immutable hosted workspace registry identity, absent for self-hosted installs. */
+    workspaceId?: string
   }
   loginRequired: () => boolean | Promise<boolean>
   /** Resolve real credentials only; open-mode authorization must not grant session control. */
@@ -222,6 +224,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
         mode: 'open' as const,
         canonicalOrigin: serverUrl,
         mobileUrl: `${serverUrl}/mobile`,
+        ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
         transport: transportReadiness(serverUrl),
         instanceId: identity.instanceId,
       })
@@ -239,6 +242,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       mode: 'pair',
       serverUrl,
       pairCode: grant.pairCode,
+      ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
       expiresAt: grant.expiresAt,
       instanceId: identity.instanceId,
     }
@@ -249,6 +253,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       envelope,
       pairingUrl: mobilePairingUrl(payload),
       canonicalOrigin: serverUrl,
+      ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
       transport: transportReadiness(serverUrl),
       expiresAt: grant.expiresAt,
       instanceId: identity.instanceId,

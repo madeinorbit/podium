@@ -773,7 +773,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const authExpiryHandled = useRef(false)
   useEffect(() => {
     authExpiryHandled.current = false
-  }, [bearer, config.httpOrigin])
+  }, [bearer, config.httpOrigin, config.workspaceId])
   const expireLiveCredential = useCallback(() => {
     if (!bearer || !updateCredential || authExpiryHandled.current) return
     authExpiryHandled.current = true
@@ -790,13 +790,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
       return
     }
     if (!bearer || authExpiryHandled.current) return
-    void checkLiveAuth(config.httpOrigin, bearer).then((result) => {
+    void checkLiveAuth(config.httpOrigin, bearer, config.workspaceId).then((result) => {
       if (result.kind === 'expired') expireLiveCredential()
     })
-  }, [activation, bearer, config.httpOrigin, expireLiveCredential, revalidateOfflineProfile])
+  }, [activation, bearer, config.httpOrigin, config.workspaceId, config.workspaceSlug, expireLiveCredential, revalidateOfflineProfile])
   const trpc = useMemo(
-    () => makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential),
-    [bearer, config.httpOrigin, expireLiveCredential],
+    () => makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential, config.workspaceId ? { workspaceId: config.workspaceId } : config.workspaceSlug ? { workspaceSlug: config.workspaceSlug } : undefined),
+    [bearer, config.httpOrigin, config.workspaceId, config.workspaceSlug, expireLiveCredential],
   )
   const inheritedAuthStatus = useAuthStatus()
   const clientSeams = nativeClientSeams(connectivity)
@@ -863,7 +863,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
             coalesce: isTranscriptWindowStorageKey,
           }),
-          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer),
+          inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
         if (status.userId === null) throw new Error('authenticated account is unavailable')
@@ -961,7 +961,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         window.removeEventListener('pagehide', onPageHide)
       }
     }
-  }, [bearer, config.httpOrigin, profileId, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
+  }, [bearer, config.httpOrigin, config.workspaceId, profileId, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the

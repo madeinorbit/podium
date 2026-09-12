@@ -47,6 +47,8 @@ export const MobilePairEnvelope = z
     pairCode: z.string().min(20).max(256),
     expiresAt: z.string().datetime(),
     instanceId: z.string().min(1).max(256),
+    /** Immutable hosted workspace registry id; absent for legacy self-hosted pairing. */
+    workspaceId: z.string().min(1).max(256).optional(),
   })
   .strict()
 export type MobilePairEnvelope = z.infer<typeof MobilePairEnvelope>
@@ -56,6 +58,8 @@ export const MobileOpenEnvelope = z
     v: z.literal(2),
     kind: z.literal('mobile-client'),
     mode: z.literal('open'),
+    /** Immutable hosted workspace registry id; absent for legacy self-hosted pairing. */
+    workspaceId: z.string().min(1).max(256).optional(),
     serverUrl: httpOrigin,
     instanceId: z.string().min(1).max(256),
   })

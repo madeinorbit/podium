@@ -9,12 +9,14 @@ import { HostedSignInButton } from './HostedSignInButton'
  */
 export function MembershipDeniedView({
   reason,
+  workspaceId,
   server,
   signInUrl,
   onBegin,
 }: {
   reason: string
   server: string
+  workspaceId?: string
   signInUrl?: string
   onBegin?(): void | Promise<void>
 }) {
@@ -30,7 +32,7 @@ export function MembershipDeniedView({
       </Text>
       <HostedSignInButton
         server={server}
-        signInUrl={signInUrl}
+        workspaceId={workspaceId}
         label="Use another account"
         onBegin={onBegin}
       />

@@ -16,6 +16,8 @@ export interface ServerProfile {
   name: string
   httpOrigin: string
   instanceId?: string
+  /** Immutable hosted workspace identity; never use the mutable slug as storage identity. */
+  workspaceId?: string
   mode: 'open' | 'protected'
   transport: ServerTransport
   userId?: string
@@ -25,9 +27,10 @@ export interface ServerProfile {
 
 /** Identity for process-local data that must not cross a replaced server instance. */
 export function serverProfileRequestKey(
-  profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId'>,
+  profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId' | 'workspaceId'>,
 ): string {
-  return `${profile.id}\n${profile.userId ?? ''}\n${profile.instanceId ?? ''}`
+  const key = [profile.id, profile.userId ?? "", profile.instanceId ?? ""].join("\n")
+  return profile.workspaceId ? key + "\n" + profile.workspaceId : key
 }
 
 export interface ServerProfileState {
@@ -48,6 +51,7 @@ export function canOpenProfileOffline(
   failureKind:
     | 'not-podium'
     | 'version-mismatch'
+    | 'workspace-mismatch'
     | 'tls-untrusted'
     | 'unreachable'
     | 'cleartext-blocked',
@@ -84,11 +88,13 @@ export function reusableProfileAtOrigin(
   profiles: ServerProfile[],
   canonicalOrigin: string,
   userId?: string,
+  workspaceId?: string,
 ): ServerProfile | undefined {
   return profiles.find(
     (profile) =>
       profile.httpOrigin === canonicalOrigin &&
-      (!userId || !profile.userId || profile.userId === userId),
+      (!userId || !profile.userId || profile.userId === userId) &&
+      (workspaceId ? profile.workspaceId === workspaceId : !profile.workspaceId),
   )
 }
 
@@ -136,9 +142,13 @@ function isProfile(value: unknown): value is ServerProfile {
     transportMatches &&
     credentialPolicyMatches &&
     (row.instanceId === undefined ||
-      (typeof row.instanceId === 'string' &&
+      (typeof row.instanceId === "string" &&
         row.instanceId.length > 0 &&
         row.instanceId.length <= 256)) &&
+    (row.workspaceId === undefined ||
+      (typeof row.workspaceId === "string" &&
+        row.workspaceId.length > 0 &&
+        row.workspaceId.length <= 256)) &&
     (row.userId === undefined ||
       (typeof row.userId === 'string' && row.userId.length > 0 && row.userId.length <= 256)) &&
     typeof row.createdAt === 'string' &&

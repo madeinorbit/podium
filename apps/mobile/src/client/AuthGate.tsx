@@ -38,7 +38,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       return
     }
     let alive = true
-    fetchAuthStatus(config.httpOrigin, bearer)
+    fetchAuthStatus(config.httpOrigin, bearer, profile.workspaceId)
       .then((status) => {
         if (!alive) return
         setAuthStatus(status)
@@ -59,7 +59,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [activation, bearer, config.httpOrigin, demo, profile.mode, profile.userId])
+  }, [activation, bearer, config.httpOrigin, demo, profile.mode, profile.userId, profile.workspaceId])
 
   // The persistent LaunchBoundary above this gate owns the visible splash.
   // Returning null keeps it mounted instead of starting the reveal over here.
@@ -90,7 +90,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           onBegin={async () => {
             // Revoke/clear the refused account before starting a new handoff.
             // The new account must never inherit this profile's bearer.
-            await logout(config.httpOrigin, bearer).catch(() => {})
+            await logout(config.httpOrigin, bearer, profile.workspaceId).catch(() => {})
             await removeProfile(profile.id).catch(() => {})
           }}
         />

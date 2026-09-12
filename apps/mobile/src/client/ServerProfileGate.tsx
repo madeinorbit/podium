@@ -1,4 +1,4 @@
-import { parseServerOrigin, type ServerConfig } from '@podium/client-core/transport'
+import { parseServerOrigin, workspaceSelectorFromLocation, type ServerConfig, type WorkspaceSelector } from '@podium/client-core/transport'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
 import {
@@ -90,9 +90,9 @@ import { envServer, sameSiteBuildServer, setActiveServerRuntime } from './trpc'
 // Re-exported so existing importers of `./ServerProfileGate` are unaffected.
 export { useOptionalServerProfile, useServerProfile } from './server-profile-context'
 
-function configFor(origin: string, override: boolean): ServerConfig {
-  const parsed = parseServerOrigin(origin)
-  if (!parsed) throw new Error('invalid server profile origin')
+function configFor(origin: string, override: boolean, selector?: WorkspaceSelector): ServerConfig {
+  const parsed = parseServerOrigin(origin, selector)
+  if (!parsed) throw new Error("invalid server profile origin")
   return { ...parsed, override }
 }
 
@@ -104,7 +104,8 @@ function webProfile(): { profile: ServerProfile; config: ServerConfig } {
   // Native build-time injection on its own must never win on web.
   const explicitOverride = overrideFromUrl(window.location.href)
   const origin = explicitOverride ?? sameSiteBuildServer() ?? window.location.origin
-  const config = configFor(origin, origin !== window.location.origin)
+  const selector = workspaceSelectorFromLocation(window.location)
+  const config = configFor(origin, origin !== window.location.origin, selector)
   const now = new Date().toISOString()
   return {
     config,
@@ -112,6 +113,7 @@ function webProfile(): { profile: ServerProfile; config: ServerConfig } {
       id: `web:${config.httpOrigin}`,
       name: defaultProfileName(config.httpOrigin),
       httpOrigin: config.httpOrigin,
+      ...(config.workspaceId ? { workspaceId: config.workspaceId } : {}),
       mode: 'protected',
       transport: config.httpOrigin.startsWith('https:') ? 'trusted-https' : 'insecure-lan',
       createdAt: now,
@@ -263,6 +265,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [membershipRefusal, setMembershipRefusal] = useState<{
     reason: string
     server: string
+    workspaceId?: string
     signInUrl?: string
   } | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
@@ -462,13 +465,14 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             name: 'Server override',
             httpOrigin: result.ok ? result.httpOrigin : override,
             ...(result.ok ? { instanceId: result.instanceId } : {}),
+            ...(result.ok && result.workspaceId ? { workspaceId: result.workspaceId } : {}),
             mode: result.ok ? result.mode : 'protected',
             transport: result.transport,
             createdAt: now,
             updatedAt: now,
           }
           setProfileState({ activeProfileId: profile.id, profiles: [profile] })
-          setEphemeralConfig(configFor(override, true))
+          setEphemeralConfig(configFor(override, true, result.ok && result.workspaceId ? { workspaceId: result.workspaceId } : undefined))
           setCredentialReleased(result.ok)
           setActivationFailure(result.ok ? null : { title: result.title, detail: result.detail })
           setReady(true)
@@ -533,7 +537,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         // identity, wire support, and transport policy before SecureStore is
         // opened. A newer link restarts selection before any result or bearer
         // can publish the old active profile.
-        const result = await preflightServer(active.httpOrigin)
+        const result = await preflightServer(active.httpOrigin, active.workspaceId)
         if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
         setProfileState(startupState)
@@ -561,6 +565,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           ...active,
           httpOrigin: result.httpOrigin,
           instanceId: result.instanceId,
+          ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
           mode: result.mode,
           transport: result.transport,
           updatedAt: new Date().toISOString(),
@@ -613,8 +618,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     profileState.profiles.find((row) => row.id === profileState.activeProfileId) ?? null
   const profileOrigin = profile?.httpOrigin
   const config = useMemo(
-    () => ephemeralConfig ?? (profileOrigin ? configFor(profileOrigin, false) : null),
-    [ephemeralConfig, profileOrigin],
+    () => ephemeralConfig ?? (profileOrigin ? configFor(profileOrigin, false, profile?.workspaceId ? { workspaceId: profile.workspaceId } : undefined) : null),
+    [ephemeralConfig, profileOrigin, profile?.workspaceId],
   )
   const runtimeConfig = Platform.OS === 'web' || credentialReleased ? config : null
   setActiveServerRuntime(runtimeConfig ?? undefined, credentialReleased ? bearer : null)
@@ -652,12 +657,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // Never reuse a profile/replica/credential boundary because a new origin
       // reports the same public instanceId. Address migration needs a separate,
       // authenticated rekey flow; ordinary setup creates a fresh profile.
-      const existing = reusableProfileAtOrigin(profileState.profiles, result.httpOrigin, userId)
+      const existing = reusableProfileAtOrigin(profileState.profiles, result.httpOrigin, userId, result.workspaceId)
       const nextProfile: ServerProfile = existing
         ? {
             ...existing,
             httpOrigin: result.httpOrigin,
             instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
             mode: result.mode,
             transport: result.transport,
             ...(userId ? { userId } : {}),
@@ -668,6 +674,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             name: defaultProfileName(result.httpOrigin),
             httpOrigin: result.httpOrigin,
             instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
             mode: result.mode,
             transport: result.transport,
             ...(userId ? { userId } : {}),
@@ -705,6 +712,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
                   ...durableExisting,
                   httpOrigin: result.httpOrigin,
                   instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
                   mode: result.mode,
                   transport: result.transport,
                   ...(userId ? { userId } : {}),
@@ -743,7 +751,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         })
         if (!committedState) {
           if (token) {
-            const revoked = await logout(result.httpOrigin, token)
+            const revoked = await logout(result.httpOrigin, token, result.workspaceId)
               .then(() => true)
               .catch(() => false)
             if (!revoked) alertUnrevokedPhoneSession()
@@ -752,7 +760,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         }
       } catch (cause) {
         if (token) {
-          const revoked = await logout(result.httpOrigin, token)
+          const revoked = await logout(result.httpOrigin, token, result.workspaceId)
             .then(() => true)
             .catch(() => false)
           if (!revoked) alertUnrevokedPhoneSession()
@@ -794,14 +802,14 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     void (async () => {
       const result = await hostedSignIn.redeem(hostedReturn.link)
       if (!current()) return
-      const checked = await preflightServer(result.server)
+      const checked = await preflightServer(result.server, result.workspaceId)
       if (!current()) return
       if (!checked.ok) throw new Error('Could not verify this workspace. Start sign-in again.')
-      const status = await fetchAuthStatus(result.server, result.token)
+      const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
       if (!current()) return
       if (!status.authed || !status.userId) {
         if (status.providerSignedIn === true && status.deniedReason) {
-          const revoked = await logout(result.server, result.token)
+          const revoked = await logout(result.server, result.token, result.workspaceId)
             .then(() => true)
             .catch(() => false)
           if (!revoked) alertUnrevokedPhoneSession()
@@ -809,6 +817,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           setMembershipRefusal({
             reason: status.deniedReason,
             server: result.server,
+            workspaceId: result.workspaceId,
             signInUrl: status.signInUrl,
           })
           setHostedReturn(null)
@@ -918,7 +927,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setBearer(null)
         setCredentialReleased(false)
         try {
-          const result = await preflightServer(selected.httpOrigin)
+          const result = await preflightServer(selected.httpOrigin, selected.workspaceId)
           if (operation !== switchOperation.current) return
           if (!result.ok) {
             if (!canOpenProfileOffline(selected, result.kind)) {
@@ -959,6 +968,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               ...durableSelected,
               httpOrigin: result.httpOrigin,
               instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
               mode: result.mode,
               transport: result.transport,
               updatedAt: new Date().toISOString(),
@@ -1027,7 +1037,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const selected = profiles.find((row) => row.id === nextId)
         let nextCredential: string | null = null
         if (selected) {
-          const result = await preflightServer(selected.httpOrigin)
+          const result = await preflightServer(selected.httpOrigin, selected.workspaceId)
           if (!result.ok) {
             if (canOpenProfileOffline(selected, result.kind)) {
               await profileWrites.run(() => saveServerProfiles(next))
@@ -1054,6 +1064,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             ...selected,
             httpOrigin: result.httpOrigin,
             instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
             mode: result.mode,
             transport: result.transport,
             updatedAt: new Date().toISOString(),
@@ -1140,7 +1151,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const operation = switchOperation.current
         revalidationInFlight.current = true
         try {
-          const result = await preflightServer(profile.httpOrigin)
+          const result = await preflightServer(profile.httpOrigin, profile.workspaceId)
           if (operation !== switchOperation.current) return
           if (!result.ok) {
             if (result.kind !== 'unreachable') {
@@ -1158,6 +1169,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             ...profile,
             httpOrigin: result.httpOrigin,
             instanceId: result.instanceId,
+            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
             mode: result.mode,
             transport: result.transport,
             updatedAt: new Date().toISOString(),
@@ -1273,6 +1285,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       <LaunchReadyView>
         <MembershipDeniedView
           reason={membershipRefusal.reason}
+          workspaceId={membershipRefusal.workspaceId}
           server={membershipRefusal.server}
           signInUrl={membershipRefusal.signInUrl}
         />
@@ -1527,7 +1540,7 @@ function PairingSetup({
     setError(null)
     setOfflineCandidate(null)
     try {
-      const result = await preflightServer(origin)
+      const result = await preflightServer(origin, nextEnvelope?.workspaceId)
       if (!result.ok) {
         setError(`${result.title}\n${result.detail}`)
         if (
@@ -1543,6 +1556,13 @@ function PairingSetup({
       if (nextEnvelope?.instanceId && nextEnvelope.instanceId !== result.instanceId) {
         setError(
           'This code belongs to a different server instance at the same address. Create a new code.',
+        )
+        setStep('welcome')
+        return
+      }
+      if (nextEnvelope?.workspaceId && nextEnvelope.workspaceId !== result.workspaceId) {
+        setError(
+          'This code belongs to a different workspace at the same address. Create a new code.',
         )
         setStep('welcome')
         return
