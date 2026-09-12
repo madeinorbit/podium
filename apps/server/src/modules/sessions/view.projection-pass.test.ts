@@ -20,7 +20,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionAuthz } from './session-authz'
 import { SessionRepository } from './repository'
-import { SessionStateService, type SessionStatePrincipal } from './session-state/service'
+import { internalSessionRead, SessionStateService, type SessionStatePrincipal } from './session-state/service'
 import { SessionView } from './view'
 
 const reader = asUserId('projection-reader')
@@ -117,8 +117,14 @@ async function fixture(count: number) {
   const machines = { factsSnapshot: vi.fn(async () => ({ name: () => 'Build box', loginCondition: () => 'logged-out' as const })),
     machineName: async () => 'Build box', agentLoginCondition: async () => 'logged-out' as const }
   const view = new SessionView({ sessions, store, state, machines: machines as never, sessionOccupancyCount: () => 3 })
-  // Broadcast still resolves its default principal exactly once.
-  vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
+  // Broadcast still resolves its principal-less overlay user exactly once — the
+  // budget assertion below counts the calls, so the seam has to be a spy.
+  // `openTestStore` primes a first admin, so the real `internalOverlayUser()`
+  // would answer THAT member and every overlay in a principal-less pass would be
+  // empty. Pinning the READER is what makes the broadcast slice wire the same
+  // overlay rows the reader-scoped `list()` cases above wire, which is what the
+  // two files' budgets are written to compare.
+  vi.spyOn(view, 'internalOverlayUser').mockResolvedValue(reader)
   return { store, rows, sessions, authz, state, machines, view }
 }
 
@@ -188,21 +194,38 @@ describe('one projection pass', () => {
       } as SessionStatePrincipal
       expect(await Promise.all(f.rows.map(s => f.state.canReadSession(member, s.sessionId))))
         .toEqual([false, false, false, false, false])
-      // STILL [true x5] AND THAT IS THE DEFECT, left asserting current behaviour
-      // so PDM-291 has a red to turn green rather than a case to reconstruct.
-      // PDM-270 removed the matching admin short circuit from mayWatch/mayDrive,
-      // but could NOT remove this one: `scope.kind === 'all'` is also what makes
-      // every PRINCIPAL-LESS internal read work, because view.defaultPrincipal()
-      // borrows the earliest admin (command-principal.ts:130). Removing it here
-      // refuses five internal reads in command-plane and oracle-decomposition.
-      // PDM-291 gives internal reads an identity of their own; then this vector
-      // becomes [false x5], matching the `member` vector above.
+      // [false x5], MATCHING THE `member` VECTOR ABOVE — an admin capability
+      // buys nothing here [PDM-291]. This vector was [true x5] until PDM-291,
+      // left that way ON PURPOSE by PDM-270 so this issue had a red to turn
+      // green rather than a case to reconstruct. PDM-270 removed the matching
+      // admin short circuit from mayWatch/mayDrive and could NOT remove this
+      // one, because `scope.kind === 'all'` was ALSO what made every
+      // principal-less internal read work: view.defaultPrincipal() borrowed the
+      // earliest admin, whom userCommandPrincipal mints with scope `all`. The
+      // two callers now have two answers — the internal read below, and this.
       const operator = { ...principal, userId: asUserId('unrelated'),
         capability: { role: 'admin', scope: { kind: 'all' } },
       } as SessionStatePrincipal
       expect(await Promise.all(f.rows.map(s => f.state.canReadSession(operator, s.sessionId))))
-        .toEqual([true, true, true, true, true])
+        .toEqual([false, false, false, false, false])
       expect(await f.state.canReadSession(operator, asSessionId('absent'))).toBe(false)
+      // AND THE OTHER CALLER, admitted for a reason that is not a capability:
+      // the server reading its own surface. Without this the removal above
+      // would be indistinguishable from simply breaking internal reads, and the
+      // five oracle/command-plane tests that go through a principal-less
+      // `sessionById` are the ones that would have said so.
+      const internal = internalSessionRead('characterization')
+      expect(await Promise.all(f.rows.map(s => f.state.canReadSession(internal, s.sessionId))))
+        .toEqual([true, true, true, true, true])
+      // Absence is still absence for an internal read: it is not an existence
+      // oracle for the server either.
+      expect(await f.state.canReadSession(internal, asSessionId('absent'))).toBe(false)
+      // `visibleSessions` is a SECOND COPY of the rule, not a caller of it, so
+      // both vectors are asserted against it too or half the change is unpinned.
+      expect(await f.state.visibleSessions(operator, f.rows.map(s => s.sessionId)))
+        .toEqual(new Set())
+      expect(await f.state.visibleSessions(internal, f.rows.map(s => s.sessionId)))
+        .toEqual(new Set(f.rows.map(s => s.sessionId)))
     } finally { await f.store.close() }
   })
 
@@ -305,7 +328,7 @@ describe('one projection pass', () => {
         process.stdout.write(`broadcast ${size}: ${counts.at(-1)} physical read statements, ${(performance.now() - start).toFixed(2)} ms\n`)
         expect(result.changes).toHaveLength(size)
         expect(result.remaining).toBe(0)
-        expect(f.view.defaultPrincipal).toHaveBeenCalledTimes(1)
+        expect(f.view.internalOverlayUser).toHaveBeenCalledTimes(1)
         expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
       } finally { await f.store.close() }
     }

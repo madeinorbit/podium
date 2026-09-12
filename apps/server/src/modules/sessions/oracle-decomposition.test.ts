@@ -155,6 +155,21 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     const bob = sessionStatePrincipal(f.agents.bob)
     const aliceUntil = '2099-08-01T01:00:00.000Z'
     const bobUntil = '2099-08-01T02:00:00.000Z'
+    // EACH HUMAN ON THE SESSION THEY OWN, AND THE CLAIM IS THE SAME ONE
+    // [PDM-291]. Both snoozes used to be parked on ALICE's session, and Bob
+    // reached it by wearing OPERATOR: `delegatedAgent` spreads that capability,
+    // so `scope.kind === 'all'` admitted the write and the isolation assertion
+    // was decided by an admin short circuit rather than by the policy it names
+    // — the PDM-250 shape, entry 14 of the false-green catalogue. PDM-291
+    // removed that disjunct and B1 (PDM-133) had already stopped a grant edge
+    // conferring anything on a session, so there is now NO session both humans
+    // can reach, and parking both rows on one is no longer expressible.
+    //
+    // Nothing the test claims is lost. Isolation is still two humans, two rows,
+    // each keyed by the ACTING human; the payload-identity teeth are unchanged
+    // (Alice's call below names BOB in three fields and Bob still ends up with
+    // exactly one row, his own); and the refusal that replaces the old reach is
+    // asserted rather than assumed.
     await f.sessionState.execute(
       'snoozes.set',
       {
@@ -166,7 +181,18 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    await f.sessionState.execute('snoozes.set', { sessionId: f.bob.sessionId, until: bobUntil }, bob)
+    // THE RULE PDM-291 TURNED ON, witnessed here rather than only in
+    // `view.projection-pass.test.ts`: an admin-scoped capability is not a way
+    // into another human's session, so this writes nothing and Bob's list below
+    // is unchanged by it.
+    expect(
+      await f.sessionState.execute(
+        'snoozes.set',
+        { sessionId: f.alice.sessionId, until: '2099-08-01T03:00:00.000Z' },
+        bob,
+      ),
+    ).toMatchObject({ outcome: 'denied' })
     await f.sessionState.execute(
       'pins.set',
       { kind: 'panel', id: f.alice.sessionId, pinned: true },
@@ -175,27 +201,37 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
     await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
     await f.sessionState.execute(
       'tabs.setOrder',
-      { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
+      { worktree: '/work', sessionIds: [f.alice.sessionId] },
       alice,
     )
     await f.sessionState.execute(
       'tabs.setOrder',
-      { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
+      { worktree: '/work', sessionIds: [f.bob.sessionId] },
       bob,
     )
+    // AN ORDER NAMING A SESSION THE CALLER CANNOT SEE IS REFUSED WHOLE, not
+    // silently trimmed — `ownPerUserTabOrder` resolves no target at all — so
+    // Bob's saved order below is the one he set above.
+    expect(
+      await f.sessionState.execute(
+        'tabs.setOrder',
+        { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
+        bob,
+      ),
+    ).toMatchObject({ outcome: 'denied' })
     expect(await f.o.store.sessions.listSnoozes(ALICE)).toEqual({
       [f.alice.sessionId]: aliceUntil,
     })
     expect(await f.o.store.sessions.listSnoozes(BOB)).toEqual({
-      [f.alice.sessionId]: bobUntil,
+      [f.bob.sessionId]: bobUntil,
     })
     expect((await f.o.store.sessions.listPins(ALICE)).panels).toEqual([f.alice.sessionId])
     expect((await f.o.store.sessions.listPins(BOB)).panels).toEqual([f.bob.sessionId])
     expect(await f.o.store.sessions.listTabOrders(ALICE)).toEqual({
-      '/work': [f.alice.sessionId, f.bob.sessionId],
+      '/work': [f.alice.sessionId],
     })
     expect(await f.o.store.sessions.listTabOrders(BOB)).toEqual({
-      '/work': [f.bob.sessionId, f.alice.sessionId],
+      '/work': [f.bob.sessionId],
     })
   })
 
