@@ -24,13 +24,20 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import { asUserId } from '@podium/model'
 import type { z } from 'zod'
-import type { ApprovalService } from './service'
+import type { FamilyState } from '../derived-family'
 
-/** An approval handler is a method ON the service; everything it needs (the store,
- *  the machine channel, the event log, the notifier) is a constructor dependency
- *  already. */
-export type ApprovalHandler<In, Out> = (svc: ApprovalService, input: In) => Out
+/**
+ * An approval handler takes the FAMILY STATE (B1, PDM-133), not the bare service.
+ *
+ * It was `(svc: ApprovalService, input)`. Everything the service needs to DO the
+ * work is still a constructor dependency; what the bare service could not supply
+ * is WHO IS DECIDING. `approve`/`deny` act on another human's running agent, so
+ * they now require the caller's identity, and the state seam is where the
+ * transport already put it — the same shape `modules/sessions` uses.
+ */
+export type ApprovalHandler<In, Out> = (state: FamilyState, input: In) => Out
 
 /** One contract joined to the service method that implements it. */
 export interface ApprovalCommand {
@@ -48,14 +55,22 @@ export interface ApprovalCommand {
 export const APPROVAL_COMMANDS_TRPC = {
   approve: {
     contract: APPROVAL_CONTRACTS.approve,
-    handler: (async (svc, input) => await svc.approve(input.id)) satisfies ApprovalHandler<
+    handler: (async (state, input) =>
+      await state.modules.approvals.approve(
+        input.id,
+        asUserId(state.caller.userId),
+      )) satisfies ApprovalHandler<
       z.infer<(typeof APPROVAL_CONTRACTS)['approve']['input']>,
       unknown
     >,
   },
   deny: {
     contract: APPROVAL_CONTRACTS.deny,
-    handler: (async (svc, input) => await svc.deny(input.id)) satisfies ApprovalHandler<
+    handler: (async (state, input) =>
+      await state.modules.approvals.deny(
+        input.id,
+        asUserId(state.caller.userId),
+      )) satisfies ApprovalHandler<
       z.infer<(typeof APPROVAL_CONTRACTS)['deny']['input']>,
       unknown
     >,

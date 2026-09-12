@@ -1,10 +1,15 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { ApprovalsRepository } from '../../store/approvals'
 import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { ApprovalService } from './service'
+
+/** Owner of the session these requests name — approvals are decided by the human
+ *  whose run they are about (B1, PDM-133). This file is about single-flighting,
+ *  not ownership, so one human owns everything in it. */
+const SF_OWNER = asUserId('user:sf-owner')
 
 /**
  * THE RE-ENTRY POINT IS INSIDE THE LOOP (POD-3258). `hasDaemon` is consulted per
@@ -46,6 +51,7 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
       },
       nowMs: () => clock.ms,
       clients: () => [{ send: (_m: LiveServerMessage) => {} }],
+      sessionOwner: async () => SF_OWNER,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -58,7 +64,7 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
         sessionId: asSessionId('s1'),
         machineId: 'm1',
       })
-      await svc.approve(id)
+      await svc.approve(id, SF_OWNER)
       return id
     }
     return {

@@ -36,14 +36,33 @@ function spawns(daemon: ControlMessage[]) {
   return daemon.filter((m): m is Extract<ControlMessage, { type: 'spawn' }> => m.type === 'spawn')
 }
 
-describe('SessionStart: issue owner precedence', () => {
-  // ADR 1: ownership per class — an issue-owned child inherits the issue owner.
-  // Without this assertion, inverting parentOwner ?? input.ownerUserId stays green.
-  it('ADR 1: createSession with issueId and a conflicting ownerUserId lands on the issue owner', async () => {
+/**
+ * THIS DESCRIBE BLOCK ASSERTED THE OPPOSITE UNTIL B1 (PDM-133), and the
+ * inversion is deliberate — it is the task's whole subject, not a fixture that
+ * drifted.
+ *
+ * It used to read: "ADR 1: createSession with issueId and a conflicting
+ * ownerUserId lands on the issue owner", with the note "Without this assertion,
+ * inverting `parentOwner ?? input.ownerUserId` stays green." That note was
+ * right, and it is why the change had to come through here: the precedence was
+ * pinned on purpose, so removing it has to be argued rather than discovered.
+ *
+ * The argument is that ADR 1's per-class inheritance is about issue CONTENT,
+ * and a private run is not content. The accepted multi-user architecture keeps
+ * a private session with the human who started it across task reassignment, so
+ * "the task's owner owns the sessions on it" is the defect: it is how Alice ends
+ * up owning Bob's agent (MU-07/08). The `parentOwner` term is gone from
+ * `SessionStart.create` and the explicit owner the caller resolved now stands.
+ */
+describe('SessionStart: the initiating human outranks the attached issue', () => {
+  it('createSession with an issueId owned by someone else keeps the initiating human', async () => {
     const issueOwner = asUserId('user:issue-owner')
-    const conflicting = asUserId('user:explicit-conflict')
-    expect(issueOwner).not.toBe(conflicting)
+    const starter = asUserId('user:the-human-who-started-it')
+    // The fixture DISCRIMINATES: three distinct users, so neither the issue
+    // owner nor the first-enrolled admin can be mistaken for the right answer.
+    expect(issueOwner).not.toBe(starter)
     expect(issueOwner).not.toBe(firstAdminMemberId())
+    expect(starter).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
     const issue = await reg.issues.create({
@@ -58,17 +77,61 @@ describe('SessionStart: issue owner precedence', () => {
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
-      ownerUserId: conflicting,
+      ownerUserId: starter,
     })
 
-    // Durable row is the issue's owner — not the conflicting input.
+    // The durable row is the STARTER's. Restore `parentOwner ?? input.ownerUserId`
+    // in SessionStart.create and this line fails with `issueOwner`.
     const row = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
-    expect(row?.ownerUserId).toBe(issueOwner)
+    expect(row?.ownerUserId).toBe(starter)
 
-    // create() feeds one ownership answer into the daemon binding as well.
+    // create() feeds ONE ownership answer into the daemon binding as well, so the
+    // launched process is bound to the starter and not to the issue's owner.
     const frame = spawns(daemon).at(-1)
     expect(frame?.sessionId).toBe(sessionId)
-    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: issueOwner })
+    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: starter })
+
+    // AND THE AUTHORITY READ AGREES WITH THE ROW. The durable column being right
+    // is not sufficient on its own: `sessionOwner` used to re-derive the issue
+    // owner on every read, so a correct row could still be reported as Alice's.
+    expect(await reg.modules.sessions.sessionOwner(sessionId)).toEqual({
+      owner: starter,
+      grants: [],
+    })
+  })
+
+  it('REASSIGNING the issue afterwards does not move the session', async () => {
+    const issueOwner = asUserId('user:issue-owner')
+    const starter = asUserId('user:the-human-who-started-it')
+    const reassignee = asUserId('user:reassigned-to')
+
+    const { reg } = await makeRegistry()
+    const issue = await reg.issues.create({
+      repoPath: '/r',
+      title: 'Owned issue',
+      startNow: false,
+      ownerUserId: issueOwner,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/.worktrees/a',
+      issueId: issue.id,
+      ownerUserId: starter,
+    })
+
+    // Move the task to a third human — the ordinary reassignment the product
+    // allows any active member to perform (charter D2).
+    await reg.issues.update(issue.id, { ownerUserId: reassignee })
+    expect((await reg.sessionStore.issues.getIssue(issue.id))?.ownerUserId).toBe(reassignee)
+
+    // NON-VACUITY: the reassignment really happened above, so this is not a
+    // comparison against an unchanged world.
+    expect(await reg.modules.sessions.sessionOwner(sessionId)).toEqual({
+      owner: starter,
+      grants: [],
+    })
+    const row = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
+    expect(row?.ownerUserId).toBe(starter)
   })
 })
 

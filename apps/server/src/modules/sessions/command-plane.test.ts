@@ -40,7 +40,11 @@ import {
   spawnedByFor,
 } from './command-plane'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
-import { asyncSessionIssueAccess, type SessionVisibility } from './session-access'
+import {
+  asyncSessionIssueAccess,
+  sessionOwnerVisibility,
+  type SessionVisibility,
+} from './session-access'
 
 afterEach(() => disposeOracles())
 
@@ -125,7 +129,6 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
-    issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
@@ -687,23 +690,147 @@ describe('attribution and ownership come from the principal', () => {
     })
   })
 
-  it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
+  /**
+   * INVERTED BY B1 (PDM-133). This asserted "a session spawned under an issue
+   * inherits THAT issue's owner, not the actor's", on the reasoning that
+   * otherwise sharing an issue would not share the work done inside it. Sharing
+   * a TASK now shares the task; it does not hand over the private runs executing
+   * on it, which is the distinction the multi-user architecture draws and this
+   * rule collapsed.
+   */
+  it('a session spawned under an issue is owned by the DELEGATING HUMAN, not the issue', () => {
     const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
       id: asIssueId('podium-7'),
-      owner: firstAdminMemberId(),
     })
 
-    // The issue's owner wins over the delegating human — otherwise sharing an
-    // issue would not share the work done inside it.
+    // COLLEAGUE is not the first-enrolled admin, so this cannot pass by the two
+    // identities happening to coincide — the shape that made the old precedence
+    // invisible on a one-account instance.
+    expect(COLLEAGUE).not.toBe(firstAdminMemberId())
     expect(underIssue).toEqual({
-      owner: firstAdminMemberId(),
+      owner: COLLEAGUE,
       actor: 'session:agent-1',
+      // The PLACEMENT is still recorded; it just no longer decides ownership.
       inheritedFrom: { kind: 'issue', id: 'podium-7' },
     })
-    // An issue with no owner recorded yet falls back to the delegating human,
-    // never to nobody: the draft vessel is OWNED.
-    expect(
-      createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asIssueId('draft-1') }).owner,
-    ).toBe(COLLEAGUE)
+
+    // NEGATIVE, for the case this change is NOT about: with no parent issue the
+    // answer was already the delegating human and must not have moved.
+    expect(createdOwnership(agentFor('agent-1', COLLEAGUE), undefined)).toEqual({
+      owner: COLLEAGUE,
+      actor: 'session:agent-1',
+      inheritedFrom: { kind: 'principal' },
+    })
+
+    // The owner is now INDEPENDENT of the issue argument: same principal, two
+    // placements, one owner. There is no longer a parameter through which an
+    // issue's owner could reach session ownership — `parentIssue` carries only
+    // an id.
+    expect(createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asIssueId('draft-1') }).owner).toBe(
+      createdOwnership(agentFor('agent-1', COLLEAGUE), undefined).owner,
+    )
+  })
+})
+
+/**
+ * THE HUMAN CEILING ON THE COMMAND PATH (B1, PDM-133).
+ *
+ * `session-access.ts` has always documented this rule and shipped
+ * `everythingVisible` as the answer, with the composition root carrying the note
+ * "POD-1075 supplies the owner/grant answer; today one account sees all". B1
+ * supplies it. These tests exercise `sessionOwnerVisibility` directly, and then
+ * through the same `ctxFor` the rest of this file uses, so the refusal is shown
+ * at the seam a command actually travels.
+ */
+/** Resolve OR reject, reduced to a comparable value — the audit file's `settle`
+ *  in the one place this file needs it. A thrown refusal and a returned
+ *  disposition are both answers; the consistent-error rule is about them being
+ *  the SAME answer, not about which shape they take. */
+const settleOf = async (run: () => unknown): Promise<unknown> => {
+  try {
+    return { ok: await run() }
+  } catch (error) {
+    return { err: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+describe('session visibility is bounded by the delegating human', () => {
+  const BOB = asUserId('user:bob')
+  const row = (sessionId: SessionId) => ({ sessionId }) as never
+  const ownedBy = (owner: UserId) => async () => ({ owner })
+
+  it('admits the owner and refuses everyone else', async () => {
+    const visible = sessionOwnerVisibility(ownedBy(BOB))
+    const target = row(asSessionId(GHOST))
+
+    expect(await visible(human(BOB), target)).toBe(true)
+    // NEGATIVE: a different human, and an agent acting for that different human
+    // — the ceiling is the HUMAN, so the agent arm must answer identically.
+    expect(await visible(human(COLLEAGUE), target)).toBe(false)
+    expect(await visible(agentFor('agent-x', COLLEAGUE), target)).toBe(false)
+    // ...and an agent acting for the OWNER is admitted, so the agent arm is not
+    // simply refusing everything.
+    expect(await visible(agentFor('agent-x', BOB), target)).toBe(true)
+  })
+
+  it('refuses a session whose owner cannot be resolved, and admits system jobs', async () => {
+    const unresolvable = sessionOwnerVisibility(async () => undefined)
+    const target = row(asSessionId(GHOST))
+
+    expect(await unresolvable(human(BOB), target)).toBe(false)
+    // A system job has no human ceiling to apply — the janitor and the outbox
+    // drain are not people. Stated as a case rather than left implicit.
+    expect(await unresolvable({ kind: 'system', job: 'janitor' } as never, target)).toBe(true)
+  })
+
+  it("a command against another human's session answers not-found, not forbidden", async () => {
+    const o = await makeOracle()
+    // Owned by COLLEAGUE, who is NOT the principal below.
+    const live = await o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/p',
+      ownerUserId: COLLEAGUE,
+    })
+    expect(await o.reg.modules.sessions.sessionOwner(live.sessionId)).toEqual({
+      owner: COLLEAGUE,
+      grants: [],
+    })
+
+    const stranger = await ctxFor(o, human(firstAdminMemberId()), {
+      visibility: sessionOwnerVisibility((id) => o.reg.modules.sessions.sessionOwner(id)),
+    })
+    /**
+     * ASSERTED AS "SAME ANSWER AS A GHOST", not as a thrown message.
+     *
+     * A human's `sendText` to an unresolvable target does not throw — it returns
+     * a `dead_letter` disposition, while the RELAYED (agent) send throws
+     * `session not found`. Both are the shipped shapes POD-379 pinned. The
+     * property under test is neither of those spellings: it is that an invisible
+     * session and a nonexistent one produce the SAME answer, whatever that
+     * answer is, so the command surface is not an existence oracle (ADR 3
+     * Amendment 1 D20.2). `session-cutover.audit.test.ts` states it this way for
+     * the whole command table; this is the same claim for one owner boundary.
+     */
+    const onOwned = await settleOf(() =>
+      dispatchSessionCommand(stranger, 'sendText', { sessionId: live.sessionId, text: 'hello' }),
+    )
+    const onGhost = await settleOf(() =>
+      dispatchSessionCommand(stranger, 'sendText', { sessionId: asSessionId(GHOST), text: 'hello' }),
+    )
+    expect(onOwned).toEqual(onGhost)
+
+    /**
+     * AND THE INSTRUMENT CAN SAY YES. Without this, the equality above would
+     * hold if `sendText` answered identically for every input — including a
+     * build where visibility refused everyone. The OWNER gets a DIFFERENT
+     * answer for the same session id.
+     */
+    const owner = await ctxFor(o, human(COLLEAGUE), {
+      visibility: sessionOwnerVisibility((id) => o.reg.modules.sessions.sessionOwner(id)),
+    })
+    const asOwner = await settleOf(() =>
+      dispatchSessionCommand(owner, 'sendText', { sessionId: live.sessionId, text: 'hello' }),
+    )
+    expect(asOwner).not.toEqual(onGhost)
   })
 })

@@ -94,42 +94,31 @@ async function fixture() {
   const asSelf = (userId: string): SessionStatePrincipal => asUser(userId, 'self')
   const session = async () => await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   /**
-   * VISIBILITY, WHICH IS NOW A SEPARATE QUESTION FROM THE WRITE (A5.6/PDM-250).
+   * A SESSION THIS PERSON OWNS — and since B1 (PDM-133) that is the only way a
+   * session is readable by anybody.
    *
-   * The per-user commands that name a session resolve their target through
-   * `canReadSession`, so a principal who cannot SEE the session is refused before
-   * the row is ever considered — and a `self` scope confers no visibility of a
-   * session it does not own. An OPERATOR capability used to supply both halves at
-   * once, which is why one substitution used to be enough.
+   * WHAT THIS REPLACED, AND WHY. Until B1 the fixture here was `sharedSession`:
+   * it minted one session and attached a durable `read` GRANT EDGE for ALICE and
+   * another for BOB, on the reasoning (A5.6/PDM-250) that a grant edge was "the
+   * way the product admits" a second person to a session, and that two people who
+   * can both legitimately SEE one session are the interesting case for per-user
+   * isolation. That reasoning was right about the isolation being the interesting
+   * case and has been overtaken on the mechanism: B1 requirement 4 makes
+   * compatibility session grants INACTIVE HISTORY, so `sessionOwner` no longer
+   * reads them and `canReadSession` refuses both principals. The old fixture
+   * cannot be built any more — by design, not by accident.
    *
-   * So the second person is admitted the way the product admits one: a durable
-   * grant EDGE, read live by `sessionOwner`/`canReadSession` on every call. That
-   * makes these tests sharper than they were. Two people who can both legitimately
-   * SEE the same session are the interesting case for isolation — if per-user rows
-   * leaked between principals, this is the shape in which a real user would meet
-   * it, and the old fixture could not express it at all.
+   * The isolation property is preserved below rather than dropped. Where a test
+   * needs two per-user rows on ONE entity id — which is the only shape that
+   * catches a delete keyed too loosely — the second row is seeded through the
+   * STORE, which is where the (userId, entityId) key actually lives, and the
+   * SERVICE call under test is still made by the person who owns the session.
+   * That models exactly what the product now has: rows written before ownership
+   * tightened, and one human entitled to act.
    */
-  const shareSession = async (sessionId: SessionId, userId: UserId) =>
-    await store.grants.upsert({
-      resourceKind: 'session',
-      resourceId: sessionId,
-      grantee: userId,
-      verb: 'read',
-      owner: firstAdminMemberId(),
-      visibility: 'personal',
-      createdAt: '2026-09-12T00:00:00.000Z',
-      actorKind: 'user',
-      actorId: firstAdminMemberId(),
-      onBehalfOf: firstAdminMemberId(),
-    })
-  /** A session both ALICE and BOB may see — the fixture the isolation tests need. */
-  const sharedSession = async () => {
-    const { sessionId } = await session()
-    await shareSession(sessionId, ALICE)
-    await shareSession(sessionId, BOB)
-    return { sessionId }
-  }
-  return { store, reg, sessionState, asUser, asSelf, session, sharedSession, shareSession }
+  const ownedSession = async (userId: UserId) =>
+    await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p', ownerUserId: userId })
+  return { store, reg, sessionState, asUser, asSelf, session, ownedSession }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,32 +126,46 @@ async function fixture() {
 // ---------------------------------------------------------------------------
 
 describe('per-user state is isolated between principals', () => {
-  it('two principals snooze the SAME session and each reads only its own value', async () => {
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const { sessionId } = await sharedSession()
+  it('two principals hold rows on the SAME session and each reads only its own', async () => {
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const { sessionId } = await ownedSession(ALICE)
     const until = new Date(Date.now() + 60_000).toISOString()
     const other = new Date(Date.now() + 120_000).toISOString()
 
+    // ALICE owns the session, so her write goes through the service.
     expect(
       (await sessionState.execute('snoozes.set', { sessionId, until }, asSelf(ALICE))).outcome,
     ).toBe('applied')
+
+    // BOB IS REFUSED THE SAME CALL — the B1 (PDM-133) property, and the reason
+    // his row has to be seeded below rather than written here. Before B1 a grant
+    // edge let him through; grants are inactive history now.
     expect(
       (await sessionState.execute('snoozes.set', { sessionId, until: other }, asSelf(BOB))).outcome,
-    ).toBe('applied')
+    ).toBe('denied')
 
-    // Same entity, two rows, two values. Neither principal's write moved the
-    // other's — which is the whole point of the (userId, entityId) key.
+    // The pre-existing row, at the level the (userId, entityId) key lives.
+    await store.sessions.setSnooze(BOB, sessionId, other)
+
+    // Same entity, two rows, two values. Neither read sees the other's — which
+    // is the whole point of the key, and is independent of who may write.
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({ [sessionId]: until })
     expect(await store.sessions.listSnoozes(BOB)).toEqual({ [sessionId]: other })
   })
 
   it("one principal's CLEAR does not un-snooze the other", async () => {
-    // The sharper case: a delete keyed too loosely would take both rows out, and
-    // the set-only test above would not notice.
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const { sessionId } = await sharedSession()
+    // The sharper case, and the reason a same-entity fixture is worth keeping at
+    // all: a delete keyed by sessionId ALONE would take both rows out, and the
+    // set-only test above would not notice. Two rows on ONE entity id is the
+    // only shape that catches it.
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const { sessionId } = await ownedSession(ALICE)
     await sessionState.execute('snoozes.set', { sessionId, until: null }, asSelf(ALICE))
-    await sessionState.execute('snoozes.set', { sessionId, until: null }, asSelf(BOB))
+    // BOB's row is seeded, because since B1 he cannot write one through the
+    // service on a session ALICE owns. The DELETE under test is still the real
+    // service-level clear, made by the person entitled to make it.
+    await store.sessions.setSnooze(BOB, sessionId, null)
+    expect(await store.sessions.listSnoozes(BOB)).toEqual({ [sessionId]: null })
 
     await sessionState.execute('snoozes.clear', { sessionId }, asSelf(ALICE))
 
@@ -183,28 +186,44 @@ describe('per-user state is isolated between principals', () => {
   })
 
   it('tab order is per-principal for the SAME worktree', async () => {
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const a = (await sharedSession()).sessionId
-    const b = (await sharedSession()).sessionId
+    // The worktree KEY is what is shared here, and it is the key the row is
+    // stored under — so this still pins "two rows, one worktree, no bleed".
+    // Each principal orders sessions they own, because `tabs.setOrder` resolves
+    // every id in the list through `canReadSession` and since B1 that is
+    // ownership.
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const a1 = (await ownedSession(ALICE)).sessionId
+    const a2 = (await ownedSession(ALICE)).sessionId
+    const b1 = (await ownedSession(BOB)).sessionId
+    const b2 = (await ownedSession(BOB)).sessionId
 
     const order = (sessionIds: SessionId[]) => ({ worktree: '/w', sessionIds })
-    await sessionState.execute('tabs.setOrder', order([a, b]), asSelf(ALICE))
-    await sessionState.execute('tabs.setOrder', order([b, a]), asSelf(BOB))
+    await sessionState.execute('tabs.setOrder', order([a1, a2]), asSelf(ALICE))
+    await sessionState.execute('tabs.setOrder', order([b2, b1]), asSelf(BOB))
 
-    expect(await store.sessions.listTabOrders(ALICE)).toEqual({ '/w': [a, b] })
-    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [b, a] })
+    expect(await store.sessions.listTabOrders(ALICE)).toEqual({ '/w': [a1, a2] })
+    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [b2, b1] })
+
+    // AND THE GATE IS LIVE: ordering a list containing somebody else's session
+    // is refused outright, rather than silently dropping the id.
+    expect(
+      (await sessionState.execute('tabs.setOrder', order([a1, b1]), asSelf(ALICE))).outcome,
+    ).toBe('denied')
+    expect(await store.sessions.listTabOrders(ALICE)).toEqual({ '/w': [a1, a2] })
   })
 
   it('the empty-list DELETE stays scoped too — it removes the caller’s row only', async () => {
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const a = (await sharedSession()).sessionId
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const a = (await ownedSession(ALICE)).sessionId
+    const b = (await ownedSession(BOB)).sessionId
     await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asSelf(ALICE))
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asSelf(BOB))
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [b] }, asSelf(BOB))
 
     await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [] }, asSelf(ALICE))
 
+    // Same worktree key, one row removed, the other untouched.
     expect(await store.sessions.listTabOrders(ALICE)).toEqual({})
-    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [a] })
+    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [b] })
   })
 })
 
@@ -214,8 +233,8 @@ describe('per-user state is isolated between principals', () => {
 
 describe('per-user writes are SELF-SCOPED', () => {
   it('a userId in the PAYLOAD is inert — it cannot redirect the write (ADR 3 D7)', async () => {
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const { sessionId } = await sharedSession()
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const { sessionId } = await ownedSession(ALICE)
 
     // The strongest form of the self-scoping property: the attack does not fail,
     // it is not expressible. The row lands on ALICE regardless of the payload.
@@ -231,8 +250,8 @@ describe('per-user writes are SELF-SCOPED', () => {
   })
 
   it('a principal whose capability names ANOTHER user is denied, and the same call as itself is allowed', async () => {
-    const { store, sessionState, asSelf, sharedSession } = await fixture()
-    const { sessionId } = await sharedSession()
+    const { store, sessionState, asSelf, ownedSession } = await fixture()
+    const { sessionId } = await ownedSession(ALICE)
     // A forged/stale principal: identity says alice, capability is scoped to bob.
     // authorize() compares the target row's user against the CAPABILITY's user, so
     // the mismatch is caught rather than trusted.

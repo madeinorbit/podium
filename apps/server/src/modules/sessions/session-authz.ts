@@ -6,7 +6,7 @@
 
 
 import { createLogger, describeError } from '@podium/logger'
-import type { SessionId, UserId, IssueId } from '@podium/model'
+import type { SessionId, UserId } from '@podium/model'
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
   type CommandPrincipal,
@@ -266,35 +266,64 @@ export class SessionAuthz {
    */
 
   /**
-   * OWNER + GRANTS of a session, for the owner-or-grant policy (POD-380).
+   * THE OWNER of a session: the human who STARTED it (B1, PDM-133).
    *
    * `undefined` means the session does not exist — which the session-state envelope
    * treats identically to a denial (§3.1.5's consistent-error rule).
    *
-   * Issue ownership overrides the session owner; absent or ownerless issues
-   * fall back to the session owner. Issue-backed sessions use issue grants,
-   * and standalone sessions use their own grants.
+   * ---------------------------------------------------------------------------
+   * THE ATTACHED ISSUE NO LONGER DECIDES, AND THAT IS THE WHOLE CHANGE
+   * ---------------------------------------------------------------------------
+   *
+   * This used to read `memoIssueOwner(issueId) ?? durable.ownerUserId`: the owner
+   * of the ATTACHED ISSUE outranked the session's own durable owner, and issue
+   * grants — not session grants — decided who else got in. Under one account both
+   * answers named the same person, so the precedence was invisible. With two
+   * accounts it is the private-execution boundary itself:
+   *
+   *   - Bob starts an agent on Alice's task. The row says Bob. The old answer
+   *     said Alice, so Alice could read, drive and resume Bob's run (MU-07/08).
+   *   - Reassigning a task to Carol moved every private session on it to Carol,
+   *     because the session's authority was a lookup THROUGH the issue rather
+   *     than a fact ON the session.
+   *
+   * The accepted architecture says the opposite on both counts: a private run
+   * keeps its initiating human after task reassignment, and reassignment never
+   * transfers session rights (execution charter, product contract). So authority
+   * is now the durable row, full stop, and an unowned row is `undefined` rather
+   * than a fallback to somebody plausible.
+   *
+   * DELEGATION IS NOT AN EXCEPTION TO THIS. An agent reaches its human through
+   * `resolvePrincipalAsync`'s `onBehalfOf` chain and is compared against this
+   * owner; it never widens the ceiling, which is why nothing here consults a
+   * capability.
+   *
+   * GRANTS ARE INACTIVE HISTORY (B1 requirement 4). The rows stay in the store —
+   * nothing is deleted and no migration runs — but they no longer confer access
+   * to a session, so this returns an empty list rather than reading them. Session
+   * SHARING is deferred out of v1 by the charter; resurrecting it means deciding
+   * a verb model, not re-enabling a lookup. The empty array is deliberate and
+   * load-bearing: `mayReadOwned` and `contextFromOwnership` both take `grants`,
+   * and handing them the old issue-derived list is exactly the leak above.
    */
   async sessionOwner(
     sessionId: SessionId,
-    /** Per-pass read-through memo [POD-1618]. Absent = look everything up, the
-     *  behaviour every single-session caller keeps. */
-    memo?: SessionOwnerMemo,
+    /**
+     * Per-pass read-through memo [POD-1618]. RETAINED, and no longer consulted
+     * HERE: it existed to batch the issue-row and grant-edge reads this function
+     * just stopped making, and a durable-row read is the only lookup left. The
+     * parameter stays because `SessionStateService` and the lifecycle port pass
+     * it positionally and `primeOwnerMemo` still fills it for the projection
+     * pass; removing it is a cross-module signature change that belongs with the
+     * memo's own retirement, filed beneath PDM-139 rather than smuggled in here.
+     */
+    _memo?: SessionOwnerMemo,
   ): Promise<{ owner: UserId; grants: string[] } | undefined> {
     const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
     if (!durable) return undefined
-    const issueId = durable.issueId ?? undefined
-    const resourceKind = issueId ? 'issue' : 'session'
-    const resourceId = issueId ?? sessionId
-    // Both lookups below repeat per session in a full-list pass and collapse to
-    // a handful of distinct keys: every session on one issue asks for the SAME
-    // issue row and the SAME grant edges [POD-1618].
-    const parentOwner = issueId
-      ? ((await this.memoIssueOwner(issueId, memo)) ?? durable.ownerUserId)
-      : durable.ownerUserId
-    if (!parentOwner) return undefined
-    const grants = await this.memoGrantees(resourceKind, resourceId, memo)
-    return { owner: parentOwner, grants }
+    const owner = durable.ownerUserId
+    if (!owner) return undefined
+    return { owner, grants: [] }
   }
 
   /**
@@ -356,32 +385,12 @@ export class SessionAuthz {
     return this.ports.store.sessions.getSession(sessionId)
   }
 
-  private async memoIssueOwner(
-    issueId: IssueId,
-    memo?: SessionOwnerMemo,
-  ): Promise<UserId | undefined> {
-    if (!memo) return (await this.ports.store.issues.getIssue(issueId))?.ownerUserId ?? undefined
-    if (!memo.issues.has(issueId)) {
-      memo.issues.set(issueId, await this.ports.store.issues.getIssue(issueId))
-    }
-    return (memo.issues.get(issueId) ?? null)?.ownerUserId ?? undefined
-  }
-
-  private async memoGrantees(
-    resourceKind: string,
-    resourceId: string,
-    memo?: SessionOwnerMemo,
-  ): Promise<string[]> {
-    const compute = async (): Promise<string[]> =>
-      granteesOf(await this.ports.store.grants.listForResource(resourceKind, resourceId))
-    if (!memo) return compute()
-    const key = `${resourceKind}:${resourceId}`
-    const hit = memo.grants.get(key)
-    if (hit !== undefined) return hit
-    const value = await compute()
-    memo.grants.set(key, value)
-    return value
-  }
+  // `memoIssueOwner` and `memoGrantees` lived here. They were the read-through
+  // halves of the ownership memo, and `sessionOwner` was their only caller; with
+  // the issue-owner precedence and the grant lookup gone (B1, PDM-133) they had
+  // no remaining call site. Deleted rather than left unreferenced: an unused
+  // private that still knows how to answer "who owns this, via the issue" is the
+  // next refactor's temptation to call it again.
 
   /**
    * Machine `use` for a browser principal against the session's host

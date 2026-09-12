@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, type SessionId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import type { ApprovalOp, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -7,6 +7,12 @@ import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { openTestStore } from '../../test-support/open-test-store'
 import { APPROVAL_EXEC_DEADLINE_MS, ApprovalService } from './service'
+
+/** The human who owns session `s1`, which is the session every request below
+ *  names. Approvals are that person's to see and to decide (B1, PDM-133). */
+const OWNER = asUserId('user:owner')
+/** A second, unrelated human. Never owns anything here. */
+const STRANGER = asUserId('user:stranger')
 
 function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => string | null) {
   const db = openMigratedTestDatabase()
@@ -29,7 +35,10 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
       hasDaemon: () => daemon.attached,
       nowMs: () => clock.ms,
-      clients: () => [{ send: (m: LiveServerMessage) => broadcasts.push(m) }],
+      clients: () => [
+        { send: (m: LiveServerMessage) => broadcasts.push(m), principal: { user: OWNER } },
+      ],
+      sessionOwner: async () => OWNER,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -56,8 +65,8 @@ describe('ApprovalService', () => {
     expect(r.message).toContain('awaiting the operator')
     expect(events).toEqual([{ kind: 'issue.approval_requested', issueId: 'iss_1' }])
     expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
-    expect(await svc.listPending()).toHaveLength(1)
-    expect((await svc.listPending())[0]).toMatchObject({
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
+    expect((await svc.listPending(OWNER))[0]).toMatchObject({
       machineName: 'ludovico',
       issueSeq: 410,
       op: { kind: 'update' },
@@ -69,7 +78,7 @@ describe('ApprovalService', () => {
     const a = await req(svc)
     const b = await req(svc)
     expect(b.id).toBe(a.id)
-    expect(await svc.listPending()).toHaveLength(1)
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
   })
 
   it('rejects an op outside the closed catalog', async () => {
@@ -81,7 +90,7 @@ describe('ApprovalService', () => {
   it('approve → executing + exec request to the owning daemon; result lands', async () => {
     const { svc, sent, events } = harness()
     const { id } = await req(svc)
-    const w = await svc.approve(id)
+    const w = await svc.approve(id, OWNER)
     expect(w.status).toBe('executing')
     expect(sent).toEqual([
       {
@@ -107,9 +116,9 @@ describe('ApprovalService', () => {
   it('deny is terminal, mails the requesting issue, and double-decisions throw', async () => {
     const { svc, sent, mails } = harness()
     const { id } = await req(svc)
-    expect((await svc.deny(id)).status).toBe('denied')
+    expect((await svc.deny(id, OWNER)).status).toBe('denied')
     expect(mails).toEqual([expect.stringContaining('denied by the operator')])
-    await expect(svc.approve(id)).rejects.toThrow(/not pending/)
+    await expect(svc.approve(id, OWNER)).rejects.toThrow(/not pending/)
     expect(sent).toHaveLength(0)
   })
   it('executes server-owned workflow approvals without forwarding them to a daemon', async () => {
@@ -119,7 +128,7 @@ describe('ApprovalService', () => {
       return 'published workflow revision wfr_1'
     })
     const { id } = await req(svc, { kind: 'workflow-publish', revisionId: 'wfr_1' })
-    const result = await svc.approve(id)
+    const result = await svc.approve(id, OWNER)
     expect(result).toMatchObject({
       status: 'succeeded',
       resultText: 'published workflow revision wfr_1',
@@ -135,14 +144,14 @@ describe('ApprovalService', () => {
     const { svc, mails } = harness()
     const { id } = await req(svc)
     await svc.getFromAgent({ id }) // the blocked CLI polling — marks a live waiter
-    await svc.deny(id)
+    await svc.deny(id, OWNER)
     expect(mails).toEqual([]) // the command prints "denied" itself; no duplicate push
   })
 
   it('failed execution records the output and mails the outcome', async () => {
     const { svc, mails } = harness()
     const { id } = await req(svc)
-    await svc.approve(id)
+    await svc.approve(id, OWNER)
     await svc.onExecResult({
       type: 'approvalExecResult',
       requestId: id,
@@ -177,7 +186,7 @@ describe('ApprovalService', () => {
     /** Approve a channel op and hand it to the daemon, returning its row id. */
     const approveChannelDev = async (svc: ApprovalService) => {
       const { id } = await req(svc, { kind: 'channel', target: 'dev' })
-      await svc.approve(id)
+      await svc.approve(id, OWNER)
       return id
     }
 
@@ -249,7 +258,7 @@ describe('ApprovalService', () => {
     it('exempts stop, whose daemon kills itself before it can report', async () => {
       const { svc } = harness()
       const { id } = await req(svc, { kind: 'stop' })
-      await svc.approve(id)
+      await svc.approve(id, OWNER)
       await svc.sweepStalledExecutions(t0)
       await svc.sweepStalledExecutions(t0 + 10 * APPROVAL_EXEC_DEADLINE_MS)
       // Still `executing`, which the service's own doc calls honest for this op.
@@ -325,6 +334,7 @@ describe('ApprovalService under the async store (POD-3806)', () => {
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: () => {},
       clients: () => [],
+      sessionOwner: async () => OWNER,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -339,7 +349,7 @@ describe('ApprovalService under the async store (POD-3806)', () => {
     const filed = await req(svc)
 
     await store.transact(async () => {
-      await svc.deny(filed.id)
+      await svc.deny(filed.id, OWNER)
       // The statement the lock bug died on: same span, after the mail.
       await store.issues.getIssue(asIssueId('iss_after'))
     })
@@ -347,5 +357,85 @@ describe('ApprovalService under the async store (POD-3806)', () => {
     expect(mails).toEqual([
       `approval ${filed.id} ("update podium (self-update from the configured channel)"): denied by the operator`,
     ])
+  })
+})
+
+/**
+ * APPROVALS TARGET THE ACTUAL RUN OWNER (B1, PDM-133).
+ *
+ * An approval names a session, a machine, an issue and a management operation,
+ * and deciding one EXECUTES that operation on somebody's running agent. Before
+ * B1 the queue was instance-wide and the decision took an id and nothing else:
+ * `listPending()` returned every row to whoever asked, `broadcast()` pushed the
+ * same payload to every connected client, and `approve(id)` / `deny(id)` ran for
+ * any caller that reached /trpc.
+ */
+describe('an approval belongs to the human whose run it is about', () => {
+  it('does not list another human\'s pending approvals', async () => {
+    const { svc } = harness()
+    await req(svc)
+
+    // NON-VACUITY: the row exists and the owner can see it. Without this the
+    // assertion below passes on an empty store.
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
+    expect(await svc.listPending(STRANGER)).toEqual([])
+  })
+
+  it('refuses approve and deny from a human who does not own the run', async () => {
+    const { svc, sent, events } = harness()
+    const filed = await req(svc)
+    const before = { sent: sent.length, events: events.length }
+
+    // The SAME message an unknown id gets — refusing differently would confirm
+    // the approval exists and name a session the caller cannot see.
+    await expect(svc.approve(filed.id, STRANGER)).rejects.toThrow(
+      `unknown approval request: ${filed.id}`,
+    )
+    await expect(svc.deny(filed.id, STRANGER)).rejects.toThrow(
+      `unknown approval request: ${filed.id}`,
+    )
+
+    // AND NOTHING HAPPENED: the refusal refused, it did not act. A thrown error
+    // after the daemon frame went out would be the worst of both.
+    expect(sent).toHaveLength(before.sent)
+    expect(events).toHaveLength(before.events)
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
+
+    // THE INSTRUMENT CAN SAY YES: the owner decides the very same row.
+    const denied = await svc.deny(filed.id, OWNER)
+    expect(denied.status).toBe('denied')
+  })
+
+  it('broadcasts each client only its own queue', async () => {
+    const db = openMigratedTestDatabase()
+    const stage = createBunStoreExecutor({ database: db }).queries
+    if (!stage) throw new Error('the test database is not bun-backed')
+    const toOwner: LiveServerMessage[] = []
+    const toStranger: LiveServerMessage[] = []
+    const svc = new ApprovalService({
+      store: new ApprovalsRepository(stage),
+      now: () => '2026-07-13T00:00:00.000Z',
+      toMachine: () => {},
+      clients: () => [
+        { send: (m: LiveServerMessage) => toOwner.push(m), principal: { user: OWNER } },
+        { send: (m: LiveServerMessage) => toStranger.push(m), principal: { user: STRANGER } },
+      ],
+      sessionOwner: async () => OWNER,
+      sessionIssueId: () => asIssueId('iss_1'),
+      issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
+      machineName: () => 'ludovico',
+      logEvent: () => {},
+      notifyIssue: async () => {},
+    })
+
+    await req(svc)
+
+    // Both clients were pushed to — so this is not "the stranger got nothing
+    // because nothing was broadcast".
+    expect(toOwner.at(-1)).toMatchObject({ type: 'approvalsChanged' })
+    expect(toStranger.at(-1)).toMatchObject({ type: 'approvalsChanged' })
+    // ...but only the owner's payload carries the row.
+    expect((toOwner.at(-1) as { pending: unknown[] }).pending).toHaveLength(1)
+    expect((toStranger.at(-1) as { pending: unknown[] }).pending).toEqual([])
   })
 })

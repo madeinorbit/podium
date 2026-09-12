@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { describeError } from '@podium/logger'
-import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
+import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId, type UserId } from '@podium/model'
 import { ApprovalOp, type ApprovalWire, describeApprovalOp, type LiveServerMessage } from '@podium/protocol'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
@@ -28,9 +28,29 @@ export interface ApprovalServiceDeps {
   store: ApprovalsRepository
   now(): string
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  clients(): Iterable<{ send(msg: LiveServerMessage): void }>
+  /**
+   * Connected web clients. The principal is OPTIONAL in the type and present on
+   * every real one: `clientRegistry.values()` yields `ClientConn`, which carries
+   * the authenticated `principal`. Widening the type rather than the wiring is
+   * deliberate — B1 (PDM-133) needed to know WHO each client is in order to stop
+   * broadcasting one human's pending approvals to another, and the composition
+   * root already had the answer.
+   */
+  clients(): Iterable<{
+    send(msg: LiveServerMessage): void
+    principal?: { user?: UserId }
+  }>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
   sessionIssueId(sessionId: SessionId): IssueId | null | Promise<IssueId | null>
+  /**
+   * THE HUMAN WHOSE RUN THIS APPROVAL BELONGS TO (B1, PDM-133).
+   *
+   * An approval is a decision about somebody's private session, so it is that
+   * person's to see and to make — "approvals target the actual run owner". This
+   * resolves it the same way every other session authorization path does, and an
+   * unresolvable owner denies rather than defaulting.
+   */
+  sessionOwner(sessionId: SessionId): Promise<UserId | undefined>
   issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null | Promise<{ seq: number; title: string; displayRef?: string } | null>
   machineName(machineId: MachineId): string | undefined | Promise<string | undefined>
   /** Append to the durable event log (renders in the issue activity feed). */
@@ -146,13 +166,52 @@ export class ApprovalService {
     return row
   }
 
-  async listPending(): Promise<ApprovalWire[]> {
-    return await Promise.all((await this.deps.store.listPending()).map(async (r) => await this.toWire(r)))
+  /**
+   * THE PENDING QUEUE THIS VIEWER MAY DECIDE (B1, PDM-133).
+   *
+   * `viewer` is REQUIRED, and that is the change: this used to take nothing and
+   * return every pending row on the instance to whoever asked. An approval names
+   * a session, a machine, an issue and an operation — so the unscoped list told
+   * every member what every other member's agents were trying to do, and the
+   * decision surface let them answer it.
+   *
+   * Scoped by the SESSION's owner rather than the issue's: the approval is a
+   * decision about somebody's running agent, and B1 makes the run's owner the
+   * human it belongs to even when the task is shared.
+   */
+  async listPending(viewer: UserId): Promise<ApprovalWire[]> {
+    const rows = await this.deps.store.listPending()
+    const mine = await Promise.all(
+      rows.map(async (r) => ((await this.mayDecide(r, viewer)) ? r : undefined)),
+    )
+    return await Promise.all(
+      mine.filter((r): r is ApprovalRow => r !== undefined).map(async (r) => await this.toWire(r)),
+    )
   }
 
+  /** Does this human own the run the approval is about? An unresolvable owner is
+   *  a NO — the same fail-closed rule the session control plane applies. */
+  private async mayDecide(row: ApprovalRow, viewer: UserId): Promise<boolean> {
+    const owner = await this.deps.sessionOwner(row.sessionId)
+    return owner !== undefined && owner === viewer
+  }
+
+  /**
+   * ONE MESSAGE PER CLIENT, each carrying only that client's own queue.
+   *
+   * This built ONE `approvalsChanged` payload from the unscoped list and sent
+   * the same object to every connected client, so the popup surfaced other
+   * people's approvals regardless of what the query returned. A client whose
+   * principal carries no user gets an EMPTY list rather than the full one.
+   */
   private async broadcast(): Promise<void> {
-    const msg: LiveServerMessage = { type: 'approvalsChanged', pending: await this.listPending() }
-    for (const c of this.deps.clients()) c.send(msg)
+    for (const c of this.deps.clients()) {
+      const viewer = c.principal?.user
+      c.send({
+        type: 'approvalsChanged',
+        pending: viewer ? await this.listPending(viewer) : [],
+      } satisfies LiveServerMessage)
+    }
   }
 
   /**
@@ -243,11 +302,16 @@ export class ApprovalService {
     return w
   }
 
-  /** Operator: approve → execute through the closed server catalog or hand the
-   * op to the owning daemon. toMachine queues if the daemon is briefly offline. */
-  async approve(id: string): Promise<ApprovalWire> {
+  /** The run owner: approve → execute through the closed server catalog or hand
+   * the op to the owning daemon. toMachine queues if the daemon is briefly offline.
+   *
+   * `actor` is REQUIRED since B1 (PDM-133). This took an id and nothing else, so
+   * any caller who reached /trpc could approve a management operation — a
+   * `stop`, a daemon-executed command — on another human's session. */
+  async approve(id: string, actor: UserId): Promise<ApprovalWire> {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
+    await this.assertMayDecide(row, actor, id)
     if (!await this.deps.store.transition(id, 'pending', 'executing')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
@@ -280,10 +344,11 @@ export class ApprovalService {
     return await this.toWire(await this.row(id))
   }
 
-  /** Operator: deny. Terminal. */
-  async deny(id: string): Promise<ApprovalWire> {
+  /** The run owner: deny. Terminal. `actor` required — see `approve`. */
+  async deny(id: string, actor: UserId): Promise<ApprovalWire> {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
+    await this.assertMayDecide(row, actor, id)
     if (!await this.deps.store.transition(id, 'pending', 'denied', 'denied by the operator')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
@@ -291,6 +356,21 @@ export class ApprovalService {
     await this.notify(row, 'denied by the operator')
     await this.broadcast()
     return await this.toWire(await this.row(id))
+  }
+
+  /**
+   * Refuse a decision on somebody else's run, in the SAME words an unknown id
+   * gets (`row()` and `get()` above both throw it).
+   *
+   * Deliberately indistinguishable: answering "forbidden" here would confirm
+   * that an approval with this id exists and name a session the caller cannot
+   * see, which is the existence oracle ADR 3 Amendment 1 D20.2 rules out. The
+   * session command plane collapses the same two cases onto `session not found`.
+   */
+  private async assertMayDecide(row: ApprovalRow, actor: UserId, id: string): Promise<void> {
+    if (!(await this.mayDecide(row, actor))) {
+      throw new Error(`unknown approval request: ${id}`)
+    }
   }
 
   /** Daemon reply: execution finished. A `stop` op may never report (the daemon

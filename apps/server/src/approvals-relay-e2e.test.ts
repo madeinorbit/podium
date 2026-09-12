@@ -63,9 +63,9 @@ describe('approval broker relay e2e (#410)', () => {
     const r = await relay('request', { op: { kind: 'update' } })
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
-    expect(await registry.modules.approvals.listPending()).toHaveLength(1)
+    expect(await registry.modules.approvals.listPending(firstAdminMemberId())).toHaveLength(1)
 
-    await registry.modules.approvals.approve(id)
+    await registry.modules.approvals.approve(id, firstAdminMemberId())
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
@@ -79,7 +79,7 @@ describe('approval broker relay e2e (#410)', () => {
     const status = await relay('get', { id })
     expect(status.ok).toBe(true)
     expect(status.result).toMatchObject({ status: 'succeeded' })
-    expect(await registry.modules.approvals.listPending()).toHaveLength(0)
+    expect(await registry.modules.approvals.listPending(firstAdminMemberId())).toHaveLength(0)
   })
 
   it('approved current-session schedule creates an armed server-owned one-off', async () => {
@@ -96,7 +96,7 @@ describe('approval broker relay e2e (#410)', () => {
     expect(r.ok).toBe(true)
     const { id } = r.result as { id: string }
 
-    const approved = await registry.modules.approvals.approve(id)
+    const approved = await registry.modules.approvals.approve(id, firstAdminMemberId())
     expect(approved).toMatchObject({ status: 'succeeded' })
     expect(daemonInbox.some((message) => message.type === 'approvalExecRequest')).toBe(false)
     expect(await registry.modules.automations.list()).toEqual([
@@ -137,7 +137,7 @@ describe('approval broker relay e2e (#410)', () => {
     })
     expect(r.ok).toBe(true)
 
-    await registry.modules.approvals.approve((r.result as { id: string }).id)
+    await registry.modules.approvals.approve((r.result as { id: string }).id, firstAdminMemberId())
     expect(await registry.modules.automations.list()).toEqual([
       expect.objectContaining({
         name: 'Overnight sweep',
@@ -164,7 +164,7 @@ describe('approval broker relay e2e (#410)', () => {
       machineId: 'evil',
     })
     expect(r.ok).toBe(true)
-    const pending = await registry.modules.approvals.listPending()
+    const pending = await registry.modules.approvals.listPending(firstAdminMemberId())
     expect(pending[0]).toMatchObject({ sessionId: sA, machineId })
   })
 })

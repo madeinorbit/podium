@@ -32,7 +32,7 @@
  * multi-user answer is exercised before POD-1075 supplies the real one.
  */
 
-import type { Capability, SessionId, SessionMeta } from '@podium/model'
+import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
@@ -63,7 +63,48 @@ export type SessionVisibility = (
   session: SessionTargetRow,
 ) => boolean | Promise<boolean>
 
+/**
+ * The pre-multi-user answer: everything is visible. STILL THE DEFAULT for
+ * fixtures that are not about visibility, and no longer what production uses —
+ * see {@link sessionOwnerVisibility}.
+ */
 export const everythingVisible: SessionVisibility = () => true
+
+/**
+ * THE OWNER ANSWER POD-1075 PROMISED, supplied by B1 (PDM-133).
+ *
+ * A session is visible to the principal's DELEGATING HUMAN and to nobody else.
+ * That is the human ceiling this module's header describes, now actually
+ * enforced: an agent may act on what its human can see, and its own narrower
+ * scope decides only whether it must CONFIRM (the `assertMayCommandSession`
+ * layer below), never whether the session exists.
+ *
+ * WHY THE OWNER ARRIVES AS A PORT rather than off `SessionTargetRow`. The row is
+ * a `Pick` of `SessionMeta`, and `SessionMeta` deliberately has no owner field —
+ * ownership is not on the wire. So the lookup is injected, and it is the SAME
+ * `sessionOwner` every other session authorization path already consults, which
+ * is what keeps this from becoming a second ownership opinion.
+ *
+ * A SYSTEM PRINCIPAL SEES EVERYTHING, and has to: the janitor, the reconciler
+ * and the outbox drain are not people and have no human ceiling to apply. They
+ * are already unauthenticated-by-construction rather than authenticated-as-
+ * somebody, so this is where that fact is stated rather than a hole opened.
+ *
+ * AN UNRESOLVABLE OWNER IS NOT VISIBLE. Same rule the control plane applies at
+ * `authorizeAttach`: a session whose owner cannot be resolved is indistinguish-
+ * able from one that does not exist, and both answer `absent`.
+ */
+export function sessionOwnerVisibility(
+  ownerOf: (sessionId: SessionId) => Promise<{ owner: UserId } | undefined>,
+): SessionVisibility {
+  return async (principal, session) => {
+    if (principal.kind === 'system') return true
+    const human = principal.kind === 'user' ? principal.user : principal.onBehalfOf
+    if (!human) return false
+    const ownership = await ownerOf(session.sessionId)
+    return ownership?.owner === human
+  }
+}
 
 export interface SessionAccessDeps {
   /** ONE session by id, without the full reader-scoped pass [POD-1646].

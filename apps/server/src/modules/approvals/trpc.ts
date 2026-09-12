@@ -27,7 +27,11 @@ export type ApprovalProcedures = FamilyProcedures<
 export const approvalFamilyProcedures = (): ApprovalProcedures =>
   derivedFamilyProcedures({
     family: 'approvals',
-    service: (state) => state.modules.approvals,
+    // THE WHOLE STATE, not `state.modules.approvals` (B1, PDM-133). Both the
+    // decision commands and the `list` read need the caller's identity, and the
+    // family's `service` selector is the seam that carries it — see the notes in
+    // `registry.ts` and `queries.ts`.
+    service: (state) => state,
     commands: APPROVAL_COMMANDS_TRPC,
     queries: APPROVAL_QUERIES,
   })

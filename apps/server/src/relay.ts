@@ -2381,6 +2381,10 @@ export class SessionRegistry {
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       clients: () => clientRegistry.values(),
+      // The run owner an approval belongs to (B1, PDM-133) — the same
+      // `sessionOwner` every other session authorization path consults, so the
+      // approval surface cannot form a second opinion about who owns a run.
+      sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
@@ -3473,9 +3477,14 @@ export class SessionRegistry {
       // This task is independent of session replay and feed admission. Only
       // its own approvals -> host snapshot sequence is ordered (POD-3509).
       bootstrap: async (client): Promise<void> => {
+        // SCOPED TO THIS CLIENT'S HUMAN (B1, PDM-133). The attach re-send is the
+        // second delivery path for the pending set — the broadcast is the other —
+        // and an unscoped one here would hand every newly-connected client the
+        // whole instance's approvals regardless of what the query returns.
+        const viewer = client.principal?.user
         client.send({
           type: 'approvalsChanged',
-          pending: await approvals.listPending(),
+          pending: viewer ? await approvals.listPending(viewer) : [],
         })
         hosts.snapshotFor(client.send)
       },

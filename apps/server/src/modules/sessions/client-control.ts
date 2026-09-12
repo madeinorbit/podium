@@ -273,15 +273,49 @@ export class SessionClientControl {
           if (controllerChanged) this.ports.broadcastSessions()
         }
         break
+      /**
+       * BOTH OF THESE WERE UNGATED (B1, PDM-133).
+       *
+       * `transcriptSubscribe` opened a live transcript stream for ANY session id
+       * a connected client named — no owner check on any path — while the two
+       * other routes to the same bytes both check first: `attach` runs
+       * `authorizeAttach`, and the `sessions.transcriptRead` query runs
+       * `assertMayReadSession`. One frame skipped the boundary its own siblings
+       * enforce, which is the asymmetry rather than a judgement call.
+       *
+       * `redrawRequest` drove a repaint on another human's PTY. It returns
+       * nothing to the caller, so it is a smaller matter than the transcript —
+       * but "may I make this session do something" is the drive question, and it
+       * was not being asked.
+       *
+       * Both refuse SILENTLY, matching the surrounding frame handlers: this
+       * switch has no refusal frame for these two message types, and inventing
+       * one here would answer "does this session exist" for every id a client
+       * cares to try — the existence oracle ADR 3 Amendment 1 D20 rules out.
+       */
       case 'redrawRequest':
+        if (!(await this.authorizeDrive(principal, message.sessionId))) break
         this.ports.sessions.get(message.sessionId)?.terminal.redraw()
         break
-      case 'transcriptSubscribe':
+      case 'transcriptSubscribe': {
+        const session = this.ports.sessions.get(message.sessionId)
+        // OWNERSHIP, NOT `authorizeAttach`. Attach additionally requires machine
+        // `use`, because opening a PTY is code execution on that host (ADR 9 D6
+        // M2). Reading a transcript is not, and this frame's own sibling —
+        // `sessions.transcriptRead` — gates on `assertMayReadSession` alone. The
+        // argument for calling this a defect was that it did not match its
+        // siblings, so it must now match the RIGHT one.
+        if (!(await this.authorizeRead(principal, message.sessionId))) break
+        // AUTHORIZE ONE OBJECT, SUBSCRIBE TO THAT SAME OBJECT. The gate above
+        // suspends, and `attach` directly overhead re-checks identity across its
+        // own await for this reason: a row replaced mid-await (a resurrect mints
+        // a new `Session` under the same id) would otherwise be subscribed on
+        // the strength of a decision taken about its predecessor.
+        if (!session || this.ports.sessions.get(message.sessionId) !== session) break
         client.transcriptSubs.add(message.sessionId)
-        this.ports.sessions
-          .get(message.sessionId)
-          ?.terminal.subscribeTranscript(client, message.since)
+        session.terminal.subscribeTranscript(client, message.since)
         break
+      }
       case 'transcriptUnsubscribe':
         client.transcriptSubs.delete(message.sessionId)
         this.ports.sessions.get(message.sessionId)?.terminal.unsubscribeTranscript(id)
@@ -351,6 +385,21 @@ export class SessionClientControl {
     if (!owner) return false
     const ctx = contextFromOwnership(owner, await this.ports.machineUseFor(principal, sessionId))
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
+  }
+
+  /**
+   * READ rights on a session's output: the owner, and nobody else (B1, PDM-133).
+   *
+   * The same question `SESSION_QUERIES.transcriptRead` asks through
+   * `assertMayReadSession`, asked on the socket. Deliberately WITHOUT the
+   * machine-use term that `mayWatch` carries: machine `use` is the code-
+   * execution boundary and gates opening a PTY, not looking at bytes a session
+   * already produced. An unresolvable owner denies, as everywhere else here.
+   */
+  private async authorizeRead(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
+    const ownership = await this.ports.sessionOwner(sessionId)
+    if (!ownership) return false
+    return ownership.owner === principal.user
   }
 
   /** Drive rights for requestControl — owner / write grantee / admin + machine use. */

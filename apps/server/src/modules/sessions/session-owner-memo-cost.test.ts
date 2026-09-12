@@ -18,6 +18,16 @@
  *    fixture that deliberately mixes the cases that could diverge: sessions
  *    with an issue and without, an issue that does not exist, a resource with
  *    grants and resources with none, and a verb that must NOT confer read.
+ *
+ * WHAT B1 (PDM-133) CHANGED HERE, AND WHAT IT LEAVES OPEN. `sessionOwner` now
+ * answers from the durable session row alone — the issue-row and grant-edge
+ * reads this memo exists to batch are gone from the ownership path. The
+ * equivalence test below still grades primed against unprimed, but neither side
+ * consults the memo for its answer any more, and the cost tests now pin a
+ * `primeOwnerMemo` whose ownership half nothing reads. That makes the memo dead
+ * weight on the projection pass rather than incorrect — a perf question spanning
+ * `lifecycle.ts`, `session-wiring.ts` and `session-state/service.ts`, which B1
+ * does not own. Filed beneath PDM-139 rather than retired here.
  */
 
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
@@ -137,11 +147,29 @@ describe('per-pass ownership memo [POD-1653]', () => {
 
     expect(primed).toEqual(unprimed)
     // The fixture must actually exercise the interesting cases, or the equality
-    // above is vacuous: a real owner-from-issue, a fallback owner, a real
-    // grantee, and a non-read verb that confers nothing.
-    expect(unprimed[0]).toEqual({ owner: 'u_issue_owner', grants: ['u_shared'] })
+    // above is vacuous. B1 (PDM-133) changed what the interesting cases ARE:
+    // every session now answers with its own row's owner and no grants, so the
+    // discriminator is no longer "issue owner vs fallback" but "does the
+    // attached issue change the answer at all".
+    //
+    // s1 IS attached to iss_a, whose owner is u_issue_owner and which carries a
+    // real `u_shared` read grant — this used to read
+    // `{ owner: 'u_issue_owner', grants: ['u_shared'] }`. Neither reaches the
+    // answer now, and s1 matching the issue-less s4/s5 shape is the assertion.
+    expect(unprimed[0]).toEqual({ owner: 'u_fallback', grants: [] })
     expect(unprimed[2]).toEqual({ owner: 'u_fallback', grants: [] })
     expect(unprimed[3]).toEqual({ owner: 'u_four', grants: [] })
+    // NON-VACUITY: the fixture really does carry an issue owner and a read grant
+    // that differ from the answer, so the three lines above are not agreeing
+    // with an empty world. Read back out of the SAME store the assertions ran
+    // against, via the memo primer, rather than restated from the fixture.
+    expect(GRANTS.some((g) => g.resourceId === ISSUE_A && g.grantee === 'u_shared')).toBe(true)
+    const witness = emptyMemo()
+    await harness().authz.primeOwnerMemo(witness, ids)
+    expect((witness.issues.get(ISSUE_A) as { ownerUserId: string } | null)?.ownerUserId).toBe(
+      'u_issue_owner',
+    )
+    expect(witness.grants.get(`issue:${ISSUE_A}`)).toEqual(['u_shared'])
   })
 
   it('costs one batched read per kind for a whole pass, not one per session', async () => {

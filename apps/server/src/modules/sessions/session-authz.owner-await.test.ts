@@ -9,11 +9,20 @@
  * they only checked for a defined result — they are written so the broken code
  * returns a DIFFERENT, plausible owner rather than nothing at all.
  *
- * THE FIXTURE IS BUILT TO DISCRIMINATE. `u_issue_owner` (the issue's owner, the
- * right answer) is never equal to `u_session_fallback` (the session row's own
- * ownerUserId, the answer an unawaited issue read falls back to). If those two
- * were the same value — the tempting, tidier fixture — every ownership
- * assertion here would pass with all four awaits removed.
+ * THE FIXTURE IS BUILT TO DISCRIMINATE, and B1 (PDM-133) reversed WHICH of its
+ * two users is right without touching that property. `u_issue_owner` (the
+ * attached issue's owner) is never equal to `u_session_fallback` (the session
+ * row's own ownerUserId). If those two were the same value — the tempting,
+ * tidier fixture — every ownership assertion here would pass against either
+ * precedence, and the change this file now pins would be invisible.
+ *
+ * WHAT B1 REMOVED FROM THIS FILE'S REACH. `sessionOwner` no longer reads the
+ * issue row or the grant edges at all, so the unawaited-issue-read defect is no
+ * longer reachable through it — that lookup is gone rather than fixed. The
+ * POD-3507 property still under test here is the one remaining async read,
+ * `getSession`, plus `primeOwnerMemo` and the machine-use decision below, which
+ * are unchanged. Said plainly because a file that keeps its name after its
+ * subject narrows is how a test quietly stops covering what its header claims.
  *
  * The doubles are ASYNC, matching the store. A synchronous double cannot
  * exercise an await at all: it makes the unawaited and the awaited code
@@ -28,9 +37,24 @@ import { SessionAuthz } from './session-authz'
 import type { SessionOwnerMemo } from './session-state/service'
 
 const ISSUE = 'iss_x'
-/** The RIGHT answer: the owner of the issue the session belongs to. */
+/**
+ * THE TWO ANSWERS SWAPPED ROLES IN B1 (PDM-133).
+ *
+ * `ISSUE_OWNER` was "the RIGHT answer" and `SESSION_FALLBACK` was "the WRONG-
+ * but-plausible answer an unawaited issue read falls back to". Session authority
+ * is now the durable row, so the session's own owner is right and the attached
+ * issue's owner must not appear at all. The NAMES are kept exactly as they were,
+ * deliberately: renaming them would hide from the next reader that this file
+ * once asserted the reverse, and the git blame is the cheapest explanation of
+ * why the precedence changed.
+ *
+ * What did NOT change is the property that makes the fixture worth anything:
+ * the two values are never equal, so no assertion here can pass by the two
+ * identities coinciding.
+ */
+/** Owner of the attached issue. Since B1 it must NEVER be the answer. */
 const ISSUE_OWNER = 'u_issue_owner'
-/** The WRONG-but-plausible answer an unawaited issue read falls back to. */
+/** The session row's own `ownerUserId` — the initiating human, and the answer. */
 const SESSION_FALLBACK = 'u_session_fallback'
 const GRANTEE = 'u_grantee'
 const MACHINE = asMachineId('m1')
@@ -129,55 +153,75 @@ function harness() {
 const emptyMemo = (): SessionOwnerMemo => ({ issues: new Map(), grants: new Map() })
 
 describe('session ownership resolves through the store reads [POD-3507]', () => {
-  it('names the ISSUE owner, not the session row fallback (no memo)', async () => {
+  it('names the SESSION row owner, and never the attached issue owner (no memo)', async () => {
     const { authz, counts } = harness()
 
     const owner = await authz.sessionOwner(PARKED)
 
-    // The whole defect in one assertion. Unawaited, `getIssue(...)` is a promise
-    // whose `?.ownerUserId` is undefined, so `?? durable.ownerUserId` answers
-    // SESSION_FALLBACK — a real user id, silently the wrong one.
-    expect(owner?.owner).toBe(ISSUE_OWNER)
-    expect(owner?.owner).not.toBe(SESSION_FALLBACK)
-    // And the grants half, which crashes rather than lying when unawaited
-    // (`edges.filter is not a function`). The non-read verb must not confer.
-    expect(owner?.grants).toEqual([GRANTEE])
+    // The B1 boundary in one assertion: this session is attached to an issue
+    // owned by somebody else, and the answer is the human on the row.
+    expect(owner?.owner).toBe(SESSION_FALLBACK)
+    expect(owner?.owner).not.toBe(ISSUE_OWNER)
     // The durable row was actually read — the session is not in the live map,
     // so a fixture that accidentally served it from memory would prove nothing.
+    // This is also what still discriminates an UNAWAITED read: `getSession` is
+    // the one async lookup left, and unawaited it yields a promise whose
+    // `ownerUserId` is undefined, which now returns `undefined` rather than a
+    // plausible wrong human.
     expect(counts.getSession).toBe(1)
-    expect(counts.getIssue).toBe(1)
-    expect(counts.listForResource).toBe(1)
+    // AND THE ISSUE WAS NEVER CONSULTED. Asserting the owner alone would pass on
+    // an implementation that still read the issue and merely preferred the row —
+    // leaving the read on the authorization path for the next edit to re-prefer.
+    // These two are the structural claim: the lookup is gone.
+    expect(counts.getIssue).toBe(0)
+    expect(counts.listForResource).toBe(0)
   })
 
-  it('names the ISSUE owner through an UNPRIMED memo', async () => {
-    const { authz, counts } = harness()
-
-    // The memo branch of `memoIssueOwner` is a separate site from the branch
-    // above: it STORES the read and reads it back out, so an unawaited store
-    // puts a promise in the map and the read-back finds no `ownerUserId`.
-    const owner = await authz.sessionOwner(PARKED, emptyMemo())
-
-    expect(owner?.owner).toBe(ISSUE_OWNER)
-    expect(owner?.owner).not.toBe(SESSION_FALLBACK)
-    expect(owner?.grants).toEqual([GRANTEE])
-    expect(counts.getIssue).toBe(1)
-  })
-
-  it('names the ISSUE owner through a PRIMED memo, and asks the batched reads once', async () => {
+  it('is unaffected by the memo, primed or unprimed', async () => {
     const { authz, counts } = harness()
     const memo = emptyMemo()
 
+    // Three routes that used to reach three DIFFERENT lookup sites — no memo,
+    // an unprimed memo (`memoIssueOwner`'s store-and-read-back branch) and a
+    // primed one. They now have one answer because they share one code path.
+    const noMemo = await authz.sessionOwner(PARKED)
+    const unprimed = await authz.sessionOwner(PARKED, emptyMemo())
     await authz.primeOwnerMemo(memo, [PARKED])
-    const owner = await authz.sessionOwner(PARKED, memo)
+    const primed = await authz.sessionOwner(PARKED, memo)
 
-    expect(owner?.owner).toBe(ISSUE_OWNER)
-    expect(owner?.owner).not.toBe(SESSION_FALLBACK)
-    expect(owner?.grants).toEqual([GRANTEE])
-    // Primed means the per-resource reads are never reached — if they were, the
-    // assertions above could pass while `primeOwnerMemo` itself was broken.
+    expect(noMemo).toEqual({ owner: SESSION_FALLBACK, grants: [] })
+    expect(unprimed).toEqual(noMemo)
+    expect(primed).toEqual(noMemo)
+    // NON-VACUITY for the primed leg: `primeOwnerMemo` really did run its
+    // batched reads above, so `primed` is not simply the unprimed path again.
     expect(counts.getIssues).toBe(1)
     expect(counts.listForResources).toBe(1)
+    // The per-resource reads stay at zero across all three.
     expect(counts.getIssue).toBe(0)
+    expect(counts.listForResource).toBe(0)
+  })
+
+  it('treats grants as inactive history — a live read grant confers nothing', async () => {
+    const { authz, counts } = harness()
+    const memo = emptyMemo()
+
+    // NON-VACUITY FIRST, and this is the whole point of the test. Prime the memo
+    // from the SAME store: it comes back holding a real `read` edge for GRANTEE.
+    // So the edge exists, the store serves it, and the reader can reach it.
+    await authz.primeOwnerMemo(memo, [PARKED])
+    expect(memo.grants.get(`issue:${ISSUE}`)).toEqual([GRANTEE])
+
+    const owner = await authz.sessionOwner(PARKED, memo)
+
+    // ...and ownership still reports none. Empty because B1 stopped CONSULTING
+    // grants, not because there was nothing to find — which is the difference
+    // between "inactive history" and "no data", and the reason the assertion
+    // above has to be here. Without it this is catalogue #13: a comparison that
+    // passes trivially when both sides are empty.
+    expect(owner?.grants).toEqual([])
+    expect(owner?.owner).toBe(SESSION_FALLBACK)
+    // The grantee did not become the owner by another route either.
+    expect(owner?.owner).not.toBe(GRANTEE)
     expect(counts.listForResource).toBe(0)
   })
 

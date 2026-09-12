@@ -31,8 +31,10 @@
  *
  * Dispose: none. The coordinator holds a single-flight map only; no timer.
  *
- * Ambient: resumeSession's `ownerUserId ?? firstAdminMemberId()` moved here from
- * lifecycle. USAGE DELTA on the census must be 0.
+ * Ambient: resumeSession's `ownerUserId ?? firstAdminMemberId()` fallback, moved
+ * here from lifecycle. B1 (PDM-133) attempted to remove it and could not — a
+ * production caller supplies no human (see the note at the site). Census usage
+ * delta: 0.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -163,6 +165,25 @@ export class SessionRevival {
       agentKind: input.agentKind,
       ...(issueId ? { issueId } : {}),
     })
+    /**
+     * THE RESUMING HUMAN OWNS THE FRESH ROW (B1, PDM-133).
+     *
+     * Only the FRESH-SPAWN arm reaches here. A resume that lands on an EXISTING
+     * row goes through `resurrectSession`, which relaunches under
+     * `session.ownerUserId` — the row's own durable owner — so waking a parked
+     * session has never moved it between humans, and B1 did not need to change
+     * that. This arm is the one that mints a new row.
+     *
+     * THE `firstAdminMemberId` FALLBACK SURVIVES, AND B1 TRIED TO REMOVE IT.
+     * Made fail-closed first; that broke a PRODUCTION caller —
+     * `SuperagentService` resumes a thread's terminal with no `ownerUserId` at
+     * all, so a thread whose row has been pruned would have thrown instead of
+     * reopening. The right fix is for that caller to name its human, and
+     * `modules/superagent` is B2's write set, not B1's. Filed beneath PDM-139;
+     * until it lands, a resume that cannot name a human mints the row under the
+     * first-enrolled account, which is wrong on a multi-human instance and is
+     * stated here rather than left for someone to find.
+     */
     const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
       ownerUserId: input.ownerUserId ?? (await firstAdminMemberId(this.ports.store)),

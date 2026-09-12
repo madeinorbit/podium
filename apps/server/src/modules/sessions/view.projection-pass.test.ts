@@ -101,7 +101,13 @@ async function fixture(count: number) {
     await store.sync.enqueueMessage({ id: `queue-${row.sessionId}`, sessionId: row.sessionId, text: 'queued', queuedAt: 1 })
   }
   await store.sessions.markSessionRead(reader, rows[0]!.sessionId, '2026-09-11T00:00:00.000Z')
-  await store.sessions.setSnooze(reader, rows[1]!.sessionId, null)
+  // ON A ROW THE READER OWNS (row 2), not row 1. Row 1 is the grantee case, and
+  // since B1 (PDM-133) a grant confers nothing, so a snooze parked there would
+  // never reach the reader's projection — and the
+  // `expected.some(s => s.snoozedUntil === null)` guard below, which exists to
+  // stop this suite comparing two empty-ish arrays, would silently go false.
+  // Moved rather than deleted: the guard is the non-vacuity check.
+  await store.sessions.setSnooze(reader, rows[2]!.sessionId, null)
   const sessions = new Map(rows.map(s => [s.sessionId, s]))
   const authz = new SessionAuthz({ sessions, store } as never)
   const state = new SessionStateService({ store, getSession: (id: string) => sessions.get(asSessionId(id)),
@@ -152,13 +158,21 @@ describe('one projection pass', () => {
     try {
       // The five rows cover missing issue fallback, direct grantee, no-issue
       // owner, issue owner (different from session owner), and unrelated reader.
+      //
+      // TWO OF THEM FLIPPED IN B1 (PDM-133), and they are the two the change is
+      // about. Row 1 was readable because the reader held a GRANT EDGE on it;
+      // grants are inactive history now. Row 3 was readable because the reader
+      // owns the ATTACHED ISSUE while 'other' owns the session; the issue no
+      // longer decides. Rows 0 and 2 are the reader's OWN sessions and are
+      // unaffected, which is what keeps this vector discriminating rather than
+      // uniformly false.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
       await f.store.users.create({ id: reader, displayName: 'Reader', role: 'member',
         createdAt: '2026-09-10T00:00:00.000Z', disabledAt: null }, 'test-only')
       expect(await f.store.users.get(reader)).toBeDefined()
       expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
-        .toEqual([true, true, true, true, false])
+        .toEqual([true, false, true, false, false])
       // Test-only revocation: no user lifecycle write API exists yet.
       // @ts-expect-error test-only access to the private database connection
       await f.store.db.prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
@@ -166,7 +180,7 @@ describe('one projection pass', () => {
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
       expect(await Promise.all(f.rows.map(s => f.state.canReadSession(principal, s.sessionId))))
-        .toEqual([true, true, true, true, false])
+        .toEqual([true, false, true, false, false])
       expect(() => sessionStatePrincipalFor(systemPrincipal('characterization')))
         .toThrow('system principal has no per-user session state')
       const member = { ...principal, userId: asUserId('unrelated'),
@@ -189,7 +203,10 @@ describe('one projection pass', () => {
       const expected = []
       for (const s of f.rows) if (await f.state.canReadSession(principal, s.sessionId)) expected.push(await legacyWire(s, f))
       expect(await f.view.list(principal, 'rpc')).toEqual(expected)
-      expect(expected).toHaveLength(8)
+      // Four of ten: the reader owns rows where i % 5 is 0 or 2. It was eight
+      // before B1 (PDM-133), when a grant edge and the attached issue each
+      // carried one more row in.
+      expect(expected).toHaveLength(4)
       expect(expected.some(s => s.displayRef)).toBe(true)
       expect(expected.some(s => s.snoozedUntil === null)).toBe(true)
     } finally { await f.store.close() }
@@ -209,7 +226,8 @@ describe('one projection pass', () => {
       const visible = await f.state.visibleSessions(principal, f.rows.map(s => s.sessionId))
       const count = statementCount() / recordingsPerStatement
       process.stdout.write(`visibility 200: ${count} physical statements, ${(performance.now() - start).toFixed(2)} ms\n`)
-      expect(visible.size).toBe(160)
+      // 80 of 200 — two in every five are the reader's own (see above).
+      expect(visible.size).toBe(80)
       expect(count).toBe(3)
       expect(sessionReads).not.toHaveBeenCalled()
       expect(userReads).not.toHaveBeenCalled()
@@ -218,8 +236,11 @@ describe('one projection pass', () => {
       // the registry, and its issue/grant inputs come from the enclosing pass.
       const pass = await f.view.buildProjectionPass(f.rows, principal)
       resetQueryAttribution()
+      // ROW 3 IS THE B1 CASE ITSELF: owned by 'other', attached to an issue the
+      // READER owns. Before PDM-133 this answered `reader` — the attached issue
+      // outranking the row. It answers the row now.
       expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass))
-        .toEqual({ owner: reader, grants: [] })
+        .toEqual({ owner: asUserId('other'), grants: [] })
       expect(statementCount()).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       process.stdout.write('registered non-live ownership: 0 physical statements\n')
@@ -243,7 +264,7 @@ describe('one projection pass', () => {
         const result = await f.view.list(principal, 'rpc')
         counts.push(statementCount() / recordingsPerStatement)
         process.stdout.write(`projection ${size}: ${counts.at(-1)} physical statements, ${(performance.now() - start).toFixed(2)} ms\n`)
-        expect(result).toHaveLength(size * 4 / 5)
+        expect(result).toHaveLength((size * 2) / 5)
         expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
       } finally { await f.store.close() }
     }

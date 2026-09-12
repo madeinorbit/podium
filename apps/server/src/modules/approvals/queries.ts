@@ -29,17 +29,31 @@
  */
 
 import type { TransportTag } from '@podium/commands'
+import { asUserId } from '@podium/model'
 import { z } from 'zod'
-import type { ApprovalService } from './service'
+import type { FamilyState } from '../derived-family'
 
 /** `trpc` alone, matching the two decision contracts' `SERVED_ON`. The agent side
  *  reads its own request through the issue relay's arm, not through this. */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
+/**
+ * THE READ TAKES THE FAMILY STATE, NOT THE BARE SERVICE (B1, PDM-133).
+ *
+ * It was `(service: ApprovalService, input)`. `list` is a PER-CALLER queue — the
+ * approvals for this person's own runs — and the bare service had no way to name
+ * whose queue it was, so it returned the whole instance's. This is the shape
+ * `modules/sessions/queries.ts` already uses for the same reason: its three
+ * per-user lists read `state.caller.userId`.
+ *
+ * AUTHORIZATION IS STILL NOT HERE. The state carries a two-field identity and
+ * NOT the capability, so a table entry can name whose rows it wants and cannot
+ * decide whether it may have them — `ApprovalService.listPending` does that.
+ */
 export interface ApprovalQuery<In extends z.ZodTypeAny, Out> {
   readonly input: In
   readonly exposure: readonly TransportTag[]
-  readonly run: (service: ApprovalService, input: z.infer<In>) => Out
+  readonly run: (state: FamilyState, input: z.infer<In>) => Out
 }
 
 /** Preserves the schema and return types through the object literal below —
@@ -47,7 +61,7 @@ export interface ApprovalQuery<In extends z.ZodTypeAny, Out> {
  *  loses `AppRouter` inference on the read. */
 const query = <In extends z.ZodTypeAny, Out>(
   input: In,
-  run: (service: ApprovalService, input: z.infer<In>) => Out,
+  run: (state: FamilyState, input: z.infer<In>) => Out,
 ): ApprovalQuery<In, Out> => ({ input, exposure: SERVED_ON, run })
 
 /**
@@ -59,9 +73,12 @@ const query = <In extends z.ZodTypeAny, Out>(
 const noInput = z.object({}).passthrough().optional()
 
 export const APPROVAL_QUERIES = {
-  /** The operator decision surface's queue: every request still awaiting an
-   *  answer, already projected to the wire shape by the service. */
-  list: query(noInput, async (service) => await service.listPending()),
+  /** THIS CALLER's decision queue: the requests still awaiting an answer that
+   *  are about runs they own, already projected to the wire shape by the
+   *  service. Not the instance's — see `ApprovalQuery` above. */
+  list: query(noInput, async (state) =>
+    await state.modules.approvals.listPending(asUserId(state.caller.userId)),
+  ),
 } as const
 
 export type ApprovalQueryName = keyof typeof APPROVAL_QUERIES

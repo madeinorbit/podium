@@ -168,9 +168,6 @@ export interface SessionCommandDeps {
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): Promise<boolean>
-  issueOwner(
-    issueId: IssueId,
-  ): Promise<import('@podium/model').UserId | undefined>
   /** The runtime-contract staging leg for live sessions. */
   stageAttachment(input: {
     sessionId: SessionId
@@ -369,14 +366,37 @@ export function createdByForBinding(
  * inheritance-on-create item, which is declared PER CLASS — and this is the
  * class).
  *
- * A session created by an agent is owned by that agent's `onBehalfOf` HUMAN with
- * the agent as actor; a session spawned under an issue inherits THAT ISSUE's
- * owner instead — otherwise sharing an issue does not share its work, and
- * retiring an agent orphans everything it made.
+ * A session is owned by the HUMAN WHOSE DELEGATION CREATED IT — the principal's
+ * `onBehalfOf` — with the agent, when there is one, as actor. The attached issue
+ * does not enter into it.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ISSUE ARM USED TO WIN, AND B1 (PDM-133) REVERSED IT
+ * ---------------------------------------------------------------------------
+ *
+ * The rule here was "a session spawned under an issue inherits THAT ISSUE's
+ * owner instead — otherwise sharing an issue does not share its work". That
+ * reasoning is sound for issue CONTENT and wrong for a private RUN, and the
+ * accepted architecture separates the two: every active member may read a task
+ * and edit its shared content, while the sessions executing on it stay private
+ * to the humans who started them. Inheriting the issue owner collapsed that
+ * distinction at the point of creation — Bob's agent on Alice's task became
+ * Alice's session — and `sessionOwner` then carried the same collapse on every
+ * subsequent read.
+ *
+ * "Retiring an agent orphans everything it made" is answered by the ACTOR half,
+ * which is unchanged: `spawnedBy` still records which agent created the row, so
+ * the work remains attributable to it without the human half moving.
+ *
+ * `parentIssue` IS STILL TAKEN, and still reported through `inheritedFrom`, so
+ * the caller's placement decision stays visible to the audit surface; it simply
+ * no longer decides ownership. Dropping the parameter would also drop the record
+ * that a placement was made.
  *
  * Persisted by the lifecycle module as `sessions.owner_user_id`. This function
- * remains the ONE producer of the inheritance rule, so storage consumes the
- * decision without re-deciding it.
+ * remains the ONE producer of the rule — and B1 removed the second, silent
+ * producer in `SessionStart.create`, which re-derived the issue owner and
+ * discarded whatever this returned.
  */
 export interface CreatedOwnership {
   readonly owner: string | null
@@ -386,24 +406,19 @@ export interface CreatedOwnership {
 
 export function createdOwnership(
   principal: CommandPrincipal,
-  parentIssue: { id: IssueId; owner?: UserId | null } | undefined,
+  /** The session's PLACEMENT, for the `inheritedFrom` record only. It carried an
+   *  `owner` until B1 (PDM-133); the field is gone rather than ignored, so no
+   *  future edit can read an issue owner back into session ownership without
+   *  first re-adding the parameter and explaining why. */
+  parentIssue: { id: IssueId } | undefined,
 ): CreatedOwnership {
   const attribution = attributionOf(principal)
-  if (parentIssue) {
-    return {
-      // The issue's owner when it has one. Before POD-1075 an issue row has no
-      // owner column either, so it falls back to the delegating human — the same
-      // person in a one-account instance, and still correct the moment issues
-      // grow the column.
-      owner: parentIssue.owner ?? attribution.onBehalfOf,
-      actor: attribution.actor,
-      inheritedFrom: { kind: 'issue', id: parentIssue.id },
-    }
-  }
+  // ONE owner answer for both arms: the delegating human. `parentIssue` changes
+  // only the PLACEMENT this reports, never who the session belongs to.
   return {
     owner: attribution.onBehalfOf,
     actor: attribution.actor,
-    inheritedFrom: { kind: 'principal' },
+    inheritedFrom: parentIssue ? { kind: 'issue', id: parentIssue.id } : { kind: 'principal' },
   }
 }
 
@@ -590,9 +605,7 @@ export const SESSION_COMMAND_HANDLERS = {
     const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(
       ctx.principal,
-      rest.issueId
-        ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) }
-        : undefined,
+      rest.issueId ? { id: rest.issueId } : undefined,
     )
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const createdDraftId =

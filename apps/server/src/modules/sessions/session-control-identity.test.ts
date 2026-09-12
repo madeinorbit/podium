@@ -588,3 +588,145 @@ it('attaches, transfers control, and delivers input through the real async owner
     reg.dispose()
   }
 })
+
+/**
+ * MU-07/08 — THE PRIVATE-EXECUTION BOUNDARY (B1, PDM-133).
+ *
+ * "Alice owns task, Bob owns agent; Alice cannot view/control/resume Bob's run."
+ *
+ * THE FIXTURE IS DELIBERATELY `role: 'member'` ON BOTH SIDES, and that is
+ * load-bearing rather than incidental. `humanMay` in session-control-policy.ts
+ * short-circuits on `role === 'admin'`, and the helpers in this file default to
+ * admin — so a cross-user case written the easy way is decided by the admin
+ * break-glass and not by the ownership policy it claims to exercise. That is
+ * catalogue entry 14, and PDM-250 shipped exactly that defect: seven isolation
+ * tests passing while checking nothing.
+ *
+ * (The break-glass itself contradicts the accepted D7 — an admin may not view or
+ * drive another member's session — but session-control-policy.ts is outside B1's
+ * write set, so it is filed beneath PDM-139 rather than changed here. These
+ * tests pass either way because they never take that branch.)
+ */
+describe('MU-07/08: a session is private to the human who started it', () => {
+  const BOB = asUserId('user:bob')
+  /** Bob's session, on a machine both can use. Ownership is the only variable. */
+  const bobsOwnership = { owner: BOB, grants: [] }
+
+  const memberClient = (id: string, user: UserId) => makeClient(id, user, 'member')
+
+  it('refuses ATTACH to a human who does not own the session', async () => {
+    const session = makeSession()
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const alice = memberClient('c-alice', ALICE)
+
+    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+
+    expect(alice.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unauthorized',
+    })
+    expect(alice.attached.has(SESSION)).toBe(false)
+  })
+
+  it('refuses DRIVE to a human who does not own the session', async () => {
+    const session = makeSession()
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const alice = memberClient('c-alice-drive', ALICE)
+
+    expect(await ctl.authorizeDrive(alice.principal, SESSION)).toBe(false)
+  })
+
+  it('refuses TRANSCRIPT SUBSCRIPTION to a human who does not own the session', async () => {
+    // This frame had no authorization check of any kind before B1: it streamed
+    // another human's transcript to any connected client that named the id,
+    // while `attach` and `sessions.transcriptRead` both checked first.
+    const session = makeSession()
+    const subscribe = vi.spyOn(session.terminal, 'subscribeTranscript')
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const alice = memberClient('c-alice-transcript', ALICE)
+
+    await ctl.onFrame(alice.principal, alice, {
+      type: 'transcriptSubscribe',
+      sessionId: SESSION,
+    })
+
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(alice.transcriptSubs.has(SESSION)).toBe(false)
+  })
+
+  it('refuses REDRAW to a human who does not own the session', async () => {
+    const session = makeSession()
+    const redraw = vi.spyOn(session.terminal, 'redraw')
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const alice = memberClient('c-alice-redraw', ALICE)
+
+    await ctl.onFrame(alice.principal, alice, { type: 'redrawRequest', sessionId: SESSION })
+
+    expect(redraw).not.toHaveBeenCalled()
+  })
+
+  /**
+   * EVERY REFUSAL ABOVE PROVES IT CAN SAY YES FIRST. Four `not.toHaveBeenCalled`
+   * / `false` assertions are exactly what a broken instrument reports, so the
+   * owner runs the same four frames through the same fixture and is admitted.
+   * Without this, a typo in the frame name would pass all four.
+   */
+  it('admits the OWNER through all four of the same paths', async () => {
+    const session = makeSession()
+    const subscribe = vi.spyOn(session.terminal, 'subscribeTranscript')
+    const redraw = vi.spyOn(session.terminal, 'redraw')
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const bob = memberClient('c-bob', BOB)
+
+    await ctl.onFrame(bob.principal, bob, { type: 'attach', sessionId: SESSION })
+    await ctl.onFrame(bob.principal, bob, { type: 'transcriptSubscribe', sessionId: SESSION })
+    await ctl.onFrame(bob.principal, bob, { type: 'redrawRequest', sessionId: SESSION })
+
+    expect(bob.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'terminalOutcome', outcome: 'unauthorized' }),
+    )
+    expect(bob.attached.has(SESSION)).toBe(true)
+    expect(bob.transcriptSubs.has(SESSION)).toBe(true)
+    expect(subscribe).toHaveBeenCalled()
+    expect(redraw).toHaveBeenCalled()
+    expect(await ctl.authorizeDrive(bob.principal, SESSION)).toBe(true)
+  })
+
+  /**
+   * THE CASE THIS CHANGE IS NOT ABOUT (catalogue entry 10): owning the session
+   * is necessary but not sufficient — the machine gate is independent and still
+   * refuses. Session ownership must not have become a back door to a host the
+   * principal cannot use.
+   */
+  it('still refuses the OWNER to ATTACH when machine use is denied — but not to READ', async () => {
+    const session = makeSession()
+    const subscribe = vi.spyOn(session.terminal, 'subscribeTranscript')
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'denied' })
+    const bob = memberClient('c-bob-nomachine', BOB)
+
+    await ctl.onFrame(bob.principal, bob, { type: 'attach', sessionId: SESSION })
+
+    expect(bob.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unauthorized',
+    })
+    expect(await ctl.authorizeDrive(bob.principal, SESSION)).toBe(false)
+
+    /**
+     * AND THE TWO GATES ARE ACTUALLY DIFFERENT. Opening a PTY is code execution
+     * on that host and needs machine `use` (ADR 9 D6 M2); reading bytes the
+     * session already produced is not, and its RPC sibling
+     * `sessions.transcriptRead` has never asked for machine use either.
+     *
+     * This assertion is what makes `authorizeRead` a distinct thing rather than
+     * a second spelling of `authorizeAttach` — route the transcript frame
+     * through `authorizeAttach` instead and this line fails, while every other
+     * assertion in this file stays green.
+     */
+    await ctl.onFrame(bob.principal, bob, { type: 'transcriptSubscribe', sessionId: SESSION })
+    expect(subscribe).toHaveBeenCalled()
+    expect(bob.transcriptSubs.has(SESSION)).toBe(true)
+  })
+})

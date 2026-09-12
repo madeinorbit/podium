@@ -184,7 +184,6 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
-    issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
       issues: asyncSessionIssueAccess(modules.issues),

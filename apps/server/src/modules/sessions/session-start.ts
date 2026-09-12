@@ -40,10 +40,16 @@ import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
  * to `firstAdminMemberId()` today and POD-315 replaces that with the requesting
  * principal; this module needs no change when it does.
  *
- * The two `?? firstAdminMemberId()` fallbacks below ARE ambient-principal sites,
- * and they moved here from `lifecycle.ts` rather than being created. The census
- * (`bun run audit:ambient-principals`) counts USAGE and reads the delta, so a
- * move like this is 0 and only a genuinely NEW default is +1.
+ * WHO OWNS A SESSION THIS MODULE STARTS. The initiating human, resolved from the
+ * binding principal (its parent session's owner for an agent spawn) or supplied
+ * explicitly by the caller — NEVER the attached issue's owner. B1 (PDM-133)
+ * removed the issue term, which used to come first and outrank both.
+ *
+ * Of the two `?? firstAdminMemberId()` ambient-principal fallbacks that stood
+ * behind those sites, `spawn()`'s is GONE (its owner is now a required
+ * parameter) and `create()`'s SURVIVES as the last term only — see the comment
+ * at that line for why, and for what has to happen before it can go. Census
+ * (`bun run audit:ambient-principals`) usage delta for this file: -1, not -2.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -274,19 +280,58 @@ export class SessionStart {
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
     const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
-    // Session ownership is declared per class: an issue-owned child inherits the
-    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
-    // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId
-      ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId
-      : undefined
+    /**
+     * THE SESSION IS OWNED BY THE HUMAN WHO STARTED IT (B1, PDM-133).
+     *
+     * This read `parentOwner ?? input.ownerUserId ?? bindingOwner ?? firstAdmin`,
+     * and every term of that chain was wrong in a different way:
+     *
+     *  - `parentOwner` re-derived the ATTACHED ISSUE's owner and put it FIRST,
+     *    so a session started by Bob on Alice's task was Alice's. Note what that
+     *    did to `input.ownerUserId`: `createdOwnership` is documented as "the ONE
+     *    producer of the inheritance rule, so storage consumes the decision
+     *    without re-deciding it" — and this line re-decided it, discarding the
+     *    caller's answer whenever an issue was attached. Two producers, and the
+     *    silent one won.
+     *  - `firstAdmin` is the solo-user fallback A2 was meant to retire. It cannot
+     *    be right on a multi-human instance: it names whoever enrolled first, so
+     *    an unattributable session became the admin's rather than being refused.
+     *
+     * The order is now the DELEGATION first and the caller's explicit answer
+     * second, with NO ISSUE TERM. `bindingOwner` is the binding principal's
+     * human — for an agent spawn, its PARENT SESSION's owner, which is what
+     * makes "child agents retain the same human ceiling and do not inherit the
+     * task assignee" true by construction rather than by convention.
+     *
+     * WHY `firstAdminMemberId` IS STILL HERE, AND WHY IT IS HARMLESS WHERE IT
+     * IS. B1 was meant to delete it outright. It survives ONLY as the last term,
+     * where it can no longer outrank anything: it is reachable exclusively when
+     * a caller supplies neither a binding nor an explicit owner, and no
+     * production caller does — `command-plane`, `relay`, `superagent`,
+     * `automations`, `native-login` and `messages/spawn` all pass `ownerUserId`.
+     * What still reaches it is 428 in-process call sites across 70 test files
+     * (`createSession({ agentKind, cwd })`), so deleting the term is a fixture
+     * migration across files B1 does not own rather than a change to this
+     * decision. Filed beneath PDM-139; the ORDER — which is the security
+     * property — is fixed here and now.
+     *
+     * `spawn()` below took the stricter route because it has exactly two callers
+     * and both resolve a real human: there its `ownerUserId` is REQUIRED.
+     *
+     * `createdBy` below already resolved its human this way and says so in its
+     * own comment ("those differ exactly when a session is spawned under a shared
+     * issue, and conflating them would attribute the spawn to the issue's
+     * owner"). The attribution stamp and the authority field now agree; the bug
+     * was that only one of them had been fixed.
+     */
     const bindingOwner =
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
         : input.binding?.principal.kind === 'agent'
           ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId =
+      bindingOwner ?? input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -371,7 +416,16 @@ export class SessionStart {
 
   async spawn(input: {
     agentKind: AgentKind
-    ownerUserId?: UserId
+    /**
+     * The initiating human. REQUIRED since B1 (PDM-133) — it was optional with a
+     * `?? firstAdminMemberId()` fallback below, which on a multi-human instance
+     * hands an unattributable session to whoever enrolled first. Both call sites
+     * (`create` above, `SessionRevival`) resolve a real human, so the fallback
+     * was already unreachable in production; making the TYPE required is what
+     * keeps the next caller from re-introducing the ambiguity rather than a
+     * comment asking it not to.
+     */
+    ownerUserId: UserId
     cwd: string
     title?: string
     /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
@@ -411,7 +465,7 @@ export class SessionStart {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : await this.ports.defaultMachine()
-    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId = input.ownerUserId
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
