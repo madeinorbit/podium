@@ -1520,3 +1520,14 @@ describe('hosted sign-in profile activation', () => {
     expect(seams.setCredential).not.toHaveBeenCalled()
   })
 })
+
+it('ignores duplicate OS delivery after a hosted callback succeeds', async () => {
+  const link = `podium://signed-in?code=hoff_${'B'.repeat(27)}&challenge=${'a'.repeat(64)}`
+  await mountActiveProfileA()
+  await act(async () => seams.linkListener!({ url: link }))
+  await waitFor(() => expect(seams.activeContext?.bearer).toBe('cloud-token'))
+  await act(async () => seams.linkListener!({ url: link }))
+  expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
+  expect(seams.activeContext?.bearer).toBe('cloud-token')
+  expect(screen.queryByText('Connect to your Podium')).toBeNull()
+})

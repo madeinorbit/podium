@@ -7,9 +7,11 @@ import { color, space } from '../theme/theme'
 export function HostedSignInButton({
   server = HOSTED_API_ORIGIN,
   signInUrl = HOSTED_SIGN_IN_URL,
+  onBegin,
 }: {
   server?: string
   signInUrl?: string
+  onBegin?(): void
 }) {
   const inFlight = useRef(false)
   const [status, setStatus] = useState('')
@@ -24,6 +26,7 @@ export function HostedSignInButton({
         style={{ padding: space.md, borderRadius: 8, backgroundColor: color.claude }}
         onPress={() => {
           if (inFlight.current) return
+          onBegin?.()
           inFlight.current = true
           setBusy(true)
           setStatus('Opening your browser…')

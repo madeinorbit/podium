@@ -4,7 +4,10 @@ const begin = vi.hoisted(() => vi.fn())
 vi.mock('../client/hosted-sign-in-runtime', () => ({ hostedSignIn: { begin } }))
 vi.mock('react-native', async (original) => ({
   ...(await original<typeof import('react-native')>()),
-  Platform: { OS: 'ios' },
+  Platform: {
+    OS: 'ios',
+    select: (values: Record<string, unknown>) => values.ios ?? values.default,
+  },
 }))
 vi.mock('./PressableScale', () => ({
   PressableScale: ({ onPress, children, disabled }: any) => (

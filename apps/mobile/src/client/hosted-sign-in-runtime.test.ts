@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 const seams = vi.hoisted(() => ({
-  create: vi.fn((_deps: unknown) => ({})),
+  deps: null as unknown,
+  create: vi.fn((deps: unknown) => {
+    seams.deps = deps
+    return {}
+  }),
   get: vi.fn(),
   set: vi.fn(),
   remove: vi.fn(),
@@ -24,7 +28,7 @@ vi.mock('react-native', () => ({ Linking: { openURL: seams.open } }))
 import './hosted-sign-in-runtime.native'
 describe('native hosted sign-in adapters', () => {
   it('keeps the pending verifier in device-only secure storage and opens the OS browser', async () => {
-    const deps = seams.create.mock.calls[0]![0] as any
+    const deps = seams.deps as import('./hosted-sign-in').HostedSignInDependencies
     await deps.write('proof')
     await deps.read()
     await deps.remove()

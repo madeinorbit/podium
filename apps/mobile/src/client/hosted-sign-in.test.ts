@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -14,23 +15,21 @@ const callback = `podium://signed-in?code=${code}&challenge=${challenge}`
 function rig() {
   let stored: string | null = null
   let now = Date.now()
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async (url) =>
-      String(url).endsWith('/begin')
-        ? Response.json(
-            { challenge },
-            {
-              headers: {
-                'set-cookie': `__Host-podium-handoff=${verifier}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
-              },
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url) =>
+    String(url).endsWith('/begin')
+      ? Response.json(
+          { challenge },
+          {
+            headers: {
+              'set-cookie': `__Host-podium-handoff=${verifier}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
             },
-          )
-        : Response.json({
-            token: 'session-token',
-            expiresAt: new Date(now + 86400_000).toISOString(),
-          }),
-    )
+          },
+        )
+      : Response.json({
+          token: 'session-token',
+          expiresAt: new Date(now + 86400_000).toISOString(),
+        }),
+  )
   const deps: HostedSignInDependencies = {
     fetch: fetcher,
     read: async () => stored,

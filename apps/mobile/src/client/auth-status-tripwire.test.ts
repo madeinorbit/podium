@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { type AuthStatus, checkLiveAuth, fetchAuthStatus } from './auth'
 
 /** The complete status contract; userId is the namespace input. */
-const STATUS_FIELDS = ['needsAuth', 'authed', 'userId'] as const
+const STATUS_FIELDS = ['needsAuth', 'authed', 'userId', 'mode', 'signInUrl'] as const
 
 /** Type-level equality in both directions keeps the parser contract explicit. */
 type AssertNever<T extends never> = T
@@ -33,9 +33,18 @@ describe('the mobile auth status names its replica principal', () => {
     // Drive the real parser: declared identity must survive into composition.
     const original = globalThis.fetch
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ needsAuth: true, authed: true, userId: 'alice' }), {
-        headers: { 'content-type': 'application/json' },
-      })) as typeof globalThis.fetch
+      new Response(
+        JSON.stringify({
+          needsAuth: true,
+          authed: true,
+          userId: 'alice',
+          mode: 'cloud',
+          signInUrl: 'https://ade.podium.do/account/sign-in',
+        }),
+        {
+          headers: { 'content-type': 'application/json' },
+        },
+      )) as typeof globalThis.fetch
     try {
       return fetchAuthStatus('http://example.invalid').then((status) => {
         expect(Object.keys(status).sort()).toEqual([...STATUS_FIELDS].sort())

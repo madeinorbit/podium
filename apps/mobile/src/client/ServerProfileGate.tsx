@@ -265,6 +265,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     operation: number
   } | null>(null)
   const hostedReturnConsumed = useRef<object | null>(null)
+  const lastHostedCode = useRef<string | null>(null)
   const pendingHandoff = useSyncExternalStore(
     subscribePendingMobileHandoff,
     pendingMobileHandoffSnapshot,
@@ -349,6 +350,8 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     if (Platform.OS !== 'web' && isHostedReturn(raw)) {
       try {
         const link = parseHostedReturn(raw)
+        if (lastHostedCode.current === link.code) return
+        lastHostedCode.current = link.code
         startupLinkGeneration.current += 1
         const operation = ++switchOperation.current
         nativeLinkIntent.current = 'pairing'
@@ -1315,6 +1318,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           canCancel={profile !== null}
           onCancel={() => {
             switchOperation.current += 1
+            setCredentialOwnerRevision((value) => value + 1)
             setHostedReturn(null)
             void hostedSignIn.cancel().catch(() => {})
             setHandoffStatus('')
@@ -1325,6 +1329,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }}
           onPairingStart={() => {
             switchOperation.current += 1
+            setCredentialOwnerRevision((value) => value + 1)
             setHostedReturn(null)
             setHandoffStatus('')
             void hostedSignIn.cancel().catch(() => {})
@@ -1647,7 +1652,7 @@ function PairingSetup({
         </Text>
         {step === 'welcome' ? (
           <>
-            {Platform.OS !== 'web' ? <HostedSignInButton /> : null}
+            {Platform.OS !== 'web' ? <HostedSignInButton onBegin={onPairingStart} /> : null}
             <Text style={styles.setupBody}>
               Or pair with a server you run. Scan the code shown in Podium on your computer.
             </Text>
