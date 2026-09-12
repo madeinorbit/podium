@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { OperationStore } from './modules/operations/store'
@@ -141,7 +142,7 @@ describe('target server deferred move adoption', () => {
     mkdirSync(stage, { recursive: true })
     metadataPath = join(stage, 'state.json')
     writeFileSync(metadataPath, JSON.stringify(promotingMetadata()))
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {
@@ -182,7 +183,7 @@ describe('target server deferred move adoption', () => {
 
   it('reboots with durable promoted proof and opens the data plane before binding', async () => {
     await handle.close()
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
 
     const response = await fetch(`http://127.0.0.1:${handle.port}/readiness`)
     expect(response.status).toBe(200)
@@ -269,7 +270,7 @@ describe('source server deferred move adoption', () => {
       }
       new TransferJournal(join(root, '.server-transfer')).begin(record)
 
-      handle = await startServer({ port: 0 })
+      handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       const engine = handle.registry.modules.operations.engine
       const deferred = (await engine.get(operation.id))?.operation
       expect(engine.isAdoptionDeferred(operation.id)).toBe(true)
