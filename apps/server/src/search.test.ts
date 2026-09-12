@@ -1,4 +1,4 @@
-import { asIssueId, asMachineId, asThreadId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, asMachineId, asThreadId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -526,5 +526,119 @@ describe('search.query tRPC', () => {
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)
     expect(results[0]?.sessionId).toBe(sessionId)
+  })
+})
+
+/**
+ * THE DIRECT CONVERSATION READ — `conversations.search`, not the omni-search above.
+ *
+ * The census (`packages/commands/src/projections/census.ts`) carried this row as
+ * ungoverned on the reading that `modules/conversations/queries.ts:39` hands free
+ * text, `projectPath` and a limit to the service with no principal. The principal is
+ * there — `modules/conversations/trpc.ts:22` builds the service as
+ * `forReader({ kind: 'user', id: caller.userId })` and `search.ts:78` filters every
+ * candidate through `mayRead`, which ends at the same owner-or-grant rule
+ * (`issue-authz.ts:138`) that `sessions.transcriptRead` applies to the same bytes.
+ *
+ * What was missing is this file. `search.predicates.test.ts` MOCKS `mayRead`, so it
+ * pins the ORDER (filter before limit) and not the rule; the fixture above at
+ * 'batches issue ownership and grant reads' uses the real policy but asserts the
+ * reader SEES every row, so no refusal is witnessed on this entry point. Deleting
+ * the ownership hop therefore left this procedure's own lane green.
+ *
+ * These tests go through `forReader(...).searchConversations(...)` — the exact
+ * construction the tRPC arm uses — rather than the omni-search, because the direct
+ * read builds its visibility with `batchIssueOwners: true` (`search.ts:73`) and that
+ * priming path is reached from nowhere else.
+ *
+ * The grant case is not decoration: without it a handler that returned `[]` for
+ * everyone but the owner would satisfy both refusals. It pins the decision as
+ * owner-OR-GRANT, which is the rule the census row will claim.
+ */
+describe('conversations.search reader scoping', () => {
+  const registries: SessionRegistry[] = []
+  afterEach(async () => {
+    for (const r of registries.splice(0)) await r.dispose()
+  })
+
+  const bob = asUserId('usr_bob_owner')
+  const alice = asUserId('usr_alice_stranger')
+
+  /** Bob's conversation, reachable only through the session that resumes it.
+   *  Neither identity is the admin member, so no capability short circuit can
+   *  decide these cases in place of the policy under test. */
+  const seed = async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    registry.gateway.attachDaemon('m1', () => {})
+
+    const issue = await registry.issues.create({
+      repoPath: '/bobrepo',
+      title: 'bob private work',
+      startNow: false,
+      ownerUserId: bob,
+    })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/bobrepo/worktree',
+      issueId: issue.id,
+      ownerUserId: bob,
+    })
+    await registry.gateway.routeDaemonFrame('m1', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'bob-native' },
+    })
+    await store.conversations.index.upsert([
+      {
+        id: 'bob-native',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        projectPath: '/bobrepo',
+        machineId: asMachineId('m1'),
+        title: 'ownershipneedle conversation',
+      },
+    ])
+    const searchAs = async (id: UserId, opts: { query?: string; projectPath?: string }) =>
+      (await registry.modules.memory.forReader({ kind: 'user', id }).searchConversations(opts)).map(
+        (row) => row.id,
+      )
+    return { store, issue, searchAs }
+  }
+
+  it('refuses another member the project-path narrowed read of their conversations', async () => {
+    const { searchAs } = await seed()
+    // The targeted shape: `projectPath` names one repo/worktree subtree, so a hit
+    // reports that work is happening in that checkout and not merely that some
+    // conversation matched.
+    expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual([])
+    // COUNTERFACTUAL — without this the empty array above would also be produced by
+    // a fixture that indexed nothing.
+    expect(await searchAs(bob, { projectPath: '/bobrepo' })).toEqual(['bob-native'])
+  })
+
+  it('refuses another member the untargeted free-text trawl of their conversations', async () => {
+    const { searchAs } = await seed()
+    expect(await searchAs(alice, { query: 'ownershipneedle' })).toEqual([])
+    expect(await searchAs(bob, { query: 'ownershipneedle' })).toEqual(['bob-native'])
+  })
+
+  it('admits a member the owner granted read on the conversation issue', async () => {
+    const { store, issue, searchAs } = await seed()
+    expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual([])
+    await store.grants.upsert({
+      resourceKind: 'issue',
+      resourceId: issue.id,
+      grantee: alice,
+      verb: 'read',
+      owner: bob,
+      visibility: 'personal',
+      createdAt: '2026-09-12T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: bob,
+      onBehalfOf: bob,
+    })
+    expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual(['bob-native'])
   })
 })
