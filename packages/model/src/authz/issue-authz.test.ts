@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
+import { asLegacyGrant } from './axes'
 import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
 
 /**
@@ -395,5 +396,230 @@ describe('the unconstrained admin capability keeps its reach across the new targ
     }
     expect(authorize(scopedAdmin, 'write', session('somebody-else'))).toBe('forbidden')
     expect(authorize(scopedAdmin, 'write', session('user:sole'))).toBe('allow')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A5.1 (PDM-245) — THE PRIVATE TARGET, AND WHY IT IS ITS OWN KIND
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE TARGET SHAPE WAS ANSWERING TWO INCOMPATIBLE QUESTIONS.
+ *
+ * `AuthTarget`'s `owned` arm carries an owner and a grant list, and `authorize`
+ * decided it as owner-or-grant. Two different classes of thing arrive in that
+ * shape, and the correct rule for them is not the same rule:
+ *
+ *   - a SHARED TASK, built by `modules/issues/access-index.ts#ownedTarget` and
+ *     `modules/issues/service/reads.ts#ownedTarget` from an issue row plus the
+ *     issue's grant edges. Owner-or-grant is CORRECT here and must not move:
+ *     the execution charter's exposure order keeps task delivery unchanged
+ *     through phases A and B, and C4 (PDM-144) replaces the predicate in one
+ *     reviewed change afterwards.
+ *   - a PRIVATE RESOURCE — a session, an automation, a machine, a per-user row
+ *     — built by `modules/sessions/session-state/registry.ts` and
+ *     `modules/sessions/rename-target-path.ts`. These are OWNER-ONLY in this
+ *     release (A3-spec; ADR 9 Amendment 1 D7; architecture §10, which requires
+ *     cross-user session grants to be ineffective), so owner-or-grant admitted
+ *     a second human to another person's private execution.
+ *
+ * A rule cannot be narrowed for one and preserved for the other while both wear
+ * one tag. So the private class gets its own member, and the `owned` member is
+ * left to mean what it still correctly means. The grantees it carries are typed
+ * `LegacyGrant` (see `./axes`) so the expression that was the defect —
+ * `legacyGrants.includes(<a user id>)` — does not compile.
+ */
+describe('a PRIVATE target is owner-only, whatever the scope (A5.1)', () => {
+  const OWNER = asUserId('alice')
+  const READER = asUserId('bob')
+  const THIRD_PARTY = asUserId('carol')
+
+  const privateResource = (owner: string | null, legacyGrants?: readonly string[]) =>
+    ({
+      kind: 'private',
+      id: 'sess_alice',
+      owner,
+      ...(legacyGrants ? { legacyGrants: legacyGrants.map(asLegacyGrant) } : {}),
+    }) as const
+
+  /**
+   * TOTALITY, THE SAME OBLIGATION THE SCOPE TABLES ABOVE CARRY. Every declared
+   * scope kind must have a stated answer for a private resource somebody else
+   * owns, and every one of them is refusal — including the two that short-circuit
+   * reads (`none`, `subtree`), because a private resource is not made readable by
+   * the scope naming no person. That is what "owner-only, whatever the scope"
+   * means, and a `Record<IssueScope['kind'], …>` makes a new scope member declare
+   * its answer rather than inherit one.
+   */
+  const EXPECTED_READ_OF_ANOTHERS_PRIVATE_RESOURCE: Record<IssueScope['kind'], AuthDecision> = {
+    all: 'forbidden',
+    none: 'forbidden',
+    subtree: 'forbidden',
+    owned: 'forbidden',
+    self: 'forbidden',
+  }
+
+  const SCOPES_FOR_READER: Record<IssueScope['kind'], IssueScope> = {
+    all: { kind: 'all' },
+    none: { kind: 'none' },
+    subtree: { kind: 'subtree', rootId: asIssueId('elsewhere') },
+    owned: { kind: 'owned', userId: READER },
+    self: { kind: 'self', userId: READER },
+  }
+
+  /** The reader, named by the attribution pair as well as by the scope, so the
+   *  `all` arm — which decides against `onBehalfOf` — has a person to refuse. */
+  const readerCap = (scope: IssueScope): Capability => ({
+    role: 'admin',
+    scope,
+    actorUser: READER,
+    onBehalfOf: READER,
+  })
+
+  it('refuses every scope kind a private resource it does not own', () => {
+    for (const [kind, expected] of Object.entries(EXPECTED_READ_OF_ANOTHERS_PRIVATE_RESOURCE)) {
+      const scope = SCOPES_FOR_READER[kind as IssueScope['kind']]
+      expect(authorize(readerCap(scope), 'read', privateResource(OWNER)), kind).toBe(expected)
+    }
+  })
+
+  it('refuses every scope kind a private resource whose LEGACY GRANT names the reader', () => {
+    // The defect, stated over the whole scope column: an edge row naming the
+    // caller must not open another person's session under ANY capability.
+    for (const [kind, expected] of Object.entries(EXPECTED_READ_OF_ANOTHERS_PRIVATE_RESOURCE)) {
+      const scope = SCOPES_FOR_READER[kind as IssueScope['kind']]
+      expect(
+        authorize(readerCap(scope), 'read', privateResource(OWNER, [READER])),
+        kind,
+      ).toBe(expected)
+    }
+  })
+
+  it('refuses a WRITE to another person’s private resource, granted or not', () => {
+    for (const kind of Object.keys(SCOPES_FOR_READER) as IssueScope['kind'][]) {
+      const scope = SCOPES_FOR_READER[kind]
+      expect(authorize(readerCap(scope), 'write', privateResource(OWNER)), kind).toBe('forbidden')
+      expect(
+        authorize(readerCap(scope), 'write', privateResource(OWNER, [READER])),
+        kind,
+      ).toBe('forbidden')
+    }
+  })
+
+  it('is not liftable by --outside-scope, which confirms a TASK crossing and nothing else', () => {
+    expect(
+      authorize(readerCap({ kind: 'all' }), 'read', privateResource(OWNER, [READER]), {
+        override: true,
+      }),
+    ).toBe('forbidden')
+    expect(
+      authorize(readerCap({ kind: 'subtree', rootId: asIssueId('elsewhere') }), 'write',
+        privateResource(OWNER, [READER]), { override: true }),
+    ).toBe('forbidden')
+  })
+
+  it('refuses an UNOWNED private resource, and a grant does not supply an owner', () => {
+    expect(authorize(readerCap({ kind: 'all' }), 'read', privateResource(null))).toBe('forbidden')
+    expect(
+      authorize(readerCap({ kind: 'all' }), 'read', privateResource(null, [READER])),
+    ).toBe('forbidden')
+  })
+
+  it('refuses a capability that names no human at all (D21.2: a machine has no on-behalf-of)', () => {
+    const machine: Capability = { role: 'admin', scope: { kind: 'all' } }
+    expect(authorize(machine, 'read', privateResource(OWNER))).toBe('forbidden')
+    expect(authorize(machine, 'read', privateResource(OWNER, [READER]))).toBe('forbidden')
+  })
+
+  it('ALLOWS THE OWNER under the scopes that name them, so the refusals are ownership talking', () => {
+    // The counterfactual. Without it every assertion above would also pass against
+    // an `authorize` that had simply stopped answering for private targets — the
+    // guard that fails identically whether or not the thing it guards is switched
+    // on. The owner is admitted while the resource carries the SAME grant list.
+    const ownerCap = (scope: IssueScope): Capability => ({
+      role: 'admin',
+      scope,
+      actorUser: OWNER,
+      onBehalfOf: OWNER,
+    })
+    for (const scope of [
+      { kind: 'all' } as const,
+      { kind: 'owned', userId: OWNER } as const,
+    ]) {
+      expect(authorize(ownerCap(scope), 'read', privateResource(OWNER)), scope.kind).toBe('allow')
+      expect(authorize(ownerCap(scope), 'write', privateResource(OWNER)), scope.kind).toBe('allow')
+      expect(
+        authorize(ownerCap(scope), 'read', privateResource(OWNER, [READER, THIRD_PARTY])),
+        scope.kind,
+      ).toBe('allow')
+    }
+  })
+
+  it('still answers the ROLE gate first, so a private target cannot widen an action', () => {
+    // A viewer owns the resource and still may not manage it: the private contract
+    // is an ownership answer bolted onto the role table, not a replacement for it.
+    const owningViewer: Capability = {
+      role: 'viewer',
+      scope: { kind: 'all' },
+      actorUser: OWNER,
+      onBehalfOf: OWNER,
+    }
+    expect(authorize(owningViewer, 'read', privateResource(OWNER))).toBe('allow')
+    expect(authorize(owningViewer, 'write', privateResource(OWNER))).toBe('forbidden')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A5.1 — the `owned` target under an UNCONSTRAINED scope
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THE `all` ARM READS AN OWNED TARGET AS PRIVATE.
+ *
+ * A3 gave the `all` scope an ownership rule for `owned` targets, and left the
+ * grant clause in it. Under `all` that clause is unreachable by any TASK: the
+ * server's `checkIssueAccess` returns before the target is built when the scope
+ * is `all`, and `mayReadOwned` always mints an `owned` SCOPE — so the only live
+ * producers of an `owned` target under an unconstrained capability are
+ * `session-state/registry.ts` and `rename-target-path.ts`, and both build
+ * SESSIONS. The arm was a private-resource path wearing the task target's name.
+ *
+ * So it is decided as private until those two producers are repointed at the
+ * `private` member, which is the later integration sweep's to do. The `owned`
+ * arm under an `owned` SCOPE is NOT changed with it — there the same shape does
+ * still carry issues, and narrowing it would move task exposure.
+ */
+describe('an owned target under an unconstrained scope is owner-only (A5.1)', () => {
+  const ADMIN_GRANTEE: Capability = {
+    role: 'admin',
+    scope: { kind: 'all' },
+    actorUser: A_MEMBER,
+    onBehalfOf: A_MEMBER,
+  }
+
+  it('refuses an admin whom a grant edge names on someone else’s session', () => {
+    expect(authorize(ADMIN_GRANTEE, 'read', session('somebody-else', [A_MEMBER]))).toBe('forbidden')
+    expect(authorize(ADMIN_GRANTEE, 'write', session('somebody-else', [A_MEMBER]))).toBe(
+      'forbidden',
+    )
+  })
+
+  it('keeps that admin’s reach over what they OWN, grant list and all', () => {
+    // The counterfactual for the refusals above.
+    expect(authorize(ADMIN_GRANTEE, 'write', session(A_MEMBER, [A_MEMBER]))).toBe('allow')
+    expect(authorize(ADMIN_GRANTEE, 'write', session(A_MEMBER))).toBe('allow')
+  })
+
+  it('LEAVES THE OWNER-OR-GRANT TASK RULE ALONE under an owned scope', () => {
+    // THE SCOPE BOUNDARY OF THIS ISSUE, AS AN ASSERTION. The same target shape
+    // under an `owned` scope still carries issues — `access-index.ts#ownedTarget`
+    // builds one from an issue row and the issue's grant edges — so a grantee
+    // still reads and writes what they were granted. Narrowing this would change
+    // what a member can see of a task, which the charter's exposure order puts
+    // after phase B and gives to C4 (PDM-144).
+    const alice = cap({ kind: 'owned', userId: asUserId('alice') })
+    expect(authorize(alice, 'read', session('bob', ['alice']))).toBe('allow')
+    expect(authorize(alice, 'write', session('bob', ['alice']))).toBe('allow')
+    expect(authorize(alice, 'read', session('bob'))).toBe('forbidden')
   })
 })

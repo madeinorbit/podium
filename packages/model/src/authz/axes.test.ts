@@ -17,9 +17,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { asUserId } from '../ids/brands'
+import { asUserId, type UserId } from '../ids/brands'
 import {
   activeIdentityDecision,
+  asLegacyGrant,
   type AxisDecision,
   AUTHORIZATION_AXES,
   delegationIsResolvable,
@@ -28,6 +29,7 @@ import {
   MAX_DELEGATION_DEPTH,
   meetsRoleFloor,
   privateExecutionDecision,
+  type PrivateResourceFacts,
   taskCollaborationDecision,
   taskScopeDecision,
 } from './axes'
@@ -188,14 +190,125 @@ describe('axis 4 · private execution', () => {
     expect(privateExecutionDecision(admin(), { resourceId: 'r', owner: null })).toBe('deny')
     expect(privateExecutionDecision(member(), { resourceId: 'r', owner: null })).toBe('deny')
   })
+})
 
-  it('honours an explicit grant and nothing else', () => {
+// ---------------------------------------------------------------------------
+// Axis 4 · A LEGACY GRANT OPENS NOTHING (A5.1 / PDM-245)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT THE TEST THIS REPLACES WAS FOR, BECAUSE HALF OF IT WAS LOAD-BEARING.
+ *
+ * It read `honours an explicit grant and nothing else`, and asserted a pair:
+ * `grants: [BOB]` → allow, and `grants: []` → deny. The FIRST half asserted the
+ * defect — Bob reading Alice's resource — so every green run confirmed it. The
+ * SECOND half was protecting something real, and it is kept below: the presence
+ * of the optional grant key must not itself move the answer. That is the same
+ * family as the `undefined === undefined` bug the module header keeps returning
+ * to — an evaluator that reads an absent field as ambient permission — and it is
+ * why these cases are asserted over the list's SHAPE (absent, empty, naming the
+ * reader, naming a third party) rather than over one example of it.
+ *
+ * What changes is the other half. Sessions, automations, machines and per-user
+ * rows are owner-only in this release, so "honours an explicit grant" was never
+ * a narrower version of the rule; it was a different rule. The property that
+ * replaces it is stronger and is stated once, over the whole shape table below:
+ * FOR A NON-OWNER, NO ARRANGEMENT OF THE GRANT LIST PRODUCES AN ALLOW.
+ */
+describe('axis 4 · a legacy grant opens nothing (A5.1)', () => {
+  const OWNER = ALICE
+  const STRANGER = asUserId('mem_carol')
+
+  /** Every shape the carried evidence can take at a private resource. The rule
+   *  under test is that this column cannot change an answer, so the table is
+   *  written as the full column rather than as one representative row. */
+  const grantShapes: ReadonlyArray<[string, readonly UserId[] | undefined]> = [
+    ['no grant list at all', undefined],
+    ['an empty grant list', []],
+    ['a grant naming the reader', [BOB]],
+    ['a grant naming a third party', [STRANGER]],
+    ['a grant naming the reader among others', [STRANGER, BOB, OWNER]],
+  ]
+
+  /** The readers a private resource must refuse. `disabledAt` and an identity the
+   *  directory cannot resolve are included because a suspended or unknown person
+   *  must not become reachable by way of a grant edge either — axis 1 runs first
+   *  and a grant must not be able to run before it. */
+  const deniedReaders: ReadonlyArray<[string, IdentityFacts]> = [
+    ['another member (Bob reading Alice’s resource)', member(BOB)],
+    ['an ADMIN who is not the owner', admin(BOB)],
+    ['a SUSPENDED member', { userId: BOB, role: 'member', disabledAt: '2026-09-01T00:00:00.000Z' }],
+    ['a SUSPENDED admin', { userId: BOB, role: 'admin', disabledAt: '2026-09-01T00:00:00.000Z' }],
+  ]
+
+  for (const [who, reader] of deniedReaders) {
+    for (const [shape, legacyGrants] of grantShapes) {
+      it(`denies ${who} with ${shape}`, () => {
+        expect(
+          privateExecutionDecision(reader, {
+            resourceId: 'sess_alice',
+            owner: OWNER,
+            ...(legacyGrants ? { legacyGrants: legacyGrants.map(asLegacyGrant) } : {}),
+          }),
+        ).toBe('deny')
+      })
+    }
+  }
+
+  it('denies an identity the directory cannot resolve, grant or no grant', () => {
+    // The signature refuses `undefined` at compile time, so reaching this state
+    // takes a cast — which a transport boundary can always perform. The evaluator
+    // refuses it at run time as well, and a grant edge does not change that.
+    const unresolved = undefined as unknown as IdentityFacts
+    expect(privateExecutionDecision(unresolved, { resourceId: 'r', owner: OWNER })).toBe('deny')
     expect(
-      privateExecutionDecision(member(BOB), { ...resource, grants: [BOB] }),
-    ).toBe('allow')
-    expect(
-      privateExecutionDecision(member(BOB), { ...resource, grants: [] }),
+      privateExecutionDecision(unresolved, {
+        resourceId: 'r',
+        owner: OWNER,
+        legacyGrants: [asLegacyGrant(BOB)],
+      }),
     ).toBe('deny')
+  })
+
+  it('denies an UNOWNED resource that carries a grant, so a grant cannot supply an owner', () => {
+    // A grant hangs off an owner. "Granted on an unowned row" is incoherent, and
+    // default-closed (§3.1.1) means incoherent resolves to refusal rather than to
+    // whichever of the two facts the reader happened to check first.
+    expect(
+      privateExecutionDecision(member(BOB), {
+        resourceId: 'r',
+        owner: null,
+        legacyGrants: [asLegacyGrant(BOB)],
+      }),
+    ).toBe('deny')
+  })
+
+  it('ignores a resurrected `grants` key, so the old spelling cannot come back by name', () => {
+    // The removed expression read `resource.grants`. A later edit that reinstated
+    // that FIELD — in a producer, a fixture or a merge — must still not be read,
+    // and this asserts the evaluator is not merely looking at a renamed one.
+    const withOldSpelling = {
+      resourceId: 'sess_alice',
+      owner: OWNER,
+      grants: [BOB],
+    } as unknown as PrivateResourceFacts
+    expect(privateExecutionDecision(member(BOB), withOldSpelling)).toBe('deny')
+  })
+
+  it('STILL ALLOWS THE OWNER while carrying the same grant list, so the denials are ownership talking', () => {
+    // The counterfactual, and the reason the table above is not vacuous. Without
+    // it every assertion here would also pass against a `privateExecutionDecision`
+    // that had simply stopped returning `allow` — which is precisely the shape of
+    // guard that looks green while checking nothing.
+    for (const [, legacyGrants] of grantShapes) {
+      expect(
+        privateExecutionDecision(member(OWNER), {
+          resourceId: 'sess_alice',
+          owner: OWNER,
+          ...(legacyGrants ? { legacyGrants: legacyGrants.map(asLegacyGrant) } : {}),
+        }),
+      ).toBe('allow')
+    }
   })
 })
 

@@ -276,6 +276,46 @@ export function taskScopeDecision(
 // ---------------------------------------------------------------------------
 
 /**
+ * A LEGACY GRANT EDGE — evidence that somebody was once granted something, and
+ * NOT a permission.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A DISTINCT TYPE AND NOT A `UserId`
+ * ---------------------------------------------------------------------------
+ *
+ * Private resources are OWNER-ONLY in this release (A3-spec; ADR 9 Amendment 1
+ * D7; architecture §10, which requires cross-user session grants to be
+ * INEFFECTIVE; accounts/machines addendum §1, which preserves legacy grants as
+ * inactive evidence). There is no sharing or handover verb, so no grant on a
+ * private resource can have been issued by a supported flow — what the `grants`
+ * table holds against one is residue from before the rule existed.
+ *
+ * The previous spelling of that rule was a COMMENT saying the list "stays EMPTY
+ * in practice", over an evaluator that read it. A comment is not enforcement,
+ * and the comment was wrong on both halves: the list is not empty (the edge
+ * table is populated for issue-backed resources) and reading it admitted
+ * another person outright.
+ *
+ * So the grantees are carried at a type that is NOT comparable to the identity
+ * an authorization decision is made about. `legacyGrants.includes(facts.userId)`
+ * — the exact expression that was the defect — no longer compiles, because a
+ * {@link LegacyGrant} is not a `UserId` and an array of them admits no `UserId`
+ * to `includes`. Restoring the bypass is therefore a deliberate cast at a named
+ * type, not a plausible-looking one-line edit.
+ *
+ * This is the same device the header describes for the four axis signatures: the
+ * substitution that produced a bypass is made a type error rather than a code
+ * review note.
+ */
+declare const LEGACY_GRANT: unique symbol
+export type LegacyGrant = string & { readonly [LEGACY_GRANT]: 'legacy-grant' }
+
+/** Read a grantee out of the store as the inactive evidence it is. The cast is
+ *  confined to this one function so that every site turning a stored row into a
+ *  {@link LegacyGrant} is findable by its callers. */
+export const asLegacyGrant = (grantee: string): LegacyGrant => grantee as LegacyGrant
+
+/**
  * A privately owned resource: a session, a run, an automation, a machine, a
  * per-user row. `owner` is read from the STORE, never from a payload (ADR 3 D7).
  *
@@ -288,10 +328,15 @@ export function taskScopeDecision(
 export interface PrivateResourceFacts {
   readonly resourceId: string
   readonly owner: UserId | null
-  /** Explicit grants. Charter: there is no sharing/handover verb in v1, so this
-   *  stays EMPTY in practice — it is carried because `grants` already exists in
-   *  the store and silently dropping it here would be a second policy. */
-  readonly grants?: readonly UserId[]
+  /**
+   * Legacy grant edges standing against this resource, carried as EVIDENCE and
+   * unusable as a permission — see {@link LegacyGrant}.
+   *
+   * The field is not dropped, because the `grants` edge table is real and a
+   * reader that silently discarded its rows would be making a second, unstated
+   * policy out of an omission. It is carried, shown, and refused.
+   */
+  readonly legacyGrants?: readonly LegacyGrant[]
 }
 
 /**
@@ -317,6 +362,22 @@ export interface PrivateResourceFacts {
  * come through here too. The rule is one line because the rule genuinely is one
  * line; what it took was giving it somewhere to live that an admin check could
  * not reach into.
+ *
+ * ---------------------------------------------------------------------------
+ * THERE IS NO GRANT ARM EITHER, AND ITS ABSENCE IS THE REST OF THE DELIVERABLE
+ * ---------------------------------------------------------------------------
+ *
+ * A5.1 (PDM-245). This function used to end
+ * `return (resource.grants ?? []).includes(facts.userId) ? 'allow' : 'deny'`,
+ * which admitted a second human to a session, an automation, a machine or a
+ * per-user row on the strength of an edge row. Sessions, machines and
+ * automations are owner-only in this release, so that arm was not a narrower
+ * rule than the spec — it was a different one.
+ *
+ * `facts.role` and `resource.legacyGrants` are now BOTH unread. An admin, a
+ * grantee and a stranger get the identical answer, and the only fact that moves
+ * it is ownership. See {@link LegacyGrant} for why the removed expression no
+ * longer type-checks.
  */
 export function privateExecutionDecision(
   facts: IdentityFacts,
@@ -328,8 +389,20 @@ export function privateExecutionDecision(
   // privacy denial into an allow. That is why this returns `deny` and never
   // `confirm-required`.
   if (resource.owner === null) return 'deny'
-  if (resource.owner === facts.userId) return 'allow'
-  return (resource.grants ?? []).includes(facts.userId) ? 'allow' : 'deny'
+  // OWNER-ONLY, AND THE GRANT LIST IS NOT CONSULTED. `resource.legacyGrants` is
+  // in scope on the line above and contributes nothing to the answer — that is
+  // the rule, and `LegacyGrant`'s declaration explains why reading it would not
+  // compile even if someone tried. A3-spec; ADR 9 Amendment 1 D7; architecture
+  // §10 (cross-user session grants ineffective); accounts/machines addendum §1
+  // (legacy grants preserved as inactive evidence).
+  //
+  // THIS IS NOT THE TASK PREDICATE. A shared task is read under owner-or-grant
+  // and keeps that rule untouched — it is decided by
+  // `apps/server/src/feed-visibility.ts` and by `authorize`'s `owned` TARGET arm,
+  // neither of which routes through here. C4 (PDM-144) replaces the task
+  // predicate in one reviewed change after B7; narrowing it here would be the
+  // "finishing the job" the charter's exposure order forbids.
+  return resource.owner === facts.userId ? 'allow' : 'deny'
 }
 
 // ---------------------------------------------------------------------------

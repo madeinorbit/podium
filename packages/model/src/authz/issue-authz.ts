@@ -44,6 +44,7 @@
 
 import { assertUnreachable } from '../exhaustive'
 import type { IssueId, SessionId, UserId } from '../ids/brands'
+import type { LegacyGrant } from './axes'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
 
@@ -99,7 +100,20 @@ export type IssueScope =
  */
 export type AuthTarget =
   | { kind?: 'issue'; id: string; ancestorIds?: string[] }
-  /** An owned entity (a session, here): its owner and the grants on it. */
+  /**
+   * AN OWNER-OR-GRANT ENTITY — in practice a TASK, built from an issue row plus
+   * the issue's grant edges (`modules/issues/access-index.ts#ownedTarget`,
+   * `modules/issues/service/reads.ts#ownedTarget`).
+   *
+   * The grant list is LIVE POLICY here and must stay so: the execution charter's
+   * exposure order holds task delivery unchanged through phases A and B, and C4
+   * (PDM-144) replaces the predicate afterwards in one reviewed change.
+   *
+   * DO NOT BUILD A PRIVATE RESOURCE IN THIS SHAPE — use the `private` member
+   * below. A session, an automation, a machine and a per-user row are owner-only
+   * in this release, and passing one here would decide it by a rule that admits a
+   * second person (A5.1/PDM-245).
+   */
   | {
       kind: 'owned'
       id: string
@@ -107,6 +121,29 @@ export type AuthTarget =
       owner: string | null
       /** User ids explicitly granted write on this entity. */
       grants?: readonly string[]
+    }
+  /**
+   * A PRIVATE RESOURCE — a session, a run, an automation, a machine, a per-user
+   * row. OWNER-ONLY, under every scope (A5.1/PDM-245; A3-spec; ADR 9 Amendment 1
+   * D7; architecture section 10, which requires cross-user session grants to be
+   * INEFFECTIVE).
+   *
+   * This is the same contract `./axes`'s `privateExecutionDecision` states for
+   * the axis-4 facts, reached from the single enforcement function rather than
+   * beside it (extension-contract invariant 2).
+   */
+  | {
+      kind: 'private'
+      id: string
+      /** `null` = unowned, which is a refusal and not an ambience (§3.1.1). */
+      owner: string | null
+      /**
+       * Legacy grant edges standing against the resource, carried as EVIDENCE and
+       * unusable as a permission. Typed {@link LegacyGrant} rather than `string`
+       * precisely so `legacyGrants.includes(<a user id>)` — the expression that
+       * was the defect — does not compile. See `./axes` for the full reasoning.
+       */
+      legacyGrants?: readonly LegacyGrant[]
     }
   /** One row of the per-user state family, identified by whose row it is. */
   | { kind: 'per-user-row'; userId: UserId }
@@ -233,6 +270,43 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
   return opts?.override ? 'allow' : 'confirm-required'
 }
 
+/**
+ * THE PRIVATE CONTRACT at the `authorize` layer (A5.1/PDM-245).
+ *
+ * Owner-only, and the person is read from the ATTRIBUTION PAIR — `onBehalfOf`,
+ * the branded human this call is made FOR, stamped from the authenticated
+ * transport and never from a payload (ADR 3 Amendment 1 D17). Not from the
+ * scope: an identity living in a scope is the collapse `./axes` exists to undo,
+ * where a site asking "is this capability unconstrained?" receives an identity
+ * fact alongside the answer.
+ *
+ * Three refusals, and each is a rule rather than a degenerate case:
+ *
+ *  - NO PERSON NAMED → refusal. A machine or a system job carries no
+ *    on-behalf-of and D21.2 makes having none FINAL, so it reaches no private
+ *    row. Default-closed: the absence is not read as "the owner".
+ *  - UNOWNED → refusal. An owner is the thing a grant hangs off, so an unowned
+ *    private row is nobody's rather than everybody's (§3.1.1; §3.1.4 M4's
+ *    all-in-one case).
+ *  - NOT THE OWNER → refusal, whatever `legacyGrants` says. The grantees are in
+ *    scope on the line below and contribute nothing to the answer;
+ *    `LegacyGrant`'s declaration in `./axes` explains why reading them would not
+ *    compile.
+ *
+ * There is no admin arm and no grant arm. An admin, a grantee and a stranger get
+ * the identical answer — which is what ADR 9 Amendment 1 D7 asks for, and what
+ * architecture section 10 means by cross-user session grants being ineffective.
+ */
+function privateTargetDecision(
+  cap: Capability,
+  target: Extract<AuthTarget, { kind: 'private' }>,
+): AuthDecision {
+  const self = cap.onBehalfOf
+  if (self === undefined) return 'forbidden'
+  if (target.owner === null) return 'forbidden'
+  return target.owner === self ? 'allow' : 'forbidden'
+}
+
 /** THE authz decision for a caller — the single enforcement function (invariant 2
  *  of the extension contract above). Distinguishes a hard role denial
  *  ('forbidden') from a scope violation the caller may knowingly override
@@ -299,6 +373,19 @@ export function authorize(
   opts?: { override?: boolean },
 ): AuthDecision {
   if (!ROLE_ACTIONS[cap.role].includes(action)) return 'forbidden'
+  // ── THE PRIVATE CONTRACT, DECIDED BEFORE THE SCOPE IS READ (A5.1/PDM-245) ───
+  //
+  // A private resource is owner-only under EVERY scope, so the scope switch does
+  // not get to answer for one. Placing this above the switch is the enforcement:
+  // there is no arm to widen, and no arm that can short-circuit past it — which
+  // matters because two of them (`none`, `subtree`) do return early on a read for
+  // the scopes that name no person. A session is not made readable by the caller
+  // holding a capability that happens to name nobody.
+  //
+  // Deliberately NOT overridable. `--outside-scope` confirms crossing a TASK
+  // boundary (ADR 3 D2); there is no flag that converts a privacy denial into an
+  // allow, which is why this returns `forbidden` and never `confirm-required`.
+  if (issue?.kind === 'private') return privateTargetDecision(cap, issue)
   const scope = cap.scope
   switch (scope.kind) {
     case 'all':
@@ -340,13 +427,32 @@ export function authorize(
       // Not overridable, and deliberately: `--outside-scope` confirms crossing a
       // TASK boundary. There is no flag that converts a privacy denial into an
       // allow — see `taskScopeDecision` in `./axes`.
+      //
+      // ── AND ITS GRANT CLAUSE, REMOVED (A5.1/PDM-245) ──────────────────────
+      //
+      // A3 left `|| (issue.grants ?? []).includes(self)` on this line, so an
+      // admin named by a grant edge still reached another member's session — the
+      // same bypass one clause further in, and asserted green by a test.
+      //
+      // Under an `all` scope this arm is unreachable by any TASK, which is what
+      // makes removing the clause safe: `checkIssueAccess` returns before it
+      // builds a target when the scope is `all`, and `mayReadOwned` always mints
+      // an `owned` SCOPE, so the only live producers of an `owned` target under
+      // an unconstrained capability are `session-state/registry.ts` and
+      // `rename-target-path.ts` — both SESSIONS. This arm is a private-resource
+      // path wearing the task target's name, and it is decided as private until
+      // those producers are repointed at the `private` member above, which is the
+      // later integration sweep's to do.
+      //
+      // The `owned` SCOPE's arm below is NOT changed with it. There the same
+      // shape does still carry issues, and narrowing it would move task exposure
+      // — which the charter's exposure order puts after phase B and gives to C4
+      // (PDM-144).
       if (issue?.kind === 'owned') {
         if (issue.owner === null) return 'forbidden'
         const self = cap.onBehalfOf
         if (self === undefined) return 'forbidden'
-        return issue.owner === self || (issue.grants ?? []).includes(self)
-          ? 'allow'
-          : 'forbidden'
+        return issue.owner === self ? 'allow' : 'forbidden'
       }
       if (issue?.kind === 'per-user-row') {
         return cap.onBehalfOf !== undefined && issue.userId === cap.onBehalfOf
