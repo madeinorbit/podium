@@ -20,7 +20,7 @@ import {
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
-import { asyncSessionIssueAccess, sessionOwnerVisibility } from './session-access'
+import { sessionAccessDeps } from './session-target-gate'
 import {
   SessionCommandCtx,
   type SessionCommandDeps,
@@ -118,19 +118,19 @@ export async function sessionCommandCtx(
       for (const artifact of artifacts) await issues.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await issues.discardUnlaunchedDraft(issueId),
-    access: {
-      sessionById: async (sessionId) => await sessions.sessionById(sessionId),
-      issues: asyncSessionIssueAccess(issues),
-      /**
-       * THE OWNER ANSWER, SUPPLIED (B1, PDM-133). This read "POD-1075 supplies
-       * the owner/grant answer; today one account sees all" and left
-       * `everythingVisible` in force, so every command target resolved as
-       * visible to every principal and the human ceiling in `session-access.ts`
-       * was documented but never applied. It now consults the same
-       * `sessionOwner` every other session authorization path uses.
-       */
-      visibility: sessionOwnerVisibility((sessionId) => sessions.sessionOwner(sessionId)),
-    },
+    /**
+     * THE OWNER ANSWER, SUPPLIED (B1, PDM-133). This read "POD-1075 supplies the
+     * owner/grant answer; today one account sees all" and left
+     * `everythingVisible` in force, so every command target resolved as visible
+     * to every principal and the human ceiling in `session-access.ts` was
+     * documented but never applied. It now consults the same `sessionOwner`
+     * every other session authorization path uses.
+     *
+     * MOVED to `session-target-gate.ts` at PDM-290, unchanged, because a second
+     * family needed the same three members and two literals over one ownership
+     * question is how the two answers drift.
+     */
+    access: sessionAccessDeps(modules),
     rpc: () => modules.rpc,
     ownership: await ownershipSnapshotFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over

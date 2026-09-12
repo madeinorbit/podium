@@ -25,6 +25,10 @@ export const cloudFamilyProcedures = (): CloudProcedures =>
         sessions: state.modules.sessions,
         repos: state.repos,
         store: state.store,
+        // The caller, as a question rather than as a capability — see
+        // `FamilyState.sessionTargets`. `moveSession` is the only method that
+        // takes a session id, and it is the reason this family selects it.
+        sessionTargets: state.sessionTargets,
       }),
     commands: CLOUD_COMMANDS_TRPC,
     queries: CLOUD_QUERIES,
