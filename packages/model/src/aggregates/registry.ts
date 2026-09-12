@@ -108,6 +108,20 @@ export interface CanonicalAggregate {
  *   - `ClientSession` is `per-user-state`: a device session belongs to exactly
  *     one person and is never grantable (D3 rule 4).
  *
+ * A2's `TaskParticipation` is deliberately ABSENT, for the same reason
+ * `AgentDelegation` is and with a sharper version of the argument. It has a
+ * matrix row (`task-participation`), a table and a shape — but it is not an
+ * INDEPENDENTLY OWNED class: its owner, its visibility and its audience all
+ * `inherit` from the task it names, and it confers nothing (`grants: none`).
+ *
+ * Registering it would oblige it to compose `Ownership` and carry its own
+ * `owner` and `visibility`, which the checks below enforce for every registered
+ * aggregate whose row declares an owner. That would put a second owner field on a
+ * row whose entire purpose is to record involvement WITHOUT accountability —
+ * reintroducing, one table over, the duplicate-owner defect A2 exists to delete.
+ * The shape is defined in `fields/participation.ts` and the declaration lives on
+ * the matrix row; that is what this issue was asked for.
+ *
  * `AgentDelegation` is deliberately ABSENT from this list even though it has a
  * matrix row (`delegation-record`). Its lifecycle is `SessionBinding` (ADR 9
  * D5 A5, POD-323, Phase 5), so the class is not an R1 aggregate this phase
@@ -207,6 +221,20 @@ export const PER_USER_STATE_KEYS = [
   'paneA',
   'paneB',
   'preferences',
+  // A2's two, and they are the ones most likely to be put back as singletons,
+  // because both read like facts about the TASK until you ask "whose?".
+  //
+  // `startedAt` is not "when work began" — it is "when I said this is mine"
+  // (ADR 9 Amendment 1 D3), and two people may start the same task. A singleton
+  // would silently make one person's start everybody's sidebar row, which is the
+  // shape `tuckedAt` already had before POD-1076 and for the same reason: under
+  // one operator the bug is invisible.
+  //
+  // `assignmentDismissedAt` records that ONE reader cleared the badged row a
+  // reassignment put in their sidebar. As a column it would let one person's
+  // dismissal hide the task from the next person it is assigned to.
+  'startedAt',
+  'assignmentDismissedAt',
 ] as const
 
 /** A classification failure, with enough detail to fix it without re-deriving. */

@@ -542,6 +542,18 @@ export const issueUserState = sqliteTable(
     readAt: text('read_at'),
     tuckedAt: text('tucked_at'),
     pinnedAt: text('pinned_at'),
+    /** A2 / ADR 9 Amendment 1 D3. `started_at` = this person explicitly started
+     *  or elevated the task, which is a PERMANENT personal row.
+     *  `assignment_dismissed_at` = this person cleared the removable badged row a
+     *  reassignment put in their sidebar. Both are per-READER by construction:
+     *  as columns on `issues` they would make one person's start, or one person's
+     *  dismissal, everybody's — which is exactly what `tucked_at` did before
+     *  POD-1076 re-keyed it, and for the same reason (under one operator the bug
+     *  is invisible). Merely READING a task adds neither, and there is no column
+     *  for discovery: once every member may read every task, a sidebar that grew
+     *  a row on read would be every task, for everyone, at once. */
+    startedAt: text('started_at'),
+    assignmentDismissedAt: text('assignment_dismissed_at'),
   },
   (table) => [primaryKey({ columns: [table.userId, table.issueId], name: 'issue_user_state_pk' })],
 )
@@ -1377,7 +1389,31 @@ export const issues = sqliteTable(
     prUrl: text('pr_url'),
     priority: integer().default(2).notNull(),
     type: text().default('task').notNull(),
-    assignee: text().$type<UserId>(),
+    // `assignee` IS GONE (A2). It was `text().$type<UserId>()` right here, an
+    // independently mutable second owner column beside `owner_user_id` above —
+    // and the divergence was not hypothetical: `IssueService.claim` wrote it
+    // together with `stage`, so an AGENT claiming work reassigned the accountable
+    // human, and `IssueService.start` wrote the literal `agent:<kind>` into it, an
+    // agent LABEL in a column typed as a person.
+    //
+    // Dropped rather than left unwritten, because a column nothing writes today is
+    // a column something writes next quarter. With it gone, "owner and assignee
+    // disagree" is not a state this schema can hold; the wire key `assignee` is a
+    // projection of `owner_user_id` and has no storage of its own. The migration
+    // that removed it recorded an explicit per-row disposition first — see
+    // `ownership_migration_dispositions` below, which is the evidence that nothing
+    // was silently discarded.
+    /** A2 / ADR 9 Amendment 1 D5 — the two NARROW watermarks a long-running worker
+     *  is checked against. `revision` below moves on every accepted write, which
+     *  makes it useless for this: an agent that read a task an hour ago will find
+     *  it has moved for a relabel and a sort-key nudge, and a guard that fires on
+     *  those is a guard somebody turns off. These move only when the thing the
+     *  worker cares about moves — the accountable human (`assignment_revision`),
+     *  and the statement of the work (`input_revision`: title, description, brief,
+     *  design, acceptance). Both carry values from the SAME sequence as `revision`,
+     *  so one number a worker read off the row is comparable with either. */
+    assignmentRevision: integer('assignment_revision'),
+    inputRevision: integer('input_revision'),
     parentId: brandedRef(
       text('parent_id').$type<IssueId>(),
       (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
@@ -1489,6 +1525,151 @@ export const issues = sqliteTable(
  * append-only history is the durable producer-to-admission seam before an order
  * exists.
  */
+// WHO IS INVOLVED IN A TASK (A2) — `(issue_id, user_id, role)`.
+//
+// THE TABLE NEXT TO IT IS `grants`, AND THE DIFFERENCE IS THE WHOLE POINT. A
+// grant is an AUTHORIZATION INPUT: `GrantEdgeVisibilityPolicy` reads it live on
+// the fan-out path and adding one makes rows appear for a principal. A
+// participation row is a DESCRIPTION: it says who is involved, it is read by the
+// UI and by routing, and it grants nothing — under ADR 9 Amendment 1 D4/D5 every
+// active member already reads every task and already holds ordinary edit, so
+// there is no right left for it to confer. Hence no verb column, no scope column
+// and no expiry: there is deliberately nothing here for a policy to read.
+//
+// It is also NOT another owner column. The accountable human is the single
+// `issues.owner_user_id`, displayed as Assignee; a collaborator row never makes
+// anyone accountable. This table is what lets `claim` record work scope — an
+// agent saying "my human is on this" — WITHOUT the reassignment that A2 took
+// away from it.
+//
+// The key IS the row: an add is idempotent against its own key, which is why the
+// matrix row takes `conflict: 'cmd'` rather than the expected-revision token, and
+// why leaving REMOVES the row instead of tombstoning it. A participation
+// tombstone would make "was involved once" indistinguishable from "is involved",
+// which is the one fact the table exists to answer.
+export const issueParticipants = sqliteTable(
+  'issue_participants',
+  {
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    /** The HUMAN who is involved. Never an agent and never an agent label — an
+     *  agent participates through the human it acts for (ADR 9 D5 A4), the same
+     *  rule that keeps `owner_user_id` a person. */
+    userId: text('user_id').$type<UserId>().notNull(),
+    /** 'collaborator' is live. 'follower' is DECLARED AND NOT BUILT: task
+     *  following/mute is PDM-208, deferred out of v1, and nothing writes it. The
+     *  CHECK admits it anyway so that the day following ships is not also the day
+     *  this table changes shape. */
+    role: text().notNull(),
+    joinedAt: text('joined_at').notNull(),
+    /** WHO RECORDED IT — the `(kind, id)` codec every attribution table here
+     *  uses (`fields/attribution.ts#actorColumns`), plus the human half. A person
+     *  joining themselves and an agent recording its own human are different
+     *  facts, and only the pair tells them apart; that matters next door, where
+     *  D2 lets any active member reassign but never lets an agent do it. */
+    addedByActorKind: text('added_by_actor_kind').notNull(),
+    addedByActorId: text('added_by_actor_id').notNull(),
+    addedByOnBehalfOf: text('added_by_on_behalf_of').$type<UserId>(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.issueId, table.userId, table.role],
+      name: 'issue_participants_pk',
+    }),
+    index('idx_issue_participants_user').on(table.userId),
+    check('issue_participants_role_check', sql`role IN ('collaborator', 'follower')`),
+    check(
+      'issue_participants_actor_kind_check',
+      sql`added_by_actor_kind IN ('user', 'agent', 'machine', 'system')`,
+    ),
+    // ADR 9 D8 S5: a system principal never acts AS a person, so it has no human
+    // half. Enforced here rather than trusted, for the same reason `ship_orders`
+    // enforces it: the one place a fabricated `onBehalfOf` would be invisible is
+    // a row written by a job.
+    check(
+      'issue_participants_system_has_no_human_check',
+      sql`added_by_actor_kind <> 'system' OR added_by_on_behalf_of IS NULL`,
+    ),
+  ],
+)
+
+// WHAT THE OWNERSHIP MIGRATION DECIDED, PER ROW (A2).
+//
+// A2 retired `issues.assignee`, a second mutable owner column that had been
+// diverging from `issues.owner_user_id` for as long as both existed. Most rows
+// are unambiguous — the two agree, or the assignee is empty — and need no record.
+// Some are not, and for those "the migration picked one" is not good enough:
+//
+//   - the two columns name DIFFERENT people, and somebody is about to stop being
+//     the assignee of their own task;
+//   - the assignee is an AGENT LABEL (`agent:<kind>`, written by `start`), which
+//     is not a person and must never become the accountable owner;
+//   - the assignee names an id no account row matches, so it cannot be adopted.
+//
+// Each of those gets a row here, naming both values and the rule applied. The
+// charter asks for "an explicit migration disposition for ambiguous legacy
+// owners/assignees", and this is it: durable, queryable evidence that the losing
+// value was READ and adjudicated rather than dropped. An operator who finds a
+// task assigned to the wrong person after the upgrade can see exactly what was
+// there and why it resolved that way.
+//
+// APPEND-ONLY BY CONSTRAINT, not by convention. Rewriting a disposition would
+// destroy the only copy of the retired value.
+export const ownershipMigrationDispositions = sqliteTable(
+  'ownership_migration_dispositions',
+  {
+    /** The migration that wrote the row, so a later ownership migration can add
+     *  its own dispositions without this table meaning two things. */
+    migration: text().notNull(),
+    /** Which row was adjudicated. TEXT and deliberately WITHOUT a foreign key:
+     *  the evidence must survive the task being deleted, which is precisely when
+     *  someone goes looking for it. */
+    entityKind: text('entity_kind').notNull(),
+    entityId: text('entity_id').notNull(),
+    /** The value that WON, and the value that was retired. Both verbatim, both
+     *  nullable, because "there was nothing there" is one of the findings. */
+    resolvedOwner: text('resolved_owner').$type<UserId>(),
+    retiredAssignee: text('retired_assignee'),
+    /** Why. A closed vocabulary, CHECKed, so the dispositions can be counted by
+     *  class rather than grepped as prose. Three, and the asymmetry between them
+     *  is the decision:
+     *
+     *  - `adopted-assignee-as-owner` — the assignee named a real account and
+     *    differed from the owner, so the OWNER MOVED TO IT. Human intent wins,
+     *    and on an upgraded instance it is the only intent there is: nothing has
+     *    ever set `owner_user_id` by hand (it is server-derived at create, and on
+     *    an upgrade it is the one minted first admin on every row), while
+     *    `assignee` is precisely the field a person chose in the UI. Keeping the
+     *    owner here would quietly reassign every task on the instance to whoever
+     *    installed it.
+     *  - `kept-owner-assignee-was-agent-label` — the assignee was `agent:<kind>`,
+     *    which `IssueService.start` wrote. Not a person, never was, and the one
+     *    thing the acceptance criteria forbid outright: agent labels never become
+     *    human owners.
+     *  - `kept-owner-assignee-unknown-account` — the assignee matched no row in
+     *    `users`. An owner nobody can resolve reads as a valid principal and is
+     *    refused by every check, so the failure mode would be a task nobody can
+     *    see rather than an error. Default-closed: keep the owner that resolves. */
+    disposition: text().notNull(),
+    decidedAt: text('decided_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.migration, table.entityKind, table.entityId],
+      name: 'ownership_migration_dispositions_pk',
+    }),
+    check(
+      'ownership_migration_dispositions_disposition_check',
+      sql`disposition IN (
+        'adopted-assignee-as-owner',
+        'kept-owner-assignee-was-agent-label',
+        'kept-owner-assignee-unknown-account'
+      )`,
+    ),
+  ],
+)
+
 export const rootIntegrationReceipts = sqliteTable(
   'root_integration_receipts',
   {

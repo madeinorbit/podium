@@ -980,7 +980,6 @@ export class IssueCrudModule {
       // validating at this seam would turn a create the tracker accepts today into
       // a throw — a decoder/encoder change, and not this issue's.
       type: (input.type || 'task') as StoredIssue['type'],
-      ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
       // Keyed into the scope it will LAND in: the parent's children when this
       // is a subtask create (parentId is applied after persist via reparent,
       // so the scope is resolved from the input here).
@@ -1023,7 +1022,13 @@ export class IssueCrudModule {
     // migration names no member, so a row created without an owner would be
     // owned by nobody and visible to nobody. Resolved now, like every other
     // ambient site; a caller that knows whose issue it is still says so.
-    row.ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.store.deps.store))
+    // A2: `input.assignee` USED TO LAND IN ITS OWN COLUMN, two lines earlier and
+    // independently of this one, which is how a create could be born with an
+    // owner and an assignee that already disagreed. It is the same fact, so it
+    // resolves here — a caller that names an assignee is naming the accountable
+    // human, and there is nowhere else for that to go.
+    row.ownerUserId =
+      input.ownerUserId ?? input.assignee ?? (await firstAdminMemberId(this.store.deps.store))
     row.visibility = input.visibility ?? 'personal'
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
@@ -1763,8 +1768,30 @@ export class IssueCrudModule {
     return await this.update(row.id, { coordinatorSessionId: candidate.sessionId })
   }
 
-  async claim(id: string, assignee: UserId, opts?: { actorSessionId?: SessionId }): Promise<IssueWire> {
-    const claimed = await this.update(id, { assignee, stage: 'in_progress' }, opts)
+  /**
+   * CLAIM — take up the work. It records LIFECYCLE AND WORK SCOPE, and it does
+   * not touch the accountable human (A2, ADR 9 Amendment 1 D2).
+   *
+   * It used to. The body was `update(id, { assignee, stage: 'in_progress' })` —
+   * one update, two facts, and the second one was a reassignment. Because the
+   * overwhelmingly common caller is an AGENT (the `claim` command, through the
+   * issue registry), the practical effect was that an agent saying "I am working
+   * on this" silently moved the accountable human to whoever its capability
+   * resolved to. D2 is unambiguous that agents never reassign humans, and the
+   * fix is not a check on the value: it is that claim has no assignee to write.
+   *
+   * WHAT A CLAIMANT STILL GETS. The stage moves to `in_progress`, and the
+   * claiming session fills the coordinator seat if it is empty — which is the
+   * routing fact a claim was actually being used for. Involvement without
+   * accountability is what `issue_participants` is for; recording it needs the
+   * claiming principal, which this seam does not have and the command layer does,
+   * so that write belongs there rather than here.
+   *
+   * Reassignment remains available and is its own act: `update(id, { ownerUserId })`,
+   * by an active member, never by an agent.
+   */
+  async claim(id: string, opts?: { actorSessionId?: SessionId }): Promise<IssueWire> {
+    const claimed = await this.update(id, { stage: 'in_progress' }, opts)
     return opts?.actorSessionId ? await this.ensureCoordinator(claimed.id, opts.actorSessionId) : claimed
   }
 

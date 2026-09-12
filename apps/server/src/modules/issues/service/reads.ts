@@ -277,7 +277,8 @@ export class IssueReportsModule {
         stage: row.stage,
         priority: row.priority,
         type: row.type,
-        ...(row.assignee ? { assignee: row.assignee } : {}),
+        // A2: the canonical owner under the name the tree renders.
+        ...(row.ownerUserId ? { assignee: row.ownerUserId } : {}),
         ...(row.branch ? { branch: row.branch } : {}),
         needsHuman: row.needsHuman,
         ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
@@ -599,7 +600,10 @@ export class IssueReportsModule {
       bump(c.byStage, r.stage)
       bump(c.byPriority, String(r.priority))
       bump(c.byType, r.type)
-      bump(c.byAssignee, r.assignee || '(unassigned)')
+      // A2: counted by the canonical owner. '(unassigned)' survives as the
+      // bucket for a legacy row that predates `owner_user_id` being written,
+      // never as a state a current row can be in.
+      bump(c.byAssignee, r.ownerUserId || '(unassigned)')
     }
     return c
   }

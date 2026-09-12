@@ -48,7 +48,7 @@ import {
   IssueStage,
   IssueType,
 } from '../entities/issue-vocabulary'
-import { IssueIdField, MachineIdField, RepoIdField, SessionIdField, UserIdField } from '../ids'
+import { IssueIdField, MachineIdField, RepoIdField, SessionIdField } from '../ids'
 import { Attribution } from './attribution'
 import { OpStreamDocument } from './op-stream'
 import { Revision } from './primitives'
@@ -103,6 +103,78 @@ export const IssueConcurrency = z.object({
   revision: Revision.optional(),
 })
 export type IssueConcurrency = z.infer<typeof IssueConcurrency>
+
+/**
+ * THE TWO REVISION WATERMARKS A LONG-RUNNING WORKER IS CHECKED AGAINST (A2).
+ *
+ * `IssueConcurrency.revision` above is the write-time token: a command echoes it
+ * as `expectedRevision` and the authority answers 409. It is exactly the right
+ * mechanism for "two writes raced", and exactly the wrong one for the failure
+ * this group exists to catch, because it moves on EVERY accepted write. An agent
+ * that read a task an hour ago and comes back to close it will find the revision
+ * has moved a dozen times — a relabel, a sort-key nudge, a comment count — and
+ * none of those is a reason to refuse the close. A guard that fires on all of
+ * them is a guard someone turns off.
+ *
+ * So the charter asks for two NARROWER watermarks: *"Keep input and assignment
+ * revisions so stale workers cannot undo assignment or close materially changed
+ * work."* Each records the revision at which one MATERIAL thing last changed, so
+ * a worker compares against the change it actually cares about:
+ *
+ *   - **`assignmentRevision`** moves only when the accountable human moves. Any
+ *     active member may reassign (D2) and the recipient does not accept, so a
+ *     worker holding an older value is holding a task that is no longer theirs
+ *     to close — and a write that would put the old owner back is the
+ *     "undo assignment" the charter names.
+ *   - **`inputRevision`** moves only when the task's material INPUT changes —
+ *     the statement of the work: title, description, brief, design, acceptance.
+ *     Not stage, not priority, not labels. Closing work whose brief was rewritten
+ *     under you is closing a different task than the one you did.
+ *
+ * BOTH ARE AUTHORITY-ASSIGNED AND CARRY VALUES FROM THE SAME SEQUENCE as
+ * `revision`, rather than being counters of their own. That is what makes the
+ * comparison meaningful: a worker holds ONE number it read off the row, and both
+ * watermarks are directly comparable with it. Two private counters would need the
+ * worker to have read three numbers and would make "is this newer than what I
+ * saw" unanswerable from a single observation.
+ *
+ * The typed references a worker actually holds are `./revision-ref.ts`'s, and the
+ * ENFORCEMENT — which acts refuse on a stale watermark, and with what error — is
+ * deliberately not here. It differs per act (refusing a close is not refusing a
+ * comment) and belongs with the commands in the C phase. What A2 owes is that the
+ * fact is recorded and expressible before it is enforceable.
+ *
+ * OPTIONAL, for the same reason `revision` is: a row literal that has never been
+ * written has no revision to point at, and history has no value to backfill
+ * beyond the one the migration writes. Absent means "no watermark recorded", never
+ * "nothing has changed" — a reader that treats absence as current fails OPEN,
+ * which is the whole failure mode this group exists to close.
+ */
+export const IssueAccountability = z.object({
+  /** Revision at which the accountable owner (Assignee) last changed. */
+  assignmentRevision: Revision.optional(),
+  /** Revision at which the task's material input last changed. */
+  inputRevision: Revision.optional(),
+})
+export type IssueAccountability = z.infer<typeof IssueAccountability>
+
+/**
+ * The keys that MOVE {@link IssueAccountability.inputRevision} — the statement of
+ * the work, listed once so the store and the command layer cannot disagree about
+ * what "materially changed" means.
+ *
+ * Derived as a typed key list rather than a comment, so a key renamed on
+ * `IssueText` or `IssueDocuments` fails to compile here instead of silently
+ * dropping out of the watermark.
+ */
+export const MATERIAL_INPUT_KEYS = [
+  'title',
+  'description',
+  'brief',
+  'design',
+  'acceptance',
+] as const satisfies readonly (keyof IssueText | keyof IssueDocuments)[]
+export type MaterialInputKey = (typeof MATERIAL_INPUT_KEYS)[number]
 
 /**
  * THE HUMAN- AND AGENT-FACING PROSE — everything except the two op-stream
@@ -175,16 +247,36 @@ export const IssueLifecycle = z.object({
 })
 export type IssueLifecycle = z.infer<typeof IssueLifecycle>
 
-/** PRIORITISATION AND ROUTING. `assignee` becomes a branded `UserId` (free text
- *  today, inventory §9) — ownership-adjacent rather than attribution, but the
- *  same brand. `color` is a slot NAME, never a hex ([spec:SP-b4d1]).
+/**
+ * PRIORITISATION AND ROUTING. `color` is a slot NAME, never a hex
+ * ([spec:SP-b4d1]).
  *
- *  `pinned` is DELIBERATELY ABSENT: it is per-user state (inventory §7.1), and
- *  it is a SECOND pin mechanism beside the `pins` table which POD-1076 collapses. */
+ * `pinned` is DELIBERATELY ABSENT: it is per-user state (inventory §7.1), and it
+ * is a SECOND pin mechanism beside the `pins` table which POD-1076 collapses.
+ *
+ * `assignee` IS GONE, AND THAT IS THIS FIELD GROUP'S HEADLINE (A2). It was
+ * `UserIdField.optional()` here, stored in its own `issues.assignee` column,
+ * beside the `owner` that `Ownership` already puts on the aggregate — two
+ * independently mutable columns answering one question, which storage let
+ * diverge and two live writers made diverge:
+ *
+ *   - `IssueService.claim` wrote `{ assignee, stage }` in one update, so an AGENT
+ *     saying "I am working on this" reassigned the accountable human as a side
+ *     effect — the act ADR 9 Amendment 1 D2 forbids outright;
+ *   - `IssueService.start` wrote the literal `agent:<kind>` into it through a
+ *     named cast, putting an agent LABEL where a person belongs.
+ *
+ * There is now ONE accountable human — `Ownership.owner` — and `assignee` is the
+ * word the product renders it with. The projection is `assigneeOf` in
+ * `./ownership.ts`; the wire key survives and composes `Ownership.shape.owner`
+ * itself, so no client changed and no second schema exists to drift.
+ *
+ * Do not add it back as a convenience for a filter or a form. A second optional
+ * owner slot is not a smaller version of this bug; it is this bug.
+ */
 export const IssueTriage = z.object({
   priority: z.number().int(),
   type: IssueType,
-  assignee: UserIdField.optional(),
   labels: z.array(z.string()),
   estimateMin: z.number().int().optional(),
   color: IssueColor.optional(),

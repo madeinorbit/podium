@@ -89,3 +89,82 @@ export const Ownership = z.object({
   visibility: VisibilityClassField,
 })
 export type Ownership = z.infer<typeof Ownership>
+
+/**
+ * THE OWNER, AS EVERY SURFACE SPELLS IT: `assignee`.
+ *
+ * ADR 9 Amendment 1 D1/D10: there is ONE accountable human per task, it is
+ * {@link Ownership.owner}, and the word the product uses for it is **Assignee**.
+ * This function is the whole of that projection, and it exists so the rename has
+ * exactly one home.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT WAS HERE INSTEAD, AND WHY A FUNCTION REPLACED IT
+ * ---------------------------------------------------------------------------
+ *
+ * `IssueTriage.assignee` — an INDEPENDENTLY MUTABLE OPTIONAL `UserId`, stored in
+ * its own `issues.assignee` column, beside `issues.owner_user_id`. Two columns,
+ * two write paths, one question. Storage let them diverge and two of the live
+ * writers made sure they did:
+ *
+ *   - `IssueService.claim` set `{ assignee, stage }` together, so an AGENT
+ *     claiming work reassigned the accountable human as a side effect of saying
+ *     "I am working on this" — the exact act D2 forbids ("agents never reassign
+ *     humans");
+ *   - `IssueService.start` wrote `asUserId(\`agent:${defaultAgent}\`)` into it —
+ *     an agent LABEL cast into the branded user id space, standing where a person
+ *     belongs. The cast carried a comment saying the adjudication was somebody
+ *     else's. This is that adjudication: it is not a user, it never was, and the
+ *     slot it was written into is gone.
+ *
+ * The fix is not validation on the second column. It is that there is no second
+ * column: `assignee` is now a READ of `owner`, so "owner and assignee disagree"
+ * is not a state the storage layer can hold, and no API path can put an agent
+ * label in it because no API path writes it at all.
+ *
+ * Deliberately NOT a schema. A zod `AssigneeField` would be a second FIELD
+ * DEFINITION for the same fact, which is the shape this issue deletes — and a
+ * projection that merely renames a key needs a function, not a type. Wire shapes
+ * that carry the key compose `Ownership.shape.owner` itself (see
+ * `entities/issue.ts`), so the brand and the instance are the same one.
+ */
+export const assigneeOf = (row: Pick<Ownership, 'owner'>): Ownership['owner'] => row.owner
+
+/**
+ * THE WIRE'S SPELLING OF THE OWNER — `assignee`, optional, wrapping the SAME
+ * schema instance.
+ *
+ * `.optional()` and not required, and the reason is tolerance rather than
+ * doctrine. `Ownership.owner` is required on R1 and `issues.owner_user_id` is
+ * `NOT NULL`, so a current server always sends a value. What a required wire
+ * field would break is everything that ALREADY EXISTS without one: payloads
+ * cached by a client before this landed, and peers still on the previous wire
+ * version. Making those fail to parse would turn a projection into an outage, and
+ * `fields/README.md` rule 2 is explicit that requiredness is declared at R1 where
+ * the fact is unconditionally true, never inherited as a constraint on every
+ * projection.
+ *
+ * Absent therefore means "this payload predates the projection", never
+ * "unassigned" — there is no such state. A reader that renders absence as
+ * *Unassigned* is showing an artefact of its own cache.
+ *
+ * DEFINED HERE AND EXPORTED, rather than spelled `Ownership.shape.owner.optional()`
+ * at the wire, because each such call builds a NEW `ZodOptional`. Two wire shapes
+ * that each built their own would be two definitions of one fact — the exact fork
+ * this file's header refuses — and no `toBe` assertion anywhere could see it,
+ * since both wrap the same inner schema and encode identically. One instance, and
+ * `issue-composition.test.ts` pins BOTH that the wire key is this instance and
+ * that `.unwrap()` is `Ownership.shape.owner` itself.
+ */
+export const OwnerAsAssigneeField = Ownership.shape.owner.optional()
+
+/**
+ * The one sentence every surface that renders "Assignee" is written against,
+ * named so it can be cited from a store, a projection and a migration without
+ * three paraphrases of it.
+ */
+export const ASSIGNEE_IS_THE_OWNER =
+  'Assignee IS the canonical owner (ADR 9 Amendment 1 D1/D10). There is no second owner field: the ' +
+  'independently mutable `issues.assignee` column was retired by A2 after its legacy values were ' +
+  'inventoried, and the wire key is a projection of `owner`. An agent label is not a person and ' +
+  'never becomes one; agents never reassign humans (D2).'

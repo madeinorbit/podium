@@ -48,6 +48,7 @@ import {
   type MatrixRow,
   type MatrixRowId,
   OP_STREAM_COMPACTION_CONSTRAINT,
+  type SharedTaskPolicy,
   SYSTEM_WRITER_RULE,
 } from './ownership'
 
@@ -90,6 +91,7 @@ export const ROW = {
   issueMessages: id('issue-messages'),
   issueMessageReadAt: id('issue-message-read-at'),
   artifacts: id('artifacts'),
+  taskParticipation: id('task-participation'),
 
   conversationRegistry: id('conversation-registry'),
   segments: id('segments'),
@@ -1131,7 +1133,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     id: ROW.issueCore,
     section: 'issues-and-tracker',
     title:
-      'Issue core (title, design, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …)',
+      'Issue core (title, design, acceptance, type, priority, stage, due/defer, origin, audience, draft, panel, …)',
     sites: [
       'apps/server/src/modules/issues/service/crud.ts',
       'packages/model/src/entities/issue.ts',
@@ -1151,7 +1153,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     owner: {
       kind: 'user',
       resolves: 'on-behalf-of-human',
-      note: 'The creating principal’s on-behalf-of human (ADR 9 D5 A4).',
+      note: 'At CREATE, the creating principal’s on-behalf-of human (ADR 9 D5 A4). Thereafter it is the single accountable human of Amendment 1 D1/D10, REASSIGNABLE by any active member (D2) and displayed as Assignee. `assignee` is gone from this row’s field list and from the aggregate: it was an independently mutable optional slot beside this one, so "who is accountable" had two answers that storage let diverge — and one of its live values was the literal `agent:<kind>` that `start` wrote, an agent LABEL standing where a person belongs. The wire key survives as a PROJECTION of this field (`fields/ownership.ts#assigneeOf`); there is no second column behind it.',
     },
     visibility: 'personal',
     grants: PERSONAL_GRANTS,
@@ -1169,11 +1171,61 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     visibilityMutability: {
       mutable: true,
       verbs: ['share', 'unshare', 'revoke', 'transfer-owner', 'reparent'],
-      note: 'PHASE 2 MUST HANDLE: `reparent` is in this list because subtree scope is a MOVING SET — reparenting under an epic widens a working agent’s visibility with nobody having decided it (O3). That is recorded, not resolved.',
+      note: 'PHASE 2 MUST HANDLE: `reparent` is in this list because subtree scope is a MOVING SET — reparenting under an epic widens a working agent’s visibility with nobody having decided it (O3). That is recorded, not resolved. The list describes TODAY’s owner-or-grant predicate and is deliberately unchanged by A2: this row is a shared task by `SHARED_TASK_POLICY`, and when C4 (PDM-144) makes that the predicate, share/unshare/revoke stop moving a member’s view of a task at all. See `SHARED_TASK_EXPOSURE_GATE`.',
     },
     open: ['O3'],
     openNote:
       'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
+  },
+  {
+    id: ROW.taskParticipation,
+    section: 'issues-and-tracker',
+    title: 'Task participation (`(issueId, userId, role)` — collaborator / follower)',
+    sites: ['packages/model/src/fields/participation.ts', '`issue_participants`'],
+    home: 'server',
+    idMinting:
+      'Composite `(issueId, userId, role)` — a participation row IS its key. No surrogate id: two rows for one person in one role on one task is not a state worth being able to represent.',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'Joining and leaving are COMMANDS, not field writes: the row exists or it does not, so there is no field for two writers to race on. `cmd` rather than `exp-rev` for the reason the grant edge takes it — an add is idempotent against its own key.',
+    tombstone: 'remove',
+    tombstoneNote:
+      'Leaving REMOVES the row. Nothing downstream reads a participation tombstone, and keeping one would make "was involved once" indistinguishable from "is involved", which is the fact the row exists to answer.',
+    offline: 'online-only',
+    secret: 'public',
+    owner: {
+      kind: 'inherits',
+      from: ROW.issueCore,
+      note: 'A participation row is a fact ABOUT a task and is accountable to that task’s owner. It never makes the named person an owner — that is the duplicate-owner failure A2 exists to delete.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'none',
+      reason: 'derived',
+      note: 'NOT AN EDITOR GRANT, and this is the cell that says so. ADR 9 Amendment 1 D5: every active member already holds ordinary edit on shared task content, so a collaborator row confers nothing it did not already have — and a follower row confers nothing at all. Reading it as a grant is how "participation" quietly becomes a second authorization vocabulary beside `grants`.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'WHO ADDED WHOM. A person joining themselves and an agent adding its human are different facts, and only the pair tells them apart — which matters because D2 lets any active member reassign but never lets an agent reassign a human, and a participation write is the nearest neighbour of that act.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'parent',
+      from: ROW.issueCore,
+      note: 'DECLARED: the row is created against an existing task and takes that task’s owner and audience. It has no independent visibility of its own to inherit.',
+    },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'Adding a participant does NOT widen anything. Under today’s predicate participation confers no read, and under ADR 9 Amendment 1 D4 every active member already reads every task — so there is no state in which this row is what made a task visible. That is deliberate: if participation granted reads, then C4’s predicate change and this table would be two ways to answer one question.',
+    },
+    open: ['O1'],
+    openNote:
+      'O1: naming participants DISCLOSES that those accounts exist. The same contested cell the member directory sits in, recorded here rather than answered.',
   },
   {
     id: ROW.shippingAggregate,
@@ -3408,5 +3460,168 @@ export const PER_USER_WRITER_EXCEPTIONS: readonly {
     row: ROW.recapWatermark,
     reason:
       'The reader in the key MAY BE AN AGENT SESSION, so `agent-session` writes rows it OWNS — not another principal’s. The family rule forbids writing SOMEBODY ELSE’S row; `WriterRole` names a role CLASS, not a principal, so an agent writing its own cursor is inside the rule rather than an exception to its intent. Collapsing the key onto `userId` to avoid declaring this would silently MERGE the cursors of two agents belonging to one person — a data loss, not a tightening.',
+  },
+]
+
+// ---------------------------------------------------------------------------
+// The shared-task / private-session policy, as a closed set (A2)
+// ---------------------------------------------------------------------------
+
+/**
+ * EVERY `issues-and-tracker` ROW'S ANSWER TO "IS THIS A SHARED TASK?".
+ *
+ * ADR 9 Amendment 1 D4/D5 are accepted product decisions — every active member
+ * reads every task, and every active member may edit ordinary shared task
+ * content — and until now there was nowhere in the code to write them down. The
+ * `visibility` column could not carry them: it is ADR 9 D3's TRANSPORT
+ * EXCLUSION vocabulary, consumed by `GrantEdgeVisibilityPolicy.decide`, and
+ * moving the task rows out of `personal` there IS the widening that C4
+ * (PDM-144) owns. {@link SHARED_TASK_EXPOSURE_GATE} states that split.
+ *
+ * WHY A CLOSED LIST RATHER THAN A COLUMN ON {@link MatrixRow}. A required column
+ * would put the obligation on all eighty rows, of which sixty-eight would answer
+ * "this is not a task" — sixty-eight restatements of one fact, on a hand-curated
+ * file that several concurrent tasks edit. The same trade was already made for
+ * `OP_STREAM_RESERVED_MEMBERS`, `FIELD_LWW_MEMBERS` and
+ * `PER_USER_WRITER_EXCEPTIONS`: a cross-cutting decision that touches a handful
+ * of rows is a closed membership list with declared reasons, not a column.
+ *
+ * The totality obligation is preserved and is the point of pairing the two
+ * lists: `matrix.test.ts` requires every row whose `section` is
+ * `issues-and-tracker` to appear in EXACTLY ONE of {@link SHARED_TASK_POLICY}
+ * and {@link NOT_SHARED_TASK}. A new tracker row therefore fails the build until
+ * someone decides which it is, and a row in both fails too — the same shape as
+ * the unclassified-fixture test, applied to this decision.
+ */
+export const SHARED_TASK_POLICY: readonly {
+  readonly row: MatrixRowId
+  readonly policy: Extract<SharedTaskPolicy, { kind: 'shared-task' }>
+}[] = [
+  {
+    row: ROW.issueCore,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'THE ROW THE DECISION IS ABOUT. D1: one accountable human, carried by the single canonical `owner` and displayed as Assignee — there is no second assignee slot to diverge from it. D2: any active member may reassign to any active member, and an AGENT never reassigns a human, which is why `claim` records lifecycle and participation only.',
+    },
+  },
+  {
+    row: ROW.issueDocumentFields,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'Description and notes ARE the ordinary shared content D5 names. Revisions stay attributed (D5), which is what makes shared editing auditable rather than anonymous.',
+    },
+  },
+  {
+    row: ROW.needsHuman,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'A field group on the task, so it takes the task’s audience. Note what does NOT follow: `askedBy` stays server-authoritative, so a shared read does not make "who asked this" writable by the reader.',
+    },
+  },
+  {
+    row: ROW.issueGraph,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'Parent, deps and labels are ordinary shared content. `reparent` remains ADR 9 §3 O3’s open item: it moves a subtree scope, and a member-readable tree does not make that any less of a decision.',
+    },
+  },
+  {
+    row: ROW.issueComments,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'READ by every active member; ORDINARY edit means adding your own. D5’s own-comment controls are the carve-out and survive intact: "every member may edit ordinary shared content" never meant "every member may rewrite what you said".',
+    },
+  },
+  {
+    row: ROW.issueMessages,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'Tracker mail is addressed to WHOEVER WORKS the task, not to a person — which is exactly why it reads with the task. Its delivery state (`status`) is a shared fact about the message; the per-reader half is `issue-message-read-at` and is not shared at all.',
+    },
+  },
+  {
+    row: ROW.artifacts,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'Issue-owned detail (ADR 4 D7.1), so it inherits the task’s audience rather than carrying one. An artifact a member cannot see on a task they can see would be the existence leak readiness §3.1.2 names.',
+    },
+  },
+  {
+    row: ROW.activityEvents,
+    policy: {
+      kind: 'shared-task',
+      read: 'every-active-member',
+      edit: 'every-active-member',
+      note: 'The task’s own history. D4 says "including historical tasks" in as many words; a shared present with a private past is not a shared task. Nothing EDITS an event — the `edit` value here describes the class the row belongs to, and the row’s own `tombstone`/`conflict` cells are what say the log is append-only.',
+    },
+  },
+]
+
+/**
+ * The other side of the same totality obligation: every `issues-and-tracker` row
+ * that is NOT a shared task, with the reason.
+ *
+ * The reason is the half a later reader needs. An unexplained absence from
+ * {@link SHARED_TASK_POLICY} is indistinguishable from a row somebody forgot —
+ * the same argument {@link DECLARED_OMISSIONS} makes for the matrix as a whole,
+ * and the same one `OwnerRule`'s `none` arm makes for itself.
+ */
+export const NOT_SHARED_TASK: readonly {
+  readonly row: MatrixRowId
+  readonly policy: Extract<SharedTaskPolicy, { kind: 'not-a-shared-task' }>
+}[] = [
+  {
+    row: ROW.taskParticipation,
+    policy: {
+      kind: 'not-a-shared-task',
+      reason: 'inherits',
+      note: 'Reads and is written with the task it names. Listed here rather than as a shared task because it carries no task CONTENT: it is the record of who is involved, and treating it as content is the first step toward reading it as an editor grant — which its `grants` cell refuses.',
+    },
+  },
+  {
+    row: ROW.shippingAggregate,
+    policy: {
+      kind: 'not-a-shared-task',
+      reason: 'inherits',
+      note: 'Delivery lifecycle over a task, not content on one. It reads with its issue, and its rows are SYSTEM-authored and immutable by trigger — so "every active member may edit ordinary content" has nothing to attach to here. Declaring it shared would imply a member edit path the frozen-field triggers refuse.',
+    },
+  },
+  {
+    row: ROW.issueMessageReadAt,
+    policy: {
+      kind: 'not-a-shared-task',
+      reason: 'per-user-state',
+      note: 'A fact about a READER, keyed `(userId, issueMessageId)`. Never shared and never grantable (D3 rule 4) — and note the direction: a shared task makes the mail readable by everyone, which makes MORE per-reader rows, not fewer.',
+    },
+  },
+  {
+    row: ROW.eventSubscriptions,
+    policy: {
+      kind: 'not-a-shared-task',
+      reason: 'private-execution',
+      note: 'A subscription is a personal delivery instruction owned by the subscribing human, not content on a task. Task following/mute (PDM-208) is deferred out of v1 precisely so that "I can read every task" does not silently become "I am notified about every task".',
+    },
+  },
+  {
+    row: ROW.subscriptionDeliveries,
+    policy: {
+      kind: 'not-a-shared-task',
+      reason: 'inherits',
+      note: 'Receipts for the row above, and they inherit its privacy. What was delivered to one person is a fact about that person’s notifications, not about the task.',
+    },
   },
 ]

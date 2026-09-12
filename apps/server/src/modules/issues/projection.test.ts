@@ -219,12 +219,11 @@ describe('issueRowToProjection [POD-796]', () => {
     // different in-memory value, and the replica's restoreNullValues treats the
     // two the same only because POD-795 made it (`=== undefined`, not `in`).
     const p = issueRowToProjection(
-      row({ worktreePath: null, branch: null, assignee: null, deferUntil: null, color: null }),
+      row({ worktreePath: null, branch: null, deferUntil: null, color: null }),
       NO_LABELS,
     )
     expect(p).not.toHaveProperty('worktreePath')
     expect(p).not.toHaveProperty('branch')
-    expect(p).not.toHaveProperty('assignee')
     expect(p).not.toHaveProperty('deferUntil')
     expect(p).not.toHaveProperty('color')
   })
@@ -232,13 +231,29 @@ describe('issueRowToProjection [POD-796]', () => {
   it('preserves the EMPTY STRING where the legacy serializer drops it', () => {
     // The deliberate divergence recorded in model/issue/mapping.ts and SETTLED
     // at this cutover: today's serializer omits by TRUTHINESS
-    // (`...(row.assignee ? {assignee} : {})`), so a stored '' reaches the wire
-    // absent and reads back as null — a lossy round-trip a mapping pair claiming
-    // to be a bijection may not inherit. This pair omits on `=== null`, so ''
-    // survives. Measured as safe against the live DB (assignee='' on 2 rows).
-    const p = issueRowToProjection(row({ assignee: '', design: '' }), NO_LABELS)
-    expect(p.assignee).toBe('')
+    // (`...(row.design ? {design} : {})`), so a stored '' reaches the wire absent
+    // and reads back as null — a lossy round-trip a mapping pair claiming to be a
+    // bijection may not inherit. This pair omits on `=== null`, so '' survives.
+    //
+    // `assignee: ''` was the other half of this case and is gone with A2: the
+    // accountable human is `owner_user_id`, which is NOT NULL and has no empty
+    // spelling. `design` carries the property alone now — the divergence was
+    // never about which column, it was about the whole nullable-text class.
+    const p = issueRowToProjection(row({ design: '' }), NO_LABELS)
     expect(p.design).toBe('')
+  })
+
+  it('carries the canonical OWNER and no second assignee key', () => {
+    // A2, at the normalized projection. This shape is derived from
+    // `IssueAggregate`, so it spells the accountable human `owner` — and it used
+    // to carry `assignee` BESIDE it, straight off `IssueTriage`, which is the
+    // duplicate this epic deletes. One key, and it is the owner.
+    //
+    // (The legacy `IssueWire` keeps the key named `assignee`, projected from this
+    // same field; `entities/issue-composition.test.ts` pins that end.)
+    const p = issueRowToProjection(row({}), NO_LABELS)
+    expect(p).not.toHaveProperty('assignee')
+    expect(p.owner).toBe('user:sole')
   })
 
   it('fills the keys IssueRow marks optional with IssueRow’s own documented defaults', () => {

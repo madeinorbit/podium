@@ -427,7 +427,6 @@ export interface CreateIssueInput
       | 'machineId'
       | 'priority'
       | 'type'
-      | 'assignee'
       | 'parentId'
       | 'color'
       | 'draft'
@@ -437,6 +436,20 @@ export interface CreateIssueInput
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean
+  /**
+   * WHO IS ACCOUNTABLE, as a creator may name them (A2).
+   *
+   * Declared here rather than picked from `IssueRow`, because there is no longer
+   * a row member called `assignee` to pick — there is one accountable field,
+   * `ownerUserId`, and this is the public name a caller uses for it. `create`
+   * resolves the two in one place: an explicit `ownerUserId` (server-derived)
+   * wins, then this, then the first admin.
+   *
+   * It used to be a picked member that landed in its OWN column, independently of
+   * the owner resolved three lines later — which is how a task could be born with
+   * an owner and an assignee that already disagreed.
+   */
+  assignee?: import('@podium/model').UserId
   /** Server-derived ownership and attribution; never accepted from public schemas. */
   ownerUserId?: import('@podium/model').UserId
   visibility?: import('@podium/model').VisibilityClass
@@ -469,7 +482,12 @@ export type IssuePatch = Partial<
     | 'archived'
     | 'priority'
     | 'type'
-    | 'assignee'
+    // `assignee` WAS HERE (A2), and its absence is the point: with no member on
+    // `IssueRow` to pick, no patch can name it, and every caller that used to set
+    // it is a compile error naming the file that has to decide whose task it is.
+    // Reassignment moves `ownerUserId` (below), which is the single accountable
+    // field — and `claim` no longer touches either.
+    | 'ownerUserId'
     | 'parentId'
     | 'design'
     | 'acceptance'

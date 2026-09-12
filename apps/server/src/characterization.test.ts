@@ -256,7 +256,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      await regA.issues.claim(a.id, asUserId('agent:test'))
+      await regA.issues.claim(a.id)
       await regA.issues.addComment(a.id, 'agent:test', 'progress note', AS_OPERATOR)
       await regA.issues.close(a.id, 'done')
 
@@ -278,7 +278,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       )
       const seq = /created #(\d+)/.exec(created)?.[1]
       if (!seq) throw new Error(`no seq in: ${created}`)
-      await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
+      await runIssueCli(['claim', seq], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note', '--author', 'agent:test'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
       const bId = await regB.issues.resolveRef(seq)
@@ -292,7 +292,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      await trpc.issues.claim({ id: c.id, assignee: 'agent:test' })
+      await trpc.issues.claim({ id: c.id })
       await trpc.issues.addComment({ id: c.id, author: 'agent:test', body: 'progress note' })
       await trpc.issues.close({ id: c.id, reason: 'done' })
 

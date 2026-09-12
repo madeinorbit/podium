@@ -195,10 +195,10 @@ describe('SessionRegistry', () => {
 
       // An issue claim by a bound agent fills the empty seat, but never replaces
       // an explicit handoff.
-      await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      await reg.modules.issues.claim(issue.id, { actorSessionId: second })
       expect((await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(second)
       await reg.modules.issues.setCoordinator(issue.id, first)
-      await reg.modules.issues.claim(issue.id, asUserId('agent:codex'), { actorSessionId: second })
+      await reg.modules.issues.claim(issue.id, { actorSessionId: second })
       await expect.poll(async () => (await reg.modules.issues.get(issue.id))?.coordinatorSessionId).toBe(first)
     } finally {
       await reg.dispose()

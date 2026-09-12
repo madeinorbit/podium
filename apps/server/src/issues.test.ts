@@ -2083,12 +2083,23 @@ describe('IssueService.start', () => {
     await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
 
-  it('start auto-claims the issue (assignee = agent, stage = in_progress)', async () => {
+  it('start moves the stage and leaves the accountable human alone', async () => {
+    // THIS TEST USED TO PIN THE DEFECT (A2). It read "start auto-claims the issue
+    // (assignee = agent, stage = in_progress)" and asserted
+    // `started.assignee === 'agent:claude-code'` — an agent LABEL, cast into the
+    // branded user-id space and stored in the accountable-human column, asserted
+    // as correct behaviour.
+    //
+    // Starting an issue says work has begun. That is the stage. It says nothing
+    // about who is accountable, and the one thing the label stood in for — which
+    // agent is on this — is already answered by the issue's sessions and by
+    // `coordinatorSessionId`, both of which name real sessions rather than a kind.
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.start(a.id)
-    expect(started.assignee).toBe('agent:claude-code')
     expect(started.stage).toBe('in_progress')
+    expect(started.assignee).toBe(a.assignee)
+    expect(started.assignee).not.toMatch(/^agent:/)
   })
 
   it('uses an explicitly selected agent when starting an unstarted issue', async () => {
@@ -2106,7 +2117,8 @@ describe('IssueService.start', () => {
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.start(a.id, 'codex')
     expect(started.defaultAgent).toBe('codex')
-    expect(started.assignee).toBe('agent:codex')
+    // A2: choosing the agent changes `defaultAgent` and nothing about ownership.
+    expect(started.assignee).toBe(a.assignee)
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
       issueId: a.id,
@@ -2833,11 +2845,18 @@ describe('IssueService field mutations (P1)', () => {
     await expect(svc.addDep(b.id, a.id)).rejects.toThrow(/cycle/) // a->b already; b->a closes the loop
   })
 
-  it('claim sets assignee + in_progress; close sets done + reason', async () => {
+  it('claim moves the stage and does NOT move the accountable human', async () => {
+    // A2 / ADR 9 Amendment 1 D2. This test read `claim sets assignee +
+    // in_progress` and asserted `claimed.assignee` was `'agent:claude'` — it was
+    // pinning the defect: an agent label, written into the accountable-human
+    // field, by the command an agent runs to pick up work. Claim now records
+    // lifecycle only, and the assignee the wire reports is the unchanged owner.
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const claimed = await svc.claim(a.id, asUserId('agent:claude'))
-    expect(claimed.assignee).toBe('agent:claude')
+    const before = a.assignee
+    const claimed = await svc.claim(a.id)
+    expect(claimed.assignee).toBe(before)
+    expect(claimed.assignee).not.toMatch(/^agent:/)
     expect(claimed.stage).toBe('in_progress')
     const closed = await svc.close(a.id, 'cancelled')
     expect(closed.stage).toBe('done')
@@ -3699,8 +3718,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     // labels + update + claim + needs-human by seq
     await svc.setLabels(String(b.seq), ['x'])
     expect((await svc.get(String(b.seq)))?.labels).toContain('x')
-    await svc.claim(`#${b.seq}`, asUserId('agent:test'))
-    expect((await svc.get(b.id))?.assignee).toBe('agent:test')
+    await svc.claim(`#${b.seq}`)
+    expect((await svc.get(b.id))?.stage).toBe('in_progress')
     await svc.setNeedsHuman(String(b.seq), 'q?')
     expect((await svc.get(b.id))?.needsHuman).toBe(true)
   })

@@ -1065,11 +1065,9 @@ const defs = {
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'claim')
       const actorSessionId = ctx.caller.capability.actorSessionId
-      return await ctx.crud.claim(
-        input.id,
-        input.assignee,
-        actorSessionId ? { actorSessionId } : undefined,
-      )
+      // A2: no assignee argument. `claim` records lifecycle and the coordinator
+      // seat; it does not move the accountable human (ADR 9 Amendment 1 D2).
+      return await ctx.crud.claim(input.id, actorSessionId ? { actorSessionId } : undefined)
     },
   }),
   /** Claim / set / clear the issue's designated coordinator session

@@ -947,14 +947,16 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'claim',
-    summary: 'Claim an issue (set assignee + in_progress): claim <id> --assignee me.',
-    args: z.strictObject({ id: idArg, assignee: z.string() }),
+    // A2: `--assignee` IS GONE, and the summary no longer promises it. Claim used
+    // to set the assignee AND the stage, so an agent taking up work reassigned the
+    // accountable human as a side effect — which ADR 9 Amendment 1 D2 forbids.
+    // Claim now records lifecycle and the coordinator seat. Reassigning is
+    // `update <id> --assignee <member>`, an explicit act by an active member.
+    summary: 'Claim an issue (take it up, stage → in_progress): claim <id>.',
+    args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.claim.mutate({
-        id: a.id as string,
-        assignee: a.assignee as string,
-      })) as { seq: number }
+      const i = (await c.issues.claim.mutate({ id: a.id as string })) as { seq: number }
       return { text: `claimed #${i.seq}`, data: i }
     },
   },

@@ -313,6 +313,124 @@ export const OP_STREAM_COMPACTION_CONSTRAINT =
   'A document reconstructed by replaying an unbounded op log needs the log-compaction ADR that ' +
   'ADR 2 D5 already parks, and must not be built without it (ADR 1 Amendment 1 D12 part 3).'
 
+// ---------------------------------------------------------------------------
+// The shared-task / private-session policy (A2, ADR 9 Amendment 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHO MAY READ A TASK, once the exposure gate below is satisfied.
+ *
+ * ADR 9 Amendment 1 D4: *every active member reads every task, including
+ * historical ones*. That is a strictly different question from ADR 9 D3's five
+ * visibility classes, and keeping the two apart is the whole design here:
+ *
+ *   - **D3's class is a TRANSPORT EXCLUSION vocabulary.** It is consumed by
+ *     `GrantEdgeVisibilityPolicy.decide` in `@podium/sync`, whose chain refuses a
+ *     `secret` outright, keys a `per-user-state` row to its user, admits
+ *     `deployment-substrate`, and falls through to owner-or-grant for everything
+ *     else. Its members answer "does this row replicate to this connection at
+ *     all".
+ *   - **This column is an AUDIENCE POLICY.** It answers "which people does the
+ *     product say may read this class", which is the input C4 (PDM-144) turns
+ *     into a predicate.
+ *
+ * A SIXTH D3 CLASS WAS THE OBVIOUS MOVE AND IS THE WRONG ONE, for two reasons
+ * that are worth stating because the next reader will reach for it:
+ *
+ *   1. `decide`'s chain is a sequence of `if`s, not an exhaustive switch. A new
+ *      member added today falls through to the owner-or-grant arm and behaves as
+ *      `personal` — a class with no decided meaning, silently. That is precisely
+ *      what D4's totality obligation exists to prevent, and adding a member that
+ *      defeats it to express a decision is a bad trade.
+ *   2. Changing that chain IS the widening. The multi-user execution charter
+ *      fixes the order: through phases A and B the task read predicate in
+ *      `apps/server/src/feed-visibility.ts` and the issue authorization
+ *      evaluators stay owner-or-grant, and C4 replaces it in ONE reviewed change
+ *      after B7 (PDM-139) accepts the isolation layer. A2 is the schema task; it
+ *      declares, and it must not deliver.
+ *
+ * So the accepted policy lands here as DATA with its own totality obligation
+ * ({@link SHARED_TASK_POLICY} / {@link NOT_SHARED_TASK} in `matrix.ts`), the D3
+ * class on the task rows stays `personal`, and the two do not agree yet — on
+ * purpose, with {@link SHARED_TASK_EXPOSURE_GATE} naming the issue that closes
+ * the gap.
+ */
+export type TaskReadAudience = 'every-active-member'
+
+/**
+ * WHO MAY EDIT ORDINARY SHARED TASK CONTENT (ADR 9 Amendment 1 D5).
+ *
+ * "Ordinary" is doing real work in that sentence. It covers the shared body of a
+ * task — title, description, brief, priority, labels, stage, the graph edges —
+ * and it does NOT cover:
+ *
+ *   - **another person's comment**, which keeps its own-author controls;
+ *   - **another person's per-user state**, which is never writable by a second
+ *     person at all (the per-user family's single-writer rule);
+ *   - **a private run**, which retains its initiating human (D7, D13);
+ *   - **accountability itself**. Reassignment is its own act with its own rule
+ *     (D2: any active member may reassign to any active member; agents never
+ *     reassign humans), not a special case of ordinary editing.
+ *
+ * Participation records — collaborator, follower — are NOT editor grants and
+ * confer nothing here. Every active member already holds ordinary edit; a
+ * participation row says who is involved, which is a different fact.
+ */
+export type OrdinaryEditAudience = 'every-active-member'
+
+/**
+ * One class's answer to "is this a shared task?", with the reason when it is not.
+ *
+ * A two-arm union rather than a pair of optional columns, because the two arms
+ * carry different obligations: the shared arm must name its audiences, and the
+ * non-shared arm must name WHY — and "why" is the half a later reader needs, for
+ * the reason `OwnerRule`'s `none` arm requires a reason and `GrantRule`'s does
+ * too. An unexplained "not shared" is indistinguishable from a class nobody
+ * classified.
+ */
+export type SharedTaskPolicy =
+  | {
+      readonly kind: 'shared-task'
+      readonly read: TaskReadAudience
+      readonly edit: OrdinaryEditAudience
+      readonly note: string
+    }
+  | {
+      readonly kind: 'not-a-shared-task'
+      readonly reason:
+        /** Private human-owned execution: sessions, runs, automations (D7, D13). */
+        | 'private-execution'
+        /** Keyed `(userId, entityId)`; never shared, never grantable (D3 rule 4). */
+        | 'per-user-state'
+        /** A property of the deployment, not of a task (D3 rule 1). */
+        | 'substrate'
+        /** Never replicates at all (ADR 1 D6). */
+        | 'secret'
+        /** Owned compute: `use` is a code-execution boundary (D6 M2). */
+        | 'owned-compute'
+        /** Infrastructure of the feed itself; carries no task content. */
+        | 'sync-infrastructure'
+        /** Derived from, or inherited by, a row that carries the policy. */
+        | 'inherits'
+      readonly note: string
+    }
+
+/**
+ * THE GATE, recorded once and cited by every shared-task row.
+ *
+ * This string is what stops the declaration above from being read as a delivered
+ * capability. It is attached to the annotation rather than left in the execution
+ * charter because the charter is a plan document and this is a property of the
+ * code: anyone who finds {@link SharedTaskPolicy} and wonders why the feed does
+ * not behave that way yet reads the answer beside the declaration.
+ */
+export const SHARED_TASK_EXPOSURE_GATE =
+  'DECLARED, NOT YET DELIVERED. Through phases A and B the task read predicate in ' +
+  '`apps/server/src/feed-visibility.ts` and the issue authorization evaluators keep today’s ' +
+  'owner-or-grant predicate unchanged; C4 (PDM-144) replaces it with this policy in one reviewed ' +
+  'change after B7 (PDM-139) accepts the isolation layer. The predicate itself is the gate — there ' +
+  'is no runtime flag to leave behind. Changing an ownership annotation must not widen a live feed.'
+
 /** ADR 9 §3's canonical open list. A row cites a number; it never answers one. */
 export type OpenQuestion = 'O1' | 'O2' | 'O3' | 'O4' | 'O5' | 'O6'
 

@@ -48,7 +48,6 @@ function issueRow(seq: number): IssueRow {
     archived: false,
     priority: 2,
     type: 'task',
-    assignee: null,
     parentId: null,
     design: null,
     acceptance: null,

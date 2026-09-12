@@ -473,11 +473,20 @@ export class IssueGitWorkflowModule {
       await this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
     row.stage = 'in_progress'
-    // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
-    // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
-    // named rather than hidden: adjudicating whether the column holds a UserId or
-    // an actor TAG is POD-1075's (accounts) call, not this sweep's.
-    row.assignee = asUserId(`agent:${row.defaultAgent}`)
+    // THE `agent:<kind>` WRITE IS GONE (A2). This line was
+    // `row.assignee = asUserId(\`agent:${row.defaultAgent}\`)` — an agent LABEL
+    // cast into the branded user-id space and stored in a column typed as a
+    // person. Its own comment said the cast was "named rather than hidden" and
+    // that adjudicating whether the column held a UserId or an actor TAG belonged
+    // to the accounts work. This is that adjudication, and the answer is that it
+    // was never a user: starting an issue says work has begun, which is what the
+    // stage above records, and it says nothing about who is accountable.
+    //
+    // Nothing replaces it here. The one thing the label was standing in for —
+    // which agent is on this — is already answered by the issue's sessions and by
+    // `coordinatorSessionId`, both of which name real sessions rather than a kind.
+    // Rows that still carry such a label were recorded and left alone by
+    // `20260912164233_a2-ownership-backfill`; the value never became an owner.
     const wire = await this.store.persistRow(row)
     if (wasClosed) {
       await this.store.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)

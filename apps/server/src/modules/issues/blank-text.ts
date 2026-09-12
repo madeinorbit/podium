@@ -81,7 +81,14 @@ export const BLANK_TO_NULL_COLUMNS = [
   'dependencyNote',
   'prUrl',
   'deletedAt',
-  'assignee',
+  // `assignee` WAS HERE, and it was the reason this list exists: POD-796 measured
+  // the live blast radius at two rows, both of them blank assignees. A2 dropped
+  // the column, so there is nothing left to normalize — the accountable human is
+  // `owner_user_id`, which is NOT NULL and can never be the empty string. The
+  // list survives because its point was never `assignee` specifically: it is the
+  // class of "a nullable text column that also stores ''", and the next such
+  // column added would otherwise reintroduce the same two-spellings-of-absent
+  // defect silently.
   'parentId',
   'design',
   'acceptance',

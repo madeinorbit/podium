@@ -96,7 +96,17 @@ export * from './fields/issue-dep'
 export * from './fields/repo'
 export * from './fields/op-stream'
 export * from './fields/ownership'
+// WHO IS INVOLVED in a task, as a record that is NOT a grant (A2). Kept beside
+// the grant edge in the reader's mind and deliberately far from it in the code:
+// a participation row has no verb, no scope and no expiry, so there is nothing
+// in it for an authorization policy to read.
+export * from './fields/participation'
 export * from './fields/per-user-key'
+// TYPED REVISION REFERENCES (A2) — "which version of what did this worker act
+// on?". The long-lived companion to `Revision`'s write-time token: a worker that
+// read a task an hour ago needs to know the ASSIGNMENT or the INPUT moved, not
+// that the row was touched.
+export * from './fields/revision-ref'
 export * from './fields/session'
 
 // The per-user state family itself (POD-1076). Keyed `(userId, entityId)` over

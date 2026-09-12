@@ -206,6 +206,16 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // which must stay total over rows this instance wrote.
     ...(row.revision !== undefined ? { revision: row.revision } : {}),
 
+    // --- IssueAccountability (A2) -----------------------------------------
+    // Passed through on the same terms and for the same reason. Both are assigned
+    // by `upsertIssue` alongside `revision` — it is the only SQL writer, so it is
+    // the only place that can compare a write against the row it replaces — and
+    // an absent value here means a row that never came out of the store.
+    ...(row.assignmentRevision !== undefined
+      ? { assignmentRevision: row.assignmentRevision }
+      : {}),
+    ...(row.inputRevision !== undefined ? { inputRevision: row.inputRevision } : {}),
+
     // --- IssueText -------------------------------------------------------
     title: row.title,
     ...opt('brief', row.brief),
@@ -233,12 +243,12 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- IssueTriage (labels live in issue_labels, not on the row) --------
     priority: row.priority,
     type: row.type as IssueType,
-    // POD-1246: `opt`, not a truthiness spread. A stored `assignee: ''` is a real
-    // value and dropping it makes the round-trip lossy — it reaches the wire
-    // absent and reads back as null. Every other free-text column here already
-    // omits on `== null` for that reason; this one was the holdout, and main had
-    // settled the same question the same way before the merge.
-    ...opt('assignee', row.assignee),
+    // `assignee` WAS HERE (A2). It carried a POD-1246 note about `opt` vs a
+    // truthiness spread, because a stored `assignee: ''` was a real value that a
+    // truthy check dropped. That whole class of question is gone with the column:
+    // the accountable human is `row.ownerUserId`, which is NOT NULL, and the wire
+    // key is projected from it — so there is no empty string to preserve and no
+    // second value to round-trip.
     ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
     // Guarded so a corrupt/unknown stored slot degrades to "no colour" rather
     // than failing the issue [spec:SP-b4d1] — the behaviour `toWire` had.
@@ -341,6 +351,15 @@ export function toStorage(
     // passed here is never what lands.
     ...(issue.revision !== undefined ? { revision: issue.revision } : {}),
 
+    // --- IssueAccountability (A2) -----------------------------------------
+    // Encoded for round-trip completeness only: like `revision`, whatever is
+    // passed here is never what lands, because `upsertIssue` recomputes both
+    // against the row being replaced on every accepted write.
+    ...(issue.assignmentRevision !== undefined
+      ? { assignmentRevision: issue.assignmentRevision }
+      : {}),
+    ...(issue.inputRevision !== undefined ? { inputRevision: issue.inputRevision } : {}),
+
     // --- IssueText -------------------------------------------------------
     title: issue.title,
     brief: issue.brief ?? null,
@@ -367,7 +386,6 @@ export function toStorage(
     // --- IssueTriage -------------------------------------------------------
     priority: issue.priority,
     type: issue.type,
-    assignee: issue.assignee ?? null,
     estimateMin: issue.estimateMin ?? null,
     color: issue.color ?? null,
     sortKey: issue.sortKey ?? null,

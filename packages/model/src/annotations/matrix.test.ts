@@ -18,16 +18,19 @@ import { conflictRuleFor, FIELD_LWW_CLOCK, permitsFieldLww } from './arbitration
 import {
   DECLARED_OMISSIONS,
   FIELD_LWW_MEMBERS,
+  NOT_SHARED_TASK,
   OP_STREAM_RESERVED_MEMBERS,
   OWNERSHIP_MATRIX,
   OWNERSHIP_MATRIX_INDEX,
   PER_USER_WRITER_EXCEPTIONS,
   ROW,
+  SHARED_TASK_POLICY,
 } from './matrix'
 import {
   asMatrixRowId,
   type MatrixRow,
   OP_STREAM_COMPACTION_CONSTRAINT,
+  SHARED_TASK_EXPOSURE_GATE,
   SYSTEM_WRITER_RULE,
   type VisibilityClass,
 } from './ownership'
@@ -193,6 +196,109 @@ describe('totality — no row escapes annotation', () => {
 // ---------------------------------------------------------------------------
 // Default-closed — and the two mechanisms are proven SEPARATELY
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// The shared-task / private-session policy (A2)
+// ---------------------------------------------------------------------------
+
+describe('shared-task policy — declared, total, and NOT yet delivered', () => {
+  const trackerRows = rows.filter((r) => r.section === 'issues-and-tracker')
+  const shared = new Set(SHARED_TASK_POLICY.map((e) => e.row as string))
+  const notShared = new Set(NOT_SHARED_TASK.map((e) => e.row as string))
+
+  it('classifies EVERY tracker row exactly once', () => {
+    // THE TOTALITY OBLIGATION, and the reason the decision is a pair of lists
+    // rather than one. A single "these are the shared tasks" list would make a new
+    // tracker row default to "not shared" by omission — which is safe, and silent,
+    // and indistinguishable from a row somebody forgot. Requiring membership in
+    // exactly one makes the omission a build failure instead.
+    for (const row of trackerRows) {
+      const id = row.id as string
+      expect(
+        { id, shared: shared.has(id), notShared: notShared.has(id) },
+        `${id} is in neither shared-task list — decide, do not default`,
+      ).toEqual({ id, shared: shared.has(id), notShared: !shared.has(id) })
+    }
+    expect(shared.size + notShared.size, 'a row is classified twice').toBe(trackerRows.length)
+  })
+
+  it('names only real rows, and only tracker rows', () => {
+    // A typed edge that points at nothing classifies nothing. And a NON-tracker
+    // row appearing here would be a policy applied where the totality check above
+    // cannot see it, so the membership stays closed in both directions.
+    for (const entry of [...SHARED_TASK_POLICY, ...NOT_SHARED_TASK]) {
+      const row = OWNERSHIP_MATRIX_INDEX.get(entry.row as string)
+      expect(row, `${entry.row} is not a matrix row`).toBeDefined()
+      expect(row?.section, `${entry.row} is not a tracker row`).toBe('issues-and-tracker')
+    }
+  })
+
+  it('requires a REASON on every not-a-shared-task entry', () => {
+    // Same rule `OwnerRule`'s `none` arm and `DECLARED_OMISSIONS` follow: an
+    // unexplained exclusion is the one a later reader cannot audit.
+    for (const entry of NOT_SHARED_TASK) {
+      expect(entry.policy.reason.length, `${entry.row} declares no reason`).toBeGreaterThan(0)
+      expect(entry.policy.note.length, `${entry.row} explains nothing`).toBeGreaterThan(20)
+    }
+  })
+
+  it('reads and edits by ACTIVE MEMBER on every shared task (D4/D5)', () => {
+    for (const entry of SHARED_TASK_POLICY) {
+      expect({ row: entry.row, read: entry.policy.read, edit: entry.policy.edit }).toEqual({
+        row: entry.row,
+        read: 'every-active-member',
+        edit: 'every-active-member',
+      })
+    }
+    // The row the decision is about is in the set at all — a policy list that
+    // classified every tracker row and left out `issue-core` would pass every
+    // assertion above.
+    expect(shared.has(ROW.issueCore as string)).toBe(true)
+  })
+
+  it('DOES NOT WIDEN the transport class — the tracker rows stay `personal`', () => {
+    // THE EXPOSURE-ORDER PROPERTY, and the most important assertion in this file
+    // for the A/B phases.
+    //
+    // ADR 9 D3's five classes are what `GrantEdgeVisibilityPolicy.decide` reads.
+    // The accepted product decision is that every active member reads every task —
+    // but DELIVERING that is C4 (PDM-144), in one reviewed change after B7 accepts
+    // the isolation layer. So the declaration above lands now and the class does
+    // not move, and this test fails the moment somebody "finishes the job" by
+    // reclassifying a tracker row.
+    //
+    // It is written over the shared-task set rather than over a hardcoded list, so
+    // a row ADDED to that set is covered the day it is added.
+    for (const entry of SHARED_TASK_POLICY) {
+      const id = entry.row as string
+      expect(visibilityClassOf(entry.row, OWNERSHIP_MATRIX_INDEX), `${id} was widened`).toBe(
+        'personal',
+      )
+      expect(isTenantVisible(entry.row, OWNERSHIP_MATRIX_INDEX), `${id} became substrate`).toBe(
+        false,
+      )
+    }
+    // And the vocabulary itself did not grow a sixth member to carry the policy —
+    // which would fall through `decide`'s chain to the owner-or-grant arm and
+    // behave as `personal` with nobody having decided that it should.
+    expect(SHARED_TASK_EXPOSURE_GATE).toContain('feed-visibility.ts')
+    expect(SHARED_TASK_EXPOSURE_GATE).toContain('PDM-144')
+  })
+
+  it('keeps participation OUT of the grant vocabulary', () => {
+    // A2's other half: `task-participation` exists so `claim` has somewhere to
+    // record involvement WITHOUT touching the accountable human. The moment it
+    // grants a verb it becomes a second authorization vocabulary beside `grants`,
+    // evaluated by nothing and audited by nothing.
+    const row = OWNERSHIP_MATRIX_INDEX.get(ROW.taskParticipation as string)
+    expect(row?.grants.kind).toBe('none')
+    expect(grantVerbsOf(ROW.taskParticipation, OWNERSHIP_MATRIX_INDEX)).toEqual([])
+    // And it cannot make a task visible: if it could, C4's predicate and this
+    // table would be two answers to one question.
+    expect(row?.visibilityMutability.mutable).toBe(false)
+    expect(row?.visibilityMutability.verbs).toEqual([])
+  })
+})
 
 describe('default-closed: an unclassified class resolves PRIVATE', () => {
   // The planted fixture: a durable class that a future issue forgot to

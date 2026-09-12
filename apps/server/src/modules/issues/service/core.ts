@@ -704,7 +704,14 @@ export class IssueStore {
       ...(asked?.at ? { humanQuestionAskedAt: asked.at } : {}),
       ...(issue.supersededBy ? { supersededBy: issue.supersededBy } : {}),
       ...(issue.duplicateOf ? { duplicateOf: issue.duplicateOf } : {}),
-      ...(issue.assignee ? { assignee: issue.assignee } : {}),
+      // A2: THE ONE PLACE THE WIRE'S `assignee` COMES FROM, and it is the row's
+      // canonical owner. There is no `issues.assignee` column any more, so this
+      // is not a choice between two values — it is the projection
+      // `@podium/model#assigneeOf` names, spelled at the seam that builds the
+      // wire. Spread-conditionally because `IssueRow.ownerUserId` is optional at
+      // legacy adapter boundaries, not because a current row can be unassigned:
+      // the column is NOT NULL.
+      ...(row.ownerUserId ? { assignee: row.ownerUserId } : {}),
       ...(issue.parentId ? { parentId: issue.parentId } : {}),
       ...(issue.design ? { design: issue.design } : {}),
       ...(issue.acceptance ? { acceptance: issue.acceptance } : {}),

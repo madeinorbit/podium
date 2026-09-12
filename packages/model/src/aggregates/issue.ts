@@ -42,6 +42,7 @@ import { z } from 'zod'
 import { Attribution } from '../fields/attribution'
 import { Ownership } from '../fields/ownership'
 import {
+  IssueAccountability,
   IssueAgentDefaults,
   IssueConcurrency,
   IssueCoordination,
@@ -82,6 +83,17 @@ export const IssueAggregate = IssueIdentity.extend(IssueText.shape)
   // `../fields/issue.ts#IssueConcurrency` for why a partial chain is worse than
   // no chain at all.
   .extend(IssueConcurrency.shape)
+  // The two NARROW watermarks a long-running worker is checked against (A2):
+  // `assignmentRevision` moves only when the accountable human moves,
+  // `inputRevision` only when the statement of the work does. Distinct from the
+  // token above, which moves on every accepted write — see the group's header for
+  // why a guard wired to that one is a guard somebody turns off.
+  .extend(IssueAccountability.shape)
+  // `owner` — THE single accountable human, displayed as Assignee. A2 retired the
+  // independently mutable `assignee` slot that used to sit on `IssueTriage`
+  // beside it; the wire key is now a projection of THIS field
+  // (`fields/ownership.ts#assigneeOf`), so owner and assignee cannot diverge
+  // through any storage or API path because there is only one of them.
   .extend(Ownership.shape)
   .extend({
     createdAt: z.string(),

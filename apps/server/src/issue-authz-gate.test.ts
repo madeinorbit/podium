@@ -58,7 +58,7 @@ describe('issues.* capability gate', () => {
     expect(w.seq).toBe(1)
     await expect(c.issues.delete({ id: 'iss_x' })).rejects.toThrow(/FORBIDDEN|not allowed/i)
     // a write-tier call passes the gate, then errors on the unknown id (not FORBIDDEN):
-    await expect(c.issues.claim({ id: 'iss_missing', assignee: 'a' })).rejects.not.toThrow(
+    await expect(c.issues.claim({ id: 'iss_missing' })).rejects.not.toThrow(
       /FORBIDDEN|not allowed/i,
     )
   })

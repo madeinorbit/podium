@@ -623,7 +623,7 @@ describe('prime draft/attach variants', () => {
   it('bound issue past backlog is not nagged about its stage', async () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.claim(a.id, asUserId('agent'))
+    await svc.claim(a.id)
     expect(await svc.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
   })
 })

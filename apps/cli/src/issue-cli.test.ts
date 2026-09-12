@@ -61,15 +61,21 @@ describe('runIssueCli', () => {
   })
 
   it('per-command help: <cmd> --help and help <cmd> show flags with required markers', async () => {
+    // `claim` was the example here until A2 took its `--assignee` away — it now
+    // has no required flag at all, so it can no longer demonstrate the marker.
+    // `comment --body` is the replacement and is a better one: `--author` sits
+    // beside it with a default, so a run that rendered EVERY flag as required
+    // would pass the old assertion and fail this one.
     for (const argv of [
-      ['claim', '--help'],
-      ['help', 'claim'],
-      ['claim', '-h'],
+      ['comment', '--help'],
+      ['help', 'comment'],
+      ['comment', '-h'],
     ]) {
       const out = await runIssueCli(argv, client)
-      expect(out).toContain('podium issue claim')
-      expect(out).toContain('--assignee <value>')
+      expect(out).toContain('podium issue comment')
+      expect(out).toContain('--body <value>')
       expect(out).toContain('(required)')
+      expect(out).toContain('--author <value>')
     }
   })
 
@@ -174,7 +180,23 @@ describe('runIssueCli', () => {
   })
 
   it('invalid args name the offending field', async () => {
-    await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
+    // Was `claim` missing `--assignee`; A2 removed that flag, so the omission it
+    // demonstrated is `comment` missing `--body`.
+    await expect(runIssueCli(['comment', '--id', '1'], client)).rejects.toThrow(/body/)
+  })
+
+  it('claim takes an id and nothing else — it cannot reassign a human', async () => {
+    // THE A2 PROPERTY AT THE CLI SEAM. `claim` used to require `--assignee` and
+    // the service wrote it, so the command an agent runs to pick up work moved the
+    // accountable human (ADR 9 Amendment 1 D2 forbids exactly that). The durable
+    // guarantee is that there is nothing to pass: a caller that still tries is
+    // refused by the strict schema rather than silently ignored, which is the
+    // difference between a retired flag and one that quietly does nothing.
+    const claim = vi.fn(async () => ({ seq: 7 }))
+    const c = { issues: { claim: { mutate: claim } } } as any
+    await runIssueCli(['claim', '--id', '7'], c)
+    expect(claim).toHaveBeenCalledWith({ id: '7' })
+    await expect(runIssueCli(['claim', '--id', '7', '--assignee', 'someone'], c)).rejects.toThrow()
   })
 
   it('forwards --confirm-rehome on attach as a boolean', async () => {

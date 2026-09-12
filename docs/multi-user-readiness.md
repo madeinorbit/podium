@@ -23,6 +23,39 @@ POD-359) + `docs/rearchitecture-v3.md` at the integration head.
 > *principle* is settled here (private default + a named tenant-visible infrastructure set); *which
 > classes are in that set* is per-feature and stays deferred.
 
+> ## SUPERSEDED IN PART BY THE HUMAN DECISION OF 2026-09-12 (read this first)
+>
+> The decision above — **private by default, per-feature sharing deferred** — was made for the
+> product as it stood in July 2026, and it still governs **sessions, drafts, conversations,
+> handoff bundles and superagent threads**. It **no longer governs tasks.**
+>
+> Decisions D1–D14 of `docs/architecture/2026-09-11-multi-user-instance-spec.md` §13 are accepted
+> as of 12 September 2026 and are ratified as **ADR 9 Amendment 1**. Three of them change what
+> this document says:
+>
+> - **Tasks are shared.** Every **active member** reads every task, including historical ones,
+>   and may edit ordinary shared task content. The per-feature deferral above was resolved for
+>   this one feature, in the direction of sharing.
+> - **Sessions are not.** Private human-owned execution is unchanged and is now explicit: a run
+>   retains its initiating human after the task is reassigned, and an administrator may not view
+>   or drive another member's session (D7, D13).
+> - **One accountable human per task, with no second field.** `issues.assignee` was a second
+>   mutable owner column beside `issues.owner_user_id`; it was retired by A2 (PDM-128) after its
+>   legacy values were inventoried and adjudicated. Assignee is now a projection of the one
+>   `owner`, and an agent claiming work no longer reassigns a person.
+>
+> **The sidebar argument above survives intact, and is the reason §3.3 matters more than before.**
+> "My tasks" is no longer produced by *what you can see* — under D4 you can see everything — so it
+> is produced by **personal state**: explicit starts add a permanent row, an assignment adds a
+> removable badged row, and merely discovering a task adds nothing at all (D3). Read §3.3's
+> per-user state work as load-bearing for the product surface, not only for conflict avoidance.
+>
+> **What has NOT changed:** the tenant-visible floor of §3.1.1, the default-closed rule for an
+> unclassified class, and the ordering. Through phases A and B the task read predicate in
+> `apps/server/src/feed-visibility.ts` stays owner-or-grant; C4 (PDM-144) replaces it in one
+> reviewed change after B7 (PDM-139) accepts the isolation layer. A2 declared the policy and
+> delivered none of it.
+
 **New requirement being tested against the plan:**
 
 1. **Basic multi-user, one tenant** — every object has an owner; sessions and other objects can
@@ -176,6 +209,13 @@ the deferral safe:
    classification.
 
 #### 3.1.2 Questions this default sharpens (deferred, but they will arrive together)
+
+> **PARTLY ANSWERED BY THE 2026-09-12 DECISIONS.** For TASKS, the existence question below is
+> largely moot: every active member may read every task, so counts and graph edges over tasks
+> reveal nothing a member could not already fetch. The question stands undiminished for
+> **sessions, machines and per-user state**, where the answer is still "decide per surface", and
+> for the **member directory** — naming people so they can be assigned work discloses that those
+> accounts exist, which is O1 in its original form and is recorded, not answered, by A2.
 
 Not blocking, and explicitly per-feature — recorded so they are not rediscovered mid-implementation:
 
@@ -425,6 +465,14 @@ Minimum shape:
   scopes rather than inventing a parallel check.
 
 ### 3.3 Half of the field-LWW inventory should become per-user state instead
+
+> **PROMOTED BY THE 2026-09-12 DECISIONS.** This section was written as a conflict-avoidance
+> argument. It is now also the mechanism that produces the personal sidebar: with every member
+> able to read every task, "my tasks" is per-user state and nothing else. A2 added two members to
+> the family for exactly that — `startedAt` (an explicit start, permanent) and
+> `assignmentDismissedAt` (the removable badged row an assignment adds). Discovery adds no row,
+> and has no field, which is what stops a member-readable tracker from putting every task in
+> everyone's sidebar.
 
 ADR 1 D3's closed LWW set is: session `archived`/`workState`/`readAt`, `snoozedUntil`, composer
 draft body, pins, tab order, preference keys. **Under multi-user, almost all of those are per-person

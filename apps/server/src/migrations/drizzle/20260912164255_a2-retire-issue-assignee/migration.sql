@@ -1,0 +1,27 @@
+-- A2 · THE SECOND OWNER COLUMN GOES (spec: multi-user epic A2, ADR 9 Amendment 1 D10)
+--
+-- `20260912164233_a2-ownership-backfill` has already read every `assignee`,
+-- adjudicated the ambiguous ones and written its findings to
+-- `ownership_migration_dispositions`. What is left in this column is either equal
+-- to `owner_user_id` or recorded as retired. The value is gone from the model,
+-- from the stores and from the service; this is the last copy.
+--
+-- WHY DROP IT RATHER THAN LEAVE IT UNWRITTEN. A column nothing writes today is a
+-- column something writes next quarter — and the specific failure this epic is
+-- correcting is not that the two columns held wrong values, it is that the schema
+-- MADE TWO ANSWERS REPRESENTABLE. Leaving the column and relying on discipline
+-- reproduces the original bug with a shorter half-life. With it dropped, "owner
+-- and assignee disagree" is not a state this database can hold, and the wire key
+-- `assignee` is a projection of `owner_user_id` with no storage of its own.
+--
+-- SEPARATE MIGRATION, and the split is the point: the backfill had to be able to
+-- READ this column to adjudicate it. A single migration doing both would leave no
+-- state in which the evidence and the source value both existed, so a failure
+-- between the two halves would lose the thing the evidence is about.
+--
+-- `ALTER TABLE ... DROP COLUMN` rather than the create/copy/drop/rename rebuild
+-- `20260911082826_retire-the-solo-user` used: that one was removing column
+-- DEFAULTS, which SQLite cannot do in place. Dropping a column it can, and a
+-- rebuild would needlessly rewrite the whole table and every index on it.
+
+ALTER TABLE `issues` DROP COLUMN `assignee`;

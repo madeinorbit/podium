@@ -177,6 +177,12 @@ fifth kind is deliberate — it means the delegation rules in D5 apply to it unc
 
 ### Decision D2 — Owner, visibility and grants are first-class and normative
 
+> **AMENDED (Amendment 1 A1.1/A1.2, accepted 12 September 2026).** The `owner` row below stands
+> and is now the *only* accountable field on a task: `issues.assignee` was a second mutable
+> owner column beside it and has been retired. Ownership transfer is an explicit act by any
+> **active member**, and an **agent never** performs it. Read §2A before implementing against
+> the table below.
+
 **Decision.** Every **non-substrate** replicated aggregate carries three normative
 annotations:
 
@@ -235,6 +241,15 @@ one would fail **open**.
 
 ### Decision D3 — Five visibility classes
 
+> **AMENDED (Amendment 1 A1.3, accepted 12 September 2026).** The five classes below are
+> unchanged and remain the transport vocabulary. What is superseded is the **membership** of
+> `personal` in the table's third column: **tasks and their content** (issues, comments, tracker
+> mail, artifacts, activity) are readable by every active member and editable by them as ordinary
+> shared content. Sessions, drafts, conversations, handoff bundles and superagent threads stay
+> `personal`. The tracker rows still CARRY `personal` in ADR 1's matrix until C4 (PDM-144)
+> replaces the read predicate — see §2A A1.5 for why the declaration and the class are
+> deliberately out of step until then.
+
 **Decision.** Every entity class is declared as exactly one of these five (readiness §3.1.1):
 
 | Class | Default visibility | Membership (indicative — per-class declaration is deferred) |
@@ -285,6 +300,11 @@ makes one of those consequences unstatable.
 ---
 
 ### Decision D4 — Default-closed, with a totality test
+
+> **UNCHANGED by Amendment 1, and worth saying so.** A1.3 widens the *membership* of one class
+> for one entity family by explicit decision; it does not weaken the default. An unclassified
+> class is still `personal`, forgetting to classify still fails toward privacy, and widening is
+> still always explicit (rule 4 below).
 
 **Decision.** **An entity class with no declared visibility class is `personal` / private to
 its owner.** It is never tenant-visible, never substrate, and never readable by a principal
@@ -593,6 +613,123 @@ read-wide and write-narrow and can never impersonate.
 | Keep `telegramChatId` instance-wide and route by content | Content-based routing is payload identity, inert under ADR 3 D7. It would also mean any person's message could act as any other person. |
 | Fall back to the operator identity for unknown chats (today's behaviour, kept) | Turns knowledge of the bot handle into an unauthenticated write path against the whole instance. This is the one place where the single-user shortcut becomes a genuine vulnerability rather than a limitation. |
 | Scheduled automations as `system` | They have a creator and act with that creator's reach; attributing them to `system` would hide who caused a write and would survive that person's revocation. |
+
+---
+
+## 2A. Amendment 1 — Shared tasks, private sessions, one accountable human
+
+**Status.** Accepted 12 September 2026 by the human, as decisions D1–D14 of
+`docs/architecture/2026-09-11-multi-user-instance-spec.md` §13 and the multi-user epic
+execution charter. Implemented in schema by **A2 (PDM-128)**; the read predicate it implies is
+delivered by **C4 (PDM-144)** and not before — see *Exposure order* below.
+
+This amendment is normative and **supersedes the parts of D2, D3 and D4 named in each clause**.
+Where the original text and this amendment disagree, this amendment governs. The original text
+is kept rather than rewritten because the pack's other documents cite it by decision number.
+
+### A1.1 — One accountable human, and no second field to disagree with it
+
+**Decision.** Every task has exactly one accountable human. It is the `owner` of D2, it is
+displayed as **Assignee**, and **there is no second owner-shaped field anywhere** — not on the
+entity, not on the wire, not in storage.
+
+This ratifies what D2 already said and removes the thing that had been quietly contradicting it.
+`issues.assignee` existed beside `issues.owner_user_id`: both mutable, both answering "who is
+accountable", with nothing keeping them in step. Two live writers pushed them apart —
+`IssueService.claim` wrote the assignee half alongside the stage, and `IssueService.start` wrote
+the literal `agent:<kind>` into it, an agent **label** in a column typed as a person.
+
+Consequences, each of which is a structural property rather than a rule to remember:
+
+1. **Assignee is a projection of `owner`**, spelled once (`fields/ownership.ts#assigneeOf`). The
+   wire keeps the key `assignee` and gains no `owner` beside it; the normalized projection
+   spells it `owner` and carries no `assignee`. Neither carries both.
+2. **`owner` becomes mutable and `createdBy` does not.** Reassignment moves the first;
+   creator attribution is a fact about what happened and never moves. A2 makes exactly one of
+   the two mutable, which is what D2's "ownership is transferable by an explicit command"
+   requires and what "preserve attribution" forbids collapsing.
+3. **Agent labels are not people and never become owners.** Legacy values were inventoried and
+   adjudicated by migration, with an explicit per-row disposition recorded durably
+   (`ownership_migration_dispositions`); the column was then dropped, so the divergence is no
+   longer a state the database can hold.
+
+### A1.2 — Any active member may reassign; agents never reassign humans
+
+**Decision** (D2 of the decision table). Any active member may reassign a task to any active
+member, without the recipient accepting. **An agent never reassigns a human.**
+
+`claim` therefore records **lifecycle and work scope only**: the stage moves and the claiming
+session may take an empty coordinator seat. It has no assignee argument to write. Reassignment
+is a separate, explicit act; refusing that act to agent principals specifically is C1
+(PDM-141), and is a check on the caller rather than on the shape.
+
+### A1.3 — Tasks are shared; sessions are not
+
+**Decision** (D4, D5, D7, D13). Every **active member** may read every task, including
+historical tasks, and may edit **ordinary shared task content**. Private human-owned execution
+is unchanged: a session, run or automation retains its initiating human, and no administrator
+may view or drive another member's session.
+
+**This supersedes D3's membership row for `personal`**, which listed *"sessions, issues +
+comments + tracker mail, drafts, conversations, handoff bundles, artifacts, superagent
+threads"* as one set. Tasks and their content leave that set; sessions, drafts, conversations,
+handoff bundles and superagent threads stay in it. D3's five **classes** are unchanged, and so
+is D4 — an unclassified class is still `personal`, and widening is still always explicit.
+
+"Ordinary" is load-bearing and does not reach:
+
+- another person's **comment**, which keeps its own-author controls;
+- another person's **per-user state**, which no second person may ever write;
+- a **private run**, which retains its initiating human;
+- **accountability itself** — reassignment is its own act under A1.2, not a special case of
+  editing.
+
+**Participation records are not editor grants.** Collaborator and follower rows say who is
+involved. They confer nothing, because under this amendment every active member already holds
+read and ordinary edit, and there is no right left for them to confer. They carry no verb, no
+scope and no expiry; treating one as a grant would create a second authorization vocabulary
+that `GrantEdgeVisibilityPolicy` does not read and no audit covers.
+
+### A1.4 — Stale workers cannot undo assignment or close changed work
+
+**Decision** (D5). A task keeps two revision watermarks: **`assignmentRevision`**, which moves
+only when the accountable human moves, and **`inputRevision`**, which moves only when the
+statement of the work does (title, description, brief, design, acceptance).
+
+D2's expected-revision token answers *"did two writes race?"* and moves on every accepted write,
+which makes it useless here: an agent that read a task an hour ago will find it has moved for a
+relabel and a sort-key nudge, and a guard that fires on those is a guard somebody turns off.
+The watermarks carry values from the same sequence, so one number a worker read off the row is
+comparable with either. The typed references a worker holds are `fields/revision-ref.ts`'s;
+which acts refuse on a stale watermark is the C phase's, and is deliberately not decided here.
+
+### A1.5 — Exposure order: this is declared before it is delivered
+
+**Binding.** Through phases A and B the task read predicate in
+`apps/server/src/feed-visibility.ts` and the issue authorization evaluators keep today's
+**owner-or-grant** predicate, unchanged. A2 changes schema, stores and annotations only. C4
+(PDM-144) replaces that predicate with the active-member policy in one reviewed change, after
+B7 (PDM-139) accepts the isolation layer. **The predicate itself is the gate**; there is no
+runtime flag to leave behind.
+
+So A1.3's policy and D3's transport class **do not agree yet, on purpose**. The policy is
+recorded as data — `SHARED_TASK_POLICY` / `NOT_SHARED_TASK` in `annotations/matrix.ts`, with the
+same totality obligation as the rest of the matrix — while the tracker rows keep
+`visibility: 'personal'`. Two alternatives were rejected:
+
+| Alternative | Why rejected |
+|---|---|
+| Add a sixth D3 visibility class and put tasks in it | `GrantEdgeVisibilityPolicy.decide` is a sequence of `if`s, not an exhaustive switch, so a new member falls through to the owner-or-grant arm and behaves as `personal` **silently** — which is exactly what D4's totality obligation exists to prevent. Using a mechanism that defeats the totality rule to express a decision is a bad trade. |
+| Move the tracker rows out of `personal` now | That IS the widening, and it is C4's reviewed change. A schema task must not deliver a read-policy change ahead of the isolation layer that makes it safe. |
+| Leave the decision in the charter and the spec only | Then nothing in the code says what C4 must implement, and the first reader to notice that the feed does not match the product decision has no way to tell a plan from a bug. |
+
+### A1.6 — What this amendment deliberately does not add
+
+Member **offboarding** and resource redistribution, machine handover, automation sharing or
+transfer, provider credential revocation or installed-copy recall, public task access, a viewer
+role, and task following/mute (PDM-208). "Suspended" means the existing disabled member state
+(D14): a disabled account keeps its rows and its ownership, which is why every projection that
+names people — including the member directory — must be able to represent one.
 
 ---
 

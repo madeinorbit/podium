@@ -319,6 +319,12 @@ export const updateInput = z.object({
     archived: z.boolean().optional(),
     priority: z.number().int().min(0).max(4).optional(),
     type: IssueType.optional(),
+    /** REASSIGNMENT (A2). The key is unchanged and it is now the only way to move
+     *  accountability: it resolves to the single `ownerUserId`, where it used to
+     *  land in a second column that drifted from it. Any active member may
+     *  reassign to any active member without the recipient accepting (D2);
+     *  refusing the act to AGENTS is C1's, and is a check on the CALLER rather
+     *  than on this shape. */
     assignee: UserIdField.optional(),
     parentId: IssueIdField.optional(),
     design: z.string().optional(),
@@ -575,7 +581,26 @@ export const setPlacementInput = z.object({
  */
 export const EXPECTED_REVISION = z.object({ expectedRevision: Revision.optional() })
 
-export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField })
+/**
+ * CLAIM takes an id and nothing else (A2, ADR 9 Amendment 1 D2).
+ *
+ * It took `{ id, assignee }`, and the service wrote both — so the command an
+ * AGENT uses to say "I am working on this" carried, and applied, a reassignment
+ * of the accountable human. D2 forbids that outright, and the durable fix is that
+ * the input has nowhere to put one: with the field gone, every caller that used
+ * to supply it fails to compile.
+ *
+ * Claim still means what it meant to its callers — the stage moves to
+ * `in_progress` and the claiming session takes an empty coordinator seat. What it
+ * no longer does is move a person.
+ *
+ * Reassignment did not disappear; it separated. It is `update({ assignee })`,
+ * which resolves to the one accountable field, and it is an explicit act rather
+ * than a side effect of starting work. Refusing that act to AGENTS specifically
+ * is C1's (PDM-141) — A2's obligation is that no path between the two can
+ * reassign a human without being asked to.
+ */
+export const claimInput = z.object({ id: IssueIdField })
 
 export const setCoordinatorInput = z.object({
   id: IssueIdField,

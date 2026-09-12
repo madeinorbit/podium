@@ -358,12 +358,27 @@ const SESSION_AGGREGATE_KEYS = [
   'stoppedAt', 'title', 'visibility', 'workState', 'workflowRunId', 'workflowStepId',
 ]
 
+// A2 MOVED THREE OF THESE, and the pin is where that has to be said out loud.
+//
+// `assignee` LEFT. It was an independently mutable optional `UserId` beside the
+// `owner` two lines down — two answers to "who is accountable", which storage let
+// diverge and two writers did. The wire key survives as a projection of `owner`;
+// there is no key for it here because there is no field.
+//
+// `assignmentRevision` and `inputRevision` ARRIVED: the two narrow watermarks a
+// long-running worker is checked against, distinct from `revision` because that
+// one moves on every accepted write.
+//
+// Net 58 → 59. Pinning the LIST rather than the count is what makes that
+// sentence checkable — a count alone would have been satisfied by any three-key
+// swap.
 const ISSUE_AGGREGATE_KEYS = [
-  'acceptance', 'activityNotes', 'archived', 'asked', 'assignee', 'audience',
+  'acceptance', 'activityNotes', 'archived', 'asked', 'assignmentRevision', 'audience',
   'blockedByNotes', 'branch', 'brief', 'closedAt', 'closedReason', 'color',
   'coordinatorSessionId', 'createdAt', 'createdBy', 'defaultAgent', 'defaultEffort',
   'defaultModel', 'deferUntil', 'deletedAt', 'dependencyNote', 'description', 'design',
-  'dueAt', 'duplicateOf', 'estimateMin', 'id', 'intentOrigin', 'isDraftVessel', 'labels',
+  'dueAt', 'duplicateOf', 'estimateMin', 'id', 'inputRevision', 'intentOrigin',
+  'isDraftVessel', 'labels',
   'lastLifecycleActor', 'linearId', 'linearIdentifier', 'linearUrl', 'machineId',
   'needsHuman', 'notes', 'notesUpdatedAt', 'owner', 'panel', 'parentBranch', 'parentId',
   'prUrl', 'priority', 'repoId', 'revision', 'seq', 'sortKey', 'stage', 'startedBySession',
@@ -376,7 +391,7 @@ describe('the canonical key sets are pinned exactly', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 
-  it('IssueAggregate carries exactly these 58 keys and no others', () => {
+  it('IssueAggregate carries exactly these 59 keys and no others', () => {
     expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
   })
 

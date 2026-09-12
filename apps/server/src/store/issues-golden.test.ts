@@ -58,7 +58,6 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     archived: false,
     priority: 2,
     type: 'task',
-    assignee: null,
     parentId: null,
     design: null,
     acceptance: null,
@@ -257,6 +256,9 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
       readAt: 't',
       tuckedAt: null,
       pinnedAt: null,
+      // A2's two personal sidebar markers, read back with the rest of the row.
+      startedAt: null,
+      assignmentDismissedAt: null,
     })
     await store.close()
   })

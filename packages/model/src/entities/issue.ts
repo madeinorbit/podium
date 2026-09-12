@@ -81,6 +81,7 @@
  */
 
 import { ISSUE_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
+import { OwnerAsAssigneeField } from '../fields/ownership'
 import { IssueIdField, MachineIdField, RepoIdField, SessionIdField, UserIdField } from '../ids'
 import { z } from 'zod'
 import { SessionMeta } from './session'
@@ -191,10 +192,24 @@ const IssueWireCore = z.object({
   prUrl: IssueLinear.shape.prUrl,
   priority: IssueTriage.shape.priority,
   type: IssueTriage.shape.type,
-  // COMPOSED (POD-362), was a bare `z.string().optional()` between two composed
-  // neighbours. Byte-identical either way, so no golden fixture could see the
-  // fork — only `toBe` against this instance can.
-  assignee: IssueTriage.shape.assignee,
+  // THE CANONICAL OWNER, UNDER THE NAME THE PRODUCT USES (A2).
+  //
+  // It was `IssueTriage.shape.assignee` — an independently mutable optional slot
+  // with its own `issues.assignee` column, sitting beside the `owner` the
+  // aggregate already carried. Two columns, one question, and storage let them
+  // disagree: `claim` wrote the assignee half as an agent's side effect, and
+  // `start` wrote the literal `agent:<kind>` into it.
+  //
+  // The KEY is unchanged and no client moved, because the key was never the
+  // problem — the second column was. This is now the wire projection of
+  // `Ownership.owner` (`fields/ownership.ts#OwnerAsAssigneeField`), wrapping that
+  // exact schema instance, so owner and assignee cannot diverge here for the same
+  // reason they cannot diverge in storage: there is one of them.
+  //
+  // `owner` is deliberately NOT also a wire key. Shipping both would put the fork
+  // back on the wire the week after taking it out of the database, and a reader
+  // that found them disagreeing would have no way to know which one to believe.
+  assignee: OwnerAsAssigneeField,
   parentId: IssueGraphRefs.shape.parentId,
   design: IssueText.shape.design,
   acceptance: IssueText.shape.acceptance,

@@ -23,7 +23,13 @@ describe('issues schema migration (P1)', () => {
     for (const c of [
       'priority',
       'type',
-      'assignee',
+      // 'assignee' was here until A2 dropped it: a second mutable owner column
+      // beside `owner_user_id`. Its ABSENCE is asserted positively below rather
+      // than by silently shortening this list — the same treatment 'pinned' got
+      // when POD-1076 re-keyed it.
+      'owner_user_id',
+      'assignment_revision',
+      'input_revision',
       'parent_id',
       'design',
       'acceptance',
@@ -45,6 +51,15 @@ describe('issues schema migration (P1)', () => {
     ]) {
       expect(cols.has(c), `missing column ${c}`).toBe(true)
     }
+  })
+
+  it('has exactly ONE owner-shaped column (A2)', async () => {
+    // The property the whole retirement rests on, asserted against the database
+    // rather than against the schema module. `assignee` and `owner_user_id` were
+    // both mutable and both answered "who is accountable"; with one of them gone,
+    // "owner and assignee disagree" is not a state this table can hold.
+    const cols = [...issueColumns(await openTestStore(':memory:'))]
+    expect(cols.filter((c) => /assignee|^owner|assigned_to/.test(c))).toEqual(['owner_user_id'])
   })
 })
 
@@ -90,7 +105,6 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
     archived: false,
     priority: 2,
     type: 'task',
-    assignee: null,
     parentId: null,
     design: null,
     acceptance: null,
@@ -156,7 +170,11 @@ describe('IssueRow rich fields round-trip (P1)', () => {
       baseRow({
         priority: 0,
         type: 'bug',
-        assignee: asUserId('agent:claude'),
+        // `assignee: asUserId('agent:claude')` was here until A2 — an agent LABEL
+        // in the accountable-human column, which is the value class the retirement
+        // exists to make unwritable. Ownership now round-trips through
+        // `ownerUserId`, and it is a person.
+        ownerUserId: asUserId('mem_someone'),
         parentId: asIssueId('iss_epic'),
         design: 'D',
         acceptance: 'A',
@@ -173,7 +191,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(0)
     expect(r.type).toBe('bug')
-    expect(r.assignee).toBe('agent:claude')
+    expect(r.ownerUserId).toBe('mem_someone')
     expect(r.parentId).toBe('iss_epic')
     expect(r.color).toBe('violet')
     expect(r.estimateMin).toBe(30)
@@ -213,7 +231,7 @@ describe('per-user issue state (POD-1076)', () => {
     expect(cols.has('pinned')).toBe(false)
   })
 
-  it('persists all three markers on ONE (userId, issueId) row, per user', async () => {
+  it('persists every marker on ONE (userId, issueId) row, per user', async () => {
     const store = await openTestStore(':memory:')
     await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
@@ -229,6 +247,10 @@ describe('per-user issue state (POD-1076)', () => {
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: null,
       pinnedAt: '2026-07-08T00:00:00.000Z',
+      // A2's two: the permanent row an explicit start adds, and this reader's
+      // dismissal of the removable row an assignment adds (ADR 9 Am1 D3).
+      startedAt: null,
+      assignmentDismissedAt: null,
     })
     // An issue nobody touched has NO row — absence is the single spelling.
     expect(
@@ -252,10 +274,26 @@ describe('per-user issue state (POD-1076)', () => {
     ).toBeUndefined()
     expect((await store.issues.listIssueUserState(asUserId('user:other'))).size).toBe(0)
 
-    // Clearing every marker DELETES the row rather than leaving three nulls.
+    // A2's markers take the same partial-patch rule, and a start SURVIVES the
+    // other markers being cleared — which is what "permanent row" means.
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
+      startedAt: '2026-07-10T00:00:00.000Z',
+    })
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: null,
       pinnedAt: null,
+    })
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))
+        ?.startedAt,
+    ).toBe('2026-07-10T00:00:00.000Z')
+
+    // Clearing EVERY marker deletes the row rather than leaving nulls. The
+    // emptiness test counts the whole object, not a remembered list of three —
+    // otherwise this row would have been deleted one assertion ago, taking a live
+    // `startedAt` with it.
+    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
+      startedAt: null,
     })
     expect(
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')),

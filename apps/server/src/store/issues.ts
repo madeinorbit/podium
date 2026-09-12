@@ -16,6 +16,8 @@ import {
   isIssueClosed,
   isIssueColorSlot,
   type MachineId,
+  MATERIAL_INPUT_KEYS,
+  type MaterialInputKey,
   type RepoId,
   type SessionId,
   type UserId,
@@ -57,6 +59,19 @@ import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
 
 const log = createLogger('server:store')
+
+/**
+ * The stored spelling of one material-input column (A2).
+ *
+ * It exists so `inputRevision`'s comparison reads what the write is about to
+ * PERSIST, not what the caller happens to be holding: `upsertIssue` writes
+ * `row.brief ?? null`, so comparing a caller's `undefined` against a stored
+ * `null` would report a change on every write and move the watermark constantly —
+ * which is precisely the "moves on everything" behaviour that made the plain
+ * revision unusable for this job.
+ */
+const materialInputValue = (row: IssueRow, key: MaterialInputKey): string | null =>
+  key === 'title' ? row.title : key === 'description' ? row.description : (row[key] ?? null)
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility methods accept raw issue
  * ids and repo-path resolution still returns a string. Query/write casts decode
@@ -219,8 +234,27 @@ export class IssuesRepository {
     // reconcile never reaches this method, so no revision burns on a no-op and
     // the ripple republishes under an unchanged revision — leaving in-flight
     // expectedRevision preconditions valid, which is the whole point of D3.
+    //
+    // A2 READS MORE THAN THE REVISION HERE, and for the same structural reason.
+    // `assignmentRevision` and `inputRevision` are watermarks that must move only
+    // when the accountable human, or the statement of the work, actually changes —
+    // which is a comparison against the row BEING REPLACED, available only here.
+    // Computing them at call sites would mean every future writer remembering to,
+    // and the one that forgot would leave a watermark reading "unchanged" over a
+    // reassignment. That is the failure the watermark exists to catch, produced by
+    // the watermark's own plumbing.
     const current = await this.db
-      .select({ revision: issues.revision })
+      .select({
+        revision: issues.revision,
+        ownerUserId: issues.ownerUserId,
+        assignmentRevision: issues.assignmentRevision,
+        inputRevision: issues.inputRevision,
+        title: issues.title,
+        description: issues.description,
+        brief: issues.brief,
+        design: issues.design,
+        acceptance: issues.acceptance,
+      })
       .from(issues)
       .where(eq(issues.id, row.id))
       .get()
@@ -231,12 +265,30 @@ export class IssuesRepository {
       }
     }
     row.revision = (current?.revision ?? 0) + 1
+    // A FIRST write sets both watermarks to the row's first revision: everything
+    // about a new task changed at create, including who is accountable for it.
+    // Thereafter each moves only on its own kind of change, and otherwise keeps
+    // the value already stored — NOT the caller's, which may be a stale copy or a
+    // hand-built literal, the same argument the revision read above makes.
+    const assignmentChanged = current === undefined || current.ownerUserId !== row.ownerUserId
+    const inputChanged =
+      current === undefined ||
+      MATERIAL_INPUT_KEYS.some((key) => materialInputValue(row, key) !== current[key])
+    row.assignmentRevision = assignmentChanged
+      ? row.revision
+      : (current.assignmentRevision ?? row.revision)
+    row.inputRevision = inputChanged ? row.revision : (current.inputRevision ?? row.revision)
     // The column set is the schema's, and the two halves are deliberately
     // different: `values` carries every column, `set` carries only the columns a
-    // SECOND write may change. The eight the update omits — id, owner_user_id,
-    // visibility, created_by_actor, created_by_on_behalf_of, repo_path, seq and
-    // created_at — are the row's identity and its provenance, and the upsert has
-    // never rewritten them.
+    // SECOND write may change. The seven the update omits — id, visibility,
+    // created_by_actor, created_by_on_behalf_of, repo_path, seq and created_at —
+    // are the row's identity and its provenance, and the upsert has never
+    // rewritten them.
+    //
+    // It was EIGHT until A2, and `owner_user_id` is the one that left. See the
+    // `set` half for why: an accountable owner that cannot move is only coherent
+    // while a second, mutable assignee column exists to absorb the movement, and
+    // that column is what A2 deleted.
     const values = {
       id: row.id,
       ownerUserId: row.ownerUserId,
@@ -269,7 +321,8 @@ export class IssuesRepository {
       prUrl: row.prUrl,
       priority: row.priority,
       type: row.type,
-      assignee: row.assignee,
+      assignmentRevision: row.assignmentRevision,
+      inputRevision: row.inputRevision,
       parentId: row.parentId,
       design: row.design,
       acceptance: row.acceptance,
@@ -334,7 +387,22 @@ export class IssuesRepository {
           prUrl: values.prUrl,
           priority: values.priority,
           type: values.type,
-          assignee: values.assignee,
+          // OWNERSHIP IS NOW UPDATABLE, AND IT IS THE ONLY OWNER FIELD (A2).
+          //
+          // `owner_user_id` used to sit with identity and provenance in the
+          // columns this update omits — an ownership that could not move. That was
+          // coherent while `assignee` existed to absorb the movement, and it is
+          // the shape ADR 9 Amendment 1 D2 retires: any active member may reassign
+          // a task to any active member, so the accountable field has to be the
+          // one that moves.
+          //
+          // `created_by_actor` and `created_by_on_behalf_of` stay OMITTED and
+          // therefore immutable, which is the half that must not move: creator
+          // attribution is a fact about what happened, and reassignment is a fact
+          // about what is true now. A2 makes exactly one of the two mutable.
+          ownerUserId: values.ownerUserId,
+          assignmentRevision: values.assignmentRevision,
+          inputRevision: values.inputRevision,
           parentId: values.parentId,
           design: values.design,
           acceptance: values.acceptance,
@@ -1320,13 +1388,21 @@ export class IssuesRepository {
         readAt: issueUserState.readAt,
         tuckedAt: issueUserState.tuckedAt,
         pinnedAt: issueUserState.pinnedAt,
+        startedAt: issueUserState.startedAt,
+        assignmentDismissedAt: issueUserState.assignmentDismissedAt,
       })
       .from(issueUserState)
       .where(eq(issueUserState.userId, userId))
       .all()
     const out = new Map<string, StoredIssueUserState>()
     for (const r of rows) {
-      out.set(r.issueId, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
+      out.set(r.issueId, {
+        readAt: r.readAt,
+        tuckedAt: r.tuckedAt,
+        pinnedAt: r.pinnedAt,
+        startedAt: r.startedAt,
+        assignmentDismissedAt: r.assignmentDismissedAt,
+      })
     }
     return out
   }
@@ -1341,11 +1417,21 @@ export class IssuesRepository {
         readAt: issueUserState.readAt,
         tuckedAt: issueUserState.tuckedAt,
         pinnedAt: issueUserState.pinnedAt,
+        startedAt: issueUserState.startedAt,
+        assignmentDismissedAt: issueUserState.assignmentDismissedAt,
       })
       .from(issueUserState)
       .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
       .get()
-    return r ? { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt } : undefined
+    return r
+      ? {
+          readAt: r.readAt,
+          tuckedAt: r.tuckedAt,
+          pinnedAt: r.pinnedAt,
+          startedAt: r.startedAt,
+          assignmentDismissedAt: r.assignmentDismissedAt,
+        }
+      : undefined
   }
 
   /**
@@ -1367,13 +1453,23 @@ export class IssuesRepository {
       readAt: null,
       tuckedAt: null,
       pinnedAt: null,
+      startedAt: null,
+      assignmentDismissedAt: null,
     }
     const next: StoredIssueUserState = {
       readAt: patch.readAt !== undefined ? patch.readAt : current.readAt,
       tuckedAt: patch.tuckedAt !== undefined ? patch.tuckedAt : current.tuckedAt,
       pinnedAt: patch.pinnedAt !== undefined ? patch.pinnedAt : current.pinnedAt,
+      startedAt: patch.startedAt !== undefined ? patch.startedAt : current.startedAt,
+      assignmentDismissedAt:
+        patch.assignmentDismissedAt !== undefined
+          ? patch.assignmentDismissedAt
+          : current.assignmentDismissedAt,
     }
-    if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
+    // EVERY marker, read off the object rather than from a remembered list: A2
+    // added two, and a deletion test that still counted three would delete a row
+    // holding a live `startedAt` the moment its reader un-pinned the issue.
+    if (Object.values(next).every((marker) => marker === null)) {
       await this.db
         .delete(issueUserState)
         .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
@@ -1382,16 +1478,10 @@ export class IssuesRepository {
     }
     await this.db
       .insert(issueUserState)
-      .values({
-        userId,
-        issueId,
-        readAt: next.readAt,
-        tuckedAt: next.tuckedAt,
-        pinnedAt: next.pinnedAt,
-      })
+      .values({ userId, issueId, ...next })
       .onConflictDoUpdate({
         target: [issueUserState.userId, issueUserState.issueId],
-        set: { readAt: next.readAt, tuckedAt: next.tuckedAt, pinnedAt: next.pinnedAt },
+        set: next,
       })
       .run()
   }
@@ -1470,7 +1560,7 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
       prUrl: r.prUrl,
       priority: r.priority,
       type: r.type,
-      assignee: r.assignee ?? null,
+
       parentId: r.parentId,
       design: r.design,
       acceptance: r.acceptance,
@@ -1513,6 +1603,8 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
       // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
       // pre-existing row, so a null here would mean a hand-mangled database.
       revision: r.revision ?? 1,
+      ...(r.assignmentRevision != null ? { assignmentRevision: r.assignmentRevision } : {}),
+      ...(r.inputRevision != null ? { inputRevision: r.inputRevision } : {}),
       coordinatorSessionId: r.coordinatorSessionId,
       startedBySession: r.startedBySession ?? null,
     }

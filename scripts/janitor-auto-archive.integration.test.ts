@@ -70,7 +70,6 @@ function issueRow(id: string, over: Partial<IssueRow> = {}): IssueRow {
     archived: false,
     priority: 2,
     type: 'task',
-    assignee: null,
     parentId: null,
     design: null,
     acceptance: null,

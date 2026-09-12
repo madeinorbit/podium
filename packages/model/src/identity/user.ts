@@ -242,6 +242,84 @@ export const UserWire = UserAccount.pick({
 })
 export type UserWire = z.infer<typeof UserWire>
 
+/**
+ * THE MEMBER DIRECTORY — who is on this instance, for the surfaces that have to
+ * NAME people (A2).
+ *
+ * Assignment pickers, participation chips, the "assigned to" filter, mention
+ * autocomplete: every one of them needs the list of members, and until now the
+ * only shape available was {@link UserWire}, which carries `role`. Handing a
+ * picker the role means every surface that renders a name also learns who the
+ * admins are — a disclosure nobody asked for, made by accident, because the only
+ * projection that existed happened to include it.
+ *
+ * `identity/user.ts` has said since POD-1075 that {@link UserRoleGroup} is its own
+ * field group *"so a projection can carry identity WITHOUT the role, which is what
+ * a member directory needs"*. This is that projection. It is a `pick`, for the
+ * reason {@link UserWire} is one: a new field on R1 is absent here until someone
+ * adds it, and adding it is the visible edit.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY `disabledAt` IS IN AND `role` IS OUT
+ * ---------------------------------------------------------------------------
+ *
+ * Both look like "extra", and they answer different questions.
+ *
+ * `disabledAt` is load-bearing for the decisions this projection feeds. ADR 9
+ * Amendment 1 D2 gives the right to read, edit and reassign to ACTIVE members, and
+ * D14 settles that "suspended" means exactly this existing disabled state. A
+ * directory that cannot tell active from suspended would make a picker offer a
+ * suspended member as a reassignment target — and it is nullable, never optional,
+ * so a reader cannot mistake "nobody threaded the value" for "active" and fail
+ * open. {@link isActiveMember} is the one place the comparison is spelled.
+ *
+ * `role` is not. Nothing a directory does needs it: reassignment is member-to-member
+ * (D2), there is no viewer role (D6), and admin-grade powers are secrets, substrate
+ * and fleet management (`isAdminGrade`) — none of which a name picker performs.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IT DOES NOT RESOLVE
+ * ---------------------------------------------------------------------------
+ *
+ * Whether the bare EXISTENCE of an account is disclosable to every member is ADR 9
+ * §3 **O1**, still open, recorded on the `user-account` matrix row. This shape does
+ * not answer it — it makes the disclosure a NAMED projection with one definition,
+ * so that when O1 is answered there is a single place that implements the answer
+ * rather than six call sites that each picked their own key set.
+ *
+ * It is also not a membership LIST. Who is in the directory — every account, or
+ * every account a given reader may see — is a query the server owns; this is the
+ * shape of one entry.
+ *
+ * PRESERVES INACTIVE REFERENCES BY CONSTRUCTION. A2 does not add offboarding
+ * (charter, D12): a disabled member keeps their rows and their ownership, so the
+ * directory must be able to REPRESENT them in order for a task they still own to
+ * render a name instead of a bare id. A projection that dropped disabled members
+ * would turn "no offboarding" into "offboarding, badly".
+ */
+export const MemberDirectoryEntry = UserAccount.pick({
+  userId: true,
+  displayName: true,
+  disabledAt: true,
+})
+export type MemberDirectoryEntry = z.infer<typeof MemberDirectoryEntry>
+
+/**
+ * Is this member ACTIVE — i.e. may they be assigned work, reassign a task, or
+ * edit shared task content (ADR 9 Amendment 1 D2/D14)?
+ *
+ * One function rather than `entry.disabledAt == null` at each call site, because
+ * the comparison has a sense that is easy to invert and a null-handling that is
+ * easy to get subtly wrong, and both failures fail OPEN — an inverted test offers
+ * every suspended member as an assignment target and no test anywhere would say so.
+ *
+ * Takes the field rather than the whole entry so the full {@link UserAccount}, the
+ * directory entry and {@link UserWire} can all be asked the same question without
+ * three overloads.
+ */
+export const isActiveMember = (member: Pick<UserLifecycle, 'disabledAt'>): boolean =>
+  member.disabledAt === null
+
 // ---------------------------------------------------------------------------
 // R3, and server-only — credential material
 // ---------------------------------------------------------------------------

@@ -16,9 +16,11 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { IssueIdField } from '../ids'
+import { Ownership, OwnerAsAssigneeField } from '../fields/ownership'
 import { IssueWire } from './issue'
 import { IssueGitState } from './issue-vocabulary'
 import {
+  IssueAccountability,
   IssueAgentDefaults,
   IssueConcurrency,
   IssueCoordination,
@@ -40,6 +42,7 @@ const wire = IssueWire.shape as Record<string, unknown>
 
 /** Every issue field group, so the uncomposed-key scan cannot miss one. */
 const ALL_GROUPS = [
+  IssueAccountability,
   IssueConcurrency,
   IssueAgentDefaults,
   IssueCoordination,
@@ -90,8 +93,6 @@ const COMPOSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['deletedAt', IssueLifecycle.shape],
   ['priority', IssueTriage.shape],
   ['type', IssueTriage.shape],
-  // POD-362 composed this; NOT_COMPOSED's note said "until the flip".
-  ['assignee', IssueTriage.shape],
   ['labels', IssueTriage.shape],
   ['estimateMin', IssueTriage.shape],
   ['sortKey', IssueTriage.shape],
@@ -114,6 +115,34 @@ const COMPOSED: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
   ['needsHuman', NeedsHuman.shape],
   ['panel', IssuePanelGroup.shape],
   ['coordinatorSessionId', IssueCoordination.shape],
+] as const
+
+/**
+ * PROJECTED — a wire key that is a DIFFERENTLY-NAMED VIEW of a group member,
+ * added by A2 for the one key that has one.
+ *
+ * The category exists because neither of the other two tells the truth about
+ * `assignee`. It is not COMPOSED: the wire holds `Ownership.shape.owner.optional()`,
+ * not the owner schema itself, so a `toBe` against the group member fails. It is
+ * emphatically not NOT_COMPOSED either: that list means "this key is genuinely its
+ * own thing", and filing a projection there would record the opposite of what is
+ * true and retire the assertion that keeps it honest.
+ *
+ * Each entry is checked TWICE, and the pair is the point:
+ *   - the wire key IS the one exported wrapper instance — so a second wire shape
+ *     cannot build its own `.optional()` and fork the fact invisibly;
+ *   - `.unwrap()` IS the inner group member — so the wrapper cannot be re-pointed
+ *     at a fresh `UserIdField`, which would be byte-identical and type-identical
+ *     and would restore exactly the second definition A2 deleted.
+ *
+ * One check without the other passes under the substitution it exists to catch.
+ */
+const PROJECTED: ReadonlyArray<
+  readonly [key: string, wrapper: z.ZodOptional<z.ZodTypeAny>, inner: unknown]
+> = [
+  // A2: the canonical `owner`, under the name the product renders. The second
+  // assignee column is gone; this key is the only place the value appears.
+  ['assignee', OwnerAsAssigneeField, Ownership.shape.owner],
 ] as const
 
 /**
@@ -196,7 +225,9 @@ describe('IssueWire composes the shared field groups', () => {
     // cannot notice its own coverage shrinking. Pin the membership, not a count.
     const composed = COMPOSED.map(([k]) => k)
     expect(new Set(composed).size, 'a key listed twice as composed').toBe(composed.length)
-    expect([...composed, ...Object.keys(NOT_COMPOSED)].sort()).toEqual(Object.keys(wire).sort())
+    expect([...composed, ...PROJECTED.map(([k]) => k), ...Object.keys(NOT_COMPOSED)].sort()).toEqual(
+      Object.keys(wire).sort(),
+    )
     // 44 since POD-362 composed `assignee`, which this list previously excluded
     // with the note "wire is still z.string() until the flip". This was the flip.
     // 45 since the POD-1246 catch-up composed `revision` — link 3 of ADR 2 D3's
@@ -206,7 +237,11 @@ describe('IssueWire composes the shared field groups', () => {
     // here. The total wire-key count is UNCHANGED — this is a key moving between
     // the lists, which is exactly the drift the set assertion above exists to
     // catch, so the count moving with it is the point rather than a side effect.
-    expect(composed).toHaveLength(46)
+    // 45 since A2 retired `IssueTriage.assignee`: the wire key survives but is now
+    // a PROJECTION of `Ownership.owner`, so it moved to PROJECTED below. Again a
+    // key moving between lists with the wire-key total unchanged — and the
+    // set assertion above is what proves it landed somewhere rather than vanishing.
+    expect(composed).toHaveLength(45)
   })
 
   it.each(COMPOSED)('%s IS the shared group member, not a restatement', (key, groupShape) => {
@@ -214,6 +249,29 @@ describe('IssueWire composes the shared field groups', () => {
     // one and encodes identically. Only reference identity sees the drift.
     expect(groupShape[key], `IssueWire.${key} is not the shared definition`).toBeDefined()
     expect(wire[key]).toBe(groupShape[key])
+  })
+
+  it.each(PROJECTED)(
+    '%s IS the one projection instance, wrapping the one inner definition',
+    (key, wrapper, inner) => {
+      expect(wire[key], `IssueWire.${key} is not the shared projection`).toBe(wrapper)
+      expect(wrapper.unwrap(), `IssueWire.${key} does not wrap the group member`).toBe(inner)
+    },
+  )
+
+  it('assignee is the OWNER and there is no second owner key on the wire', () => {
+    // The A2 property, asserted from both directions, because each alone passes
+    // under a change that breaks the other.
+    //
+    // 1. No `owner` key. Shipping owner AND assignee would put the fork back on
+    //    the wire the week after it came out of the database, and a reader finding
+    //    the two disagreeing would have no way to know which to believe.
+    expect(Object.keys(wire)).not.toContain('owner')
+    // 2. And the surviving key is not some OTHER user id that merely looks right.
+    //    `UserIdField` is length-only, so every id-shaped string parses under any
+    //    spelling of it — reference identity is the only instrument that can tell
+    //    "the owner" from "a user id".
+    expect(OwnerAsAssigneeField.unwrap()).toBe(Ownership.shape.owner)
   })
 
   it('blockedByNotes is NOT branded — the id brand cannot be what guards it', () => {

@@ -64,8 +64,57 @@ export const IssueUserState = perUserKey(IssueIdField).extend({
   /** When this person pinned it. `null` = not pinned. See the header on why this
    *  is a timestamp and the wire keeps a boolean. */
   pinnedAt: z.string().nullable(),
+  /** WHEN THIS PERSON EXPLICITLY STARTED OR ELEVATED THIS TASK — the PERMANENT
+   *  personal row (A2, ADR 9 Amendment 1 D3). `null` = they never did.
+   *
+   *  D3 makes three cases and they are deliberately three different shapes here,
+   *  because collapsing any two of them is a product bug:
+   *    - an explicit START is a durable statement that this is YOUR work; it adds
+   *      a row that stays until you remove it. This field.
+   *    - an ASSIGNMENT adds a REMOVABLE, badged row and a notification — which is
+   *      why it is derived from the shared `owner` plus `assignmentDismissedAt`
+   *      below, and not stored as a second start;
+   *    - DISCOVERY — merely reading a task, which under D4 every member may now do
+   *      to every task — adds NOTHING. There is no field for it, and that absence
+   *      is the design: once every member can read every task, a sidebar that
+   *      grew a row on read would be every task, for everyone, immediately. */
+  startedAt: z.string().nullable(),
+  /** WHEN THIS PERSON CLEARED THE ASSIGNMENT ROW for this task. `null` = not
+   *  cleared, so the row shows while they are the accountable owner.
+   *
+   *  Per-user because the dismissal is, and NOT a second copy of the assignment:
+   *  the assignment itself is the shared `owner` field, and this records only
+   *  what one reader did about it. Stamped rather than boolean so a LATER
+   *  reassignment to the same person shows the row again — the comparison is
+   *  `assignmentDismissedAt` against the task's `assignmentRevision` stamp, which
+   *  a flag could not express without a second migration. */
+  assignmentDismissedAt: z.string().nullable(),
 })
 export type IssueUserState = z.infer<typeof IssueUserState>
+
+/**
+ * WHICH SIDEBAR ROW, IF ANY, THIS PERSON HAS FOR THIS TASK (ADR 9 Amendment 1 D3).
+ *
+ * One derivation, in the model, because the rule has three inputs from two
+ * different grains — the shared owner, this reader's start, this reader's
+ * dismissal — and a surface that recombines them itself will get the discovery
+ * case wrong. The clients are D-phase; the rule is A2's.
+ *
+ * `'started'` outranks `'assigned'`: an explicit start is permanent and a
+ * dismissed assignment is not a reason to drop work you said was yours.
+ */
+export type PersonalSidebarRow = 'started' | 'assigned' | 'none'
+
+export const personalSidebarRowOf = (input: {
+  /** Is this reader the task's accountable owner (Assignee) right now? */
+  readonly isAssignee: boolean
+  readonly startedAt: string | null
+  readonly assignmentDismissedAt: string | null
+}): PersonalSidebarRow => {
+  if (input.startedAt !== null) return 'started'
+  if (input.isAssignee && input.assignmentDismissedAt === null) return 'assigned'
+  return 'none'
+}
 
 /**
  * TRACKER-MAIL READ STATE — `(userId, issueMessageId)` → when this person read

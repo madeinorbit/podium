@@ -87,6 +87,25 @@ export const SessionAggregate = SessionIdentity.extend(SessionPlacement.shape)
   .extend(SessionWorkState.shape)
   .extend(SessionWorkflowLink.shape)
   .extend(SessionTombstone.shape)
+  // `owner` — THE INITIATING HUMAN, AND IT DOES NOT MOVE WHEN A TASK IS
+  // REASSIGNED (A2; ADR 9 Amendment 1 D2, D7, D13).
+  //
+  // Worth stating HERE, on the composition, because the property is easy to
+  // assume and impossible to recover once lost. A session's owner is its own
+  // field, resolved at create from `createdBy.onBehalfOf`. It is NOT derived from
+  // the owner of `refIssueId`, and nothing in the reassignment path reaches it.
+  // So when any active member reassigns a task — which D2 lets them do, without
+  // the recipient accepting — every run already under way keeps the human who
+  // started it, along with that person's approvals, credentials and usage.
+  //
+  // The alternative, deriving a run's owner from its task's, is the version where
+  // reassigning a task hands somebody else's live agent, its approval prompts and
+  // its provider spend to the new assignee — which D7 refuses outright
+  // ("administrators cannot view or drive another member's session") and D13
+  // narrows to owner, title and live/idle state. That it is structurally
+  // impossible rather than merely unimplemented is the point of the separate
+  // field, and `registry.test.ts` is where the two aggregates are checked to keep
+  // their own.
   .extend(Ownership.shape)
   .extend({
     /** Harness-observed agent phase. A shared session fact, distinct from

@@ -17,7 +17,7 @@
  *     thing under test cannot notice its own coverage shrinking.
  */
 
-import { IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId, asMachineId} from '@podium/model'
+import { IssueAccountability, IssueAgentDefaults, IssueCoordination, IssueGraphRefs, IssueIdentity, IssueIntent, IssueLifecycle, IssueLinear, IssuePanelGroup, IssueText, IssueTriage, IssueWorkspace, NeedsHuman, asIssueId, asRepoId, asSessionId, asUserId, asMachineId} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   fromStorage,
@@ -67,7 +67,6 @@ const fullRow = (): IssueRow => ({
   deletedAt: '2026-01-09T00:00:00Z',
   priority: 1,
   type: 'bug',
-  assignee: asUserId('mgw'),
   parentId: asIssueId('iss_parent'),
   design: 'design doc',
   acceptance: 'acceptance text',
@@ -128,7 +127,6 @@ const emptyRow = (): IssueRow => ({
   deletedAt: null,
   priority: 2,
   type: 'task',
-  assignee: null,
   parentId: null,
   design: null,
   acceptance: null,
@@ -187,7 +185,6 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['deletedAt', IssueLifecycle.shape.deletedAt],
     ['priority', IssueTriage.shape.priority],
     ['type', IssueTriage.shape.type],
-    ['assignee', IssueTriage.shape.assignee],
     ['estimateMin', IssueTriage.shape.estimateMin],
     ['color', IssueTriage.shape.color],
     ['sortKey', IssueTriage.shape.sortKey],
@@ -214,6 +211,12 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['linearIdentifier', IssueLinear.shape.linearIdentifier],
     ['linearUrl', IssueLinear.shape.linearUrl],
     ['prUrl', IssueLinear.shape.prUrl],
+    // A2's two watermarks. They ARE group instances — `IssueAccountability` —
+    // which is why they belong here and not in the uncomposed list below beside
+    // `revision`: that one is the authority's own counter and composes no group
+    // on the stored row, while these two are the vocabulary's.
+    ['assignmentRevision', IssueAccountability.shape.assignmentRevision],
+    ['inputRevision', IssueAccountability.shape.inputRevision],
   ]
 
   it.each(cases)('%s is the field group instance, not an equivalent copy', (key, expected) => {

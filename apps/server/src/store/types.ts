@@ -446,7 +446,22 @@ export interface IssueRow {
   deletedAt?: string | null
   priority: number
   type: string
-  assignee: UserId | null
+  // `assignee` IS GONE (A2). It was `UserId | null` here, backed by its own
+  // `issues.assignee` column, beside `ownerUserId` above — two mutable answers to
+  // "who is accountable", which storage let diverge and two writers did diverge.
+  // The accountable human is `ownerUserId`; the wire key `assignee` is a
+  // projection of it (`@podium/model#assigneeOf`) and has no row member of its
+  // own. A reader that wants the assignee reads the owner.
+  /** A2 — the two NARROW watermarks a long-running worker is checked against.
+   *  `revision` above moves on EVERY accepted write, which makes it useless for
+   *  this: these move only when the accountable human moves
+   *  (`assignmentRevision`) or when the statement of the work does
+   *  (`inputRevision` — title, description, brief, design, acceptance). Both
+   *  carry values from the same sequence as `revision`, so one number a worker
+   *  read off the row compares against either. Optional for the same reason
+   *  `revision` is: a row literal that has never been written has none. */
+  assignmentRevision?: number
+  inputRevision?: number
   parentId: IssueId | null
   design: string | null
   acceptance: string | null
@@ -529,13 +544,24 @@ export interface IssueCommentRow {
  * `issues.pinned` was a 0/1 flag — the wire keeps its boolean, derived once by
  * the model's `issueOverlayOf`.
  *
- * All three null is not a representable STORED state: such a row is deleted, so
- * "absent" is the only spelling of "this person has done nothing here".
+ * ALL MARKERS NULL is not a representable STORED state: such a row is deleted, so
+ * "absent" is the only spelling of "this person has done nothing here". A2 added
+ * two markers and the rule is unchanged — the emptiness test in
+ * {@link IssuesRepository.setIssueUserState} counts every field, which is why it
+ * is written over this shape rather than over a remembered list of three.
  */
 export interface StoredIssueUserState {
   readAt: string | null
   tuckedAt: string | null
   pinnedAt: string | null
+  /** A2 / ADR 9 Amendment 1 D3 — this person explicitly started or elevated the
+   *  task. The PERMANENT personal sidebar row. Not "when work began": two people
+   *  may start the same task, which is exactly why it is per-user. */
+  startedAt: string | null
+  /** A2 / D3 — this person cleared the REMOVABLE badged row a reassignment put
+   *  in their sidebar. Stamped rather than boolean so a later reassignment to the
+   *  same person shows the row again. */
+  assignmentDismissedAt: string | null
 }
 
 /** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:
