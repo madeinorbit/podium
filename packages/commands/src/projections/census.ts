@@ -12,24 +12,50 @@
  * `exposure` and `run`, and `DerivedQuery` has no policy field at all.
  *
  * This is the read side's table. `projection-census.test.ts` in `apps/server`
- * derives the served population from the query tables themselves and asserts
- * every one of them appears here EXACTLY ONCE, in exactly one of the two lists
- * below — the same both-directions totality A2's `matrix.test.ts` applies to
- * `SHARED_TASK_POLICY` / `NOT_SHARED_TASK`, and for the same reason: a list that
- * is merely long proves nothing about what is missing from it.
+ * derives the served population from `appRouter._def.procedures` — the dispatch
+ * table tRPC actually routes on — and asserts every read appears here EXACTLY
+ * ONCE, in exactly one of the two lists below, unless a command definition
+ * classifies it elsewhere. That is the same both-directions totality A2's
+ * `matrix.test.ts` applies to `SHARED_TASK_POLICY` / `NOT_SHARED_TASK`, and for
+ * the same reason: a list that is merely long proves nothing about what is
+ * missing from it.
+ *
+ * ---------------------------------------------------------------------------
+ * HOW THE POPULATION WAS COUNTED, AND WHY IT IS NOT 69 (A5.4/PDM-248)
+ * ---------------------------------------------------------------------------
+ *
+ * A3 reported this population as 69 with `machines.list` as the only
+ * hand-written exception, and that was the size of the query TABLES somebody had
+ * listed rather than of the served surface. The router mounts 108 tRPC reads.
+ * A5.4 rebound discovery to the router and the arithmetic came out:
+ *
+ *   108 served reads
+ *  - 32 classified by a command definition elsewhere — the issue and lock
+ *       registries, the mail contracts and `SETTINGS_CONTRACTS`, all kept total
+ *       by `classification-totality.test.ts` on the command side. A second
+ *       policy here would be a second answer to "how is this authorized".
+ *  = 76 this census owns.
+ *
+ * SEVEN of those 76 were outside every instrument until A5.4: `settings.viewer`
+ * (the reported finding), `layout.get`, `readPosition.get`, `operations.active`,
+ * `operations.history`, `updates.fleet` and `updates.proposal`. None had been
+ * waived; their families had simply never been added to the array the old test
+ * discovered from, so a read absent from both lists was absent from the
+ * comparison too. The raw HTTP, WebSocket and file-route families are outside
+ * this census by decision rather than by oversight, and
+ * `docs/gates/pdm-248-served-read-census.md` records each with an owner.
  *
  * ---------------------------------------------------------------------------
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. The population is 69: the 68 entries of the
- * query tables, plus `machines.list`, the one read still hand-written in
- * `router.ts`. For 50 of them there is a rule in the shipped code and
- * {@link PROJECTION_POLICIES} writes it down. For the other 19 there is NO
- * server-side reader scoping — the handler returns what the service returns — and
- * inventing a plausible policy for those would put a FALSE entry in the audit
- * surface, which `modules/approvals/queries.ts` correctly identifies as worse
- * than a missing one: a false entry stops anyone looking again.
+ * A census reports what it found. For 54 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 22
+ * there is NO server-side reader scoping — the handler returns what the service
+ * returns — and inventing a plausible policy for those would put a FALSE entry
+ * in the audit surface, which `modules/approvals/queries.ts` correctly
+ * identifies as worse than a missing one: a false entry stops anyone looking
+ * again.
  *
  * So they go in {@link UNGOVERNED_PROJECTIONS}, each naming the phase that owns
  * closing it. That list is REQUIRED TO BE NON-EMPTY by the census test until it
@@ -58,7 +84,11 @@ import type { ProjectionPolicy } from '../projection'
 
 /** Every read in this census is served on `trpc`; the relay/CLI/MCP arms reach
  *  reads through the issue command registry, which is on the COMMAND side of the
- *  contract and already classified. Named once rather than repeated 49 times. */
+ *  contract and already classified. Named once rather than repeated 53 times.
+ *
+ *  Those registry reads are ALSO served on trpc — `issues.get` and the other 31
+ *  are live tRPC queries — which is why the census test excludes them by looking
+ *  them up in the real registries rather than by trusting this sentence. */
 const TRPC: readonly TransportTag[] = ['trpc']
 
 /** Nothing in the census is served nowhere today. Imported so that a projection
@@ -172,6 +202,28 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     forbiddenFields: [],
     rationale: 'Per-user state, keyed from the principal exactly as `pins.list` is.',
   }),
+  p({
+    name: 'layout.get',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      "`getSnapshot(actor)` where `actor` is `layoutActor(await layoutAuthzDeps(ctx))` — resolved from the principal and nothing else. The procedure takes NO INPUT, so a frame naming another person's layout is unrepresentable rather than refused (ADR 3 D7), and a principal with no user is refused FORBIDDEN before the read rather than silently scoped to nobody. `resource: 'none'` for `layout.set`'s stated reason: the row IS the principal.",
+  }),
+  p({
+    name: 'readPosition.get',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      "The caller's own feed cursors, by the identical shape `layout.get` uses: no input, `readPositionActor` resolved from the principal, FORBIDDEN when the principal has no user. How far someone has read is a fact about that person, which is why it is scoped rather than shared.",
+  }),
 
   // ---- the caller-scoped misc family ---------------------------------------
   p({
@@ -216,6 +268,17 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     forbiddenFields: ['apiKey', 'token', 'secret'],
     rationale:
       "`getSettingsFor(asUserId(caller.userId))` — per-person settings since POD-1554. Credential VALUES are forbidden here; `accounts.list` serves masked identities instead.",
+  }),
+  p({
+    name: 'settings.viewer',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'settings-domain',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      "Answers WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT, so an admin-grade control renders disabled-with-a-reason instead of editable-then-refused (POD-421). Caller-only because every input is the caller's own: `settingsAuthzDeps` resolves the principal from `ctx.capability` and reads `roleOf` for that principal's OWN user, and the procedure takes no input, so there is no way to ask about anybody else. It returns one boolean per name in `SETTINGS_CONTRACTS` and no settings VALUE, which is why nothing is forbidden here while `settings.get` forbids three fields. It is not a capability snapshot and must not become one — it is recomputed per request and the server re-runs the identical gate at apply time (ADR 3 D8), so a stale client copy widens nothing.",
   }),
   p({
     name: 'automations.list',
@@ -363,6 +426,17 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     forbiddenFields: ['transcript', 'cwd', 'repoPath'],
     rationale:
       'Shows exactly what would be sent [spec:SP-f933]. The indirect resources are real — the preview is assembled from session and issue counts — and the forbidden fields are the point of a preview: a person must be able to see the payload without the payload being the thing they feared.',
+  }),
+  p({
+    name: 'updates.proposal',
+    exposure: TRPC,
+    roleFloor: 'admin',
+    rowScope: 'instance-wide',
+    resource: 'global',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      "The pending development release awaiting approval — a build, named by head SHA and version, belonging to the instance and to no person. `releaseProposalFor` checks `ctx.capability.role !== 'admin'` and returns NULL rather than throwing, which is deliberate and is why the role floor is recorded here: a member is not refused, they are told there is nothing to approve, and the panel renders empty. Its sibling write `approveProposal` re-checks the same grade and throws, so the read cannot be mistaken for the authority.",
   }),
 
   // ---- approvals, interactions, conversations ------------------------------
@@ -757,6 +831,27 @@ export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
     severity: 'unclassified',
     finding:
       'Live state of a workflow run, unscoped. A run is an execution in progress, so this is the read most likely to disclose another person\u2019s work as it happens.',
+  },
+  {
+    name: 'updates.fleet',
+    owner: 'F',
+    severity: 'unclassified',
+    finding:
+      "Returns the whole fleet's update state — every machine's current and target version, its channel and its reconciliation status — with no reader scoping, while `machines.list`, the only other fleet-wide read, routes through `visibleMachinesFor` and shows a principal only the machines it may see. Two reads over the same population, one scoped and one not, is the same asymmetry that convicted `sessions.status`. A machine is owned compute (ADR 9 D6), so the question is whose machines these are, and the handler does not ask it.",
+  },
+  {
+    name: 'operations.active',
+    owner: 'F',
+    severity: 'unclassified',
+    finding:
+      "Serves the live durable operation's STORED BYTES verbatim (`JSON.parse(row.payload)`, deliberately, so a swapped web bundle can render a field its build never heard of — POD-2097 P8). No reader scoping of any kind. The evidence that one is missing is in the same file: all three sibling MUTATIONS run `assertActionAuthorized`, which requires an admin account and then a `manage` verb on `details.targetMachineId`. The read reaches that identical `details` object and asks neither question.",
+  },
+  {
+    name: 'operations.history',
+    owner: 'F',
+    severity: 'unclassified',
+    finding:
+      "The operation audit trail — 'did last night's update finish?' — returning up to a hundred stored payloads with no reader scoping, by the same route and with the same missing question as `operations.active`. A history is the more durable disclosure of the two: a live operation ends, its record does not.",
   },
   {
     name: 'machines.list',
