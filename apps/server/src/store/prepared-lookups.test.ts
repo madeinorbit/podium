@@ -196,6 +196,38 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     expect(await repo.get(BOB)).toBeUndefined()
     expect(await repo.get(asUserId('user:future'))).toBeUndefined()
   })
+
+  it('refuses a credential write for a disabled account and an unreadable role', async () => {
+    const { queries } = migratedStore()
+    const repo = new UsersRepository(queries)
+    const db = queries.rootDb
+    await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
+    await db
+      .insert(users)
+      .values({ ...account(BOB, '2026-09-02T10:00:00.000Z'), disabledAt: '2026-09-03T00:00:00.000Z' })
+      .run()
+    await db
+      .insert(users)
+      .values({ ...account(asUserId('user:future'), '2026-09-01T10:00:00.000Z'), role: 'overlord' })
+      .run()
+
+    // disable() sets disabledAt rather than removing the row, so the raw row
+    // stays truthy. Guarding on the raw row therefore let a credential write
+    // land on a suspended account and republish it through the commit funnel.
+    // The same hole swallowed the unreadable-role refusal.
+    await expect(
+      repo.setPasswordHash(BOB, 'hash', '2026-09-04T00:00:00.000Z'),
+    ).rejects.toThrow()
+    await expect(
+      repo.setPasswordHash(asUserId('user:future'), 'hash', '2026-09-04T00:00:00.000Z'),
+    ).rejects.toThrow()
+    await expect(
+      repo.setPasswordHash(asUserId('user:nobody'), 'hash', '2026-09-04T00:00:00.000Z'),
+    ).rejects.toThrow()
+
+    // The readable, enabled account still works.
+    await repo.setPasswordHash(ALICE, 'hash', '2026-09-04T00:00:00.000Z')
+  })
 })
 
 // ---------------------------------------------------------------------------
