@@ -49,8 +49,8 @@
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. For 64 of the 76 there is a rule in the
- * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 12
+ * A census reports what it found. For 65 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 11
  * there is NO server-side reader scoping — the handler returns what the service
  * returns — and inventing a plausible policy for those would put a FALSE entry
  * in the audit surface, which `modules/approvals/queries.ts` correctly
@@ -340,6 +340,17 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     forbiddenFields: ['apiKey', 'token', 'secret'],
     rationale:
       "`getSettingsFor(asUserId(caller.userId))` — per-person settings since POD-1554. Credential VALUES are forbidden here; `accounts.list` serves masked identities instead.",
+  }),
+  p({
+    name: 'accounts.list',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'secret',
+    indirectResources: ['machine'],
+    forbiddenFields: ['credential'],
+    rationale:
+      "TWO ARMS, and the reason this row reads `caller-only` is that every row naming a PERSON is the caller's. The NATIVE arm is the disclosure the census found: a harness login identity, the machine NAMES it was observed on, the machines offered as login targets, and any attempt in flight. PDM-271 resolves all four against ONE answer per call — `machineIdsUsableBy` (`modules/accounts/machine-scope.ts`), which is `machine-access.ts`'s own `checkMachineUse` over a live ownership snapshot, imported rather than restated. `use` and not `see`, because a native row says which provider account an agent spawned there would authenticate as and `accounts.login` is already `machineVerb: 'use'`; offering a see-only machine would be readiness §3.1.4 M5 from the reading side. Resolving it once is load-bearing — the two machine reads here were independent fleet listings, and gating one would have left the other answering the same question differently. The MANAGED arm returns four fixed instance credential slots (`managed:anthropic`, `managed:openai`, `managed:openrouter`, `managed:claude-oauth`) whose ids are derived server-side; they belong to the instance and to no person, and their `identity` is `maskCredential`'s display-only preview — the reviewed output `accounts.connect`'s redaction policy names, never a human's identity. `resource: 'secret'` matches `accounts.connect`'s own `policy.resource` on the same table so the read and the write name one resource; `indirectResources: ['machine']` carries the actual finding, because A ROW THAT RECORDED ONLY `'secret'` WOULD BE TRUE AND USELESS — the `discloses-private-execution` severity came entirely from what this read reaches THROUGH the credential table. The stricter label is recorded deliberately: `instance-wide` would LICENSE returning instance rows that name people, which is the thing this read must never do again. Served on trpc ONLY, and checked rather than assumed — `accountViews()` has exactly one production caller, and `modules/issues/relay-dispatch.ts` has no accounts arm. Refusals are observed, not argued, in `modules/accounts/list-scope.test.ts` (a second member refused the first's identity AND host names, an owner-less machine refused to everyone, a `use` grant admitted and a `see` grant refused) and `modules/accounts/native-login.test.ts` (an in-flight attempt shown to its owner and not to another human). WHAT IS NOT CLOSED: the managed slots have no owner column, so `accounts.connect`'s declared `owner: 'on-behalf-of-human'` is not stored and cannot be queried — PDM-280, beneath PDM-139. That is why this read has an instance arm at all, and closing it makes the `caller-only` label literally true rather than true of every row that names somebody.",
   }),
   p({
     name: 'settings.viewer',
@@ -904,13 +915,6 @@ export interface UngovernedProjection {
 }
 
 export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
-  {
-    name: 'accounts.list',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding:
-      'Returns the credential rows Podium holds plus the native CLI logins observed on every machine. Provider connections belong to a human (execution charter) and exactly one human may execute on a machine, so this list is per-person by construction — but the handler scopes to nobody. Masked identities are still identities.',
-  },
   {
     name: 'files.read',
     owner: 'B',

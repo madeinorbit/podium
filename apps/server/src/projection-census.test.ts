@@ -467,13 +467,19 @@ describe('the ungoverned list is a finding list, not a waiver', () => {
     // collapsing them would let the urgent ones wait behind the tidy ones.
     // This list SHRINKS as the reads are governed, and each removal is a claim
     // about a shipped handler rather than a tidy-up: `sessions.status` was the
-    // sixth until PDM-229, and `conversations.search` the fifth until PDM-274
-    // found its rule already shipped two hops below the query table. Both are in
-    // PROJECTION_POLICIES now and the totality test above keeps each in exactly
-    // one list. What remains is four reads, all of them still genuinely unscoped.
+    // sixth until PDM-229, `conversations.search` the fifth until PDM-274 found
+    // its rule already shipped two hops below the query table, and
+    // `accounts.list` the fourth until PDM-271 — which, unlike those two, was
+    // genuinely ungoverned and had to be FIXED rather than found. All three are
+    // in PROJECTION_POLICIES now and the totality test above keeps each in
+    // exactly one list.
+    //
+    // The three that remain are the `files.*` family, and they are one gap
+    // rather than three: the same `assertAllowedRoot`, which asks whether a path
+    // is a known repository and never who is asking.
     const disclosing = UNGOVERNED_PROJECTIONS.filter(
       (entry) => entry.severity === 'discloses-private-execution',
     ).map((entry) => entry.name)
-    expect(disclosing).toEqual(['accounts.list', 'files.read', 'files.list', 'files.search'])
+    expect(disclosing).toEqual(['files.read', 'files.list', 'files.search'])
   })
 })
