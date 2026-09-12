@@ -307,6 +307,43 @@ function privateTargetDecision(
   return target.owner === self ? 'allow' : 'forbidden'
 }
 
+/**
+ * A PERSONAL TARGET UNDER A SCOPE THAT NAMES NO PERSON (A5.2/PDM-246).
+ *
+ * `all`, `none` and `subtree` are the three scopes that carry no identity, and
+ * all three must answer an owned entity or a per-user row the SAME way — so they
+ * share one function rather than three copies of a rule. Ownership is read from
+ * `onBehalfOf`, the branded human the call is made FOR, exactly as
+ * {@link privateTargetDecision} reads it and for the same reason: the scope stays
+ * a pure task-reach statement and the person comes from the attribution pair.
+ *
+ * OWNER-ONLY, WITH NO GRANT CLAUSE, and that is a census result rather than a
+ * preference. No TASK reaches an `owned` target under any of these three scopes:
+ * the server's `checkIssueAccess` builds an `owned` target only when the scope
+ * IS `owned`, and `mayReadOwned` always mints an `owned` SCOPE — so the live
+ * producers here are `session-state/registry.ts` and `rename-target-path.ts`,
+ * and both build SESSIONS. The owner-or-grant TASK rule lives under the `owned`
+ * scope arm below, untouched, where the same shape really does carry issues.
+ *
+ * A per-user row is owner-only by construction and not merely by policy: ADR 9
+ * D3 rule 4 makes the per-user class NON-GRANTABLE, so there is no grant list to
+ * consult and no "share my read state" verb that could produce one.
+ *
+ * Both refusals fail closed on an absence. A capability naming no human reaches
+ * nobody's row — not, by way of `undefined === undefined`, everybody's.
+ */
+function personalTargetDecision(
+  cap: Capability,
+  target: Extract<AuthTarget, { kind: 'owned' | 'per-user-row' }>,
+): AuthDecision {
+  const self = cap.onBehalfOf
+  if (self === undefined) return 'forbidden'
+  if (target.kind === 'per-user-row') return target.userId === self ? 'allow' : 'forbidden'
+  // An UNOWNED entity is not ambient (§3.1.1 default-closed, §3.1.4 M4).
+  if (target.owner === null) return 'forbidden'
+  return target.owner === self ? 'allow' : 'forbidden'
+}
+
 /** THE authz decision for a caller — the single enforcement function (invariant 2
  *  of the extension contract above). Distinguishes a hard role denial
  *  ('forbidden') from a scope violation the caller may knowingly override
@@ -328,8 +365,8 @@ function privateTargetDecision(
  *  PERSON (`owned`, `self`). The three scopes that name no person (`all`, `none`,
  *  `subtree`) keep read-allow, each saying so on its own branch.
  *
- *  WHY `subtree` READS STAY ALLOWED, though it is the scope agents actually
- *  carry. A subtree capability is an ISSUE-TREE WRITE scope — the thing
+ *  WHY `subtree` READS STAY ALLOWED FOR ISSUES, though it is the scope agents
+ *  actually carry. A subtree capability is an ISSUE-TREE WRITE scope — the thing
  *  `--outside-scope` confirms crossing (ADR 3 D2) — not a visibility set. Gating
  *  reads by it would deny an agent every sibling issue, which is neither what
  *  A2's narrow default is about (what an agent may CHANGE) nor survivable: ADR 3
@@ -340,16 +377,46 @@ function privateTargetDecision(
  *  question asked of a different fact, and answering it here would be the second
  *  permission check invariant 2 forbids.
  *
- *  WHY THIS IS NOT DEAD CODE, WHICH IS THE REASON D19.2 INSISTS ON IT. Nothing
- *  mints an `owned` or `self` capability SCOPE today (verified: the only
- *  producers of the `owned` shape are `presence-registry.ts` and
- *  `rename-target-path.ts`, and both build owned TARGETS, not scopes). So this
- *  change denies nothing that is currently allowed — its entire value is that
- *  read denial becomes REPRESENTABLE and therefore testable before the transport
- *  can tell two humans apart. Amendment 1's rejected-alternatives table is
- *  explicit that the opposite order — flip the transport first, gate reads later
- *  — leaves "every ownership check dead code on the one transport humans actually
- *  use, so nothing would be tested until the flip".
+ *  ── THE AGENT CEILING: THE SHORT-CIRCUIT IS FOR ISSUES ONLY (A5.2/PDM-246) ──
+ *
+ *  Both person-less arms used to open with `if (action === 'read') return 'allow'`
+ *  ABOVE their owned / per-user-row rejection, so a read of a PERSONAL target was
+ *  answered by the short-circuit and never reached an ownership question. The
+ *  paragraph above is the whole argument for that line, and every sentence of it
+ *  is about ISSUES. D7 and D13 carve out no agent exception for owned entities,
+ *  and §3.1.3 A1 resolves an agent's rights as its scope INTERSECTED with its
+ *  delegating human's CURRENT rights — so an agent of the owner out-reaching the
+ *  owner is not a narrower rule than the spec, it is a different one. After A5.1
+ *  closed the `all` arm the asymmetry was sharper, not softer: the same read of a
+ *  second person's session was decided two ways depending only on whether the
+ *  human or its agent asked.
+ *
+ *  So `none` and `subtree` now decide an owned entity or a per-user row through
+ *  {@link personalTargetDecision}, the same function the `all` arm uses, and keep
+ *  read-allow for everything the short-circuit was argued for. The scope's own
+ *  read reach over ISSUES is untouched, which is what keeps the task predicate
+ *  the execution charter reserves for C4 (PDM-144) out of this change.
+ *
+ *  WHY THIS IS NOT DEAD CODE, WHICH IS THE REASON D19.2 INSISTS ON IT. When D19.2
+ *  landed, nothing minted an `owned` or `self` capability SCOPE, so read denial
+ *  became REPRESENTABLE and therefore testable before the transport could tell two
+ *  humans apart. Amendment 1's rejected-alternatives table is explicit that the
+ *  opposite order — flip the transport first, gate reads later — leaves "every
+ *  ownership check dead code on the one transport humans actually use, so nothing
+ *  would be tested until the flip".
+ *
+ *  THAT CLAIM HAS SINCE EXPIRED, AND IS CORRECTED HERE RATHER THAN LEFT TO
+ *  MISLEAD (A5.2). The adopted foundation mints person-scoped capabilities and
+ *  stores session ownership durably: `command-principal.ts#userCommandPrincipal`
+ *  gives every NON-ADMIN `{ kind: 'owned', userId }`, `issue-authz.ts#mayReadOwned`
+ *  mints one per call, and `session-authz.ts#sessionOwner` resolves an owner from
+ *  the `ownerUserId` COLUMN rather than from an instance's first admin. The two
+ *  files the old parenthesis named as the only producers of the `owned` shape are
+ *  no longer that census either — `presence-registry.ts` does not exist (it is
+ *  `sessions/session-state/registry.ts`), and the current live producers of owned
+ *  and per-user TARGETS are that file and `sessions/rename-target-path.ts`. A
+ *  comment about what cannot be reached is load-bearing exactly as long as it is
+ *  true, which is why it is restated rather than deleted.
  *
  *  ALSO REJECTED, BY THE ADR AND NOT BY THIS FILE: keeping reads scope-free and
  *  filtering rows at the projection layer. That means the authority computed a
@@ -448,31 +515,48 @@ export function authorize(
       // shape does still carry issues, and narrowing it would move task exposure
       // — which the charter's exposure order puts after phase B and gives to C4
       // (PDM-144).
-      if (issue?.kind === 'owned') {
-        if (issue.owner === null) return 'forbidden'
-        const self = cap.onBehalfOf
-        if (self === undefined) return 'forbidden'
-        return issue.owner === self ? 'allow' : 'forbidden'
-      }
-      if (issue?.kind === 'per-user-row') {
-        return cap.onBehalfOf !== undefined && issue.userId === cap.onBehalfOf
-          ? 'allow'
-          : 'forbidden'
+      //
+      // ── AND THE SAME RULE IS NOW SHARED WITH `none` AND `subtree` (A5.2) ──
+      //
+      // The two clauses that were spelled out here are `personalTargetDecision`
+      // above, unchanged in what they decide. They moved because the other two
+      // person-less scopes need the identical answer, and three copies of an
+      // ownership rule is three places for one of them to drift open.
+      if (issue?.kind === 'owned' || issue?.kind === 'per-user-row') {
+        return personalTargetDecision(cap, issue)
       }
       // An issue target, or no target at all: unconstrained task reach, unchanged.
       return 'allow'
     case 'none':
+      // A personal target is decided by OWNERSHIP before the read short-circuit
+      // and before the out-of-scope answer — see THE AGENT CEILING above. The
+      // write half is `forbidden` rather than `outOfScope(opts)` deliberately:
+      // this arm used to hand an owned entity to the overridable answer, so
+      // `--outside-scope` converted a privacy refusal into an allow.
+      if (issue?.kind === 'owned' || issue?.kind === 'per-user-row') {
+        return action === 'read' ? personalTargetDecision(cap, issue) : 'forbidden'
+      }
       if (action === 'read') return 'allow' // no person in this scope — see READS above
       // Additive (no existing target) is a role question, not a scope one.
       return issue ? outOfScope(opts) : 'allow'
     case 'subtree': {
+      // A subtree capability is an ISSUE-tree capability. Handing it an owned
+      // entity or a per-user row to WRITE is not a scope violation to be
+      // overridden — it is a category error, and answering 'confirm-required'
+      // would let `--outside-scope` convert it into an allow. Forbidden, without
+      // an override, whoever owns the thing.
+      //
+      // A READ of one is decided by OWNERSHIP (A5.2/PDM-246), which is the same
+      // ceiling the `all` and `owned` arms enforce. This check moved ABOVE the
+      // read short-circuit on the line below, which is the whole repair: the
+      // short-circuit used to answer first, so an agent read a second person's
+      // session by holding a capability that named nobody. See THE AGENT CEILING
+      // in the READS block above for why the short-circuit is kept for issues.
+      if (issue?.kind === 'owned' || issue?.kind === 'per-user-row') {
+        return action === 'read' ? personalTargetDecision(cap, issue) : 'forbidden'
+      }
       if (action === 'read') return 'allow' // no person in this scope — see READS above
       if (!issue) return 'allow'
-      // A subtree capability is an ISSUE-tree capability. Handing it an owned
-      // entity or a per-user row is not a scope violation to be overridden — it is
-      // a category error, and answering 'confirm-required' would let
-      // `--outside-scope` convert it into an allow. Forbidden, without an override.
-      if (issue.kind === 'owned' || issue.kind === 'per-user-row') return 'forbidden'
       const inSubtree =
         issue.id === scope.rootId || (issue.ancestorIds ?? []).includes(scope.rootId)
       return inSubtree ? 'allow' : outOfScope(opts)

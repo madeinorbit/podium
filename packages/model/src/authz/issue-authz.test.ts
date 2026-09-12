@@ -140,8 +140,18 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     // against the capability's `onBehalfOf`; `cap()` builds no attribution pair,
     // so this subject names nobody and fails closed.
     all: 'forbidden',
-    none: 'allow',
-    subtree: 'allow',
+    // WAS `allow` UNTIL A5.2 (PDM-246), and these are the scopes AGENTS carry.
+    // The read short-circuit on both arms answered before the owned /
+    // per-user-row rejection below it, so an agent passed a check its own human
+    // failed — incoherent under §3.1.3 A1, which resolves an agent's rights as
+    // its scope INTERSECTED with its delegating human's current rights. A
+    // personal target is now decided by ownership here too, against the same
+    // `onBehalfOf` the `all` arm reads; `cap()` builds no attribution pair, so
+    // this subject names nobody and fails closed. The ISSUE read the
+    // short-circuit exists for (D20.2) is untouched — see the scope-gate
+    // describe above, which still passes unchanged.
+    none: 'forbidden',
+    subtree: 'forbidden',
     // The two scopes that name a person: gated by ownership, exactly as writes are.
     owned: 'forbidden',
     self: 'forbidden',
@@ -621,5 +631,199 @@ describe('an owned target under an unconstrained scope is owner-only (A5.1)', ()
     expect(authorize(alice, 'read', session('bob', ['alice']))).toBe('allow')
     expect(authorize(alice, 'write', session('bob', ['alice']))).toBe('allow')
     expect(authorize(alice, 'read', session('bob'))).toBe('forbidden')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A5.2 (PDM-246) — an agent's scope may not exceed its human's ceiling
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SIBLING HOLE A5.1 LEFT STANDING, and named in its own receipt.
+ *
+ * `none` and `subtree` are THE SCOPES AGENTS ACTUALLY CARRY —
+ * `session-authz.ts#capabilityForSession` mints exactly one of the two for every
+ * relayed session, subtree when the session sits in an issue worktree and none
+ * when it does not. Both arms opened with `if (action === 'read') return 'allow'`
+ * BEFORE the owned / per-user-row rejection below them, so a read of a personal
+ * target was decided by the short-circuit and never reached an ownership
+ * question at all.
+ *
+ * That is incoherent under §3.1.3 A1, which resolves an agent's rights as its
+ * scope INTERSECTED with its delegating human's CURRENT rights. After A5.1 the
+ * ceiling is owner-only on both sides of the human table — an admin (`all`) is
+ * refused another member's session, and a member (`owned`) is refused it too —
+ * so the same read was being decided two ways depending only on whether the
+ * caller was the human or its agent. An agent of the owner out-reaching the
+ * owner is not a narrower rule than the spec; it is a different one.
+ *
+ * WHAT THE READ SHORT-CIRCUIT IS ACTUALLY FOR, and why it is kept for issues.
+ * `authorize`'s READS block defends it entirely in terms of ISSUES: gating reads
+ * by an issue-tree scope would deny an agent every sibling issue, against ADR 3
+ * Amendment 1 D20.2 (*an agent may address any issue its human can see,
+ * including outside its own subtree*). None of that reasoning is about owned
+ * entities or per-user rows, and D7/D13 carve out no agent exception. So the
+ * short-circuit keeps its whole stated purpose and loses the target classes it
+ * was never argued for — which is why the task legs in this file stay green.
+ *
+ * THE CEILING IS A CEILING, NOT A FLOOR. Every refusal below is asserted
+ * alongside the same read of the agent's OWN human's row, which stays allowed.
+ * Without that counterfactual the table would also pass against an evaluator
+ * that had simply stopped returning `allow` for personal targets — the guard
+ * that fails identically whether or not the thing it guards is switched on, and
+ * the single-user parity criterion is exactly what that mistake would break.
+ */
+describe('an agent scope does not exceed its human ceiling at a personal target (A5.2)', () => {
+  const HUMAN = asUserId('user:owner')
+  const SOMEBODY_ELSE = 'user:other'
+
+  /** The two shapes `capabilityForSession` mints, with the attribution pair it
+   *  stamps from the session's owner row. Both name NO PERSON IN THE SCOPE — the
+   *  human is in `onBehalfOf`, which is the only place a person may come from. */
+  const AGENT_SCOPES: Record<'subtree' | 'none', IssueScope> = {
+    subtree: { kind: 'subtree', rootId: asIssueId('root') },
+    none: { kind: 'none' },
+  }
+  const agent = (scope: IssueScope): Capability => ({
+    role: 'worker',
+    scope,
+    actorSessionId: asSessionId('s:agent'),
+    onBehalfOf: HUMAN,
+  })
+  /** The same shape with the attribution pair ABSENT — a machine or a system job.
+   *  Spelled as its own builder rather than `agent(scope, undefined)`, which
+   *  re-applies the default and would have asserted the owner's own capability
+   *  under a name claiming it named nobody. */
+  const agentNamingNobody = (scope: IssueScope): Capability => ({
+    role: 'worker',
+    scope,
+    actorSessionId: asSessionId('s:agent'),
+  })
+  const forBothAgentScopes = (assert: (cap: Capability, tag: string) => void) => {
+    for (const [tag, scope] of Object.entries(AGENT_SCOPES)) assert(agent(scope), tag)
+  }
+
+  it('refuses an agent a READ of another person’s owned entity', () => {
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', session(SOMEBODY_ELSE)), tag).toBe('forbidden')
+    })
+  })
+
+  it('refuses an agent a READ of another person’s per-user row', () => {
+    forBothAgentScopes((cap, tag) => {
+      expect(
+        authorize(cap, 'read', { kind: 'per-user-row', userId: asUserId(SOMEBODY_ELSE) }),
+        tag,
+      ).toBe('forbidden')
+    })
+  })
+
+  it('STILL ALLOWS the agent its own human’s rows, so the refusals are ownership talking', () => {
+    // The single-user parity criterion, at the model layer: with one person
+    // owning everything, the agent capability still reads everything.
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', session(HUMAN)), tag).toBe('allow')
+      expect(authorize(cap, 'read', session(HUMAN, [])), tag).toBe('allow')
+      expect(authorize(cap, 'read', { kind: 'per-user-row', userId: HUMAN }), tag).toBe('allow')
+    })
+  })
+
+  it('LEAVES THE ISSUE READ ALONE — D20.2, and the task predicate this repair does not own', () => {
+    // The half of the short-circuit that was actually argued for. An agent still
+    // reads any issue, inside its subtree and outside it, which is what stops
+    // this repair from being a visibility change wearing a privacy fix's name.
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', { id: 'iss:elsewhere' }), tag).toBe('allow')
+      expect(authorize(cap, 'read', { id: 'iss:elsewhere', ancestorIds: ['unrelated'] }), tag).toBe(
+        'allow',
+      )
+      expect(authorize(cap, 'read'), tag).toBe('allow')
+    })
+  })
+
+  it('refuses an UNOWNED personal target — absent ownership is not ambience (§3.1.1)', () => {
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', session(null)), tag).toBe('forbidden')
+      expect(authorize(cap, 'read', session(null, [HUMAN])), tag).toBe('forbidden')
+    })
+  })
+
+  it('refuses an agent capability that names no human at all (D21.2)', () => {
+    // A machine or a system job carries no on-behalf-of, and having none is
+    // FINAL. The absence must not be read as "the owner" — the `undefined ===
+    // undefined` family this module keeps returning to.
+    for (const scope of Object.values(AGENT_SCOPES)) {
+      const nobody = agentNamingNobody(scope)
+      expect(authorize(nobody, 'read', session(SOMEBODY_ELSE))).toBe('forbidden')
+      expect(authorize(nobody, 'read', session(HUMAN))).toBe('forbidden')
+      expect(authorize(nobody, 'read', { kind: 'per-user-row', userId: HUMAN })).toBe('forbidden')
+    }
+  })
+
+  it('is OWNER-ONLY: a grant edge naming the agent’s human does not admit it', () => {
+    // The same boundary A5.1 drew under `all`, for the same reason: no TASK
+    // reaches an `owned` target under a scope that names no person, so the grant
+    // clause here would only ever be answering for a session. The owner-or-grant
+    // TASK rule lives under the `owned` SCOPE and is asserted intact above.
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', session(SOMEBODY_ELSE, [HUMAN])), tag).toBe('forbidden')
+    })
+  })
+
+  it('is not liftable by --outside-scope, on a read or on a write', () => {
+    // `--outside-scope` confirms crossing a TASK boundary (ADR 3 D2). There is no
+    // flag that converts a privacy denial into an allow, so these are `forbidden`
+    // and never `confirm-required` — including on the `none` arm, whose write
+    // path used to fall through to the overridable out-of-scope answer.
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'read', session(SOMEBODY_ELSE), { override: true }), tag).toBe(
+        'forbidden',
+      )
+      expect(authorize(cap, 'write', session(SOMEBODY_ELSE), { override: true }), tag).toBe(
+        'forbidden',
+      )
+      expect(
+        authorize(cap, 'write', { kind: 'per-user-row', userId: asUserId(SOMEBODY_ELSE) }, {
+          override: true,
+        }),
+        tag,
+      ).toBe('forbidden')
+    })
+  })
+
+  it('DOES NOT WIDEN THE WRITE PATH — a personal write stays a category error', () => {
+    // The direction this repair must not move. A subtree capability is an
+    // ISSUE-TREE capability; handing it an owned entity or a per-user row to
+    // WRITE is a category error whoever owns it, and that answer is POD-380's,
+    // not this issue's to relax. Stated on the agent's OWN rows, which is where
+    // a careless ownership rule would have turned a refusal into an allow.
+    forBothAgentScopes((cap, tag) => {
+      expect(authorize(cap, 'write', session(HUMAN)), tag).toBe('forbidden')
+      expect(authorize(cap, 'write', { kind: 'per-user-row', userId: HUMAN }), tag).toBe('forbidden')
+    })
+  })
+
+  it('AGREES WITH THE HUMAN CEILING: the same read, asked of the human and of its agent', () => {
+    // The finding, as one assertion. Both human scopes refuse a second person's
+    // session after A5.1; the agent scopes now say the same thing, so the answer
+    // no longer depends on which of the two is asking.
+    const theirs = session(SOMEBODY_ELSE)
+    const humanAdmin: Capability = {
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: HUMAN,
+      onBehalfOf: HUMAN,
+    }
+    const humanMember = cap({ kind: 'owned', userId: HUMAN })
+    expect(authorize(humanAdmin, 'read', theirs)).toBe('forbidden')
+    expect(authorize(humanMember, 'read', theirs)).toBe('forbidden')
+    forBothAgentScopes((agentCap, tag) => {
+      expect(authorize(agentCap, 'read', theirs), tag).toBe('forbidden')
+    })
+    // ...and the ceiling is not a floor: what the human may read, its agent may.
+    expect(authorize(humanAdmin, 'read', session(HUMAN))).toBe('allow')
+    forBothAgentScopes((agentCap, tag) => {
+      expect(authorize(agentCap, 'read', session(HUMAN)), tag).toBe('allow')
+    })
   })
 })
