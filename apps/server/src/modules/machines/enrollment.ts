@@ -1,4 +1,4 @@
-import type { MachineId, UserId } from '@podium/model'
+import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
@@ -104,6 +104,29 @@ export async function authenticateDaemon(
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
+    // ALTERNATE-OWNER RE-PAIRING IS REFUSED (PDM-134). The accounts-and-machines
+    // addendum rules it out by name — "Enrollment of a machine for someone else,
+    // handover and alternate-owner re-pairing are not v1 features" — and without
+    // this guard it was the way round the handover that `machines.transferOwnership`
+    // is marked SERVED_NOWHERE to prevent. The row-exists check above only refuses
+    // while the row is THERE; once it is gone (a revoke, a restore, a dropped row)
+    // the ledger still records whose machine this was, and pairing appended a fresh
+    // enroll line over the top of it with whoever minted the new code.
+    //
+    // UNAVOIDABLY AFTER REDEEM, unlike its sibling one branch up, and the contrast
+    // is worth stating because POD-1125 chose the opposite ordering deliberately.
+    // That guard asks a question about the MACHINE and can be answered from the
+    // id alone, so it runs before the code is burned. This one compares the
+    // incumbent against the PROPOSED owner, and the proposed owner only exists
+    // once the grant is redeemed. Burning the code on a refused attempt is the
+    // safe direction anyway: a single-use code that has been presented should not
+    // be presentable again.
+    if (await repairingToADifferentOwner(host, frame.machineId, pairingGrant.ownerUserId ?? null)) {
+      // The SAME string the row-exists guard returns, so "this id is taken" and
+      // "this id is someone else's" are one answer. Saying which would turn a
+      // pair attempt into an oracle for who owns what (D20's consistent errors).
+      return { ok: false, reason: 'machine id already registered' }
+    }
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
@@ -205,6 +228,60 @@ function appendEnrollment(
     at: new Date().toISOString(),
   })
   if (!ok) throw new Error('enrollment ledger refused the enroll append')
+}
+
+/**
+ * The active humans this instance can name, for a question that only has an
+ * answer when there is exactly one of them.
+ *
+ * A structural slice rather than the whole users repository, for the reason
+ * `FirstAdminSource` is one: the caller is a boot path, and a parameter that
+ * accepted the full store would let this grow into a second place that decides
+ * things about accounts.
+ */
+export interface HostOwnerSource {
+  users: { list(): Promise<{ id: string; disabledAt: string | null }[]> }
+}
+
+/**
+ * WHO OWNS THIS HOST WHEN THE SERVER PROVISIONS IT AT BOOT (PDM-134).
+ *
+ * `ensureHostMachine` runs before any request exists, so there is no principal
+ * to attribute the machine to. That is why it used to call
+ * `deviceGradeSoleOwner()` and take the EARLIEST ADMIN — an answer that was
+ * correct only in the world that function documents: one shared password, so
+ * "the first admin" and "the only human" were the same person.
+ *
+ * They are not the same person once the instance has two, and the difference is
+ * the defect. `machineVerbsFor` ALREADY refuses to auto-assign a quarantined
+ * machine to the first admin, in as many words — "that would hand somebody's
+ * personal Mac to whoever is admin on a database restore" (D19.4b). Boot-time
+ * provisioning was making precisely that assignment one layer earlier, where
+ * that rule was not looking.
+ *
+ * So this answers only when the question HAS one answer:
+ *
+ *  - exactly one active human → that human, WHATEVER THEIR ROLE. The charter
+ *    says the bootstrap daemon belongs to the ordinary member; admin grade is an
+ *    instance permission and says nothing about whose hardware this is. Picking
+ *    `earliestAdmin()` encoded the opposite.
+ *  - none, or more than one → `null`, which is UNOWNED, and an unowned machine
+ *    grants `use` to NOBODY (`machineUseAllowed`).
+ *
+ * `null` IS THE DELIBERATE ANSWER, NOT A FAILURE TO FIND ONE. Quarantine shows
+ * in the fleet list, refuses loudly at every placement, and has a designed exit:
+ * `machines.adopt` carries an admin floor, an `unowned` precondition read from
+ * the ledger, and a named recipient. Guessing a plausible owner instead would be
+ * silent, and the person guessed would hold `use` on hardware nobody decided to
+ * give them.
+ *
+ * DISABLED ACCOUNTS ARE NOT CANDIDATES: ADR 9's disable-before-remove says a
+ * disabled account is not an actor, so it can neither be the sole human nor make
+ * a sole human ambiguous.
+ */
+export async function hostBootstrapOwner(source: HostOwnerSource): Promise<UserId | null> {
+  const active = (await source.users.list()).filter((account) => account.disabledAt === null)
+  return active.length === 1 ? asUserId(active[0]!.id) : null
 }
 
 /**
@@ -344,6 +421,41 @@ async function resolveOwnerForRecovery(
   if (recorded === null) return null
   if (host.deps.userExists && !await host.deps.userExists(recorded)) return null
   return recorded
+}
+
+/**
+ * Would this pair hand the machine to someone other than its recorded owner?
+ *
+ * THE LEDGER IS THE INCUMBENT, not the machines row: this runs only when the row
+ * is already gone, which is exactly the state the row cannot answer from. The
+ * ledger never forgets an owner — a revoke bumps the revoke serial and leaves the
+ * owner map intact — so it is still able to say whose machine this was.
+ *
+ * Three states, and only one of them refuses:
+ *
+ *  - `undefined` — never enrolled under this ledger. No incumbent, so a first
+ *    pair is exactly what this is, and it proceeds.
+ *  - `null`, or an owner whose account no longer resolves — recorded as unowned,
+ *    or quarantine (D19.4b). Nobody's claim is being overridden, and
+ *    {@link adoptMachine} treats that same state as adoptable for the same
+ *    reason. Proceeds.
+ *  - a resolvable owner different from the proposed one — REFUSED. This includes
+ *    re-pairing to NOBODY (`proposed === null`), which would otherwise strip an
+ *    owner by presenting an ownerless code.
+ *
+ * Same-owner re-pairing is untouched: replacing a lost credential on your own
+ * machine is the case this path exists for.
+ */
+async function repairingToADifferentOwner(
+  host: EnrollmentHost,
+  machineId: MachineId,
+  proposedOwner: UserId | null,
+): Promise<boolean> {
+  const recorded = host.deps.enrollment?.recordedOwner(machineId)
+  if (recorded === undefined || recorded === null) return false
+  const incumbent = await resolveOwnerForRecovery(host, recorded)
+  if (incumbent === null) return false
+  return incumbent !== proposedOwner
 }
 
 function logVerdict(
