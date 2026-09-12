@@ -19,7 +19,13 @@ import { soleHumanSessionStatePrincipal } from '../../../test-support/session-st
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { asSessionId, asUserId, type SessionId, firstAdminMemberId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
 import { OPERATOR } from '../../../test-support/capabilities'
@@ -50,9 +56,17 @@ async function fixture() {
   })
   /**
    * A principal for an arbitrary user. `capability.scope` is `owned`/`self` for
-   * that user — NOT `OPERATOR`. Using OPERATOR here would make every assertion
-   * vacuous: `scope: 'all'` short-circuits authorize() before the target is read,
-   * so an isolation test built on it would pass no matter what the policy said.
+   * that user — NOT `OPERATOR`.
+   *
+   * THE REASON HAS CHANGED AND THE RULE HAS NOT (A5.6/PDM-250). This used to read
+   * "`scope: 'all'` short-circuits authorize() before the target is read, so an
+   * isolation test built on it would pass no matter what the policy said". That
+   * short circuit is gone for personal targets — A3 and A5.1 made the `all` arm
+   * decide an owned entity or a per-user row by ownership, and A5.2 gave `none`
+   * and `subtree` the same rule — so an OPERATOR-based fixture no longer passes
+   * vacuously; it is simply REFUSED, which is a different and equally useless
+   * instrument. Either way the capability under test must be the one the policy
+   * is about, and for a per-user row that is a `self` scope naming its user.
    */
   const asUser = (userId: string, scope: 'owned' | 'self'): SessionStatePrincipal => ({
     userId: asUserId(userId),
@@ -60,14 +74,62 @@ async function fixture() {
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
-  const asVisibleUser = (userId: string): SessionStatePrincipal => ({
-    userId: asUserId(userId),
-    capability: OPERATOR,
-    onBehalfOf: asUserId(userId),
-    humanDirect: true,
-  })
+  /**
+   * THE SECOND PERSON, MINTED THE WAY THE CONTRACT NOW ALLOWS ONE (A5.6/PDM-250).
+   *
+   * This used to be `asVisibleUser`: `{ userId: alice, capability: OPERATOR }` — a
+   * second IDENTITY wearing the unconstrained ADMIN capability, because `scope:
+   * 'all'` was the only way to make a session visible to somebody who did not own
+   * it. Every isolation assertion below was then decided by the short circuit
+   * rather than by the policy, which is precisely what the paragraph above this
+   * function and the file header both warn against. The fixture contradicted its
+   * own warning, and A3/A5.1/A5.2 removed the short circuit it depended on: a
+   * personal target is now decided by ownership against `cap.onBehalfOf` under
+   * EVERY scope, so an admin capability no longer reaches another person's row.
+   *
+   * A `self` principal is the strictly stronger instrument, and the one POD-1075
+   * mints for a person writing their own state: it CANNOT pass against a policy
+   * with no ownership check, which is exactly what the OPERATOR version did.
+   */
+  const asSelf = (userId: string): SessionStatePrincipal => asUser(userId, 'self')
   const session = async () => await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-  return { store, reg, sessionState, asUser, asVisibleUser, session }
+  /**
+   * VISIBILITY, WHICH IS NOW A SEPARATE QUESTION FROM THE WRITE (A5.6/PDM-250).
+   *
+   * The per-user commands that name a session resolve their target through
+   * `canReadSession`, so a principal who cannot SEE the session is refused before
+   * the row is ever considered — and a `self` scope confers no visibility of a
+   * session it does not own. An OPERATOR capability used to supply both halves at
+   * once, which is why one substitution used to be enough.
+   *
+   * So the second person is admitted the way the product admits one: a durable
+   * grant EDGE, read live by `sessionOwner`/`canReadSession` on every call. That
+   * makes these tests sharper than they were. Two people who can both legitimately
+   * SEE the same session are the interesting case for isolation — if per-user rows
+   * leaked between principals, this is the shape in which a real user would meet
+   * it, and the old fixture could not express it at all.
+   */
+  const shareSession = async (sessionId: SessionId, userId: UserId) =>
+    await store.grants.upsert({
+      resourceKind: 'session',
+      resourceId: sessionId,
+      grantee: userId,
+      verb: 'read',
+      owner: firstAdminMemberId(),
+      visibility: 'personal',
+      createdAt: '2026-09-12T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
+    })
+  /** A session both ALICE and BOB may see — the fixture the isolation tests need. */
+  const sharedSession = async () => {
+    const { sessionId } = await session()
+    await shareSession(sessionId, ALICE)
+    await shareSession(sessionId, BOB)
+    return { sessionId }
+  }
+  return { store, reg, sessionState, asUser, asSelf, session, sharedSession, shareSession }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,16 +138,16 @@ async function fixture() {
 
 describe('per-user state is isolated between principals', () => {
   it('two principals snooze the SAME session and each reads only its own value', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = await session()
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const { sessionId } = await sharedSession()
     const until = new Date(Date.now() + 60_000).toISOString()
     const other = new Date(Date.now() + 120_000).toISOString()
 
     expect(
-      (await sessionState.execute('snoozes.set', { sessionId, until }, asVisibleUser(ALICE))).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId, until }, asSelf(ALICE))).outcome,
     ).toBe('applied')
     expect(
-      (await sessionState.execute('snoozes.set', { sessionId, until: other }, asVisibleUser(BOB))).outcome,
+      (await sessionState.execute('snoozes.set', { sessionId, until: other }, asSelf(BOB))).outcome,
     ).toBe('applied')
 
     // Same entity, two rows, two values. Neither principal's write moved the
@@ -97,56 +159,49 @@ describe('per-user state is isolated between principals', () => {
   it("one principal's CLEAR does not un-snooze the other", async () => {
     // The sharper case: a delete keyed too loosely would take both rows out, and
     // the set-only test above would not notice.
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = await session()
-    await sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(ALICE))
-    await sessionState.execute('snoozes.set', { sessionId, until: null }, asVisibleUser(BOB))
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const { sessionId } = await sharedSession()
+    await sessionState.execute('snoozes.set', { sessionId, until: null }, asSelf(ALICE))
+    await sessionState.execute('snoozes.set', { sessionId, until: null }, asSelf(BOB))
 
-    await sessionState.execute('snoozes.clear', { sessionId }, asVisibleUser(ALICE))
+    await sessionState.execute('snoozes.clear', { sessionId }, asSelf(ALICE))
 
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({})
     expect(await store.sessions.listSnoozes(BOB)).toEqual({ [sessionId]: null })
   })
 
   it('pins are per-principal, and an unpin only unpins the caller', async () => {
-    const { store, sessionState, asVisibleUser } = await fixture()
+    const { store, sessionState, asSelf } = await fixture()
     const pin = { kind: 'panel', id: 'sess-1', pinned: true }
-    await sessionState.execute('pins.set', pin, asVisibleUser(ALICE))
-    await sessionState.execute('pins.set', pin, asVisibleUser(BOB))
+    await sessionState.execute('pins.set', pin, asSelf(ALICE))
+    await sessionState.execute('pins.set', pin, asSelf(BOB))
 
-    await sessionState.execute('pins.set', { ...pin, pinned: false }, asVisibleUser(ALICE))
+    await sessionState.execute('pins.set', { ...pin, pinned: false }, asSelf(ALICE))
 
     expect((await store.sessions.listPins(ALICE)).panels).toEqual([])
     expect((await store.sessions.listPins(BOB)).panels).toEqual(['sess-1'])
   })
 
   it('tab order is per-principal for the SAME worktree', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = (await session()).sessionId
-    const b = (await session()).sessionId
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const a = (await sharedSession()).sessionId
+    const b = (await sharedSession()).sessionId
 
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [a, b] },
-      asVisibleUser(ALICE),
-    )
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [b, a] },
-      asVisibleUser(BOB),
-    )
+    const order = (sessionIds: SessionId[]) => ({ worktree: '/w', sessionIds })
+    await sessionState.execute('tabs.setOrder', order([a, b]), asSelf(ALICE))
+    await sessionState.execute('tabs.setOrder', order([b, a]), asSelf(BOB))
 
     expect(await store.sessions.listTabOrders(ALICE)).toEqual({ '/w': [a, b] })
     expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [b, a] })
   })
 
   it('the empty-list DELETE stays scoped too — it removes the caller’s row only', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = (await session()).sessionId
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(ALICE))
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(BOB))
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const a = (await sharedSession()).sessionId
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asSelf(ALICE))
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asSelf(BOB))
 
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [] }, asVisibleUser(ALICE))
+    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [] }, asSelf(ALICE))
 
     expect(await store.sessions.listTabOrders(ALICE)).toEqual({})
     expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [a] })
@@ -159,15 +214,15 @@ describe('per-user state is isolated between principals', () => {
 
 describe('per-user writes are SELF-SCOPED', () => {
   it('a userId in the PAYLOAD is inert — it cannot redirect the write (ADR 3 D7)', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const { sessionId } = await session()
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const { sessionId } = await sharedSession()
 
     // The strongest form of the self-scoping property: the attack does not fail,
     // it is not expressible. The row lands on ALICE regardless of the payload.
     const result = await sessionState.execute(
       'snoozes.set',
       { sessionId, until: null, userId: BOB, onBehalfOf: BOB },
-      asVisibleUser(ALICE),
+      asSelf(ALICE),
     )
 
     expect(result.outcome).toBe('applied')
@@ -176,8 +231,8 @@ describe('per-user writes are SELF-SCOPED', () => {
   })
 
   it('a principal whose capability names ANOTHER user is denied, and the same call as itself is allowed', async () => {
-    const { store, sessionState, session } = await fixture()
-    const { sessionId } = await session()
+    const { store, sessionState, asSelf, sharedSession } = await fixture()
+    const { sessionId } = await sharedSession()
     // A forged/stale principal: identity says alice, capability is scoped to bob.
     // authorize() compares the target row's user against the CAPABILITY's user, so
     // the mismatch is caught rather than trusted.
@@ -196,10 +251,17 @@ describe('per-user writes are SELF-SCOPED', () => {
 
     // THE COUNTERFACTUAL: the identical call with a coherent principal applies. So
     // the denial above is the scope check talking, not a broken fixture.
-    const coherent: SessionStatePrincipal = { ...mismatched, capability: OPERATOR }
-    expect((await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome).toBe(
-      'applied',
-    )
+    //
+    // It used to be spelled `{ ...mismatched, capability: OPERATOR }`, and that
+    // stopped being a counterfactual when A3/A5.1 closed the `all` arm over
+    // personal targets: an admin capability whose `onBehalfOf` is the first admin
+    // is now REFUSED alice's row, so the arm meant to prove the instrument can say
+    // YES said no, for a reason that had nothing to do with the scope check above.
+    // The coherent principal is the same identity with a capability that agrees
+    // with it, which is the only difference this test means to isolate.
+    const coherent = asSelf(ALICE)
+    const write = { sessionId, until: null }
+    expect((await sessionState.execute('snoozes.set', write, coherent)).outcome).toBe('applied')
     expect(await store.sessions.listSnoozes(ALICE)).toEqual({ [sessionId]: null })
   })
 
