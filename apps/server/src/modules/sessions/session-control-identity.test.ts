@@ -595,17 +595,17 @@ it('attaches, transfers control, and delivers input through the real async owner
  * "Alice owns task, Bob owns agent; Alice cannot view/control/resume Bob's run."
  *
  * THE FIXTURE IS DELIBERATELY `role: 'member'` ON BOTH SIDES, and that is
- * load-bearing rather than incidental. `humanMay` in session-control-policy.ts
- * short-circuits on `role === 'admin'`, and the helpers in this file default to
- * admin — so a cross-user case written the easy way is decided by the admin
- * break-glass and not by the ownership policy it claims to exercise. That is
- * catalogue entry 14, and PDM-250 shipped exactly that defect: seven isolation
- * tests passing while checking nothing.
+ * load-bearing rather than incidental. The helpers in this file default to
+ * admin, so a cross-user case written the easy way used to be decided by
+ * `humanMay`'s `role === 'admin'` break-glass and not by the ownership policy it
+ * claims to exercise. That is catalogue entry 14, and PDM-250 shipped exactly
+ * that defect: seven isolation tests passing while checking nothing.
  *
- * (The break-glass itself contradicts the accepted D7 — an admin may not view or
- * drive another member's session — but session-control-policy.ts is outside B1's
- * write set, so it is filed beneath PDM-139 rather than changed here. These
- * tests pass either way because they never take that branch.)
+ * THAT BREAK-GLASS IS GONE as of PDM-270 — it contradicted the accepted D7, an
+ * admin may not view or drive another member's session — so these cases no
+ * longer have a second branch to fall through. The member fixture stays anyway:
+ * it states the variable under test, and the admin case is now its own witness
+ * directly below rather than a hazard to route around.
  */
 describe('MU-07/08: a session is private to the human who started it', () => {
   const BOB = asUserId('user:bob')
@@ -635,6 +635,44 @@ describe('MU-07/08: a session is private to the human who started it', () => {
     const alice = memberClient('c-alice-drive', ALICE)
 
     expect(await ctl.authorizeDrive(alice.principal, SESSION)).toBe(false)
+  })
+
+  /**
+   * THE SAME REFUSAL FOR AN INSTANCE ADMIN, THROUGH THE REAL CONTROL PATH
+   * [PDM-270]. The pure policy is covered in session-control-policy.test.ts; this
+   * is the transport witness, because a rule that only a unit test sees is a rule
+   * the next refactor deletes under a green suite (catalogue entry 20).
+   *
+   * Alice is `role: 'admin'` here — the one case the fixture above deliberately
+   * avoids. Until PDM-270 both assertions answered the other way, and they are
+   * the only two in this file that would.
+   */
+  it('refuses ATTACH and DRIVE to an instance ADMIN who does not own the session', async () => {
+    const session = makeSession()
+    const ctl = control({ session, owner: bobsOwnership, machineUse: 'granted' })
+    const admin = makeClient('c-alice-admin', ALICE, 'admin')
+
+    await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
+
+    expect(admin.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unauthorized',
+    })
+    expect(admin.attached.has(SESSION)).toBe(false)
+    expect(await ctl.authorizeDrive(admin.principal, SESSION)).toBe(false)
+  })
+
+  it('and admits that same ADMIN to the session it DOES own', async () => {
+    // THE ALLOW ARM. The grade is not blacklisted; it is simply not consulted.
+    const session = makeSession()
+    const ctl = control({ session, owner: { owner: ALICE, grants: [] }, machineUse: 'granted' })
+    const admin = makeClient('c-alice-admin-own', ALICE, 'admin')
+
+    await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
+
+    expect(admin.attached.has(SESSION)).toBe(true)
+    expect(await ctl.authorizeDrive(admin.principal, SESSION)).toBe(true)
   })
 
   it('refuses TRANSCRIPT SUBSCRIPTION to a human who does not own the session', async () => {
