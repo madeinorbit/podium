@@ -1,4 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId } from '@podium/model'
 import { type Operation, parseOperation } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
@@ -42,7 +42,21 @@ async function harness() {
     capability: OPERATOR,
     principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
   } as Parameters<typeof appRouter.createCaller>[0])
-  return { registry, caller, operations: registry.modules.operations }
+  /**
+   * A MEMBER-GRADE CALLER over the same registry (PDM-294). `userCommandPrincipal`
+   * mints a `worker` capability scoped to that person's own rows, which is what
+   * `assertActionAuthorized` reads — so nothing decided by this caller can be
+   * decided by the admin path.
+   */
+  const memberPrincipal = userCommandPrincipal(asUserId('user:ops-member'), 'member')
+  const member = appRouter.createCaller({
+    registry,
+    repos,
+    superagent,
+    capability: memberPrincipal.capability,
+    principal: memberPrincipal,
+  } as Parameters<typeof appRouter.createCaller>[0])
+  return { registry, caller, member, operations: registry.modules.operations }
 }
 
 afterEach(async () => {
@@ -298,5 +312,49 @@ describe('operations.cancel', () => {
       canceled: false,
       refused: 'already-finished',
     })
+  })
+})
+
+/**
+ * THE ADMIN FLOOR ON `cancel` (PDM-294).
+ *
+ * All three operation contracts declare `roleFloor: 'admin'` with
+ * `machineVerb: 'manage'`; `settleAsk` and `action` asked and `cancel` did not.
+ * Both arms are asserted from the same fixture — a member refused, and the SAME
+ * call succeeding for an admin — because a gate that refused everyone would
+ * satisfy the refusal on its own (false-green catalogue entry 1).
+ */
+describe('operations.cancel is behind the floor its contract declares', () => {
+  const liveOperation = async () => {
+    const h = await harness()
+    h.operations.kinds.register(
+      testKind({
+        plan: () => ({ steps: [{ id: 'first' }] }),
+        runners: { first: { ensure: blocks, reversible: true } },
+      }),
+    )
+    const started = await h.operations.engine.start('test')
+    if (!started.started) throw new Error('expected a live operation')
+    return { ...h, id: started.operation.id }
+  }
+
+  it('refuses a member, naming the grade', async () => {
+    const { member, id } = await liveOperation()
+    await expect(member.operations.cancel({ id })).rejects.toThrow(
+      /operation recovery requires an admin account/,
+    )
+  })
+
+  it('leaves the operation running when it refuses', async () => {
+    const { member, caller, id } = await liveOperation()
+    await expect(member.operations.cancel({ id })).rejects.toThrow()
+    // The refusal is not merely a thrown message: the work it was asked to tear
+    // down is still there.
+    expect(await caller.operations.active()).toMatchObject({ id })
+  })
+
+  it('still cancels for an admin', async () => {
+    const { caller, id } = await liveOperation()
+    expect(await caller.operations.cancel({ id })).toMatchObject({ canceled: true })
   })
 })
