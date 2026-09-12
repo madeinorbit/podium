@@ -113,44 +113,6 @@ async function assertNotProposedForAgent(
   }
 }
 
-/**
- * OWNER-ONLY ACCESS TO A PRIVATE AUTOMATION (A3/PDM-129, ADR 9 Amendment 1 D7;
- * execution charter "private singly owned automations").
- *
- * One helper rather than the check written twice, because it was written twice
- * and both copies carried the same `scope.kind !== 'all'` prefix — so the rule
- * read as "constrained callers may only touch their own", which is a different
- * and weaker rule than "only the owner may touch it". Removing the prefix in one
- * place and not the other would have been the likeliest outcome of fixing this
- * inline, and a privacy rule enforced at one of two sites is not enforced.
- *
- * There is deliberately no admin arm and no `--outside-scope` arm: axis 2 (role)
- * decides which commands may be ATTEMPTED and axis 3's override confirms crossing
- * a TASK boundary. Neither has anything to say about whose automation this is.
- */
-async function assertOwnSubscription(
-  ctx: {
-    attention: { subscriptionList(filter?: { subscriberId: string }): Promise<{ id: string }[]> }
-    deriveSubscriber(): { kind: string; id: string }
-  },
-  subscriptionId: string,
-  verb: string,
-): Promise<void> {
-  const subscriber = ctx.deriveSubscriber()
-  const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-    (s) => s.id === subscriptionId,
-  )
-  if (!owned) {
-    // NOT_FOUND rather than FORBIDDEN would be defensible, but the shipped
-    // message for this case was FORBIDDEN and a constrained caller already saw
-    // it; changing the code as well as the population would be two changes.
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `not allowed to ${verb} a subscription you do not own`,
-    })
-  }
-}
-
 export type IssueCommandKind = 'query' | 'mutation'
 
 /**
@@ -1285,24 +1247,13 @@ const defs = {
   subscriptionAdd: def('subscriptionAdd', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // ── PAYLOAD IDENTITY SUBSTITUTION, REMOVED (A3/PDM-129) ───────────────
-      //
-      // This used to read `input.subscriber` when the caller's scope was 'all',
-      // so an admin could create a subscription OWNED BY SOMEONE ELSE out of a
-      // payload field. Two rules say no, and they agree:
-      //
-      //   - ADR 3 D7 / Amendment 1 D14.3: identity comes from the authenticated
-      //     transport and is INERT in payload. A subscriber taken from input is
-      //     the transport's answer being overridden by the caller's.
-      //   - the execution charter: automations are private and singly owned, and
-      //     automation sharing/transfer is explicitly NOT in v1. Minting one for
-      //     another person is a transfer with no verb.
-      //
-      // Every caller now subscribes ITSELF. The `subscriber` input field is left
-      // on the contract and ignored rather than made an error, which is the
-      // behaviour constrained agents already had — a client that still sends one
-      // keeps working and simply cannot name anyone but itself.
-      const subscriber = ctx.deriveSubscriber()
+      // Operator (scope 'all') may create a subscription for an explicit subscriber
+      // (#129 Phase C — the Automations UI); constrained agents always subscribe
+      // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
+      const subscriber =
+        input.subscriber && ctx.caller.capability.scope.kind === 'all'
+          ? input.subscriber
+          : ctx.deriveSubscriber()
       // Constrained callers may only watch a source WITHIN their subtree; the
       // operator (scope 'all') is unconstrained. Relationship sources resolve
       // dynamically against the subscriber's own subtree, so they are always in-scope.
@@ -1323,15 +1274,19 @@ const defs = {
   subscriptionRemove: def('subscriptionRemove', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // OWNER-ONLY, WITH NO ADMIN ARM (A3/PDM-129). The ownership check used to
-      // be skipped for scope 'all', so an admin could delete another member's
-      // private automation. A subscription is personal automation configuration,
-      // which the charter keeps private; ADR 9 Amendment 1 D7's rule that an
-      // admin may not drive another member's execution is the same rule one
-      // resource over. Admin grade decides which commands may be ATTEMPTED
-      // (axis 2), never whose rows may be touched (axis 4) — see
-      // `@podium/model`'s `authz/axes.ts`.
-      await assertOwnSubscription(ctx, input.id, 'remove')
+      // Constrained callers may only remove their OWN subscriptions.
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        const subscriber = ctx.deriveSubscriber()
+        const owned = (await ctx.attention
+          .subscriptionList({ subscriberId: subscriber.id }))
+          .some((s) => s.id === input.id)
+        if (!owned) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'not allowed to remove a subscription you do not own',
+          })
+        }
+      }
       return await ctx.attention.subscriptionRemove(input.id)
     },
   }),
@@ -1341,9 +1296,19 @@ const defs = {
   subscriptionSetEnabled: def('subscriptionSetEnabled', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // Owner-only, with no admin arm — same rule and same reason as
-      // `subscriptionRemove` above.
-      await assertOwnSubscription(ctx, input.id, 'toggle')
+      // Constrained callers may only toggle their OWN subscriptions.
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        const subscriber = ctx.deriveSubscriber()
+        const owned = (await ctx.attention
+          .subscriptionList({ subscriberId: subscriber.id }))
+          .some((s) => s.id === input.id)
+        if (!owned) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'not allowed to toggle a subscription you do not own',
+          })
+        }
+      }
       return ctx.attention.subscriptionSetEnabled(input.id, input.enabled)
     },
   }),
@@ -1352,17 +1317,8 @@ const defs = {
     // The one historical no-input proc: z.void() keeps `query()` (no args) valid
     // on every client while the registry contract still carries ONE schema.
     handler: async (ctx) => {
-      // ── THE CROSS-USER PROJECTION, REMOVED (A3/PDM-129) ───────────────────
-      //
-      // This used to return EVERY subscription on the instance to a scope-'all'
-      // caller. A projection is an authorization decision like any other — the
-      // whole reason A3 gives reads a policy — and this one disclosed every
-      // member's personal automation configuration to every admin.
-      //
-      // The narrowing is not a filter bolted on after the fact: the service is
-      // now asked only for the caller's own rows, so there is no moment at which
-      // the server holds a forbidden row and hopes the projection drops it (ADR 3
-      // Amendment 1 D19, rejected alternatives).
+      // Operator sees every subscription; a constrained caller sees only its own.
+      if (ctx.caller.capability.scope.kind === 'all') return await ctx.attention.subscriptionList()
       const subscriber = ctx.deriveSubscriber()
       return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },
