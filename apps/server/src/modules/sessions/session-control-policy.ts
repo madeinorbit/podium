@@ -66,8 +66,9 @@ export const controlSubjectFromClient = (principal: ClientPrincipal): ControlSub
 export const controlSubjectFromCommand = (principal: CommandPrincipal): ControlSubject => {
   switch (principal.kind) {
     case 'user':
-      // Capability.role is the issue-authz vocabulary; instance admin is the
-      // only break-glass grade that may drive any session (policy §3).
+      // Capability.role is the issue-authz vocabulary. The grade is projected
+      // because callers read it, NOT because it confers rights on a session:
+      // under D7 it no longer does (see `humanMay`).
       return {
         kind: 'user',
         human: principal.user,
@@ -105,14 +106,19 @@ export const contextFromOwnership = (
   machineUse,
 })
 
+/**
+ * Owner or grantee. There is no grade that answers this question: ADR 9
+ * Amendment 1 D7 (accepted 12 September 2026) says an instance admin cannot
+ * view or drive another member's session, so the `role === 'admin'` short
+ * circuit that used to sit between these two lines is gone [PDM-270]. An admin
+ * reaches someone else's session the same way anyone else does — with a grant.
+ */
 const humanMay = (
   human: UserId,
-  role: UserRole | null,
   owner: UserId,
   grantees: readonly string[],
 ): boolean => {
   if (human === owner) return true
-  if (role === 'admin') return true
   return grantees.includes(human)
 }
 
@@ -130,16 +136,14 @@ export function mayWatch(
   if (ctx.machineUse !== 'granted') return 'unauthorized'
   if (subject.kind === 'system') return true
   if (!subject.human) return 'unauthorized'
-  return humanMay(subject.human, subject.role, ctx.owner, ctx.watchGrantees)
-    ? true
-    : 'unauthorized'
+  return humanMay(subject.human, ctx.owner, ctx.watchGrantees) ? true : 'unauthorized'
 }
 
 /**
  * May this subject TAKE or HOLD control?
  *
  * Watch is a prerequisite (includes machine use). Drive additionally needs
- * owner / write-or-manage grant / admin.
+ * owner or a write-or-manage grant.
  */
 export function mayDrive(
   subject: ControlSubject,
@@ -149,9 +153,7 @@ export function mayDrive(
   if (watch !== true) return watch
   if (subject.kind === 'system') return true
   if (!subject.human) return 'unauthorized'
-  return humanMay(subject.human, subject.role, ctx.owner, ctx.driveGrantees)
-    ? true
-    : 'unauthorized'
+  return humanMay(subject.human, ctx.owner, ctx.driveGrantees) ? true : 'unauthorized'
 }
 
 /** Stamp the live controller identity from a control subject. */

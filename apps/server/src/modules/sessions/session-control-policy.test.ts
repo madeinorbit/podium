@@ -102,9 +102,33 @@ describe('session control policy — watch / drive', () => {
     expect(mayDrive(ownerSubject(ALICE), c)).toBe('unauthorized')
   })
 
-  it('instance admin is break-glass drive (policy §3)', () => {
+  it('instance admin is REFUSED watch and drive on a session it does not own (D7)', () => {
+    // REVERSAL of the pre-D7 "break-glass" policy §3. The execution charter
+    // accepted D7 on 12 September 2026: admins cannot view or drive another
+    // member's session. Watch is asserted next to drive because D7 names both
+    // verbs and mayWatch is the check that attaches the PTY.
     const c = ctx({ machineUse: 'granted' })
+    expect(mayWatch(adminSubject(), c)).toBe('unauthorized')
+    expect(mayDrive(adminSubject(), c)).toBe('unauthorized')
+  })
+
+  it('and the SAME admin watches and drives the session it DOES own', () => {
+    // THE ALLOW ARM, and the only thing that makes the refusal above a statement
+    // about OWNERSHIP. One fact differs between the two cases: who owns the row.
+    // Without it, the refusal would read identically if the policy had simply
+    // blacklisted admins, which is not what D7 says.
+    const c = ctx({ machineUse: 'granted', owner: ADMIN })
+    expect(mayWatch(adminSubject(), c)).toBe(true)
     expect(mayDrive(adminSubject(), c)).toBe(true)
+  })
+
+  it('an admin on a foreign session is admitted by a GRANT, at the grant\'s verb', () => {
+    // The grade confers nothing; the grant confers exactly what it confers. A
+    // watch-only grant must not drive, or the removed short circuit would have
+    // grown back as "any grant is enough for an admin".
+    const watchOnly = ctx({ machineUse: 'granted', watchGrantees: [ADMIN], driveGrantees: [] })
+    expect(mayWatch(adminSubject(), watchOnly)).toBe(true)
+    expect(mayDrive(adminSubject(), watchOnly)).toBe('unauthorized')
   })
 
   it('agent rights are the human ceiling — revoke human, agent loses drive at next apply', () => {
@@ -160,13 +184,16 @@ describe('session control policy — identity + attribution', () => {
     expect(agentAttr?.onBehalfOf).toBe(OWNER)
   })
 
-  it('command principal projects role from capability.role for admin break-glass', () => {
+  it('command principal projects role from capability.role, which no longer drives', () => {
     const admin = controlSubjectFromCommand({
       kind: 'user',
       user: ADMIN,
       capability: { role: 'admin', scope: { kind: 'all' }, actorUser: ADMIN, onBehalfOf: ADMIN },
     })
     expect(admin.role).toBe('admin')
-    expect(mayDrive(admin, ctx({ machineUse: 'granted' }))).toBe(true)
+    // The PROJECTION still records the grade — role is a fact about the
+    // principal and other code reads it. What D7 changed is that the grade no
+    // longer answers the ownership question on someone else's session.
+    expect(mayDrive(admin, ctx({ machineUse: 'granted' }))).toBe('unauthorized')
   })
 })
