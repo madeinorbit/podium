@@ -189,7 +189,21 @@ describe('sessions.status ownership', () => {
     expect(result.issue).toMatchObject({ seq: 228, title: 'The issue' })
   })
 
-  it('answers a grantee, so the rule is ownership and not bare owner equality', async () => {
+  /**
+   * TRANSITIONAL, AND IT MUST FLIP WHEN PDM-251 LANDS — do not read this as the
+   * v1 sharing rule. It pins what `mayReadOwned` answers TODAY, which is the
+   * task owner-or-grant shape (`AuthTarget` kind `owned`). PDM-251 is open
+   * against exactly that: a grant on a shared task still opens the private
+   * sessions attached to it, and the owner-only `private` target that should
+   * decide a SESSION exists in the model with nothing building one yet.
+   *
+   * So when a session authorization target becomes `private`, THIS ASSERTION
+   * BECOMES A REFUSAL. It is here to stop a regression to bare `owner ===
+   * caller` equality, not to defend grantee access on its merits. Left as a
+   * positive case so the flip is a visible, deliberate edit rather than a test
+   * that quietly already agreed.
+   */
+  it('answers a grantee today — transitional, see PDM-251', async () => {
     const h = harness({ owners: { [TARGET]: { owner: OWNER, grants: [GRANTEE] } } })
     const result = await statusFor(h.stateFor(GRANTEE), TARGET)
     expect(result.sessionId).toBe(TARGET)
