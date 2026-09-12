@@ -142,14 +142,15 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(out.data).toHaveLength(2)
   })
 
-  it('claim calls issues.claim.mutate with id + assignee', async () => {
+  it('claim calls issues.claim.mutate with the id ALONE', async () => {
+    // A2 / ADR 9 Amendment 1 D2. This read "with id + assignee" and passed
+    // `assignee: 'agent:claude'` — an agent label, sent by the command an agent
+    // runs to pick up work, into the field that names the accountable human.
+    // Claim records lifecycle and the coordinator seat; reassignment is a separate,
+    // explicit act by an active member.
     const { client, calls } = mockClient()
-    await cmd('claim').run(client, { id: 'iss_1', assignee: 'agent:claude' })
-    expect(calls).toContainEqual({
-      path: 'claim',
-      kind: 'mutate',
-      input: { id: 'iss_1', assignee: 'agent:claude' },
-    })
+    await cmd('claim').run(client, { id: 'iss_1' })
+    expect(calls).toContainEqual({ path: 'claim', kind: 'mutate', input: { id: 'iss_1' } })
   })
 
   it('needs-human calls issues.setNeedsHuman.mutate with id + question', async () => {

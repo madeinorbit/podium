@@ -19,6 +19,22 @@
 -- state in which the evidence and the source value both existed, so a failure
 -- between the two halves would lose the thing the evidence is about.
 --
+-- ONE CONSEQUENCE, RECORDED WHERE THE NEXT READER WILL BE.
+--
+-- `20260911082826_retire-the-solo-user` is frozen history and its SQL includes
+-- `UPDATE issues SET assignee = ... WHERE assignee = 'user:sole'`. After this
+-- migration that statement names a column that does not exist, so REPLAYING that
+-- file against a post-A2 schema fails.
+--
+-- The normal path never replays: `runDrizzleMigrations` applies only the pending
+-- set, filtered by ledger name. The one path that would is the ALIAS case the
+-- runner's own comment names — an instance whose ledger holds an OLD NAME for a
+-- migration, which makes the canonical name read as pending. Such a replay now
+-- errors loudly, inside drizzle's transaction and after the boot backup, rather
+-- than corrupting anything; but anyone introducing a migration alias that covers
+-- the solo-user retirement needs to know it can no longer be replayed. Reported to
+-- the phase review (PDM-131) rather than left for someone to rediscover.
+
 -- `ALTER TABLE ... DROP COLUMN` rather than the create/copy/drop/rename rebuild
 -- `20260911082826_retire-the-solo-user` used: that one was removing column
 -- DEFAULTS, which SQLite cannot do in place. Dropping a column it can, and a

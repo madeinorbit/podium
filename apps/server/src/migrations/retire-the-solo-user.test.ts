@@ -612,7 +612,18 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(oldPayload.ownerUserId).toBe(RETIRED)
     if (compacted) db.exec('DELETE FROM changes')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    // THROUGH THE RETIREMENT ONLY, not to HEAD — and the difference is the replay
+    // assertion at the end of this test rather than anything about feeds.
+    //
+    // This migration's frozen SQL includes `UPDATE issues SET assignee = ... `.
+    // A2 (PDM-128) retired `issues.assignee` — it was a second mutable owner
+    // column beside `owner_user_id` — so replaying this file against the HEAD
+    // schema now fails on a column that no longer exists. That failure would say
+    // nothing about the property under test, and pinning the test at this
+    // migration's own era keeps the subject the feed epoch rather than the schema
+    // it happened to run against. The walk to HEAD happens below, after the
+    // replay, and is asserted to change nothing either.
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1))
 
     const after = makeServing() // boot reads the committed generation afresh
     expect((await after.identity()).feedId).toBe(held.feedId)
@@ -627,11 +638,17 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       held.seq,
     )
     const identity = await repo.readFeedIdentity()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    // A re-run applies nothing and moves nothing.
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1))
     expect(await repo.readFeedIdentity()).toEqual(identity)
     // Even a direct replay of this migration finds no old payload to invalidate.
+    // This is the ALIAS case the runner guards (`index.ts`: "drizzle cannot know
+    // that an old ledger name already performed the canonical migration SQL") —
+    // a rename, simulated by a synthetic entry — and it stays LAST, because the
+    // entry is not in the real manifest and any run after it would refuse the
+    // database as newer than the build.
     runDrizzleMigrations(db, [
-      ...DRIZZLE_MIGRATIONS,
+      ...DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1),
       { ...retirementMigration(), name: '20990101000000_retirement-replay' },
     ])
     expect(await repo.readFeedIdentity()).toEqual(identity)

@@ -353,6 +353,7 @@
         "src/member-routes.test.ts",
         "src/member-routes.ts",
         "src/migrations/**",
+        "src/migrations/a2-ownership-backfill.test.ts",
         "src/migrations/applied-mutations-retention-index.test.ts",
         "src/migrations/applier.test.ts",
         "src/migrations/backup.test.ts",
