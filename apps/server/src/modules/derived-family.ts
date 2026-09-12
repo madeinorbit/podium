@@ -56,8 +56,15 @@
  * objects, not by grepping for an absence.
  *
  * ---------------------------------------------------------------------------
- * THE ONE DECISION THIS FILE DOES TAKE, AND WHY IT IS NOT A CONTRADICTION
+ * THE DECISIONS THIS FILE DOES TAKE, AND WHY THEY ARE NOT A CONTRADICTION
  * ---------------------------------------------------------------------------
+ *
+ * There are two, and they are deliberately argued in ONE place. PDM-294 wrote
+ * this section for the first; PDM-290 extended it rather than adding a second
+ * paragraph elsewhere, because two separately-argued exceptions to one
+ * invariant, in two places, is how the invariant stops being one. The heading
+ * said THE ONE DECISION until the second arrived; if a third does, it is
+ * appended here, and the reason has to fit the same three-position table.
  *
  * PDM-294: the builder now reads `contract.policy.roleFloor` and refuses a
  * principal below it, through `./role-floor`. Read alongside the paragraph above
@@ -76,6 +83,30 @@
  * carrying an `admin` floor were served to any authenticated member, and a
  * FOURTEENTH family would have inherited the hole on the day it was added. A
  * fix that a new family can forget is not a fix.
+ *
+ * PDM-290 adds `sessionTargets` to `FamilyState`, and it is a THIRD position
+ * next to those two rather than a hole in either:
+ *
+ *   - a SERVICE may receive a PRE-BOUND ANSWER. `sessionTargets` is one
+ *     question — may this caller command this session, and what is the row —
+ *     already closed over this request's principal. The service asks; it cannot
+ *     read a scope out of what comes back, cannot see a role, cannot mint a
+ *     principal, and cannot phrase a different question.
+ *
+ * Why the roleFloor gate above could not cover it, which is the part worth
+ * having in writing. A floor is a claim about the CALLER's grade and nothing
+ * about the TARGET: `cloud.moveSession` declares `roleFloor: 'member'`, and
+ * every authenticated caller satisfies a member floor. The defect was that the
+ * command took a caller-supplied `sessionId`, resolved it with no principal at
+ * all, and seeded a hosted runtime from another human's resume ref and cwd —
+ * a row-level ownership question the transport cannot answer, because answering
+ * it means reading the row. So this one belongs to the service, exactly where
+ * the `FamilyState` paragraph above says authorization belongs.
+ *
+ * The shape is the concession that keeps that paragraph literally true. Handing
+ * the bundle a `CommandPrincipal` would have worked and would have put a
+ * capability, a role and a scope in front of every handler in thirteen
+ * families, in order to fix one command in one of them.
  */
 
 import type { UserId } from '@podium/model'
@@ -101,6 +132,7 @@ import {
   roleFloorIsGated,
 } from './role-floor'
 import { sessionStatePrincipalFor } from './sessions/session-state/registry'
+import { type SessionTargetGate, sessionTargetGate } from './sessions/session-target-gate'
 
 /**
  * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
@@ -230,6 +262,16 @@ export interface FamilyState {
      *  anything. */
     readonly actorSessionId: Capability['actorSessionId']
   }
+  /**
+   * MAY THIS CALLER COMMAND THAT SESSION — the ANSWER, not the authority to
+   * decide it (PDM-290). The third position in "THE DECISIONS THIS FILE DOES
+   * TAKE" above argues why this is not the capability coming back; the rule is
+   * stated there, once, next to the other two, rather than a second time here.
+   *
+   * Selected by `cloud` alone today. `moveSession` is the only method on that
+   * service that takes a session id, and it is the reason this member exists.
+   */
+  readonly sessionTargets: SessionTargetGate
   readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
@@ -465,6 +507,9 @@ export const familyState = (ctx: Context): FamilyState => ({
     sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
   },
+  // The principal is read HERE and nowhere downstream: the gate closes over it,
+  // and what reaches a family is a question it may ask.
+  sessionTargets: sessionTargetGate(mods(ctx), ctx.principal, ctx.overrideScope),
   ...(ctx.principal?.kind === 'user'
     ? {
         feedPrincipal: {

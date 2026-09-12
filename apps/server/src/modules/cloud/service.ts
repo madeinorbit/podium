@@ -46,6 +46,8 @@ import {
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { canonicalizeRepoOrigin } from '../../repo-id'
 import type { RepoRegistry } from '../../repo-registry'
+import { SESSION_NOT_FOUND } from '../sessions/session-access'
+import type { SessionTargetGate } from '../sessions/session-target-gate'
 
 export interface CloudServiceDeps {
   /** Absent on deployments with no cloud provider; the disabled provider is
@@ -54,6 +56,10 @@ export interface CloudServiceDeps {
   readonly sessions: RegistryModules['sessions']
   readonly repos: RepoRegistry
   readonly store: SessionRegistry['sessionStore']
+  /** The CALLER's session-target gate (PDM-290). Required, not optional: an
+   *  optional gate is one a future construction site can omit, and the omission
+   *  is exactly the defect this closed. */
+  readonly sessionTargets: SessionTargetGate
 }
 
 /** The shipped mapping, moved verbatim: an unconfigured provider is a
@@ -117,7 +123,7 @@ export class CloudService {
    *
    * THE ORDER IS THE BEHAVIOUR and is preserved exactly:
    *
-   *  1. resolve the session, or NOT_FOUND;
+   *  1. resolve the session FOR THIS CALLER, or NOT_FOUND;
    *  2. check the manifest says the agent kind can go to cloud (#158);
    *  3. require a resume ref — a session with no resume cannot be reconstituted
    *     anywhere, so moving it would silently lose it;
@@ -131,6 +137,23 @@ export class CloudService {
    * late means a provisioning failure never leaves the user with a hibernated
    * session and nowhere for it to have gone. Both halves are needed and the
    * router had them in exactly this arrangement.
+   *
+   * -------------------------------------------------------------------------
+   * STEP 1 GAINED ITS PRINCIPAL AT PDM-290, AND STAYS STEP 1
+   * -------------------------------------------------------------------------
+   *
+   * It used to read `sessionById(input.sessionId)` with the optional
+   * `forPrincipal` argument omitted, which takes the unscoped arm: any
+   * authenticated caller could name any session id and have this method
+   * reconstitute another human's conversation on a runtime they control, and —
+   * with `hibernateLocal` — park that human's live session. The contract said
+   * `roleFloor: 'member'`; nothing on this path read it, because
+   * `derivedFamilyProcedures` does not and `CloudService` asked for no caller.
+   *
+   * The refusal stays FIRST for the same reason step 4 comes before step 5: a
+   * request that cannot be honoured must not bill for a runtime. `moveSession`
+   * is the only method here that takes a session id, which is why the gate is a
+   * line in it rather than a wrapper around the class.
    */
   async moveSession(input: {
     sessionId: SessionId
@@ -139,9 +162,17 @@ export class CloudService {
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
   }) {
+    // ABSENT AND NOT-YOURS ARE ONE ANSWER (ADR 3 Amendment 1 D20.2), so this
+    // surface cannot be asked whether a session id exists.
+    await this.deps.sessionTargets.requireCommandable(input.sessionId, 'cloud.moveSession')
+    // The post-gate detail read: the gate's row is a `Pick` of the eight fields
+    // an access decision needs, and the six this method uses — resume, name,
+    // title, agentState, machineId, issueId — are not among them. Same shape as
+    // `command-plane.ts`'s target read, and unscoped for the same reason: the
+    // decision has already been made, on this id, one line above.
     const session = await this.deps.sessions.sessionById(input.sessionId as SessionId)
     if (!session) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
+      throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
     }
     const agent = this.cloudAgentKind(session.agentKind)
     if (!session.resume?.value) {
