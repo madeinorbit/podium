@@ -4018,6 +4018,16 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "prior_owner",
+      "entityType": "columns",
+      "table": "ownership_migration_dispositions"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -12545,6 +12555,12 @@
     {
       "value": "disposition IN (\n        'adopted-assignee-as-owner',\n        'kept-owner-assignee-was-agent-label',\n        'kept-owner-assignee-unknown-account'\n      )",
       "name": "ownership_migration_dispositions_disposition_check",
+      "entityType": "checks",
+      "table": "ownership_migration_dispositions"
+    },
+    {
+      "value": "CASE disposition\n        WHEN 'adopted-assignee-as-owner' THEN resolved_owner IS NOT prior_owner\n        ELSE resolved_owner IS prior_owner\n      END",
+      "name": "ownership_migration_dispositions_owner_move_check",
       "entityType": "checks",
       "table": "ownership_migration_dispositions"
     },

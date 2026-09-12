@@ -17,6 +17,7 @@ CREATE TABLE `ownership_migration_dispositions` (
 	`migration` text NOT NULL,
 	`entity_kind` text NOT NULL,
 	`entity_id` text NOT NULL,
+	`prior_owner` text NOT NULL,
 	`resolved_owner` text,
 	`retired_assignee` text,
 	`disposition` text NOT NULL,
@@ -26,7 +27,11 @@ CREATE TABLE `ownership_migration_dispositions` (
         'adopted-assignee-as-owner',
         'kept-owner-assignee-was-agent-label',
         'kept-owner-assignee-unknown-account'
-      ))
+      )),
+	CONSTRAINT "ownership_migration_dispositions_owner_move_check" CHECK(CASE disposition
+        WHEN 'adopted-assignee-as-owner' THEN resolved_owner IS NOT prior_owner
+        ELSE resolved_owner IS prior_owner
+      END)
 );
 --> statement-breakpoint
 ALTER TABLE `issue_user_state` ADD `started_at` text;--> statement-breakpoint

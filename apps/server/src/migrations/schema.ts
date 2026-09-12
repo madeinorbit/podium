@@ -1607,12 +1607,19 @@ export const issueParticipants = sqliteTable(
 //     is not a person and must never become the accountable owner;
 //   - the assignee names an id no account row matches, so it cannot be adopted.
 //
-// Each of those gets a row here, naming both values and the rule applied. The
-// charter asks for "an explicit migration disposition for ambiguous legacy
-// owners/assignees", and this is it: durable, queryable evidence that the losing
-// value was READ and adjudicated rather than dropped. An operator who finds a
-// task assigned to the wrong person after the upgrade can see exactly what was
-// there and why it resolved that way.
+// Each of those gets a row here, naming the owner BEFORE, the assignee that was
+// read, the rule applied, and the owner the row ENDS with. The charter asks for
+// "an explicit migration disposition for ambiguous legacy owners/assignees", and
+// this is it: durable, queryable evidence that the losing value was READ and
+// adjudicated rather than dropped. An operator who finds a task assigned to the
+// wrong person after the upgrade can see exactly what was there and why it
+// resolved that way.
+//
+// FOUR facts and not three, because an adoption's winner IS the assignee: record
+// only "what won" and "what was retired" and both name the same person, so the
+// row describes an ownership change without saying whose ownership changed. The
+// displaced owner is not recoverable from anywhere else — the backfill overwrites
+// `issues.owner_user_id` and the migration after it drops `issues.assignee`.
 //
 // APPEND-ONLY BY CONSTRAINT, not by convention. Rewriting a disposition would
 // destroy the only copy of the retired value.
@@ -1627,8 +1634,22 @@ export const ownershipMigrationDispositions = sqliteTable(
      *  someone goes looking for it. */
     entityKind: text('entity_kind').notNull(),
     entityId: text('entity_id').notNull(),
-    /** The value that WON, and the value that was retired. Both verbatim, both
-     *  nullable, because "there was nothing there" is one of the findings. */
+    /** WHO IT WAS, WHO IT ENDED UP BEING, and the value that was retired to get
+     *  there. THREE columns rather than two, and the third is not redundant:
+     *  `resolved_owner` is the owner the row ENDS with, so on the one disposition
+     *  that actually moves an owner it holds the same id as `retired_assignee`.
+     *  A record of an ownership change in which both stored ids name the WINNER
+     *  cannot answer the question an operator opens this table to ask — whose
+     *  ownership changed. `prior_owner` is that answer, and it is the only place
+     *  the displaced party survives: the migration overwrites `issues.owner_user_id`
+     *  and the next migration drops `issues.assignee`.
+     *
+     *  NOT NULL, unlike the other two. "There was nothing there" is a real finding
+     *  about an assignee and about the value a rule resolved to; it is not one
+     *  about the owner of a row being adjudicated, because every such row had one.
+     *  A disposition that cannot name the person it displaced is precisely the
+     *  defect this column exists to make unrepresentable. */
+    priorOwner: text('prior_owner').$type<UserId>().notNull(),
     resolvedOwner: text('resolved_owner').$type<UserId>(),
     retiredAssignee: text('retired_assignee'),
     /** Why. A closed vocabulary, CHECKed, so the dispositions can be counted by
@@ -1666,6 +1687,25 @@ export const ownershipMigrationDispositions = sqliteTable(
         'kept-owner-assignee-was-agent-label',
         'kept-owner-assignee-unknown-account'
       )`,
+    ),
+    /** THE DECISION AND THE TWO OWNERS MUST AGREE WITH EACH OTHER, checked by the
+     *  database rather than by whoever writes the next INSERT. Exactly one of the
+     *  three dispositions moves an owner, so `adopted-assignee-as-owner` is the
+     *  one and only case in which the two owner columns may differ — and it is a
+     *  case in which they MUST, because the rule that produced it required the
+     *  assignee to differ from the owner.
+     *
+     *  Written as a constraint because the failure it refuses is silent: an INSERT
+     *  that selects the same value into both columns produces a row that looks
+     *  like a complete record and has lost the thing it was supposed to preserve.
+     *  A new disposition value has to be added to the vocabulary check above
+     *  anyway; adding it here too, deliberately, is the point. */
+    check(
+      'ownership_migration_dispositions_owner_move_check',
+      sql`CASE disposition
+        WHEN 'adopted-assignee-as-owner' THEN resolved_owner IS NOT prior_owner
+        ELSE resolved_owner IS prior_owner
+      END`,
     ),
   ],
 )

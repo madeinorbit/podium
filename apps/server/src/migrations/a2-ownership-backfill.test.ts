@@ -71,39 +71,75 @@ const applyThroughDrop = (db: SqlDatabase): void => {
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, indexOf(DROP) + 1))
 }
 
-function seedUser(db: SqlDatabase, id: string): void {
+function seedUser(db: SqlDatabase, id: string, opts: { disabledAt?: string } = {}): void {
   db.prepare(
-    "INSERT OR IGNORE INTO users (id, display_name, role, created_at) VALUES (?, ?, 'member', 't')",
-  ).run(id, id)
+    "INSERT OR IGNORE INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, 'member', 't', ?)",
+  ).run(id, id, opts.disabledAt ?? null)
 }
 
 let seq = 0
 function seedIssue(
   db: SqlDatabase,
-  opts: { id: string; owner: string; assignee: string | null; revision?: number },
+  opts: {
+    id: string
+    owner: string
+    assignee: string | null
+    revision?: number
+    /** Who FILED it. Defaults to the owner, which is the shape most rows have; a
+     *  conflict case passes a third party so "the creator did not move" is an
+     *  assertion about a distinct value rather than a restatement of the owner. */
+    createdBy?: string
+    createdOnBehalfOf?: string | null
+  },
 ): void {
   seq += 1
   db.prepare(
     `INSERT INTO issues
-       (id, owner_user_id, visibility, created_by_actor, repo_path, seq, title, stage,
-        default_agent, created_at, updated_at, revision, assignee)
-     VALUES (?, ?, 'personal', ?, '/r', ?, 'T', 'backlog', 'claude-code', 't', 't', ?, ?)`,
-  ).run(opts.id, opts.owner, opts.owner, seq, opts.revision ?? 7, opts.assignee)
+       (id, owner_user_id, visibility, created_by_actor, created_by_on_behalf_of, repo_path, seq,
+        title, stage, default_agent, created_at, updated_at, revision, assignee)
+     VALUES (?, ?, 'personal', ?, ?, '/r', ?, 'T', 'backlog', 'claude-code', 't', 't', ?, ?)`,
+  ).run(
+    opts.id,
+    opts.owner,
+    opts.createdBy ?? opts.owner,
+    opts.createdOnBehalfOf ?? null,
+    seq,
+    opts.revision ?? 7,
+    opts.assignee,
+  )
 }
 
+/** THE WHOLE ROW, deliberately. Selecting a subset here is how the adoption case
+ *  used to pass while the record it read named the winner twice: a projection that
+ *  omits `prior_owner` cannot notice that the loser is missing from it. */
 const dispositionOf = (db: SqlDatabase, id: string) =>
   db
     .prepare(
-      'SELECT disposition, resolved_owner, retired_assignee FROM ownership_migration_dispositions WHERE entity_id = ?',
+      'SELECT disposition, prior_owner, resolved_owner, retired_assignee FROM ownership_migration_dispositions WHERE entity_id = ?',
     )
     .get(id) as
-    | { disposition: string; resolved_owner: string | null; retired_assignee: string | null }
+    | {
+        disposition: string
+        prior_owner: string | null
+        resolved_owner: string | null
+        retired_assignee: string | null
+      }
     | undefined
 
 const ownerOf = (db: SqlDatabase, id: string): string =>
   (db.prepare('SELECT owner_user_id AS o FROM issues WHERE id = ?').get(id) as { o: string }).o
 
-describe('A2 ownership backfill — the four legacy shapes', () => {
+/** Creator attribution, both halves. A2 made `owner_user_id` mutable and left
+ *  `created_by_*` alone on purpose: an owner moves, a fact about who filed the
+ *  task does not. */
+const creatorOf = (db: SqlDatabase, id: string) =>
+  db
+    .prepare(
+      'SELECT created_by_actor AS actor, created_by_on_behalf_of AS onBehalfOf FROM issues WHERE id = ?',
+    )
+    .get(id) as { actor: string; onBehalfOf: string | null }
+
+describe('A2 ownership backfill — the legacy shapes, and who they displace', () => {
   it('adopts an assignee that names a real account, and records that it did', () => {
     // WHY THE ASSIGNEE WINS HERE. It is the only one of the two columns a human
     // has ever set: `owner_user_id` is server-derived at create, and on an
@@ -118,10 +154,90 @@ describe('A2 ownership backfill — the four legacy shapes', () => {
     applyBackfill(db)
 
     expect(ownerOf(db, 'iss_adopt')).toBe('mem_real')
+    // `prior_owner` is the assertion that used to be missing. Without it this
+    // expectation named `mem_real` twice and passed whether or not the record
+    // still knew who the owner had BEEN — which is the one thing an operator
+    // reading a disposition needs it to say.
     expect(dispositionOf(db, 'iss_adopt')).toEqual({
       disposition: 'adopted-assignee-as-owner',
+      prior_owner: 'mem_installer',
       resolved_owner: 'mem_real',
       retired_assignee: 'mem_real',
+    })
+  })
+
+  it('names BOTH humans when a conflict moves the task between two people', () => {
+    // THE CASE THE DISPOSITION TABLE EXISTS FOR, and the one the adoption case
+    // above cannot stand in for. Here the losing party is not the installer — it
+    // is a person who was accountable for this task and is about to stop being,
+    // and who is DEACTIVATED, so the instance cannot simply go and ask them. If
+    // the record does not name them, nothing does.
+    //
+    // Every value in the fixture is distinct, so each field of the expectation
+    // below is pinned by exactly one of them and no two can be confused:
+    //
+    //   mem_departed  the owner before the migration, now disabled  -> prior_owner
+    //   mem_taker     the assignee a human chose, and the winner    -> resolved_owner
+    //                                                                  retired_assignee
+    //   mem_founder   who filed it, which does not move at all      -> created_by_*
+    const db = preBackfillDb()
+    seedUser(db, 'mem_departed', { disabledAt: '2026-08-01T00:00:00.000Z' })
+    seedUser(db, 'mem_taker')
+    seedUser(db, 'mem_founder')
+    seedIssue(db, {
+      id: 'iss_conflict',
+      owner: 'mem_departed',
+      assignee: 'mem_taker',
+      createdBy: 'mem_founder',
+      createdOnBehalfOf: 'mem_founder',
+    })
+
+    applyBackfill(db)
+
+    expect(ownerOf(db, 'iss_conflict')).toBe('mem_taker')
+    expect(dispositionOf(db, 'iss_conflict')).toEqual({
+      disposition: 'adopted-assignee-as-owner',
+      prior_owner: 'mem_departed',
+      resolved_owner: 'mem_taker',
+      retired_assignee: 'mem_taker',
+    })
+
+    // A2 made exactly ONE of the two accountable fields mutable. The owner moved;
+    // the fact about who filed the task is not a thing this migration may touch.
+    expect(creatorOf(db, 'iss_conflict')).toEqual({
+      actor: 'mem_founder',
+      onBehalfOf: 'mem_founder',
+    })
+  })
+
+  it('adopts a DEACTIVATED assignee, and the record still names the active owner it displaced', () => {
+    // Recorded rather than assumed. `assignee IN (SELECT id FROM users)` is a
+    // membership test, not an activity test, so a disabled account IS adopted
+    // today — the reverse of the case above, and the one where the person who can
+    // still act on the task is the one being displaced.
+    //
+    // Whether adoption should require an ACTIVE account is a live question and not
+    // this issue's to settle — it needs a fourth disposition value and a change to
+    // an adjudication rule, so it is filed as PDM-256 rather than decided here.
+    // What this case fixes in place is that the answer is observable either way,
+    // and that the displaced owner is on the record while it is being decided.
+    const db = preBackfillDb()
+    seedUser(db, 'mem_active_owner')
+    seedUser(db, 'mem_retired_person', { disabledAt: '2026-08-02T00:00:00.000Z' })
+    seedIssue(db, {
+      id: 'iss_inactive_taker',
+      owner: 'mem_active_owner',
+      assignee: 'mem_retired_person',
+    })
+
+    applyBackfill(db)
+
+    expect(ownerOf(db, 'iss_inactive_taker')).toBe('mem_retired_person')
+    expect(dispositionOf(db, 'iss_inactive_taker')).toEqual({
+      disposition: 'adopted-assignee-as-owner',
+      prior_owner: 'mem_active_owner',
+      resolved_owner: 'mem_retired_person',
+      retired_assignee: 'mem_retired_person',
     })
   })
 
@@ -138,6 +254,7 @@ describe('A2 ownership backfill — the four legacy shapes', () => {
     expect(ownerOf(db, 'iss_agent')).toBe('mem_installer')
     expect(dispositionOf(db, 'iss_agent')).toEqual({
       disposition: 'kept-owner-assignee-was-agent-label',
+      prior_owner: 'mem_installer',
       resolved_owner: 'mem_installer',
       retired_assignee: 'agent:claude-code',
     })
@@ -174,6 +291,7 @@ describe('A2 ownership backfill — the four legacy shapes', () => {
     expect(ownerOf(db, 'iss_ghost')).toBe('mem_installer')
     expect(dispositionOf(db, 'iss_ghost')).toEqual({
       disposition: 'kept-owner-assignee-unknown-account',
+      prior_owner: 'mem_installer',
       resolved_owner: 'mem_installer',
       retired_assignee: 'mem_deleted',
     })
@@ -195,6 +313,81 @@ describe('A2 ownership backfill — the four legacy shapes', () => {
       expect({ id, d: dispositionOf(db, id) }).toEqual({ id, d: undefined })
       expect(ownerOf(db, id)).toBe('mem_installer')
     }
+  })
+})
+
+describe('A2 ownership dispositions — a record that loses the loser is not writable', () => {
+  // The table's own guard, asserted against the table rather than through a
+  // migration, because it is there for the migration that has not been written
+  // yet. The backfill is one-shot; the next ownership migration to write into
+  // this table gets no review from this test file, and `resolved_owner` holding
+  // the same id as `retired_assignee` is a shape that reads as complete.
+
+  const insertDisposition = (
+    db: SqlDatabase,
+    row: {
+      entityId: string
+      prior: string
+      resolved: string
+      retired: string
+      disposition: string
+    },
+  ): void => {
+    db.prepare(
+      `INSERT INTO ownership_migration_dispositions
+         (migration, entity_kind, entity_id, prior_owner, resolved_owner, retired_assignee,
+          disposition, decided_at)
+       VALUES ('a-later-ownership-migration', 'issue', ?, ?, ?, ?, ?, 't')`,
+    ).run(row.entityId, row.prior, row.resolved, row.retired, row.disposition)
+  }
+
+  it('accepts a well-formed adoption — the control for the two refusals below', () => {
+    // Without this, both refusals could be passing on any error at all: a typo in
+    // a column name, a NOT NULL, a check on `disposition` itself.
+    const db = preBackfillDb()
+
+    insertDisposition(db, {
+      entityId: 'iss_ok',
+      prior: 'mem_departed',
+      resolved: 'mem_taker',
+      retired: 'mem_taker',
+      disposition: 'adopted-assignee-as-owner',
+    })
+
+    expect(dispositionOf(db, 'iss_ok')?.prior_owner).toBe('mem_departed')
+  })
+
+  it('REFUSES an adoption whose two owner columns agree', () => {
+    // The defect, as a write the database will not accept: an ownership change in
+    // which the prior owner is the winner records no change at all.
+    const db = preBackfillDb()
+
+    expect(() =>
+      insertDisposition(db, {
+        entityId: 'iss_bad_adopt',
+        prior: 'mem_taker',
+        resolved: 'mem_taker',
+        retired: 'mem_taker',
+        disposition: 'adopted-assignee-as-owner',
+      }),
+    ).toThrow(/CHECK constraint failed/)
+  })
+
+  it('REFUSES a kept-owner disposition whose two owner columns disagree', () => {
+    // The other direction, and not symmetry for its own sake: a row claiming the
+    // owner was KEPT while naming a different resulting owner describes an
+    // ownership move nothing performed.
+    const db = preBackfillDb()
+
+    expect(() =>
+      insertDisposition(db, {
+        entityId: 'iss_bad_keep',
+        prior: 'mem_installer',
+        resolved: 'mem_someone_else',
+        retired: 'agent:claude-code',
+        disposition: 'kept-owner-assignee-was-agent-label',
+      }),
+    ).toThrow(/CHECK constraint failed/)
   })
 })
 

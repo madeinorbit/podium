@@ -65,16 +65,42 @@
 -- ---------------------------------------------------------------------------
 -- Every statement that changes an owner is preceded by the INSERT that records
 -- what was there. `ownership_migration_dispositions` is append-only, keyed
--- `(migration, entity_kind, entity_id)`, and holds both values verbatim, so an
--- operator who finds a task assigned to the wrong person after the upgrade can
--- see exactly what was read and which rule applied. The charter asks for "an
--- explicit migration disposition for ambiguous legacy owners/assignees"; a log
--- line would not survive the upgrade, and a count would not name the rows.
+-- `(migration, entity_kind, entity_id)`, and each row carries FOUR facts: the
+-- owner before (`prior_owner`), the assignee that was read (`retired_assignee`),
+-- the rule that applied (`disposition`), and the owner the row ends with
+-- (`resolved_owner`). So an operator who finds a task assigned to the wrong
+-- person after the upgrade can see exactly what was read and which rule applied.
+-- The charter asks for "an explicit migration disposition for ambiguous legacy
+-- owners/assignees"; a log line would not survive the upgrade, and a count would
+-- not name the rows.
+--
+-- WHY `prior_owner` IS A COLUMN OF ITS OWN and not inferable from the other
+-- three. On the one disposition that actually moves an owner, the winner IS the
+-- assignee — so `resolved_owner` and `retired_assignee` hold the same id, and the
+-- displaced owner appears nowhere. It cannot be recovered afterwards either: the
+-- UPDATE below overwrites `issues.owner_user_id`, and the next migration drops
+-- `issues.assignee`. If this INSERT does not carry it, nothing does, and the
+-- record answers "which value won" while being unable to answer "whose ownership
+-- changed" — the question it exists for. The table's
+-- `ownership_migration_dispositions_owner_move_check` now refuses the shape in
+-- which the two owner columns agree on an adoption, so a later migration writing
+-- into this table cannot reintroduce it quietly.
 --
 -- UNAMBIGUOUS ROWS GET NO DISPOSITION, and that is not laziness: a disposition
 -- table in which the overwhelming majority of rows say "the two agreed" is one
 -- nobody reads. Ambiguity is `assignee` being present, non-empty and different
 -- from `owner_user_id`. Everything else needs no decision.
+--
+-- RE-ENTRANT BY AN EXPLICIT GUARD, not by `INSERT OR IGNORE`. The two read the
+-- same on a happy path and differ on the only path that matters: `OR IGNORE`
+-- swallows EVERY constraint failure, so a row the owner-move check refuses would
+-- be dropped in silence while the UPDATE below still moved its owner — evidence
+-- loss dressed as a successful upgrade, which is the exact failure this table
+-- exists to prevent. The `NOT EXISTS` clause states the re-entrancy that was
+-- actually wanted (this migration has already adjudicated this row) and leaves
+-- every other violation to abort. Aborting is safe and loud: drizzle applies the
+-- pending set in ONE transaction, after the runner's boot backup, so a refusal
+-- rolls the whole upgrade back rather than half-writing it.
 --
 -- `decided_at` is `datetime('now')` — the moment the upgrade ran, which is the
 -- only honest stamp available: the migration cannot know when the divergence
@@ -82,12 +108,13 @@
 -- recording when it was noticed.
 
 -- 3a. AGENT LABELS — record, do not adopt.
-INSERT OR IGNORE INTO ownership_migration_dispositions
-  (migration, entity_kind, entity_id, resolved_owner, retired_assignee, disposition, decided_at)
+INSERT INTO ownership_migration_dispositions
+  (migration, entity_kind, entity_id, prior_owner, resolved_owner, retired_assignee, disposition, decided_at)
 SELECT
   '20260912164233_a2-ownership-backfill',
   'issue',
   id,
+  owner_user_id,
   owner_user_id,
   assignee,
   'kept-owner-assignee-was-agent-label',
@@ -96,16 +123,23 @@ FROM issues
 WHERE assignee IS NOT NULL
   AND assignee <> ''
   AND assignee <> owner_user_id
-  AND assignee LIKE 'agent:%';
+  AND assignee LIKE 'agent:%'
+  AND NOT EXISTS (
+    SELECT 1 FROM ownership_migration_dispositions d
+    WHERE d.migration = '20260912164233_a2-ownership-backfill'
+      AND d.entity_kind = 'issue'
+      AND d.entity_id = issues.id
+  );
 --> statement-breakpoint
 
 -- 3b. IDS THAT RESOLVE TO NO ACCOUNT — record, do not adopt.
-INSERT OR IGNORE INTO ownership_migration_dispositions
-  (migration, entity_kind, entity_id, resolved_owner, retired_assignee, disposition, decided_at)
+INSERT INTO ownership_migration_dispositions
+  (migration, entity_kind, entity_id, prior_owner, resolved_owner, retired_assignee, disposition, decided_at)
 SELECT
   '20260912164233_a2-ownership-backfill',
   'issue',
   id,
+  owner_user_id,
   owner_user_id,
   assignee,
   'kept-owner-assignee-unknown-account',
@@ -115,17 +149,24 @@ WHERE assignee IS NOT NULL
   AND assignee <> ''
   AND assignee <> owner_user_id
   AND assignee NOT LIKE 'agent:%'
-  AND assignee NOT IN (SELECT id FROM users);
+  AND assignee NOT IN (SELECT id FROM users)
+  AND NOT EXISTS (
+    SELECT 1 FROM ownership_migration_dispositions d
+    WHERE d.migration = '20260912164233_a2-ownership-backfill'
+      AND d.entity_kind = 'issue'
+      AND d.entity_id = issues.id
+  );
 --> statement-breakpoint
 
 -- 3c. A REAL PERSON — record, then adopt. The INSERT is first so the retired
 --     value is durable before the UPDATE overwrites the thing it disagreed with.
-INSERT OR IGNORE INTO ownership_migration_dispositions
-  (migration, entity_kind, entity_id, resolved_owner, retired_assignee, disposition, decided_at)
+INSERT INTO ownership_migration_dispositions
+  (migration, entity_kind, entity_id, prior_owner, resolved_owner, retired_assignee, disposition, decided_at)
 SELECT
   '20260912164233_a2-ownership-backfill',
   'issue',
   id,
+  owner_user_id,
   assignee,
   assignee,
   'adopted-assignee-as-owner',
@@ -135,7 +176,13 @@ WHERE assignee IS NOT NULL
   AND assignee <> ''
   AND assignee <> owner_user_id
   AND assignee NOT LIKE 'agent:%'
-  AND assignee IN (SELECT id FROM users);
+  AND assignee IN (SELECT id FROM users)
+  AND NOT EXISTS (
+    SELECT 1 FROM ownership_migration_dispositions d
+    WHERE d.migration = '20260912164233_a2-ownership-backfill'
+      AND d.entity_kind = 'issue'
+      AND d.entity_id = issues.id
+  );
 --> statement-breakpoint
 
 UPDATE issues
