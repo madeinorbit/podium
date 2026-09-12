@@ -300,11 +300,68 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
 function privateTargetDecision(
   cap: Capability,
   target: Extract<AuthTarget, { kind: 'private' }>,
+  action: IssueAction,
 ): AuthDecision {
   const self = cap.onBehalfOf
   if (self === undefined) return 'forbidden'
   if (target.owner === null) return 'forbidden'
-  return target.owner === self ? 'allow' : 'forbidden'
+  if (target.owner !== self) return 'forbidden'
+  // OWNERSHIP IS ONE CONJUNCT, NOT THE ANSWER (A5.7/PDM-259). See below.
+  return privateScopeReach(cap.scope, action, target.owner)
+}
+
+/**
+ * WHAT A CAPABILITY'S SCOPE REACHES OF A PRIVATE RESOURCE ITS OWNER HOLDS
+ * (A5.7/PDM-259) — the second conjunct of {@link privateTargetDecision}.
+ *
+ * A5.1 answered a private target from ownership alone, above the scope switch.
+ * Owner-only was right and the placement was right; returning THERE was not. For
+ * the owner the scope was then never asked anything, so a worker capability
+ * naming alice wrote alice's session under a `none` scope, under a `subtree`
+ * rooted elsewhere, under `self`, and under an `owned` scope naming bob — while
+ * the same four capabilities were refused the same person's OWNED entity.
+ *
+ * §3.1.3 A1 resolves an agent's rights as its scope INTERSECTED with its
+ * delegating human's current rights. An intersection is a CONJUNCTION: ownership
+ * narrows what the scope reaches and never widens it. So this function is only
+ * ever consulted once ownership has already been established, and it can only
+ * take the answer down from there.
+ *
+ * Each arm is the same rule its scope already applies to the personal targets in
+ * the switch below, which is the point — a private resource must not be reachable
+ * anywhere an `owned` entity of the same person is not:
+ *
+ *  - `all` — unconstrained task reach; the owner keeps their own resources whole.
+ *  - `none` / `subtree` — a READ keeps the reach those person-less scopes are
+ *    argued for (D20.2), and a WRITE is `forbidden`. Not `outOfScope(opts)`:
+ *    `--outside-scope` confirms crossing a TASK boundary (ADR 3 D2), and a
+ *    private resource is not an issue-tree node, so there is no boundary to
+ *    confirm and no flag that converts this into an allow.
+ *  - `owned` — the scope names a person, and it must be THIS person. No grant
+ *    clause, which is A5.1's rule kept: a private resource has no grantees, only
+ *    `legacyGrants` carried as evidence.
+ *  - `self` — reaches per-user ROWS and nothing else, including for the owner. A
+ *    `self` principal that could rename a session would be an owner-or-grant
+ *    capability wearing the wrong name (see the `self` arm).
+ *
+ * EXHAUSTIVE, like every other match on `scope.kind` in this file: a new
+ * `IssueScope` member fails to compile here until it states what it reaches of a
+ * private resource, rather than inheriting a neighbour's answer.
+ */
+function privateScopeReach(scope: IssueScope, action: IssueAction, owner: string): AuthDecision {
+  switch (scope.kind) {
+    case 'all':
+      return 'allow'
+    case 'none':
+    case 'subtree':
+      return action === 'read' ? 'allow' : 'forbidden'
+    case 'owned':
+      return scope.userId === owner ? 'allow' : 'forbidden'
+    case 'self':
+      return 'forbidden'
+    default:
+      return assertUnreachable(scope)
+  }
 }
 
 /**
@@ -452,7 +509,7 @@ export function authorize(
   // Deliberately NOT overridable. `--outside-scope` confirms crossing a TASK
   // boundary (ADR 3 D2); there is no flag that converts a privacy denial into an
   // allow, which is why this returns `forbidden` and never `confirm-required`.
-  if (issue?.kind === 'private') return privateTargetDecision(cap, issue)
+  if (issue?.kind === 'private') return privateTargetDecision(cap, issue, action)
   const scope = cap.scope
   switch (scope.kind) {
     case 'all':
