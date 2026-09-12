@@ -989,6 +989,80 @@ describe('openInTerminal + one-writer lock', () => {
     ).toBeUndefined()
   })
 
+  /**
+   * WHO THE PTY BELONGS TO [PDM-273, from PDM-133's B1 ownership work].
+   *
+   * `openInTerminal` knows exactly which human pressed the button — `ownedThread`
+   * has already proved they own the thread — but it used not to pass that identity
+   * into `resumeSession`. The fresh-spawn arm of `SessionRevival.resumeSession`
+   * therefore fell through to `firstAdminMemberId()` and stamped the new session's
+   * DURABLE owner as whoever enrolled first. With B1 making the durable owner the
+   * sole authority, the PTY the second human just opened belonged to the first one
+   * and was invisible to them.
+   *
+   * THE FIXTURE IS THE POINT, so read it before the assertions. `bob` is a real
+   * SECOND member at role `member`, and the original admin is NOT removed — so
+   * `firstAdminMemberId()` still resolves to somebody else, and the two ids are
+   * pinned as distinct below. A fixture that promoted bob to admin, or that
+   * retired the original, would make every assertion here pass with the defect
+   * fully in place.
+   *
+   * AND IT IS NOT THE RARE PATH the finding first described. `findLiveByResume`
+   * deliberately skips headless rows, and the thread's own harness session IS
+   * headless — so the FIRST open-in-terminal on any thread fresh-spawns even
+   * though a live session already carries that exact resume ref. That is asserted
+   * rather than assumed, because if a reuse happened instead, the owner assertion
+   * below would be reading a row this code path never minted.
+   */
+  it('mints the PTY under the human who opened it, not the first-enrolled admin', async () => {
+    const h = await harness()
+    const store = h.registry.sessionStore
+    const admin = await firstAdminMemberId(store)
+    const bob = asUserId('mem_2BOBBOBBOBBOBBOBBOBBOBBOBB')
+    await store.users.create(
+      {
+        id: bob,
+        displayName: 'Bob',
+        role: 'member',
+        createdAt: '2099-06-01T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
+    // NON-VACUITY. Bob is a different person from the ambient fallback, and the
+    // fallback still resolves — so `toBe(bob)` cannot pass by the ids coinciding.
+    expect(bob).not.toBe(admin)
+    expect(await firstAdminMemberId(store)).toBe(admin)
+
+    // Bob's own thread, with its own harness conversation.
+    await h.sa.history(bob)
+    const bobThread = asThreadId(`global:${bob}`)
+    expect((await store.superagent.getSuperagentThread(bobThread))?.ownerUserId).toBe(bob)
+    await h.sa.sendTurn({ ownerUserId: bob, threadId: asThreadId('global'), text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'bob-h1' })
+    await h.settle()
+
+    const spawnsBefore = h.spawns.length
+    const { sessionId } = await h.sa.openInTerminal({
+      ownerUserId: bob,
+      threadId: asThreadId('global'),
+    })
+
+    // The FRESH-SPAWN arm really is the one that ran: a new PTY went to the
+    // daemon carrying bob's resume ref, rather than a live row being reused.
+    expect(h.spawns.length).toBe(spawnsBefore + 1)
+    expect(h.spawns.at(-1)).toMatchObject({
+      sessionId,
+      resume: { kind: harnessResumeKind('claude-code'), value: 'bob-h1' },
+    })
+
+    // THE CLAIM, on the durable row rather than a view that could be recomputed.
+    const row = await store.sessions.getSession(sessionId)
+    expect(row).toBeDefined()
+    expect(row?.ownerUserId).toBe(bob)
+    expect(row?.ownerUserId).not.toBe(admin)
+  })
+
   it('refuses before a harness session exists and while a turn is running', async () => {
     const h = await harness()
     await expect(
