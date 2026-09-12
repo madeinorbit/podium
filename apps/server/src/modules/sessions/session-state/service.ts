@@ -65,6 +65,55 @@ export interface SessionStatePrincipal {
   readonly clientId?: string
 }
 
+/**
+ * AN INTERNAL READ — the server reading its own session surface with NO human
+ * behind it (ADR 3 Amendment 1 D21: an in-process job "may read across owners,
+ * but it has NO human and must never be assigned one").
+ *
+ * IT IS A SEPARATE TYPE FROM {@link SessionStatePrincipal}, DELIBERATELY, and
+ * that is the whole repair [PDM-291]. Before this, a principal-less read ran as
+ * `SessionView.defaultPrincipal()` — the earliest admin, minted by
+ * `userCommandPrincipal` with `scope: { kind: 'all' }` — so the ONE disjunct
+ * `principal.capability.scope.kind === 'all'` at the bottom of the two rules
+ * below was answering for two unrelated callers at once: the server's own
+ * projections, and any human who happens to hold an admin capability. PDM-270
+ * could remove the matching admin short circuit from `mayWatch`/`mayDrive` and
+ * could NOT remove this one, because removing it refused the internal reads
+ * too. Splitting the type splits the answer: an internal read is admitted
+ * because it is the server, and an admin human is now refused because ADR 9
+ * Amendment 1 D7 says an admin may not view another member's session.
+ *
+ * It cannot be minted from a transport. `sessionStatePrincipalFor()` still
+ * THROWS on a system principal, and nothing constructs one of these from a
+ * request; the only constructor is {@link internalSessionRead}, called in
+ * process. And because the per-user WRITES below (snooze, pins, read markers,
+ * tab order) take `SessionStatePrincipal` and not `SessionReader`, the compiler
+ * refuses an internal read at every one of them — it has no user id to key a
+ * row by, which is exactly D21's "no human" stated as a type.
+ */
+export interface InternalSessionRead {
+  readonly kind: 'internal'
+  /** Which in-process caller this is, for attribution in a log or a stack.
+   *  NO RULE READS IT — it is a label, never a capability. */
+  readonly job: string
+}
+
+/** Who a session VISIBILITY question is being asked for: a human (or an agent
+ *  acting for one), or the server itself. Reads take this; writes take the
+ *  narrower {@link SessionStatePrincipal}. */
+export type SessionReader = SessionStatePrincipal | InternalSessionRead
+
+/** The one constructor for {@link InternalSessionRead}. In-process only. */
+export function internalSessionRead(job: string): InternalSessionRead {
+  return { kind: 'internal', job }
+}
+
+/** Narrow a {@link SessionReader}. `SessionStatePrincipal` has no `kind`, so the
+ *  discriminant is presence rather than value. */
+export function isInternalSessionRead(reader: SessionReader): reader is InternalSessionRead {
+  return 'kind' in reader
+}
+
 /** The only live-session fields this module may touch; derived from the canonical Session. */
 export type SessionStateRecord = Pick<
   Session,
@@ -298,7 +347,7 @@ export class SessionStateService {
   }
 
   async canReadSession(
-    principal: SessionStatePrincipal,
+    reader: SessionReader,
     sessionId: SessionId,
     /** Per-pass memo when a full-list caller is asking [POD-1618]. */
     memo?: SessionOwnerMemo,
@@ -306,12 +355,20 @@ export class SessionStateService {
     // Keep single-session reads on their original path: batching inserts an
     // await before ownership resolution and can duplicate durable fallback reads.
     const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
+    // ABSENCE FIRST, for an internal read too. Absence and invisibility share
+    // one false result here (see the class note), and an internal read of an id
+    // that does not exist is still absent.
     if (!target) return false
-    if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
-      return true
-    }
-    // Narrow agent scopes never widen the on-behalf-of human's visibility.
-    return principal.capability.scope.kind === 'all'
+    // The server reading its own surface, not a person with a wide capability
+    // [PDM-291]. Same shape as `memory/visibility.ts`'s `reader.kind ===
+    // 'system'`, and the same reason: an internal read has no owner to compare.
+    if (isInternalSessionRead(reader)) return true
+    // OWNER OR GRANTEE, AND NOTHING ELSE. There is deliberately no role or
+    // scope arm: ADR 9 Amendment 1 D7 (an admin may not view another member's
+    // session) is a rule the model's `mayReadOwned` already cannot break, and
+    // this is the second copy of it. A narrow agent scope never widened the
+    // on-behalf-of human's visibility; a wide one no longer widens it either.
+    return target.owner === reader.userId || target.grants.includes(reader.userId)
   }
 
   /** One reader-scoped set computation. Principals are already admitted by the
@@ -319,7 +376,7 @@ export class SessionStateService {
    * The memo belongs to this call (or its enclosing projection), never a user cache.
    */
   async visibleSessions(
-    principal: SessionStatePrincipal,
+    reader: SessionReader,
     candidates: readonly SessionId[],
     memo: SessionOwnerMemo = { issues: new Map(), grants: new Map() },
   ): Promise<ReadonlySet<SessionId>> {
@@ -327,10 +384,16 @@ export class SessionStateService {
     if (candidates.length === 0) return visible
     const ids = [...new Set(candidates)]
     await this.primeOwnerMemo(memo, ids)
+    // THE SAME RULE AS `canReadSession`, spelled a second time over a batch
+    // rather than calling it per id — the two are copies, and PDM-291 changed
+    // both. Keep them in step.
+    // `undefined` IS the internal read, and it is not a missing user id: the
+    // arm below admits on it, where an absent id would have to refuse.
+    const userId = isInternalSessionRead(reader) ? undefined : reader.userId
     for (const sessionId of ids) {
       const target = await this.ports.sessionOwner({ sessionId, memo })
-      if (target && (target.owner === principal.userId ||
-          target.grants.includes(principal.userId) || principal.capability.scope.kind === 'all')) {
+      if (!target) continue
+      if (userId === undefined || target.owner === userId || target.grants.includes(userId)) {
         visible.add(sessionId)
       }
     }

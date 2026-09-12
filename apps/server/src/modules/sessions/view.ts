@@ -19,7 +19,29 @@ import { DEPLOYMENT, perf } from '../perf/registry'
 import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
 import { sessionStatePrincipalFor } from './session-state/registry'
-import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import {
+  internalSessionRead,
+  type SessionStatePrincipal,
+  type SessionStateService,
+} from './session-state/service'
+
+/**
+ * THE PROJECTION'S OWN IDENTITY when nobody asked for it [PDM-291].
+ *
+ * Every method here takes `forPrincipal?`, and in production NOTHING PASSES ONE:
+ * the boot baseline, the volatile broadcast slice, the issue-member lookups and
+ * every `sessionById` port are the server reading its own fleet. The two
+ * user-facing surfaces that look like exceptions are not — `sessions.list`
+ * re-filters the result through the model's `mayReadOwned` in
+ * `modules/sessions/queries.ts`, and the read-toolkit procedures assert
+ * ownership on the resolved id before they call it. So the fallback is reached
+ * only by the server, and it now SAYS so instead of borrowing the earliest
+ * admin's capability. The call-site-by-call-site audit that establishes it —
+ * 80 production call sites, none of which passes a principal — is
+ * `docs/plans/multi-user-epic/B/pdm-291-internal-read-audit.md` in the
+ * podium-cloud repository, which is where this epic's plans live.
+ */
+const INTERNAL_PROJECTION_READ = internalSessionRead('sessions.view')
 
 /** Immutable inputs for one projection. No live service is reachable by wireSession. */
 export interface ProjectionPass {
@@ -178,9 +200,8 @@ export class SessionView {
     try {
       const session = this.ports.sessions.get(sessionId)
       if (!session) return undefined
-      const principal = forPrincipal ?? await this.defaultPrincipal()
-      if (!principal) return undefined
-      if (!(await this.ports.state.canReadSession(principal, sessionId, { issues: new Map(), grants: new Map() }))) {
+      const reader = forPrincipal ?? INTERNAL_PROJECTION_READ
+      if (!(await this.ports.state.canReadSession(reader, sessionId, { issues: new Map(), grants: new Map() }))) {
         return undefined
       }
       return session.spawnedBy
@@ -193,11 +214,10 @@ export class SessionView {
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
   private async project(candidates: Session[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
-    const principal = forPrincipal ?? await this.defaultPrincipal()
-    if (!principal) return []
-    const pass = await this.buildProjectionPass(candidates, principal)
+    const reader = forPrincipal ?? INTERNAL_PROJECTION_READ
+    const pass = await this.buildProjectionPass(candidates, forPrincipal)
     const visible = await this.ports.state.visibleSessions(
-      principal, candidates.map(session => session.sessionId), pass,
+      reader, candidates.map(session => session.sessionId), pass,
     )
     const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
@@ -209,7 +229,16 @@ export class SessionView {
     sessions: readonly (SessionDurableFields & { sessionId: SessionId })[],
     forPrincipal?: SessionStatePrincipal,
   ): Promise<ProjectionPass> {
-    const principal = forPrincipal ?? await this.defaultPrincipal()
+    // RESOLVED FIRST, BEFORE ANY OTHER READ IN THIS METHOD, and that position is
+    // load-bearing [PDM-291]. `defaultPrincipal()` used to be awaited exactly
+    // here, and moving this read down to where the overlay is actually consumed
+    // inserts a fresh await into the middle of a pass that runs inside a caller's
+    // transaction span — which reopens the interleaving window that
+    // `lifecycle-runtime-fold.test.ts`'s site 7 catches, as a
+    // `StaleIssueRevisionError: expected revision 1, found 2` three frames away
+    // from anything this file mentions. Measured, not predicted: 3 runs of that
+    // file failed with the read moved down and 3 passed with it here.
+    const overlayUser = forPrincipal ? forPrincipal.userId : await this.internalOverlayUser()
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
       [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
@@ -235,8 +264,8 @@ export class SessionView {
       for (const path of paths) prefixes.set(path, prefixForPath(path))
     }
     const queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(ids)
-    const overlays = principal
-      ? await this.ports.state.overlaySnapshot(principal.userId, ids)
+    const overlays = overlayUser
+      ? await this.ports.state.overlaySnapshot(overlayUser, ids)
       : new Map<SessionId, SessionUserOverlay>()
     const machines = await this.ports.machines.factsSnapshot()
     const occupancy = new Map(sessions.map(s => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]))
@@ -255,11 +284,31 @@ export class SessionView {
     return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
   }
 
-  async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
+  /**
+   * WHOSE per-user overlay a PRINCIPAL-LESS pass is wired with.
+   *
+   * THIS IS THE OTHER HALF OF `defaultPrincipal()`, AND ALL THAT IS LEFT OF IT
+   * [PDM-291]. That method answered two questions with one impersonated admin:
+   * "may this read see the session" (now {@link INTERNAL_PROJECTION_READ}, which
+   * has no human at all) and "whose `readAt`/snooze/pin state goes on the wire"
+   * — which genuinely needs a user id, because the overlay is keyed by one.
+   *
+   * The identity is UNCHANGED and now named: `users.earliestAdmin()` is exactly
+   * what `defaultPrincipal()` resolved, and what {@link broadcastViewer} already
+   * calls `firstAdminMemberId(store)` for. So a principal-less pass wires the
+   * same overlay it wired before, and this is deliberately NOT a repair of that:
+   * a broadcast that carries ONE person's snooze/read state to every client is a
+   * separate single-user fallback, and it is already named at
+   * {@link broadcastViewer} rather than hidden here. What changed in PDM-291 is
+   * only that VISIBILITY stopped borrowing that person's capability.
+   *
+   * `undefined` — no admin yet, i.e. before bootstrap — keeps this method's old
+   * answer: an empty overlay map, not a refusal. Visibility no longer depends on
+   * it, so a pre-bootstrap internal read now projects rather than returning [].
+   */
+  async internalOverlayUser(): Promise<UserId | undefined> {
     const member = await this.ports.store.users.earliestAdmin()
-    return member
-      ? sessionStatePrincipalFor(userCommandPrincipal(asUserId(member.id), member.role))
-      : undefined
+    return member ? asUserId(member.id) : undefined
   }
 
   async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
