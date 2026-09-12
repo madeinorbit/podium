@@ -96,14 +96,26 @@ const FIXTURE_BUILDERS: ReadonlySet<string> = new Set([
  * So the site list is a RATCHET. When per-user login lands the module is DELETED
  * and this list goes to zero, which is what forces every site to name a real
  * principal at that moment instead of quietly keeping the default.
+ *
+ * PDM-134 TOOK TWO OFF IT. `ensureHostMachine` was here because boot has no
+ * principal in scope — true, and it does not follow that the earliest admin is
+ * the answer. It now resolves `hostBootstrapOwner`, which owns the host only
+ * when exactly one active human exists and leaves it UNOWNED otherwise, so the
+ * boot path no longer invents an owner and no longer needs an exemption. That is
+ * what paying down an entry looks like: the site stopped needing the placeholder,
+ * rather than the list growing a reason to keep it.
+ *
+ * `machine-access.ts` came off as ALREADY DEAD. Its exemption was written for the
+ * `__local__` sentinel's synthesized row, and POD-318 removed that premise — the
+ * host's row is written before the first session exists, so there is no row to
+ * synthesize and no owner to invent. The call had been gone for some time and the
+ * exemption outlived it. A ratchet carrying an exemption nothing uses overstates
+ * how much placeholder there is to remove, which is the direction that matters
+ * when the list reaching zero is the signal POD-315 is done.
  */
 export const SOLE_OWNER_ALLOWLIST: ReadonlySet<string> = new Set([
   // The definition itself.
   'apps/server/src/device-grade-owner.ts',
-  // The local sentinel's synthesized row: `__local__` was paired by nobody.
-  'apps/server/src/machine-access.ts',
-  // `ensureHostMachine` — provisioned at boot with no principal in scope.
-  'apps/server/src/modules/machines/service.ts',
   // POD-1080: the user a Telegram claim code is minted FOR. Not a machine
   // owner, and deliberately the same placeholder rather than a fourth spelling
   // of "this build cannot tell two humans apart" — one name means one deletion

@@ -43,7 +43,6 @@ import type {
 import { supervisorGenerationOf } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
-import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
@@ -1663,9 +1662,15 @@ export class MachinesService {
   ): Promise<string> {
     const id = this.deps.hostMachineId
     const existing = await this.deps.store.machines.getMachine(id)
+    // OWNERSHIP AT BOOT IS REFUSED WHEN IT IS AMBIGUOUS (PDM-134). This used to
+    // resolve `deviceGradeSoleOwner()` — the earliest admin — which is the right
+    // answer only on the one-account instance that function documents. See
+    // {@link credentials.hostBootstrapOwner}: one active human owns the host,
+    // and anything else leaves it unowned rather than guessing, because an
+    // unowned machine is refused loudly and adoptable, and a guessed one is not.
     const enrollmentOwner = this.deps.enrollment
-      ? (existing?.ownerUserId ?? (await deviceGradeSoleOwner(this.deps.store)))
-      : (await deviceGradeSoleOwner(this.deps.store))
+      ? (existing?.ownerUserId ?? (await credentials.hostBootstrapOwner(this.deps.store)))
+      : (await credentials.hostBootstrapOwner(this.deps.store))
     // Ledger first: this is the durable commit point shared with pairing. A
     // revoked host throws before its row or credential can be recreated.
     const ownerUserId = await credentials.ensureHostEnrollment(
@@ -1678,9 +1683,10 @@ export class MachinesService {
       name: hostname,
       hostname,
       tokenHash: sha256(secret),
-      // NOBODY PAIRED THIS ONE. It is provisioned at boot by the server process,
-      // with no principal in scope to attribute it to, so its owner is the
-      // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
+      // NOBODY PAIRED THIS ONE. It is provisioned at boot by the server process
+      // with no principal in scope, so the owner is whatever
+      // `hostBootstrapOwner` could establish without one — the sole active human,
+      // or `null` for unowned when there is not exactly one. The COALESCE in
       // `upsertMachine` means a later real owner is never overwritten by this
       // boot-time write.
       ownerUserId,

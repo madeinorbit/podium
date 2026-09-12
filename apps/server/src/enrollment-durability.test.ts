@@ -264,6 +264,242 @@ describe('server host enrollment provenance (POD-2467)', () => {
   })
 })
 
+/**
+ * B2 / PDM-134 — ONE EXECUTING HUMAN PER MACHINE, at the two places ownership is
+ * ESTABLISHED rather than checked.
+ *
+ * `machine-access.ts` decides what a principal may do with a machine that has an
+ * owner. These tests are about the step before it: where the owner comes from
+ * when the server provisions its own host at boot, and what happens when a
+ * machine that already had one is paired again.
+ *
+ * Every case below runs the real `MachinesService` against a real migrated store
+ * and a real on-disk ledger. Nothing mocks the decision — a test that stubbed the
+ * owner lookup and asserted on the stub would pass with the rule deleted, which
+ * is the failure these two guards exist to avoid.
+ */
+describe('machine ownership is established, never guessed (PDM-134)', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = tempState()
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** A second real member — a distinct identity, NOT the first admin wearing
+   *  another hat. An isolation fixture whose two people are one account decides
+   *  every assertion by the admin short circuit instead of by the rule. */
+  async function addMember(
+    store: SessionStore,
+    id: string,
+    opts: { disabled?: boolean } = {},
+  ): Promise<void> {
+    const now = new Date().toISOString()
+    await store.users.create(
+      { id: asUserId(id), displayName: id, role: 'member', createdAt: now, disabledAt: null },
+      'hash',
+    )
+    if (opts.disabled) await store.users.disable(asUserId(id), now)
+  }
+
+  describe('host bootstrap owner', () => {
+    it('gives the host to the sole active human', async () => {
+      const store = await openTestStore(':memory:', ORIGINAL_HOST)
+      const host = hostWorld(dir, store, ORIGINAL_HOST)
+      try {
+        // The precondition the other two cases vary. Asserted rather than
+        // assumed: if the fixture store ever stopped seeding exactly one
+        // account, "sole human owns it" and "nobody owns it" would both be
+        // reachable here and the suite would not say which it measured.
+        expect((await store.users.list()).filter((u) => u.disabledAt === null)).toHaveLength(1)
+
+        await host.machines.ensureHostMachine('original.local', 'original-secret')
+
+        const sole = await firstAdminMemberId(store)
+        expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(sole)
+        expect((await store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).toBe(sole)
+        // Owning it means being able to RUN on it, which is the point of the column.
+        const ownership = await ownershipSnapshotFromMachines(host.machines)
+        expect(checkMachineUse(userCommandPrincipal(sole, 'admin'), ORIGINAL_HOST, ownership))
+          .toBeUndefined()
+      } finally {
+        await store.close()
+      }
+    })
+
+    it('leaves the host UNOWNED when two humans could own it, and refuses use to both', async () => {
+      const store = await openTestStore(':memory:', ORIGINAL_HOST)
+      await addMember(store, 'user:second-human')
+      const host = hostWorld(dir, store, ORIGINAL_HOST)
+      try {
+        const admin = await firstAdminMemberId(store)
+
+        await host.machines.ensureHostMachine('original.local', 'original-secret')
+
+        // Unowned, not "owned by whoever was first". The ledger records the
+        // absence, so a later reconcile cannot resurrect a guess from the row.
+        expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBeNull()
+        expect((await store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).toBeNull()
+
+        const ownership = await ownershipSnapshotFromMachines(host.machines)
+        // NEITHER of them, and the admin arm is the one that matters: being the
+        // instance admin is not a claim on somebody's hardware (D19.4b).
+        expect(checkMachineUse(userCommandPrincipal(admin, 'admin'), ORIGINAL_HOST, ownership))
+          .toBe('unauthorized')
+        expect(
+          checkMachineUse(
+            userCommandPrincipal(asUserId('user:second-human'), 'member'),
+            ORIGINAL_HOST,
+            ownership,
+          ),
+        ).toBe('absent')
+        // Quarantine, not deletion: an admin can still SEE it, which is what
+        // makes `machines.adopt` a usable exit rather than a dead row.
+        expect(canSeeMachine(userCommandPrincipal(admin, 'admin'), ORIGINAL_HOST, ownership))
+          .toBe(true)
+      } finally {
+        await store.close()
+      }
+    })
+
+    it('does not count a DISABLED account as a second candidate', async () => {
+      const store = await openTestStore(':memory:', ORIGINAL_HOST)
+      await addMember(store, 'user:departed', { disabled: true })
+      const host = hostWorld(dir, store, ORIGINAL_HOST)
+      try {
+        await host.machines.ensureHostMachine('original.local', 'original-secret')
+
+        // ADR 9's disable-before-remove: a disabled account is not an actor, so
+        // it cannot make ownership ambiguous. Without this case the `disabledAt`
+        // filter could be deleted and the suite above would still be green —
+        // the two-human test would simply be measuring "two rows exist".
+        expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(await firstAdminMemberId(store))
+      } finally {
+        await store.close()
+      }
+    })
+  })
+
+  describe('alternate-owner re-pairing', () => {
+    /** Pair a machine, then lose its row the way a revoke or a restore does.
+     *  The LEDGER still knows whose machine it was; the table does not. */
+    async function pairedThenRowLost(
+      world: Awaited<ReturnType<typeof makeWorld>>,
+      ownerUserId: string,
+    ): Promise<void> {
+      await pairRemote(world.machines, { machineId: 'remote-box', ownerUserId })
+      await world.store.machines.deleteMachine(asMachineId('remote-box'))
+      expect(await world.store.machines.getMachine(asMachineId('remote-box'))).toBeUndefined()
+    }
+
+    it('refuses a second person re-pairing a machine the ledger says is someone else’s', async () => {
+      const world = await makeWorld(dir)
+      try {
+        await pairedThenRowLost(world, OWNER)
+
+        const code = world.machines.mintPairingCode({ ownerUserId: OTHER })
+        const auth = await world.machines.authenticateDaemon({
+          type: 'pair',
+          code,
+          machineId: asMachineId('remote-box'),
+          hostname: 'remote.local',
+          name: 'Remote Box',
+        })
+
+        expect(auth.ok).toBe(false)
+        // The SAME string a taken id gets: which of the two it was is not the
+        // daemon's business, and answering differently would be an oracle for
+        // who owns what.
+        expect(auth.ok === false && auth.reason).toBe('machine id already registered')
+        // The refusal is durable, not cosmetic: no row, and the ledger still
+        // names the original owner rather than the person who just tried.
+        expect(await world.store.machines.getMachine(asMachineId('remote-box'))).toBeUndefined()
+        expect(world.enrollment.recordedOwner(asMachineId('remote-box'))).toBe(OWNER)
+      } finally {
+        await world.store.close()
+      }
+    })
+
+    it('refuses an OWNERLESS code against a recorded owner, so a machine cannot be un-owned by re-pairing', async () => {
+      const world = await makeWorld(dir)
+      try {
+        await pairedThenRowLost(world, OWNER)
+
+        // `mintPairingCode()` with no owner is what a system principal produces.
+        // Without the `proposed === null` direction this would quietly strip the
+        // owner and leave the machine usable by nobody.
+        const code = world.machines.mintPairingCode({})
+        const auth = await world.machines.authenticateDaemon({
+          type: 'pair',
+          code,
+          machineId: asMachineId('remote-box'),
+          hostname: 'remote.local',
+          name: 'Remote Box',
+        })
+
+        expect(auth.ok).toBe(false)
+        expect(world.enrollment.recordedOwner(asMachineId('remote-box'))).toBe(OWNER)
+      } finally {
+        await world.store.close()
+      }
+    })
+
+    it('still lets the SAME owner re-pair their own machine', async () => {
+      const world = await makeWorld(dir)
+      try {
+        await pairedThenRowLost(world, OWNER)
+
+        // THE NEGATIVE CONTROL. A guard that refused every re-pair would pass
+        // both cases above and break credential recovery — the case this path
+        // exists for. Without this test "refuses alternate owners" and "refuses
+        // everything" are indistinguishable.
+        const code = world.machines.mintPairingCode({ ownerUserId: OWNER })
+        const auth = await world.machines.authenticateDaemon({
+          type: 'pair',
+          code,
+          machineId: asMachineId('remote-box'),
+          hostname: 'remote.local',
+          name: 'Remote Box',
+        })
+
+        expect(auth.ok).toBe(true)
+        expect((await world.store.machines.getMachine(asMachineId('remote-box')))?.ownerUserId)
+          .toBe(OWNER)
+      } finally {
+        await world.store.close()
+      }
+    })
+
+    it('allows re-pairing when the recorded owner’s account is gone (quarantine, not an incumbent)', async () => {
+      const world = await makeWorld(dir)
+      try {
+        // OTHER exists in this store, pairs the machine, then leaves.
+        await pairedThenRowLost(world, OTHER)
+        await world.store.users.removeMember(asUserId(OTHER), OWNER)
+        expect(await world.store.users.get(asUserId(OTHER))).toBeUndefined()
+
+        const code = world.machines.mintPairingCode({ ownerUserId: OWNER })
+        const auth = await world.machines.authenticateDaemon({
+          type: 'pair',
+          code,
+          machineId: asMachineId('remote-box'),
+          hostname: 'remote.local',
+          name: 'Remote Box',
+        })
+
+        // Nobody's claim is being overridden — `adoptMachine` treats the same
+        // state as adoptable. Refusing here would strand the hardware.
+        expect(auth.ok).toBe(true)
+        expect(world.enrollment.recordedOwner(asMachineId('remote-box'))).toBe(OWNER)
+      } finally {
+        await world.store.close()
+      }
+    })
+  })
+})
+
 describe('enrollment ledger unit', () => {
   let dir: string
   afterEach(() => {
