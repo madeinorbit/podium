@@ -36,6 +36,7 @@
 
 import {
   asSessionId,
+  type Capability,
   asUserId,
   type SessionId,
   type SessionMeta,
@@ -157,7 +158,7 @@ function harness() {
     sessionsSvc,
     // THE REAL RESOLVER, wired as relay.ts wires it: the delegation chain is
     // walked over `spawnedBy`, and the human is the OWNER of the chain's root.
-    principalForCapability: (capability) =>
+    principalForCapability: (capability: Capability) =>
       resolvePrincipalAsync(capability, {
         parentSessionOf: async (candidate) => {
           const row = FLEET.find((s) => s.sessionId === candidate)
@@ -224,6 +225,19 @@ describe('relay session reads are gated on the target owner', () => {
     expect(status.sessionId).toBe(ALICES)
     const read = (await dispatch(ALICE_CAP, false, 'sessions', 'read', {
       sessionId: ALICES,
+    })) as { items: { text: string }[] }
+    expect(read.items.map((i) => i.text)).toContain(SECRET)
+  })
+
+  it('lets a spawned session read ITSELF, whoever the task says owns it', async () => {
+    // Not a redundant self-case. `principalForCapability` resolves the human at
+    // the ROOT of the delegation chain (D16.2), which for this child is Bob;
+    // its own durable owner is Alice, because that is what `spawn-agent.ts`
+    // stamped. So the two disagree, and without the self arm a session could
+    // not read its own transcript.
+    const dispatch = harness()
+    const read = (await dispatch(capabilityFor(CHILD, ALICE), false, 'sessions', 'read', {
+      sessionId: CHILD,
     })) as { items: { text: string }[] }
     expect(read.items.map((i) => i.text)).toContain(SECRET)
   })

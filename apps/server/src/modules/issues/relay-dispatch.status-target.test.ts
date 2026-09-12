@@ -32,6 +32,7 @@
 
 import {
   asSessionId,
+  type Capability,
   asUserId,
   type SessionId,
   type SessionMeta,
@@ -137,7 +138,7 @@ function harness() {
     sessionsSvc: {
       sessionOwner: async () => ({ owner: OPERATOR_USER, grants: [] as string[] }),
     } as unknown as SessionLifecycle,
-    principalForCapability: (capability) =>
+    principalForCapability: (capability: Capability) =>
       resolvePrincipalAsync(capability, { parentSessionOf: async () => undefined }),
   } as unknown as AgentRelayDispatchDeps)
 
