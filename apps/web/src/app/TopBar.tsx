@@ -19,6 +19,7 @@ import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDeskt
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { type MainView, useStoreSelector } from './store'
+import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
 const log = createLogger('web:desktop-window')
@@ -100,6 +101,7 @@ export function TopBar({
       <span className="desktop-topbar-logo" {...dragRegion}>
         <PodiumLogo height={18} className="flex-none" />
       </span>
+      <HostedWorkspaceSwitcher />
       <nav className="desktop-topbar-nav" aria-label="Primary">
         <ModeTab
           label="Work"
