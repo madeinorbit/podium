@@ -1,4 +1,4 @@
-import { firstAdminMemberId, asSessionId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -17,6 +17,8 @@ describe('approval broker relay e2e (#410)', () => {
   const machineId = 'm1'
   let registry: SessionRegistry
   let sA: string
+  /** The issue worktree both sessions below run in. */
+  let wtA: string
   let daemonInbox: ControlMessage[]
 
   beforeEach(async () => {
@@ -24,7 +26,7 @@ describe('approval broker relay e2e (#410)', () => {
     registries.push(registry)
     const A = await registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
     await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
-    const wtA = (await registry.issues.get(A.id))?.worktreePath as string
+    wtA = (await registry.issues.get(A.id))?.worktreePath as string
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
     daemonInbox = []
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
@@ -34,12 +36,19 @@ describe('approval broker relay e2e (#410)', () => {
     for (const r of registries.splice(0)) await r.dispose()
   })
 
-  const relay = async (proc: string, input: unknown): Promise<RelayResult> => {
+  /** A relay frame from an arbitrary session — the daemon's `/agent/<sessionId>`
+   *  path is what the gate reads, so this is the only thing that distinguishes
+   *  one agent caller from another on this transport. */
+  const relayFrom = async (
+    sessionId: SessionId,
+    proc: string,
+    input: unknown,
+  ): Promise<RelayResult> => {
     const before = daemonInbox.length
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
       requestId: `ir${before}`,
-      sessionId: asSessionId(sA),
+      sessionId,
       router: 'approvals',
       proc,
       input,
@@ -58,6 +67,9 @@ describe('approval broker relay e2e (#410)', () => {
     if (!reply) throw new Error('no relay reply')
     return reply
   }
+
+  const relay = (proc: string, input: unknown): Promise<RelayResult> =>
+    relayFrom(asSessionId(sA), proc, input)
 
   it('request → pending → approve → daemon exec → result → succeeded', async () => {
     const r = await relay('request', { op: { kind: 'update' } })
@@ -166,5 +178,78 @@ describe('approval broker relay e2e (#410)', () => {
     expect(r.ok).toBe(true)
     const pending = await registry.modules.approvals.listPending(firstAdminMemberId())
     expect(pending[0]).toMatchObject({ sessionId: sA, machineId })
+  })
+
+  /**
+   * THE RELAY ARM PASSES THE CALLER (PDM-278) — the transport half of the fix.
+   *
+   * `relay-dispatch.ts`'s `approvals.get` arm handed the service a caller-supplied
+   * id and nothing else, so this frame returned another human's machine, session,
+   * issue and operation to whoever sent it. The service could not refuse it: there
+   * was nothing to refuse on.
+   *
+   * WHAT THIS TEST IS FOR, since it is not the discriminating one. Whether a
+   * DIFFERENT HUMAN is told apart from the same one is decided in
+   * `modules/approvals/service.test.ts`, which runs in the store shard and
+   * therefore in every lane; this file is in no `test-shards.json` entry and the
+   * unit lane excludes it by its `e2e` filename, so it runs only in the root
+   * integration lane. What belongs HERE is the thing only this lane can
+   * show: that the capability's two identity halves actually reach the service
+   * across the real gate, rather than the arm passing an empty caller — which
+   * would refuse everybody, or, gated on the payload instead, admit anybody.
+   *
+   * THE SECOND SESSION HAS A REAL SECOND OWNER, not no owner. An unowned session
+   * is refused too, by the other arm of the gate, so a fixture built that way
+   * would pass with the cross-human check deleted (false-green catalogue 14).
+   */
+  it("another human's agent is refused the same id this one may read", async () => {
+    const r = await relay('request', { op: { kind: 'update' } })
+    expect(r.ok).toBe(true)
+    const { id } = r.result as { id: string }
+
+    // `createSession` defaults the owner to the first admin, so sA is theirs.
+    const store = registry.sessionStore
+    const stranger = asUserId('mem_2ZZZZZZZZZZZZZZZZZZZZZZZZZZ')
+    await store.users.create(
+      {
+        id: stranger,
+        displayName: 'Second member',
+        role: 'member',
+        createdAt: '2026-09-13T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
+    const sB = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        ownerUserId: stranger,
+      })
+    ).sessionId
+
+    const refused = await relayFrom(asSessionId(sB), 'get', { id })
+    expect(refused.ok).toBe(false)
+    // The same words an id that does not exist gets: a distinct refusal would
+    // confirm the row exists and name a session this caller cannot see.
+    expect(refused.error).toBe(`unknown approval request: ${id}`)
+
+    // Not "the id stopped working": the session that filed it still reads it,
+    // over the same transport, in the same test. This is the `actorSessionId`
+    // half — drop it from the arm and this refuses.
+    const mine = await relay('get', { id })
+    expect(mine.ok).toBe(true)
+    expect(mine.result).toMatchObject({ id, status: 'pending' })
+
+    // And the `onBehalfOf` half, which nothing above would catch: a DIFFERENT
+    // session of the SAME human. It is not the row's session, so only the
+    // capability's human can admit it — pass just `actorSessionId` from the arm
+    // and this one refuses while every other assertion here still passes.
+    const sC = (
+      await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })
+    ).sessionId
+    const sibling = await relayFrom(asSessionId(sC), 'get', { id })
+    expect(sibling.ok).toBe(true)
+    expect(sibling.result).toMatchObject({ id, status: 'pending' })
   })
 })
