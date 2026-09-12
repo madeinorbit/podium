@@ -10,6 +10,8 @@ export interface AuthStatus {
   userId: UserId | null
   mode?: 'local' | 'cloud'
   signInUrl?: string
+  providerSignedIn?: boolean
+  deniedReason?: string
 }
 
 export class MobileAuthExpiredError extends Error {
@@ -76,6 +78,10 @@ export async function fetchAuthStatus(
   return {
     ...(body.mode === 'cloud' ? { mode: 'cloud' as const } : {}),
     ...(typeof body.signInUrl === 'string' ? { signInUrl: body.signInUrl } : {}),
+    ...(body.providerSignedIn === true ? { providerSignedIn: true } : {}),
+    ...(typeof body.deniedReason === 'string' && body.deniedReason.length > 0
+      ? { deniedReason: body.deniedReason }
+      : {}),
     needsAuth: body.needsAuth,
     authed: body.authed,
     userId:

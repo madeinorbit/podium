@@ -1509,15 +1509,27 @@ describe('hosted sign-in profile activation', () => {
     expect(seams.setCredential).not.toHaveBeenCalled()
   })
   it('refuses an account without workspace membership before storing its bearer', async () => {
-    seams.authStatus.mockResolvedValue({ authed: false, needsAuth: true, userId: null })
+    seams.authStatus.mockResolvedValue({
+      authed: false,
+      needsAuth: true,
+      userId: null,
+      mode: 'cloud',
+      providerSignedIn: true,
+      deniedReason: 'not a member of this workspace',
+    })
     seams.getInitialUrl.mockResolvedValue(link)
     render(
       <ServerProfileGate>
         <ProfileProbe />
       </ServerProfileGate>,
     )
-    await screen.findByText('Could not finish sign-in. Start sign-in again.')
+    await screen.findByText('not a member of this workspace')
+    expect(screen.queryByText('Could not finish sign-in. Start sign-in again.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
     expect(seams.setCredential).not.toHaveBeenCalled()
+    expect(seams.logout).toHaveBeenCalledWith('https://cloud.example', 'cloud-token')
+    expect([...seams.credentials.values()]).not.toContain('cloud-token')
+    expect(seams.credentials.has('profile-a')).toBe(true)
   })
 })
 

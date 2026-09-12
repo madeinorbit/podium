@@ -24,6 +24,7 @@ import {
 } from 'react-native'
 import { PairingScanner } from '../components/PairingScanner'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
+import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -259,6 +260,11 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   )
   const [linkError, setLinkError] = useState<string | null>(consumedInitialPairing.error)
   const [activationFailure, setActivationFailure] = useState<ActivationFailure | null>(null)
+  const [membershipRefusal, setMembershipRefusal] = useState<{
+    reason: string
+    server: string
+    signInUrl?: string
+  } | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
   const [hostedReturn, setHostedReturn] = useState<{
     link: HostedReturn
@@ -360,6 +366,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setLinkError(null)
         setSetupOpen(true)
         setHostedReturn({ link, operation })
+        setMembershipRefusal(null)
         setHandoffStatus('Finishing sign-in…')
       } catch {
         setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
@@ -792,8 +799,25 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       if (!checked.ok) throw new Error('Could not verify this workspace. Start sign-in again.')
       const status = await fetchAuthStatus(result.server, result.token)
       if (!current()) return
-      if (!status.authed || !status.userId)
+      if (!status.authed || !status.userId) {
+        if (status.providerSignedIn === true && status.deniedReason) {
+          const revoked = await logout(result.server, result.token)
+            .then(() => true)
+            .catch(() => false)
+          if (!revoked) alertUnrevokedPhoneSession()
+          if (!current()) return
+          setMembershipRefusal({
+            reason: status.deniedReason,
+            server: result.server,
+            signInUrl: status.signInUrl,
+          })
+          setHostedReturn(null)
+          setHandoffStatus('')
+          setSetupOpen(false)
+          return
+        }
         throw new Error('This account cannot enter this workspace.')
+      }
       await finishSetup(checked, result.token, status.userId)
       setHandoffStatus('')
     })().catch(() => {
@@ -1244,6 +1268,17 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
 
   // A newer pairing link must be able to replace and cancel a withheld cold
   // handoff even while the older profile write is still draining.
+  if (membershipRefusal) {
+    return (
+      <LaunchReadyView>
+        <MembershipDeniedView
+          reason={membershipRefusal.reason}
+          server={membershipRefusal.server}
+          signInUrl={membershipRefusal.signInUrl}
+        />
+      </LaunchReadyView>
+    )
+  }
   if (!ready && !setupOpen) return null
   if (activationFailure && !setupOpen) {
     return (

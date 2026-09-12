@@ -1,13 +1,14 @@
 import { UserId } from '@podium/model'
 import { type ReactNode, useEffect, useState } from 'react'
+import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { LoginScreen } from '../screens/LoginScreen'
-import { type AuthStatus, fetchAuthStatus } from './auth'
+import { type AuthStatus, fetchAuthStatus, logout } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
 import { useServerProfile } from './server-profile-context'
 
-type GateState = 'checking' | 'open' | 'login' | 'unreachable'
+type GateState = 'checking' | 'open' | 'login' | 'membership-denied' | 'unreachable'
 
 /**
  * Mounts the app only once the server is reachable and (when a password is set)
@@ -15,7 +16,8 @@ type GateState = 'checking' | 'open' | 'login' | 'unreachable'
  * never start in a 401 loop. Auth-disabled servers pass straight through.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { activation, config, bearer, profile, updateCredential } = useServerProfile()
+  const { activation, config, bearer, profile, updateCredential, removeProfile } =
+    useServerProfile()
   const demo = demoEnabled()
   const [state, setState] = useState<GateState>(() => (demo ? 'open' : 'checking'))
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
@@ -40,7 +42,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
       .then((status) => {
         if (!alive) return
         setAuthStatus(status)
-        setState(status.needsAuth && !status.authed ? 'login' : 'open')
+        setState(
+          !status.authed && status.providerSignedIn === true && status.deniedReason
+            ? 'membership-denied'
+            : status.needsAuth && !status.authed
+              ? 'login'
+              : 'open',
+        )
       })
       .catch(() => {
         // /auth/status is unauthenticated; failure means the server is down.
@@ -67,6 +75,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
             // Updating the credential increments the profile runtime key. The
             // fresh AuthGate then re-reads status and names the authenticated
             // principal before any client/replica construction.
+          }}
+        />
+      </LaunchReadyView>
+    )
+  }
+  if (state === 'membership-denied') {
+    return (
+      <LaunchReadyView>
+        <MembershipDeniedView
+          reason={authStatus?.deniedReason ?? ''}
+          server={config.httpOrigin}
+          signInUrl={authStatus?.signInUrl}
+          onBegin={async () => {
+            // Revoke/clear the refused account before starting a new handoff.
+            // The new account must never inherit this profile's bearer.
+            await logout(config.httpOrigin, bearer).catch(() => {})
+            await removeProfile(profile.id).catch(() => {})
           }}
         />
       </LaunchReadyView>

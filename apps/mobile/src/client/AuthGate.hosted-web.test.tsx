@@ -1,11 +1,13 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ begin: vi.fn(), updateCredential: vi.fn() }))
+const mocks = vi.hoisted(() => ({ begin: vi.fn(), logout: vi.fn().mockResolvedValue(undefined), removeProfile: vi.fn().mockResolvedValue(undefined), updateCredential: vi.fn() }))
+vi.mock('./auth', async (importOriginal) => ({ ...await importOriginal<typeof import('./auth')>(), logout: mocks.logout }))
 vi.mock('./hosted-sign-in-runtime', () => ({ hostedSignIn: { begin: mocks.begin } }))
 vi.mock('./server-profile-context', () => ({
   useServerProfile: () => ({
     activation: 'online', config: { httpOrigin: 'https://api.example' }, bearer: null,
     profile: { id: 'browser', name: 'Browser', mode: 'protected' },
+    removeProfile: mocks.removeProfile,
     updateCredential: mocks.updateCredential,
   }),
 }))
@@ -54,4 +56,20 @@ it.each(['https://evil.example/mobile/a', 'https://app.example//evil.example', '
 })
 it.each(['javascript:alert(1)', 'http://app.example/account/sign-in', 'https://user:pass@app.example/account/sign-in', 'https://app.example/account/handoff'])('rejects invalid account page %s', (page) => {
   expect(() => hostedBrowserSignInUrl(page, 'https://app.example/mobile/')).toThrow()
+})
+it('shows the workspace refusal instead of a repeat-sign-in loop', async () => {
+  const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+    mode: 'cloud', needsAuth: true, authed: false, userId: null,
+    signInUrl: 'https://app.example/account/sign-in',
+    providerSignedIn: true, deniedReason: 'not a member of this workspace',
+  })))
+  render(<AuthGate><div>Workspace</div></AuthGate>)
+  expect((await screen.findByRole('alert')).textContent).toBe('not a member of this workspace')
+  expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Continue with Podium Cloud' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Use another account' }))
+  await waitFor(() => expect(assign).toHaveBeenCalled())
+  expect(mocks.logout).toHaveBeenCalledWith('https://api.example', null)
+  expect(mocks.removeProfile).toHaveBeenCalledWith('browser')
 })

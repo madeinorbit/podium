@@ -10,7 +10,15 @@ import { describe, expect, it } from 'vitest'
 import { type AuthStatus, checkLiveAuth, fetchAuthStatus } from './auth'
 
 /** The complete status contract; userId is the namespace input. */
-const STATUS_FIELDS = ['needsAuth', 'authed', 'userId', 'mode', 'signInUrl'] as const
+const STATUS_FIELDS = [
+  'needsAuth',
+  'authed',
+  'userId',
+  'mode',
+  'signInUrl',
+  'providerSignedIn',
+  'deniedReason',
+] as const
 
 /** Type-level equality in both directions keeps the parser contract explicit. */
 type AssertNever<T extends never> = T
@@ -40,6 +48,8 @@ describe('the mobile auth status names its replica principal', () => {
           userId: 'alice',
           mode: 'cloud',
           signInUrl: 'https://ade.podium.do/account/sign-in',
+          providerSignedIn: true,
+          deniedReason: 'not a member of this workspace',
         }),
         {
           headers: { 'content-type': 'application/json' },
