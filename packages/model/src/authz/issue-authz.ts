@@ -302,6 +302,58 @@ export function authorize(
   const scope = cap.scope
   switch (scope.kind) {
     case 'all':
+      // ── THE ADMIN-TO-PRIVATE-RESOURCE BYPASS, REMOVED (A3/PDM-129) ─────────
+      //
+      // This arm used to be `return 'allow'` for every target. That is correct
+      // for ISSUE targets — an unconstrained TASK scope is exactly what `all`
+      // means, and `userCommandPrincipal` mints it for admins on purpose — but
+      // it was also answering a question `all` was never about.
+      //
+      // ADR 9 Amendment 1 D7: an admin may NOT view or drive another member's
+      // session. D13: on a shared task, another member's session is visible as
+      // owner, title and live/idle state only — a projection that shows less,
+      // never a reader admitted to the resource. Yet `session-state/registry.ts`
+      // and `rename-target-path.ts` both decide private targets by calling THIS
+      // function, so `all` returning a blanket allow handed every admin every
+      // member's private rows. Nobody recorded that decision; it is what
+      // "admin implies scope all" meant once scope-all also meant "sees all".
+      //
+      // A private target is therefore decided by OWNERSHIP even here, against
+      // `cap.onBehalfOf` — the branded human this call is made FOR, stamped from
+      // the authenticated transport and never from a payload. An admin keeps
+      // full reach over their OWN private resources and loses it over everyone
+      // else's, which is what D7 asks for.
+      //
+      // WHY `onBehalfOf` AND NOT A NEW SCOPE MEMBER. The alternative was
+      // `{ kind: 'all'; userId }`, and it is worse in the way that matters: the
+      // identity would then live in the SCOPE, so a site asking "is this scope
+      // unconstrained?" would once again receive an identity fact alongside the
+      // answer — the precise collapse `authz/axes.ts` exists to undo. The scope
+      // stays a pure task-reach statement; the person comes from the attribution
+      // pair, which is already the one place a person may come from.
+      //
+      // A capability with no `onBehalfOf` — a machine or a system job (D21.2,
+      // where having none is FINAL) — fails closed on private targets. System
+      // jobs that legitimately read across owners do not arrive here at all:
+      // `SystemCommandPrincipal` carries no capability.
+      //
+      // Not overridable, and deliberately: `--outside-scope` confirms crossing a
+      // TASK boundary. There is no flag that converts a privacy denial into an
+      // allow — see `taskScopeDecision` in `./axes`.
+      if (issue?.kind === 'owned') {
+        if (issue.owner === null) return 'forbidden'
+        const self = cap.onBehalfOf
+        if (self === undefined) return 'forbidden'
+        return issue.owner === self || (issue.grants ?? []).includes(self)
+          ? 'allow'
+          : 'forbidden'
+      }
+      if (issue?.kind === 'per-user-row') {
+        return cap.onBehalfOf !== undefined && issue.userId === cap.onBehalfOf
+          ? 'allow'
+          : 'forbidden'
+      }
+      // An issue target, or no target at all: unconstrained task reach, unchanged.
       return 'allow'
     case 'none':
       if (action === 'read') return 'allow' // no person in this scope — see READS above

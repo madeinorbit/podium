@@ -103,11 +103,15 @@ describe('startServer with the hub role disabled (node shape)', () => {
           bindHost: '0.0.0.0',
           confirmation: 'TRANSFER SERVER',
         }),
-      () =>
-        trpc.machines.transferOwnership.mutate({
-          id: handle.registry.modules.machines.hostMachineId,
-          newOwnerUserId: 'user:nobody',
-        }),
+      // `machines.transferOwnership` WAS in this loop and is not any more, and
+      // the reason is a stronger property rather than a weaker one: A3
+      // (PDM-129) marked it `SERVED_NOWHERE`, so it is absent on EVERY server
+      // role, not only on a hub-less one. The accounts-and-machines addendum
+      // says there is no machine-handover workflow, and accepted D12 says to
+      // disable the mutation rather than hide the menu. Its absence is now
+      // enforced by `@podium/commands`' deferred-capability gate, which checks
+      // the contract table directly; asserting a 404 here would be asserting
+      // the hub gate refuses something no gate is reached for.
       () =>
         trpc.machines.adopt.mutate({
           id: handle.registry.modules.machines.hostMachineId,

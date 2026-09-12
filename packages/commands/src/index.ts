@@ -365,6 +365,32 @@ export {
   operationsCancelContract,
   operationsSettleAskContract,
 } from './operations/contracts'
+// THE V1 SCOPE DECISIONS (A3/PDM-129) — capabilities the charter defers, named
+// so their absence is enforced against the contract table rather than remembered.
+export {
+  DEFERRED_CAPABILITIES,
+  DEFERRED_COMMAND_NAMES,
+  type DeferredCapability,
+  isDeferredCapability,
+} from './deferred'
+// THE READ HALF OF THE CONTRACT (A3/PDM-129) — a server-enforced policy for
+// every externally reachable PROJECTION, and the census that proves the table
+// covers the whole served population.
+export {
+  PROJECTION_ROW_SCOPES,
+  type ProjectionPolicy,
+  type ProjectionRowScope,
+  projectionCensusErrors,
+  projectionPolicyErrors,
+  UNGOVERNED,
+} from './projection'
+export {
+  CENSUS_TOTAL,
+  PROJECTION_POLICIES,
+  PROJECTION_SERVED_NOWHERE,
+  UNGOVERNED_PROJECTIONS,
+  type UngovernedProjection,
+} from './projections/census'
 export {
   PERF_CONTRACT_NAMES,
   PERF_CONTRACTS,

@@ -68,12 +68,33 @@ export async function checkIssueAccess(
   if (caller.capability.scope.kind === 'all') return
   if (!targetId || !await issues.has(targetId)) return
   if (caller.capability.scope.kind === 'owned') {
+    // ── `--outside-scope` IS NOT PASSED HERE, AND THAT IS THE RULE (A3/PDM-129)
+    //
+    // ADR 3 D2's `overrideScope` confirms that a caller knowingly reached
+    // outside the WORKING TASK its capability is bound to. It is a guard against
+    // an agent wandering — the person behind it already held the rights; what
+    // they lacked was the intent. It is NOT a grant of authority, and an
+    // ownership refusal is an authority answer.
+    //
+    // So the override is absent from this arm by construction rather than by
+    // being `false`: there is no expression here that a flag could change. The
+    // model agrees from its own side — `authorize`'s `owned` arm returns
+    // `forbidden` and never `confirm-required`, so even if the flag were
+    // threaded through it would have nothing to convert. Two independent
+    // refusals, which is what a rule this easy to re-add quietly needs.
+    //
+    // `authz/axes.ts` makes the same separation in the type system:
+    // `taskScopeDecision` is the only function that takes an `override`, and the
+    // only thing it can be handed is an in-scope boolean — no user id, no owner,
+    // no role.
     const target = await issues.ownedTarget?.(targetId, action)
     if (!target || authorize(caller.capability, action, target) === 'forbidden') {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + targetId })
     }
     return
   }
+  // The ONE site where the override is consulted: a TASK-tree scope deciding an
+  // ISSUE target. Both halves of that sentence are load-bearing.
   const decision = authorize(
     caller.capability,
     action,

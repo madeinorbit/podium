@@ -132,7 +132,13 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
    * `Record<IssueScope['kind'], …>` is missing-key-checked, so it cannot now.
    */
   const EXPECTED_READ_OF_ANOTHERS_ENTITY: Record<IssueScope['kind'], AuthDecision> = {
-    all: 'allow',
+    // WAS `allow` UNTIL A3 (PDM-129). An `all` scope is an unconstrained TASK
+    // reach, and it was also being read as "may see every private row" — the
+    // collapse that let an admin into any member's session, against ADR 9
+    // Amendment 1 D7. A private target is now decided by ownership even here,
+    // against the capability's `onBehalfOf`; `cap()` builds no attribution pair,
+    // so this subject names nobody and fails closed.
+    all: 'forbidden',
     none: 'allow',
     subtree: 'allow',
     // The two scopes that name a person: gated by ownership, exactly as writes are.
@@ -289,14 +295,56 @@ describe('self scope (per-user state)', () => {
 })
 
 describe('the unconstrained admin capability keeps its reach across the new target kinds', () => {
-  it('writes an owned entity it does not own, and any per-user row', () => {
-    // Today's single shared password resolves to admin/all, and POD-380 must not
-    // change that: the migration is behaviour-preserving. `scope: 'all'`
-    // short-circuits before target kind is read.
-    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('allow')
+  it('does NOT write an owned entity it does not own, nor another person’s per-user row', () => {
+    // ── SUPERSEDED BY A3 (PDM-129) ────────────────────────────────────────────
+    //
+    // This test used to assert `allow` for both, on the grounds that `scope:
+    // 'all'` short-circuits before the target kind is read and that POD-380 had
+    // to be behaviour-preserving. The prose below already named the moment that
+    // stops being the right answer — "that is Phase 3 (POD-315/POD-290), and
+    // this issue's brief excludes authz enforcement in as many words". A3 is the
+    // task whose brief includes it: *remove admin-to-private-resource bypasses*.
+    //
+    // ADR 9 Amendment 1 D7 is the rule — an admin may not view or drive another
+    // member's session — and D13 bounds what a member may learn about another
+    // member's session on a shared task to owner, title and live/idle state.
+    // Neither is satisfiable while one predicate means both "unconstrained task
+    // reach" and "sees everything".
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('forbidden')
     expect(authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
-      'allow',
+      'forbidden',
     )
+  })
+
+  it('keeps its full reach over its OWN private rows, so the denial is ownership and not a blanket refusal', () => {
+    // The counterfactual, without which the assertions above would also pass
+    // against an `authorize` that had simply stopped answering for private
+    // targets. `UNCONSTRAINED_ADMIN` carries `onBehalfOf: A_MEMBER`, which is
+    // the branded human the call is made FOR — stamped from the authenticated
+    // transport, never from a payload.
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session(A_MEMBER))).toBe('allow')
+    expect(
+      authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: asUserId(A_MEMBER) }),
+    ).toBe('allow')
+  })
+
+  it('keeps its unconstrained reach over ISSUE targets, which is what an `all` scope is about', () => {
+    // The narrowing is confined to PRIVATE targets. A task tree is shared
+    // content (ADR 9 D4/D5 A3), and the execution charter's exposure order
+    // forbids changing task delivery during phases A and B — so this arm is
+    // deliberately untouched, and pinned here so a later tightening cannot be
+    // mistaken for part of A3.
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { id: 'i1' })).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'manage', { id: 'i1' })).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'read', { id: 'i1' })).toBe('allow')
+  })
+
+  it('refuses a private target when the capability names no human at all', () => {
+    // A machine or a system job has no on-behalf-of, and D21.2 makes that final.
+    // Default-closed: no person named, no private row reached.
+    const machineCapability: Capability = { role: 'admin', scope: { kind: 'all' } }
+    expect(authorize(machineCapability, 'read', session('somebody-else'))).toBe('forbidden')
+    expect(authorize(machineCapability, 'read', session(A_MEMBER))).toBe('forbidden')
   })
 
   /**
@@ -313,22 +361,25 @@ describe('the unconstrained admin capability keeps its reach across the new targ
    * WHAT CHANGED: a first admin now EXISTS as a row, with `role = 'admin'` and
    * `A_MEMBER` as its id.
    *
-   * WHAT DID NOT: the short-circuit, and deliberately. `OPERATOR` is
-   * `admin`/`all`, and the two halves of that are independent gates — the
-   * ACCOUNT role (`admin`, an instance-level fact about a person, ADR 9 D1.4)
-   * and the CAPABILITY scope (`all`, what this call may reach). Narrowing the
-   * scope to `owned` is what makes an admin a scoped user, and it is an
-   * ENFORCEMENT change: ADR 9 D1.5 says `OPERATOR` *"survives only as a
-   * migration artefact"* and ADR 9's compliance checklist requires that no code
-   * path construct an unconstrained capability from "someone authenticated" —
-   * but the thing that would have to stop doing so is `resolvePrincipal`, and
-   * it cannot until the transport can tell two humans apart. That is Phase 3
-   * (POD-315/POD-290), and this issue's brief excludes authz enforcement in as
-   * many words.
+   * WHAT DID NOT, UNTIL A3: the short-circuit. The note here used to end by
+   * saying the pins stay because "the thing that would have to stop doing so is
+   * `resolvePrincipal`, and it cannot until the transport can tell two humans
+   * apart. That is Phase 3 (POD-315/POD-290)".
    *
-   * So the pins stay, and this test says what they are now pinning: not "there
-   * are no users" — there are — but "the shared-password transport still mints
-   * one unconstrained capability".
+   * A3 (PDM-129) resolves that WITHOUT waiting for the transport, because the
+   * two halves come apart more cleanly than the note assumed. `OPERATOR` is
+   * `admin`/`all`, and those are independent gates — the ACCOUNT role (`admin`,
+   * an instance-level fact about a person, ADR 9 D1.4) and the CAPABILITY scope
+   * (`all`, what this call may reach). The bypass was never the scope being
+   * wide; it was PRIVATE targets being decided by the scope at all. They are now
+   * decided by the attribution pair's `onBehalfOf`, which the shared-password
+   * transport already supplies correctly — so an admin keeps unconstrained reach
+   * over task trees and loses it over everyone else's private rows, today,
+   * rather than at the flip.
+   *
+   * So what this test now pins is the half that is still true: the
+   * shared-password transport still mints ONE capability whose SCOPE is
+   * unconstrained, and narrowing that scope remains Phase 3's to do.
    */
   it('is the FIRST ADMIN’s reach, and the scope — not the role — is what is unconstrained', () => {
     expect(UNCONSTRAINED_ADMIN.role).toBe('admin')

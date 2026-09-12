@@ -1924,6 +1924,7 @@
         "src/origin-refusal.ts",
         "src/plugin-auth.ts",
         "src/plugins.ts",
+        "src/projection-census.test.ts",
         "src/pspec.ts",
         "src/publication-scope.ts",
         "src/queue-drain-abandonment.test.ts",

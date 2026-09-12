@@ -616,7 +616,17 @@ describe('issues.subscription* authz (Phase B)', () => {
     ).resolves.toBeTruthy()
   })
 
-  it("subscriptionList returns only the caller's own rows; operator sees all", async () => {
+  it("subscriptionList returns only the caller's own rows, for EVERY caller", async () => {
+    // ── NARROWED BY A3 (PDM-129) ──────────────────────────────────────────────
+    //
+    // The operator arm used to assert `.length).toBe(2)` — every subscription on
+    // the instance. A subscription is personal automation configuration, which
+    // the execution charter keeps private and singly owned, so that arm
+    // disclosed every member's automations to any admin.
+    //
+    // The service is now asked only for the caller's own rows, so there is no
+    // moment at which the server holds a forbidden row and relies on a
+    // projection to drop it (ADR 3 Amendment 1 D19, rejected alternatives).
     await scopedTo(A.id).issues.subscriptionAdd({
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
@@ -627,7 +637,8 @@ describe('issues.subscription* authz (Phase B)', () => {
     })
     expect((await scopedTo(A.id).issues.subscriptionList()).length).toBe(1)
     expect((await scopedTo(B.id).issues.subscriptionList()).length).toBe(1)
-    expect((await callerWith(OPERATOR).issues.subscriptionList()).length).toBe(2)
+    // The operator sees its OWN rows — here, none: it created none.
+    expect((await callerWith(OPERATOR).issues.subscriptionList()).length).toBe(0)
   })
 
   it('a subtree caller may only remove its OWN subscription', async () => {
@@ -643,14 +654,25 @@ describe('issues.subscription* authz (Phase B)', () => {
     })
   })
 
-  it('the operator creates a subscription for an EXPLICIT subscriber (Automations UI)', async () => {
+  it('the explicit subscriber is IGNORED for the operator too — no payload identity', async () => {
+    // ── PAYLOAD IDENTITY SUBSTITUTION, REMOVED (A3/PDM-129) ───────────────────
+    //
+    // This used to assert that an operator's `subscriber` field was HONOURED, so
+    // an admin could mint a subscription owned by someone else out of a payload.
+    // ADR 3 D7 / Amendment 1 D14.3: identity comes from the authenticated
+    // transport and is inert in payload. The charter adds the second reason —
+    // automation sharing and transfer are not in v1, and creating one for
+    // another party is a transfer with no verb.
+    //
+    // Ignored rather than rejected, which is what constrained callers already
+    // got: a client that still sends the field keeps working and simply cannot
+    // name anyone but itself.
     const s = await callerWith(OPERATOR).issues.subscriptionAdd({
       event: 'issue.stage_changed:review',
       source: { kind: 'relationship', ref: 'my-children' },
       subscriber: { kind: 'issue', id: B.id },
     })
-    expect(s.subscriberKind).toBe('issue')
-    expect(s.subscriberId).toBe(B.id)
+    expect(s.subscriberId).not.toBe(B.id)
   })
 
   it('the explicit subscriber is IGNORED for a constrained caller (subscribes itself)', async () => {
@@ -662,23 +684,31 @@ describe('issues.subscription* authz (Phase B)', () => {
     expect(s.subscriberId).toBe(A.id)
   })
 
-  it('operator toggles any subscription; a subtree caller only its own', async () => {
+  it('ONLY the owner toggles a subscription — the operator is refused like anyone else', async () => {
+    // ── THE ADMIN ARM, REMOVED (A3/PDM-129) ───────────────────────────────────
+    //
+    // The ownership check used to be skipped entirely for scope 'all', so an
+    // admin could disable another member's automation. ADR 9 Amendment 1 D7 —
+    // an admin may not drive another member's execution — is the same rule one
+    // resource over. Admin grade decides which commands may be ATTEMPTED, never
+    // whose rows may be touched; the two questions are now separate evaluators
+    // in `@podium/model`'s `authz/axes.ts`.
     const sa = await scopedTo(A.id).issues.subscriptionAdd({
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
     })
-    // Operator toggles it off, then a foreign subtree caller is refused.
     await expect(
       callerWith(OPERATOR).issues.subscriptionSetEnabled({ id: sa.id, enabled: false }),
-    ).resolves.toMatchObject({ updated: true })
-    expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(false)
+    ).rejects.toThrow(/do not own/)
     await expect(
       scopedTo(B.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
     ).rejects.toThrow(/do not own/)
-    // The owner may re-enable it.
+    // The counterfactual: the OWNER may still toggle it, so the refusals above
+    // are ownership talking and not the command having been broken.
     await expect(
-      scopedTo(A.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
+      scopedTo(A.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: false }),
     ).resolves.toMatchObject({ updated: true })
+    expect((await scopedTo(A.id).issues.subscriptionList())[0]!.enabled).toBe(false)
   })
 })
 

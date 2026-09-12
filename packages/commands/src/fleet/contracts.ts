@@ -107,6 +107,7 @@
 
 import { MachineIdField, UpdateChannel, UserIdField } from '@podium/model'
 import { z } from 'zod'
+import { SERVED_NOWHERE } from '../contract'
 import type {
   AttributionPolicy,
   CommandContract,
@@ -546,7 +547,29 @@ export const machineShareContract = {
     rationale:
       'Sharing widens who may see, use, or manage someone’s compute. The member floor keeps the owner reachable, the manage check hides invisible rows, and owner-only authority prevents a manage grantee or instance admin from re-delegating another person’s machine.',
   },
-  exposure: SERVED_ON,
+  // ── UNAVAILABLE ON EVERY TRANSPORT (A3/PDM-129) ─────────────────────────────
+  //
+  // The execution charter puts machine sharing outside v1 in as many words —
+  // "No multi-human execution environment, machine handover, member
+  // offboarding/resource redistribution, automation sharing/transfer, provider
+  // credential revocation/installed-copy recall" — and states the positive rule
+  // it follows from: EXACTLY ONE HUMAN may execute through Podium on a machine,
+  // with ownership coming from authenticated enrollment.
+  //
+  // `machines.share` with `verb: 'use'` is precisely a multi-human execution
+  // environment: a second person placing code execution on someone else's
+  // machine. It was mounted on tRPC and reachable.
+  //
+  // MARKED, NOT DELETED, and the difference matters. The contract, its handler
+  // and its grant-edge shape all stay — this is a decision about v1 EXPOSURE,
+  // not a judgement that the feature is wrong, and D-series decisions are the
+  // human's to revisit. Re-enabling is restoring one constant. Deleting would
+  // have thrown away a reviewed design to express a scope decision.
+  //
+  // `SERVED_NOWHERE` rather than `[]`: "I forgot" and "I decided" must not look
+  // alike (ADR 3 D3 rule 1). Nothing in `apps/web`, the CLI or the MCP surface
+  // calls either command, so this removes a reachable surface and no caller.
+  exposure: SERVED_NOWHERE,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
   ownership: {
@@ -586,7 +609,12 @@ export const machineUnshareContract = {
     rationale:
       'Revocation changes the machine audience and is reserved to the direct owner for the same reason as sharing; a delegated manage grant is not authority to rewrite delegation.',
   },
-  exposure: SERVED_ON,
+  // Unavailable on every transport, with `machines.share` and for its reason: a
+  // revoke verb for a grant that cannot be created is not a safety valve, it is
+  // the other half of the same deferred feature. Leaving `unshare` served while
+  // `share` is not would be the worse arrangement — a surface whose only purpose
+  // is undoing something unreachable.
+  exposure: SERVED_NOWHERE,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
   ownership: { creates: [], note: 'Removes one machine grant edge; creates nothing.' },
@@ -643,7 +671,22 @@ export const machineTransferOwnershipContract = {
     rationale:
       'Transfer moves the root of a machine’s access graph to another person: the new owner gains see, use and manage by default and the old owner keeps none of them. The member floor keeps ordinary owners able to hand over their own hardware, the manage check keeps an invisible machine invisible, and owner-only authority excludes both a manage grantee and an instance admin from giving away compute that is not theirs.',
   },
-  exposure: SERVED_ON,
+  // ── UNAVAILABLE ON EVERY TRANSPORT (A3/PDM-129) ─────────────────────────────
+  //
+  // This is machine handover, and the accounts-and-machines addendum rules it
+  // out by name at two places. §1: "Existing ownership must be resolved during
+  // onboarding/migration; THERE IS NO MACHINE-HANDOVER WORKFLOW", and
+  // "Enrollment of a machine for someone else, handover and alternate-owner
+  // re-pairing are not v1 features." Accepted D12 (11 September 2026) then says
+  // what to do about it in the imperative: "DISABLE CORRESPONDING PUBLIC
+  // MUTATIONS RATHER THAN ONLY HIDING MENUS."
+  //
+  // The policy above is not wrong — owner-only is the right authority for this
+  // command, and the reasoning that excluded instance admins from taking
+  // somebody's personal Mac is exactly right. It is a well-designed command for
+  // a feature v1 does not have, which is why this marks EXPOSURE and leaves
+  // everything else standing.
+  exposure: SERVED_NOWHERE,
   delivery: FLEET_DELIVERY,
   redaction: PUBLIC_REDACTION,
   ownership: {
