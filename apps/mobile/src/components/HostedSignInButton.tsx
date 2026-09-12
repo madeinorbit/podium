@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Platform, Text, View } from 'react-native'
+import { hostedBrowserSignInUrl } from '../client/hosted-browser-sign-in'
 import { hostedSignIn } from '../client/hosted-sign-in-runtime'
 import { HOSTED_API_ORIGIN, HOSTED_SIGN_IN_URL } from '../client/hosted-sign-in'
 import { PressableScale } from './PressableScale'
@@ -16,7 +17,6 @@ export function HostedSignInButton({
   const inFlight = useRef(false)
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  if (Platform.OS === 'web') return null
   return (
     <View style={{ gap: space.sm }}>
       <PressableScale
@@ -25,6 +25,14 @@ export function HostedSignInButton({
         disabled={busy}
         style={{ padding: space.md, borderRadius: 8, backgroundColor: color.claude }}
         onPress={() => {
+          if (Platform.OS === 'web') {
+            try {
+              window.location.assign(hostedBrowserSignInUrl(signInUrl, window.location.href))
+            } catch {
+              setStatus('Could not start sign-in. Try again.')
+            }
+            return
+          }
           if (inFlight.current) return
           onBegin?.()
           inFlight.current = true

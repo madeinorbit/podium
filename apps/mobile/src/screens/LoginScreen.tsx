@@ -136,7 +136,7 @@ export function LoginScreen({
             : 'waiting on you — enter your email and password'
   const btnGlyph = state === 'ok' ? '✓' : '→'
 
-  if (cloudSignInUrl && Platform.OS !== 'web') {
+  if (cloudSignInUrl) {
     return (
       <View style={styles.root}>
         <AsciiWordmark color={C.text} fontSize={3.9} />
