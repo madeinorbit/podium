@@ -593,19 +593,32 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
       ).toBe('forbidden')
     }
 
-    // ...and the AGENT legs are not yet denied it. Recorded rather than dropped
-    // from the loop above, because a filtered loop would have hidden it: a
-    // `subtree` capability read-allows every target (see `authorize`'s READS
-    // block — gating reads by an issue-tree scope would deny an agent every
-    // sibling issue, D20.2), and that reasoning was written about ISSUES, not
-    // about owned entities. Whether an agent's subtree scope should reach another
-    // member's session is a question this task does not own; asserting today's
-    // answer means the day it changes, it changes visibly.
+    // ── AND THE AGENT LEGS NOW SAY THE SAME THING (A5.2 / PDM-246) ─────────
+    //
+    // This loop asserted `allow`, recorded deliberately so that "the day it
+    // changes, it changes visibly". This is that day, so the change is argued
+    // here rather than left to be read off a diff.
+    //
+    // The old note said a `subtree` capability read-allows every target because
+    // gating reads by an issue-tree scope would deny an agent every sibling
+    // issue (D20.2) — *"and that reasoning was written about ISSUES, not about
+    // owned entities"*. That sentence is the finding. §3.1.3 A1 resolves an
+    // agent's rights as its scope INTERSECTED with its delegating human's
+    // CURRENT rights, and after A5.1 both human legs above are denied this very
+    // read, so an agent OF THE OWNER was out-reaching the owner. D7 and D13
+    // carve out no agent exception.
+    //
+    // What changed in the evaluator is exactly the target classes that reasoning
+    // never covered: `none` and `subtree` decide an owned entity or a per-user
+    // row by ownership, and keep read-allow for ISSUES. The parity loop above is
+    // the proof that this is a privacy narrowing and not a visibility change —
+    // it still passes unchanged on every leg, the agent legs included, for the
+    // agent's own session, its own per-user row and an unrelated task.
     for (const transport of AGENT_TRANSPORTS) {
       expect(
         authorize(transport.capabilityFor(AGENT_OF_OWNER), 'read', someoneElsesSession),
         transport.tag,
-      ).toBe('allow')
+      ).toBe('forbidden')
     }
   })
 })
