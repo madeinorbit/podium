@@ -78,9 +78,39 @@ const INSTRUMENT = 'scripts/audit-machine-grants.ts'
  * exemption does not reach it — and naming it explicitly is the point: a
  * substring rule (`includes('oracle-')`) would silently exempt every future file
  * whose name happened to contain it.
+ *
+ * PDM-288 ADDED THE SECOND, and it is a different kind of entry from the first,
+ * so it gets its own sentence rather than joining a category.
+ *
+ * `test-support/session-facts.ts` converts a fixture's `SessionMeta` literals
+ * into `SessionFacts`. The owner it stamps is a SESSION owner, not a machine
+ * one — and sessions' transitional sole-account answer is deliberately outside
+ * this gate's charter. Check 2's own regex says so: it matches `ownerUserId` and
+ * refuses to match a bare `owner:` precisely because "sessions and issues have
+ * transitional sole-account answers of their own, and firing on those would make
+ * this gate about a question it does not own, which is how a gate gets
+ * suppressed." That is what happened here. `SessionFacts` spells its field
+ * `ownerUserId`, so the session answer arrived wearing the machine spelling and
+ * this gate went red for a question it had already disclaimed — a machine-grants
+ * gate failing on a session fixture is the "red for an unrelated reason" that
+ * teaches the next reader to skip the output.
+ *
+ * It is exempted here rather than fixed at the source because there is no
+ * principal in scope at a fixture boundary, and because threading a real owner
+ * through `metaAsFacts` is the ownerless-session-creation migration's call to
+ * make across its own ~70 files, not this gate's to force from the side. The
+ * file is unreachable from production: every importer is a `.test.ts` save one,
+ * `modules/messages/characterization-support.ts`, which is itself imported only
+ * by `scripts/`.
+ *
+ * THE EXEMPTION IS PER-FILE AND THE PROBE PINS IT. Both directions are proved
+ * in `probe()` — a listed file is spared, and a file NEXT TO a listed one,
+ * sharing its directory and its stem, is still a finding. Adding an entry here
+ * must never be a way to quiet a neighbourhood.
  */
 const FIXTURE_BUILDERS: ReadonlySet<string> = new Set([
   'apps/server/src/modules/sessions/oracle-support.ts',
+  'apps/server/src/test-support/session-facts.ts',
 ])
 
 // ---------------------------------------------------------------------------
@@ -431,6 +461,39 @@ function probe(): Finding[] {
   expectClean(
     'bare-sole-owner',
     bareFirstAdminOwnerSites(one('upsertMachine({ ownerUserId: pairingGrant.ownerUserId ?? null })')),
+  )
+  // FIXTURE_BUILDERS, BOTH DIRECTIONS (PDM-288). The first probe proves the list
+  // exempts at all — without it an entry could be decoration and the gate could be
+  // green for some other reason entirely. The second is the one that earns its
+  // keep: it plants the SAME violation in a file sharing the listed one's
+  // directory AND its stem, so a rule that had drifted to a directory prefix or
+  // to the `includes('oracle-')` substring the list's own prose forbids shows up
+  // here as a probe failure rather than as a blind spot the next reader inherits.
+  //
+  // Both name `oracle-support.ts`, the OLDEST entry, deliberately. Pinning the
+  // newest instead would make a correct future removal — the day a builder stops
+  // needing the exemption because a real principal reaches it — report THE
+  // INSTRUMENT IS BROKEN, when what it should report is a clean gate. The probe's
+  // job is the mechanism; the gate itself is what holds each membership.
+  expectClean(
+    'bare-sole-owner',
+    bareFirstAdminOwnerSites(
+      new Map([
+        ['apps/server/src/modules/sessions/oracle-support.ts', 'ownerUserId: firstAdminMemberId()'],
+      ]),
+    ),
+  )
+  expectFinds(
+    'bare-sole-owner',
+    bareFirstAdminOwnerSites(
+      new Map([
+        [
+          'apps/server/src/modules/sessions/oracle-support-neighbour.ts',
+          'ownerUserId: firstAdminMemberId()',
+        ],
+      ]),
+    ),
+    'owner invented in an UNLISTED neighbour of an exempted fixture builder',
   )
 
   expectFinds(
