@@ -178,15 +178,57 @@ describe('the members’ own semantics', () => {
     expect(PinState.safeParse({ ...base, kind: 'session' }).success).toBe(false)
   })
 
-  it('the three issue markers are one row, and all three are independently nullable', () => {
+  // THE MARKER LIST IS READ OFF THE SCHEMA, NOT RETYPED HERE. It was three
+  // literals until A2 added `startedAt` and `assignmentDismissedAt` as required
+  // nullable fields; the fixture kept the three, so the POSITIVE case started
+  // failing and the missing-marker case below — the check this suite exists to
+  // make — stopped running behind it. Deriving the list means a sixth marker is
+  // covered by every case here on the next run instead of killing them.
+  const ISSUE_MARKERS = Object.keys(IssueUserState.shape).filter(
+    (field) => !(field in PerUserKey.shape),
+  )
+  const issueRowOf = (fields: readonly string[]) =>
+    Object.fromEntries(fields.map((field) => [field, null]))
+
+  it('the issue marker list every case below reads is exactly the schema’s five', () => {
+    // NON-VACUITY, the guard this file owes every `it.each`: over an empty list
+    // the per-marker cases below report as a clean pass about nothing. Spelled in
+    // full rather than counted, so a marker that is added, renamed or dropped
+    // fails HERE and names itself instead of quietly shrinking the coverage.
+    expect([...ISSUE_MARKERS].sort()).toEqual([
+      'assignmentDismissedAt',
+      'pinnedAt',
+      'readAt',
+      'startedAt',
+      'tuckedAt',
+    ])
+  })
+
+  it('the five issue markers are one row, and all five are independently nullable', () => {
     const key = { userId: 'u1', entityId: 'i1' }
-    expect(
-      IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null, pinnedAt: null }).success,
-    ).toBe(true)
-    // A row missing one marker is not a valid row: three spellings of "not done"
-    // (null, absent, and a default) is how a per-user table acquires a second
-    // meaning nobody documented.
-    expect(IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null }).success).toBe(false)
+    // All five null is the "this person has done nothing to this issue" row.
+    expect(IssueUserState.safeParse({ ...key, ...issueRowOf(ISSUE_MARKERS) }).success).toBe(true)
+    // INDEPENDENTLY nullable: each marker takes a stamp on its own while the other
+    // four stay null. Five separate facts about one reader, not one state in five
+    // spellings — `startedAt` and `pinnedAt` in particular are not the same claim.
+    for (const marker of ISSUE_MARKERS) {
+      const oneStamped = { ...issueRowOf(ISSUE_MARKERS), [marker]: '2026-01-01T00:00:00.000Z' }
+      expect(IssueUserState.safeParse({ ...key, ...oneStamped }).success, marker).toBe(true)
+    }
+  })
+
+  // A SEPARATE CASE PER MARKER, AND DELIBERATELY NOT INSIDE THE POSITIVE ONE.
+  // A row missing one marker is not a valid row: three spellings of "not done"
+  // (null, absent, and a default) is how a per-user table acquires a second
+  // meaning nobody documented. These were one `expect` after the positive fixture
+  // until now, which is why a stale fixture did not merely turn this red — it
+  // took the missing-marker check off the board entirely for as long as it stayed
+  // stale. As their own cases they still run, and still name the marker, no
+  // matter what the positive fixture does.
+  it.each(ISSUE_MARKERS)('a row missing %s is not a valid row', (marker) => {
+    const key = { userId: 'u1', entityId: 'i1' }
+    const missingOne = issueRowOf(ISSUE_MARKERS.filter((other) => other !== marker))
+    expect(IssueUserState.safeParse({ ...key, ...missingOne }).success).toBe(false)
   })
 
   it('two users’ rows for the SAME entity are two distinct keys', () => {
