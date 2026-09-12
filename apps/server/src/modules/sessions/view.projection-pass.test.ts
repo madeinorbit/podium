@@ -188,6 +188,15 @@ describe('one projection pass', () => {
       } as SessionStatePrincipal
       expect(await Promise.all(f.rows.map(s => f.state.canReadSession(member, s.sessionId))))
         .toEqual([false, false, false, false, false])
+      // STILL [true x5] AND THAT IS THE DEFECT, left asserting current behaviour
+      // so PDM-291 has a red to turn green rather than a case to reconstruct.
+      // PDM-270 removed the matching admin short circuit from mayWatch/mayDrive,
+      // but could NOT remove this one: `scope.kind === 'all'` is also what makes
+      // every PRINCIPAL-LESS internal read work, because view.defaultPrincipal()
+      // borrows the earliest admin (command-principal.ts:130). Removing it here
+      // refuses five internal reads in command-plane and oracle-decomposition.
+      // PDM-291 gives internal reads an identity of their own; then this vector
+      // becomes [false x5], matching the `member` vector above.
       const operator = { ...principal, userId: asUserId('unrelated'),
         capability: { role: 'admin', scope: { kind: 'all' } },
       } as SessionStatePrincipal
