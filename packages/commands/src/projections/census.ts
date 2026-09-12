@@ -181,13 +181,14 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'sessions.read',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'caller-only',
     resource: 'session',
     indirectResources: [],
     forbiddenFields: [],
-    rationale: 'Same ownership assertion as `transcriptRead`; both are transcript reads.',
+    rationale:
+      'Same ownership assertion as `transcriptRead`; both are transcript reads. TWO TRANSPORTS: `RELAY_ALLOWED.sessions` carries `read`, and the relay arm gated on the target ISSUE rather than on session ownership until POD-3900. Recorded as `TRPC` until then, which is how a read with two transports and two different gates stayed invisible to the instrument built to find exactly that — see the note on `sessions.status`.',
   }),
   p({
     name: 'sessions.recap',
@@ -202,7 +203,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'sessions.status',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'caller-only',
     resource: 'session',
@@ -212,7 +213,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     indirectResources: ['issue', 'repo'],
     forbiddenFields: [],
     rationale:
-      'Asserts `mayReadSession` and answers NOT_FOUND, like its three siblings. Governed since PDM-229; before that it was the one read in this table with no check, while returning more than any of them — the target\'s issue, its repo\'s `git log` and `git status`, and the files it touched. It takes a REF rather than a session id, so the rule is that the ref is resolved exactly once and the resolved id is both what is checked and what is projected: a second resolution could authorize one member of an issue and describe another.',
+      'Asserts `mayReadSession` and answers NOT_FOUND, like its three siblings. Governed since PDM-229; before that it was the one read in this table with no check, while returning more than any of them — the target\'s issue, its repo\'s `git log` and `git status`, and the files it touched. It takes a REF rather than a session id, so the rule is that the ref is resolved exactly once and the resolved id is both what is checked and what is projected: a second resolution could authorize one member of an issue and describe another. TWO TRANSPORTS, AND THIS ROW SAID ONE. `RELAY_ALLOWED.sessions` carries `status`, and the relay arm gated on the target ISSUE where this one gates on session OWNERSHIP — a colleague with issue write received the full payload D13 gives only an owner, until POD-3900. This row recorded the tRPC gate as THE gate. That is the failure mode the census exists to prevent, found in the census itself: an exposure tag naming one transport makes the other one\'s gate unaskable, so record every transport that serves a read even when their gates agree. `sessions.recap` stays `TRPC` deliberately: it is NOT in the relay allowlist, checked rather than assumed.',
   }),
   p({
     name: 'sessions.concurrencyHistory',
