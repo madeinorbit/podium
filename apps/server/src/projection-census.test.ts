@@ -462,14 +462,15 @@ describe('the ungoverned list is a finding list, not a waiver', () => {
   })
 
   it('separates private-execution disclosure from mere unclassification', () => {
-    // The six reads that disclose one person's private execution to another are
-    // a different severity from a shared-material read nobody has classified,
-    // and collapsing them would let the urgent ones wait behind the tidy ones.
+    // The reads that disclose one person's private execution to another are a
+    // different severity from a shared-material read nobody has classified, and
+    // collapsing them would let the urgent ones wait behind the tidy ones.
+    // `sessions.status` was the sixth until PDM-229 governed it; it is now in
+    // PROJECTION_POLICIES and the totality test above keeps it in exactly one list.
     const disclosing = UNGOVERNED_PROJECTIONS.filter(
       (entry) => entry.severity === 'discloses-private-execution',
     ).map((entry) => entry.name)
     expect(disclosing).toEqual([
-      'sessions.status',
       'accounts.list',
       'files.read',
       'files.list',

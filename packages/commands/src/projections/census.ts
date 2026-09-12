@@ -49,8 +49,8 @@
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. For 62 of the 76 there is a rule in the
- * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 14
+ * A census reports what it found. For 63 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 13
  * there is NO server-side reader scoping — the handler returns what the service
  * returns — and inventing a plausible policy for those would put a FALSE entry
  * in the audit surface, which `modules/approvals/queries.ts` correctly
@@ -114,7 +114,7 @@ import type { ProjectionPolicy } from '../projection'
 
 /** Every read in this census is served on `trpc`; the relay/CLI/MCP arms reach
  *  reads through the issue command registry, which is on the COMMAND side of the
- *  contract and already classified. Named once rather than repeated 54 times.
+ *  contract and already classified. Named once rather than repeated 55 times.
  *
  *  Those registry reads are ALSO served on trpc — `issues.get` and the other 31
  *  are live tRPC queries — which is why the census test excludes them by looking
@@ -198,7 +198,21 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     indirectResources: [],
     forbiddenFields: [],
     rationale:
-      'Asserts `mayReadSession` before the toolkit call. Named here because its sibling `sessions.status` does not — see the ungoverned list.',
+      'Asserts `mayReadSession` before the toolkit call, as all four reads in this family now do — `sessions.status` was the exception until PDM-229.',
+  }),
+  p({
+    name: 'sessions.status',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'session',
+    // The worked example in `ProjectionPolicy.indirectResources`: recording only
+    // `session` here would be true and useless, because the disclosure is the
+    // repository.
+    indirectResources: ['issue', 'repo'],
+    forbiddenFields: [],
+    rationale:
+      'Asserts `mayReadSession` and answers NOT_FOUND, like its three siblings. Governed since PDM-229; before that it was the one read in this table with no check, while returning more than any of them — the target\'s issue, its repo\'s `git log` and `git status`, and the files it touched. It takes a REF rather than a session id, so the rule is that the ref is resolved exactly once and the resolved id is both what is checked and what is projected: a second resolution could authorize one member of an issue and describe another.',
   }),
   p({
     name: 'sessions.concurrencyHistory',
@@ -874,13 +888,6 @@ export interface UngovernedProjection {
 }
 
 export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
-  {
-    name: 'sessions.status',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding:
-      "Reads any session by ref with NO ownership check, while `recap` and `transcriptRead` — declared in the same table — both assert `mayReadSession`. `readToolkit.status` logs the read and then returns the session's issue, its repo's `git log` and `git status`, and the files it touched. The asymmetry is the evidence: three sibling reads of the same resource, two guarded.",
-  },
   {
     name: 'accounts.list',
     owner: 'B',

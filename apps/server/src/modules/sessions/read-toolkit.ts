@@ -263,16 +263,35 @@ export class SessionReadToolkit {
       .at(0)
   }
 
+  /** Resolve a ref and project it, for callers that hold no opinion about WHICH
+   *  session a ref names. A caller that must AUTHORIZE the target resolves it
+   *  itself and calls {@link statusOf} with the id it checked — see the note
+   *  there on why the two steps cannot be split across two resolutions. */
   async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
     const found = await this.resolveTarget(ref)
     if (!found) throw new Error(`no session found for ${ref}`)
+    return await this.statusOf(found.sessionId, reader)
+  }
+
+  /**
+   * The status projection over an ALREADY-RESOLVED session [PDM-229].
+   *
+   * Split out because an authorizing caller must project the same session it
+   * checked. `resolveTarget` over an ISSUE ref picks the issue's best member —
+   * live preferred — so resolving once to authorize and again to project opens
+   * a window in which the live member changes and the answer describes a
+   * session the caller was never granted. The id is the authorization subject,
+   * so the id is what the projection takes.
+   */
+  async statusOf(sessionId: SessionId, reader: ReaderRef): Promise<SessionStatusResult> {
     // SELECTED from facts, WIRED once [POD-3857]. The status payload names the
     // machine and the bound driver, and `machineName` is resolved by the
     // machines service rather than held on the session, so the ONE session this
-    // read is about goes through the by-id projection. Everything above chose
-    // it without projecting anything.
-    const target = await this.deps.sessionById(found.sessionId)
-    if (!target) throw new Error(`no session found for ${ref}`)
+    // read is about goes through the by-id projection. Whoever resolved this id
+    // — `status` above, or an authorizing caller — chose it from facts alone,
+    // projecting nothing.
+    const target = await this.deps.sessionById(sessionId)
+    if (!target) throw new Error(`no session found for ${sessionId}`)
     await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
     const issueId = target.issueId ?? issues.issueForCwd(target.cwd)

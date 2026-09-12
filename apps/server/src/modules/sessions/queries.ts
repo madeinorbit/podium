@@ -104,12 +104,33 @@ export const SESSION_QUERIES = {
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
    *  issue stage/todos, last commits, files touched, unacked count — NO
-   *  transcript text). The /trpc surface is operator-authority; agents reach the
-   *  same procs via the daemon relay's scope-gated sessions arm. Every read is
-   *  event-logged by the toolkit. */
-  status: q(z.object({ ref: z.string() }), async (s, input) =>
-    await s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
-  ),
+   *  transcript text). Agents reach the same procs via the daemon relay's
+   *  scope-gated sessions arm, which gates on the RESOLVED target's issue.
+   *  Every read is event-logged by the toolkit.
+   *
+   *  OWNERSHIP IS ASSERTED HERE, like `read`, `recap` and `transcriptRead`
+   *  [PDM-229]. This read once had no check at all while its three siblings in
+   *  this table — same resource, same table — all asserted one, and it
+   *  discloses more than any of them: the target's issue, its repo's `git log`
+   *  and `git status`, and the files it touched. ADR 9 Amendment 1 D7 says an
+   *  admin may not view another member's session, and D13 limits what a shared
+   *  task exposes to owner, title and live/idle state.
+   *
+   *  THE REF IS RESOLVED HERE, ONCE, and the resolved id is what gets both
+   *  checked and projected. The siblings take a `sessionId` and so can assert
+   *  on their input; this one takes a ref it must resolve first, and resolving
+   *  a second time inside the projection would let the two disagree — see
+   *  `ReadToolkit.statusOf`. An unresolvable ref and a refused one answer the
+   *  SAME NOT_FOUND, so neither tells a caller which sessions exist. */
+  status: q(z.object({ ref: z.string() }), async (s, input) => {
+    const found = await s.modules.readToolkit.resolveTarget(input.ref)
+    if (!found) throw new TRPCError({ code: 'NOT_FOUND' })
+    await assertMayReadSession(s, found.sessionId)
+    return await s.modules.readToolkit.statusOf(
+      found.sessionId,
+      s.caller.actorSessionId ?? 'operator',
+    )
+  }),
   read: q(
     z.object({
       sessionId: SessionIdField,
