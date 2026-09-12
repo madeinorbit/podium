@@ -2,7 +2,7 @@ import { UserId } from '@podium/model'
 import { NativeClientLoginResponse } from '@podium/protocol'
 import { Platform } from 'react-native'
 import { bearerHeaders } from './trpc'
-/** REST auth client for the server's single-user password gate (/auth/*). */
+/** REST auth client for member sign-in (/auth/*). */
 
 export interface AuthStatus {
   needsAuth: boolean
@@ -109,6 +109,7 @@ export async function login(
   httpOrigin: string,
   password: string,
   device?: { id: string; name: string },
+  email = '',
 ): Promise<LoginResult> {
   if (Platform.OS !== 'web' && !httpOrigin.startsWith('https://')) {
     return {
@@ -121,6 +122,8 @@ export async function login(
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      // The explicit retired identifier only selects an email-less first admin.
+      email: email.trim() || 'user:sole',
       password,
       ...(Platform.OS === 'web'
         ? {}
@@ -140,7 +143,7 @@ export async function login(
     }
     return { ok: true, bearer: body.data.token }
   }
-  if (res.status === 401) return { ok: false, error: 'Wrong password.' }
+  if (res.status === 401) return { ok: false, error: 'Wrong email or password.' }
   if (res.status === 429)
     return { ok: false, error: 'Too many attempts — try again in a few minutes.' }
   return { ok: false, error: 'Login failed (' + res.status + ').' }

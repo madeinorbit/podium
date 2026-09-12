@@ -28,7 +28,7 @@ describe('native auth transport', () => {
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).credentials).toBe('omit')
   })
 
-  it('uses the finalized bearer-only native login request and response', async () => {
+  it('sends the member email with the bearer-only native login request', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -44,11 +44,17 @@ describe('native auth transport', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(
-      login('https://podium.example', 'secret', { id: 'profile-one', name: 'My phone' }),
+      login(
+        'https://podium.example',
+        'secret',
+        { id: 'profile-one', name: 'My phone' },
+        ' Alice@example.com ',
+      ),
     ).resolves.toEqual({ ok: true, bearer: 'phone-token' })
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit
     expect(init.credentials).toBe('omit')
     expect(JSON.parse(String(init.body))).toEqual({
+      email: 'Alice@example.com',
       password: 'secret',
       delivery: 'native',
       deviceId: 'profile-one',

@@ -5,7 +5,7 @@ import { asUserId, controlPlaneAvailable, firstAdminMemberId } from '@podium/mod
 import { hashPassword } from '@podium/runtime/auth-store'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   clientAuthGuard,
   hashToken,
@@ -18,6 +18,9 @@ import {
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+
+vi.mock('../../mobile/node_modules/react-native', () => ({ Platform: { OS: 'ios' } }))
+import { MemberInvites } from './member-invites'
 
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
 
@@ -53,6 +56,7 @@ beforeEach(async () => {
   store = await openTestStore(':memory:')
 })
 afterEach(async () => {
+  vi.unstubAllGlobals()
   await store.close()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -1242,4 +1246,77 @@ test('direct member creation is retired in favor of invite-and-claim', async () 
   })
   expect(response.status).toBe(410)
   expect(await store.users.get(asUserId('chosen-id'))).toBeUndefined()
+})
+
+describe('phone client against the real auth route', () => {
+  function connectPhone() {
+    const app = makeApp()
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => app.request(url, init))
+    return app
+  }
+  type PhoneLoginResult = { ok: true; bearer: string | null } | { ok: false; error: string }
+  const signIn = async (email = '', password = 'hunter2'): Promise<PhoneLoginResult> => {
+    // Load the actual client at runtime without adding React Native's ambient
+    // browser globals to the server's TypeScript compilation.
+    const clientPath = '../../mobile/src/client/auth'
+    const { login } = await import(clientPath)
+    return login('https://podium.example', password, { id: 'phone', name: 'My phone' }, email)
+  }
+
+  async function expectMember(result: PhoneLoginResult, memberId: string) {
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.bearer).toBeTruthy()
+    expect(await requestUserId(store.auth, undefined, Date.now(), `Bearer ${result.bearer}`)).toBe(
+      memberId,
+    )
+    return result.bearer!
+  }
+
+  test('email-bearing admin can sign in again after phone session expiry', async () => {
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'admin@example.com')
+    const app = connectPhone()
+    const token = await expectMember(await signIn(' ADMIN@example.com '), firstAdminMemberId())
+    await store.auth.extendClientSession(hashToken(token), '2000-01-01T00:00:00.000Z')
+    const expired = await app.request('https://podium.example/auth/status', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(await expired.json()).toMatchObject({ needsAuth: true, authed: false })
+    const replacement = await expectMember(await signIn('admin@example.com'), firstAdminMemberId())
+    expect(replacement).not.toBe(token)
+    expect(await signIn()).toMatchObject({ ok: false })
+    expect(await signIn('unknown@example.com')).toMatchObject({ ok: false })
+    expect(await signIn('admin@example.com', 'wrong')).toMatchObject({ ok: false })
+  })
+
+  test('a claimed invitation signs the phone in as that member, not the admin', async () => {
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'admin@example.com')
+    const invites = new MemberInvites(store.users)
+    const invite = await invites.create(firstAdminMemberId(), { email: 'member@example.com' })
+    const member = await invites.complete({
+      token: invite.token,
+      identity: {
+        kind: 'password',
+        email: 'member@example.com',
+        displayName: 'Member',
+        password: 'member-password',
+      },
+    })
+    connectPhone()
+    await expectMember(await signIn('member@example.com', 'member-password'), member.id)
+    expect(await signIn('admin@example.com', 'member-password')).toMatchObject({ ok: false })
+  })
+
+  test('explicit legacy identifier works only until the first admin sets email', async () => {
+    await setPassword('hunter2')
+    connectPhone()
+    await expectMember(await signIn(), firstAdminMemberId())
+    await expectMember(await signIn('user:sole'), firstAdminMemberId())
+    await store.users.setEmail(firstAdminMemberId(), 'upgraded@example.com')
+    expect(await signIn()).toMatchObject({ ok: false })
+    expect(await signIn('user:sole')).toMatchObject({ ok: false })
+    await expectMember(await signIn('upgraded@example.com'), firstAdminMemberId())
+  })
 })

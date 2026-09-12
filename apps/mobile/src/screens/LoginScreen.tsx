@@ -53,6 +53,8 @@ export function LoginScreen({
   onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
   const { profile } = useServerProfile()
+  const [email, setEmail] = useState('')
+  const passwordInput = useRef<TextInput>(null)
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [ok, setOk] = useState(false)
@@ -65,10 +67,15 @@ export function LoginScreen({
     setBusy(true)
     setError(null)
     try {
-      const result = await login(httpOrigin, password, {
-        id: profile.id,
-        name: profile.name,
-      }).catch(() => ({
+      const result = await login(
+        httpOrigin,
+        password,
+        {
+          id: profile.id,
+          name: profile.name,
+        },
+        email,
+      ).catch(() => ({
         ok: false as const,
         error: "couldn't reach the server — try again",
       }))
@@ -126,7 +133,7 @@ export function LoginScreen({
           ? 'verifying…'
           : state === 'typing'
             ? 'press ⏎ to sign in'
-            : 'waiting on you — enter your password'
+            : 'waiting on you — enter your email and password'
   const btnGlyph = state === 'ok' ? '✓' : '→'
 
   if (cloudSignInUrl && Platform.OS !== 'web') {
@@ -149,6 +156,30 @@ export function LoginScreen({
       <Text style={styles.host}>{`Sign in to ${originHost(httpOrigin)}`.toUpperCase()}</Text>
       <View style={[styles.form, error ? styles.formError : null]}>
         <TextInput
+          accessibilityLabel="Email"
+          style={styles.input}
+          value={email}
+          onChangeText={(value) => {
+            setEmail(value)
+            if (error) setError(null)
+          }}
+          placeholder="Email"
+          placeholderTextColor={C.placeholder}
+          keyboardType="email-address"
+          autoComplete="email"
+          textContentType="username"
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="next"
+          onSubmitEditing={() => passwordInput.current?.focus()}
+        />
+      </View>
+      <Text style={[styles.status, { color: C.textDim }]}>
+        Upgrading an older server? Leave email blank if your admin account has no email yet.
+      </Text>
+      <View style={[styles.form, error ? styles.formError : null]}>
+        <TextInput
+          ref={passwordInput}
           accessibilityLabel="Password"
           style={styles.input}
           value={password}
