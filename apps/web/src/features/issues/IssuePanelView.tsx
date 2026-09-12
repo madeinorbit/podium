@@ -44,6 +44,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { rosterCostMeta } from '../cost/cost-format'
 import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
 import { useTaskCost } from '../cost/useTaskCost'
@@ -670,6 +671,7 @@ function ProducedAndDeferred({
               // store; legacy path-only entries need the live worktree root.
               const src = artifactUrl({
                 httpOrigin,
+                workspace: currentWorkspaceSlug(),
                 issueId: issue.id,
                 artifact: a,
                 root,

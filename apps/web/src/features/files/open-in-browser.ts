@@ -14,6 +14,7 @@ export function rawFileUrl(args: {
   httpOrigin: string
   scope: FileScope
   path: string
+  workspace?: string
 }): string | null {
   const { httpOrigin, scope, path } = args
   const slash = path.lastIndexOf('/')
@@ -21,7 +22,7 @@ export function rawFileUrl(args: {
   const fileDir = slash === -1 ? '' : path.slice(0, slash) || '/'
   const name = slash === -1 ? path : path.slice(slash + 1)
   if (!name) return null
-  return scopedAssetUrl({ httpOrigin, scope, fileDir, src: name })
+  return scopedAssetUrl({ httpOrigin, scope, fileDir, src: name, workspace: args.workspace })
 }
 
 /**
@@ -33,6 +34,7 @@ export function downloadFileUrl(args: {
   httpOrigin: string
   scope: FileScope
   path: string
+  workspace?: string
 }): { url: string; name: string } | null {
   const raw = rawFileUrl(args)
   if (!raw) return null

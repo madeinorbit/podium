@@ -26,6 +26,21 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
     expect(seen).toEqual([['iss_1', 'abc123', 'shots/a.png']])
   })
 
+  it('serves the workspace-prefixed route and keeps its selector out of the bundle path', async () => {
+    const seen: string[][] = []
+    const app = appWith({
+      read: async (issueId, artifactId, rel) => {
+        seen.push([issueId, artifactId, rel])
+        return { bytes: Buffer.from('HTML'), contentType: 'text/html; charset=utf-8', size: 4 }
+      },
+    })
+    const res = await app.request('/files/artifact/workspace/second/iss_1/abc123/site/index.html')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('HTML')
+    expect(seen).toEqual([['iss_1', 'abc123', 'site/index.html']])
+    expect(res.headers.get('cache-control')).toBe('private, max-age=31536000, immutable')
+  })
+
   it('404s a missing snapshot', async () => {
     const app = appWith({ read: async () => null })
     const res = await app.request('/files/artifact/iss_1/dead/entry.html')

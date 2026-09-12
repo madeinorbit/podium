@@ -1,4 +1,11 @@
-import type { ArtifactId, IssueId, IssueWire, SessionMeta, MachineId, SessionId } from '@podium/model'
+import type {
+  ArtifactId,
+  IssueId,
+  IssueWire,
+  MachineId,
+  SessionId,
+  SessionMeta,
+} from '@podium/model'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -184,13 +191,16 @@ export function artifactUrl(args: {
   artifact: { path: string; artifactId?: ArtifactId; entry?: string }
   root?: string
   machineId?: MachineId
+  /** Hosted workspace slug or immutable id carried by browser-visible URLs. */
+  workspace?: string
 }): string | null {
   const origin = args.httpOrigin.replace(/\/+$/, '')
   const a = args.artifact
   if (a.artifactId) {
     const rel = a.entry || basename(a.path)
     const relEnc = rel.split('/').map(encodeURIComponent).join('/')
-    return `${origin}/files/artifact/${encodeURIComponent(args.issueId)}/${encodeURIComponent(a.artifactId)}/${relEnc}`
+    const workspacePath = args.workspace ? `/workspace/${encodeURIComponent(args.workspace)}` : ''
+    return `${origin}/files/artifact${workspacePath}/${encodeURIComponent(args.issueId)}/${encodeURIComponent(a.artifactId)}/${relEnc}`
   }
   if (!args.root) return null
   return worktreeAssetUrl({
@@ -198,6 +208,7 @@ export function artifactUrl(args: {
     root: args.root,
     path: a.path,
     ...(args.machineId ? { machineId: args.machineId } : {}),
+    ...(args.workspace ? { workspace: args.workspace } : {}),
   })
 }
 
@@ -208,8 +219,11 @@ export function worktreeAssetUrl(args: {
   root: string
   path: string
   machineId?: MachineId
+  /** Hosted workspace slug or immutable id carried by browser-visible URLs. */
+  workspace?: string
 }): string {
   const qs = new URLSearchParams({ root: args.root, path: args.path })
   if (args.machineId) qs.set('machineId', args.machineId)
+  if (args.workspace) qs.set('workspace', args.workspace)
   return `${args.httpOrigin.replace(/\/+$/, '')}/files/asset?${qs.toString()}`
 }

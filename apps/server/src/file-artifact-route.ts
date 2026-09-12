@@ -1,6 +1,6 @@
 // apps/server/src/file-artifact-route.ts
 import { type ArtifactId, asArtifactId, asIssueId, type IssueId } from '@podium/model'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
 
@@ -26,11 +26,19 @@ export interface ArtifactBundleReader {
  * immutable cache-control.
  */
 export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): void {
-  app.get('/files/artifact/:issueId/:artifactId/*', async (c) => {
+  const serve = async (c: Context, relStart: number): Promise<Response> => {
     const issueId = c.req.param('issueId')
     const artifactId = c.req.param('artifactId')
-    // ['files','artifact',issueId,artifactId, ...relpath segments]
-    const rel = c.req.path.split('/').filter(Boolean).slice(4).map(decodeURIComponent).join('/')
+    if (!issueId || !artifactId) return c.text('bad request', 400)
+    // The workspace path segment is routing metadata, not part of the bundle.
+    // Keeping it before the issue/artifact ids means relative browser requests
+    // inherit it when an artifact HTML entry refers to a sibling asset.
+    const rel = c.req.path
+      .split('/')
+      .filter(Boolean)
+      .slice(relStart)
+      .map(decodeURIComponent)
+      .join('/')
     if (!rel) return c.text('bad request', 400)
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
@@ -93,5 +101,12 @@ export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): v
       r.bytes.byteOffset + r.bytes.byteLength,
     ) as ArrayBuffer
     return range ? c.body(body, 206, responseHeaders) : c.body(body, 200, responseHeaders)
-  })
+  }
+
+  // This path form is deliberately a prefix rather than a query parameter:
+  // relative URLs inside an opened artifact HTML document retain the workspace
+  // identity automatically. The hosted router consumes the same segment before
+  // this local route or authentication can run.
+  app.get('/files/artifact/workspace/:workspace/:issueId/:artifactId/*', (c) => serve(c, 6))
+  app.get('/files/artifact/:issueId/:artifactId/*', (c) => serve(c, 4))
 }

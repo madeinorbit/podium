@@ -1,4 +1,3 @@
-import { asMachineId } from '@podium/model'
 import {
   artifactKind,
   artifactUrl,
@@ -15,6 +14,7 @@ import {
 import {
   asArtifactId,
   asIssueId,
+  asMachineId,
   asSessionId,
   type IssueWire,
   type IssueWireInput,
@@ -317,6 +317,9 @@ describe('artifact helpers', () => {
     expect(worktreeAssetUrl({ httpOrigin: 'http://x', root: '/w', path: 'p.png' })).not.toContain(
       'machineId',
     )
+    expect(
+      worktreeAssetUrl({ httpOrigin: 'http://x', root: '/w', path: 'p.png', workspace: 'second' }),
+    ).toBe('http://x/files/asset?root=%2Fw&path=p.png&workspace=second')
   })
   it('artifactUrl prefers the permanent-store route when artifactId is present [spec:SP-0fc9]', () => {
     expect(
@@ -325,8 +328,9 @@ describe('artifact helpers', () => {
         issueId: asIssueId('iss_1'),
         artifact: { path: 'shots/a b.png', artifactId: asArtifactId('abc123'), entry: 'a b.png' },
         root: '/wt',
+        workspace: 'second',
       }),
-    ).toBe('http://x/files/artifact/iss_1/abc123/a%20b.png')
+    ).toBe('http://x/files/artifact/workspace/second/iss_1/abc123/a%20b.png')
     // entry defaults to the source basename
     expect(
       artifactUrl({

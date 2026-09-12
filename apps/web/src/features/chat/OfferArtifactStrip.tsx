@@ -5,6 +5,7 @@ import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
+import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
 /** How many thumbnails an offer shows before collapsing into a "+N" chip. */
@@ -68,6 +69,7 @@ export function OfferArtifactStrip({
     const label = a.title ?? basename(a.path)
     const src = artifactUrl({
       httpOrigin,
+      workspace: currentWorkspaceSlug(),
       issueId: issue.id,
       artifact: a,
       ...(root ? { root } : {}),
@@ -106,6 +108,7 @@ export function OfferArtifactStrip({
         const label = a.title ?? basename(a.path)
         const src = artifactUrl({
           httpOrigin,
+          workspace: currentWorkspaceSlug(),
           issueId: issue.id,
           artifact: a,
           ...(root ? { root } : {}),

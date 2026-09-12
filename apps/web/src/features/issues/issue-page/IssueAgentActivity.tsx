@@ -48,6 +48,7 @@ import { useState } from 'react'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
+import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
 
 export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
@@ -108,6 +109,7 @@ export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.El
                 kind === 'image' || kind === 'video'
                   ? artifactUrl({
                       httpOrigin,
+                      workspace: currentWorkspaceSlug(),
                       issueId: issue.id,
                       artifact: a,
                       root,
