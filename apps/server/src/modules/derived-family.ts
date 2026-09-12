@@ -54,6 +54,28 @@
  * table is a function on a service, reachable only by a transport that walks a
  * table — `scripts/audit-derived-families.ts` proves it by resolving the RUNNING
  * objects, not by grepping for an absence.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ONE DECISION THIS FILE DOES TAKE, AND WHY IT IS NOT A CONTRADICTION
+ * ---------------------------------------------------------------------------
+ *
+ * PDM-294: the builder now reads `contract.policy.roleFloor` and refuses a
+ * principal below it, through `./role-floor`. Read alongside the paragraph above
+ * about `FamilyState` that sounds like its opposite, the distinction is the one
+ * `fleet/trpc.ts` and `settings/trpc.ts` already draw:
+ *
+ *   - a HANDLER still cannot authorize, by construction — it receives a service
+ *     and a parsed input, no capability, no scope, no ctx, and nothing in
+ *     `./role-floor` is reachable from one;
+ *   - the TRANSPORT enforces what the CONTRACT declared, before the service is
+ *     even selected.
+ *
+ * It is here rather than in a per-family `authz.ts` because a per-family file
+ * leaves the mechanism able to produce the defect again: before PDM-294 this
+ * builder read `exposure` and `input` and never `policy`, so eighteen contracts
+ * carrying an `admin` floor were served to any authenticated member, and a
+ * FOURTEENTH family would have inherited the hole on the day it was added. A
+ * fix that a new family can forget is not a fix.
  */
 
 import type { UserId } from '@podium/model'
@@ -72,6 +94,12 @@ import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
 import type { UsersRepository } from '../store/users'
 import { type Context, mods, t } from '../trpc'
+import {
+  assertNoSecretReadFloor,
+  roleFloorFailure,
+  roleFloorDeps,
+  roleFloorIsGated,
+} from './role-floor'
 import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 
 /**
@@ -481,13 +509,33 @@ export function derivedFamilyProcedures<
 
   for (const [name, command] of Object.entries(spec.commands)) {
     if (!command.contract.exposure.includes('trpc')) continue
+    const qualifiedName = `${spec.family}.${name}`
+    // AT MODULE LOAD, like the membership check below: a contract whose refusal
+    // this gate cannot spell safely must stop the server assembling, not serve
+    // and leak (PDM-294). See `assertNoSecretReadFloor`.
+    assertNoSecretReadFloor(qualifiedName, command.contract)
+    // THE FLOOR IS READ HERE FOR EVERY FAMILY BUILT THROUGH THIS FILE (PDM-294).
+    // Skipped for the `member` floor so the 149 contracts that declare it do not
+    // pay a live user lookup per call — `roleFloorIsGated` is the one predicate
+    // this skip and `roleFloorFailure` both go through, so they cannot drift.
+    const gated = roleFloorIsGated(command.contract)
     built[name] = t.procedure
       .input(command.contract.input)
       // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
       // the handler, and the handler never sees a ctx. `input` is erased at this
       // point because the table is heterogeneous — each pairing is checked where
       // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) => command.handler(spec.service(familyState(ctx)), input))
+      //
+      // The gate runs BEFORE the service is selected, so a principal below the
+      // floor never reaches a family's state at all — and the handler still
+      // cannot make the decision itself, because it still receives no ctx.
+      .mutation(async ({ ctx, input }) => {
+        if (gated) {
+          const refusal = roleFloorFailure(qualifiedName, command.contract, await roleFloorDeps(ctx))
+          if (refusal) throw refusal
+        }
+        return await command.handler(spec.service(familyState(ctx)), input)
+      })
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
