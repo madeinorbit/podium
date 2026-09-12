@@ -150,7 +150,8 @@ const idsOf = (db: SqlDatabase, table: string): string[] =>
  *  claim. That one rewinds to the migration immediately before the backfill, which
  *  proves what the backfill does; it cannot prove what an upgrade does, because the
  *  upgrade is the whole chain and the interesting value — the minted first-admin id
- *  — is produced three migrations earlier. */
+ *  — is produced FIVE migrations earlier, with `member-login-email`,
+ *  `member-invites`, `member-avatar` and `a2-ownership-schema` in between. */
 function preSoloUserDb(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec('PRAGMA foreign_keys = OFF')
@@ -437,7 +438,7 @@ describe('A2 ownership backfill — the supported pre-A2 upgrade, end to end', (
   // fixture for "what does the backfill do" and the wrong one for "what does an
   // upgrade do". The value an operator will actually find in `prior_owner` on a
   // real upgraded instance is not a test id — it is the `mem_` id MINTED by
-  // `20260911082826_retire-the-solo-user` three migrations earlier, substituted
+  // `20260911082826_retire-the-solo-user` five migrations earlier, substituted
   // into that file's `{{mint:mem_}}` by the runner. Nothing above ever sees it.
 
   it('carries a pre-A2 database through the WHOLE chain with attribution intact', () => {
