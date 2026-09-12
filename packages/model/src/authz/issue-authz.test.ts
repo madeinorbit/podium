@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
 import { asLegacyGrant } from './axes'
-import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
+import {
+  type AuthDecision,
+  type AuthTarget,
+  authorize,
+  type Capability,
+  type IssueScope,
+} from './issue-authz'
 
 /**
  * A member id, as a FIXTURE (A2). This package has no database and opens no
@@ -825,5 +831,228 @@ describe('an agent scope does not exceed its human ceiling at a personal target 
     forBothAgentScopes((agentCap, tag) => {
       expect(authorize(agentCap, 'read', session(HUMAN)), tag).toBe('allow')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A5.7 — OWNERSHIP CONSTRAINS THE SCOPE, IT DOES NOT REPLACE IT
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DEFECT A5.1 LEFT BEHIND, AND WHY ITS OWN TESTS COULD NOT SEE IT.
+ *
+ * A5.1 (PDM-245) was right that a private resource is owner-only under every
+ * scope, and right to decide it above the scope switch so no arm could
+ * short-circuit past it. But it returned the OWNERSHIP answer from there, so for
+ * an owner the scope was never asked anything at all: a worker capability whose
+ * `onBehalfOf` named alice wrote alice's private session under a `none` scope,
+ * under a `subtree` rooted elsewhere, under `self`, and under an `owned` scope
+ * naming bob. All four are `allow` before this change; the corresponding OWNED
+ * targets answer `forbidden` in every one of them.
+ *
+ * That inverts §3.1.3 A1, which resolves an agent's rights as its scope
+ * INTERSECTED with its delegating human's current rights. An intersection is a
+ * conjunction: ownership is one conjunct and the scope's reach is the other, and
+ * A5.1 dropped the second. It also re-opened the thing the `self` arm's own
+ * comment forbids — a `self` principal that can rename a session is an
+ * owner-or-grant capability wearing the wrong name.
+ *
+ * A5.1's positive suite exercised the owner under `all` and under a correctly
+ * matched `owned` scope only. A positive suite that never states the
+ * out-of-scope case cannot fail on it, which is why the maps below are
+ * `Record<IssueScope['kind'], …>`: a scope kind with no answer is a COMPILE
+ * error, not a silently missing row.
+ */
+describe('a PRIVATE target is decided by ownership AND by the scope (A5.7)', () => {
+  const OWNER = asUserId('alice')
+  const OTHER = asUserId('bob')
+
+  /** The owner's own capability: named by the attribution pair, as every private
+   *  decision reads it. `admin` so the ROLE gate is never what answers. */
+  const ownerCap = (scope: IssueScope): Capability => ({
+    role: 'admin',
+    scope,
+    actorUser: OWNER,
+    onBehalfOf: OWNER,
+  })
+
+  /** Every scope kind, each one naming the OWNER wherever a scope names a person.
+   *  `subtree` is rooted elsewhere because a private resource is not an issue-tree
+   *  node: there is no root that could contain one, so "elsewhere" is the only
+   *  honest fixture. */
+  const OWNER_SCOPES: Record<IssueScope['kind'], IssueScope> = {
+    all: { kind: 'all' },
+    none: { kind: 'none' },
+    subtree: { kind: 'subtree', rootId: asIssueId('elsewhere') },
+    owned: { kind: 'owned', userId: OWNER },
+    self: { kind: 'self', userId: OWNER },
+  }
+
+  /** The three PERSONAL target kinds — the closed set this map is total over,
+   *  alongside the scope set. Adding a personal member to `AuthTarget` fails to
+   *  compile here until it declares what a write of it means under all five. */
+  type PersonalTargetKind = Exclude<AuthTarget['kind'], 'issue' | undefined>
+
+  const PERSONAL_TARGETS: Record<PersonalTargetKind, AuthTarget> = {
+    owned: { kind: 'owned', id: 's1', owner: OWNER },
+    'per-user-row': { kind: 'per-user-row', userId: OWNER },
+    private: { kind: 'private', id: 'sess_alice', owner: OWNER },
+  }
+
+  /**
+   * THE MISSING CELL (reported by A5.2/PDM-246, built here).
+   *
+   * Reads of a personal target have had an all-scopes totality map since POD-315
+   * (`EXPECTED_READ_OF_ANOTHERS_ENTITY`). WRITES had `EXPECTED_FOR_EXISTING_ISSUE`,
+   * which is total over the scopes but only for ISSUE targets, and hand-picked
+   * assertions for everything else. So no compiler-checked statement existed for
+   * "what may the OWNER write of a personal target under each scope" — which is
+   * exactly the row A5.1 shipped wrong.
+   *
+   * Total in BOTH directions: five scope kinds x three personal target kinds.
+   * The subject is always the OWNER, so every `forbidden` below is the SCOPE
+   * talking and not ownership — an ownership refusal would make the whole table
+   * `forbidden` and prove nothing.
+   */
+  const EXPECTED_OWNER_WRITE: Record<
+    IssueScope['kind'],
+    Record<PersonalTargetKind, AuthDecision>
+  > = {
+    // Unconstrained task reach, and the owner: the one scope that reaches all three.
+    all: { owned: 'allow', 'per-user-row': 'allow', private: 'allow' },
+    // A scope that reaches nothing reaches no personal target either — and the
+    // refusal is `forbidden` rather than `outOfScope(opts)`, because a privacy
+    // denial is not a task crossing `--outside-scope` may confirm.
+    none: { owned: 'forbidden', 'per-user-row': 'forbidden', private: 'forbidden' },
+    // An ISSUE-tree capability handed a personal target is a category error
+    // (A5.2's words, and the same answer for the private member).
+    subtree: { owned: 'forbidden', 'per-user-row': 'forbidden', private: 'forbidden' },
+    // The scope that names this person: owner-or-grant over entities, and now
+    // over private resources too — with no grant clause, which is A5.1's rule kept.
+    // Per-user rows stay out of reach, including its own (§3.3: that needs `self`).
+    owned: { owned: 'allow', 'per-user-row': 'forbidden', private: 'allow' },
+    // `self` writes ONE thing: its own per-user row. Not a shared entity, and not
+    // a session — a `self` principal that could rename a session would be an
+    // owner-or-grant capability wearing the wrong name (the `self` arm says so).
+    self: { owned: 'forbidden', 'per-user-row': 'allow', private: 'forbidden' },
+  }
+
+  it('every scope kind states what its OWNER may WRITE of every personal target kind', () => {
+    for (const [scopeKind, perTarget] of Object.entries(EXPECTED_OWNER_WRITE)) {
+      const scope = OWNER_SCOPES[scopeKind as IssueScope['kind']]
+      for (const [targetKind, expected] of Object.entries(perTarget)) {
+        const target = PERSONAL_TARGETS[targetKind as PersonalTargetKind]
+        expect(
+          authorize(ownerCap(scope), 'write', target),
+          `${scopeKind} scope / ${targetKind} target`,
+        ).toBe(expected)
+      }
+    }
+  })
+
+  // ── The four decisions the reviewer proved, one named test each ────────────
+  //
+  // The map above already covers three of them, and they are restated here
+  // because a table says "this cell is forbidden" while a named test says WHICH
+  // bypass it closes. The fourth — an `owned` scope naming somebody else — is not
+  // in the map, whose subject is always the correctly-scoped owner.
+
+  const aliceSession = { kind: 'private', id: 'sess_alice', owner: OWNER } as const
+
+  /** An AGENT of alice: a worker capability, on behalf of alice, exactly as the
+   *  relay mints one. This is the principal the whole finding is about. */
+  const agentOfOwner = (scope: IssueScope): Capability => ({
+    role: 'worker',
+    scope,
+    actorSessionId: asSessionId('s_agent'),
+    actorUser: OWNER,
+    onBehalfOf: OWNER,
+  })
+
+  it('refuses an agent of the owner a WRITE under a scope that reaches nothing', () => {
+    expect(authorize(agentOfOwner({ kind: 'none' }), 'write', aliceSession)).toBe('forbidden')
+  })
+
+  it('refuses an agent of the owner a WRITE under a subtree rooted elsewhere', () => {
+    const scope = { kind: 'subtree', rootId: asIssueId('elsewhere') } as const
+    expect(authorize(agentOfOwner(scope), 'write', aliceSession)).toBe('forbidden')
+  })
+
+  it('refuses an agent of the owner a WRITE under a SELF scope — §3.3 renames no session', () => {
+    expect(authorize(agentOfOwner({ kind: 'self', userId: OWNER }), 'write', aliceSession)).toBe(
+      'forbidden',
+    )
+  })
+
+  it('refuses a WRITE under an owned scope naming SOMEBODY ELSE, though the owner is on behalf', () => {
+    // The capability's scope is bob's personal set; the attribution pair says
+    // alice. Ownership passes and the scope does not, and a conjunction fails.
+    expect(authorize(agentOfOwner({ kind: 'owned', userId: OTHER }), 'write', aliceSession)).toBe(
+      'forbidden',
+    )
+  })
+
+  it('does not become override-liftable, in any of the four', () => {
+    // `--outside-scope` confirms crossing a TASK boundary (ADR 3 D2). A scope that
+    // does not reach a private resource is not a task crossing, so none of these
+    // may soften to 'confirm-required' and none may be overridden into 'allow'.
+    const scopes: IssueScope[] = [
+      { kind: 'none' },
+      { kind: 'subtree', rootId: asIssueId('elsewhere') },
+      { kind: 'self', userId: OWNER },
+      { kind: 'owned', userId: OTHER },
+    ]
+    for (const scope of scopes) {
+      expect(
+        authorize(agentOfOwner(scope), 'write', aliceSession, { override: true }),
+        scope.kind,
+      ).toBe('forbidden')
+    }
+  })
+
+  // ── The counterfactual: the refusals above are the SCOPE, not a shutdown ───
+
+  /**
+   * WITHOUT THIS MAP every negative above would also pass against an `authorize`
+   * that had simply stopped answering `allow` for private targets — the guard
+   * that fails identically whether or not the thing it guards is switched on.
+   * A5.1's own suite carried that counterfactual for ownership; this is it for
+   * scope.
+   *
+   * A READ keeps the reach the person-less scopes are argued for (D20.2): the
+   * short-circuit those arms hold for ISSUES is not what is being withdrawn here,
+   * only the claim that ownership alone settles a WRITE. `self` is the exception
+   * in both directions — it reaches per-user rows and nothing else at all.
+   */
+  const EXPECTED_OWNER_READ_OF_OWN_PRIVATE: Record<IssueScope['kind'], AuthDecision> = {
+    all: 'allow',
+    none: 'allow',
+    subtree: 'allow',
+    owned: 'allow',
+    self: 'forbidden',
+  }
+
+  it('keeps the owner’s READ of their own private resource under every scope that reaches it', () => {
+    for (const [scopeKind, expected] of Object.entries(EXPECTED_OWNER_READ_OF_OWN_PRIVATE)) {
+      const scope = OWNER_SCOPES[scopeKind as IssueScope['kind']]
+      expect(authorize(agentOfOwner(scope), 'read', aliceSession), scopeKind).toBe(expected)
+    }
+  })
+
+  it('keeps A5.1’s owner-only rule: the scope conjunct never admits a NON-owner', () => {
+    // The other half of the conjunction, restated at the scope that reaches most.
+    // Widening the scope test must not have widened the ownership test with it.
+    const bobsAgentUnderAll: Capability = {
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorUser: OTHER,
+      onBehalfOf: OTHER,
+    }
+    expect(authorize(bobsAgentUnderAll, 'read', aliceSession)).toBe('forbidden')
+    expect(authorize(bobsAgentUnderAll, 'write', aliceSession)).toBe('forbidden')
+    // And an owned scope naming bob does not admit bob to alice's session either,
+    // which is the same cell as the fourth negative with the persons swapped.
+    const bobScoped = { ...bobsAgentUnderAll, scope: { kind: 'owned', userId: OTHER } as const }
+    expect(authorize(bobScoped, 'write', aliceSession)).toBe('forbidden')
   })
 })
