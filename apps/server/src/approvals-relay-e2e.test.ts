@@ -81,7 +81,16 @@ describe('approval broker relay e2e (#410)', () => {
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
-    registry.gateway.routeDaemonFrame(machineId, {
+    // AWAITED, and that is the assertion below's whole basis (PDM-292). This
+    // frame is not request/reply: nothing comes back for `relayFrom`'s poll to
+    // wait on, and the `get` that follows is a DIFFERENT frame whose reply says
+    // nothing about whether this one finished. Dropped, the read raced
+    // `onExecResult`'s `executing → succeeded` store write and lost every time,
+    // reading the pre-result row. `routeDaemonFrame` returns the catch-handled
+    // completion precisely so a test can observe handler effects without timers
+    // or polling — see `gateway/daemon-mux.ts`. Production ingress is the one
+    // that deliberately does not wait.
+    await registry.gateway.routeDaemonFrame(machineId, {
       type: 'approvalExecResult',
       requestId: id,
       ok: true,
