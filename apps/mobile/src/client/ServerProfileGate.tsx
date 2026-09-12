@@ -35,7 +35,13 @@ import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { fetchAuthStatus, logout } from './auth'
 import { HostedSignInButton } from '../components/HostedSignInButton'
-import { isHostedReturn, parseHostedReturn, type HostedReturn } from './hosted-sign-in'
+import {
+  HostedSignInCanceledError,
+  isHostedReturn,
+  parseHostedReturn,
+  type HostedReturn,
+  type HostedSession,
+} from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
 import {
   CredentialWriteQueue,
@@ -223,6 +229,14 @@ function alertUnrevokedPhoneSession(): void {
     'Phone session still active',
     'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
   )
+}
+
+async function revokePhoneSession(session: HostedSession): Promise<boolean> {
+  const revoked = await logout(session.server, session.token, session.workspaceId)
+    .then(() => true)
+    .catch(() => false)
+  if (!revoked) alertUnrevokedPhoneSession()
+  return revoked
 }
 
 export function ServerProfileGate({ children }: { children: ReactNode }) {
@@ -670,46 +684,46 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setRevision((value) => value + 1)
         return
       }
-      setupOwnsStartup.current = true
-      startupLinkGeneration.current += 1
-      const now = new Date().toISOString()
-      // Never reuse a profile/replica/credential boundary because a new origin
-      // reports the same public instanceId. Address migration needs a separate,
-      // authenticated rekey flow; ordinary setup creates a fresh profile.
-      const existing = reusableProfileAtOrigin(
-        profileState.profiles,
-        result.httpOrigin,
-        userId,
-        result.workspaceId,
-      )
-      const nextProfile: ServerProfile = existing
-        ? {
-            ...existing,
-            httpOrigin: result.httpOrigin,
-            instanceId: result.instanceId,
-            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
-            mode: result.mode,
-            transport: result.transport,
-            ...(userId ? { userId } : {}),
-            updatedAt: now,
-          }
-        : {
-            id: createProfileId(),
-            name: defaultProfileName(result.httpOrigin),
-            httpOrigin: result.httpOrigin,
-            instanceId: result.instanceId,
-            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
-            mode: result.mode,
-            transport: result.transport,
-            ...(userId ? { userId } : {}),
-            createdAt: now,
-            updatedAt: now,
-          }
-      const priorCredential = existing
-        ? await credentialWrites.run(() => getProfileCredential(existing.id))
-        : null
       let committedState: ServerProfileState | null = null
       try {
+        setupOwnsStartup.current = true
+        startupLinkGeneration.current += 1
+        const now = new Date().toISOString()
+        // Never reuse a profile/replica/credential boundary because a new origin
+        // reports the same public instanceId. Address migration needs a separate,
+        // authenticated rekey flow; ordinary setup creates a fresh profile.
+        const existing = reusableProfileAtOrigin(
+          profileState.profiles,
+          result.httpOrigin,
+          userId,
+          result.workspaceId,
+        )
+        const nextProfile: ServerProfile = existing
+          ? {
+              ...existing,
+              httpOrigin: result.httpOrigin,
+              instanceId: result.instanceId,
+              ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
+              mode: result.mode,
+              transport: result.transport,
+              ...(userId ? { userId } : {}),
+              updatedAt: now,
+            }
+          : {
+              id: createProfileId(),
+              name: defaultProfileName(result.httpOrigin),
+              httpOrigin: result.httpOrigin,
+              instanceId: result.instanceId,
+              ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
+              mode: result.mode,
+              transport: result.transport,
+              ...(userId ? { userId } : {}),
+              createdAt: now,
+              updatedAt: now,
+            }
+        const priorCredential = existing
+          ? await credentialWrites.run(() => getProfileCredential(existing.id))
+          : null
         // Metadata first, then the secure value. If either store refuses the
         // issuance, restore the prior state before a newer terminal action can
         // enter the queue. An owner change also rolls back inside this turn so
@@ -774,20 +788,21 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           }
         })
         if (!committedState) {
-          if (token) {
-            const revoked = await logout(result.httpOrigin, token, result.workspaceId)
-              .then(() => true)
-              .catch(() => false)
-            if (!revoked) alertUnrevokedPhoneSession()
-          }
+          if (token)
+            await revokePhoneSession({
+              server: result.httpOrigin,
+              token,
+              workspaceId: result.workspaceId,
+            })
           return
         }
       } catch (cause) {
         if (token) {
-          const revoked = await logout(result.httpOrigin, token, result.workspaceId)
-            .then(() => true)
-            .catch(() => false)
-          if (!revoked) alertUnrevokedPhoneSession()
+          const revoked = await revokePhoneSession({
+            server: result.httpOrigin,
+            token,
+            workspaceId: result.workspaceId,
+          })
           const detail = cause instanceof Error ? cause.message : String(cause)
           throw new Error(
             revoked
@@ -824,38 +839,44 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     hostedReturnConsumed.current = hostedReturn
     const current = () => switchOperation.current === hostedReturn.operation
     void (async () => {
-      const result = await hostedSignIn.redeem(hostedReturn.link)
-      if (!current()) return
-      const checked = await preflightServer(result.server, result.workspaceId)
-      if (!current()) return
-      if (!checked.ok) throw new Error('Could not verify this workspace. Start sign-in again.')
-      const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
-      if (!current()) return
-      if (!status.authed || !status.userId) {
-        if (status.providerSignedIn === true && status.deniedReason) {
-          const revoked = await logout(result.server, result.token, result.workspaceId)
-            .then(() => true)
-            .catch(() => false)
-          if (!revoked) alertUnrevokedPhoneSession()
-          if (!current()) return
-          setMembershipRefusal({
-            reason: status.deniedReason,
-            server: result.server,
-            workspaceId: result.workspaceId,
-            signInUrl: status.signInUrl,
-          })
-          setHostedReturn(null)
-          setHandoffStatus('')
-          setSetupOpen(false)
-          return
+      let session: HostedSession | null = null
+      try {
+        const result = await hostedSignIn.redeem(hostedReturn.link)
+        session = result
+        if (!current()) return
+        const checked = await preflightServer(result.server, result.workspaceId)
+        if (!current()) return
+        if (!checked.ok) throw new Error('Could not verify this workspace. Start sign-in again.')
+        const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
+        if (!current()) return
+        if (!status.authed || !status.userId) {
+          if (status.providerSignedIn === true && status.deniedReason) {
+            await revokePhoneSession(result)
+            session = null
+            if (!current()) return
+            setMembershipRefusal({
+              reason: status.deniedReason,
+              server: result.server,
+              workspaceId: result.workspaceId,
+              signInUrl: status.signInUrl,
+            })
+            setHostedReturn(null)
+            setHandoffStatus('')
+            setSetupOpen(false)
+            return
+          }
+          throw new Error('This account cannot enter this workspace.')
         }
-        throw new Error('This account cannot enter this workspace.')
+        session = null
+        await finishSetup(checked, result.token, status.userId)
+        setHandoffStatus('')
+      } catch (cause) {
+        if (cause instanceof HostedSignInCanceledError) session = cause.session
+        if (current()) setHandoffStatus('Could not finish sign-in. Start sign-in again.')
+      } finally {
+        if (session) await revokePhoneSession(session)
       }
-      await finishSetup(checked, result.token, status.userId)
-      setHandoffStatus('')
-    })().catch(() => {
-      if (current()) setHandoffStatus('Could not finish sign-in. Start sign-in again.')
-    })
+    })()
   }, [ready, hostedReturn, finishSetup])
 
   const saveOfflineProfile = useCallback(
