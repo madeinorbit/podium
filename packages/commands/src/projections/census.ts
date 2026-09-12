@@ -49,8 +49,8 @@
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. For 63 of the 76 there is a rule in the
- * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 13
+ * A census reports what it found. For 64 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 12
  * there is NO server-side reader scoping — the handler returns what the service
  * returns — and inventing a plausible policy for those would put a FALSE entry
  * in the audit surface, which `modules/approvals/queries.ts` correctly
@@ -114,7 +114,7 @@ import type { ProjectionPolicy } from '../projection'
 
 /** Every read in this census is served on `trpc`; the relay/CLI/MCP arms reach
  *  reads through the issue command registry, which is on the COMMAND side of the
- *  contract and already classified. Named once rather than repeated 55 times.
+ *  contract and already classified. Named once rather than repeated 57 times.
  *
  *  Those registry reads are ALSO served on trpc — `issues.get` and the other 31
  *  are live tRPC queries — which is why the census test excludes them by looking
@@ -224,6 +224,22 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     forbiddenFields: ['sessionId', 'owner', 'cwd'],
     rationale:
       'An aggregate count of concurrent agents over a time window. It names no session and no person, which is why it needs no reader scoping — and the forbidden fields are what keeps it that way if the underlying shape ever grows them.',
+  }),
+
+  // ---- conversations: the same bytes as a transcript, reached one hop further -
+  p({
+    name: 'conversations.search',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    // `session` rather than a `conversation` of its own: CommandResource has no
+    // such member, and `session` is also the honest answer, because the rule
+    // below decides on the SESSION that can resume the conversation.
+    resource: 'session',
+    indirectResources: ['issue'],
+    forbiddenFields: [],
+    rationale:
+      "Free-text and project-path search over the durable conversation index. `modules/conversations/trpc.ts` builds the service as `forReader({ kind: 'user', id: caller.userId })`, and `modules/memory/search.ts` filters EVERY candidate through `mayRead`, keeping only an explicit true and applying the limit AFTER the filter — so a row the caller may not read cannot consume a slot and reveal itself by absence. That ends at `mayReadNativeConversation`, which resolves the conversation's sibling segments to the sessions that can resume them and asks `mayReadOwned`: the same owner-or-grant rule `sessions.transcriptRead` applies to the same bytes. A conversation matching no session is denied to everyone. A3.2 listed it as ungoverned on the reading that the query table hands its three arguments straight to the service; the principal is two hops further down, and PDM-274 is the ninth finding to fall to reading past a one-line forward. Served on trpc ONLY — `router.ts` is the single consumer of CONVERSATION_QUERIES and there is no relay arm; the one other consumer of the service method, the superagent `search_conversations` tool, builds its reader from the thread's owner and refuses without one. Refusals are observed, not argued, in `apps/server/src/search.test.ts` ('conversations.search reader scoping'), which refuses a second member both the projectPath-narrowed and the untargeted read and admits a grantee.",
   }),
 
   // ---- per-user state: the family whose whole point is one person's rows ----
@@ -913,13 +929,6 @@ export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
     owner: 'B',
     severity: 'discloses-private-execution',
     finding: 'As `files.read`: content search across a root on a named machine, with no reader scoping.',
-  },
-  {
-    name: 'conversations.search',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding:
-      'Searches conversation history by free text and project path with no reader scoping. Conversations are session transcripts under another name.',
   },
   {
     name: 'sync.changesSince',

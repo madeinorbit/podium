@@ -465,17 +465,15 @@ describe('the ungoverned list is a finding list, not a waiver', () => {
     // The reads that disclose one person's private execution to another are a
     // different severity from a shared-material read nobody has classified, and
     // collapsing them would let the urgent ones wait behind the tidy ones.
-    // `sessions.status` was the sixth until PDM-229 governed it; it is now in
-    // PROJECTION_POLICIES and the totality test above keeps it in exactly one list.
+    // This list SHRINKS as the reads are governed, and each removal is a claim
+    // about a shipped handler rather than a tidy-up: `sessions.status` was the
+    // sixth until PDM-229, and `conversations.search` the fifth until PDM-274
+    // found its rule already shipped two hops below the query table. Both are in
+    // PROJECTION_POLICIES now and the totality test above keeps each in exactly
+    // one list. What remains is four reads, all of them still genuinely unscoped.
     const disclosing = UNGOVERNED_PROJECTIONS.filter(
       (entry) => entry.severity === 'discloses-private-execution',
     ).map((entry) => entry.name)
-    expect(disclosing).toEqual([
-      'accounts.list',
-      'files.read',
-      'files.list',
-      'files.search',
-      'conversations.search',
-    ])
+    expect(disclosing).toEqual(['accounts.list', 'files.read', 'files.list', 'files.search'])
   })
 })
