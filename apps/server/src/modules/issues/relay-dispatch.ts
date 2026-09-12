@@ -40,6 +40,7 @@ import {
   type SessionId,
 } from '@podium/model'
 import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
+import type { CommandPrincipal } from '../../command-principal'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
@@ -49,6 +50,7 @@ import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { LockCommandDispatcher } from '../lock/registry'
 import type { MessageGate } from '../messages/gate'
 import { fleetViewFor, sessionCommandCtx, visibleMachinesFor } from '../sessions/command-ctx'
+import { mayReadPrivateSession } from '../sessions/session-access'
 import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-plane'
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
@@ -79,6 +81,15 @@ export interface AgentRelayDispatchDeps {
   readonly lockCommands: LockCommandDispatcher
   readonly messageGate: MessageGate
   readonly modules: () => RegistryModules
+  /** WHO IS CALLING, resolved the one sanctioned way (POD-3900). The relay's
+   *  capability names an actor session; the private-session rule needs the
+   *  HUMAN behind it, which is the owner of the ROOT of the delegation chain and
+   *  not the leaf's own `onBehalfOf` (ADR 3 D16.2 — reading it off the leaf lets
+   *  a sub-agent carry a delegator its parent does not have). The composition
+   *  root already builds exactly this resolver for the workflow caller and the
+   *  mail path; it is passed in rather than rebuilt so this arm cannot become a
+   *  second opinion about identity. */
+  readonly principalForCapability: (capability: Capability) => Promise<CommandPrincipal>
   readonly readToolkit: SessionReadToolkit
   readonly sessionsSvc: SessionLifecycle
   readonly specs: SpecsService
@@ -158,6 +169,7 @@ export function makeAgentRelayDispatch(
     lockCommands,
     messageGate,
     modules,
+    principalForCapability,
     readToolkit,
     sessionsSvc,
     specs,
@@ -420,6 +432,46 @@ export function makeAgentRelayDispatch(
           }
           const target = await readToolkit.resolveTarget(ref)
           if (!target) throw new Error(`no session found for ${ref}`)
+          // ── THE PRIVACY GATE, AND IT RUNS FIRST [POD-3900] ──────────────────
+          //
+          // These three reads return what a session PRIVATELY holds: `status`
+          // answers with the target's issue, its repo's `git log` and `git
+          // status` and the files it touched; `read` and `recap` answer with
+          // transcript text, which is the most private thing a session has. ADR 9
+          // Amendment 1 D7 says an admin may not view another member's session,
+          // and D13 says that on a SHARED TASK another member's session is
+          // visible as owner, title and live/idle state only.
+          //
+          // The gate below this line asks about the TARGET'S ISSUE, and an issue
+          // is the wrong axis for that question: two members of one task have two
+          // different owners, so write on the task read every colleague's session
+          // through here. The tRPC arm of the same three reads has always asked
+          // about the SESSION (`modules/sessions/queries.ts#mayReadSession`) —
+          // one read, two transports, two axes, which is the asymmetry that
+          // convicted `sessions.status` on the tRPC side.
+          //
+          // ORDER IS LOAD-BEARING, both halves of it:
+          //  - BEFORE the issue gate, because an ownership refusal is an
+          //    AUTHORITY answer and `--outside-scope` must never be able to
+          //    convert one. The override confirms intent, it does not confer
+          //    rights (see `checkIssueAccess`'s own note on the `owned` arm).
+          //  - and it answers with the message an UNRESOLVABLE ref produces, so a
+          //    refusal is not an existence oracle for somebody else's session
+          //    (D20.2's consistent-error rule; the tRPC siblings answer NOT_FOUND
+          //    for the same reason).
+          //
+          // The decision itself is not spelled here. `mayReadPrivateSession`
+          // wraps `sessionOwnerVisibility`, the single home for "is this session
+          // visible to the principal's delegating human", and adds only the self
+          // and spawned-child arms it documents.
+          const principal = await principalForCapability(capability)
+          if (
+            !(await mayReadPrivateSession(principal, target, async (sessionId) =>
+              await sessionsSvc.sessionOwner(sessionId),
+            ))
+          ) {
+            throw new Error(`no session found for ${ref}`)
+          }
           const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
           if (targetIssueId) {
             await checkIssueAccess(
@@ -433,6 +485,24 @@ export function makeAgentRelayDispatch(
               targetIssueId,
             )
           } else {
+            // SCOPE, not privacy — and that is the whole of what this branch
+            // decides now [POD-3900]. It used to be the only thing standing
+            // between an issueless target and a reader, which is why its two
+            // disjuncts had to be re-read against the private-session rule:
+            //
+            //  - `scope.kind === 'all'` is an ADMIN GRADE, and D7 is explicit
+            //    that a grade is not a licence to view another member's session.
+            //    It no longer decides that question — the privacy gate above has
+            //    already answered it — so what survives here is only "is this
+            //    target inside the caller's scope", which an unscoped caller
+            //    trivially passes. Re-derived rather than assumed: this arm's one
+            //    production capability producer is
+            //    `SessionAuthz#capabilityForSession`, which mints `subtree` or
+            //    `none` and never `all`, so on THIS transport the disjunct is
+            //    reachable only from a fixture.
+            //  - the PARENT disjunct is kept for the same reason it is kept
+            //    above: a parent commanding the session it spawned is a control
+            //    the architecture preserves.
             const isOperator = capability.scope.kind === 'all'
             const isParent =
               capability.actorSessionId !== undefined &&

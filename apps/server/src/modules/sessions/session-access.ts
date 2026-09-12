@@ -106,6 +106,51 @@ export function sessionOwnerVisibility(
   }
 }
 
+/**
+ * MAY THIS PRINCIPAL READ WHAT A SESSION PRIVATELY HOLDS? (POD-3900)
+ *
+ * The question `sessionOwnerVisibility` above answers, plus the two carve-outs a
+ * reader of it has to be told about explicitly rather than deduce.
+ *
+ * WHY THIS IS NOT JUST THE VISIBILITY PREDICATE. ADR 9 Amendment 1 D7/D13 bound
+ * a session's private contents — its transcript, its repo state, the files it
+ * touched — to the human who started it. That is the predicate's rule and it is
+ * unchanged here; the owner comparison still happens in exactly one place. What
+ * this adds is the two cases where the CALLER, not the delegating human, is the
+ * authority:
+ *
+ *  - SELF. A session reads itself. It cannot be made to depend on ownership,
+ *    because a session's own durable owner and the human at the root of its
+ *    delegation chain are not guaranteed to be the same person — see the next
+ *    case for why.
+ *  - THE PARENT OF A SPAWNED SESSION. `messages/handlers/spawn-agent.ts` stamps
+ *    a new session's `ownerUserId` from the ISSUE's owner, not from the human
+ *    who spawned it, so an agent working someone else's task spawns children
+ *    owned by that someone else. Dropping this arm would stop a parent reading
+ *    the child it created, which is a control the accepted architecture keeps.
+ *    (That producer reading ownership through the issue is itself worth a look —
+ *    `SessionAuthz#sessionOwner`'s header says authority is the durable row and
+ *    not a lookup through the task — but it is a producer question, and this is
+ *    the reader.)
+ *
+ * Provenance, not a claim: `spawnedBy` is stamped by the server at spawn and is
+ * never read from agent input, which is what makes the parent arm safe to state
+ * as an identity rule.
+ */
+export async function mayReadPrivateSession(
+  principal: CommandPrincipal,
+  session: SessionTargetRow,
+  ownerOf: (sessionId: SessionId) => Promise<{ owner: UserId } | undefined>,
+): Promise<boolean> {
+  if (principal.kind === 'agent') {
+    if (principal.agentSessionId === session.sessionId) return true
+    if (isSpawnedBy(session.spawnedBy, { kind: 'session', id: principal.agentSessionId })) {
+      return true
+    }
+  }
+  return await sessionOwnerVisibility(ownerOf)(principal, session)
+}
+
 export interface SessionAccessDeps {
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  REQUIRED since POD-3857. This resolver runs on the authorization path of

@@ -3258,6 +3258,10 @@ export class SessionRegistry {
         // arm only runs per request, long after — but the arm is BUILT here, so
         // it must not capture the value.
         modules: () => this.modules,
+        // The SAME resolver the workflow caller and the mail path already use:
+        // the relay's session reads need the human at the ROOT of the delegation
+        // chain to answer the private-session question [POD-3900].
+        principalForCapability,
         readToolkit,
         sessionsSvc,
         specs,

@@ -30,13 +30,33 @@
  * keeps this test about the resolution, not about `checkIssueAccess`.
  */
 
-import { asSessionId, type SessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  type SessionId,
+  type SessionMeta,
+  type SessionMetaInput,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { resolvePrincipalAsync } from '../../command-principal'
 import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
+import type { SessionLifecycle } from '../sessions/lifecycle'
 import { SessionReadToolkit } from '../sessions/read-toolkit'
 import { type AgentRelayDispatchDeps, makeAgentRelayDispatch } from './relay-dispatch'
+
+/** The one person in this fixture, and the OWNER of both sessions below.
+ *
+ *  THE OPERATOR CAPABILITY USED TO CARRY NO IDENTITY AT ALL, and both sessions
+ *  used to carry no owner. That was fine while the arm asked only about the
+ *  issue; POD-3900 made it ask who owns the target, and an attribution-less
+ *  caller reading an unowned session is now refused — correctly, and for a
+ *  reason this file is not about. So the fixture states an owner and a reader
+ *  who IS that owner, which is the legitimate version of the situation it was
+ *  always describing. Nothing about what it measures has moved: the assertion
+ *  below is still about WHICH session a single resolution names. */
+const OPERATOR_USER = asUserId('u_operator')
 
 /** Gated first, because it is live when the arm resolves for its gate. */
 const GATED = asSessionId('s_gated')
@@ -114,6 +134,11 @@ function harness() {
     issues: {
       issueForCwd: () => null,
     } as unknown as IssueService,
+    sessionsSvc: {
+      sessionOwner: async () => ({ owner: OPERATOR_USER, grants: [] as string[] }),
+    } as unknown as SessionLifecycle,
+    principalForCapability: (capability) =>
+      resolvePrincipalAsync(capability, { parentSessionOf: async () => undefined }),
   } as unknown as AgentRelayDispatchDeps)
 
   return { dispatch, projected }
@@ -121,7 +146,15 @@ function harness() {
 
 /** An operator capability: `scope.kind === 'all'` is what the arm's issue-less
  *  branch accepts, and it carries no actor session. */
-const OPERATOR = { role: 'admin', scope: { kind: 'all' }, actorSessionId: undefined } as never
+const OPERATOR = {
+  role: 'admin',
+  scope: { kind: 'all' },
+  actorSessionId: undefined,
+  // ADR 3 D17's attribution pair, which a human capability must carry for its
+  // principal to resolve at all — the same pair the operator channel stamps.
+  actorUser: OPERATOR_USER,
+  onBehalfOf: OPERATOR_USER,
+} as never
 
 describe('relay sessions.status', () => {
   it('describes the session it gated, even when the live member changes mid-read', async () => {
