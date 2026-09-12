@@ -431,10 +431,25 @@ export class InstanceService {
    *    nothing to activate, and a remote bounce lever is exactly what the control
    *    plane must not hand out. It also makes a double-click safe: by the time a
    *    second call arrives the state has usually already moved.
-   * 2. NOT AN ADMIN. The contract's floor, enforced here because this family
-   *    authorizes in its service (see `setLoginRequired`, which verifies the
-   *    caller's own credential rather than leaning on the router). A member with a
-   *    session must not be able to drop everyone else's transport.
+   * 2. NOT AN ADMIN. A member with a session must not be able to drop everyone
+   *    else's transport.
+   *
+   *    THE SENTENCE THAT USED TO BE HERE WAS FALSE, and it is worth saying so
+   *    rather than quietly deleting it (PDM-294). It read "the contract's floor,
+   *    enforced here because this family authorizes in its service — see
+   *    `setLoginRequired`, which verifies the caller's own credential rather than
+   *    leaning on the router". `setLoginRequired` verifies a PASSWORD, which
+   *    answers "are you the account holder" and not "are you an admin", and this
+   *    method's `requireAdmin()` was the only floor this family enforced
+   *    anywhere. Eight of its nine contracts declare `admin` and one checked it.
+   *    A comment that names a neighbouring check as the enforcement is how the
+   *    next reader stops looking, which is exactly what happened.
+   *
+   *    The floor now comes from the contract, at the transport, for every family
+   *    built through `modules/derived-family.ts`. This call is kept as
+   *    defence-in-depth — it also covers a caller that does not arrive through
+   *    that builder — and `derived-family.role-floor.test.ts` witnesses the
+   *    transport half.
    * 3. NO RESTART CAPABILITY. An installation that cannot replace its own process
    *    says so, rather than answering "restarting" and leaving the operator
    *    watching a screen that will never change.
@@ -560,6 +575,20 @@ export class InstanceService {
    * restores every account's existing password rather than making everyone
    * re-enrol. `current` is the CALLER's own password, verified for the same
    * hijacked-session reason as `setPassword`.
+   *
+   * THE PASSWORD CHECK IS NOT THIS COMMAND'S AUTHORIZATION, and PDM-294 found
+   * that it had been read as one. `verifyPasswordHash` answers "are you the
+   * holder of THIS account"; the contract declares `roleFloor: 'admin'`, which
+   * asks "is this account an admin". Those are different questions, and for a
+   * command that turns login off for the WHOLE INSTANCE only the second one
+   * matters — any member who knew their own password satisfied everything this
+   * method asked. The floor is enforced at the transport from the contract
+   * (`modules/role-floor.ts`), and `login-required-floor.test.ts` witnesses a
+   * member refused WITH THE CORRECT PASSWORD, which is the case that makes the
+   * distinction visible.
+   *
+   * The confirmation stays, because it is a real defence against a hijacked
+   * admin session and deleting it would trade one gap for another.
    */
   async setLoginRequired(input: {
     required: boolean
@@ -582,9 +611,15 @@ export class InstanceService {
     return { loginRequired: (await this.deps.loginRequired?.()) ?? input.required }
   }
 
-  /** The `admin` floor, enforced where this family enforces everything else — in
-   *  the service. `status().canManageInstance` is the same question asked for the
-   *  UI; this is the one that refuses. */
+  /** The `admin` floor for `activate`. `status().canManageInstance` is the same
+   *  question asked for the UI; this is the one that refuses.
+   *
+   *  IT IS NOT "where this family enforces everything else", which is what this
+   *  comment claimed until PDM-294 counted: `activate` was the ONLY one of the
+   *  family's eight admin-floor contracts that reached it. The other seven —
+   *  `setup.complete`, `join`, `connect`, `setChannel`, `auth.setLoginRequired`,
+   *  `telemetry.set` and `telemetry.resetId` — are enforced from their contracts
+   *  at the transport. */
   private async requireAdmin() {
     const { users, callerUserId } = this.requireAccountStore()
     if ((await users.get(callerUserId))?.role !== 'admin') {
