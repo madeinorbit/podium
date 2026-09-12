@@ -90,7 +90,7 @@ export function SettingsScreen() {
     setAccountBusy(true)
     try {
       try {
-        await logout(httpOrigin, bearer)
+        await logout(httpOrigin, bearer, profile.workspaceId)
       } catch {
         Alert.alert(
           'Remote logout failed',
@@ -148,7 +148,7 @@ export function SettingsScreen() {
               }
               try {
                 try {
-                  await logout(httpOrigin, bearer)
+                  await logout(httpOrigin, bearer, profile.workspaceId)
                 } catch {
                   Alert.alert(
                     'Remote revocation failed',

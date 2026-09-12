@@ -14,6 +14,7 @@ interface Attempt {
   challenge: string
   verifier: string
   expiresAt: number
+  workspaceId?: string
 }
 export function isHostedReturn(raw: string): boolean {
   return /^podium:\/\/signed-in(?:[/?#]|$)/i.test(raw)
@@ -58,12 +59,12 @@ export interface HostedSignInDependencies {
 export function createHostedSignIn(deps: HostedSignInDependencies) {
   const queue = new CredentialWriteQueue()
   let generation = 0
-  const post = (server: string, path: string, appOrigin: string, body: unknown) =>
+  const post = (server: string, path: string, appOrigin: string, body: unknown, workspaceId?: string) =>
     deps.fetch(server + path, {
       method: 'POST',
       credentials: 'omit',
       redirect: 'error',
-      headers: { 'Content-Type': 'application/json', Origin: appOrigin },
+      headers: { 'Content-Type': 'application/json', Origin: appOrigin, ...(workspaceId ? { 'Podium-Workspace-Id': workspaceId } : {}) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     })
@@ -72,7 +73,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
       generation++
       return queue.run(() => deps.remove())
     },
-    async begin(server = HOSTED_API_ORIGIN, signInUrl = HOSTED_SIGN_IN_URL) {
+    async begin(server = HOSTED_API_ORIGIN, signInUrl = HOSTED_SIGN_IN_URL, workspaceId?: string) {
       const current = ++generation
       return queue.run(async () => {
         await deps.remove()
@@ -81,7 +82,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
         const appOrigin = origin(signInUrl)
         if (page.pathname !== '/account/sign-in') throw new Error('Invalid account sign-in page.')
         const started = deps.now()
-        const response = await post(server, '/platform/auth/handoff/begin', appOrigin, {})
+        const response = await post(server, '/platform/auth/handoff/begin', appOrigin, {}, workspaceId)
         if (!response.ok) throw new Error('Could not start sign-in. Try again.')
         const body = await response.json()
         // Native Expo fetch exposes response headers; never depend on a browser cookie jar.
@@ -99,6 +100,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
         if (current !== generation) throw new Error(ended)
         const attempt: Attempt = {
           server,
+          workspaceId,
           appOrigin,
           verifier,
           challenge: body.challenge,
@@ -141,6 +143,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
           value.expiresAt <= deps.now() ||
           value.expiresAt > deps.now() + 600_000 ||
           origin(value.server) !== value.server ||
+          (value.workspaceId !== undefined && (typeof value.workspaceId !== 'string' || value.workspaceId.length === 0 || value.workspaceId.length > 256)) ||
           origin(value.appOrigin) !== value.appOrigin ||
           (await deps.digest(value.verifier)) !== value.challenge
         ) {
@@ -158,7 +161,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
         code: link.code,
         transport: 'bearer',
         verifier: attempt.verifier,
-      })
+      }, attempt.workspaceId)
       if (!response.ok) throw new Error(ended)
       const body = await response.json()
       if (
@@ -170,7 +173,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
       )
         throw new Error('The server did not return a valid phone session.')
       if (current !== generation) throw new Error(ended)
-      return { server: attempt.server, token: body.token as string }
+      return { server: attempt.server, token: body.token as string, ...(attempt.workspaceId ? { workspaceId: attempt.workspaceId } : {}) }
     },
   }
 }

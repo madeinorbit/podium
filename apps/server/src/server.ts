@@ -312,9 +312,10 @@ export function registerVersionRoute(
   deps: {
     /** Deployment identity resolved once by the process entry point. */
     instanceId: string
+    /** Stable hosted workspace registry identity, when this server is workspace-bound. */
+    workspaceId?: () => string | undefined
     /**
      * The grade of the visibility policy this server actually runs (POD-376).
-     *
      * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
      * resolve its replica-path flag BEFORE it constructs a replica or opens a
      * socket, so the answer has to be available at the one request it already
@@ -476,6 +477,7 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
+      ...(deps.workspaceId?.() ? { workspaceId: deps.workspaceId() } : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -1358,6 +1360,7 @@ export async function startServer(
   // own host that question crosses an origin, so the answer needs CORS.
   app.use('/version', cors())
   registerVersionRoute(app, {
+    workspaceId: () => opts.workspaceId,
     instanceId,
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
@@ -1605,6 +1608,7 @@ export async function startServer(
       publicUrl: resolvePublicUrl(loadConfig(), process.env),
       appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
+      workspaceId: opts.workspaceId,
     }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's

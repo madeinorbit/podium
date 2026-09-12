@@ -54,10 +54,11 @@ function timeoutSignal(ms: number): AbortSignal | undefined {
 export async function fetchAuthStatus(
   httpOrigin: string,
   bearer: string | null = null,
+  workspaceId?: string,
 ): Promise<AuthStatus> {
   const res = await fetch(httpOrigin + '/auth/status', {
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: bearerHeaders(bearer),
+    headers: bearerHeaders(bearer, undefined, workspaceId ? { workspaceId } : undefined),
     signal: timeoutSignal(AUTH_STATUS_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error('auth status failed: ' + res.status)
@@ -97,9 +98,10 @@ export async function fetchAuthStatus(
 export async function checkLiveAuth(
   httpOrigin: string,
   bearer: string | null,
+  workspaceId?: string,
 ): Promise<LiveAuthCheck> {
   try {
-    const status = await fetchAuthStatus(httpOrigin, bearer)
+    const status = await fetchAuthStatus(httpOrigin, bearer, workspaceId)
     return status.needsAuth && !status.authed
       ? { kind: 'expired', status }
       : { kind: 'valid', status }
@@ -116,6 +118,7 @@ export async function login(
   password: string,
   device?: { id: string; name: string },
   email = '',
+  workspaceId?: string,
 ): Promise<LoginResult> {
   if (Platform.OS !== 'web' && !httpOrigin.startsWith('https://')) {
     return {
@@ -126,7 +129,7 @@ export async function login(
   const res = await fetch(httpOrigin + '/auth/login', {
     method: 'POST',
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: { 'content-type': 'application/json' },
+    headers: bearerHeaders(null, { 'content-type': 'application/json' }, workspaceId ? { workspaceId } : undefined),
     body: JSON.stringify({
       // The explicit retired identifier only selects an email-less first admin.
       email: email.trim() || 'user:sole',
@@ -155,18 +158,18 @@ export async function login(
   return { ok: false, error: 'Login failed (' + res.status + ').' }
 }
 
-export async function logout(httpOrigin: string, bearer: string | null = null): Promise<void> {
+export async function logout(httpOrigin: string, bearer: string | null = null, workspaceId?: string): Promise<void> {
   if (Platform.OS !== 'web' && bearer && !httpOrigin.startsWith('https://')) {
     throw new Error('refusing to send a bearer over cleartext HTTP')
   }
   if (Platform.OS !== 'web' && bearer) {
-    const status = await fetchAuthStatus(httpOrigin, bearer)
+    const status = await fetchAuthStatus(httpOrigin, bearer, workspaceId)
     if (status.mode === 'cloud') {
       const revoked = await fetch(httpOrigin + '/platform/auth/sign-out', {
         method: 'POST',
         credentials: 'omit',
         redirect: 'error',
-        headers: bearerHeaders(bearer, { 'Content-Type': 'application/json' }),
+        headers: bearerHeaders(bearer, { 'Content-Type': 'application/json' }, workspaceId ? { workspaceId } : undefined),
         body: '{}',
         signal: timeoutSignal(AUTH_STATUS_TIMEOUT_MS),
       })
@@ -176,7 +179,7 @@ export async function logout(httpOrigin: string, bearer: string | null = null): 
   const response = await fetch(httpOrigin + '/auth/logout', {
     method: 'POST',
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: bearerHeaders(bearer),
+    headers: bearerHeaders(bearer, undefined, workspaceId ? { workspaceId } : undefined),
   })
   if (!response.ok) throw new Error(`logout failed: ${response.status}`)
 }

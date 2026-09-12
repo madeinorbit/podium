@@ -1,4 +1,4 @@
-import { parseServerOrigin } from '@podium/client-core/transport'
+import { parseServerOrigin, workspaceRequestInit } from '@podium/client-core/transport'
 import {
   decodePairingEnvelope,
   MobilePairClaimResponse,
@@ -107,12 +107,14 @@ export type PreflightFailureKind =
   | 'version-mismatch'
   | 'tls-untrusted'
   | 'unreachable'
+  | 'workspace-mismatch'
   | 'cleartext-blocked'
 
 export type ServerPreflight =
   | {
       ok: true
       httpOrigin: string
+      workspaceId?: string
       instanceId: string
       appVersion: string
       mode: 'open' | 'protected'
@@ -184,9 +186,10 @@ function transportFailure(origin: string, cause: unknown): ServerPreflight {
   }
 }
 
-export async function preflightServer(httpOrigin: string): Promise<ServerPreflight> {
+export async function preflightServer(httpOrigin: string, workspaceId?: string): Promise<ServerPreflight> {
   const origin = normalizeManualServer(httpOrigin)
   const transport = classifyServerTransport(origin)
+  const workspaceSelector = workspaceId ? { workspaceId } : undefined
   // A DEV build defers LAN HTTP to the real preflight below, which still fails
   // closed unless the server is in open mode (no credentials to leak). That is
   // the simulator/Metro rig path; release builds keep failing closed here.
@@ -214,11 +217,11 @@ export async function preflightServer(httpOrigin: string): Promise<ServerPreflig
     return transportFailure(origin, new Error('cleartext'))
   }
   try {
-    const versionResponse = await fetch(`${origin}/version`, {
+    const versionResponse = await fetch(`${origin}/version`, workspaceRequestInit(`${origin}/version`, {
       cache: 'no-store',
       credentials: 'omit',
       signal: timeoutSignal(),
-    })
+    }, workspaceSelector))
     if (!versionResponse.ok) {
       return {
         ok: false,
@@ -255,6 +258,19 @@ export async function preflightServer(httpOrigin: string): Promise<ServerPreflig
         transport,
       }
     }
+    const advertisedWorkspaceId =
+      typeof version.workspaceId === 'string' && version.workspaceId.length > 0
+        ? version.workspaceId
+        : undefined
+    if (workspaceId && advertisedWorkspaceId !== workspaceId) {
+      return {
+        ok: false,
+        kind: 'workspace-mismatch',
+        title: 'Workspace identity changed',
+        detail: 'The server did not answer for the selected workspace.',
+        transport,
+      }
+    }
     const clientTooOld = WIRE_VERSION < version.minSupportedVersion
     const serverTooOld = WIRE_VERSION > version.wireVersion
     if (clientTooOld || serverTooOld) {
@@ -266,10 +282,10 @@ export async function preflightServer(httpOrigin: string): Promise<ServerPreflig
         transport,
       }
     }
-    const authResponse = await fetch(`${origin}/auth/status`, {
+    const authResponse = await fetch(`${origin}/auth/status`, workspaceRequestInit(`${origin}/auth/status`, {
       credentials: 'omit',
       signal: timeoutSignal(),
-    })
+    }, workspaceSelector))
     if (!authResponse.ok) throw new Error(`auth status failed: ${authResponse.status}`)
     const auth = (await authResponse.json().catch(() => null)) as Record<string, unknown> | null
     if (
@@ -305,6 +321,7 @@ export async function preflightServer(httpOrigin: string): Promise<ServerPreflig
     return {
       ok: true,
       httpOrigin: origin,
+      ...(advertisedWorkspaceId ? { workspaceId: advertisedWorkspaceId } : {}),
       instanceId: version.instanceId,
       appVersion: typeof version.appVersion === 'string' ? version.appVersion : 'unknown',
       mode,
@@ -338,6 +355,7 @@ export interface PairingClaim {
   claimId: string
   claimSecret: string
   phrase: string[]
+  workspaceId?: string
 }
 
 export async function claimMobilePairing(
@@ -358,7 +376,10 @@ export async function claimMobilePairing(
   )
   const response = await fetch(`${envelope.serverUrl}/auth/mobile-pair/claim`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(envelope.workspaceId ? { 'Podium-Workspace-Id': envelope.workspaceId } : {}),
+    },
     body: JSON.stringify({
       pairCode: envelope.pairCode,
       claimHash,
@@ -388,7 +409,7 @@ export async function claimMobilePairing(
   }
   const body = MobilePairClaimResponse.safeParse(await response.json())
   if (!body.success) throw new Error('The server returned an invalid claim.')
-  return { claimId: body.data.claimId, claimSecret, phrase: body.data.phrase }
+  return { claimId: body.data.claimId, claimSecret, phrase: body.data.phrase, ...(envelope.workspaceId ? { workspaceId: envelope.workspaceId } : {}) }
 }
 
 export type PairingCompletion =
@@ -404,7 +425,10 @@ export async function pollMobilePairing(
 ): Promise<PairingCompletion> {
   const response = await fetch(`${serverUrl}/auth/mobile-pair/complete`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(claim.workspaceId ? { 'Podium-Workspace-Id': claim.workspaceId } : {}),
+    },
     body: JSON.stringify({ claimId: claim.claimId, claimSecret: claim.claimSecret }),
     credentials: mode === 'web' ? 'include' : 'omit',
     signal: timeoutSignal(),

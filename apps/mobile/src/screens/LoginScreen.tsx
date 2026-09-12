@@ -75,6 +75,7 @@ export function LoginScreen({
           name: profile.name,
         },
         email,
+        profile.workspaceId,
       ).catch(() => ({
         ok: false as const,
         error: "couldn't reach the server — try again",
@@ -88,7 +89,7 @@ export function LoginScreen({
         setOk(true)
       } catch (cause) {
         const revoked = result.bearer
-          ? await logout(httpOrigin, result.bearer)
+          ? await logout(httpOrigin, result.bearer, profile.workspaceId)
               .then(() => true)
               .catch(() => false)
           : true
@@ -135,13 +136,12 @@ export function LoginScreen({
             ? 'press ⏎ to sign in'
             : 'waiting on you — enter your email and password'
   const btnGlyph = state === 'ok' ? '✓' : '→'
-
   if (cloudSignInUrl) {
     return (
       <View style={styles.root}>
         <AsciiWordmark color={C.text} fontSize={3.9} />
         <Text style={styles.host}>Sign in to Podium Cloud</Text>
-        <HostedSignInButton server={httpOrigin} signInUrl={cloudSignInUrl} />
+        <HostedSignInButton server={httpOrigin} signInUrl={cloudSignInUrl} workspaceId={profile.workspaceId} />
       </View>
     )
   }
