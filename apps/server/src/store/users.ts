@@ -312,7 +312,12 @@ export class UsersRepository {
       // diverged once accounts grew `accountId` and `avatar` (A4, A5), and the
       // index is keyed on the stored column names.
       const account = await this.accountById(this.db).get({ id: userId })
-      if (!account) throw new Error(`unknown user: ${userId}`)
+      // Gate on the MAPPED read, publish the raw row. userFromRow answers
+      // undefined for a disabled account and for a role this build cannot
+      // parse; accountById answers the raw row regardless, and disable() sets
+      // disabledAt rather than removing the row, so a truthy row is not
+      // permission to write a credential.
+      if (!account || !userFromRow(account)) throw new Error(`unknown user: ${userId}`)
       await (this.db
       .insert(userCredentials)
       .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt }))
