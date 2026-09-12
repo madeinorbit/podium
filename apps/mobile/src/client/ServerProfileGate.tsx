@@ -27,7 +27,10 @@ import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { logout } from './auth'
+import { fetchAuthStatus, logout } from './auth'
+import { HostedSignInButton } from '../components/HostedSignInButton'
+import { isHostedReturn, parseHostedReturn, type HostedReturn } from './hosted-sign-in'
+import { hostedSignIn } from './hosted-sign-in-runtime'
 import {
   CredentialWriteQueue,
   StaleCredentialOwnerError,
@@ -257,6 +260,11 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [linkError, setLinkError] = useState<string | null>(consumedInitialPairing.error)
   const [activationFailure, setActivationFailure] = useState<ActivationFailure | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
+  const [hostedReturn, setHostedReturn] = useState<{
+    link: HostedReturn
+    operation: number
+  } | null>(null)
+  const hostedReturnConsumed = useRef<object | null>(null)
   const pendingHandoff = useSyncExternalStore(
     subscribePendingMobileHandoff,
     pendingMobileHandoffSnapshot,
@@ -337,6 +345,27 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         // not mounted yet — the pair route's own <Redirect> covers it
       }
       setupOwnsStartup.current = false
+    }
+    if (Platform.OS !== 'web' && isHostedReturn(raw)) {
+      try {
+        const link = parseHostedReturn(raw)
+        startupLinkGeneration.current += 1
+        const operation = ++switchOperation.current
+        nativeLinkIntent.current = 'pairing'
+        retirePendingMobileHandoff()
+        setIncoming(null)
+        setLinkError(null)
+        setSetupOpen(true)
+        setHostedReturn({ link, operation })
+        setHandoffStatus('Finishing sign-in…')
+      } catch {
+        setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
+      }
+      return
+    }
+    if (Platform.OS !== 'web') {
+      setHostedReturn(null)
+      void hostedSignIn.cancel().catch(() => {})
     }
     if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
       startupLinkGeneration.current += 1
@@ -747,6 +776,27 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     },
     [credentialWrites, profileState, profileWrites],
   )
+
+  useEffect(() => {
+    if (!ready || !hostedReturn || hostedReturnConsumed.current === hostedReturn) return
+    hostedReturnConsumed.current = hostedReturn
+    const current = () => switchOperation.current === hostedReturn.operation
+    void (async () => {
+      const result = await hostedSignIn.redeem(hostedReturn.link)
+      if (!current()) return
+      const checked = await preflightServer(result.server)
+      if (!current()) return
+      if (!checked.ok) throw new Error('Could not verify this workspace. Start sign-in again.')
+      const status = await fetchAuthStatus(result.server, result.token)
+      if (!current()) return
+      if (!status.authed || !status.userId)
+        throw new Error('This account cannot enter this workspace.')
+      await finishSetup(checked, result.token, status.userId)
+      setHandoffStatus('')
+    })().catch(() => {
+      if (current()) setHandoffStatus('Could not finish sign-in. Start sign-in again.')
+    })
+  }, [ready, hostedReturn, finishSetup])
 
   const saveOfflineProfile = useCallback(
     async (httpOrigin: string) => {
@@ -1264,10 +1314,20 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           initialError={linkError}
           canCancel={profile !== null}
           onCancel={() => {
+            switchOperation.current += 1
+            setHostedReturn(null)
+            void hostedSignIn.cancel().catch(() => {})
+            setHandoffStatus('')
             setIncoming(null)
             setSetupOpen(false)
             setLinkError(null)
             if (Platform.OS !== 'web' && !credentialReleased) restartSavedProfile()
+          }}
+          onPairingStart={() => {
+            switchOperation.current += 1
+            setHostedReturn(null)
+            setHandoffStatus('')
+            void hostedSignIn.cancel().catch(() => {})
           }}
           onComplete={finishSetup}
           onSaveOffline={saveOfflineProfile}
@@ -1391,10 +1451,12 @@ function PairingSetup({
   onCancel,
   onComplete,
   onSaveOffline,
+  onPairingStart,
 }: {
   incoming: MobilePairingEnvelope | null
   initialError: string | null
   canCancel: boolean
+  onPairingStart(): void
   onCancel(): void
   onComplete(
     result: Extract<ServerPreflight, { ok: true }>,
@@ -1585,11 +1647,26 @@ function PairingSetup({
         </Text>
         {step === 'welcome' ? (
           <>
-            <Text style={styles.setupBody}>Scan the code shown in Podium on your computer.</Text>
+            {Platform.OS !== 'web' ? <HostedSignInButton /> : null}
+            <Text style={styles.setupBody}>
+              Or pair with a server you run. Scan the code shown in Podium on your computer.
+            </Text>
             {Platform.OS !== 'web' ? (
-              <PrimaryButton label="Scan QR code" onPress={() => setStep('scan')} />
+              <PrimaryButton
+                label="Scan QR code"
+                onPress={() => {
+                  onPairingStart()
+                  setStep('scan')
+                }}
+              />
             ) : null}
-            <SecondaryButton label="Enter server address" onPress={() => setStep('manual')} />
+            <SecondaryButton
+              label="Enter server address"
+              onPress={() => {
+                onPairingStart()
+                setStep('manual')
+              }}
+            />
             <Text style={styles.help}>
               On your computer, open Settings → Connected devices → Pair a phone.
             </Text>

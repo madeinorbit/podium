@@ -61,6 +61,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <LaunchReadyView>
         <LoginScreen
           httpOrigin={config.httpOrigin}
+          cloudSignInUrl={authStatus?.mode === 'cloud' ? authStatus.signInUrl : undefined}
           onAuthed={async (token) => {
             await updateCredential(token)
             // Updating the credential increments the profile runtime key. The

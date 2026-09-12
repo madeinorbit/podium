@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login, logout } from '../client/auth'
 import { useServerProfile } from '../client/server-profile-context'
+import { HostedSignInButton } from '../components/HostedSignInButton'
 import { AsciiWordmark } from '../components/AsciiWordmark'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
@@ -44,9 +45,11 @@ function originHost(httpOrigin: string): string {
 
 export function LoginScreen({
   httpOrigin,
+  cloudSignInUrl,
   onAuthed,
 }: {
   httpOrigin: string
+  cloudSignInUrl?: string
   onAuthed: (bearer: string | null) => void | Promise<void>
 }) {
   const { profile } = useServerProfile()
@@ -125,6 +128,16 @@ export function LoginScreen({
             ? 'press ⏎ to sign in'
             : 'waiting on you — enter your password'
   const btnGlyph = state === 'ok' ? '✓' : '→'
+
+  if (cloudSignInUrl && Platform.OS !== 'web') {
+    return (
+      <View style={styles.root}>
+        <AsciiWordmark color={C.text} fontSize={3.9} />
+        <Text style={styles.host}>Sign in to Podium Cloud</Text>
+        <HostedSignInButton server={httpOrigin} signInUrl={cloudSignInUrl} />
+      </View>
+    )
+  }
 
   return (
     <KeyboardAvoidingRoot

@@ -8,6 +8,8 @@ export interface AuthStatus {
   needsAuth: boolean
   authed: boolean
   userId: UserId | null
+  mode?: 'local' | 'cloud'
+  signInUrl?: string
 }
 
 export class MobileAuthExpiredError extends Error {
@@ -72,6 +74,8 @@ export async function fetchAuthStatus(
     throw new Error('auth status response was invalid')
   }
   return {
+    ...(body.mode === 'cloud' ? { mode: 'cloud' as const } : {}),
+    ...(typeof body.signInUrl === 'string' ? { signInUrl: body.signInUrl } : {}),
     needsAuth: body.needsAuth,
     authed: body.authed,
     userId:
@@ -145,6 +149,20 @@ export async function login(
 export async function logout(httpOrigin: string, bearer: string | null = null): Promise<void> {
   if (Platform.OS !== 'web' && bearer && !httpOrigin.startsWith('https://')) {
     throw new Error('refusing to send a bearer over cleartext HTTP')
+  }
+  if (Platform.OS !== 'web' && bearer) {
+    const status = await fetchAuthStatus(httpOrigin, bearer)
+    if (status.mode === 'cloud') {
+      const revoked = await fetch(httpOrigin + '/platform/auth/sign-out', {
+        method: 'POST',
+        credentials: 'omit',
+        redirect: 'error',
+        headers: bearerHeaders(bearer, { 'Content-Type': 'application/json' }),
+        body: '{}',
+        signal: timeoutSignal(AUTH_STATUS_TIMEOUT_MS),
+      })
+      if (!revoked.ok) throw new Error(`Cloud sign-out failed: ${revoked.status}`)
+    }
   }
   const response = await fetch(httpOrigin + '/auth/logout', {
     method: 'POST',

@@ -18,6 +18,9 @@ const seams = vi.hoisted(() => ({
   linkListener: null as ((event: { url: string }) => void) | null,
   loadProfiles: vi.fn<() => Promise<ServerProfileState>>(),
   logout: vi.fn(),
+  hostedRedeem: vi.fn(),
+  hostedCancel: vi.fn(),
+  authStatus: vi.fn(),
   parsePairing: vi.fn(),
   pollPairing: vi.fn(),
   preflight: vi.fn(),
@@ -129,7 +132,10 @@ vi.mock('./trpc', () => ({
     seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
   },
 }))
-vi.mock('./auth', () => ({ logout: seams.logout }))
+vi.mock('./auth', () => ({ logout: seams.logout, fetchAuthStatus: seams.authStatus }))
+vi.mock('./hosted-sign-in-runtime', () => ({
+  hostedSignIn: { redeem: seams.hostedRedeem, cancel: seams.hostedCancel, begin: vi.fn() },
+}))
 
 import {
   resetInitialNativeLinkConsumptionForTests,
@@ -227,6 +233,13 @@ beforeEach(() => {
   resetInitialNativeLinkConsumptionForTests()
   consumePendingMobileHandoff(pendingMobileHandoffSnapshot().id)
   seams.activeContext = null
+  seams.hostedRedeem
+    .mockReset()
+    .mockResolvedValue({ server: 'https://cloud.example', token: 'cloud-token' })
+  seams.hostedCancel.mockReset().mockResolvedValue(undefined)
+  seams.authStatus
+    .mockReset()
+    .mockResolvedValue({ authed: true, needsAuth: true, userId: 'user:cloud' })
   seams.alert.mockReset()
   seams.announce.mockReset()
   seams.getInitialUrl.mockReset()
@@ -1439,5 +1452,71 @@ describe('profile credential completion races', () => {
       origin: 'https://b.example',
       bearer: 'token-a',
     })
+  })
+})
+
+describe('hosted sign-in profile activation', () => {
+  const link = `podium://signed-in?code=hoff_${'B'.repeat(27)}&challenge=${'a'.repeat(64)}`
+  it('receives a cold callback and saves the bearer beside pairing credentials', async () => {
+    seams.getInitialUrl.mockResolvedValue(link)
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await waitFor(() => expect(seams.activeContext?.bearer).toBe('cloud-token'))
+    expect(seams.activeContext?.profile.httpOrigin).toBe('https://cloud.example')
+    expect(seams.activeContext?.profile.userId).toBe('user:cloud')
+    expect(seams.credentials.get('profile-a')).toBe('token-a')
+    expect(seams.credentials.get(seams.activeContext!.profile.id)).toBe('cloud-token')
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).toHaveBeenCalledWith('/')
+    expect(JSON.stringify(seams.durableProfiles)).not.toContain('cloud-token')
+    expect(
+      seams.runtime.some(
+        (row) => row.origin === 'https://cloud.example' && row.bearer === 'cloud-token',
+      ),
+    ).toBe(true)
+  })
+  it('receives a warm callback without passing it to pairing', async () => {
+    await mountActiveProfileA()
+    await act(async () => seams.linkListener!({ url: link }))
+    await waitFor(() => expect(seams.activeContext?.bearer).toBe('cloud-token'))
+    expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+  it('never saves a late hosted session after a newer pairing link', async () => {
+    let resolve!: (value: { server: string; token: string }) => void
+    seams.hostedRedeem.mockReturnValue(
+      new Promise((r) => {
+        resolve = r
+      }),
+    )
+    await mountActiveProfileA()
+    await act(async () => seams.linkListener!({ url: link }))
+    await waitFor(() => expect(seams.hostedRedeem).toHaveBeenCalled())
+    await act(async () => seams.linkListener!({ url: PAIRING_LINK }))
+    await act(async () => resolve({ server: 'https://cloud.example', token: 'cloud-token' }))
+    expect([...seams.credentials.values()]).not.toContain('cloud-token')
+    expect(seams.hostedCancel).toHaveBeenCalled()
+  })
+  it('keeps existing credentials when redemption is refused', async () => {
+    seams.hostedRedeem.mockRejectedValue(new Error('expired'))
+    await mountActiveProfileA()
+    await act(async () => seams.linkListener!({ url: link }))
+    await screen.findByText('Could not finish sign-in. Start sign-in again.')
+    expect(seams.credentials.get('profile-a')).toBe('token-a')
+    expect(seams.setCredential).not.toHaveBeenCalled()
+  })
+  it('refuses an account without workspace membership before storing its bearer', async () => {
+    seams.authStatus.mockResolvedValue({ authed: false, needsAuth: true, userId: null })
+    seams.getInitialUrl.mockResolvedValue(link)
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByText('Could not finish sign-in. Start sign-in again.')
+    expect(seams.setCredential).not.toHaveBeenCalled()
   })
 })
