@@ -138,7 +138,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         },
       }),
     ).rejects.toThrow('declaration failed')
-    const ids = (await store.conversations.index.search({})).map((r) => r.id)
+    const ids = (await store.conversations.index.searchCandidates({})).map((r) => r.id)
     expect(ids).toContain('c-old') // delete rolled back
     expect(ids).not.toContain('c-new') // upsert rolled back
     expect(await ledger.cursor()).toBe(cursorBefore)
@@ -160,7 +160,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
         { entity: 'conversation', id: 'c-new', op: 'upsert', value: { id: 'c-new' } },
       ],
     })
-    const after = (await store.conversations.index.search({})).map((r) => r.id)
+    const after = (await store.conversations.index.searchCandidates({})).map((r) => r.id)
     expect(after).toContain('c-new')
     expect(after).not.toContain('c-old')
     expect(await ledger.cursor()).toBe(cursorBefore + 1)
@@ -174,7 +174,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     await push(registry, [conv('c1')], { removed: ['c2'] })
     const changes = await conversationChangesSince(registry, cursor)
     expect(changes.some((c) => c.id === 'c2' && c.op === 'remove')).toBe(true)
-    expect((await registry.sessionStore.conversations.index.search({})).map((r) => r.id)).not.toContain(
+    expect((await registry.sessionStore.conversations.index.searchCandidates({})).map((r) => r.id)).not.toContain(
       'c2',
     )
   })
@@ -259,7 +259,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ).toBe(true)
     // The store write itself landed too (the original behavior, now seam-bound).
     expect(
-      (await registry.sessionStore.conversations.index.search({})).find((r) => r.id === 'c1')?.name,
+      (await registry.sessionStore.conversations.index.searchCandidates({})).find((r) => r.id === 'c1')?.name,
     ).toBe('My run')
     // A later identical discovery push must NOT flap the log: the curated meta
     // is overlaid onto scan rows, so the re-committed wire is byte-stable.
@@ -279,7 +279,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ).rejects.toThrow('conversation not found')
     expect(await conversationChangesSince(registry, cursor)).toEqual([])
     expect(
-      (await registry.sessionStore.conversations.index.search({})).find((r) => r.id === 'ghost'),
+      (await registry.sessionStore.conversations.index.searchCandidates({})).find((r) => r.id === 'ghost'),
     ).toBeUndefined()
   })
 

@@ -237,6 +237,18 @@ export class ConversationIndexRepository {
   /**
    * Complete candidates: memory filters before scoring and limiting.
    *
+   * THERE IS DELIBERATELY NO `search` HERE, and the name is the whole point.
+   * This returns every matching row with no visibility filter, which is correct
+   * for a candidate producer and catastrophic for anything that reads like an
+   * answer. `modules/memory/search.ts` is the search: it filters each candidate
+   * through `mayRead` and applies the limit AFTER the filter, so a row the caller
+   * may not read cannot consume a slot and reveal itself by absence. A sibling
+   * `search(opts)` used to sit here doing `searchCandidates(opts).slice(0, limit)`
+   * — same arguments as the governed tRPC read, same rows, limit BEFORE any
+   * filter, and no caller outside tests (PDM-284). Re-adding one hands the next
+   * caller who reaches for "the store's conversation search" the ungoverned one
+   * by name. Call `searchCandidates` and filter, or call the memory service.
+   *
    * WHOLE RAW STATEMENTS, DELIBERATELY, and this file is one of the two the
    * boundary lint names as the SearchIndex port for exactly this reason: `MATCH`
    * is not a builder construct and `conversations_fts` is a virtual table the
@@ -294,10 +306,5 @@ export class ConversationIndexRepository {
       // Record<string, unknown>; machine_id is not a schema-inferred value.
       machineId: row.machine_id ? asMachineId(row.machine_id as string) : undefined,
     }))
-  }
-
-  async search(opts: { query?: string; projectPath?: string; limit?: number }): Promise<ConversationIndexRow[]> {
-    const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
-    return (await this.searchCandidates(opts)).slice(0, limit)
   }
 }

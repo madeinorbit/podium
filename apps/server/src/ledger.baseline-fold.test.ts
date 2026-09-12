@@ -74,7 +74,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     ).rejects.toThrow('enclosing span failed')
 
     // The database forgot the row and the change append.
-    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect((await store.conversations.index.searchCandidates({})).map((r) => r.id)).not.toContain('c-rolled-back')
     expect(await ledger.cursor()).toBe(cursorBefore)
     // THE MECHANISM: so must the in-memory baseline.
     expect(await baselineIds(ledger)).not.toContain('c-rolled-back')

@@ -63,7 +63,7 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     ).rejects.toThrow('enclosing span failed')
 
     // …and the database forgot the row, so the served list must have too.
-    expect((await store.conversations.index.search({})).map((row) => row.id)).not.toContain(
+    expect((await store.conversations.index.searchCandidates({})).map((row) => row.id)).not.toContain(
       'c-rolled-back',
     )
     expect(idsOf(memory.allConversations())).not.toContain('c-rolled-back')

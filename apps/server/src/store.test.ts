@@ -854,7 +854,7 @@ describe('conversation index', () => {
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
-    const hits = await store.conversations.index.search({ query: 'keyboard' })
+    const hits = await store.conversations.index.searchCandidates({ query: 'keyboard' })
     expect(hits.map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
@@ -862,7 +862,7 @@ describe('conversation index', () => {
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.searchCandidates({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
 
@@ -873,7 +873,7 @@ describe('conversation index', () => {
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
     ])
-    const hits = await store.conversations.index.search({ projectPath: '/src/app' })
+    const hits = await store.conversations.index.searchCandidates({ projectPath: '/src/app' })
     expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
     await store.close()
   })
@@ -885,9 +885,9 @@ describe('conversation index', () => {
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
-    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.searchCandidates({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.searchCandidates({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
     await store.close()
   })
 
@@ -898,7 +898,7 @@ describe('conversation index', () => {
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect((await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
+    expect((await store.conversations.index.searchCandidates({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
       'newer',
       'older',
     ])
@@ -913,7 +913,7 @@ describe('conversation index', () => {
       summary: 'shipped; awaiting review',
     })
     await store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
-    const [hit] = await store.conversations.index.search({ query: 'epic' })
+    const [hit] = await store.conversations.index.searchCandidates({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
@@ -929,7 +929,7 @@ describe('conversation index', () => {
     // Both match before the delete.
     expect(
       (await store.conversations.index
-        .search({ query: 'keyboard' }))
+        .searchCandidates({ query: 'keyboard' }))
         .map((h) => h.id)
         .sort(),
     ).toEqual(['a', 'b'])
@@ -937,10 +937,10 @@ describe('conversation index', () => {
     await store.conversations.index.delete(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
-    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.searchCandidates({})).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.searchCandidates({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
 
@@ -948,7 +948,7 @@ describe('conversation index', () => {
     const store = await openTestStore(':memory:')
     await store.conversations.index.upsert([conv('a')])
     await store.conversations.index.delete([])
-    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
+    expect((await store.conversations.index.searchCandidates({})).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
 })

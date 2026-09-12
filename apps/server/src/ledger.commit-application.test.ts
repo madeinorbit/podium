@@ -101,7 +101,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     ).rejects.toThrow('enclosing span failed')
 
     // The database forgot the row…
-    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect((await store.conversations.index.searchCandidates({})).map((r) => r.id)).not.toContain('c-rolled-back')
     // …and the install that would have claimed it never happened.
     expect(applied).toEqual([])
   })
