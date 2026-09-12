@@ -25,7 +25,7 @@ import { resolvePrincipal } from '../../command-principal'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
+import { FLEET_CONTRACTS, type FleetContractName, isDeferredCapability } from '@podium/commands'
 import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
@@ -565,84 +565,105 @@ describe('the derived fleet router actually calls the gate', () => {
     expect(after.find((m) => m.id === 'm1')?.name).toBe('renamed')
   })
 
-  it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
+  /**
+   * THE THREE MACHINE-HANDOVER ROUTES, AND WHY THIS IS AN ABSENCE TEST NOW
+   * (A5.6/PDM-250).
+   *
+   * Three tests used to live here and they drove `machines.share`,
+   * `machines.unshare` and `machines.transferOwnership` through this same router:
+   * "persists owner-issued grants with authenticated attribution and revokes
+   * them", "transfers ownership through the SERVED procedure, executing the
+   * projection tail", and "refuses to transfer a machine the caller does not
+   * own". A3 (PDM-129) set all three contracts' exposure to `SERVED_NOWHERE`, so
+   * the derived router stopped producing a procedure and all three failed with
+   * `No procedure found on path`.
+   *
+   * THAT IS THE PRODUCT DECISION, NOT A DEFECT. The execution charter defers the
+   * multi-human execution environment and machine handover — "there is no
+   * machine-handover workflow" — and accepted D12 requires disabling the public
+   * mutations rather than only hiding menus. `machines.share` with `verb: 'use'`
+   * is a second person placing code execution on someone else's machine, which is
+   * the first item on that list.
+   *
+   * SO THE CASES ARE REPLACED, NOT DELETED. Deleting them would leave nothing here
+   * checking that the routes stay gone, and the failure mode this whole block
+   * exists to catch — "a decision function nothing calls refuses nothing" — has an
+   * exact mirror: a disabled route that quietly comes back. This asserts the
+   * absence at the same place the old tests asserted the presence, against the
+   * real dispatch table the server will serve, and pairs it with the DECLARATION
+   * so that a route reappearing fails here whether or not anyone remembers why.
+   *
+   * WHAT COVERAGE MOVED RATHER THAN VANISHED, named so it can be checked:
+   *  - the ownership PROJECTION TAIL (row write, cache invalidate, broadcast) is
+   *    still driven by a served procedure — `machines.adopt` commits through the
+   *    same path, and "ADOPTS an unowned machine through the SERVED procedure,
+   *    and the ledger holds it" below is its acceptance test.
+   *  - the owner-only TRANSFER POLICY keeps its decision-level coverage in "only
+   *    the machine OWNER may transfer ownership — not a manage grantee, not an
+   *    admin" above, which drives `fleetAuthzFailure` directly.
+   *  - machine GRANT attribution has no public mutation to be written by any
+   *    more; the gate's reading of stored edges is still covered by every test in
+   *    this file that builds one with `edge()`.
+   */
+  const DISABLED: readonly { name: FleetContractName; input: Record<string, unknown> }[] = [
+    { name: 'machines.share', input: { id: 'm1', grantee: COLLEAGUE, verb: 'use' } },
+    { name: 'machines.unshare', input: { id: 'm1', grantee: COLLEAGUE, verb: 'use' } },
+    { name: 'machines.transferOwnership', input: { id: 'm1', newOwnerUserId: COLLEAGUE } },
+  ]
+
+  /** The dispatch table `appRouter` actually serves, keyed by dotted name. */
+  const servedProcedures = () =>
+    (appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures
+
+  const DISABLED_NAMES: readonly FleetContractName[] = DISABLED.map((d) => d.name)
+
+  it.each(DISABLED_NAMES)('%s is served NOWHERE — the route is gone, not hidden', (name) => {
+    expect(Object.keys(servedProcedures())).not.toContain(name)
+  })
+
+  /** The caller as a client would reach it — a path that no longer typechecks. */
+  type LooseCaller = Record<string, Record<string, (i: unknown) => Promise<unknown>>>
+
+  it.each(DISABLED)('$name is unreachable at RUNTIME, not only absent', async (route) => {
+    // The table check above would still pass if the procedure were served under
+    // another name or reached through a hand-written route. This calls the path a
+    // client would call and requires tRPC's own dispatch to refuse it.
     const { call, store } = await caller(firstAdminMemberId())
+    const loose = call as unknown as LooseCaller
+    const [namespace, procedure] = route.name.split('.') as [string, string]
 
-    await call.machines.share({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
-    expect(await store.grants.listForResource('machine', 'm1')).toEqual([
-      expect.objectContaining({
-        grantee: COLLEAGUE,
-        verb: 'use',
-        owner: firstAdminMemberId(),
-        actorKind: 'user',
-        // The actor id is the MEMBER id now. It read `'sole'` while the first
-        // admin was `'user:sole'` and the attribution encoder split that on the
-        // colon; a `mem_` id has no colon to split, so the whole id is the actor.
-        actorId: firstAdminMemberId(),
-        onBehalfOf: firstAdminMemberId(),
-      }),
-    ])
+    await expect(
+      Promise.resolve().then(() => loose[namespace]?.[procedure]?.(route.input)),
+    ).rejects.toThrow(/No procedure found/)
 
-    await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
+    // AND NOTHING HAPPENED ANYWAY. A route that refuses on the wire while some
+    // other path still performs the write would satisfy the assertion above and
+    // defeat the decision, so the two facts the commands would have changed are
+    // read back: no grant edge, and the machine still belongs to its owner.
     expect(await store.grants.listForResource('machine', 'm1')).toEqual([])
+    expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(firstAdminMemberId())
   })
 
-  it('transfers ownership through the SERVED procedure, executing the projection tail', async () => {
-    // THE ACCEPTANCE TEST FOR POD-1480. Until this command existed, the tail of
-    // `transferOwnership` — row write, cache invalidate, broadcast — had no
-    // caller that reached it: the one caller anywhere passed `skipRowUpdate`.
-    // This drives the real derived tRPC procedure, so it also proves the
-    // contract/registry/target wiring produced a procedure at all.
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
-    try {
-      const { call, store } = await caller(firstAdminMemberId(), { stateDir: dir })
-      await store.users.create(
-        {
-          id: COLLEAGUE,
-          displayName: 'Colleague',
-          role: 'member',
-          createdAt: '2026-07-30T00:00:00.000Z',
-          disabledAt: null,
-        },
-        'hash',
-      )
+  it('the absence is DECLARED, and the router still serves the rest of the fleet', async () => {
+    // THE TWO ARMS THAT STOP THIS BLOCK BEING VACUOUS.
+    //
+    // First: "served nowhere" must be a decision someone recorded, not a gap. Each
+    // of the three is named in `DEFERRED_CAPABILITIES` with the charter clause
+    // that defers it, so re-exposing one means deleting a line from that list —
+    // which is the reviewer conversation the declaration exists to force.
+    for (const { name } of DISABLED) expect(isDeferredCapability(name)).toBe(true)
+    // `issues.share` is the task-sharing model the charter KEEPS. Asserting it
+    // here is what distinguishes "these three are deferred" from "the predicate
+    // says yes to everything", which would make the loop above prove nothing.
+    expect(isDeferredCapability('issues.share')).toBe(false)
 
-      const after = await call.machines.transferOwnership({
-        id: 'm1',
-        newOwnerUserId: COLLEAGUE,
-      })
-
-      // The row moved — the projection half of D19.4d, which no caller had ever
-      // reached before this command existed.
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
-      // And the caller, who was the owner a moment ago, can no longer manage it.
-      // Read through the SAME listing the procedure returned, so a stale record
-      // cache would show up as the machine still being there to rename.
-      expect(after.map((m) => m.id)).toContain('m1')
-      await expect(call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })).rejects.toThrow(
-        /do not have access|unknown machine/,
-      )
-      expect((await store.machines.getMachine('m1'))?.name).toBe('machine-one')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('refuses to transfer a machine the caller does not own', async () => {
-    // SECOND PRINCIPAL, produced the only way this environment can: an unowned
-    // row, which belongs to nobody and therefore not to the caller either. The
-    // positive arm above is what stops this passing against a dead procedure.
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
-    try {
-      const { call, store } = await caller(null, { stateDir: dir })
-      await expect(
-        call.machines.transferOwnership({ id: 'm1', newOwnerUserId: COLLEAGUE }),
-      ).rejects.toThrow(/do not have access/)
-      // Refused BEFORE the handler: no row write, so nothing to unwind.
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+    // Second: the router this block drives is alive. Every assertion above is a
+    // refusal, and a dead router refuses everything — so the same caller, on the
+    // same fixture, still executes a machine mutation that IS served.
+    const { call } = await caller(firstAdminMemberId())
+    expect(Object.keys(servedProcedures())).toContain('machines.rename')
+    const after = await call.machines.rename({ id: 'm1', name: 'still-served' })
+    expect(after.find((m) => m.id === 'm1')?.name).toBe('still-served')
   })
 
   it('ADOPTS an unowned machine through the SERVED procedure, and the ledger holds it', async () => {

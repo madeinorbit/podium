@@ -96,15 +96,19 @@ async function revocableStack() {
  * This distinction decides whether this whole file proves anything, and it caught
  * me: every revocation test below FIRST passed with `OPERATOR` because
  * `OPERATOR` is `{ role: 'admin', scope: { kind: 'all' } }`, and `authorize()`
- * returns `allow` for a scope of `all` BEFORE it ever reads the target's owner. A
- * revocation test built on it is vacuous — it would pass against an
+ * used to return `allow` for a scope of `all` BEFORE it ever read the target's
+ * owner. A revocation test built on it was vacuous — it would pass against an
  * implementation with no ownership check at all. POD-380's own presence tests
  * carry the same warning in as many words.
  *
- * So the principal here is the one POD-1075 will actually mint: a `worker` whose
- * scope is `owned` by a specific user. `renameOperatorShortCircuit` below pins
- * what today's real tRPC principal does, so the gap is RECORDED rather than
- * hidden by this substitution.
+ * THAT SHORT CIRCUIT IS GONE FOR PERSONAL TARGETS (A3/PDM-129, A5.1/PDM-245), and
+ * the sentence above is kept in the past tense rather than deleted because it is
+ * the reason this constant exists. The rule it produced is unchanged: the
+ * principal here is the one POD-1075 will actually mint, a `worker` whose scope is
+ * `owned` by a specific user, so that the ownership question is asked of a
+ * capability that is ABOUT ownership. The last block in this file now pins what
+ * today's real tRPC principal does against a session it does not own — a refusal,
+ * where it used to be the recorded gap.
  */
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
@@ -378,36 +382,45 @@ describe('the offline transport is served because the CONTRACT says so', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * TODAY'S REAL tRPC HUMAN IS `OPERATOR`, AND `OPERATOR` IS NOT OWNER-GATED.
+ * THE TRANSITIONAL GAP IS CLOSED, AND THIS IS THE TEST THAT SAID IT WOULD BE.
  *
- * The tests above use a `worker`/`owned` capability — the principal POD-1075 will
- * mint. The principal the product mints TODAY is `OPERATOR`
- * (`{ role: 'admin', scope: { kind: 'all' } }`), and `authorize()` answers `allow`
- * for scope `all` before it reads the target's owner at all.
+ * This block used to be titled "today's operator principal short-circuits the
+ * owner gate" and pinned the opposite outcome: OPERATOR renaming a session owned
+ * by somebody else, applied, with the note that "when POD-1075 replaces OPERATOR
+ * with a scoped per-user principal this flips to 'denied' and this test is the one
+ * that says so". It flipped earlier than that and for a better reason — not
+ * because the principal changed, but because the POLICY did.
  *
- * So the owner/grant gate on this command is REAL and PROVEN for an agent (whose
- * human ceiling is checked separately and unconditionally) and for any scoped
- * human, and is SHORT-CIRCUITED for today's unconstrained operator. That is
- * correct-as-designed — one shared password means one unconstrained human, and
- * §3.2 says so — but it must not be reported as "owner-gated" without the
- * qualifier, which is why it is a test and not a footnote.
+ * A3 (PDM-129) removed the admin-to-private-resource bypass from `authorize()`'s
+ * `all` arm, and A5.1 (PDM-245) removed the grant clause that survived it: a
+ * personal target — an owned entity or a per-user row — is now decided by
+ * OWNERSHIP against `cap.onBehalfOf` whatever the scope says, because ADR 9
+ * Amendment 1 D7 is that an admin may not view or drive another member's session.
+ * So the gap this block existed to RECORD no longer exists, and what the block
+ * records now is that it stays closed.
  *
- * This is exactly the state ADR 3 Amendment 1's rejected-alternatives table warns
- * about: with OPERATOR as the tRPC principal, "every ownership check would be dead
- * code on the one transport humans actually use". It is NOT dead code here — the
- * agent path exercises it on every call — but it is unexercised for the human, and
- * that distinction belongs in the record.
+ * The qualifier that used to be necessary is therefore retired: the owner gate on
+ * this command is real and proven for an agent, for any scoped human, AND for
+ * today's unconstrained operator. ADR 3 Amendment 1's rejected-alternatives table
+ * warned that with OPERATOR as the tRPC principal "every ownership check would be
+ * dead code on the one transport humans actually use". On this command it is not
+ * dead code on any transport any more.
+ *
+ * WHAT KEEPS THIS FROM BECOMING AN ENVELOPE-REFUSES-EVERYTHING TEST: the second
+ * case. The same operator, the same command, the same envelope, renaming the
+ * session it DOES own — applied. A refusal that cannot be made into an allow by
+ * changing only the owner would be evidence about the fixture, not the policy.
  */
-describe('today’s operator principal short-circuits the owner gate (transitional, §3.2)', () => {
-  it('OPERATOR renames a session it does not own, because scope `all` allows it', async () => {
+describe('the operator short-circuit over a foreign session is CLOSED (A3/A5.1)', () => {
+  const operator: CommandPrincipal = {
+    kind: 'user',
+    user: firstAdminMemberId(),
+    capability: OPERATOR,
+  }
+
+  it('OPERATOR is REFUSED a session it does not own — `all` no longer answers for a personal target', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
-
-    const operator: CommandPrincipal = {
-      kind: 'user',
-      user: firstAdminMemberId(),
-      capability: OPERATOR,
-    }
 
     const dispatch = await renameOnTargetPath(
       s.deps,
@@ -416,9 +429,25 @@ describe('today’s operator principal short-circuits the owner gate (transition
       'outbox',
     )
 
-    // Pinned as the CURRENT behaviour, not endorsed as the target one. When
-    // POD-1075 replaces OPERATOR with a scoped per-user principal this flips to
-    // 'denied' and this test is the one that says so.
+    expect(dispatch.outcome).toBe('denied')
+    // And nothing was written on the way to the refusal: denial is decided before
+    // the handler, so the foreign session keeps the name it had.
+    expect(await s.nameNow()).toBeUndefined()
+  })
+
+  it('and the SAME operator renames the session it DOES own', async () => {
+    // THE ALLOW ARM, and the only thing that makes the refusal above a statement
+    // about ownership. One fact differs between the two cases: who owns the row.
+    const s = await revocableStack()
+    s.ownership.owner = firstAdminMemberId()
+
+    const dispatch = await renameOnTargetPath(
+      s.deps,
+      { sessionId: s.sessionId, name: 'operator wrote this', mutationId: 'op-1b' },
+      operator,
+      'outbox',
+    )
+
     expect(dispatch.outcome).toBe('applied')
     expect(await s.nameNow()).toBe('operator wrote this')
   })
