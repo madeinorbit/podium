@@ -59,7 +59,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [activation, bearer, config.httpOrigin, demo, profile.mode, profile.userId, profile.workspaceId])
+  }, [
+    activation,
+    bearer,
+    config.httpOrigin,
+    demo,
+    profile.mode,
+    profile.userId,
+    profile.workspaceId,
+  ])
 
   // The persistent LaunchBoundary above this gate owns the visible splash.
   // Returning null keeps it mounted instead of starting the reveal over here.

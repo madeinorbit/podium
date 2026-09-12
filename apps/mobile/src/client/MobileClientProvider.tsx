@@ -793,9 +793,27 @@ function LiveProvider({ children }: { children: ReactNode }) {
     void checkLiveAuth(config.httpOrigin, bearer, config.workspaceId).then((result) => {
       if (result.kind === 'expired') expireLiveCredential()
     })
-  }, [activation, bearer, config.httpOrigin, config.workspaceId, config.workspaceSlug, expireLiveCredential, revalidateOfflineProfile])
+  }, [
+    activation,
+    bearer,
+    config.httpOrigin,
+    config.workspaceId,
+    config.workspaceSlug,
+    expireLiveCredential,
+    revalidateOfflineProfile,
+  ])
   const trpc = useMemo(
-    () => makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential, config.workspaceId ? { workspaceId: config.workspaceId } : config.workspaceSlug ? { workspaceSlug: config.workspaceSlug } : undefined),
+    () =>
+      makeMobileTrpc(
+        config.httpOrigin,
+        bearer,
+        expireLiveCredential,
+        config.workspaceId
+          ? { workspaceId: config.workspaceId }
+          : config.workspaceSlug
+            ? { workspaceSlug: config.workspaceSlug }
+            : undefined,
+      ),
     [bearer, config.httpOrigin, config.workspaceId, config.workspaceSlug, expireLiveCredential],
   )
   const inheritedAuthStatus = useAuthStatus()
@@ -961,7 +979,16 @@ function LiveProvider({ children }: { children: ReactNode }) {
         window.removeEventListener('pagehide', onPageHide)
       }
     }
-  }, [bearer, config.httpOrigin, config.workspaceId, profileId, trpc, inheritedAuthStatus, bootAttempt, retryBoot])
+  }, [
+    bearer,
+    config.httpOrigin,
+    config.workspaceId,
+    profileId,
+    trpc,
+    inheritedAuthStatus,
+    bootAttempt,
+    retryBoot,
+  ])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
   // `info` stays a no-op: the engine's only info is a transient "a session moved
   // to X" toast, and `notice` below is a STICKY banner for the storage facts the

@@ -253,7 +253,9 @@ export function parseMobilePairingUrl(
     // podium://pair/… arrives as podium:///pair/… (empty hostname). Restore
     // the canonical shape before validating, so both spellings parse alike.
     if (parsed.hostname === '' && /^\/pair([/?#]|$)/.test(parsed.pathname + parsed.search)) {
-      parsed = new URL(`podium://${parsed.pathname.replace(/^\/+/, '')}${parsed.search}${parsed.hash}`)
+      parsed = new URL(
+        `podium://${parsed.pathname.replace(/^\/+/, '')}${parsed.search}${parsed.hash}`,
+      )
     }
     if (parsed.username || parsed.password || parsed.hostname !== 'pair') {
       throw new Error('invalid mobile pairing URL')
@@ -310,10 +312,7 @@ const UNSAFE_SINGLE_LINE =
 const safeDeviceId = z
   .string()
   .max(256)
-  .refine(
-    (value) => !UNSAFE_SINGLE_LINE.test(value),
-    'deviceId must be printable single-line text',
-  )
+  .refine((value) => !UNSAFE_SINGLE_LINE.test(value), 'deviceId must be printable single-line text')
   .transform((value) => value.trim())
   .refine((value) => value.length > 0, 'deviceId must not be blank')
 const safeDeviceName = z

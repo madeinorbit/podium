@@ -196,4 +196,26 @@ describe('native server profiles', () => {
     )
     expect(stored.get(PENDING_PROFILE_CLEANUPS_KEY)).toBe('{not-json')
   })
+  it('does not reuse a shared-origin profile across immutable workspaces', () => {
+    const now = '2026-08-13T12:00:00.000Z'
+    const blue = {
+      id: 'blue',
+      name: 'Blue',
+      httpOrigin: 'https://cloud.example',
+      instanceId: 'cloud',
+      workspaceId: 'ws_blue',
+      userId: 'user:admin',
+      mode: 'protected' as const,
+      transport: 'trusted-https' as const,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const green = { ...blue, id: 'green', name: 'Green', workspaceId: 'ws_green' }
+    expect(reusableProfileAtOrigin([blue, green], blue.httpOrigin, blue.userId, 'ws_blue')).toBe(
+      blue,
+    )
+    expect(
+      reusableProfileAtOrigin([blue], blue.httpOrigin, blue.userId, 'ws_green'),
+    ).toBeUndefined()
+  })
 })

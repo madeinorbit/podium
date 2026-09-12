@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseServerOrigin, resolveServerConfig } from './transport'
+import {
+  parseServerOrigin,
+  resolveServerConfig,
+  workspaceRequestInit,
+  workspaceSocketUrl,
+} from './transport'
 
 describe('shared transport endpoint parsing', () => {
   it('accepts ws and http origins and normalizes to ws/http endpoint pairs', () => {
@@ -39,5 +44,30 @@ describe('shared transport endpoint parsing', () => {
       wsClientUrl: expect.stringContaining('ws://127.0.0.1:18787/client?v='),
       override: true,
     })
+  })
+  it('routes the selected workspace on HTTP and WebSocket transports without dropping queries', () => {
+    const config = resolveServerConfig({
+      protocol: 'https:',
+      host: 'podium.test',
+      origin: 'https://podium.test',
+      pathname: '/mobile',
+      search: '?workspace=ws_blue',
+    })
+    expect(config).toMatchObject({ workspaceId: 'ws_blue' })
+    expect(new URL(config.wsClientUrl).searchParams.get('workspace')).toBe('ws_blue')
+    const request = workspaceRequestInit(
+      'https://podium.test/trpc?input=%7B%7D',
+      { headers: { 'x-test': 'keep' } },
+      { workspaceId: 'ws_blue' },
+    )
+    const headers = new Headers(request?.headers)
+    expect(headers.get('podium-workspace-id')).toBe('ws_blue')
+    expect(headers.get('x-test')).toBe('keep')
+    expect(
+      workspaceSocketUrl('wss://podium.test/client?v=2&input=feed', { workspaceId: 'ws_blue' }),
+    ).toContain('workspace=ws_blue')
+    expect(
+      workspaceSocketUrl('wss://podium.test/client?v=2&input=feed', { workspaceId: 'ws_blue' }),
+    ).toContain('input=feed')
   })
 })

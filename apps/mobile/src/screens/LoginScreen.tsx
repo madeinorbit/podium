@@ -141,7 +141,11 @@ export function LoginScreen({
       <View style={styles.root}>
         <AsciiWordmark color={C.text} fontSize={3.9} />
         <Text style={styles.host}>Sign in to Podium Cloud</Text>
-        <HostedSignInButton server={httpOrigin} signInUrl={cloudSignInUrl} workspaceId={profile.workspaceId} />
+        <HostedSignInButton
+          server={httpOrigin}
+          signInUrl={cloudSignInUrl}
+          workspaceId={profile.workspaceId}
+        />
       </View>
     )
   }

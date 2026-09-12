@@ -1,4 +1,9 @@
-import { parseServerOrigin, workspaceSelectorFromLocation, type ServerConfig, type WorkspaceSelector } from '@podium/client-core/transport'
+import {
+  parseServerOrigin,
+  workspaceSelectorFromLocation,
+  type ServerConfig,
+  type WorkspaceSelector,
+} from '@podium/client-core/transport'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
 import {
@@ -92,7 +97,7 @@ export { useOptionalServerProfile, useServerProfile } from './server-profile-con
 
 function configFor(origin: string, override: boolean, selector?: WorkspaceSelector): ServerConfig {
   const parsed = parseServerOrigin(origin, selector)
-  if (!parsed) throw new Error("invalid server profile origin")
+  if (!parsed) throw new Error('invalid server profile origin')
   return { ...parsed, override }
 }
 
@@ -472,7 +477,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             updatedAt: now,
           }
           setProfileState({ activeProfileId: profile.id, profiles: [profile] })
-          setEphemeralConfig(configFor(override, true, result.ok && result.workspaceId ? { workspaceId: result.workspaceId } : undefined))
+          setEphemeralConfig(
+            configFor(
+              override,
+              true,
+              result.ok && result.workspaceId ? { workspaceId: result.workspaceId } : undefined,
+            ),
+          )
           setCredentialReleased(result.ok)
           setActivationFailure(result.ok ? null : { title: result.title, detail: result.detail })
           setReady(true)
@@ -618,7 +629,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     profileState.profiles.find((row) => row.id === profileState.activeProfileId) ?? null
   const profileOrigin = profile?.httpOrigin
   const config = useMemo(
-    () => ephemeralConfig ?? (profileOrigin ? configFor(profileOrigin, false, profile?.workspaceId ? { workspaceId: profile.workspaceId } : undefined) : null),
+    () =>
+      ephemeralConfig ??
+      (profileOrigin
+        ? configFor(
+            profileOrigin,
+            false,
+            profile?.workspaceId ? { workspaceId: profile.workspaceId } : undefined,
+          )
+        : null),
     [ephemeralConfig, profileOrigin, profile?.workspaceId],
   )
   const runtimeConfig = Platform.OS === 'web' || credentialReleased ? config : null
@@ -657,7 +676,12 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       // Never reuse a profile/replica/credential boundary because a new origin
       // reports the same public instanceId. Address migration needs a separate,
       // authenticated rekey flow; ordinary setup creates a fresh profile.
-      const existing = reusableProfileAtOrigin(profileState.profiles, result.httpOrigin, userId, result.workspaceId)
+      const existing = reusableProfileAtOrigin(
+        profileState.profiles,
+        result.httpOrigin,
+        userId,
+        result.workspaceId,
+      )
       const nextProfile: ServerProfile = existing
         ? {
             ...existing,
@@ -712,7 +736,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
                   ...durableExisting,
                   httpOrigin: result.httpOrigin,
                   instanceId: result.instanceId,
-            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
+                  ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
                   mode: result.mode,
                   transport: result.transport,
                   ...(userId ? { userId } : {}),
@@ -968,7 +992,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               ...durableSelected,
               httpOrigin: result.httpOrigin,
               instanceId: result.instanceId,
-            ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
+              ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
               mode: result.mode,
               transport: result.transport,
               updatedAt: new Date().toISOString(),

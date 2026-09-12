@@ -27,7 +27,10 @@ export function parseServer(search: string, selected?: WorkspaceSelector): Serve
   return server ? parseServerOrigin(server, selected) : null
 }
 
-export function parseServerOrigin(server: string, selected?: WorkspaceSelector): ServerOrigin | null {
+export function parseServerOrigin(
+  server: string,
+  selected?: WorkspaceSelector,
+): ServerOrigin | null {
   let url: URL
   try {
     url = new URL(server)
@@ -120,10 +123,12 @@ export function workspaceRequestInit(
   init?: RequestInit,
   selector?: WorkspaceSelector,
 ): RequestInit | undefined {
-  const target = selector ?? (() => {
-    const location = (globalThis as { location?: LocationLike }).location
-    return location ? workspaceSelectorFromLocation(location) : {}
-  })()
+  const target =
+    selector ??
+    (() => {
+      const location = (globalThis as { location?: LocationLike }).location
+      return location ? workspaceSelectorFromLocation(location) : {}
+    })()
   const value = selectorValue(target)
   if (!value) return init
   const headers = new Headers(

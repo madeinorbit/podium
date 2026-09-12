@@ -1462,11 +1462,11 @@ export async function startServer(
   // Never run this for socket heartbeats or platform auth routes (which own cookies).
   for (const path of ['/trpc/*', '/auth/status']) {
     app.use(path, async (c, next) => {
-      const headers = c.req.method === 'OPTIONS'
-        ? undefined
-        : await auth.sessionResponseHeaders?.(c.req.raw)
+      const headers =
+        c.req.method === 'OPTIONS' ? undefined : await auth.sessionResponseHeaders?.(c.req.raw)
       await next()
-      for (const cookie of headers?.getSetCookie() ?? []) c.header('set-cookie', cookie, { append: true })
+      for (const cookie of headers?.getSetCookie() ?? [])
+        c.header('set-cookie', cookie, { append: true })
       if (headers?.has('set-cookie')) c.header('cache-control', 'no-store')
     })
   }

@@ -29,8 +29,8 @@ export interface ServerProfile {
 export function serverProfileRequestKey(
   profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId' | 'workspaceId'>,
 ): string {
-  const key = [profile.id, profile.userId ?? "", profile.instanceId ?? ""].join("\n")
-  return profile.workspaceId ? key + "\n" + profile.workspaceId : key
+  const key = [profile.id, profile.userId ?? '', profile.instanceId ?? ''].join('\n')
+  return profile.workspaceId ? key + '\n' + profile.workspaceId : key
 }
 
 export interface ServerProfileState {
@@ -142,11 +142,11 @@ function isProfile(value: unknown): value is ServerProfile {
     transportMatches &&
     credentialPolicyMatches &&
     (row.instanceId === undefined ||
-      (typeof row.instanceId === "string" &&
+      (typeof row.instanceId === 'string' &&
         row.instanceId.length > 0 &&
         row.instanceId.length <= 256)) &&
     (row.workspaceId === undefined ||
-      (typeof row.workspaceId === "string" &&
+      (typeof row.workspaceId === 'string' &&
         row.workspaceId.length > 0 &&
         row.workspaceId.length <= 256)) &&
     (row.userId === undefined ||

@@ -193,10 +193,7 @@ describe('server preflight', () => {
       (fetchMock.mock.calls as unknown as Array<Parameters<typeof fetch>>).map(
         (call: Parameters<typeof fetch>) => (call[1] as RequestInit).credentials,
       ),
-    ).toEqual([
-      'omit',
-      'omit',
-    ])
+    ).toEqual(['omit', 'omit'])
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ cache: 'no-store', credentials: 'omit' }),
     )
@@ -274,10 +271,7 @@ describe('server preflight', () => {
       (fetchMock.mock.calls as unknown as Array<Parameters<typeof fetch>>).map(
         (call: Parameters<typeof fetch>) => (call[1] as RequestInit).credentials,
       ),
-    ).toEqual([
-      'omit',
-      'omit',
-    ])
+    ).toEqual(['omit', 'omit'])
     expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ cache: 'no-store', credentials: 'omit' }),
     )
@@ -327,5 +321,37 @@ describe('claim hashing interop', () => {
     expect(body.delivery).toBeUndefined()
     expect(request.credentials).toBe('omit')
     expect(claim.claimSecret).toBe('AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8')
+  })
+})
+describe('workspace preflight routing', () => {
+  it('sends the selected workspace to version and auth status before admission', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            wireVersion: 2,
+            minSupportedVersion: 1,
+            instanceId: 'cloud',
+            workspaceId: 'ws_blue',
+            appVersion: 'dev',
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ needsAuth: false, authed: true, userId: 'user:admin' }), {
+          status: 200,
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(preflightServer('https://cloud.example', 'ws_blue')).resolves.toMatchObject({
+      ok: true,
+      workspaceId: 'ws_blue',
+    })
+    const first = new Headers(fetchMock.mock.calls[0]?.[1]?.headers as HeadersInit)
+    const second = new Headers(fetchMock.mock.calls[1]?.[1]?.headers as HeadersInit)
+    expect(first.get('Podium-Workspace-Id')).toBe('ws_blue')
+    expect(second.get('Podium-Workspace-Id')).toBe('ws_blue')
   })
 })

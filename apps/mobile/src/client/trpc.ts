@@ -326,9 +326,9 @@ export function bearerHeaders(
   selector?: WorkspaceSelector,
 ): Headers {
   const result = new Headers(headers)
-  if (bearer) result.set("Authorization", `Bearer ${bearer}`)
+  if (bearer) result.set('Authorization', `Bearer ${bearer}`)
   const scoped = workspaceRequestInit(
-    new URL("https://podium.invalid"),
+    new URL('https://podium.invalid'),
     { headers: result },
     selector ?? configuredWorkspaceSelector(),
   )
@@ -344,7 +344,7 @@ export async function fetchMobileTransport(
 ): Promise<Response> {
   const response = await fetch(input, {
     ...init,
-    credentials: Platform.OS === "web" ? "include" : "omit",
+    credentials: Platform.OS === 'web' ? 'include' : 'omit',
     headers: bearerHeaders(bearer, init?.headers, selector),
   })
   if (bearer && response.status === 401) {
@@ -362,9 +362,8 @@ export function makeMobileTrpc(
   return createTRPCClient<any>({
     links: [
       httpBatchLink({
-        url: httpOrigin + "/trpc",
-        fetch: (url, opts) =>
-          fetchMobileTransport(url, opts, bearer, onAuthExpired, selector),
+        url: httpOrigin + '/trpc',
+        fetch: (url, opts) => fetchMobileTransport(url, opts, bearer, onAuthExpired, selector),
       }),
     ],
   }) as unknown as MobileTrpc

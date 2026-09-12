@@ -76,9 +76,18 @@ describe('hosted phone sign-in', () => {
   })
   it('restores an attempt after restart and redeems a bearer once, consuming before I/O', async () => {
     const r = rig()
-    await r.client.begin()
+    await r.client.begin(
+      'https://api.podium.do',
+      'https://ade.podium.do/account/sign-in',
+      'ws_blue',
+    )
+    expect(JSON.parse(r.stored() ?? 'null').workspaceId).toBe('ws_blue')
+    expect(r.fetcher.mock.calls[0]?.[1]).toMatchObject({
+      headers: { 'Podium-Workspace-Id': 'ws_blue' },
+    })
     const restarted = createHostedSignIn(r.deps)
     r.fetcher.mockImplementationOnce(async (_url, options) => {
+      expect(new Headers(options?.headers).get('Podium-Workspace-Id')).toBe('ws_blue')
       expect(r.stored()).toBeNull()
       expect(JSON.parse(String(options?.body))).toEqual({ code, transport: 'bearer', verifier })
       return Response.json({
@@ -89,6 +98,7 @@ describe('hosted phone sign-in', () => {
     expect(await restarted.redeem(parseHostedReturn(callback))).toEqual({
       server: 'https://api.podium.do',
       token: 'phone-token',
+      workspaceId: 'ws_blue',
     })
     await expect(restarted.redeem(link)).rejects.toThrow('ended')
     expect(r.fetcher).toHaveBeenCalledTimes(2)
