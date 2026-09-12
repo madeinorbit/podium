@@ -447,7 +447,12 @@ export function makeAgentRelayDispatch(
             }
           }
           const reader = capability.actorSessionId ?? 'operator'
-          if (proc === 'status') return await readToolkit.status(ref, reader)
+          // The RESOLVED id, not the raw ref [POD-3899]. This arm has already
+          // resolved `ref` to gate it; handing the ref back to the toolkit
+          // resolved it a SECOND time, and an issue ref resolves to whichever
+          // member is live, so the arm could gate one session and describe
+          // another. `recap` and `read` below already pass target.sessionId.
+          if (proc === 'status') return await readToolkit.statusOf(target.sessionId, reader)
           // Tier 3 — server-side recap since a watermark (#237)
           // [spec:SP-34d7 read-toolkit]: delta-priced repeated check-ins.
           if (proc === 'recap') {

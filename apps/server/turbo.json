@@ -1057,6 +1057,7 @@
         "src/modules/issues/publish.ts",
         "src/modules/issues/registry.test.ts",
         "src/modules/issues/registry.ts",
+        "src/modules/issues/relay-dispatch.status-target.test.ts",
         "src/modules/issues/relay-dispatch.ts",
         "src/modules/issues/relay-gate.ts",
         "src/modules/issues/service/assistant.ts",
