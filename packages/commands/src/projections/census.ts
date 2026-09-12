@@ -49,13 +49,43 @@
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. For 54 of the 76 there is a rule in the
- * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 22
+ * A census reports what it found. For 62 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 14
  * there is NO server-side reader scoping — the handler returns what the service
  * returns — and inventing a plausible policy for those would put a FALSE entry
  * in the audit surface, which `modules/approvals/queries.ts` correctly
  * identifies as worse than a missing one: a false entry stops anyone looking
  * again.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SPLIT WAS 54/22 UNTIL THE FINDINGS THEMSELVES WERE RE-READ (B/PDM-253)
+ * ---------------------------------------------------------------------------
+ *
+ * A5.4 rebuilt the MECHANISM — which reads exist, and that the two lists are
+ * total against the router. It did not re-verify the CONTENT of the 22 findings
+ * it carried forward, and eight of them did not survive being read against the
+ * shipped handlers:
+ *
+ *   · the seven `workflows.*` reads, recorded as "ownership ... not consulted
+ *     by the read", every one of which ends at `WorkflowAccess` and a real
+ *     owner-or-grant decision over durable rows, on BOTH its transports;
+ *   · `machines.list`, whose own finding conceded "the rule is right", and
+ *     which was on the gap list for the different complaint that its policy had
+ *     nowhere to be written down. It is written down here now.
+ *
+ * They are governed entries below, each citing the decision site. THE PART
+ * WORTH KNOWING BEFORE TRUSTING THEM: nothing in `projection-census.test.ts`
+ * can check that a rationale is TRUE. It checks that the lists are total
+ * against the router, that no read is in both, and that each policy is well
+ * formed. A row moved from findings to governed is a claim backed by the code
+ * it cites and by the tests those handlers already have — not by this file's
+ * own green.
+ *
+ * WHAT THE MOVE LEFT BEHIND IS THE RESULT THAT MATTERS. Every remaining phase-B
+ * row is a `discloses-private-execution` row. The phase's read gap is no longer
+ * a mixed list of fourteen where the urgent ones could wait behind the tidy
+ * ones; it is six disclosures, and `docs/gates/pdm-253-phase-b-read-rows.md`
+ * gives each one an owner.
  *
  * So they go in {@link UNGOVERNED_PROJECTIONS}, each naming the phase that owns
  * closing it. That list is REQUIRED TO BE NON-EMPTY by the census test until it
@@ -84,12 +114,24 @@ import type { ProjectionPolicy } from '../projection'
 
 /** Every read in this census is served on `trpc`; the relay/CLI/MCP arms reach
  *  reads through the issue command registry, which is on the COMMAND side of the
- *  contract and already classified. Named once rather than repeated 53 times.
+ *  contract and already classified. Named once rather than repeated 54 times.
  *
  *  Those registry reads are ALSO served on trpc — `issues.get` and the other 31
  *  are live tRPC queries — which is why the census test excludes them by looking
- *  them up in the real registries rather than by trusting this sentence. */
+ *  them up in the real registries rather than by trusting this sentence.
+ *
+ *  NOT every read here is trpc-ONLY: the seven workflow reads also serve the
+ *  relay arm and say so with {@link TRPC_RELAY}. */
 const TRPC: readonly TransportTag[] = ['trpc']
+
+/** THE ONE FAMILY SERVED ON MORE THAN `trpc`. The seven workflow reads declare
+ *  `['trpc', 'relay']` in `WORKFLOW_QUERIES`, and `dispatchWorkflowRpc` serves
+ *  the relay arm through the SAME `WorkflowAccess` decision the tRPC arm takes.
+ *  Written out rather than folded into {@link TRPC} because a policy that
+ *  understated its own exposure would be exactly the false entry this file
+ *  refuses — and because the second arm is where a reader should check that the
+ *  two transports have not drifted into two answers. */
+const TRPC_RELAY: readonly TransportTag[] = ['trpc', 'relay']
 
 /** Nothing in the census is served nowhere today. Imported so that a projection
  *  that becomes unserved is written with the named constant rather than `[]` —
@@ -687,6 +729,127 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     rationale:
       'A filter over the `specs.list` population; searching shared repository material discloses nothing that listing it does not.',
   }),
+
+  // ---- workflows: seven rows A3 listed as ungoverned that are not ----------
+  //
+  // A3.2 recorded all seven as having "no reader scoping", with
+  // `workflows/ownership.ts` "declared ... but not consulted by the read".
+  // Re-read at the repaired census (A5.4/PDM-248, verified by PDM-253), that is
+  // FALSE — and a false entry in this surface is the failure this file's header
+  // calls worse than a missing one, because it stops anyone looking again.
+  //
+  // Every one of the seven ends at `WorkflowAccess`
+  // (apps/server/src/modules/workflows/handlers/context.ts:247), whose
+  // `workflowDecision` (packages/commands/src/workflows/ownership.ts:172) is:
+  // no live human denies FIRST, then owner wins, then an explicit grant, then
+  // an admin floor, then denied. Both served transports carry a REAL principal
+  // — `workflowCaller` (modules/workflows/trpc.ts:68) throws `UNAUTHORIZED`
+  // without one, and the relay arm builds its caller through
+  // `principalForCapability` (relay.ts:638). The shipped composition does NOT
+  // use the single-user ownership constant: `resolveOwnership` (relay.ts:2146)
+  // reads `store.workflows.ownerOf` and `store.grants.listForResource` once per
+  // pass, treating absence as denial.
+  //
+  // The refusals are observed rather than argued: `multi-user.test.ts` in the
+  // same module asserts "refuses one member READING another member's workflow,
+  // and honours an explicit grant" and "does not list another member's RUNS,
+  // BINDINGS or PROFILES", each with the counterfactual that the owner is
+  // allowed through the same call.
+  //
+  // `resource` is `'none'` for all seven: `CommandResource` has no workflow
+  // member, and `automations.runs` above already answers `'none'` for the same
+  // reason on the same kind of row. Widening a shared vocabulary from inside a
+  // census entry is not this file's decision to take.
+  p({
+    name: 'workflows.list',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      '`WorkflowService.list` resolves ownership once for the page and keeps only rows `canReadWorkflow` allows, so a workflow the caller neither owns nor was granted is absent rather than filtered late.',
+  }),
+  p({
+    name: 'workflows.get',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      '`assertWorkflowRead` takes the decision at ONE site with ONE message for both "no such workflow" and "not yours" (ADR 3 Am.1 D20.2), so a refusal does not confirm the row exists.',
+  }),
+  p({
+    name: 'workflows.bindings',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: ['issue'],
+    forbiddenFields: [],
+    rationale:
+      'Returned every binding in the instance until POD-732; `visibleBindings` now asks the same decision the workflow mutations ask, against the same per-pass ownership view.',
+  }),
+  p({
+    name: 'workflows.profiles',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: ['machine', 'secret'],
+    forbiddenFields: [],
+    rationale:
+      'Had no gate at all and listed every profile — including its `accountId`, which NAMES A MANAGED CREDENTIAL — to any caller; `visibleProfiles` now scopes it. The indirect resources are recorded because a profile carries machine placement and an account reference, neither of which the direct row name would have made a reviewer ask about.',
+  }),
+  p({
+    name: 'workflows.runs',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: ['session'],
+    forbiddenFields: [],
+    rationale:
+      'Both arms end at `canSeeRun` — the same decision `runFor` takes — so a run the caller cannot open is a run it cannot list, rather than two rules free to disagree. A session caller sees only its own live run.',
+  }),
+  p({
+    name: 'workflows.prime',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: ['session'],
+    forbiddenFields: [],
+    rationale:
+      'Scoped by CONSTRUCTION rather than by a predicate: it renders the live run of `caller.actor.id` and has no input naming another run, so there is no id with which to ask for someone else’s. An operator context with no actor gets a message, not a row.',
+  }),
+  p({
+    name: 'workflows.status',
+    exposure: TRPC_RELAY,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'none',
+    indirectResources: ['session'],
+    forbiddenFields: [],
+    rationale:
+      '`runFor` refuses an unknown run id and a run the principal may not see with the SAME throw and the same message, so the live-state read cannot be used to confirm another member’s run exists.',
+  }),
+
+  // ---- machines: the read whose rule was right and whose home was wrong -----
+  p({
+    name: 'machines.list',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'machine',
+    indirectResources: [],
+    forbiddenFields: [],
+    rationale:
+      "`visibleMachinesFor` is an authorization projection: `canSeeMachine` filters the rows and `machineUseDecision` attaches each machine's `use` answer, so a machine the principal may not execute on is never OFFERED and one it may not see is simply absent. A3.2 listed it as ungoverned because its rule lives in a `router.ts` procedure rather than in a table this census can read — but the ungoverned list means A READ WITH NO SERVER-SIDE READER SCOPING, and this read has one. The rule is recorded HERE, which is the home it was missing; that its procedure is still the one hand-written read in `router.ts` is a structural note for B2, not a gap in reader scoping.",
+  }),
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -785,54 +948,6 @@ export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
       'Returns one hosted runtime by id with no reader scoping. A runtime is compute someone started, so it plausibly belongs to the private-execution axis — phase F owns deciding that.',
   },
   {
-    name: 'workflows.list',
-    owner: 'B',
-    severity: 'unclassified',
-    finding: 'No reader scoping. Workflow ownership is declared in `workflows/ownership.ts` but not consulted by the read.',
-  },
-  {
-    name: 'workflows.get',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'One workflow by id, with no reader scoping. Ownership is declared in `workflows/ownership.ts` and not consulted by the read.',
-  },
-  {
-    name: 'workflows.bindings',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'Which triggers are bound to which workflows, unscoped. A binding names the work someone automated, so it carries the same question as the workflow itself.',
-  },
-  {
-    name: 'workflows.profiles',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'Execution profiles, unscoped. Named separately from `workflows.list` because a profile can carry machine and model selection, which is owned-compute configuration.',
-  },
-  {
-    name: 'workflows.runs',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'As `workflows.list`, and a run is an execution — the same shape `automations.runs` scopes per user and this one does not.',
-  },
-  {
-    name: 'workflows.prime',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'Priming data for a workflow, unscoped. Same population question as `workflows.list`, and the same unanswered owner.',
-  },
-  {
-    name: 'workflows.status',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'Live state of a workflow run, unscoped. A run is an execution in progress, so this is the read most likely to disclose another person\u2019s work as it happens.',
-  },
-  {
     name: 'updates.fleet',
     owner: 'F',
     severity: 'unclassified',
@@ -852,13 +967,6 @@ export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
     severity: 'unclassified',
     finding:
       "The operation audit trail — 'did last night's update finish?' — returning up to a hundred stored payloads with no reader scoping, by the same route and with the same missing question as `operations.active`. A history is the more durable disclosure of the two: a live operation ends, its record does not.",
-  },
-  {
-    name: 'machines.list',
-    owner: 'B',
-    severity: 'unclassified',
-    finding:
-      'The ONE hand-written read left in `router.ts`, and the only one that is already an authorization projection: `visibleMachinesFor` scopes to what the principal may see and attaches each machine\'s `use` decision. It is listed here rather than governed because its policy lives in the router rather than in a table the census can read — the rule is right and its HOME is wrong.',
   },
 ] as const
 
