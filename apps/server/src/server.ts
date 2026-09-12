@@ -1937,6 +1937,10 @@ export async function startServer(
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
           if (!acceptingRequests) return new Response('Server is shutting down', { status: 503 })
+          for (const plugin of opts.plugins ?? []) {
+            const response = await plugin.onRequest?.(request)
+            if (response) return response
+          }
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
           const upgrade = serverMoveDataPlaneDeferred

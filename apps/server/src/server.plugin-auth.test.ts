@@ -1,5 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { request as httpRequest } from 'node:http'
 import { join } from 'node:path'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { forgetConfig } from '@podium/runtime/config'
@@ -49,6 +50,10 @@ beforeAll(async () => {
     plugins: [
       {
         name: 'fake-identity',
+        async onRequest(request) {
+          if (new URL(request.url).searchParams.has('intercept'))
+            return new Response(null, { status: 307, headers: { 'x-intercepted': 'yes' } })
+        },
         async register({ auth }) {
           memberId = (await auth.createMemberForAccount('acct_test', 'member', 'Test', null)).id
           auth.principalSource = source
@@ -396,4 +401,34 @@ test('the status route reports a refusal reason supplied by a plugin', async () 
   expect(body.authed).toBe(false)
   expect(body.providerSignedIn).toBe(true)
   expect(body.deniedReason).toBe('not a member of this workspace')
+})
+
+test('plugin interception precedes HTTP auth and WebSocket negotiation', async () => {
+  source.mockClear()
+  const http = await fetch(url('/trpc/auth.profile?intercept'), { redirect: 'manual' })
+  expect(http.status).toBe(307)
+  expect(http.headers.get('x-intercepted')).toBe('yes')
+  const status = await new Promise<number>((resolve, reject) => {
+    const request = httpRequest(url('/client?intercept'), {
+      headers: {
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-version': '13',
+        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      },
+    }, (response) => {
+      expect(response.headers['x-intercepted']).toBe('yes')
+      expect(response.headers['sec-websocket-accept']).toBeUndefined()
+      response.resume()
+      response.on('end', () => resolve(response.statusCode!))
+    })
+    request.on('upgrade', (_response, socket) => {
+      socket.destroy()
+      reject(new Error('Unexpected upgrade'))
+    })
+    request.on('error', reject)
+    request.end()
+  })
+  expect(status).toBe(307)
+  expect(source).not.toHaveBeenCalled()
 })

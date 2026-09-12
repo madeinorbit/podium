@@ -47,5 +47,7 @@ export interface PodiumPluginHooks {
 export interface PodiumPlugin {
   /** Diagnostic name (logs/errors); e.g. 'podium-cloud'. */
   name: string
+  /** Runs before HTTP dispatch and WebSocket negotiation. Return a response to stop dispatch. */
+  onRequest?(request: Request): Response | undefined | Promise<Response | undefined>
   register(hooks: PodiumPluginHooks): void | Promise<void>
 }
