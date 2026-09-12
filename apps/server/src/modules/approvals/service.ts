@@ -82,6 +82,38 @@ export interface ApprovalServiceDeps {
 }
 
 /**
+ * WHO IS ASKING FOR ONE APPROVAL ROW (PDM-278).
+ *
+ * The two reads below resolve a caller-supplied id straight out of the store, and
+ * an approval row names a machine, a session, an issue and an operation — so an
+ * ungated read is a disclosure of somebody else's private run. After B1 (PDM-133)
+ * every OTHER door onto these rows already asked who was knocking: `listPending`
+ * filters to the viewer's own runs, `approve` and `deny` refuse a run the actor
+ * does not own, and the `approvalsChanged` broadcast builds one payload per
+ * client. `get`/`getFromAgent` asked nothing on any path, and could not: nothing
+ * was passed to gate on.
+ *
+ * BOTH FIELDS ARE OPTIONAL AND NEITHER IS A DEFAULT. They come from the relay
+ * capability, which carries them only for a session it could resolve
+ * (`capabilityForSession` returns a bare `{ role, scope }` for an unknown
+ * session), so an unresolvable caller arrives as two `undefined`s and is refused
+ * by {@link ApprovalService.mayRead} rather than falling back to anybody.
+ */
+export interface ApprovalReader {
+  /**
+   * The agent session behind the read. The NORMAL PATH: a requesting agent's CLI
+   * blocks on the decision and polls its own request, and that must keep working
+   * whether or not its human is resolvable — which is why this arm stands on its
+   * own rather than being folded into `user`.
+   */
+  readonly sessionId?: SessionId
+  /** The human the call is made FOR (`capability.onBehalfOf`) — the same person
+   *  `approve`/`deny` are gated against, so a human may read any approval they
+   *  could decide, from any of their sessions. */
+  readonly user?: UserId
+}
+
+/**
  * How long a daemon-executed approval may sit `executing` with a reachable daemon
  * before the server calls it stalled (POD-2223).
  *
@@ -284,20 +316,47 @@ export class ApprovalService {
     }
   }
 
-  /** Read one request's state (no side effects). */
-  async get(input: unknown): Promise<ApprovalWire> {
+  /** Read one request's state (no side effects), for a caller who may have it.
+   *
+   *  `reader` is REQUIRED since PDM-278 — see {@link ApprovalReader}. A row the
+   *  reader may not have is refused in the SAME words a missing id gets, for the
+   *  reason `assertMayDecide` gives: "forbidden" would confirm that an approval
+   *  with this id exists and name a session the caller cannot see. */
+  async get(input: unknown, reader: ApprovalReader): Promise<ApprovalWire> {
     const id = String((input as Record<string, unknown> | undefined)?.id ?? '')
     const row = await this.deps.store.get(id)
-    if (!row) throw new Error(`unknown approval request: ${id}`)
+    if (!row || !(await this.mayRead(row, reader))) {
+      throw new Error(`unknown approval request: ${id}`)
+    }
     return await this.toWire(row)
+  }
+
+  /**
+   * May this caller see this row? Either arm alone is enough, and they answer two
+   * different questions:
+   *
+   *   - the POLLING SESSION IS THE ROW'S SESSION — the agent reading the request
+   *     it filed itself. This is the path every `podium` command that needs an
+   *     approval takes, and it holds even for a session whose owner cannot be
+   *     resolved, because the session id came from the relay context and not from
+   *     the payload (`relay-gate.ts` overwrites both `sessionId` and `machineId`
+   *     on every `approvals` frame), so it cannot be forged into somebody else's.
+   *   - the CALLER'S HUMAN OWNS THE ROW'S SESSION — decided by `mayDecide`, the
+   *     same predicate `approve`/`deny` are gated on, so the set a person may READ
+   *     is exactly the set they may DECIDE. An unresolvable owner is a NO there
+   *     and therefore a NO here.
+   */
+  private async mayRead(row: ApprovalRow, reader: ApprovalReader): Promise<boolean> {
+    if (reader.sessionId !== undefined && reader.sessionId === row.sessionId) return true
+    return reader.user !== undefined && (await this.mayDecide(row, reader.user))
   }
 
   /** RELAY entry for `get`: same read, but it also marks the caller as a live
    *  waiter — the agent's CLI blocks on the decision and polls this, so a recent
    *  poll tells `notify` the command will print the outcome itself and no mail
    *  push is needed. (Operator/test reads go through `get`, which does not.) */
-  async getFromAgent(input: unknown): Promise<ApprovalWire> {
-    const w = await this.get(input)
+  async getFromAgent(input: unknown, reader: ApprovalReader): Promise<ApprovalWire> {
+    const w = await this.get(input, reader)
     this.lastPolledAt.set(w.id, Date.now())
     return w
   }

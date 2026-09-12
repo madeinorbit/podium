@@ -11,8 +11,38 @@ import { APPROVAL_EXEC_DEADLINE_MS, ApprovalService } from './service'
 /** The human who owns session `s1`, which is the session every request below
  *  names. Approvals are that person's to see and to decide (B1, PDM-133). */
 const OWNER = asUserId('user:owner')
-/** A second, unrelated human. Never owns anything here. */
+/** A second, unrelated human. Owns `s_stranger` and nothing else. */
 const STRANGER = asUserId('user:stranger')
+
+/** The requesting session: the one every `req()` below files against, and the one
+ *  whose agent polls its own request on the normal path. */
+const S1 = asSessionId('s1')
+/** A SECOND session of the SAME human. Not the row's session, so only the `user`
+ *  arm of the read gate can admit it. */
+const S1_SIBLING = asSessionId('s1_sibling')
+/** A session belonging to the OTHER human — a real second member's session, not
+ *  an unowned one. The refusal below has to be for being somebody ELSE, and an
+ *  unresolvable owner would produce the same refusal for a different reason
+ *  (false-green catalogue shape 14). */
+const S_STRANGER = asSessionId('s_stranger')
+
+/** Who owns each session here. `sessionOwner` is the service's declared port onto
+ *  the session control plane — the same one `listPending`/`approve`/`deny` are
+ *  decided through — so this fixture decides who the callers ARE, and never
+ *  stands in for the decision itself. An id absent from this map is a session
+ *  with no resolvable owner. */
+const OWNERS: Record<string, typeof OWNER | undefined> = {
+  [S1]: OWNER,
+  [S1_SIBLING]: OWNER,
+  [S_STRANGER]: STRANGER,
+}
+
+/** The requesting agent reading the request it filed — the normal path. */
+const SELF = { sessionId: S1, user: OWNER }
+/** The same human, asking from a session that is not the row's. */
+const OWNER_ELSEWHERE = { sessionId: S1_SIBLING, user: OWNER }
+/** The other human's agent, holding a valid id it should never have had. */
+const STRANGER_READER = { sessionId: S_STRANGER, user: STRANGER }
 
 function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => string | null) {
   const db = openMigratedTestDatabase()
@@ -38,7 +68,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       clients: () => [
         { send: (m: LiveServerMessage) => broadcasts.push(m), principal: { user: OWNER } },
       ],
-      sessionOwner: async () => OWNER,
+      sessionOwner: async (sessionId) => OWNERS[sessionId],
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -55,7 +85,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
 }
 
 const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
-  svc.request({ op, sessionId: asSessionId('s1'), machineId: 'm1' })
+  svc.request({ op, sessionId: S1, machineId: 'm1' })
 
 describe('ApprovalService', () => {
   it('request files a pending row, logs, and broadcasts', async () => {
@@ -105,7 +135,7 @@ describe('ApprovalService', () => {
       exitCode: 0,
       output: 'ok',
     })
-    expect((await svc.get({ id })).status).toBe('succeeded')
+    expect((await svc.get({ id }, SELF)).status).toBe('succeeded')
     expect(events.map((e) => e.kind)).toEqual([
       'issue.approval_requested',
       'issue.approval_approved',
@@ -143,9 +173,72 @@ describe('ApprovalService', () => {
   it('no mail when the requesting CLI is still blocked on the decision (it reports itself)', async () => {
     const { svc, mails } = harness()
     const { id } = await req(svc)
-    await svc.getFromAgent({ id }) // the blocked CLI polling — marks a live waiter
+    await svc.getFromAgent({ id }, SELF) // the blocked CLI polling — marks a live waiter
     await svc.deny(id, OWNER)
     expect(mails).toEqual([]) // the command prints "denied" itself; no duplicate push
+  })
+
+  /**
+   * THE READ ASKS WHO IS KNOCKING (PDM-278).
+   *
+   * `get`/`getFromAgent` resolved a caller-supplied id straight out of the store
+   * and returned the row's machine, session, issue and operation to anybody who
+   * reached them, while B1 had already gated the other three doors onto the same
+   * rows. These four are the witnesses for the rule, and the fixture is built so
+   * that each one can only pass for its own reason: `OWNERS` gives `s_stranger` a
+   * REAL SECOND HUMAN rather than leaving it unowned, so the refusal below is for
+   * being someone else and not for having no resolvable owner — two situations
+   * that produce the same answer through different code (false-green shape 14).
+   */
+  it('the requesting agent reads the request it filed, even with no resolvable owner', async () => {
+    const { svc } = harness()
+    const { id } = await req(svc)
+    // `user: undefined` is the honest shape for a session whose owner the control
+    // plane cannot resolve: `capabilityForSession` carries no `onBehalfOf` then.
+    // The self-session arm has to stand on its own, or the normal path — an
+    // agent's CLI blocking on its own approval — breaks for those sessions.
+    const w = await svc.getFromAgent({ id }, { sessionId: S1 })
+    expect(w).toMatchObject({ id, sessionId: S1, status: 'pending' })
+  })
+
+  it("a second session of the same human reads it — the owner's, not the row's", async () => {
+    const { svc } = harness()
+    const { id } = await req(svc)
+    expect(await svc.get({ id }, OWNER_ELSEWHERE)).toMatchObject({ id, status: 'pending' })
+  })
+
+  it("another human's agent is refused a valid id, in the words an unknown id gets", async () => {
+    const { svc } = harness()
+    const { id } = await req(svc)
+
+    // The two refusals must be INDISTINGUISHABLE. Answering anything else here
+    // confirms that an approval with this id exists and names a session the
+    // caller cannot see — the existence oracle ADR 3 Amendment 1 D20.2 rules out,
+    // and the rule `assertMayDecide` already applies to approve/deny.
+    const refused = await svc.get({ id }, STRANGER_READER).catch((e: Error) => e)
+    const unknown = await svc.get({ id: 'apr_nope' }, SELF).catch((e: Error) => e)
+    expect((refused as Error).message).toBe(`unknown approval request: ${id}`)
+    expect((unknown as Error).message).toBe('unknown approval request: apr_nope')
+
+    // And the owner still gets it, so the refusal is about WHO asked and not
+    // about the row having become unreadable.
+    expect(await svc.get({ id }, SELF)).toMatchObject({ id })
+  })
+
+  it("a stranger's poll cannot swallow the mail the owner's agent waits for", async () => {
+    const { svc, mails } = harness()
+    const { id } = await req(svc)
+
+    // `getFromAgent` is not a pure read: it marks the caller a LIVE WAITER, and
+    // `notify` skips the mail push for a row someone is blocked on because that
+    // command prints the outcome itself. Ungated, that let a stranger suppress
+    // delivery of a decision on somebody else's run — the read was a write to
+    // another human's notification path, which is worse than the disclosure.
+    await expect(svc.getFromAgent({ id }, STRANGER_READER)).rejects.toThrow(
+      `unknown approval request: ${id}`,
+    )
+    await svc.deny(id, OWNER)
+    expect(mails).toEqual([expect.stringContaining('denied by the operator')])
   })
 
   it('failed execution records the output and mails the outcome', async () => {
@@ -159,7 +252,7 @@ describe('ApprovalService', () => {
       exitCode: 1,
       output: 'signature verification failed',
     })
-    const w = await svc.get({ id })
+    const w = await svc.get({ id }, SELF)
     expect(w.status).toBe('failed')
     expect(w.resultText).toContain('signature')
     expect(mails.at(-1)).toContain('FAILED')
@@ -195,10 +288,10 @@ describe('ApprovalService', () => {
       const id = await approveChannelDev(svc)
       await svc.sweepStalledExecutions(t0) // first sight starts the clock
 
-      expect((await svc.get({ id })).status).toBe('executing')
+      expect((await svc.get({ id }, SELF)).status).toBe('executing')
       await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
 
-      const w = await svc.get({ id })
+      const w = await svc.get({ id }, SELF)
       expect(w.status).toBe('failed')
       // The three things an operator can act on: which machine, the likely cause, and
       // that the outcome is UNKNOWN rather than known-not-to-have-happened.
@@ -217,7 +310,7 @@ describe('ApprovalService', () => {
       const id = await approveChannelDev(svc)
       await svc.sweepStalledExecutions(t0)
       await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS - 1)
-      expect((await svc.get({ id })).status).toBe('executing')
+      expect((await svc.get({ id }, SELF)).status).toBe('executing')
     })
 
     it('never fails a row on first sight, so a server restart is not a mass failure', async () => {
@@ -228,10 +321,10 @@ describe('ApprovalService', () => {
       // fail every one of them at once.
       const afterRestart = restart()
       await afterRestart.sweepStalledExecutions(t0 + 60 * 60_000)
-      expect((await afterRestart.get({ id })).status).toBe('executing')
+      expect((await afterRestart.get({ id }, SELF)).status).toBe('executing')
       // And then hold to the same deadline from there.
       await afterRestart.sweepStalledExecutions(t0 + 60 * 60_000 + APPROVAL_EXEC_DEADLINE_MS)
-      expect((await afterRestart.get({ id })).status).toBe('failed')
+      expect((await afterRestart.get({ id }, SELF)).status).toBe('failed')
     })
 
     it('does not fail a row parked for an absent daemon, and restarts its clock on attach', async () => {
@@ -243,16 +336,16 @@ describe('ApprovalService', () => {
       // amount of waiting here is a stall.
       daemon.attached = false
       await svc.sweepStalledExecutions(t0 + 24 * 60 * 60_000)
-      expect((await svc.get({ id })).status).toBe('executing')
+      expect((await svc.get({ id }, SELF)).status).toBe('executing')
 
       // Back on the wire a day later — the clock restarts from here, so the daemon gets
       // its full deadline to answer a frame it has only just received.
       daemon.attached = true
       const back = t0 + 24 * 60 * 60_000 + 60_000
       await svc.sweepStalledExecutions(back)
-      expect((await svc.get({ id })).status).toBe('executing')
+      expect((await svc.get({ id }, SELF)).status).toBe('executing')
       await svc.sweepStalledExecutions(back + APPROVAL_EXEC_DEADLINE_MS)
-      expect((await svc.get({ id })).status).toBe('failed')
+      expect((await svc.get({ id }, SELF)).status).toBe('failed')
     })
 
     it('exempts stop, whose daemon kills itself before it can report', async () => {
@@ -262,7 +355,7 @@ describe('ApprovalService', () => {
       await svc.sweepStalledExecutions(t0)
       await svc.sweepStalledExecutions(t0 + 10 * APPROVAL_EXEC_DEADLINE_MS)
       // Still `executing`, which the service's own doc calls honest for this op.
-      expect((await svc.get({ id })).status).toBe('executing')
+      expect((await svc.get({ id }, SELF)).status).toBe('executing')
     })
 
     it('lets a late result correct a row the deadline had already failed', async () => {
@@ -270,7 +363,7 @@ describe('ApprovalService', () => {
       const id = await approveChannelDev(svc)
       await svc.sweepStalledExecutions(t0)
       await svc.sweepStalledExecutions(t0 + APPROVAL_EXEC_DEADLINE_MS)
-      expect((await svc.get({ id })).status).toBe('failed')
+      expect((await svc.get({ id }, SELF)).status).toBe('failed')
 
       // The machine answers anyway. Being told "it failed" about an op that ran is worse
       // than being told nothing, so the record moves to what actually happened.
@@ -281,7 +374,7 @@ describe('ApprovalService', () => {
         exitCode: 0,
         output: 'channel set to dev',
       })
-      const w = await svc.get({ id })
+      const w = await svc.get({ id }, SELF)
       expect(w.status).toBe('succeeded')
       expect(w.resultText).toBe('channel set to dev')
       expect(mails.at(-1)).toMatch(/LATE/)
@@ -297,7 +390,7 @@ describe('ApprovalService', () => {
         exitCode: 1,
         output: 'no such channel',
       })
-      expect((await svc.get({ id })).status).toBe('failed')
+      expect((await svc.get({ id }, SELF)).status).toBe('failed')
       // A stray duplicate result must not move a settled row.
       await svc.onExecResult({
         type: 'approvalExecResult',
@@ -306,7 +399,7 @@ describe('ApprovalService', () => {
         exitCode: 0,
         output: 'surprise',
       })
-      expect((await svc.get({ id })).resultText).toBe('no such channel')
+      expect((await svc.get({ id }, SELF)).resultText).toBe('no such channel')
     })
   })
 })

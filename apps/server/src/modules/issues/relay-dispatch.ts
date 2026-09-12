@@ -604,7 +604,27 @@ export function makeAgentRelayDispatch(
     }
     if (router === 'approvals') {
       if (proc === 'request') return await Promise.resolve(await approvals.request(input))
-      if (proc === 'get') return await Promise.resolve(await approvals.getFromAgent(input))
+      /**
+       * THE READ CARRIES THE CALLER (PDM-278), and this line is where the fix had
+       * to live: `getFromAgent` resolved a caller-supplied id straight out of the
+       * store and returned the row's machine, session, issue and operation to
+       * whoever asked, while the three other doors onto those rows had all been
+       * gated by B1 (PDM-133). The service could not gate it alone because nothing
+       * was passed to gate on — and the answer was already in scope here.
+       *
+       * BOTH HALVES COME OFF THE CAPABILITY, NEVER OFF `input`, for ADR 3 D7's
+       * reason: the capability is minted from the relay context by
+       * `capabilityForSession`, so a forged `sessionId` or `onBehalfOf` in the
+       * agent's payload is inert. An unresolvable session yields a capability
+       * carrying neither, which the service refuses rather than defaulting.
+       */
+      if (proc === 'get')
+        return await Promise.resolve(
+          await approvals.getFromAgent(input, {
+            sessionId: capability.actorSessionId,
+            user: capability.onBehalfOf,
+          }),
+        )
       return NO_SUCH_PROCEDURE
     }
     const result = await issueCommands.dispatch(
