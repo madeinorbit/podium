@@ -11,6 +11,7 @@ import { NativeLoginService } from './native-login'
 const SESSION = asSessionId('login-session')
 const MACHINE = asMachineId('machine-a')
 const OWNER = asUserId('user:operator')
+const OTHER = asUserId('user:second-admin')
 
 function fixture(opts?: {
   authorizerFor?: () => (machineId: typeof MACHINE) => string | undefined
@@ -114,14 +115,32 @@ describe('NativeLoginService', () => {
 
     f.bus.emit('session.exited', { sessionId: SESSION, code: 0 })
     expect(f.toMachine).toHaveBeenCalledWith('machine-a', { type: 'inventoryRequest' })
-    expect(f.service.attempt('codex')?.status).toBe('refreshing')
+    expect(f.service.attempt('codex', OWNER)?.status).toBe('refreshing')
 
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a') })
-    expect(f.service.attempt('codex')?.status).toBe('refreshing')
+    expect(f.service.attempt('codex', OWNER)?.status).toBe('refreshing')
 
     f.setLogin('in')
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a'), inventory: true })
     await Promise.resolve()
-    expect(f.service.attempt('codex')?.status).toBe('succeeded')
+    expect(f.service.attempt('codex', OWNER)?.status).toBe('succeeded')
+  })
+
+  // PDM-271. An attempt names a session id and the host it is running on, so it
+  // is a report of where one person is authenticating right now.
+  it('reports an in-flight attempt to its owner and not to another human', async () => {
+    const f = fixture()
+    const started = await f.service.start({ harness: 'codex', ownerUserId: OWNER })
+
+    // The positive half is what makes the negative half mean anything: the same
+    // call, the same harness, the same live attempt — only the viewer differs.
+    expect(f.service.attempt('codex', OWNER)).toEqual(started)
+    expect(f.service.attempt('codex', OTHER)).toBeUndefined()
+
+    // ...and it stays scoped as the attempt progresses, because `track` carries
+    // the owner through rather than re-deriving it from a lifecycle event.
+    f.bus.emit('session.exited', { sessionId: SESSION, code: 1 })
+    expect(f.service.attempt('codex', OWNER)?.status).toBe('failed')
+    expect(f.service.attempt('codex', OTHER)).toBeUndefined()
   })
 })

@@ -13,11 +13,29 @@ export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
     error?: string
   }
 
+/**
+ * An attempt together with the human it was started FOR (PDM-271).
+ *
+ * The owner is held BESIDE the wire shape rather than added to it. A
+ * `NativeLoginAttempt` is returned to clients — `accounts.login` answers with one
+ * and `accounts.list` embeds one — so a `ownerUserId` member on that type would
+ * ship the owner's id to every viewer, which is the disclosure the scoping below
+ * exists to prevent rather than a smaller version of it.
+ */
+interface TrackedAttempt {
+  readonly ownerUserId: UserId
+  readonly attempt: NativeLoginAttempt
+}
+
 /** Coordinates native CLI authentication without ever seeing provider tokens.
  * The PTY and inventory remain the two sources of truth. */
 export class NativeLoginService {
   private readonly required = new Set<string>()
-  private readonly attempts = new Map<string, NativeLoginAttempt>()
+  // KEYED BY THE HARNESS TYPE, not by `string`. It was a `string` key while the
+  // value was a bare attempt and nothing downstream needed the key back; `track`
+  // does, so an unbranded key would have to be re-asserted at every iteration —
+  // and a cast in a loop is how a vocabulary quietly stops being checked.
+  private readonly attempts = new Map<HarnessAgent, TrackedAttempt>()
   private readonly bySession = new Map<string, HarnessAgent>()
 
   constructor(
@@ -45,12 +63,39 @@ export class NativeLoginService {
     this.required.add(`${machineId}:${harness}`)
   }
 
-  isRequired(harness: HarnessAgent): boolean {
-    return [...this.required].some((key) => key.endsWith(`:${harness}`))
+  /**
+   * Is a login required for this harness on any machine the VIEWER may execute
+   * on (PDM-271)?
+   *
+   * `required` is keyed `${machineId}:${harness}` and used to be asked with the
+   * harness alone, so a suffix match answered yes for a colleague's machine —
+   * "somebody's host needs a provider login" is a fact about their execution.
+   * The machine set is supplied by the caller rather than resolved here because
+   * the read that asks this resolves it ONCE and applies the same answer to the
+   * rows, the login targets and the attempt; a second resolution here is how two
+   * halves of one response come to disagree.
+   *
+   * Membership rather than parsing: the key is composed the same way it was
+   * written, so a machine id containing a colon cannot split wrongly.
+   */
+  isRequired(harness: HarnessAgent, machineIds: ReadonlySet<MachineId>): boolean {
+    for (const machineId of machineIds) {
+      if (this.required.has(`${machineId}:${harness}`)) return true
+    }
+    return false
   }
 
-  attempt(harness: HarnessAgent): NativeLoginAttempt | undefined {
-    return this.attempts.get(harness)
+  /**
+   * The in-flight attempt for this harness, to the human it belongs to (PDM-271).
+   *
+   * An attempt names a session id and the machine it is running on, so handing
+   * one to anybody but its owner reports where another person is authenticating
+   * right now. A non-owner gets `undefined` — the same answer as "no attempt" —
+   * so the absence does not confirm that somebody else's login is under way.
+   */
+  attempt(harness: HarnessAgent, viewer: UserId): NativeLoginAttempt | undefined {
+    const tracked = this.attempts.get(harness)
+    return tracked?.ownerUserId === viewer ? tracked.attempt : undefined
   }
 
   async start(input: {
@@ -66,9 +111,16 @@ export class NativeLoginService {
     machineId?: MachineId
     ownerUserId: UserId
   }): Promise<NativeLoginAttempt> {
+    // REUSE IS STILL BY HARNESS ALONE, and deliberately unchanged by PDM-271.
+    // `accounts.login`'s contract states the conflict rule as "one active login
+    // attempt per harness is reused until it settles", and narrowing it to the
+    // owner would change that rule rather than scope a read. That leaves start()
+    // able to hand a second admin the running attempt of the first, which is a
+    // disclosure through the WRITE surface; it is filed for the phase review
+    // rather than absorbed here.
     const existing = this.attempts.get(input.harness)
-    if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
-      return existing
+    if (existing && (existing.attempt.status === 'running' || existing.attempt.status === 'refreshing'))
+      return existing.attempt
 
     const candidates = (await this.deps.machines
       .listMachines())
@@ -113,7 +165,7 @@ export class NativeLoginService {
       machineName: machine.name,
       status: 'running',
     }
-    this.attempts.set(input.harness, attempt)
+    this.attempts.set(input.harness, { ownerUserId: input.ownerUserId, attempt })
     this.bySession.set(spawned.sessionId, input.harness)
     return attempt
   }
@@ -121,32 +173,45 @@ export class NativeLoginService {
   private onExit(sessionId: SessionId, code: number): void {
     const harness = this.bySession.get(sessionId)
     if (!harness) return
-    const attempt = this.attempts.get(harness)
-    if (!attempt) return
+    const tracked = this.attempts.get(harness)
+    if (!tracked) return
     this.bySession.delete(sessionId)
     if (code !== 0) {
-      this.attempts.set(harness, {
-        ...attempt,
+      this.track(harness, tracked, {
         status: 'failed',
         error: `login command exited ${code}`,
       })
       return
     }
-    this.attempts.set(harness, { ...attempt, status: 'refreshing' })
-    this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
+    this.track(harness, tracked, { status: 'refreshing' })
+    this.deps.machines.toMachine(tracked.attempt.machineId, { type: 'inventoryRequest' })
+  }
+
+  /** Re-record an attempt's progress WITHOUT re-deciding whose it is: the owner
+   *  is carried through from the tracked row, never recomputed from a lifecycle
+   *  event that has no human on it. */
+  private track(
+    harness: HarnessAgent,
+    tracked: TrackedAttempt,
+    change: Partial<NativeLoginAttempt>,
+  ): void {
+    this.attempts.set(harness, {
+      ownerUserId: tracked.ownerUserId,
+      attempt: { ...tracked.attempt, ...change },
+    })
   }
 
   private async onInventory(machineId: MachineId): Promise<void> {
-    for (const [harness, attempt] of this.attempts) {
-      if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
+    for (const [harness, tracked] of this.attempts) {
+      if (tracked.attempt.machineId !== machineId || tracked.attempt.status !== 'refreshing')
+        continue
       const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {
-        this.attempts.set(harness, { ...attempt, status: 'succeeded' })
+        this.track(harness, tracked, { status: 'succeeded' })
         this.required.delete(`${machineId}:${harness}`)
       } else {
-        this.attempts.set(harness, {
-          ...attempt,
+        this.track(harness, tracked, {
           status: 'failed',
           error: 'login command finished but the refreshed inventory is still logged out',
         })
