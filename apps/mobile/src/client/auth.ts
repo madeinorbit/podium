@@ -129,7 +129,11 @@ export async function login(
   const res = await fetch(httpOrigin + '/auth/login', {
     method: 'POST',
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: bearerHeaders(null, { 'content-type': 'application/json' }, workspaceId ? { workspaceId } : undefined),
+    headers: bearerHeaders(
+      null,
+      { 'content-type': 'application/json' },
+      workspaceId ? { workspaceId } : undefined,
+    ),
     body: JSON.stringify({
       // The explicit retired identifier only selects an email-less first admin.
       email: email.trim() || 'user:sole',
@@ -158,7 +162,11 @@ export async function login(
   return { ok: false, error: 'Login failed (' + res.status + ').' }
 }
 
-export async function logout(httpOrigin: string, bearer: string | null = null, workspaceId?: string): Promise<void> {
+export async function logout(
+  httpOrigin: string,
+  bearer: string | null = null,
+  workspaceId?: string,
+): Promise<void> {
   if (Platform.OS !== 'web' && bearer && !httpOrigin.startsWith('https://')) {
     throw new Error('refusing to send a bearer over cleartext HTTP')
   }
@@ -169,7 +177,11 @@ export async function logout(httpOrigin: string, bearer: string | null = null, w
         method: 'POST',
         credentials: 'omit',
         redirect: 'error',
-        headers: bearerHeaders(bearer, { 'Content-Type': 'application/json' }, workspaceId ? { workspaceId } : undefined),
+        headers: bearerHeaders(
+          bearer,
+          { 'Content-Type': 'application/json' },
+          workspaceId ? { workspaceId } : undefined,
+        ),
         body: '{}',
         signal: timeoutSignal(AUTH_STATUS_TIMEOUT_MS),
       })

@@ -186,7 +186,10 @@ function transportFailure(origin: string, cause: unknown): ServerPreflight {
   }
 }
 
-export async function preflightServer(httpOrigin: string, workspaceId?: string): Promise<ServerPreflight> {
+export async function preflightServer(
+  httpOrigin: string,
+  workspaceId?: string,
+): Promise<ServerPreflight> {
   const origin = normalizeManualServer(httpOrigin)
   const transport = classifyServerTransport(origin)
   const workspaceSelector = workspaceId ? { workspaceId } : undefined
@@ -217,11 +220,18 @@ export async function preflightServer(httpOrigin: string, workspaceId?: string):
     return transportFailure(origin, new Error('cleartext'))
   }
   try {
-    const versionResponse = await fetch(`${origin}/version`, workspaceRequestInit(`${origin}/version`, {
-      cache: 'no-store',
-      credentials: 'omit',
-      signal: timeoutSignal(),
-    }, workspaceSelector))
+    const versionResponse = await fetch(
+      `${origin}/version`,
+      workspaceRequestInit(
+        `${origin}/version`,
+        {
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: timeoutSignal(),
+        },
+        workspaceSelector,
+      ),
+    )
     if (!versionResponse.ok) {
       return {
         ok: false,
@@ -282,10 +292,17 @@ export async function preflightServer(httpOrigin: string, workspaceId?: string):
         transport,
       }
     }
-    const authResponse = await fetch(`${origin}/auth/status`, workspaceRequestInit(`${origin}/auth/status`, {
-      credentials: 'omit',
-      signal: timeoutSignal(),
-    }, workspaceSelector))
+    const authResponse = await fetch(
+      `${origin}/auth/status`,
+      workspaceRequestInit(
+        `${origin}/auth/status`,
+        {
+          credentials: 'omit',
+          signal: timeoutSignal(),
+        },
+        workspaceSelector,
+      ),
+    )
     if (!authResponse.ok) throw new Error(`auth status failed: ${authResponse.status}`)
     const auth = (await authResponse.json().catch(() => null)) as Record<string, unknown> | null
     if (
@@ -409,7 +426,12 @@ export async function claimMobilePairing(
   }
   const body = MobilePairClaimResponse.safeParse(await response.json())
   if (!body.success) throw new Error('The server returned an invalid claim.')
-  return { claimId: body.data.claimId, claimSecret, phrase: body.data.phrase, ...(envelope.workspaceId ? { workspaceId: envelope.workspaceId } : {}) }
+  return {
+    claimId: body.data.claimId,
+    claimSecret,
+    phrase: body.data.phrase,
+    ...(envelope.workspaceId ? { workspaceId: envelope.workspaceId } : {}),
+  }
 }
 
 export type PairingCompletion =

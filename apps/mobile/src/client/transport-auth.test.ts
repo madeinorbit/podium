@@ -84,4 +84,9 @@ describe('native bearer transport', () => {
       override: true,
     })
   })
+  it('adds the immutable workspace selector alongside the bearer', () => {
+    const headers = bearerHeaders('device-token', undefined, { workspaceId: 'ws_blue' })
+    expect(headers.get('authorization')).toBe('Bearer device-token')
+    expect(headers.get('podium-workspace-id')).toBe('ws_blue')
+  })
 })
