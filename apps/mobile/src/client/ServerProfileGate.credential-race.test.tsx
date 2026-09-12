@@ -501,7 +501,7 @@ describe('handoff profile selection', () => {
     })
 
     await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-b'))
-    expect(seams.preflight).toHaveBeenCalledWith('https://b.example')
+    expect(seams.preflight).toHaveBeenCalledWith('https://b.example', undefined)
     expect(seams.saveProfiles).toHaveBeenCalledWith(
       expect.objectContaining({ activeProfileId: 'profile-b' }),
     )
@@ -600,7 +600,7 @@ describe('handoff profile selection', () => {
         <ProfileProbe />
       </ServerProfileGate>,
     )
-    await waitFor(() => expect(seams.preflight).toHaveBeenCalledWith('https://a.example'))
+    await waitFor(() => expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined))
     expect(seams.activeContext).toBeNull()
 
     act(() => {
@@ -637,7 +637,7 @@ describe('pairing supersedes handoff intent', () => {
       expect(seams.activeContext?.bearer).toBe('token-a')
     })
     expect(pendingMobileHandoffSnapshot().request).toBeNull()
-    expect(seams.preflight).toHaveBeenCalledWith('https://a.example')
+    expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined)
     expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
   })
 
@@ -710,7 +710,7 @@ describe('pairing supersedes handoff intent', () => {
     })
     expect(seams.durableProfiles?.activeProfileId).toBe('profile-b')
     expect([...seams.credentials.values()]).not.toContain('token-c')
-    expect(seams.logout).toHaveBeenCalledWith('https://pair.example', 'token-c')
+    expect(seams.logout).toHaveBeenCalledWith('https://pair.example', 'token-c', undefined)
     expect(seams.alert).toHaveBeenCalledWith(
       'Phone session still active',
       'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
@@ -1527,7 +1527,7 @@ describe('hosted sign-in profile activation', () => {
     expect(screen.queryByText('Could not finish sign-in. Start sign-in again.')).toBeNull()
     expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
     expect(seams.setCredential).not.toHaveBeenCalled()
-    expect(seams.logout).toHaveBeenCalledWith('https://cloud.example', 'cloud-token')
+    expect(seams.logout).toHaveBeenCalledWith('https://cloud.example', 'cloud-token', undefined)
     expect([...seams.credentials.values()]).not.toContain('cloud-token')
     expect(seams.credentials.has('profile-a')).toBe(true)
   })
