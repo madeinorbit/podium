@@ -20,6 +20,7 @@
     "./run-registry": "./src/run-registry.ts",
     "./crash-store": "./src/crash-store.ts",
     "./join": "./src/join.ts",
+    "./workspace-target": "./src/workspace-target.ts",
     "./setup": "./src/setup.ts",
     "./vps-bootstrap": "./src/vps-bootstrap.ts",
     "./transfer-lifecycle": "./src/transfer-lifecycle.ts",

@@ -531,6 +531,8 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    /** Stable hosted workspace identity carried by pairing commands. */
+    workspaceId?: string
     sendMemberInviteMail?: MemberInviteMail
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
@@ -1710,6 +1712,7 @@ export async function startServer(
         return {
           registry,
           repos,
+          ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
           discovery: repoDiscovery,
           superagent,
           cloud,

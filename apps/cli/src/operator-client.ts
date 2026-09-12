@@ -17,8 +17,12 @@
  * clientAuthGuard passes those requests through untouched.
  */
 import { type IssueTrpc, makeIssueClient } from '@podium/issue-client'
+import { loadConfig } from '@podium/runtime/config'
 import { resolveSessionToken } from '@podium/runtime/session-mint'
 
 export function makeOperatorIssueClient(baseUrl: string): IssueTrpc {
-  return makeIssueClient(baseUrl, { sessionToken: resolveSessionToken() })
+  return makeIssueClient(baseUrl, {
+    sessionToken: resolveSessionToken(),
+    workspaceId: loadConfig().workspaceId,
+  })
 }

@@ -736,9 +736,11 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
   let socketIndex = 0
   let retry: (() => void) | undefined
   const sendApplicationFrame = vi.fn()
+  const socketUrls: string[] = []
   const state = createDaemonConnection({
     options: {
       serverUrl: 'ws://server',
+      workspaceId: 'ws_remote',
       identityDir: temp(),
       reconnectTimers: {
         setTimeout: (fn) => {
@@ -757,13 +759,17 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
     runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected: vi.fn(),
     onTerminal: vi.fn(),
-    openSocket: () => sockets[socketIndex++] as FakeSocket,
+    openSocket: (url) => {
+      socketUrls.push(url)
+      return sockets[socketIndex++] as FakeSocket
+    },
   })
 
   const started = state.start()
   sockets[0]!.emit('open')
   sockets[0]!.message({ ...ok, caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] })
   await started
+  expect(socketUrls[0]).toBe('ws://server/daemon?workspace=ws_remote')
   state.sendOutput({
     sessionId: asSessionId('before-reconnect'),
     sourceFrames: 1,
@@ -773,6 +779,7 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
 
   sockets[0]!.emit('close')
   retry?.()
+  expect(socketUrls[1]).toBe('ws://server/daemon?workspace=ws_remote')
   sockets[1]!.emit('open')
   sockets[1]!.message(ok)
   state.sendOutput({

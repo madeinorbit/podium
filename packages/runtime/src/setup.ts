@@ -223,6 +223,7 @@ export function applyServerUrl(
 ): {
   serverUrl: string
   pairCode?: string
+  workspaceId?: string
   warning?: string
 } {
   assertConfigWritable()
@@ -239,18 +240,38 @@ export function applyServerUrl(
   // harmless for an already-paired daemon: the stored token wins at handshake time).
   let serverUrl: string
   let pairCode: string | undefined
+  let workspaceId: string | undefined
+  let fromJoinCode = false
   try {
     const p = decodeJoin(trimmed)
     serverUrl = p.serverUrl
     pairCode = p.pairCode
+    workspaceId = p.workspaceId
+    fromJoinCode = true
   } catch {
     const v = validatePublicUrl(trimmed.replace(/^ws(s?):\/\//, (_m, s) => `http${s}://`))
     if (!v.ok) throw new Error(`not a server URL or join code: ${v.error}`)
     serverUrl = wssFrom(v.normalized)
   }
-  saveConfig(withUiUrl({ ...prev, serverUrl, ...(pairCode ? { pairCode } : {}) }, uiUrl))
+  saveConfig(
+    withUiUrl(
+      {
+        ...prev,
+        workspaceId: fromJoinCode ? workspaceId : prev.workspaceId,
+        serverUrl,
+        ...(pairCode ? { pairCode } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
+      },
+      uiUrl,
+    ),
+  )
   const warning = ephemeralTunnelWarning(serverUrl)
-  return { serverUrl, ...(pairCode ? { pairCode } : {}), ...(warning ? { warning } : {}) }
+  return {
+    serverUrl,
+    ...(pairCode ? { pairCode } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(warning ? { warning } : {}),
+  }
 }
 
 /**
@@ -402,6 +423,7 @@ export function applyJoin(
     bindHost: _hostBind,
     networkOption: _hostNetworkOption,
     pairCode: _stale,
+    workspaceId: _staleWorkspaceId,
     ...prev
   } = loadConfig()
   saveConfig(
@@ -411,6 +433,7 @@ export function applyJoin(
         mode: 'daemon',
         serverUrl: p.serverUrl,
         pairCode: p.pairCode,
+        ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}),
         ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
         // See applySetup: web/join-config surfaces can't start the backend themselves,
         // so they record the CHOICE and the next `podium` invocation brings it up.

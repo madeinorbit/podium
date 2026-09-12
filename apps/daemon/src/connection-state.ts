@@ -22,6 +22,7 @@ import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
+import { workspaceEndpoint } from '@podium/runtime/workspace-target'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
@@ -732,7 +733,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     acceptedCaps.clear()
     state = 'connecting'
     report({ state: 'connecting' })
-    const active = openSocket(`${activeServerUrl}/daemon`)
+    const active = openSocket(workspaceEndpoint(activeServerUrl, '/daemon', options.workspaceId))
     const generation = ++socketGeneration
     socket = active
     const isCurrent = (): boolean =>
@@ -820,7 +821,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const probeAuthenticatedEndpointOnce = (publicUrl: string): Promise<void> =>
     new Promise((resolve, reject) => {
-      const candidate = openSocket(`${wssFrom(publicUrl)}/daemon`)
+      const candidate = openSocket(workspaceEndpoint(wssFrom(publicUrl), '/daemon', options.workspaceId))
       let settled = false
       let dialer: ReturnType<typeof createHandshakeDialer> | undefined
       const timer = setTimeout(
