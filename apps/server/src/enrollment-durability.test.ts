@@ -364,18 +364,34 @@ describe('machine ownership is established, never guessed (PDM-134)', () => {
       }
     })
 
+    /**
+     * A DEPARTED COLLEAGUE MUST NOT MAKE OWNERSHIP AMBIGUOUS — and this test pins
+     * the store invariant that decides it, not the redundant filter in
+     * `hostBootstrapOwner`.
+     *
+     * Stated plainly because a deliberate break established it: deleting that
+     * filter reddens NOTHING, because `users.list()` already cannot return a
+     * disabled account (`userFromRow` drops it). The filter is belt-and-braces
+     * and is uncovered; what is load-bearing is the projection, so that is what
+     * the first assertion below checks directly. If `userFromRow` ever stopped
+     * excluding disabled rows, a departed colleague would silently flip this
+     * host to unowned, and this test reddens by name at the assertion that says
+     * so rather than at the outcome three layers away.
+     */
     it('does not count a DISABLED account as a second candidate', async () => {
       const store = await openTestStore(':memory:', ORIGINAL_HOST)
       await addMember(store, 'user:departed', { disabled: true })
       const host = hostWorld(dir, store, ORIGINAL_HOST)
       try {
+        // THE LOAD-BEARING ASSERTION. ADR 9's disable-before-remove says a
+        // disabled account is not an actor; this is that rule as the one fact
+        // `hostBootstrapOwner` consumes.
+        expect(await store.users.list()).toHaveLength(1)
+
         await host.machines.ensureHostMachine('original.local', 'original-secret')
 
-        // ADR 9's disable-before-remove: a disabled account is not an actor, so
-        // it cannot make ownership ambiguous. Without this case the `disabledAt`
-        // filter could be deleted and the suite above would still be green —
-        // the two-human test would simply be measuring "two rows exist".
         expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(await firstAdminMemberId(store))
+        expect((await store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).not.toBeNull()
       } finally {
         await store.close()
       }

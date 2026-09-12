@@ -244,6 +244,27 @@ export interface HostOwnerSource {
 }
 
 /**
+ * THE DISABLED FILTER BELOW IS REDUNDANT TODAY, AND IS KEPT DELIBERATELY.
+ *
+ * `users.list()` already cannot return a disabled account: it maps every row
+ * through `userFromRow`, which returns `undefined` when `disabledAt` is set
+ * (`store/users.ts`), and drops the undefined ones. So the predicate here can
+ * never remove an element, and a deliberate break confirmed that — deleting it
+ * reddens nothing.
+ *
+ * It stays because of WHICH DIRECTION it fails in if that ever changes. This
+ * function's answer is "is there exactly one candidate", and an extra candidate
+ * flips a legitimately-owned host to unowned. Keeping the filter means a change
+ * to the store's projection degrades to the safe answer instead of the
+ * surprising one.
+ *
+ * Being redundant, it is NOT WITNESSED BY ANY TEST, and the test below pins the
+ * store invariant it rests on rather than pretending to cover it — an unverified
+ * guard that says so is safe; one that implies coverage it does not have is the
+ * false entry.
+ */
+
+/**
  * WHO OWNS THIS HOST WHEN THE SERVER PROVISIONS IT AT BOOT (PDM-134).
  *
  * `ensureHostMachine` runs before any request exists, so there is no principal
