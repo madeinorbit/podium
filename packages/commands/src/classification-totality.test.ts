@@ -279,6 +279,36 @@ describe('an undeclared visibility class resolves to PRIVATE (ADR 9 D4)', () => 
   })
 })
 
+/**
+ * THE COMMANDS v1 SERVES ON NO TRANSPORT, PINNED BY NAME.
+ *
+ * Empty exposure is a DECISION here, not an omission, and the three contracts
+ * below are the ones A3 (PDM-129) decided about. The execution charter puts
+ * machine sharing outside v1 in as many words — "No multi-human execution
+ * environment, machine handover, …" — and accepted D12 (11 September 2026)
+ * says what to do about it in the imperative: DISABLE THE CORRESPONDING PUBLIC
+ * MUTATIONS RATHER THAN ONLY HIDING MENUS. Each contract, its handler and its
+ * grant-edge shape all stay standing; only `exposure` changed, and each one
+ * carries that reasoning at its own definition in `./fleet/contracts.ts`.
+ *
+ * WHY THE LIST IS HERE AND NOT DERIVED. Reading the exclusions off the
+ * contracts themselves — "anything written with `SERVED_NOWHERE` is intended"
+ * — would be the shape of a check and the substance of none: every accidental
+ * empty exposure that reached for the named constant would excuse itself, and
+ * the constant is the thing contracts are SUPPOSED to reach for. A second,
+ * independently maintained copy of the decision is the whole mechanism. Adding
+ * a name here must cost somebody a deliberate edit to a test that says why.
+ *
+ * SO THIS IS NOT AN EXEMPTION LIST. The assertion below is exact in both
+ * directions: a fourth unserved contract fails by name, and a pinned name that
+ * becomes served again fails too.
+ */
+const DEFERRED_TO_NO_TRANSPORT: readonly string[] = [
+  'machines.share',
+  'machines.unshare',
+  'machines.transferOwnership',
+]
+
 describe('the per-contract lint keeps its teeth on the population’s own shapes', () => {
   it('every contract exposed on `outbox` really is offline-eligible (D3 rule 2)', () => {
     // Stated positively over the population rather than trusting the aggregate
@@ -292,11 +322,36 @@ describe('the per-contract lint keeps its teeth on the population’s own shapes
   it('no contract in the fleet is served nowhere by accident', () => {
     // ADR 3 D3 makes empty exposure MEAN "served nowhere", which is the correct
     // default — but a contract that reaches no transport at all is dead weight
-    // the registry still validates. Report them by name rather than failing:
-    // deliberate no-exposure contracts are legitimate (a reserved name, a
-    // contract awaiting its router), and this asserts only that we know which.
+    // the registry still validates. Deliberate no-exposure contracts are
+    // legitimate; the claim this makes is that WE KNOW WHICH, which is why the
+    // expectation is the pinned list above and not `[]`.
+    //
+    // The assertion is a set difference in BOTH directions, on purpose, because
+    // each direction catches a different mistake and a single `toEqual` would
+    // report them under one indistinguishable diff:
     const nowhere = POPULATION.filter((c) => c.exposure.length === 0).map((c) => c.name)
-    expect(nowhere).toEqual([])
+
+    // (1) THE GUARD. A fourth contract that reaches no transport — a forgotten
+    // `exposure`, a merge that drops a transport tag, a family that lands
+    // without its router — arrives here BY NAME. This is the half that must
+    // keep working: the repair that made this test green for the three deferred
+    // commands is worthless if it also stopped noticing the fourth.
+    const unexpected = nowhere.filter((name) => !DEFERRED_TO_NO_TRANSPORT.includes(name))
+    expect(
+      unexpected,
+      'served on no transport and not on the deferred list — add a transport, or pin it above with its reason',
+    ).toEqual([])
+
+    // (2) THE LIST CANNOT ROT. Every pinned name must still BE served nowhere,
+    // so re-exposing one of the three (which D12 forbids) or renaming it out of
+    // existence fails here rather than leaving a dead exemption behind. Without
+    // this, the list would only ever widen and would eventually excuse
+    // contracts nobody decided about.
+    const noLongerDeferred = DEFERRED_TO_NO_TRANSPORT.filter((name) => !nowhere.includes(name))
+    expect(
+      noLongerDeferred,
+      'pinned as served nowhere but no longer is — it was re-exposed, renamed or deleted; D12 forbids the first',
+    ).toEqual([])
   })
 
   it('classificationErrors is applied per contract, not only in aggregate', () => {

@@ -287,10 +287,45 @@ describe('the fleet contracts', () => {
     expect(fleetServerRoleOf('__proto__')).toBe('hub')
   })
 
-  it('serves every contract on tRPC and nothing anywhere else', () => {
+  /**
+   * THE THREE THIS FLEET SERVES NOWHERE, written out like `DECLARED` above and
+   * for the same reason: the decision must live somewhere a reviewer reads.
+   *
+   * A3 (PDM-129) took `machines.share`, `machines.unshare` and
+   * `machines.transferOwnership` off every transport because the execution
+   * charter puts machine sharing and handover outside v1, and accepted D12
+   * (11 September 2026) requires DISABLING THE PUBLIC MUTATIONS rather than
+   * only hiding menus. Each contract carries that argument in full at its own
+   * definition; this is the roster, not the reasoning.
+   *
+   * `FleetContractName` rather than `string`, so a name that is renamed or
+   * deleted out from under this list is a COMPILE error rather than a silently
+   * dead exemption.
+   */
+  const SERVED_NOWHERE_BY_DESIGN: readonly FleetContractName[] = [
+    'machines.share',
+    'machines.unshare',
+    'machines.transferOwnership',
+  ]
+
+  it('serves every contract on tRPC, except the three v1 defers, which are served nowhere', () => {
+    // The tuple shape is what makes this readable when it fails: the assertion
+    // carries the NAME, so a contract that loses its transports — or a deferred
+    // one that quietly gets them back, which D12 forbids — is identified rather
+    // than merely counted. Both directions are covered because `expected` is
+    // computed per contract from the roster above, not relaxed for it.
     for (const [name, contract] of Object.entries(FLEET_CONTRACTS)) {
-      expect([name, [...contract.exposure]]).toEqual([name, ['trpc']])
+      const expected = SERVED_NOWHERE_BY_DESIGN.includes(name as FleetContractName) ? [] : ['trpc']
+      expect([name, [...contract.exposure]]).toEqual([name, expected])
     }
+  })
+
+  it('and the deferred roster is exactly the contracts that reach no transport', () => {
+    // Without this, the roster above could name a contract that IS served and
+    // nobody would notice: the loop would simply expect `[]`, fail, and look
+    // like the contract's problem. Stated from the other side, over the fleet.
+    const unserved = FLEET_COMMAND_NAMES.filter((n) => FLEET_CONTRACTS[n].exposure.length === 0)
+    expect([...unserved].sort()).toEqual([...SERVED_NOWHERE_BY_DESIGN].sort())
   })
 
   it('reviews redaction everywhere and redacts the credential on the one command that returns one', () => {
