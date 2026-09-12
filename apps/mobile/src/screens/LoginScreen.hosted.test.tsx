@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 vi.mock('react-native', async (original) => {
   const actual = await original<typeof import('react-native')>()
@@ -23,7 +23,10 @@ vi.mock('../components/HostedSignInButton', () => ({
   ),
 }))
 import { LoginScreen } from './LoginScreen'
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 it('shows browser sign-in instead of a password for a hosted workspace', () => {
   render(
     <LoginScreen
@@ -41,4 +44,34 @@ it('preserves password sign-in for a paired self-hosted server', () => {
   render(<LoginScreen httpOrigin="https://self.example" onAuthed={() => {}} />)
   expect(screen.getByLabelText('Password')).toBeTruthy()
   expect(screen.queryByText('Continue with Podium Cloud')).toBeNull()
+})
+
+it.each([
+  'member@example.com',
+  '',
+])('submits self-hosted identity %j from the form', async (email) => {
+  const fetchMock = vi.fn().mockResolvedValue(
+    Response.json({
+      ok: true,
+      delivery: 'native',
+      token: 'phone-token',
+      userId: 'mem_member',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  const onAuthed = vi.fn()
+  render(<LoginScreen httpOrigin="https://self.example" onAuthed={onAuthed} />)
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: email } })
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } })
+  fireEvent.click(screen.getByRole('button'))
+  await waitFor(() => expect(onAuthed).toHaveBeenCalledWith('phone-token'))
+  expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({
+    email: email || 'user:sole',
+    password: 'secret',
+    delivery: 'native',
+    deviceId: 'phone',
+    deviceName: 'Phone',
+  })
+  expect(screen.getByText(/Leave email blank/)).toBeTruthy()
 })
