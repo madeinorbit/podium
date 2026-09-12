@@ -1192,7 +1192,22 @@ export class SuperagentService {
     }
     // Re-opening while an earlier terminal attachment is still live just
     // focuses it (resumeSession reuses the row for the same resume ref).
+    //
+    // WHO THE PTY BELONGS TO [PDM-273]. `ownerUserId` is the human who pressed
+    // the button — `ownedThread` above has already proved they own this thread —
+    // and it must travel into the resume, because the fresh-spawn arm of
+    // `SessionRevival.resumeSession` MINTS a session and stamps a durable owner
+    // on it. Omitted, that arm fell through to `firstAdminMemberId()` and handed
+    // the new PTY to whoever enrolled first, which on a multi-human instance is
+    // the wrong person and leaves the session invisible to the one who opened it
+    // (B1 makes the durable owner the sole authority).
+    //
+    // Not a rare path, despite the finding's original reading: `findLiveByResume`
+    // deliberately skips HEADLESS rows, and a thread's own harness session is
+    // headless — so the FIRST "open in terminal" on any thread always fresh-spawns.
+    // The reuse arm only catches a second open while the first PTY is still live.
     const { sessionId } = await this.modules.issueSessionLifecycle.resumeSession({
+      ownerUserId,
       agentKind: agent.data,
       cwd: await this.threadCwd(thread),
       resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },
