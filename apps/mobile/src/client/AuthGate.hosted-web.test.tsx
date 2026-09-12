@@ -35,7 +35,7 @@ it('navigates a logged-out browser to account sign-in and opens the gate on cook
   fireEvent.click(await screen.findByRole('button', { name: 'Continue with Podium Cloud' }))
   expect(screen.queryByLabelText('Password')).toBeNull()
   expect(screen.queryByText('Workspace')).toBeNull()
-  expect(assign).toHaveBeenCalledWith('https://app.example/account/sign-in?returnTo=%2Fmobile%2Fsession%2F123%3Ftab%3Dfiles%23recent')
+  expect(assign).toHaveBeenCalledWith('https://app.example/account/sign-in?returnTo=%2Fmobile%2Fsession%2F123%3Ftab%3Dfiles%23recent&switchAccount=1')
   view.unmount()
   cookie = true // Account sign-in sets the HttpOnly cookie; navigation reloads the shell.
   render(<AuthGate><div>Workspace</div></AuthGate>)
@@ -51,7 +51,7 @@ it('navigates a logged-out browser to account sign-in and opens the gate on cook
 })
 it.each(['https://evil.example/mobile/a', 'https://app.example//evil.example', 'https://app.example/account/handoff'])('defaults unsafe return %s to the mobile root', (current) => {
   const url = new URL(hostedBrowserSignInUrl('https://app.example/account/sign-in?handoff=desktop&challenge=secret&returnTo=https://evil.example#bad', current))
-  expect(url.search).toBe('?returnTo=%2Fmobile%2F')
+  expect(url.search).toBe('?returnTo=%2Fmobile%2F&switchAccount=1')
   expect(url.hash).toBe('')
 })
 it.each(['javascript:alert(1)', 'http://app.example/account/sign-in', 'https://user:pass@app.example/account/sign-in', 'https://app.example/account/handoff'])('rejects invalid account page %s', (page) => {
@@ -70,6 +70,6 @@ it('shows the workspace refusal instead of a repeat-sign-in loop', async () => {
   expect(screen.queryByRole('button', { name: 'Continue with Podium Cloud' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Use another account' }))
   await waitFor(() => expect(assign).toHaveBeenCalled())
-  expect(mocks.logout).toHaveBeenCalledWith('https://api.example', null)
+  expect(mocks.logout).toHaveBeenCalledWith('https://api.example', null, undefined)
   expect(mocks.removeProfile).toHaveBeenCalledWith('browser')
 })

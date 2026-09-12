@@ -19,10 +19,10 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { ChevronDown, ChevronRight } from './icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { useOptionalServerProfile } from '../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
@@ -46,6 +46,7 @@ import { Composer } from './Composer'
 import { Icon } from './Icon'
 import { IdSquare } from './IdSquare'
 import { IssueCloseSheet } from './IssueCloseSheet'
+import { ChevronDown, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
 
@@ -353,6 +354,10 @@ function SheetBody({
     [sessions, issue.id],
   )
   const httpOrigin = useHttpOrigin()
+  const profile = useOptionalServerProfile()
+  // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
+  // profiles scoped when an id is not available yet.
+  const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
   const artifacts = issue.panel?.artifacts ?? []
   const git = issue.gitState
 
@@ -374,7 +379,7 @@ function SheetBody({
       {artifacts.length > 0 ? (
         <Part title="Artifacts" meta={String(artifacts.length)}>
           {artifacts.map((artifact) => {
-            const url = issueArtifactHref(issue, artifact, httpOrigin)
+            const url = issueArtifactHref(issue, artifact, httpOrigin, workspace)
             const label = issueArtifactLabel(artifact)
             return (
               <PressableScale

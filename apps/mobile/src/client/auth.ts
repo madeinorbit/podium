@@ -167,10 +167,20 @@ export async function logout(
   bearer: string | null = null,
   workspaceId?: string,
 ): Promise<void> {
-  if (Platform.OS !== 'web' && bearer && !httpOrigin.startsWith('https://')) {
+  if (Platform.OS === 'web') {
+    const response = await fetch(httpOrigin + '/platform/auth/sign-out', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    })
+    if (!response.ok) throw new Error(`Cloud sign-out failed: ${response.status}`)
+    return
+  }
+  if (bearer && !httpOrigin.startsWith('https://')) {
     throw new Error('refusing to send a bearer over cleartext HTTP')
   }
-  if (Platform.OS !== 'web' && bearer) {
+  if (bearer) {
     const status = await fetchAuthStatus(httpOrigin, bearer, workspaceId)
     if (status.mode === 'cloud') {
       const revoked = await fetch(httpOrigin + '/platform/auth/sign-out', {
@@ -190,7 +200,7 @@ export async function logout(
   }
   const response = await fetch(httpOrigin + '/auth/logout', {
     method: 'POST',
-    credentials: Platform.OS === 'web' ? 'include' : 'omit',
+    credentials: 'omit',
     headers: bearerHeaders(bearer, undefined, workspaceId ? { workspaceId } : undefined),
   })
   if (!response.ok) throw new Error(`logout failed: ${response.status}`)

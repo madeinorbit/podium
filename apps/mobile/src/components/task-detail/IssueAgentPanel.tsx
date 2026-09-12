@@ -1,16 +1,17 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
-import { FileText, Play } from '../icons'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { useServerProfile } from '../../client/ServerProfileGate'
+import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer } from '../ArtifactViewer'
 import { Icon } from '../Icon'
+import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
 
@@ -31,6 +32,10 @@ import { SectionHeading } from './chrome'
  */
 export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
   const httpOrigin = useHttpOrigin()
+  const profile = useOptionalServerProfile()
+  // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
+  // profiles scoped when an id is not available yet.
+  const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
 
   const artifacts = issue.panel?.artifacts ?? []
   const deferred = issue.panel?.deferred ?? []
@@ -45,7 +50,7 @@ export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
             <ArtifactRow
               key={`${a.addedAt}:${a.path}`}
               artifact={a}
-              url={issueArtifactHref(issue, a, httpOrigin)}
+              url={issueArtifactHref(issue, a, httpOrigin, workspace)}
             />
           ))}
         </View>

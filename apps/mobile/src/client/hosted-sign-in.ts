@@ -132,6 +132,7 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
         page.search = new URLSearchParams({
           handoff: 'desktop',
           challenge: attempt.challenge,
+          switchAccount: '1',
         }).toString()
         page.hash = ''
         try {

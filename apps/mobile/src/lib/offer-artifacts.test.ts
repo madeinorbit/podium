@@ -92,6 +92,19 @@ describe('offerArtifactRows', () => {
     expect(rows.every((r) => r.url !== null)).toBe(true)
   })
 
+  it('carries the selected workspace through artifact row URLs', () => {
+    const { rows } = offerArtifactRows({
+      offer: offerFor(['site/index.html']),
+      issue: issue([
+        art('site/index.html', '2026-08-20T00:00:00.000Z', {
+          artifactId: asArtifactId('art_1'),
+        }),
+      ]),
+      httpOrigin: ORIGIN,
+      workspace: 'ws_b',
+    })
+    expect(rows[0]?.url).toContain('/workspace/ws_b/')
+  })
   it('caps the strip and reports the remainder for the "+N" chip', () => {
     const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
     const { rows, extra } = offerArtifactRows({

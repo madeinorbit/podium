@@ -84,6 +84,8 @@ export function offerArtifactRows(args: {
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
   httpOrigin: string
+  /** Selected hosted workspace id or route slug for browser-visible URLs. */
+  workspace?: string
   max?: number
 }): { rows: OfferArtifactRow[]; extra: number } {
   const resolved = resolveOfferArtifacts({
@@ -106,7 +108,7 @@ export function offerArtifactRows(args: {
         label: issueArtifactLabel(artifact),
         preview,
         kind: kindTag(path, preview),
-        url: issueArtifactHref(issue, artifact, args.httpOrigin),
+        url: issueArtifactHref(issue, artifact, args.httpOrigin, args.workspace),
       }
     }),
     extra: resolved.length - shown.length,

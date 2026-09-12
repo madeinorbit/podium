@@ -59,7 +59,7 @@ describe('hosted phone sign-in', () => {
     r.deps.open = vi.fn(async (url) => {
       expect(r.stored()).toContain(verifier)
       expect(url).toBe(
-        `https://ade.podium.do/account/sign-in?handoff=desktop&challenge=${challenge}`,
+        `https://ade.podium.do/account/sign-in?handoff=desktop&challenge=${challenge}&switchAccount=1`,
       )
       expect(url).not.toContain(verifier)
     })

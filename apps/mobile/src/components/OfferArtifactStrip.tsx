@@ -47,7 +47,8 @@ export function OfferArtifactStrip({
   onShowAll?: () => void
 }) {
   const httpOrigin = useHttpOrigin()
-  const { bearer } = useServerProfile()
+  const { bearer, config } = useServerProfile()
+  const workspace = config?.workspaceId ?? config?.workspaceSlug
   const [open, setOpen] = useState<OfferArtifactRow | null>(null)
   // Keyed, not a boolean: one unreachable thumbnail must not demote the others.
   const [broken, setBroken] = useState<readonly string[]>([])
@@ -56,6 +57,7 @@ export function OfferArtifactStrip({
     offer,
     issue,
     httpOrigin,
+    ...(workspace ? { workspace } : {}),
     ...(lastInputAt ? { lastInputAt } : {}),
   })
   // An empty strip renders NOTHING — no view, so no margin under the offer text.

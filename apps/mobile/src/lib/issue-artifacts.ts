@@ -9,6 +9,7 @@ export function issueArtifactHref(
   issue: IssueWire,
   artifact: IssuePanelArtifact,
   httpOrigin: string,
+  workspace?: string,
 ): string | null {
   const root = issue.worktreePath ?? issue.repoPath
   return artifactUrl({
@@ -17,6 +18,7 @@ export function issueArtifactHref(
     artifact,
     ...(root ? { root } : {}),
     ...(issue.machineId ? { machineId: issue.machineId } : {}),
+    ...(workspace ? { workspace } : {}),
   })
 }
 

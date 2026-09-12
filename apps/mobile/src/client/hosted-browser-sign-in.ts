@@ -15,7 +15,7 @@ export function hostedBrowserSignInUrl(signInUrl: string, currentUrl: string): s
   const destination = current.origin === page.origin && mobile && !/[\\\r\n]/.test(current.pathname)
     ? current.pathname + current.search + current.hash
     : '/mobile/'
-  page.search = new URLSearchParams({ returnTo: destination }).toString()
+  page.search = new URLSearchParams({ returnTo: destination, switchAccount: '1' }).toString()
   page.hash = ''
   return page.href
 }
