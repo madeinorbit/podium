@@ -514,14 +514,98 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     expect(authorize(owningViewer, 'read', mySession)).toBe('allow')
   })
 
-  it('SINGLE-USER PARITY: today’s shipped capabilities still read everything', () => {
-    // The acceptance criterion "with one admin owning everything, the full authz
-    // matrix reproduces today's behaviour". These are the capabilities the
-    // transports ACTUALLY mint right now, unmodified.
+  it('SINGLE-USER PARITY: with one admin owning everything, today’s shipped capabilities still read everything', () => {
+    // ── THIS ASSERTION WAS RESTATED, NOT REPAIRED (A3.5 / PDM-236) ──────────
+    //
+    // Flagged in full because it is a TEST CHANGED TO MATCH NEW BEHAVIOUR — the
+    // edit that most deserves to be doubted, and the reason it is argued here
+    // rather than left to be inferred from a diff.
+    //
+    // It used to require that a shipped capability may read `someoneElsesSession`
+    // — a session owned by a SECOND person. A3 (PDM-129) made the scope-`all` arm
+    // decide an owned entity by ownership against `cap.onBehalfOf`, so that read
+    // is now `forbidden`, and this was the only assertion in the suite that
+    // reddened.
+    //
+    // THE ASSERTION WAS WRONG AGAINST ITS OWN PREMISE. The acceptance criterion
+    // is "with ONE ADMIN OWNING EVERYTHING, the full authz matrix reproduces
+    // today's behaviour", and a session owned by a second person is precisely the
+    // input that premise excludes. The product says so twice in its own words:
+    // `modules/sessions/session-state/registry.ts` — *"Until POD-1075 there is no
+    // `owner` column, so today every existing session is owned by the instance's
+    // first admin"* — and this file's own header, *"`auth-store.ts` is still one
+    // password per instance, so every authenticated caller resolves to
+    // `firstAdminMemberId()`"*. Owner and reader are the same person on a shipped
+    // instance, so A3 denied nothing an operator can reach. What the old line
+    // actually pinned was the ADMIN-TO-PRIVATE-RESOURCE BYPASS, as though it were
+    // a shipped capability worth preserving.
+    //
+    // NOR DOES THIS CONCEDE THE EXPOSURE ORDER, which is the clause pointing the
+    // other way (execution charter: *"through phases A and B ... the issue
+    // authorization evaluators keep today's owner-or-grant TASK read predicate
+    // unchanged"*, with C4/PDM-144 replacing it in one reviewed change). A3's
+    // diff to `packages/model/src/authz/issue-authz.ts` DELETES NO LINE; it adds
+    // two target-kind branches. An ISSUE target still reaches `return 'allow'`
+    // down the path it always took and the `subtree` arm's read-allow is
+    // untouched — which is why the task leg below passes unchanged. What moved is
+    // SESSION privacy — ADR 9 Amendment 1 A1.3/D7, *"no administrator may view or
+    // drive another member's session"*, and D13 — a different target class from
+    // the task predicate C4 owns, and a NARROWING, which is the direction the
+    // exposure order exists to protect.
+    //
+    // So parity is restated over the world its premise actually describes, and
+    // the denial that replaced the old line is asserted here too, on the SHIPPED
+    // capability. Both directions are pinned, so this test cannot be passed
+    // quietly by either mistake: a further narrowing reddens the parity half, a
+    // restored blanket allow reddens the denial half. Both were confirmed by
+    // deliberate break before this was committed.
+
+    // The single-user premise, stated rather than assumed: every read leg's
+    // shipped capability is minted for the SAME human.
+    const sole = OWNER
+    for (const transport of READ_LEGS) {
+      expect(transport.capabilityFor(AGENT_OF_OWNER).onBehalfOf, transport.tag).toBe(sole)
+    }
+
+    // Everything that one admin owns: the two entity classes the `all` arm now
+    // decides by ownership, and the task target it decides exactly as before.
+    const theirs = [
+      ['their own session', mySession],
+      ['a session they own that is shared with nobody', { kind: 'owned', id: 's4', owner: sole, grants: [] }],
+      ['their own per-user row', { kind: 'per-user-row', userId: sole }],
+      ['an unrelated task', { id: 'iss:unrelated' }],
+    ] as const
     for (const transport of READ_LEGS) {
       const shipped = transport.capabilityFor(AGENT_OF_OWNER)
-      expect(authorize(shipped, 'read', someoneElsesSession), transport.tag).toBe('allow')
-      expect(authorize(shipped, 'read', { id: 'iss:unrelated' }), transport.tag).toBe('allow')
+      for (const [what, target] of theirs) {
+        expect(authorize(shipped, 'read', target), `${transport.tag}: ${what}`).toBe('allow')
+      }
+    }
+
+    // The other direction, asserted on the SHIPPED capability rather than the
+    // `personScoped` substitute the rest of this describe has to use: the human
+    // transports are now denied a second person's session. This is the arm the
+    // old assertion contradicted.
+    for (const transport of HUMAN_TRANSPORTS) {
+      expect(
+        authorize(transport.capabilityFor(), 'read', someoneElsesSession),
+        transport.tag,
+      ).toBe('forbidden')
+    }
+
+    // ...and the AGENT legs are not yet denied it. Recorded rather than dropped
+    // from the loop above, because a filtered loop would have hidden it: a
+    // `subtree` capability read-allows every target (see `authorize`'s READS
+    // block — gating reads by an issue-tree scope would deny an agent every
+    // sibling issue, D20.2), and that reasoning was written about ISSUES, not
+    // about owned entities. Whether an agent's subtree scope should reach another
+    // member's session is a question this task does not own; asserting today's
+    // answer means the day it changes, it changes visibly.
+    for (const transport of AGENT_TRANSPORTS) {
+      expect(
+        authorize(transport.capabilityFor(AGENT_OF_OWNER), 'read', someoneElsesSession),
+        transport.tag,
+      ).toBe('allow')
     }
   })
 })
