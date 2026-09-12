@@ -29,7 +29,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { asAccountId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -42,19 +42,31 @@ import { createBunStoreExecutor } from '../apps/server/src/store/executor'
 
 const CREDENTIAL = 'sk-test-xyz'
 
+/** Whose credential this lane spawns with (PDM-280): a credential belongs to a
+ *  person, and the repository has no unowned read to fall back on. */
+const OWNER = asUserId('mem_probe_owner')
+
 function openAccountsDatabase() {
   const db = openDatabase(':memory:')
   // This lane owns only the managed-account aggregate. Keeping its fixture at
   // that boundary avoids coupling a real PTY spawn test to the Bun-only full
   // server migration runner used by SessionStore.
-  db.exec(`CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
+  //
+  // MIRRORS `managed_credentials` AS THE MIGRATION CREATES IT (PDM-280),
+  // composite key included: a fixture keyed on `id` alone would let this lane
+  // keep passing after a reversion of the very thing that makes a credential
+  // one person's.
+  db.exec(`CREATE TABLE managed_credentials (
+    owner_user_id TEXT NOT NULL,
+    id TEXT NOT NULL,
     provider TEXT NOT NULL,
     kind TEXT NOT NULL,
     credential TEXT NOT NULL,
     identity TEXT NOT NULL,
     scope TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    provenance TEXT NOT NULL DEFAULT 'connected',
+    PRIMARY KEY (owner_user_id, id)
   )`)
   return db
 }
@@ -65,7 +77,7 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
   const accounts = new AccountsRepository(queries)
-  await accounts.upsert({
+  await accounts.upsert(OWNER, {
     id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
@@ -74,7 +86,7 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
     scope: 'role',
     createdAt: 1,
   })
-  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'))).env
+  const env = (await resolveAccountEnv(accounts, OWNER, asAccountId('managed:anthropic'))).env
   db.close()
   return env
 }
@@ -295,7 +307,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
     const accounts = new AccountsRepository(queries)
-    await accounts.upsert({
+    await accounts.upsert(OWNER, {
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
@@ -304,7 +316,7 @@ describe('managed account -> real spawned process env (#216)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
+    const { env } = await resolveAccountEnv(accounts, OWNER, asAccountId('managed:claude-oauth'))
     db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 
