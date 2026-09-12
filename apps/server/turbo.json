@@ -367,6 +367,7 @@
         "src/migrations/index.ts",
         "src/migrations/integrity.test.ts",
         "src/migrations/issue-blank-text-backfill.test.ts",
+        "src/migrations/managed-credential-adoption.test.ts",
         "src/migrations/member-login-email.test.ts",
         "src/migrations/out-of-order-rebuild.test.ts",
         "src/migrations/per-user-state-family.test.ts",

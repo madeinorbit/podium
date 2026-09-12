@@ -10,6 +10,13 @@
  * repository because managed credentials are a store table with no service in
  * front of them, and settings because the `list` read merges native CLI logins
  * with what Podium stores.
+ *
+ * `callerUserId` is on the state because all three handlers need it: `login`
+ * tracks its attempt per owner (PDM-271), and `connect` and `disconnect` write
+ * and delete inside that person's credentials (PDM-280). What is NOT here is the
+ * caller's ROLE, so nothing in this file can enforce the `roleFloor: 'admin'`
+ * these contracts declare — see PDM-294, which owns that gap for every family
+ * without an `authz.ts`.
  */
 
 import {
@@ -61,7 +68,13 @@ export const ACCOUNT_COMMANDS_TRPC = {
       // key. Derived server-side, which is what makes the contract's
       // `callerSuppliedTargetId: false` true rather than aspirational.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
-      await state.accounts.upsert({
+      // WHOSE ROW (PDM-280). `ownership.owner: 'on-behalf-of-human'` was declared
+      // by this contract long before anything stored it; the row is keyed
+      // (owner, id) now, so the declaration is a fact. The id stays a SLOT NAME
+      // derived from provider and kind — which is what keeps
+      // `callerSuppliedTargetId: false` true — and the slot lives inside this
+      // caller's credentials rather than the instance's single row.
+      await state.accounts.upsert(asUserId(state.callerUserId), {
         id: asAccountId(id),
         provider: input.provider,
         kind: input.kind,
@@ -77,7 +90,11 @@ export const ACCOUNT_COMMANDS_TRPC = {
   disconnect: {
     contract: ACCOUNT_CONTRACTS.disconnect,
     handler: (async (state, input) => {
-      await state.accounts.remove(input.id)
+      // Scoped to the caller, which also satisfies this contract's declared
+      // errorConsistency without a second error path: another person's row is
+      // not in this caller's namespace, so disconnecting it does exactly what
+      // disconnecting a row that never existed does — nothing, silently.
+      await state.accounts.remove(asUserId(state.callerUserId), input.id)
       return { ok: true as const }
     }) satisfies AccountHandler<
       z.infer<(typeof ACCOUNT_CONTRACTS)['disconnect']['input']>,

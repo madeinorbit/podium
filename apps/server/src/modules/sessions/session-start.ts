@@ -163,9 +163,7 @@ export interface SessionStartPorts {
     issueId?: IssueId
     workflowRevisionId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
-  sessionOwner(
-    sessionId: SessionId,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{
@@ -234,7 +232,7 @@ export class SessionStart {
     const agentKind = requested.success
       ? requested.data
       : resolveRole(
-          await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
+          await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
           'coding',
         ).harness
     // Resolve the target machine before model validation — the catalog is
@@ -481,7 +479,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
+            await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the
@@ -615,7 +613,14 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
+      // The credential is resolved for `ownerUserId` — the human this session
+      // belongs to, required on this path since B1 — and NOT for
+      // `settingsViewer()`, which answers the earliest admin (PDM-280/PDM-295).
+      ...(await this.ports.launchConfig.accountEnv(
+        input.agentKind,
+        ownerUserId,
+        selectedAccountId,
+      )),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })
