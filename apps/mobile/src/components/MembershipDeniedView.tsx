@@ -32,6 +32,7 @@ export function MembershipDeniedView({
       </Text>
       <HostedSignInButton
         server={server}
+        signInUrl={signInUrl}
         workspaceId={workspaceId}
         label="Use another account"
         onBegin={onBegin}

@@ -94,6 +94,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         <MembershipDeniedView
           reason={authStatus?.deniedReason ?? ''}
           server={config.httpOrigin}
+          workspaceId={profile.workspaceId}
           signInUrl={authStatus?.signInUrl}
           onBegin={async () => {
             // Revoke/clear the refused account before starting a new handoff.
