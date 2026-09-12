@@ -86,9 +86,27 @@ export function operationProcedures() {
      * finish or fail" is a sentence the panel renders, not an exception it
      * catches.
      */
+    /**
+     * THE FLOOR THIS PROCEDURE DECLARED AND DID NOT ASK FOR (PDM-294).
+     *
+     * `operations.cancel`'s contract carries the same policy as `settleAsk` and
+     * `action` — `roleFloor: 'admin'`, `resource: 'machine'`,
+     * `machineVerb: 'manage'` — and its rationale says so in as many words:
+     * *"only an admin who can manage the operation target may invoke it"*. Two
+     * of the three went through {@link assertActionAuthorized} and this one did
+     * not, so any signed-in member could tear down another person's lifecycle
+     * staging mid-flight.
+     *
+     * The SAME function, deliberately, rather than a second admin comparison in
+     * this file: the three contracts declare the identical policy, and two
+     * spellings of one rule is how the two stop agreeing.
+     */
     cancel: t.procedure
       .input(z.object({ id: z.string() }))
-      .mutation(async ({ ctx, input }) => operationsModule(ctx).engine.cancel(input.id)),
+      .mutation(async ({ ctx, input }) => {
+        await assertActionAuthorized(ctx, input.id)
+        return operationsModule(ctx).engine.cancel(input.id)
+      }),
 
     settleAsk: t.procedure
       .input(z.object({ id: z.string(), actionId: z.string() }))
