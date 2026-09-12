@@ -46,9 +46,16 @@ const grant: GrantRow = {
   actorId: alice,
   onBehalfOf: alice,
 }
+/** The account as the store ANSWERS it: `users.create` writes neither a cloud
+ *  account id nor an avatar, and this fixture supplies no email, so all three
+ *  member identity columns read back as `null`. Carrying them here keeps the
+ *  fixture comparable to a read with `toEqual`, which is the whole point of it. */
 const account = {
   id: alice,
   displayName: 'Alice',
+  email: null,
+  accountId: null,
+  avatar: null,
   role: 'admin' as const,
   createdAt: at,
   disabledAt: null,

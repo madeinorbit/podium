@@ -37,7 +37,7 @@
  * concurrently, and pinning "last" makes a green test a function of merge order.
  */
 
-import { firstAdminMemberId, settingsPathsInTier } from '@podium/model'
+import { asUserId, settingsPathsInTier } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { UserPreferencesRepository } from '../store/user-preferences'
@@ -46,6 +46,14 @@ import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
 const MIGRATION = 'personal-preference-store'
+
+/** The owner literal this migration writes, spelled out for the same reason the
+ *  migration spells it out: a migration is frozen history, so this test keeps
+ *  asserting the id that was actually written. Nothing ties it to a constant any
+ *  more — A2 retired `firstAdminMemberId()`'s ambient form and re-keys this very
+ *  row to a minted `mem_` id, which is why every case here stops at this
+ *  migration rather than running the chain to its head. */
+const FIRST_ADMIN = asUserId('user:sole')
 
 /**
  * The keys the migration's SQL spells out, transcribed. Asserted below to equal
@@ -269,11 +277,11 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // The `->` vs `->>` property, asserted as types rather than as values so it
     // cannot pass on a stringified `"true"`.
     const prefs = new UserPreferencesRepository(stageASeam(migrated()))
-    expect(await prefs.get(firstAdminMemberId(), 'autoContinue.enabled')).toBe(true)
-    expect(await prefs.get(firstAdminMemberId(), 'notifications.web')).toBe(true)
-    expect(await prefs.get(firstAdminMemberId(), 'autoContinue.promptDismissed')).toBe(false)
-    expect(await prefs.get(firstAdminMemberId(), 'roles.coding.seedCliTheme')).toBe(false)
-    expect(await prefs.get(firstAdminMemberId(), 'sidebar.repoOrder')).toEqual([
+    expect(await prefs.get(FIRST_ADMIN, 'autoContinue.enabled')).toBe(true)
+    expect(await prefs.get(FIRST_ADMIN, 'notifications.web')).toBe(true)
+    expect(await prefs.get(FIRST_ADMIN, 'autoContinue.promptDismissed')).toBe(false)
+    expect(await prefs.get(FIRST_ADMIN, 'roles.coding.seedCliTheme')).toBe(false)
+    expect(await prefs.get(FIRST_ADMIN, 'sidebar.repoOrder')).toEqual([
       '/repo/DISTINCT-a',
       '/repo/DISTINCT-b',
     ])
@@ -284,11 +292,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     const owners = db.prepare('SELECT DISTINCT user_id FROM user_preferences').all() as {
       user_id: string
     }[]
-    expect(owners).toEqual([{ user_id: 'user:sole' }])
-    // The migration's frozen literal and the shipped constant are the same id.
-    // Asserted here rather than by importing it into the SQL, so a rename is
-    // CAUGHT rather than silently followed.
-    expect(owners[0]?.user_id).toBe(firstAdminMemberId())
+    expect(owners).toEqual([{ user_id: FIRST_ADMIN }])
   })
 
   it('stamps a write time the blob never had', () => {
@@ -318,7 +322,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // topic means "mobile push off", which is a choice this person made.
     const db = migrated(nestedBlob({ notifications: { ntfyTopic: '', web: true } }))
     const prefs = new UserPreferencesRepository(stageASeam(db))
-    expect(await prefs.get(firstAdminMemberId(), 'notifications.ntfyTopic')).toBe('')
+    expect(await prefs.get(FIRST_ADMIN, 'notifications.ntfyTopic')).toBe('')
   })
 
   it('survives a corrupt blob instead of wedging boot', () => {
@@ -370,7 +374,7 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
         cursor = (cursor as Record<string, unknown> | undefined)?.[segment]
       }
       expect(cursor, `${key} should be gone from the blob`).toBeUndefined()
-      expect(await prefs.get(firstAdminMemberId(), key), `${key} should be in user_preferences`).toEqual(
+      expect(await prefs.get(FIRST_ADMIN, key), `${key} should be in user_preferences`).toEqual(
         SEEDED[key],
       )
     }

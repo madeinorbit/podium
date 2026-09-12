@@ -340,7 +340,12 @@ describe('D19.4 regression sequences', () => {
     const restarted = await makeWorld(dir)
     // No pair code — only the old token.
     const auth = await hello(restarted.machines, machineId, token)
-    expect(auth).toEqual({ ok: true, machineId, name: 'remote.local' })
+    // `legacyBindingOwners` rides every successful hello (PDM-117): the daemon is
+    // told which of its sessions the server still has an owner for. No session was
+    // bound here, so the answer is the empty map — asserted rather than relaxed to
+    // `toMatchObject`, because "re-enrolled with nothing attributed to it" is part
+    // of what LOSS RECOVERS claims.
+    expect(auth).toEqual({ ok: true, machineId, name: 'remote.local', legacyBindingOwners: {} })
     expect((await restarted.store.machines.getMachine(machineId))?.id).toBe(machineId)
     // Same MachineId preserved; token still authenticates after re-enrol.
     expect((await hello(restarted.machines, machineId, token)).ok).toBe(true)

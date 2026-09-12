@@ -106,6 +106,22 @@ const account = (id: UserId, createdAt: string) => ({
   disabledAt: null,
 })
 
+/**
+ * What the read ANSWERS for a row inserted from {@link account}.
+ *
+ * `UserAccountRow` carries the member identity columns — login email, cloud
+ * account id, avatar — and the insert above sets none of them, so the row holds
+ * NULL and the mapper reports `null`. Spelled out rather than folded into
+ * `account` because that helper is the INSERT shape: `accountId` is the
+ * `cloud_account_id` column under another name, and drizzle would not know it.
+ */
+const accountRead = (id: UserId, createdAt: string) => ({
+  ...account(id, createdAt),
+  email: null,
+  accountId: null,
+  avatar: null,
+})
+
 /** The store the repositories are normally built over. */
 function migratedStore() {
   const database = openMigratedTestDatabase()
@@ -174,7 +190,7 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
       .values({ ...account(asUserId('user:future'), '2026-09-01T10:00:00.000Z'), role: 'overlord' })
       .run()
 
-    expect(await repo.get(ALICE)).toEqual(account(ALICE, '2026-09-01T10:00:00.000Z'))
+    expect(await repo.get(ALICE)).toEqual(accountRead(ALICE, '2026-09-01T10:00:00.000Z'))
     // FAILS CLOSED, all three ways: no row, a disabled row, an unreadable role.
     expect(await repo.get(asUserId('user:nobody'))).toBeUndefined()
     expect(await repo.get(BOB)).toBeUndefined()

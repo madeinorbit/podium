@@ -42,11 +42,27 @@ describe('operation timers in the shutdown path', () => {
 
   it('are stopped BEFORE the store closes', () => {
     const source = serverSource()
-    const stopTimers = source.indexOf("['operations.stopTimers'")
-    const closeStore = source.indexOf("['store.close'")
-    expect(stopTimers).toBeGreaterThan(-1)
-    expect(closeStore).toBeGreaterThan(-1)
-    expect(stopTimers).toBeLessThan(closeStore)
+    // THE SHAPE CHANGED, THE PROPERTY DID NOT (ce4635f3). The persist list used
+    // to END with a `['store.close', ...]` step, so "before the store closes"
+    // was a question about this list's ORDER. The store owns the drain now —
+    // `drainStore` IS `store.close(persist)`, and it runs the whole list from
+    // INSIDE the close it is performing — so every step runs while the database
+    // is still open, and the timers are disarmed before it shuts. Position in
+    // the list no longer decides it; being in the list at all does.
+    expect(source).toContain('drainStore: (persist) => store.close(persist)')
+    // MATCH THE STEP, NOT ONE FORMATTING OF IT. A persist step is `['name', fn]`,
+    // and an entry wraps its bracket onto its own line as soon as the body grows
+    // — which `operations.stopTimers` has done. Scraping for the adjacent
+    // `['name'` spelling made this assertion a test of the formatter. The
+    // trailing comma is what separates a step from a mention in prose: the
+    // comment below the list names `'store.close'` precisely to say it is gone.
+    const persistStep = (name: string) => new RegExp(`\\[\\s*'${name.replaceAll('.', '\\.')}'\\s*,`)
+    expect(source).toMatch(persistStep('operations.stopTimers'))
+    // AND THE OLD STEP MUST NOT COME BACK. Holding both spellings at once is
+    // what deadlocked shutdown: the last persist step re-entered the close it
+    // was running inside and awaited a drain that could never finish. Neither
+    // side's tests could see it, because the defect exists only in the pair.
+    expect(source).not.toMatch(persistStep('store.close'))
   })
 
   it('are stopped through the module seam, not a captured local', () => {
