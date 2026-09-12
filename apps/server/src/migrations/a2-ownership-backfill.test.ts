@@ -35,6 +35,7 @@ import { runDrizzleMigrations } from './index'
 
 const BACKFILL = 'a2-ownership-backfill'
 const DROP = 'a2-retire-issue-assignee'
+const SOLO = 'retire-the-solo-user'
 
 const indexOf = (name: string): number => {
   const i = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.includes(name))
@@ -138,6 +139,46 @@ const creatorOf = (db: SqlDatabase, id: string) =>
       'SELECT created_by_actor AS actor, created_by_on_behalf_of AS onBehalfOf FROM issues WHERE id = ?',
     )
     .get(id) as { actor: string; onBehalfOf: string | null }
+
+const idsOf = (db: SqlDatabase, table: string): string[] =>
+  (db.prepare(`SELECT id FROM ${table} ORDER BY id`).all() as { id: string }[]).map((r) => r.id)
+
+/** A POD-1075-ERA DATABASE: the solo-user retirement has not run, so `user:sole`
+ *  is still the literal owner of everything and no `mem_` id has been minted yet.
+ *
+ *  This is a DIFFERENT fixture from {@link preBackfillDb} and makes a different
+ *  claim. That one rewinds to the migration immediately before the backfill, which
+ *  proves what the backfill does; it cannot prove what an upgrade does, because the
+ *  upgrade is the whole chain and the interesting value — the minted first-admin id
+ *  — is produced FIVE migrations earlier, with `member-login-email`,
+ *  `member-invites`, `member-avatar` and `a2-ownership-schema` in between. */
+function preSoloUserDb(): SqlDatabase {
+  const db = openDatabase(':memory:')
+  db.exec('PRAGMA foreign_keys = OFF')
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, indexOf(SOLO)))
+
+  // THE PRE-STATE, asserted for the same reason preBackfillDb asserts its own: a
+  // fixture that had already been through A2 would make every assertion below
+  // vacuous, and it would look identical from the outside.
+  expect(columnsOf(db, 'issues')).toContain('assignee')
+  expect(columnsOf(db, 'issues')).not.toContain('assignment_revision')
+  return db
+}
+
+/** The legacy shape A2's own prose describes: `owner_user_id` says `user:sole` on
+ *  every row because POD-1075 defaulted it there, and `assignee` holds the person a
+ *  human actually chose. */
+function seedLegacyDivergentIssue(db: SqlDatabase, id: string): void {
+  seedUser(db, 'user:sole')
+  seedUser(db, 'mem_person')
+  seedIssue(db, {
+    id,
+    owner: 'user:sole',
+    assignee: 'mem_person',
+    createdBy: 'user:sole',
+    createdOnBehalfOf: 'user:sole',
+  })
+}
 
 describe('A2 ownership backfill — the legacy shapes, and who they displace', () => {
   it('adopts an assignee that names a real account, and records that it did', () => {
@@ -388,6 +429,79 @@ describe('A2 ownership dispositions — a record that loses the loser is not wri
         disposition: 'kept-owner-assignee-was-agent-label',
       }),
     ).toThrow(/CHECK constraint failed/)
+  })
+})
+
+describe('A2 ownership backfill — the supported pre-A2 upgrade, end to end', () => {
+  // WHY THIS BLOCK EXISTS SEPARATELY FROM EVERYTHING ABOVE. Every other case here
+  // rewinds to the migration immediately before the backfill, which is the right
+  // fixture for "what does the backfill do" and the wrong one for "what does an
+  // upgrade do". The value an operator will actually find in `prior_owner` on a
+  // real upgraded instance is not a test id — it is the `mem_` id MINTED by
+  // `20260911082826_retire-the-solo-user` five migrations earlier, substituted
+  // into that file's `{{mint:mem_}}` by the runner. Nothing above ever sees it.
+
+  it('carries a pre-A2 database through the WHOLE chain with attribution intact', () => {
+    const db = preSoloUserDb()
+    seedLegacyDivergentIssue(db, 'iss_legacy')
+
+    // STEP 1 — through the solo retirement only. This is the migration that mints
+    // the id, and stopping here is the only way to learn what it minted.
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, indexOf(SOLO) + 1))
+    const minted = ownerOf(db, 'iss_legacy')
+    expect(minted).toMatch(/^mem_/)
+    expect(idsOf(db, 'users')).not.toContain('user:sole')
+
+    // STEP 2 — the rest of the chain, A2 included, exactly as a server booting on
+    // this database would apply it.
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+
+    // The owner moved to the human the assignee named...
+    expect(ownerOf(db, 'iss_legacy')).toBe('mem_person')
+    // ...and the record names the MINTED installer id it displaced. This is the
+    // assertion the whole issue is about, made against the value a real upgrade
+    // produces rather than against a fixture constant.
+    expect(dispositionOf(db, 'iss_legacy')).toEqual({
+      disposition: 'adopted-assignee-as-owner',
+      prior_owner: minted,
+      resolved_owner: 'mem_person',
+      retired_assignee: 'mem_person',
+    })
+    // Creator attribution was re-keyed by the solo retirement and then left alone:
+    // A2 made exactly one of the two accountable fields mutable.
+    expect(creatorOf(db, 'iss_legacy')).toEqual({ actor: minted, onBehalfOf: minted })
+    // And the source column is gone, so this is the end state, not a midpoint.
+    expect(columnsOf(db, 'issues')).not.toContain('assignee')
+  })
+
+  it('leaves every generated identity exactly as the mint produced it', () => {
+    // The charter requires A2's generated IDs to survive this correction. Reasoning
+    // that they must — nothing here writes an id, and the corrected INSERTs add a
+    // column rather than alter one — is not evidence, so this compares the actual
+    // sets across the A2 chain.
+    const db = preSoloUserDb()
+    seedLegacyDivergentIssue(db, 'iss_identity')
+
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, indexOf(SOLO) + 1))
+    const minted = ownerOf(db, 'iss_identity')
+    const beforeA2 = { users: idsOf(db, 'users'), issues: idsOf(db, 'issues') }
+
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+
+    expect({ users: idsOf(db, 'users'), issues: idsOf(db, 'issues') }).toEqual(beforeA2)
+
+    // And the evidence row REFERENCES those identities rather than carrying values
+    // of its own invention: an id in the disposition that matches nothing is the
+    // same failure as an id that is missing.
+    const row = db
+      .prepare(
+        'SELECT entity_id, prior_owner, resolved_owner FROM ownership_migration_dispositions',
+      )
+      .get() as { entity_id: string; prior_owner: string; resolved_owner: string }
+    expect(beforeA2.issues).toContain(row.entity_id)
+    expect(beforeA2.users).toContain(row.prior_owner)
+    expect(beforeA2.users).toContain(row.resolved_owner)
+    expect(row.prior_owner).toBe(minted)
   })
 })
 
