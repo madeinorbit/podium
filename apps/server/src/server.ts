@@ -96,8 +96,8 @@ import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { onBehalfOfUser, userCommandPrincipal } from './command-principal'
 import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
-import { fileAccessGate } from './modules/files/file-access-gate'
 import { registerAssetRoute } from './file-asset-route'
+import { type FileAccessGate, fileAccessGate } from './modules/files/file-access-gate'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -1625,63 +1625,81 @@ export async function startServer(
   app.use('/files/*', cors())
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
-  registerAssetRoute(app, {
-    readAsset: async (a) => await registry.modules.rpc.readAsset(a),
-    allowsRoot: async (root, machineId) =>
-      (await repos.inferFromPath(
-        root,
-        machineId ?? (await registry.modules.machines.defaultMachine()),
-      )) !== undefined,
-  })
   /**
-   * Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon
-   * hop, and behind the SAME issue-access rule `files.read` runs (PDM-261).
+   * ONE CALLER-BOUND FILE GATE, FOR BOTH RAW FILE ROUTES (PDM-261 + PDM-262).
    *
-   * WHAT USED TO BE HERE was `registry.modules.issueArtifacts` — the store
-   * itself. `clientAuthGuard` above establishes that the caller is signed in,
-   * which is the only question that was ever asked on this path, so any member
-   * could name any issue id and be served its attachments. The route now gets
-   * one caller's `FileAccessGate` instead of the store.
+   * `/files/asset` and `/files/artifact/…` serve the same class of bytes over
+   * the same transport and were repaired one after the other, each arriving at
+   * this same block independently. They are collapsed here rather than left as
+   * two textually identical closures, because two copies of "who is calling"
+   * are two answers waiting to diverge — which is the argument the gate itself
+   * rests on, applied one layer up. The coordinator ruled the hoist onto
+   * PDM-262 as the second lander.
    *
-   * THE PRINCIPAL IS RESOLVED PER REQUEST BY `requestPrincipal` — the same
-   * resolver the /trpc context factory uses a few lines below, deliberately and
-   * not merely conveniently. Two resolvers would be two answers to "who is
-   * calling", and this route and `files.read` serve the same bytes: they must
-   * not be able to disagree about the caller any more than about the rule.
+   * THE PRINCIPAL IS RESOLVED BY `requestPrincipal` — the SAME resolver the
+   * /trpc context factory uses a few hundred lines below, deliberately and not
+   * merely conveniently. These routes and `files.read` serve the same bytes:
+   * they must not be able to disagree about the caller any more than about the
+   * rule.
    *
-   * A gate is bound to ONE caller, so this cannot be hoisted out of the
-   * closure — `doorFor` takes the request and builds the gate for whoever sent
-   * it. `undefined` here means no principal could be resolved at all, which the
-   * route answers 401.
+   * A GATE IS BOUND TO ONE CALLER, so this cannot be hoisted any further — out
+   * of the closure and into a value, it would authorize every later request as
+   * whoever arrived first. It takes the request and builds the gate for whoever
+   * sent it; `undefined` means no principal could be resolved at all, which
+   * both routes answer 401.
+   *
+   * `clientAuthGuard` on `/files/*` already establishes that the caller is
+   * signed in. That was the only question either route ever asked, and it is
+   * the half that was never enough: it says the request came from a member and
+   * says nothing about WHICH member's session or issue is being read.
    */
-  registerArtifactRoute(app, {
-    doorFor: async (request) => {
-      const principal = await requestPrincipal(
-        {
-          cookieHeader: request.headers.get('cookie') ?? undefined,
-          authorizationHeader: request.headers.get('authorization') ?? undefined,
-        },
-        request,
-      )
-      if (principal === undefined) return undefined
-      // `onBehalfOfUser`, NOT a `kind === 'user'` ternary spelled out here. The
-      // first draft of this block was that ternary, and it answers `undefined`
-      // for an AGENT principal where the rule answers its `onBehalfOf` — the
-      // exact respelling `file-access-gate.ts`'s header warns about, and wrong
-      // by rule even though `requestPrincipal` happens to mint only user
-      // principals today. `null` is the system principal, which holds no
-      // capability at all and is unreachable from every transport by D21.
-      // (Caught by PDM-262, working the same seam on `/files/asset`.)
-      const userId = onBehalfOfUser(principal)
-      if (userId === null) return undefined
-      return fileAccessGate(
-        registry.modules,
-        repos,
-        { userId, capability: principal.capability },
-        principal,
-      )
-    },
-  })
+  // TYPED AS THE WHOLE GATE, not as either route's narrowing. `AssetGate` is a
+  // `Pick` of two doors and `ArtifactDoor` names a third, so a factory typed as
+  // ONE of them cannot feed the other — the compiler said so (TS2322,
+  // "Property 'readArtifact' is missing in type 'AssetGate'") the moment the two
+  // blocks became one. Each route still asks for only the doors it uses; the
+  // narrowing belongs at the parameter, which is where it says something, and
+  // not at the shared value, where it would just be the first caller's shape.
+  const fileGateFor = async (request: Request): Promise<FileAccessGate | undefined> => {
+    const principal = await requestPrincipal(
+      {
+        cookieHeader: request.headers.get('cookie') ?? undefined,
+        authorizationHeader: request.headers.get('authorization') ?? undefined,
+      },
+      request,
+    )
+    if (principal === undefined) return undefined
+    // `onBehalfOfUser`, NOT a `kind === 'user'` ternary spelled out here. That
+    // ternary answers `undefined` for an AGENT principal where the rule answers
+    // its `onBehalfOf` — the exact respelling `file-access-gate.ts`'s header
+    // warns about, and wrong by rule even though `requestPrincipal` happens to
+    // mint only user principals today. `null` is the system principal, which
+    // holds no capability at all and is unreachable from every transport (ADR 3
+    // Amendment 1 D21).
+    //
+    // NO `kind === 'system'` ARM, and the COMPILER is the reason rather than an
+    // assumption: `requestPrincipal` only ever mints `userCommandPrincipal`, so
+    // its type is `UserCommandPrincipal | undefined` and that test is dead code
+    // TypeScript rejects outright (TS2367). If it ever widens to
+    // `CommandPrincipal`, `principal.capability` below stops compiling — which
+    // puts the failure where a person can see it.
+    const userId = onBehalfOfUser(principal)
+    if (userId === null) return undefined
+    return fileAccessGate(
+      registry.modules,
+      repos,
+      { userId, capability: principal.capability },
+      principal,
+    )
+  }
+  // The asset route takes the factory directly; the artifact route names it
+  // `doorFor`. Two spellings of one value, left alone rather than unified,
+  // because changing a route's signature to tidy a call site is a change with
+  // no test behind it.
+  registerAssetRoute(app, fileGateFor)
+  // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon
+  // hop, and behind the SAME issue-access rule `files.read` runs (PDM-261).
+  registerArtifactRoute(app, { doorFor: fileGateFor })
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win

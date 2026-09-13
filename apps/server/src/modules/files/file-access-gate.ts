@@ -67,20 +67,51 @@
  *
  * NOTE FOR PDM-261 / PDM-262. Those two cover the RAW HTTP routes over these
  * same bytes (`GET /files/artifact/…`, `GET /files/asset`). This gate is the
- * predicate they were told to adopt if one served all five doors: it does, and
- * `readArtifact` and `readRoot` are the two methods they want. Neither issue
- * closing disposes of the other, and nothing here reaches across to edit them.
+ * predicate they were told to adopt if one served all five doors: it does.
  *
- * PDM-261 HAS SINCE ADOPTED `readArtifact` and changed ONE thing about it: the
- * method now forwards a byte `range`. `GET /files/artifact/…` serves `Range`
- * requests and the method could not, so adopting it as written would have meant
- * the route keeping a direct store read for ranged requests — an authorized
- * door beside an unauthorized one, which is the shape this port exists to make
- * impossible. The authorization is untouched: `checkIssueAccess` runs first and
- * unchanged, and `file-artifact-route.authz.test.ts` drives the raw route and
- * `files.read` over one fixture so a break in that single call reddens both.
+ * PDM-262 ARRIVED SECOND AND CORRECTED THE SENTENCE THAT USED TO END HERE,
+ * which named `readArtifact` and `readRoot` as "the two methods they want".
+ * That split is wrong in both halves. `readArtifact` is PDM-261's alone.
+ * `GET /files/asset` has TWO arms — one addressed by session and one by root —
+ * so PDM-262 wants a session door and a root door, not one of them; and neither
+ * of the doors that existed fits it, because both dispatch `rpc.readFile` while
+ * an asset read is `rpc.readAsset`: binary, ranged, and answering `size`. So
+ * PDM-262 added `readSessionAsset` and `readRootAsset` rather than reusing a
+ * door whose only resemblance was its name. THE PREDICATES ARE UNCHANGED AND
+ * UNDUPLICATED — each new door calls the same `mayReadSessionPrivate` /
+ * `requireRoot` its text neighbour calls. PDM-251 renamed that first predicate
+ * and narrowed its ANSWER (a session is private, so a task grantee no longer
+ * reads its files) after these doors were written, and both doors moved with it
+ * in ONE edit — which is the whole return on sharing a predicate rather than
+ * copying one. Across the two issues it is THREE
+ * methods, not two, and the gate now has seven doors rather than five.
+ *
+ * PDM-261 ADOPTED `readArtifact` AND CHANGED ONE THING ABOUT IT: the method now
+ * forwards a byte `range`. `GET /files/artifact/…` serves `Range` requests and
+ * the method could not, so adopting it as written would have meant the route
+ * keeping a direct store read for ranged requests — an authorized door beside
+ * an unauthorized one, which is the shape this port exists to make impossible.
+ * The authorization is untouched: `checkIssueAccess` runs first and unchanged,
+ * and `file-artifact-route.authz.test.ts` drives the raw route and `files.read`
+ * over one fixture so a break in that single call reddens both.
+ *
+ * PDM-262'S TWO ASSET DOORS TAKE A RANGE FOR THE SAME REASON AND ON THAT
+ * PRECEDENT — argued once, above, not re-decided. Its route has three read
+ * paths, and the suffix path issues a ONE-BYTE PROBE READ before anything else,
+ * so a door that could only answer with a whole file would have left the probe
+ * outside the gate: `Range: bytes=-1` would serve the first byte and the true
+ * size of anyone's file while every plain-path test stayed green.
+ *
+ * PDM-262 ALSO MOVED THE `..` COLLAPSE INTO `requireRoot`, which changed
+ * BEHAVIOUR ON THE tRPC SIDE and is called out here rather than left to be
+ * discovered: see that function's header. The raw asset route had the collapse
+ * and `files.read` / `list` / `search` did not, so the containment half of this
+ * gate was defeatable on the transport with more callers.
+ *
+ * Neither issue closing disposes of the other.
  */
 
+import { isAbsolute, resolve } from 'node:path'
 import {
   asMachineId,
   type ArtifactId,
@@ -92,6 +123,7 @@ import {
 } from '@podium/model'
 import type {
   DirListResultMessage,
+  FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
 } from '@podium/protocol'
@@ -160,6 +192,29 @@ export interface FileAccessGate {
     path: string,
     machineId?: MachineId,
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>>
+  /**
+   * ONE SESSION'S ASSET BYTES, if this caller may read that session — the same
+   * predicate `readSession` runs, over the other daemon op.
+   *
+   * A SECOND DOOR RATHER THAN A FLAG ON THE FIRST, because `readFile` and
+   * `readAsset` are genuinely different reads: assets are binary, ranged, and
+   * answer `size` so a partial-content response can be built. Collapsing them
+   * into one method with an optional range would make the text door carry a
+   * parameter it cannot honour. The AUTHORIZATION is what is shared, and it is
+   * shared by construction — both call `mayReadSessionPrivate` below, once.
+   */
+  readSessionAsset(
+    sessionId: SessionId,
+    path: string,
+    range?: { offset: number; length: number },
+  ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>>
+  /** Asset bytes under an allowed root, on a machine this caller may use. */
+  readRootAsset(
+    root: string,
+    path: string,
+    machineId?: MachineId,
+    range?: { offset: number; length: number },
+  ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>>
   /** One directory under an allowed root, on a machine this caller may use. */
   listRoot(
     root: string,
@@ -181,8 +236,18 @@ export interface FileAccessGate {
    * root) and must key on the machine the op ACTUALLY ran on. Keyed on the
    * caller's optional `machineId`, the default machine's index files under
    * `undefined` and is then served to a caller who named another machine.
+   *
+   * THE RESOLVED ROOT COMES BACK FOR THE SAME REASON (PDM-262), now that
+   * `requireRoot` collapses `..`. Authorizing `/repo` and then keying the cache
+   * on the caller's `/repo/sub/..` files one checkout's index under two names —
+   * and worse, keying on the RAW string is what lets an unnormalized spelling
+   * address an entry the normalized check never approved. Both values that come
+   * back are the ones the op must use.
    */
-  requireSearchableRoot(root: string, machineId?: MachineId): Promise<MachineId>
+  requireSearchableRoot(
+    root: string,
+    machineId?: MachineId,
+  ): Promise<{ root: string; machineId: MachineId }>
   /** The path index of an allowed root, on a machine this caller may use. Runs
    *  the same gate again rather than trusting its caller to have run it. */
   lsFiles(root: string, machineId: MachineId): Promise<OpResult>
@@ -260,13 +325,42 @@ export function fileAccessGate(
     })
   }
 
-  /** Containment, then identity, then the resolved machine — in that order, for
-   *  every root-addressed door. */
-  const requireRoot = async (root: string, machineId?: MachineId): Promise<MachineId> => {
-    await assertAllowedRoot(repos, root)
+  /**
+   * NORMALIZE, then containment, then identity, then the resolved machine — in
+   * that order, for every root-addressed door, and it hands BOTH resolved
+   * values back so the caller dispatches what was authorized.
+   *
+   * THE COLLAPSE IS NEW HERE (PDM-262) AND IT CLOSES A HOLE ON THE tRPC SIDE.
+   * `isAllowedRoot` prefix-matches LEXICALLY, so `/repo/../../etc` starts with
+   * `/repo/` and passes it while the daemon resolves the path to `/etc`. The raw
+   * `GET /files/asset` route already collapsed `..` before asking — it carries a
+   * comment saying exactly why — but `files.read`, `list` and `search` handed
+   * their `root` string to `assertAllowedRoot` untouched, so the containment
+   * rule was defeatable on the transport that had more callers. Doing it here
+   * rather than in the route is the point: ONE collapse, before the one
+   * allowlist, for every door.
+   *
+   * `resolve` is LEXICAL — it is not `realpath`, touches no filesystem and
+   * follows no symlink — which is what makes it safe to run server-side on a
+   * path that belongs to a remote daemon's machine. `root-allowlist.ts` warns
+   * against server-side realpath for exactly that reason; this is not that.
+   *
+   * A RELATIVE ROOT IS REFUSED rather than resolved, because `resolve` would
+   * otherwise complete it against the SERVER's cwd and authorize a path the
+   * caller never named.
+   */
+  const requireRoot = async (
+    root: string,
+    machineId?: MachineId,
+  ): Promise<{ root: string; machineId: MachineId }> => {
+    if (!isAbsolute(root)) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'root must be an absolute path' })
+    }
+    const scoped = resolve(root)
+    await assertAllowedRoot(repos, scoped)
     const target = await resolveTarget(machineId)
     await requireUsable(target)
-    return target
+    return { root: scoped, machineId: target }
   }
 
   return {
@@ -298,14 +392,50 @@ export function fileAccessGate(
 
     async readRoot(root, path, machineId) {
       const target = await requireRoot(root, machineId)
-      return await modules.rpc.readFile({ machineId: target, root, path })
+      return await modules.rpc.readFile({
+        machineId: target.machineId,
+        root: target.root,
+        path,
+      })
+    },
+
+    /**
+     * THE RAW-HTTP READS (PDM-262). `GET /files/asset` has these two arms and
+     * had no identity in its port at all: its session arm consulted NOTHING,
+     * and its root arm consulted `allowsRoot`, which takes a path and a machine
+     * and has nowhere to put a caller. Both now ask the same questions their
+     * tRPC neighbours ask, from this one home.
+     *
+     * THE REFUSAL CODES ARE THE NEIGHBOURS' AND NOT THE ROUTE'S CONVENIENCE:
+     * `readSessionAsset` refuses NOT_FOUND for the same reason `readSession`
+     * does — FORBIDDEN would confirm that a session id someone guessed is real,
+     * which on this surface is the whole thing worth not leaking.
+     */
+    async readSessionAsset(sessionId, path, range) {
+      const mayRead = await mayReadSessionPrivate(
+        caller.userId,
+        sessionId,
+        async (id) => await modules.sessions.sessionOwner(id as never),
+      )
+      if (!mayRead) throw new TRPCError({ code: 'NOT_FOUND' })
+      return await modules.rpc.readAsset({ sessionId, path, ...(range ?? {}) })
+    },
+
+    async readRootAsset(root, path, machineId, range) {
+      const target = await requireRoot(root, machineId)
+      return await modules.rpc.readAsset({
+        machineId: target.machineId,
+        root: target.root,
+        path,
+        ...(range ?? {}),
+      })
     },
 
     async listRoot(root, path, machineId) {
       const target = await requireRoot(root, machineId)
       return await modules.rpc.listDir({
-        machineId: target,
-        root,
+        machineId: target.machineId,
+        root: target.root,
         ...(path !== undefined ? { path } : {}),
       })
     },
@@ -316,7 +446,7 @@ export function fileAccessGate(
 
     async lsFiles(root, machineId) {
       const target = await requireRoot(root, machineId)
-      return await modules.rpc.repoOp('lsFiles', root, undefined, target)
+      return await modules.rpc.repoOp('lsFiles', target.root, undefined, target.machineId)
     },
 
     async writeFile(input) {

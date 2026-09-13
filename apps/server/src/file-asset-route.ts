@@ -1,100 +1,127 @@
 // apps/server/src/file-asset-route.ts
 
-import { isAbsolute, resolve } from 'node:path'
-import { asMachineId, asSessionId, type MachineId, type SessionId } from '@podium/model'
+import { asSessionId, type MachineId, asMachineId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
+import type { FileAccessGate } from './modules/files/file-access-gate'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
 
-export interface AssetReader {
-  /** Worktree asset URLs carry their root over HTTP, so the route must verify
-   *  that the root belongs to the addressed machine before forwarding it. */
-  allowsRoot(root: string, machineId?: MachineId): Promise<boolean> | boolean
-  readAsset(
-    a:
-      | { sessionId: SessionId; path: string; offset?: number; length?: number }
-      | { machineId?: MachineId; root: string; path: string; offset?: number; length?: number },
-  ): Promise<{
-    ok: boolean
-    dataBase64?: string
-    contentType?: string
-    tooLarge?: boolean
-    size?: number
-    error?: string
-  }>
-}
+/**
+ * THE TWO DOORS THIS ROUTE HAS, AND NOTHING ELSE (PDM-262).
+ *
+ * This used to be an `AssetReader` with `readAsset` and `allowsRoot` on it, and
+ * the defect was not that the handler forgot a check — it was that there was
+ * NOWHERE TO PUT ONE. `readAsset` took a locator and returned bytes;
+ * `allowsRoot` took a path and a machine. Neither had an argument for the person
+ * asking, so the session arm asked nothing at all and the root arm asked a
+ * question about paths and called it authorization.
+ *
+ * A `Pick` of the `FileAccessGate` PDM-272 built, so the fix is not a second
+ * predicate that has to be kept in step with the tRPC one: it is the same
+ * object, pre-bound to this request's caller, that `files.read` addresses. The
+ * route can no longer SPELL an unauthorized read — there is no `readAsset` in
+ * its seam to reach for, and no allowlist boolean to forget.
+ */
+export type AssetGate = Pick<FileAccessGate, 'readSessionAsset' | 'readRootAsset'>
+
+/**
+ * THIS REQUEST'S CALLER, RESOLVED BY THE COMPOSITION ROOT.
+ *
+ * `undefined` means no principal could be resolved, which is a 401 and not an
+ * empty-handed read. `/files/*` already sits behind `clientAuthGuard`, so this
+ * should be unreachable in the assembled server — it is still handled rather
+ * than asserted away, because "something upstream already rejects this" is a
+ * convention about wiring and this file cannot see the wiring.
+ */
+export type AssetGateForRequest = (request: Request) => Promise<AssetGate | undefined>
 
 const MAX_RANGE_BYTES = 10 * 1024 * 1024
 
+/** Both halves always set — every call site below passes a resolved pair. The
+ *  spelling matches `readArtifact`'s, adopted on PDM-261's precedent rather
+ *  than re-decided; see the gate header. */
+type AssetRange = { offset: number; length: number }
+type AssetResult = Awaited<ReturnType<AssetGate['readSessionAsset']>>
+
+/** A gate refusal is a domain answer; this is the only place it becomes a status.
+ *  NOT_FOUND stays NOT_FOUND for the session arm on purpose — see
+ *  `readSessionAsset`'s note on why 403 would be an existence oracle for
+ *  somebody else's session id. */
+const refusalStatus = (error: unknown): 403 | 404 | undefined => {
+  if (!(error instanceof TRPCError)) return undefined
+  if (error.code === 'FORBIDDEN') return 403
+  if (error.code === 'NOT_FOUND') return 404
+  return undefined
+}
+
 /** Serve a checkout file as raw bytes: the markdown preview's images, and the file
- *  viewer's Open in browser, which points a real browser tab here. Auth model matches the rest
- *  of the HTTP surface: the session must exist (readAsset returns ok:false otherwise);
- *  the daemon enforces the path sandbox. Worktree variant (`root` [+ `machineId`]
- *  instead of `sessionId`) serves issue-panel artifacts from a worktree checkout. */
-export function registerAssetRoute(app: Hono, registry: AssetReader): void {
+ *  viewer's Open in browser, which points a real browser tab here. Worktree variant
+ *  (`root` [+ `machineId`] instead of `sessionId`) serves issue-panel artifacts from
+ *  a worktree checkout. Both arms authorize through the gate: a session read asks
+ *  whether this caller may read THAT SESSION, and a root read asks the root
+ *  allowlist and then whether this caller may use the machine that serves it. The
+ *  daemon still enforces the path sandbox beneath both. */
+export function registerAssetRoute(app: Hono, gateFor: AssetGateForRequest): void {
   app.get('/files/asset', async (c) => {
     const sessionId = c.req.query('sessionId')
     const root = c.req.query('root')
     const machineId = c.req.query('machineId')
     const path = c.req.query('path')
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
-    const parsedMachineId = machineId ? asMachineId(machineId) : undefined
-    // `allowsRoot` prefix-matches against the registered repo roots, and that
-    // comparison is lexical: `/repo/../../etc` starts with `/repo/` and would pass
-    // while the daemon resolves it to `/etc`. Collapse `..` FIRST and forward the
-    // collapsed root, so the root that is authorized is the root that is read.
-    let scopedRoot = root
-    if (!sessionId && root) {
-      if (!isAbsolute(root)) return c.text('forbidden', 403)
-      scopedRoot = resolve(root)
-      if (!(await registry.allowsRoot(scopedRoot, parsedMachineId))) {
-        return c.text('forbidden', 403)
-      }
-    }
+    const parsedMachineId: MachineId | undefined = machineId ? asMachineId(machineId) : undefined
+
+    const gate = await gateFor(c.req.raw)
+    if (!gate) return c.text('unauthorized', 401)
+
+    // ONE spelling of the read, bound once, so a ranged retry cannot address a
+    // different resource than the one the first call authorized.
+    const read = async (range?: AssetRange): Promise<AssetResult> =>
+      sessionId
+        ? await gate.readSessionAsset(asSessionId(sessionId), path, range)
+        : await gate.readRootAsset(root as string, path, parsedMachineId, range)
+
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
-    const target = sessionId
-      ? { sessionId: asSessionId(sessionId), path }
-      : {
-          root: scopedRoot as string,
-          ...(parsedMachineId ? { machineId: parsedMachineId } : {}),
-          path,
-        }
+
     let range: ResolvedByteRange | null = null
-    let r: Awaited<ReturnType<AssetReader['readAsset']>>
-    if (requestedRange?.kind === 'suffix') {
-      const probe = await registry.readAsset({ ...target, offset: 0, length: 1 })
-      if (!probe.ok) return c.text(probe.error ?? 'not found', probe.tooLarge ? 413 : 404)
-      if (probe.size === undefined) return c.text('asset size unavailable', 500)
-      const resolved = resolveByteRange(requestedRange, probe.size, MAX_RANGE_BYTES)
-      if (resolved === 'unsatisfiable') {
-        return c.body(null, 416, { 'content-range': `bytes */${probe.size}` })
+    let r: AssetResult
+    try {
+      if (requestedRange?.kind === 'suffix') {
+        const probe = await read({ offset: 0, length: 1 })
+        if (!probe.ok) return c.text(probe.error ?? 'not found', probe.tooLarge ? 413 : 404)
+        if (probe.size === undefined) return c.text('asset size unavailable', 500)
+        const resolved = resolveByteRange(requestedRange, probe.size, MAX_RANGE_BYTES)
+        if (resolved === 'unsatisfiable') {
+          return c.body(null, 416, { 'content-range': `bytes */${probe.size}` })
+        }
+        range = resolved
+        r = await read({ offset: range.offset, length: range.length })
+      } else if (requestedRange) {
+        const tentative = {
+          offset: requestedRange.start,
+          length:
+            requestedRange.end === undefined
+              ? MAX_RANGE_BYTES
+              : Math.min(requestedRange.end - requestedRange.start, MAX_RANGE_BYTES - 1) + 1,
+        }
+        r = await read(tentative)
+        if (!r.ok) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)
+        if (r.size === undefined) return c.text('asset size unavailable', 500)
+        const resolved = resolveByteRange(requestedRange, r.size, MAX_RANGE_BYTES)
+        if (resolved === 'unsatisfiable') {
+          return c.body(null, 416, { 'content-range': `bytes */${r.size}` })
+        }
+        range = resolved
+      } else {
+        r = await read()
       }
-      range = resolved
-      r = await registry.readAsset({
-        ...target,
-        offset: range.offset,
-        length: range.length,
-      })
-    } else if (requestedRange) {
-      const tentative = {
-        offset: requestedRange.start,
-        length:
-          requestedRange.end === undefined
-            ? MAX_RANGE_BYTES
-            : Math.min(requestedRange.end - requestedRange.start, MAX_RANGE_BYTES - 1) + 1,
-      }
-      r = await registry.readAsset({ ...target, ...tentative })
-      if (!r.ok) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)
-      if (r.size === undefined) return c.text('asset size unavailable', 500)
-      const resolved = resolveByteRange(requestedRange, r.size, MAX_RANGE_BYTES)
-      if (resolved === 'unsatisfiable') {
-        return c.body(null, 416, { 'content-range': `bytes */${r.size}` })
-      }
-      range = resolved
-    } else {
-      r = await registry.readAsset(target)
+    } catch (error) {
+      const status = refusalStatus(error)
+      if (status === undefined) throw error
+      return c.text(status === 403 ? 'forbidden' : 'not found', status)
     }
+
     if (!r.ok) return c.text(r.error ?? 'not found', r.tooLarge ? 413 : 404)
     if (r.dataBase64 == null) return c.text(r.error ?? 'not found', 404)
     const bytes = Buffer.from(r.dataBase64, 'base64')

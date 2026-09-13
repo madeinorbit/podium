@@ -394,6 +394,38 @@ describe('files.read / list / search — the root-addressed arms', () => {
     expect(h.rpcCalls).toEqual([])
   })
 
+  /**
+   * THE CONTAINMENT HALF, WHICH WAS DEFEATABLE HERE AND NOT ON THE RAW ROUTE
+   * (PDM-262).
+   *
+   * `isAllowedRoot` prefix-matches LEXICALLY, so `/repos/alpha/../../etc` starts
+   * with `/repos/alpha/` and passed it while the daemon resolved the path to
+   * `/etc`. `GET /files/asset` had collapsed `..` before asking since it was
+   * written; these three procedures handed their `root` string over untouched.
+   * PDM-272 moved `assertAllowedRoot` here verbatim, which faithfully preserved
+   * that gap. The collapse now lives in `requireRoot`, so BOTH transports get it
+   * from one place.
+   */
+  it('collapses .. before authorizing, so a crafted prefix cannot escape the allowlist', async () => {
+    const h = harness()
+    expect(
+      await codeOf(
+        readFile(h.fileStateFor(OWNER), { root: `${ROOT}/../../etc`, path: '/etc/shadow' }),
+      ),
+    ).toBe('FORBIDDEN')
+    expect(h.rpcCalls).toEqual([])
+  })
+
+  it('dispatches the COLLAPSED root, so the root authorized is the root read', async () => {
+    // The other direction, and the one a collapse-then-forward-the-original bug
+    // would pass: authorizing `/repos/alpha` and then reading `/repos/alpha/sub/..`
+    // is a check merely adjacent to the thing it governs.
+    const h = harness()
+    await readFile(h.fileStateFor(OWNER), { root: `${ROOT}/sub/..`, path: `${ROOT}/x.ts` })
+    expect(h.rpcCalls).toHaveLength(1)
+    expect(h.rpcCalls[0]).toContain(`"root":"${ROOT}"`)
+  })
+
   it('dispatches to the machine it authorized, not to whichever the broker picks', async () => {
     // Resolve-once. The gate resolves an omitted machineId and passes the
     // resolved id on, so the machine checked and the machine read are one.
