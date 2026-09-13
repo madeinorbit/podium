@@ -6443,6 +6443,147 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     expect.soft(strangerRows).toContain(sessionMarksRowId(stranger, theirs))
     await reg.dispose()
   })
+
+  it('on ONE shared session each holder gets only their OWN row, through delete and restore', async () => {
+    // THE LEG THE TWO-OWNER CASE ABOVE CANNOT REACH [PDM-450, second round]. The
+    // reviewer's objection: there, the stranger is refused a marks row on a
+    // session THEY CANNOT SEE AT ALL, so `maySeeSession` alone explains the
+    // refusal and `keyedUserOf`'s user-match is never exercised. That case would
+    // stay green with the per-user key deleted outright.
+    //
+    // Here the owner and a read-GRANTEE both pass `maySeeSession` for the SAME
+    // session, so both marks rows are session-visible to both principals and the
+    // per-user key is the only thing that can separate them. That is the whole
+    // point of this case, and it is why the grant has to be on the same session
+    // rather than a second one.
+    //
+    // BROKEN IN BOTH DIRECTIONS, because one plant cannot prove a join. PLANT N
+    // (classOf 'sessionMarks' → 'personal') empties every list — it reddens the
+    // POSITIVES and says nothing about the refusals. PLANT O (keyedUserOf
+    // returning the SESSION'S owner instead of the row's) is the over-delivery
+    // direction: the owner's list grows to two rows and the `.not.toContain`
+    // refusals catch it. N alone would have left the refusals unproven.
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const owner = firstAdminMemberId()
+    const grantee = asUserId('mem_grantee')
+    const stranger = asUserId('mem_stranger')
+    for (const [id, displayName] of [[grantee, 'Grantee'], [stranger, 'Stranger']] as const) {
+      await reg.sessionStore.users.create(
+        { id, displayName, role: 'member', createdAt: '2026-09-10T00:00:00.000Z', disabledAt: null },
+        'test-only',
+      )
+    }
+    const issue = await reg.modules.issues.create({ repoPath: '/repo', title: 'Shared', startNow: false })
+    const shared = (await reg.modules.sessions.createSession({
+      ownerUserId: owner, agentKind: 'shell', cwd: '/repo', issueId: issue.id,
+    })).sessionId
+    // The stranger's OWN session, so this case carries its own allowed-row
+    // control: a feed that served `sessionMarks` to nobody would satisfy every
+    // refusal below and fail this.
+    const theirs = (await reg.modules.sessions.createSession({
+      ownerUserId: stranger, agentKind: 'shell', cwd: '/repo',
+    })).sessionId
+    await reg.sessionStore.grants.upsert({
+      resourceKind: 'session', resourceId: shared, grantee, verb: 'read',
+      owner, visibility: 'personal', createdAt: new Date().toISOString(),
+      actorKind: 'user', actorId: owner, onBehalfOf: null,
+    })
+    await reg.modules.sessions.markSessionRead(owner, shared)
+    await reg.modules.sessions.markSessionRead(stranger, theirs)
+
+    // THE GRANTEE'S ROW IS SEEDED DURABLY, AND HERE IS WHY — this is a
+    // LIMITATION I MEASURED, not a convenience. The production verb REFUSES a
+    // grantee: `markRead` gates on `canReadSession`, which asks
+    // `mayReadPrivate(userId, { owner, legacyGrants })`, and `sessionOwner`
+    // returns `legacyGrants: []` UNCONDITIONALLY (PDM-291 emptied it closing a
+    // real leak). So the rule is owner-and-nobody-else, and the refusal is
+    // SILENT: `markRead` returns false and `markSessionRead` discards it with
+    // `.then(() => undefined)`.
+    //
+    // Asserted rather than described, so that if the policy ever changes this
+    // goes red and whoever changed it finds this note:
+    await reg.modules.sessions.markSessionRead(grantee, shared)
+    expect
+      .soft(await reg.sessionStore.sessions.listSessionMarkHolders(shared), 'a grantee cannot write a mark at this pin')
+      .toEqual([owner])
+    // …so to exercise the READ path — which is what PDM-424 is about — the row
+    // is written at the STORE and republished by the PRODUCTION boot reconcile.
+    // That is not a manufactured end state: `reconcileSessionMarks` is the same
+    // code a restart runs, and it is the only publisher involved.
+    const until = new Date(Date.now() + 86_400_000).toISOString()
+    await reg.sessionStore.sessions.markSessionRead(grantee, shared, new Date().toISOString())
+    await reg.sessionStore.sessions.setSnooze(grantee, shared, until)
+    await reg.modules.sessions.state.reconcileSessionMarks()
+    await reg.modules.sessions.flushBroadcasts()
+
+    const ownerRow = sessionMarksRowId(owner, shared)
+    const granteeRow = sessionMarksRowId(grantee, shared)
+    const clientFor = async (userId: string) => {
+      const c = sink()
+      let done = false
+      const id = attachTestClient(reg.clientGateway, {
+        send: (m: ServerMessage) => {
+          c.send(m)
+          if (m.type === 'feedBootstrap' && m.last) done = true
+        },
+        userId: userId as never,
+        userRole: 'member',
+      })
+      await reg.clientGateway.routeClientFrame(id, {
+        type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION,
+      })
+      await vi.waitFor(() => expect(done).toBe(true))
+      return c
+    }
+    const ownerClient = await clientFor(owner)
+    const granteeClient = await clientFor(grantee)
+    const strangerClient = await clientFor(stranger)
+    const marksOf = async (c: { sent: ServerMessage[] }) =>
+      heldIn(await applyToRealReplica(c.sent), 'sessionMarks')
+    const snoozeOf = async (c: { sent: ServerMessage[] }, row: string) =>
+      (
+        (await applyToRealReplica(c.sent)).cache.read('sessionMarks', row)?.value as
+          | { snoozedUntil?: string | null }
+          | undefined
+      )?.snoozedUntil
+
+    // BOTH are session-visible to BOTH; only the per-user key separates them.
+    expect.soft(await marksOf(ownerClient)).toContain(ownerRow)
+    expect.soft(await marksOf(ownerClient)).not.toContain(granteeRow)
+    expect.soft(await marksOf(granteeClient)).toContain(granteeRow)
+    expect.soft(await marksOf(granteeClient)).not.toContain(ownerRow)
+    // The stranger has no grant: neither row, and their own row present so the
+    // refusals above are not satisfied by an empty feed.
+    expect.soft(await marksOf(strangerClient)).toEqual(
+      expect.not.arrayContaining([ownerRow, granteeRow]),
+    )
+    expect.soft(await marksOf(strangerClient)).toContain(sessionMarksRowId(stranger, theirs))
+    // VALUES, not just ids: the snooze rides the grantee's row and nobody else's.
+    expect.soft(await snoozeOf(granteeClient, granteeRow)).toBe(until)
+    expect.soft(await snoozeOf(ownerClient, ownerRow)).toBeUndefined()
+
+    // THE SURVIVING-GRANTEE LIFECYCLE. Delete the session out from under both
+    // holders and restore it; each must get THEIR OWN row back, with its own
+    // value, and neither may acquire the other's.
+    await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(granteeClient.sent), 'session'))
+      .not.toContain(shared)
+    await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(granteeClient.sent), 'session'))
+      .toContain(shared)
+
+    expect.soft(await marksOf(ownerClient)).toContain(ownerRow)
+    expect.soft(await marksOf(ownerClient)).not.toContain(granteeRow)
+    expect.soft(await marksOf(granteeClient)).toContain(granteeRow)
+    expect.soft(await marksOf(granteeClient)).not.toContain(ownerRow)
+    expect.soft(await snoozeOf(granteeClient, granteeRow)).toBe(until)
+    await reg.dispose()
+  })
 })
 
 describe('SessionRegistry read state (#124)', () => {
