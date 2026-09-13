@@ -196,6 +196,7 @@ export * from './provenance/envelope'
 // at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
 export * from './projections/issue-projection'
 export * from './projections/issue-read'
+export * from './projections/issue-shared'
 export * from './projections/session-read'
 
 // THE RETAINED-REPRESENTATION REGISTRY (POD-368, closing POD-302) — one entry per
