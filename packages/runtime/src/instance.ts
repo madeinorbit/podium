@@ -22,6 +22,7 @@ import {
 import { homedir, hostname, userInfo } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { SessionId } from '@podium/model'
+import { refuseLiveStateDir } from './live-state-guard'
 
 export const DEFAULT_INSTANCE_ID = 'default'
 export const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
@@ -126,8 +127,27 @@ export function instanceStateDir(
   home: string = env.HOME || homedir(),
 ): string {
   const id = validateInstanceId(instanceId)
-  if (env.PODIUM_STATE_DIR) return env.PODIUM_STATE_DIR
-  if (id === DEFAULT_INSTANCE_ID) return join(home, '.podium')
+  // BOTH branches are guarded, not just the fallback. A suite that sets
+  // PODIUM_STATE_DIR=~/.podium is the same accident wearing a different hat, and
+  // assertHermeticStateDir() only ever sees that one at a vitest hook boundary.
+  //
+  // The guard is armed from the `env` THIS CALL WAS GIVEN, not from process.env. A
+  // caller that passes a synthetic env literal is describing a hypothetical machine
+  // and gets a plain string back; a caller that resolves against the real process
+  // environment — which is every step of the incident chain, since `env` defaults to
+  // process.env — is resolving a path it may then open, and is refused. The open
+  // itself is guarded again in openStoreDatabase, which has no env parameter to
+  // weaken.
+  if (env.PODIUM_STATE_DIR) {
+    return refuseLiveStateDir(env.PODIUM_STATE_DIR, 'instanceStateDir (PODIUM_STATE_DIR)', env)
+  }
+  if (id === DEFAULT_INSTANCE_ID) {
+    return refuseLiveStateDir(
+      join(home, '.podium'),
+      'instanceStateDir (default-instance fallback)',
+      env,
+    )
+  }
   const stateHome = env.XDG_STATE_HOME || join(home, '.local', 'state')
   return join(stateHome, 'podium', id)
 }

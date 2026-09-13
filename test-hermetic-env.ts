@@ -80,6 +80,25 @@ process.env.PODIUM_NO_RELAY = '1'
 // an isolated PODIUM_STATE_DIR, every child command lookup would still stat that live tree.
 // Remove the default live state root and its descendants before any test or agent CLI starts.
 const liveDefaultStateDir = join(homedir(), '.podium')
+
+// ---- arm the live-state guard [packages/runtime/src/live-state-guard.ts] ----------------
+// Published here because here is the only moment the live root is KNOWABLE. Under Bun both
+// os.homedir() and os.userInfo().homedir read $HOME, so after any test sets HOME=/tmp/fake
+// the real home cannot be recovered — the value has to be captured, never recomputed.
+//
+// FIRST WRITE WINS. Vitest re-imports this setup file once per test FILE in the same
+// process, and `liveDefaultStateDir` above is recomputed on each of those evaluations. If a
+// previous file left $HOME pointing somewhere else, a later evaluation would compute the
+// wrong "live" root and quietly disarm the guard. The env var is written on the first
+// evaluation, while $HOME is still the operator's, and every later evaluation reads that.
+//
+// Neither key is in SCRUB_EXACT and neither must ever be added to it: the scrub loop above
+// runs on every evaluation, and adding them would delete the capture the guard depends on.
+// Children INHERIT both through the ordinary environment, which is the whole point —
+// that is the case hermeticChildEnv() could never cover, since it depends on each of the
+// spawn sites in this repository remembering to call it.
+process.env.PODIUM_TEST_RUNTIME = '1'
+process.env.PODIUM_LIVE_STATE_DIR ||= liveDefaultStateDir
 if (process.env.PATH) {
   process.env.PATH = process.env.PATH.split(delimiter)
     .filter((entry) => {

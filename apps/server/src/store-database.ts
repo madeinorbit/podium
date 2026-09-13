@@ -21,6 +21,7 @@
  * serve an arbitrarily old schema.
  */
 
+import { refuseLiveStateDir } from '@podium/runtime/live-state-guard'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 
 /** Opens the database backing a `SessionStore` at `path` (`:memory:` included). */
@@ -30,6 +31,14 @@ let installed: StoreDatabaseOpener | undefined
 
 /** Open the store's database — the installed test opener, or the real driver. */
 export async function openStoreDatabase(path: string): Promise<SqlDatabase> {
+  // Belt to instanceStateDir's braces, and the one that actually matters: THIS is the
+  // routine that migrates. SessionStore.open -> openStoreDatabase -> the migration
+  // chain, which backs the file up and then applies every pending migration. A caller
+  // that arrived at a live path by a route the resolver never saw — a hard-coded join,
+  // a path read from a fixture, an argv value, a defaulted parameter — still stops
+  // here, because this signature has no `env` to weaken and reads the process's own.
+  // Inert in production: neither marker is set there. [live-state-guard]
+  if (path !== ':memory:') refuseLiveStateDir(path, 'openStoreDatabase')
   return installed === undefined ? openDatabase(path) : installed(path)
 }
 
