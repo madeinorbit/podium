@@ -209,7 +209,22 @@ describe('the client outbox contract table matches the contracts', () => {
    * than something that must be adjusted when it lands — adjusting the list alone
    * would not have closed this.
    */
-  const definitionResolved = entries.filter(([, c]) => resolveDef(c.name) !== undefined)
+  /**
+   * The definition population UNDER A GIVEN CONTRACT RESOLVER.
+   *
+   * The resolver is a parameter and the body ignores it, and that is the repair stated
+   * as a signature: the population depends on DEFINITIONS ALONE. A claim of the form
+   * "this does not depend on X" cannot be checked by a caller that only ever passes the
+   * live X — so the parameter exists precisely so the PDM-416 control below can pass a
+   * DIFFERENT resolver and hold the answer to the same value. Re-couple the body to
+   * `_contractResolver` and that control reddens, which is why this is a function here
+   * rather than an inlined filter.
+   */
+  const definitionPopulationUnder = (
+    _contractResolver: (name: string) => CommandContract | undefined,
+  ) => entries.filter(([, c]) => resolveDef(c.name) !== undefined)
+
+  const definitionResolved = definitionPopulationUnder(lookup)
 
   // -------------------------------------------------------------------------
   // EXHAUSTIVE QUEUED-SIDE ENUMERATION — the anti-vacuity spine of this file.
@@ -365,9 +380,10 @@ describe('the client outbox contract table matches the contracts', () => {
       name === 'sessions.rename' ? sessionRenameContract : lookup(name)
 
     const populationsUnder = (contractResolver: (name: string) => CommandContract | undefined) => ({
-      // The repair: definitions alone decide the population.
-      repaired: entries
-        .filter(([, c]) => resolveDef(c.name) !== undefined)
+      // The repair: definitions alone decide the population. Computed by the SAME
+      // function production uses, so re-coupling that body reddens this control
+      // rather than only showing up once PDM-416 has actually landed.
+      repaired: definitionPopulationUnder(contractResolver)
         .map(([kind]) => kind)
         .sort(),
       // The shape this file used to carry, evaluated under the SAME resolver.
