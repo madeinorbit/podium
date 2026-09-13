@@ -8,6 +8,8 @@ import { firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { OPERATOR } from '../../test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from '../../test-support/session-state-principal'
 
 const registries: SessionRegistry[] = []
 
@@ -46,8 +48,18 @@ async function bindLive(
   }
 }
 
+/** THE BROADCAST ROW — no principal, so per-user marks are NEUTRAL [PDM-424]. */
 async function meta(reg: SessionRegistry, sessionId: SessionId) {
   return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+}
+
+/** The FIRST ADMIN's own projection — where that person's `readAt` / `unread` /
+ *  `snoozedUntil` live since the per-user split [PDM-424]. Every case in this
+ *  file acts as that member, so this is "what the acting person sees". */
+async function myMeta(reg: SessionRegistry, sessionId: SessionId) {
+  return (
+    await reg.modules.sessions.listSessions(soleHumanSessionStatePrincipal(OPERATOR), 'rpc')
+  ).find((s) => s.sessionId === sessionId)
 }
 
 describe('archive parks the session process [POD-108]', () => {
@@ -74,7 +86,12 @@ describe('archive parks the session process [POD-108]', () => {
     // Cold resume stays possible: the resume ref survives the park.
     expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
     // Archiving is the acknowledgment — the park must not resurface it unread.
-    expect(m?.unread).toBe(false)
+    // RE-POINTED at the acting member's own projection [PDM-424]: `unread` is a
+    // fact about a reader and a session together, and the broadcast row now
+    // carries it for nobody. The neutral broadcast is asserted beside it so this
+    // case cannot pass on a wire that went back to serving one viewer.
+    expect((await myMeta(reg, sessionId))?.unread).toBe(false)
+    expect(m?.unread).toBe(true)
     expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
   })
 

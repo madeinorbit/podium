@@ -7,6 +7,8 @@ import { asIssueId, asSessionId, asUserId, firstAdminMemberId, asMachineId } fro
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { OPERATOR } from '../../test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from '../../test-support/session-state-principal'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
 const registries: SessionRegistry[] = []
@@ -142,7 +144,14 @@ describe('stopSession [spec:SP-9904]', () => {
     await bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.unread).toBe(false)
+    // RE-POINTED at the marker's OWN projection [PDM-424]. This read the
+    // principal-less broadcast, which used to carry the earliest admin's marks
+    // and now carries nobody's — so the precondition "this session is read"
+    // asks the person who read it.
+    expect(
+      (await reg.modules.sessions.listSessions(soleHumanSessionStatePrincipal(OPERATOR), 'rpc'))[0]
+        ?.unread,
+    ).toBe(false)
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(true)
@@ -152,8 +161,14 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(meta?.stoppedAt).toBeTruthy()
     // A plain (no --force) operator stop is an orderly park — never 'forced'.
     expect(meta?.stopReason).toBe('parent')
-    expect(meta?.readAt).toBeNull()
-    expect(meta?.unread).toBe(true)
+    // `stop` re-arms unread for EVERY reader, so the acting member's own
+    // projection is where that is visible; the broadcast is neutral either way
+    // and asserting only it would make this pass without the re-arm happening.
+    const mine = (
+      await reg.modules.sessions.listSessions(soleHumanSessionStatePrincipal(OPERATOR), 'rpc')
+    ).find((s) => s.sessionId === sessionId)
+    expect(mine?.readAt).toBeNull()
+    expect(mine?.unread).toBe(true)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
     // Row kept (not deleted).
     expect(meta).toBeTruthy()

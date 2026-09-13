@@ -136,12 +136,20 @@ describe('oracle: setArchived', () => {
       geometry: { cols: 80, rows: 24 },
     })
     await o.call.sessions.markRead({ sessionId })
-    const readAtBefore = (await o.meta(sessionId)).readAt
+    // RE-POINTED at the CALLER'S OWN projection [PDM-424]. This read `o.meta`,
+    // the principal-less broadcast, which used to carry the earliest admin's
+    // marks and now carries nobody's. The claim — archiving does not resurface
+    // as unread — is about THIS PERSON's read state, so it reads the row where
+    // that state lives.
+    const readAtBefore = (await o.myMeta(sessionId)).readAt
     expect(readAtBefore).not.toBeNull()
+    // The negative half, which the old shape could not state: the broadcast
+    // carries the mark to NOBODY.
+    expect((await o.meta(sessionId)).readAt).toBeNull()
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
-    const meta = await o.meta(sessionId)
+    const meta = await o.myMeta(sessionId)
     // Archive stops the process (POD-108): a shell keeps its resume-free park.
     expect(meta.archived).toBe(true)
     expect(meta.status).toBe('hibernated')
@@ -149,6 +157,9 @@ describe('oracle: setArchived', () => {
     expect(typeof meta.stoppedAt).toBe('string')
     // Archiving IS the acknowledgment — it must not resurface as unread.
     expect(meta.readAt).toBe(readAtBefore)
+    // …and it is still nobody's on the broadcast, which is what stops this
+    // assertion passing on a wire that reverted to serving one viewer.
+    expect((await o.meta(sessionId)).readAt).toBeNull()
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 
@@ -215,13 +226,25 @@ describe('oracle: read state', () => {
 
     await o.call.sessions.markRead({ sessionId })
 
-    const readAt = (await o.meta(sessionId)).readAt
+    const readAt = (await o.myMeta(sessionId)).readAt
     expect(typeof readAt).toBe('string')
-    // Both DEVICES of the one principal see the same readAt — the feed is unscoped.
+    // THE OLD CLAIM WAS THE DEFECT, AND IT IS NOW FALSE BY DESIGN [PDM-424].
+    // This used to wait for the OTHER CLIENT's broadcast row to carry this
+    // operator's `readAt`, on the reasoning that the feed is unscoped so one
+    // viewer's marks reach every device. That is exactly what this issue
+    // removes: the broadcast row carries nobody's marks and each person's own
+    // arrive on the `sessionMarks` sidecar.
+    //
+    // The property worth keeping from that wait is that the second client is
+    // SERVED the session at all, and that what it is served is NEUTRAL rather
+    // than this operator's. Asserted in both directions so it cannot pass on an
+    // empty feed.
     await waitFor(
-      () => lastSession(second, sessionId)?.readAt === readAt,
-      "the other client to observe this operator's readAt",
+      () => lastSession(second, sessionId) !== undefined,
+      'the other client to observe the session at all',
     )
+    expect(lastSession(second, sessionId)?.readAt).toBeNull()
+    expect((await o.meta(sessionId)).readAt).toBeNull()
 
     // THE FLIPPED ASSERTION. It used to read the marker off the SESSION ROW
     // (`loadSessions().find(...).readAt`); that column no longer exists and the
@@ -237,13 +260,20 @@ describe('oracle: read state', () => {
   it(`${MUST_NOT_CHANGE}: markRead flips derived unread to false; markUnread clears readAt and flips it back`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    expect(await o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
+    // RE-POINTED at the caller's own projection [PDM-424] — `unread` is a fact
+    // about a READER and a session together, so it is read for a named reader.
+    expect(await o.myMeta(sessionId)).toMatchObject({ readAt: null, unread: true })
 
     await o.call.sessions.markRead({ sessionId })
-    expect((await o.meta(sessionId)).unread).toBe(false)
+    expect((await o.myMeta(sessionId)).unread).toBe(false)
+    // THE NEGATIVE HALF, and it is what stops this case going vacuous: on a
+    // single-member instance "never opened" and "the broadcast serves nobody"
+    // are the same bytes, so the marked state is the only moment at which the
+    // two can be told apart. The broadcast must still say unread HERE.
+    expect(await o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
 
     await o.call.sessions.markUnread({ sessionId })
-    expect(await o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
+    expect(await o.myMeta(sessionId)).toMatchObject({ readAt: null, unread: true })
   })
 
   it(`${MUST_NOT_CHANGE}: readAt is an ISO-8601 string, not epoch ms (the unread compare is lexical)`, async () => {
@@ -252,7 +282,10 @@ describe('oracle: read state', () => {
 
     await o.call.sessions.markRead({ sessionId })
 
-    const readAt = (await o.meta(sessionId)).readAt as string
+    // RE-POINTED [PDM-424]: the broadcast's `readAt` is null for everybody now,
+    // and `new Date(null).toISOString()` would have made this pass on a value
+    // that is not a timestamp at all.
+    const readAt = (await o.myMeta(sessionId)).readAt as string
     expect(readAt).toBe(new Date(readAt).toISOString())
   })
 })
@@ -313,7 +346,11 @@ describe('oracle: snoozes', () => {
     // and the returned map are byte-identical for the single-user case.
     expect(returned).toEqual({ [sessionId]: until })
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: until })
-    expect((await o.meta(sessionId)).snoozedUntil).toBe(until)
+    // RE-POINTED at the caller's own projection [PDM-424]; the broadcast row
+    // carries no `snoozedUntil` key for anybody, which is asserted beside it so
+    // this case still says the snooze is the WRITER's and not the instance's.
+    expect((await o.myMeta(sessionId)).snoozedUntil).toBe(until)
+    expect('snoozedUntil' in (await o.meta(sessionId))).toBe(false)
     // And the row is KEYED by user: a different principal's slice is empty. This
     // is the assertion the old instance-wide characterization could not make.
     expect(await o.store.sessions.listSnoozes(firstAdminMemberId())).toEqual({

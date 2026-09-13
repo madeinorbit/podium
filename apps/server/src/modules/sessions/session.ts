@@ -9,6 +9,7 @@ import {
   type GeometryState,
   type HarnessAgent,
   type IssueId,
+  isSessionUnread,
   type MachineId,
   type ResumeRef,
   type SessionId,
@@ -1145,7 +1146,7 @@ export class Session {
       readAt: overlay.readAt,
       ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
       ...(d.stopReason ? { stopReason: d.stopReason } : {}),
-      unread: overlay.readAt == null || d.lastActiveAt > overlay.readAt,
+      unread: isSessionUnread(overlay.readAt, d.lastActiveAt),
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that
       // read it directly (e.g. tests on a Session in isolation).

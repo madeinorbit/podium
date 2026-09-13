@@ -1153,7 +1153,9 @@ describe('oracle: stop (clean end, keep the branch)', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
     await o.call.sessions.markRead({ sessionId })
-    expect((await o.meta(sessionId)).readAt).not.toBeNull()
+    // RE-POINTED [PDM-424]: the precondition is that THIS caller has read the
+    // session, and the broadcast row carries that for nobody now.
+    expect((await o.myMeta(sessionId)).readAt).not.toBeNull()
 
     expect(await o.call.sessions.stop({ sessionId })).toEqual({
       ok: true,

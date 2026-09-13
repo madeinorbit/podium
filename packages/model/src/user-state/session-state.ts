@@ -142,6 +142,41 @@ export interface SessionUserOverlay {
   readonly snoozedUntil: string | null | undefined
 }
 
+/**
+ * **THE `unread` RULE, WRITTEN ONCE** [PDM-424].
+ *
+ * `unread` is DERIVED and it is derived from BOTH SIDES of the per-user split:
+ * `readAt` belongs to one person, `lastActiveAt` is a shared fact about the
+ * session. That is why it is not stored anywhere — a frozen copy goes stale the
+ * moment the session becomes active again, telling somebody they are up to date
+ * about activity that arrived after the copy was written.
+ *
+ * IT LIVES HERE BECAUSE IT HAS TWO CALLERS AND THEY MUST NOT DISAGREE. The
+ * server derives it in `Session.toMeta()` for a projection built FOR a principal;
+ * the client derives it in `joinSessionMarks()` when it joins its own sidecar row
+ * over a neutral broadcast row. Both answer the same question about the same two
+ * inputs.
+ *
+ * THIS FUNCTION EXISTS BECAUSE THE RULE WAS BRIEFLY WRITTEN TWICE, and the two
+ * copies had already drifted before either shipped: one spelled the missing-
+ * activity case `d.lastActiveAt > readAt` and the other `(lastActiveAt ?? '') >
+ * readAt`. Recorded rather than tidied away, because "extract the shared helper"
+ * reads like housekeeping and this was a defect.
+ *
+ * `lastActiveAt` ABSENT means no activity is known, so the answer is decided by
+ * `readAt` alone: never opened is unread, opened is not. A missing timestamp must
+ * not be compared as a string — `'' > anything` is false, which would silently
+ * report "read" for a session nobody can date.
+ */
+export function isSessionUnread(
+  readAt: string | null | undefined,
+  lastActiveAt: string | undefined,
+): boolean {
+  if (readAt == null) return true
+  if (lastActiveAt === undefined) return false
+  return lastActiveAt > readAt
+}
+
 /** The overlay of a user with no per-user rows for a session at all — never
  *  opened, never snoozed. A named constant rather than an inline literal so a
  *  caller cannot express "no overlay" as `readAt: undefined`, which the derived

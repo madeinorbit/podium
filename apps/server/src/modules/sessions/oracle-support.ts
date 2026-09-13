@@ -54,6 +54,7 @@ import { appRouter } from '../../router'
 import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
+import { soleHumanSessionStatePrincipal } from '../../test-support/session-state-principal'
 import type { PortableStateFence } from '../server-transfer/portable-fence'
 import { SuperagentService } from '../superagent'
 
@@ -136,8 +137,15 @@ export interface Oracle {
   daemon: ControlMessage[]
   /** tRPC caller with the OPERATOR capability — the human seam. */
   call: ReturnType<typeof appRouter.createCaller>
-  /** Session metadata as the wire sees it. */
+  /** Session metadata as the BROADCAST sees it — no principal, so the per-user
+   *  marks are NEUTRAL for everybody [PDM-424]. Use this to assert what a
+   *  stranger receives. */
   meta(
+    sessionId: SessionId,
+  ): Promise<Awaited<ReturnType<SessionRegistry['modules']['sessions']['listSessions']>>[number]>
+  /** The same session wired for the principal `call` acts as — where this
+   *  caller's own `readAt` / `unread` / `snoozedUntil` live [PDM-424]. */
+  myMeta(
     sessionId: SessionId,
   ): Promise<Awaited<ReturnType<SessionRegistry['modules']['sessions']['listSessions']>>[number]>
   /**
@@ -307,8 +315,35 @@ export async function makeOracle(
     client,
     daemon,
     call,
+    /**
+     * THE BROADCAST ROW — the projection built with NO principal, which is what
+     * every subscriber receives [PDM-424].
+     *
+     * Since the per-user split this carries NEUTRAL marks: `readAt: null`,
+     * `unread: true`, no `snoozedUntil`, for everybody. It used to carry the
+     * earliest admin's, which is why several oracle cases below read their own
+     * read state through it and have been re-pointed at {@link myMeta}. Keep
+     * using this one to assert what a STRANGER sees; use `myMeta` for what the
+     * caller sees.
+     */
     meta: async (sessionId) => {
       const found = await reg.modules.sessions.sessionById(sessionId)
+      if (!found) throw new Error(`no session meta for ${sessionId}`)
+      return found
+    },
+    /**
+     * THE CALLER'S OWN projection — the same session, wired for the principal
+     * `call` acts as [PDM-424].
+     *
+     * This is where a person's own `readAt` / `unread` / `snoozedUntil` live now.
+     * The distinction between this and {@link meta} IS the repair, so a case that
+     * asserts on one and not the other is saying which half it means.
+     */
+    myMeta: async (sessionId: SessionId) => {
+      const found = await reg.modules.sessions.sessionById(
+        sessionId,
+        soleHumanSessionStatePrincipal(OPERATOR),
+      )
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },

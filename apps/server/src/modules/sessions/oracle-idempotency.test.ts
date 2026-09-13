@@ -198,8 +198,12 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.markUnread({ sessionId, mutationId: 'm-unread' })
 
     // The replay must NOT clear the readAt the later markRead stamped.
-    expect((await o.meta(sessionId)).unread).toBe(false)
-    expect((await o.meta(sessionId)).readAt).not.toBeNull()
+    // RE-POINTED at the caller's own projection [PDM-424] — the mark belongs to
+    // the member who made it, and the broadcast row carries nobody's. Reading
+    // the broadcast here would have asserted `readAt: null` forever and the
+    // dedup could have regressed without this noticing.
+    expect((await o.myMeta(sessionId)).unread).toBe(false)
+    expect((await o.myMeta(sessionId)).readAt).not.toBeNull()
     expect(await o.store.sync.getAppliedMutation(asMutationId('m-unread'))).toBeDefined()
   })
 

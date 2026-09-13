@@ -36,6 +36,8 @@
  *     unread = readAt == null || lastActiveAt > readAt      (`Session.toMeta`)
  *
  * `readAt` is per-person and `lastActiveAt` is a shared fact about the session.
+ * The rule itself is `isSessionUnread` in `./session-state.ts`, called by BOTH
+ * this join and the server's `Session.toMeta()` so the two cannot drift.
  * Storing `unread` in this row would freeze a value whose other input keeps
  * moving: the session goes active, the shared row updates, and a cached
  * `unread: false` would say "you have seen this" about activity that arrived
@@ -60,6 +62,7 @@
 import { z } from 'zod'
 import { asUserId, type UserId, UserIdField } from '../ids'
 import { compositeRowId, parseCompositeRowId } from './composite-row-id'
+import { isSessionUnread } from './session-state'
 
 /**
  * Wire value of one marks row on the metadata feed (entity kind
@@ -141,7 +144,8 @@ export function joinSessionMarks<T extends { lastActiveAt?: string }>(
 ): T {
   if (marks === undefined) return shared
   const { userId: _userId, sessionId: _sessionId, ...held } = marks
-  const unread = held.readAt == null || (shared.lastActiveAt ?? '') > held.readAt
+  // ONE definition, shared with the server's projection — see `isSessionUnread`.
+  const unread = isSessionUnread(held.readAt, shared.lastActiveAt)
   return {
     ...shared,
     readAt: held.readAt,

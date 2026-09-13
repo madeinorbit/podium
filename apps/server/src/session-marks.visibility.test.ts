@@ -252,11 +252,19 @@ describe('session-read: the conjunction, and it is not user-match twice', () => 
 
   it('refuses a row naming a session that is GONE, even to a surviving grantee', async () => {
     const { policy, grant } = await fixture()
-    // THE GRANT IS RETAINED. Deleting a session does not delete its grant edges,
-    // so a previously admitted grantee stays admitted by a surviving edge — and
-    // `maySeeSession` never requires the session row to still be there. The
-    // owner would be refused anyway, by the accident of which check fails first;
-    // the grantee is the case that needs the explicit still-exists condition.
+    // THE GRANT IS RETAINED, and WHICH CLAUSE REFUSES matters here. Deleting a
+    // session does not delete its grant edges, so a previously admitted grantee
+    // stays admitted by a surviving edge — `maySeeSession` returns TRUE for them
+    // — and only the explicit still-exists condition refuses it.
+    //
+    // THE OWNER IS THE WEAK CASE and is kept as a control rather than as the
+    // point: they are refused by the accident of which check fails first (their
+    // branch reads a row that is gone), not by a property of the gate. MEASURED
+    // by a plant that removes ONLY the still-exists line and keeps
+    // `maySeeSession`: this test is the ONLY one that reddens, on the GRANTEE
+    // assertion (`expected { snapshot: 'reader', … } to deeply equal
+    // { snapshot: null, … }`), while the owner assertion below stays green. So
+    // this negative is not one reason wide.
     await grant(reader, GHOST)
 
     expect.soft(await recipients(policy, marksRef(reader, GHOST))).toEqual({

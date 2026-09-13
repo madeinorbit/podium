@@ -624,6 +624,12 @@ export class SessionStateService {
 
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
     // Holders BEFORE the clear: the delete is what removes them from the table.
+    // A holder whose only row is a SNOOZE is republished here too, carrying the
+    // value it already had. That is a deliberate no-op row rather than a bug: one
+    // sidecar row carries both halves, so filtering to read-mark holders would
+    // need a second statement of which table owns which key, and that is the
+    // duplication this split exists to avoid. The cost is one redundant upsert
+    // per snooze-only holder on a terminal transition.
     const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
     await this.ports.store.sessions.clearAllReadAt(sessionId)
     this.invalidateAllOverlays()
