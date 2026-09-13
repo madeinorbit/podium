@@ -59,9 +59,27 @@ const buildCase = (
   arm: number,
 ): WireCase => {
   const sampled = sample(entry.schema, { mode, arm })
+  // `undefined` here is not "no sample". It is the sampler saying the schema is
+  // OPTIONAL AT ITS ROOT and this is the `minimal` variant — a peer with nothing
+  // to say sends no document at all. JSON has no term for that, and the previous
+  // `sampled ?? null` wrote it down as `null`, which is a DIFFERENT claim and one
+  // every such schema is right to refuse: `.optional()` admits `undefined` and
+  // never `null`. The coercion invented a value and then recorded the schema's
+  // correct rejection of it as a `parseError` (PDM-351).
+  //
+  // So absence stays absent. `JSON.stringify` drops an `undefined` property, so
+  // the golden records the case with no `wire` line — which is what "nothing is
+  // sent" looks like — and `toEqual` reads the two as equal. Nothing reaches the
+  // wire, so there are no bytes to pin either.
+  //
+  // Until A2 (`68e8d23e0`) no exported schema was optional at its root, which is
+  // why `sampler.ts` still said "which no message type is". `OwnerAsAssigneeField`
+  // is the first, and absence there means "this payload predates the projection",
+  // never "unassigned" — see `@podium/model`'s `fields/ownership.ts`.
+  const absentAtRoot = sampled === undefined
   // Round-trip through JSON first: a fixture that cannot survive JSON is not a
   // wire fixture, and this is where that would surface.
-  const wire = JSON.parse(JSON.stringify(sampled ?? null)) as unknown
+  const wire = absentAtRoot ? undefined : (JSON.parse(JSON.stringify(sampled)) as unknown)
 
   const parsed = (entry.schema as z.ZodTypeAny).safeParse(wire)
   if (!parsed.success) {
@@ -88,8 +106,9 @@ const buildCase = (
     parseChanged: diff.changed,
     parseDropped: diff.dropped,
     // The real codec, not a local JSON.stringify: if encoding ever grows a step
-    // (envelope, compression, key ordering), these bytes move with it.
-    encoded: encode(parsed.data as never),
+    // (envelope, compression, key ordering), these bytes move with it. A case
+    // that puts no document on the wire has no bytes to pin.
+    encoded: absentAtRoot ? '' : encode(parsed.data as never),
   }
 }
 

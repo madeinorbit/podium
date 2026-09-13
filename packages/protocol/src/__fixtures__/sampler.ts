@@ -310,8 +310,14 @@ const sampleWalk = (schema: z.ZodTypeAny, opts: SampleOptions, path: string): un
   }
 }
 
-/** Sample one schema. Returns a plain JSON-able value (or `undefined` if the
- *  whole schema is optional at its root, which no message type is). */
+/** Sample one schema. Returns a plain JSON-able value, or `undefined` when the
+ *  whole schema is optional at its root and this is the `minimal` variant.
+ *
+ *  That `undefined` is load-bearing and must not be coalesced: it means "a peer
+ *  sends no document", which is not `null`, and a root-optional schema refuses
+ *  `null`. This comment used to end "which no message type is"; A2's
+ *  `OwnerAsAssigneeField` made that false and `build.ts`'s `?? null` turned the
+ *  difference into a parse failure (PDM-351). */
 export const sample = (schema: z.ZodTypeAny, opts: SampleOptions): unknown => {
   const value = sampleNode(schema, opts, '')
   return value === ABSENT ? undefined : value
