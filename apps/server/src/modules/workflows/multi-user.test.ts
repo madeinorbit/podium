@@ -748,7 +748,15 @@ describe('workflows under two humans', () => {
           policy.caller(asSessionId('b1'), BOB),
         ),
       ),
-    ).toBe('only an administrator may change execution profiles')
+    ).toBe(
+      // PDM-299: the refusal now names the DELEGATION, not the grade. Bob is
+      // both a member and an agent, so both reasons are true — and the rule
+      // short-circuits on the agent arm WITHOUT reading his role, deliberately.
+      // Reporting the grade for a member's agent and the delegation for an
+      // admin's would make the refusal string an oracle for "is my human an
+      // admin", which is a fact an agent is not otherwise told.
+      "only an administrator may change execution profiles — and an agent does not inherit its human's admin grade",
+    )
     // AND A SECOND ADMIN *CAN* EDIT ALICE'S PROFILE. That is what `admin` means
     // in `workflowDecision` — owner-or-admin, with admin last as the fallback —
     // and it is recorded here rather than left to be discovered, because it is
@@ -787,6 +795,49 @@ describe('workflows under two humans', () => {
         policy.caller(null, ALICE, 'admin'),
       )).name,
     ).toBe('renamed')
+
+    /**
+     * AND ALICE'S AGENT CANNOT, THOUGH ALICE IS AN ADMIN (PDM-299).
+     *
+     * THIS IS THE DISCRIMINATING CASE for this file, and the three assertions
+     * above cannot stand in for it. A member's agent is refused by the grade
+     * anyway; a bare admin operator is permitted by the grade anyway. Only an
+     * ADMIN'S AGENT separates "the floor reads the account" from "the floor also
+     * refuses a delegate", and `policy.caller(sessionId, ALICE, 'admin')` builds
+     * exactly what `relay.ts`'s `workflowCallerForCapability` produces for a live
+     * agent session owned by an admin: a session actor, a `worker` capability,
+     * and `protectedWrite` set from the delegating human's live store role.
+     *
+     * Before PDM-299 this call SUCCEEDED, and nothing in this file or any other
+     * asserted that it did or did not.
+     */
+    expect(
+      await thrown(() =>
+        h.service.profileSave(
+          {
+            id: profile.id,
+            name: "Alice's agent edit",
+            accountId: 'acct-alice',
+            harness: 'codex',
+            model: 'auto',
+            effort: 'auto',
+          },
+          policy.caller(asSessionId('a1'), ALICE, 'admin'),
+        ),
+      ),
+    ).toBe(
+      "only an administrator may change execution profiles — and an agent does not inherit its human's admin grade",
+    )
+
+    /**
+     * THE COUNTERFACTUAL, so the case above is not satisfied by a gate that
+     * refuses every agent everything on this surface. Alice's agent still READS
+     * the profile its human owns — PDM-299 moved the admin GRADE only, and the
+     * ownership axis (ADR 9 D5 A1's intersection) is untouched.
+     */
+    expect((await h.service.profiles(policy.caller(asSessionId('a1'), ALICE, 'admin')))).toMatchObject([
+      { id: profile.id },
+    ])
   })
 })
 

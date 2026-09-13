@@ -55,7 +55,14 @@
 import { type AnyCommandContract, SETTINGS_CONTRACTS } from '@podium/commands'
 import { isAdminGrade, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
+import {
+  type AdminFloorRefusal,
+  adminFloorMessage,
+  adminFloorRefusal,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../../command-principal'
 import { spawnedByParentSessionId } from '@podium/model'
 import { type Context, mods } from '../../trpc'
 import { isSettingsCommand, type SettingsCommandName } from './registry'
@@ -129,17 +136,47 @@ export function settingsAuthzFailure(
   // service account ADR 9 D8 S5 rejects.
   if (deps.principal.kind === 'system') return undefined
 
-  if (settingsRoleSatisfiesFloor(deps.role, policy.roleFloor)) return undefined
+  /**
+   * THE ADMIN FLOOR IS NOT DECIDED IN THIS FILE ANY MORE (PDM-299).
+   *
+   * It used to be `settingsRoleSatisfiesFloor` for both floors, which resolved
+   * an agent through `onBehalfOf` to its human's live store role and therefore
+   * PERMITTED an admin's agent — the behaviour `settings/authz.test.ts` pinned
+   * as *"the same agent whose human is an admin is allowed"*. PDM-299 ruled the
+   * other way: an agent does not inherit its human's admin grade, and the rule
+   * lives in {@link adminFloorRefusal} so that this file, `fleet/authz.ts`,
+   * `role-floor.ts`, `operations` and `workflows` cannot answer it differently
+   * again.
+   *
+   * THE MEMBER FLOOR STAYS HERE, and the split is the point rather than an
+   * omission. `settings.updatePersonal` is the family's one member-floor
+   * contract and it must stay reachable by a member's agent — a person's agent
+   * writing that person's own preferences is the ordinary case, and folding the
+   * member arm into the shared rule would refuse it. The shared decision is
+   * about the ADMIN GRADE only.
+   */
+  const refusal: AdminFloorRefusal | undefined =
+    policy.roleFloor === 'admin'
+      ? adminFloorRefusal(deps.principal.kind, deps.role)
+      : settingsRoleSatisfiesFloor(deps.role, policy.roleFloor)
+        ? undefined
+        : 'below-grade'
+  if (refusal === undefined) return undefined
 
   // THE SECRET SURFACE REFUSES AS ABSENT. See the header: for a read whose
   // subject IS an existence fact, a distinguishable refusal leaks the fact.
+  //
+  // BOTH refusal reasons come through here, and that is load-bearing: a
+  // delegation refusal that answered FORBIDDEN where a grade refusal answered
+  // NOT_FOUND would tell an agent that the surface exists, which is the exact
+  // oracle this branch was written to close.
   if (policy.action === 'read' && policy.resource === 'secret') {
     return new TRPCError({ code: 'NOT_FOUND', message: SECRET_SURFACE_ABSENT })
   }
 
   return new TRPCError({
     code: 'FORBIDDEN',
-    message: `${name} requires an ${policy.roleFloor} account`,
+    message: adminFloorMessage(`${name} requires an ${policy.roleFloor} account`, refusal),
   })
 }
 

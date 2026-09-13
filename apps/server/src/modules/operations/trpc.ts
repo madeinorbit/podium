@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { adminFloorMessage, adminFloorRefusal } from '../../command-principal'
+import { roleFloorDeps } from '../role-floor'
 
 /**
  * The operation surface (POD-2097, spec §3.0/§3.7). Three procedures, and the
@@ -20,12 +22,45 @@ import { familyState } from '../derived-family'
 
 const operationsModule = (ctx: Context) => familyState(ctx).modules.operations
 
+/**
+ * THE ADMIN FLOOR FOR ALL THREE OPERATION CONTRACTS, taken against the ACCOUNT
+ * rather than against the transport (PDM-299).
+ *
+ * WHAT THIS USED TO READ, and why it was the odd one out: `ctx.principal
+ * .capability.role !== 'admin'`. For a human that is exactly right by accident
+ * — `userCommandPrincipal` mints the capability role FROM the account row on
+ * every request and `UserRole` has only two members, so `capability.role ===
+ * 'admin'` is equivalent to the live store role. For an AGENT it was the wrong
+ * question asked of the wrong field: `relay.ts` and `SessionAuthz` hard-code
+ * `role: 'worker'` on every live agent capability, so this line refused every
+ * agent — not because a rule decided anything, but because no mint can produce
+ * the value it compared against.
+ *
+ * That made the refusal untestable in the only way that matters. An assertion
+ * that "an agent is refused" passed here for the wrong reason (false-green
+ * catalogue entry 14), and it would have kept passing if the rule were deleted.
+ *
+ * Now the account grade is resolved through {@link roleFloorDeps} — the same
+ * construction `fleetAuthzDeps`, `settingsAuthzDeps` and the derived builder
+ * use, reading the delegating human's role LIVE (ADR 9 D5 A1) — and the
+ * decision is {@link adminFloorRefusal}, the one function all five sites go
+ * through. An agent is refused because the RULE refuses it, which is a thing a
+ * test can break.
+ *
+ * NO CONTRACT IS CONSULTED HERE YET, and that is deliberate scope. All three
+ * contracts declare `roleFloor: 'admin'` and this file hard-codes the same
+ * floor, so they agree — but the family joins no contract table, so no builder
+ * governs it. `PDM-297` owns that join; when it lands, this whole function
+ * becomes `roleFloorFailure(qualifiedName, contract, deps)` and the hard-coded
+ * floor goes with it.
+ */
 async function assertActionAuthorized(ctx: Context, operationId: string): Promise<void> {
-  const principal = ctx.principal
-  if (principal.kind !== 'system' && principal.capability.role !== 'admin') {
+  const { principal, role } = await roleFloorDeps(ctx)
+  const refusal = adminFloorRefusal(principal.kind, role)
+  if (refusal !== undefined) {
     throw new TRPCError({
       code: 'FORBIDDEN',
-      message: 'operation recovery requires an admin account',
+      message: adminFloorMessage('operation recovery requires an admin account', refusal),
     })
   }
 

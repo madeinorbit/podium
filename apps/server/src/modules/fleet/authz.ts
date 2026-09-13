@@ -49,7 +49,14 @@ import {
 } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
+import {
+  type AdminFloorRefusal,
+  adminFloorMessage,
+  adminFloorRefusal,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../../command-principal'
 import {
   checkMachineVerb,
   isMachineOwner,
@@ -211,11 +218,34 @@ export async function fleetAuthzFailure(
   const { policy } = contract
 
   // 1 — the floor. A system principal is in-process only and has no account.
-  if (deps.principal.kind !== 'system' && !roleSatisfiesFloor(deps.role, policy.roleFloor)) {
-    return new TRPCError({
-      code: 'FORBIDDEN',
-      message: `${name} requires an ${policy.roleFloor} account`,
-    })
+  //
+  // THE ADMIN HALF OF THIS DECISION MOVED OUT (PDM-299). `roleSatisfiesFloor`
+  // answered both floors from the account role alone, so an agent resolved
+  // through `onBehalfOf` to an admin human satisfied the admin floor — and no
+  // test in this repository ever witnessed that, because no consumer of
+  // `fleetAuthzFailure` or `fleetAuthzDeps` constructed a principal of kind
+  // `agent` (false-green catalogue entry 20, the real rule nothing witnesses).
+  // Both halves are fixed here: the rule is {@link adminFloorRefusal}, shared
+  // with the other four admin-floor sites, and `authz.test.ts` now builds an
+  // agent and asserts both arms.
+  //
+  // THE MEMBER FLOOR IS DELIBERATELY UNCHANGED. Nine fleet contracts declare it
+  // precisely so D6 M1's OWNER column stays reachable, and an owner's agent
+  // reaching its owner's machine is ADR 9 D6 M6 working as designed. Only the
+  // ADMIN grade is refused to a delegate.
+  if (deps.principal.kind !== 'system') {
+    const refusal: AdminFloorRefusal | undefined =
+      policy.roleFloor === 'admin'
+        ? adminFloorRefusal(deps.principal.kind, deps.role)
+        : roleSatisfiesFloor(deps.role, policy.roleFloor)
+          ? undefined
+          : 'below-grade'
+    if (refusal !== undefined) {
+      return new TRPCError({
+        code: 'FORBIDDEN',
+        message: adminFloorMessage(`${name} requires an ${policy.roleFloor} account`, refusal),
+      })
+    }
   }
 
   // 2 — the verb. Absent means the contract places no work on owned compute.
