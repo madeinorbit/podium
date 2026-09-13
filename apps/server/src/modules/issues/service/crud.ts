@@ -763,6 +763,21 @@ export class IssueCrudModule {
       if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
+      //
+      // ONE READER, AND SETTLED RATHER THAN DEFERRED (PDM-429). `archived` is a
+      // SHARED column, so whatever gates it answers for everyone; the cascade
+      // therefore keeps ONE named gating reader instead of growing a quantifier
+      // over members. Both obvious generalisations fail, and they fail for
+      // reasons rather than by taste: gating on the CLOSING member hides a child
+      // from everyone because one person read it, and "skip if ANY member has it
+      // unread" degenerates the moment a second member exists, since absence of
+      // a row IS unread and most people have not touched most issues — the
+      // cascade would never archive anything again.
+      //
+      // The same decision, its deciding side effect (archive frees the worktree
+      // and archives every member's session) and the rejected alternatives are
+      // written out once beside the auto-archive sweep in `attention.ts`; this
+      // is the second site that inherits it, not a second decision.
       if (this.store.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
@@ -809,47 +824,61 @@ export class IssueCrudModule {
    * narrower set than it renumbers compacts into a state that immediately reads
    * as long again.
    *
-   * PINNED IS A DIFFERENT ANSWER FOR THE TWO CALLERS, and getting that wrong is
-   * what a whole-scope renumber punishes (POD-1102):
+   * PINNED IS NOT IN THIS PREDICATE, AND THAT IS THE DECISION PDM-429 OWED.
+   * There used to be a second, narrower scope here that minting measured over —
+   * the same rows minus the pinned ones — and this method took an opt-in flag to
+   * switch between them. `pinned` is a per-(user,issue)
+   * row (POD-1076) and `sort_key` is a column on the SHARED `issues` table, so
+   * that predicate made the mint scope's MEMBERSHIP depend on who was asking.
+   * Two members with different pins would measure two different top keys and
+   * write both into one key space, and whether a 900-row compaction fired at all
+   * would depend on which of them happened to press New. A shared column cannot
+   * take a per-viewer scope; that is the whole finding, and the repair is to
+   * delete the narrower scope rather than to thread a viewer into it.
    *
-   *  - MINTING skips pinned rows. A pin lifts the row into its own section, and
-   *    letting it hold the mint point would key every new issue against a row
-   *    that is no longer in the list they appear at the top of.
-   *  - COMPACTION must not. Pin/unpin deliberately leaves `sortKey` untouched so
-   *    unpinning returns the row to its old position — which only works while
-   *    pinned and unpinned rows are comparable. Renumber one and not the other
-   *    and every pinned row keeps a long key, sorts above the short new ones,
-   *    and comes back from the pin in the wrong place. A total order restricted
-   *    to a subset preserves that subset's order, so renumbering the UNION keeps
-   *    both the pinned section's internal order and the list's.
+   * WHAT THE OLD SPLIT BOUGHT, since POD-1102 argued for it and the argument
+   * deserves an answer rather than a deletion. Its reason was that a pin "lifts
+   * the row into its own section", so a pinned row holding the mint point would
+   * key every new issue against a row that is not in the list the new issue
+   * appears at the top of. The section is real — `unifiedRowBand` puts pinned
+   * rows in band 0 and ordinary rows in band 1, and `sortUnifiedWorkRows`
+   * compares the BAND BEFORE `compareManualOrder` — but that is exactly why the
+   * exclusion was never load-bearing for ORDER. A pinned row cannot interleave
+   * with unpinned rows at any key, so R2 ("new appears at top") is delivered by
+   * the band and not by the mint scope. The exclusion bought KEY ECONOMY only:
+   * it kept the mint anchored to the shortest key that could still win band 1.
+   *
+   * The cost of dropping it is therefore headroom, not position — new keys are
+   * minted above the pinned rows' keys too, so the scope's minimum descends
+   * somewhat faster. {@link compactSortKeys} is what already exists to absorb
+   * that, and it already runs over this same whole space. One further thing gets
+   * FIXED rather than traded: the compaction TRIGGER and the compaction TARGET
+   * are now measured over the same set, where {@link mintSortKey} used to test
+   * the narrow scope's minimum and then renumber the wide one.
+   *
+   * COMPACTION'S OWN REASON FOR WANTING EVERY ROW is unchanged and still the
+   * reason this scope is the whole space: pin/unpin deliberately leaves
+   * `sortKey` untouched so unpinning returns the row to its old position, which
+   * only works while pinned and unpinned rows are comparable. Renumber one and
+   * not the other and every pinned row keeps a long key, sorts above the short
+   * new ones, and comes back from the pin in the wrong place. A total order
+   * restricted to a subset preserves that subset's order, so renumbering the
+   * UNION keeps both the pinned section's internal order and the list's.
    */
-  private sortScopeRows(
+  private sortKeySpaceRows(
     repoId: RepoId | null | undefined,
     repoPath: string,
     parentId: string | null,
-    opts?: { includePinned?: boolean },
   ): IssueRow[] {
     const rows: IssueRow[] = []
     for (const r of this.store.rows.values()) {
       if (r.deletedAt) continue
       const sameScope = parentId
         ? r.parentId === parentId
-        : r.parentId == null &&
-          (opts?.includePinned === true || !this.store.issueOverlay(r.id).pinned) &&
-          (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
+        : r.parentId == null && (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (sameScope) rows.push(r)
     }
     return rows
-  }
-
-  /** The rows a compaction of this scope must renumber — the whole key space,
-   *  pinned rows included. See {@link sortScopeRows}. */
-  private sortKeySpaceRows(
-    repoId: RepoId | null | undefined,
-    repoPath: string,
-    parentId: string | null,
-  ): IssueRow[] {
-    return this.sortScopeRows(repoId, repoPath, parentId, { includePinned: true })
   }
 
   /** The scope's current top key, corrupt/legacy keys ignored. */
@@ -928,12 +957,14 @@ export class IssueCrudModule {
    *  {@link compactSortKeys} for why an ever-growing key breaks the DRAG rather
    *  than the create that grew it. */
   private async mintSortKey(repoId: RepoId, repoPath: string, parentId: string | null): Promise<string> {
-    // Measured over the unpinned rows, renumbered over the whole key space —
-    // see `sortScopeRows` for why those two sets differ.
-    let min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
+    // Measured over the SAME set it renumbers (PDM-429). These used to be two
+    // different scopes — the trigger read the unpinned rows and the compaction
+    // rewrote all of them — which made the mint point depend on the asking
+    // viewer's pins. See `sortKeySpaceRows`.
+    let min = this.minSortKey(this.sortKeySpaceRows(repoId, repoPath, parentId))
     if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
       await this.compactSortKeys(this.sortKeySpaceRows(repoId, repoPath, parentId))
-      min = this.minSortKey(this.sortScopeRows(repoId, repoPath, parentId))
+      min = this.minSortKey(this.sortKeySpaceRows(repoId, repoPath, parentId))
     }
     return sortKeyBetween(null, min)
   }

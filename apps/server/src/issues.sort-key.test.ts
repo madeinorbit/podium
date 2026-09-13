@@ -280,10 +280,17 @@ describe('sortKey scope compaction (POD-1102)', () => {
 
   it('renumbers pinned rows too, so unpinning still lands where it used to', async () => {
     // Caught against this workspace's real data, not reasoned out: the first
-    // compaction skipped pinned rows, because it borrowed the scope the MINT
-    // measures — and the mint skips them on purpose. Four pinned rows kept
-    // their 105-character keys while 916 others dropped to three, so the four
-    // sorted straight to the top of a list they were not at the top of.
+    // compaction skipped pinned rows, because it borrowed the narrower scope the
+    // MINT measured at the time — which excluded them on purpose. Four pinned
+    // rows kept their 105-character keys while 916 others dropped to three, so
+    // the four sorted straight to the top of a list they were not at the top of.
+    //
+    // THAT SECOND SCOPE IS GONE (PDM-429) and this test's subject is not. The
+    // mint no longer excludes anything — a scope that skipped one viewer's
+    // pinned rows made a SHARED key depend on who was asking — so there is now
+    // one scope and the borrowing this incident describes is no longer
+    // expressible. What is asserted below is unchanged and still load-bearing:
+    // the compaction covers pinned rows too.
     //
     // Pin/unpin leaves `sortKey` untouched precisely so unpinning returns the
     // row to its position. That only holds while the two are comparable.

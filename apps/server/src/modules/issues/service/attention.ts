@@ -533,9 +533,22 @@ export class IssueAttentionModule {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
       // "Read" is now a fact about a READER, so the sweep asks the broadcast
-      // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
-      // open question "auto-archived because WHO read it?" is POD-1136's, and it
-      // is now askable because the value has an owner.
+      // viewer (POD-1076). Behaviour is unchanged on a one-person instance.
+      //
+      // "AUTO-ARCHIVED BECAUSE WHO READ IT?" IS ANSWERED, NOT OPEN (PDM-429):
+      // ONE named reader, deliberately, because `archived` is a SHARED column
+      // and a shared flag cannot take a per-viewer gate. An earlier note here
+      // called this an open question and assigned it to POD-1136. POD-1136 is
+      // CLOSED; it delivered the per-user read LOOKUP this line makes, and never
+      // the WHOSE-read decision, so the sentence had aged into a deferral to
+      // nobody. Do not reach for it as a blocker — check the tracker.
+      //
+      // THE DECIDING FACT IS A SIDE EFFECT, not a preference about sidebars.
+      // Archiving runs `onIssueArchived`, which releases the issue's WORKTREE
+      // FROM DISK and archives EVERY member's session. There is no coherent
+      // per-person value of "this checkout is deleted", so the flag is shared
+      // and so is its gate. The per-person "hide this from my list" already
+      // exists and is a different column: `tucked_at` on `issue_user_state`.
       const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(await this.store.broadcastViewer(), row.id))?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
@@ -578,9 +591,16 @@ export class IssueAttentionModule {
     // naming anyone else is REFUSED rather than quietly evaluated against the
     // wrong person: that refusal is what makes "the janitor and the server must
     // ask the same principal" a checked fact instead of two constants that
-    // happen to match. When `archived` becomes per-user (POD-1077), this
-    // comparison becomes "the principal whose flag you are setting" and the
-    // observation already carries it.
+    // happen to match.
+    //
+    // THIS REFUSAL IS PERMANENT (PDM-429). The line here used to end "when
+    // `archived` becomes per-user (POD-1077), this comparison becomes 'the
+    // principal whose flag you are setting'". Both halves were wrong. POD-1077
+    // is CLOSED — it shipped a scoped-feed kernel and never made overlay content
+    // per-principal — and `archived` is NOT becoming per-user, because archiving
+    // frees the worktree from disk and archives every member's session, which
+    // are shared effects with no per-person value. So this comparison does not
+    // become something else later: it is the invariant, and it stays.
     if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
     const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
