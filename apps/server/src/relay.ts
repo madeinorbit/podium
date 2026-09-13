@@ -2488,7 +2488,13 @@ export class SessionRegistry {
     const approvals = new ApprovalService({
       store: this.store.approvals,
       now: () => new Date().toISOString(),
-      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      toMachine: (machineId, msg, authorityEpochAtDecision) =>
+        machines.toMachine(machineId, msg, authorityEpochAtDecision),
+      // THE DECISION-TIME AUTHORITY READ (PDM-410). Wired here and nowhere else:
+      // this is the one dispatch in the process whose authorization moment is
+      // separated from its park by five awaits, so it is the one that needs the
+      // stamp carried rather than re-read.
+      authorityEpoch: (machineId) => machines.authorityEpoch(machineId),
       // The stall deadline runs only while a machine's daemon is actually attached:
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),

@@ -165,3 +165,198 @@ describe('a parked approval refused by the real queue', () => {
     expect((await statusOf(approvals, id)).status).toBe('executing')
   })
 })
+
+/**
+ * PDM-410 — THE WINDOW BETWEEN THE DECISION AND THE PARK.
+ *
+ * PDM-401's guard compares the epoch stamped AT PARK against the epoch read at
+ * flush. That interval is not the one that matters. `ApprovalService.approve`
+ * authorizes the dispatch in `assertMayDispatch` and then crosses FIVE await
+ * points before it reaches `toMachine` -- the pending->executing transition, the
+ * audit log, the optional server-op execution, and two more in its result arms.
+ * An authority change committing in there bumps the epoch BEFORE the park, so
+ * the frame is stamped with the POST-bump value, MATCHES at flush, and is
+ * delivered carrying an authorization that stopped being true.
+ *
+ * THAT CHRONOLOGY IS NOT HYPOTHETICAL AND WAS CHECKED BEFORE ANYTHING WAS BUILT,
+ * because the brief that preceded it had the order backwards once already: the
+ * awaits are read directly out of `approve`, and the opposite order -- a park
+ * BEFORE the bump -- is the safe one PDM-401 already covers.
+ *
+ * THE FIX is to stamp what the DECISION saw. `assertMayDispatch` reads the epoch
+ * BEFORE it asks the authority question, not after: a change committing during
+ * the question itself could otherwise be captured as the frame's own baseline,
+ * which is the same miss one layer down. Reading first can only stamp a value
+ * that is too old, and too old is refused.
+ *
+ * SEPARATE FROM PDM-411, which asks whether the bump is guaranteed to have
+ * landed at all. These tests assume it lands perfectly and on time.
+ */
+describe('an approval whose authority moved between its decision and its park', () => {
+  /**
+   * The same wiring PLUS the two members relay.ts passes for PDM-410 — the
+   * decision-time read and the stamp-carrying `toMachine`. `duringDecision` runs
+   * INSIDE `mayDispatchTo`, which is the only place a test can put a commit that
+   * is provably after the decision-time read and before the park.
+   */
+  async function wiredWithDecisionStamp() {
+    let duringDecision: (() => Promise<void>) | undefined
+    const store = await SessionStore.open(':memory:')
+    await store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'ludovico',
+      hostname: 'ludovico.local',
+      tokenHash: 'token-hash',
+      ownerUserId: OWNER,
+    })
+    const machines = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    } satisfies MachinesDeps)
+    await machines.ownersSeeded
+
+    const approvals = new ApprovalService({
+      store: store.approvals,
+      now: () => '2026-07-13T00:00:00.000Z',
+      toMachine: (machineId, msg, authorityEpochAtDecision) =>
+        machines.toMachine(machineId, msg, authorityEpochAtDecision),
+      authorityEpoch: (machineId) => machines.authorityEpoch(machineId),
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      onDeliveryDiscarded: (sink) => machines.onDeliveryDiscarded(sink),
+      clients: () => [],
+      sessionOwner: async () => OWNER,
+      // The decision still says YES -- it read the pre-change world, which is
+      // exactly the race. A check that answered NO would make the frame never
+      // exist and prove nothing about the queue.
+      mayDispatchTo: async () => {
+        await duringDecision?.()
+        return true
+      },
+      sessionIssueId: () => asIssueId('iss_1'),
+      issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
+      machineName: async () => 'ludovico',
+      logEvent: () => {},
+      notifyIssue: async () => {},
+    })
+    /**
+     * Arm the in-window commit. Set AFTER `request()` and before `approve()`,
+     * because `request` ALSO asks `mayDispatchTo` -- a hook armed from the start
+     * fires on that earlier call instead, and a second identical owner write is
+     * not a change and does not bump. The first version of this test did exactly
+     * that and passed for the wrong reason on the grant arm while failing on the
+     * owner arm; the asymmetry is what exposed it.
+     */
+    const setDuringDecision = (hook: () => Promise<void>) => {
+      duringDecision = hook
+    }
+    return { store, machines, approvals, setDuringDecision }
+  }
+
+  /** Request now; approve later, so the window can be armed in between. */
+  async function requested(approvals: ApprovalService) {
+    const { id } = await approvals.request({
+      op: { kind: 'channel', target: 'dev' },
+      sessionId: SESSION,
+      machineId: MACHINE,
+    })
+    return id
+  }
+
+  it('is REFUSED at flush, even though it parked AFTER the epoch had already moved', async () => {
+    const { store, machines, approvals, setDuringDecision } = await wiredWithDecisionStamp()
+    const id = await requested(approvals)
+    const beforeDecision = machines.authorityEpoch(MACHINE)
+    setDuringDecision(async () => {
+      // T1: the handover commits, and the epoch subscription bumps, while the
+      // decision is still being taken. The park at T2 is therefore POST-bump.
+      await store.machines.setMachineOwner(MACHINE, asUserId('user:bob'))
+    })
+    await approvals.approve(id, OWNER)
+
+    // THE PREMISE, ASSERTED RATHER THAN ASSUMED. Without this the test could
+    // pass because nothing moved at all, which is the safe case PDM-401 already
+    // covers and not the one under test: the epoch really did move inside the
+    // window, so a park-time stamp WOULD have matched at flush.
+    expect(machines.authorityEpoch(MACHINE)).toBe(beforeDecision + 1)
+
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toEqual([])
+    expect((await statusOf(approvals, id)).status).toBe('failed')
+  })
+
+  it('a REVOKED SHARE in the same window is refused too, not just a handover', async () => {
+    // The grants half of the epoch reaches the same window, and a fix that only
+    // carried the stamp for owner moves would leave this one delivered.
+    const { store, machines, approvals, setDuringDecision } = await wiredWithDecisionStamp()
+    const id = await requested(approvals)
+    const beforeDecision = machines.authorityEpoch(MACHINE)
+    setDuringDecision(async () => {
+      await store.grants.upsert({
+        resourceKind: 'machine',
+        resourceId: MACHINE,
+        grantee: 'user:carol',
+        verb: 'use',
+        owner: OWNER,
+        visibility: 'private',
+        createdAt: '2026-07-13T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: OWNER,
+        onBehalfOf: null,
+      })
+    })
+    await approvals.approve(id, OWNER)
+    expect(machines.authorityEpoch(MACHINE)).toBe(beforeDecision + 1)
+
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toEqual([])
+    expect((await statusOf(approvals, id)).status).toBe('failed')
+  })
+
+  it('with NOTHING moving in the window, the decision-time stamp still delivers', async () => {
+    // THE COST DIRECTION. A stamp taken at the wrong moment -- or a fix that
+    // simply always refused -- would pass both tests above and silently stop the
+    // broker ever dispatching to an offline machine again.
+    const { machines, approvals } = await wiredWithDecisionStamp()
+
+    const id = await requested(approvals)
+    await approvals.approve(id, OWNER)
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toHaveLength(1)
+    expect((await statusOf(approvals, id)).status).toBe('executing')
+  })
+
+  it('a broker with NO decision-time port keeps the older, narrower guarantee', async () => {
+    // The port is optional so the forty-odd internal `toMachine` callers need no
+    // edit. That optionality must mean "stamp at park, as before" and not
+    // "stamp with undefined and match everything": the frame below parks BEFORE
+    // its authority moves, which is the case the old guard does cover, and it
+    // must still be refused.
+    const { store, machines, approvals } = await wired()
+    const id = await parkedApproval(approvals)
+
+    await store.machines.setMachineOwner(MACHINE, asUserId('user:bob'))
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toEqual([])
+    expect((await statusOf(approvals, id)).status).toBe('failed')
+  })
+})

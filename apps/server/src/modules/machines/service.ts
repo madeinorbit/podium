@@ -1065,9 +1065,28 @@ export class MachinesService {
     for (const settle of waiters ?? []) settle()
   }
 
-  /** Route a control message to the daemon that owns `machineId`; queue it if that
-   *  machine is briefly offline (flushed in order on its next attach). */
-  readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
+  /**
+   * Route a control message to the daemon that owns `machineId`; queue it if that
+   * machine is briefly offline (flushed in order on its next attach).
+   *
+   * `authorityEpochAtDecision` CLOSES THE DECISION-TO-PARK WINDOW (PDM-410). By
+   * default a parked frame is stamped with the epoch read HERE, which makes the
+   * flush comparison span park -> flush and leaves it blind to anything that
+   * happened between the DECISION and the park. A caller that authorized this
+   * dispatch earlier passes the epoch it read at that moment, and the comparison
+   * then spans decision -> flush, which is the interval that actually matters.
+   *
+   * OPTIONAL, and that is the whole reason this shape was chosen over threading
+   * a principal: the forty-odd internal callers keep today's behaviour with no
+   * edit, and a caller that HAS an earlier authorization moment supplies it. An
+   * omitted stamp is not a claim that no such moment existed — it is the older,
+   * narrower guarantee, unchanged.
+   */
+  readonly toMachine = (
+    machineId: MachineId,
+    msg: ControlMessage,
+    authorityEpochAtDecision?: number,
+  ): void => {
     if (msg.type === 'updateGrant') {
       const supervisor = this.supervisors.get(machineId)
       if (supervisor) {
@@ -1089,7 +1108,7 @@ export class MachinesService {
     const delivery = {
       kind: 'control' as const,
       message: msg,
-      authorityEpoch: this.authorityEpoch(machineId),
+      authorityEpoch: authorityEpochAtDecision ?? this.authorityEpoch(machineId),
     }
     if (q) q.push(delivery)
     else this.pendingByMachine.set(machineId, [delivery])

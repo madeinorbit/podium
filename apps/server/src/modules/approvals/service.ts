@@ -29,7 +29,18 @@ const log = createLogger('server:approvals')
 export interface ApprovalServiceDeps {
   store: ApprovalsRepository
   now(): string
-  toMachine(machineId: MachineId, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage, authorityEpochAtDecision?: number): void
+  /**
+   * The machine's authority epoch, read at the moment this broker decides
+   * (PDM-410). `MachineService.authorityEpoch` is synchronous precisely so this
+   * read cannot itself straddle a commit.
+   *
+   * OPTIONAL, and an absent port is the OLD behaviour rather than a failure: the
+   * queue then stamps at park, as it did before, and the decision-to-park window
+   * stays open. Every real composition root supplies it; the fixtures that do not
+   * are testing something else.
+   */
+  authorityEpoch?(machineId: MachineId): number
   /**
    * Connected web clients. The principal is OPTIONAL in the type and present on
    * every real one: `clientRegistry.values()` yields `ClientConn`, which carries
@@ -528,7 +539,7 @@ export class ApprovalService {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
     await this.assertMayDecide(row, actor, id)
-    await this.assertMayDispatch(row, id)
+    const authorityAtDecision = await this.assertMayDispatch(row, id)
     if (!await this.deps.store.transition(id, 'pending', 'executing')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
@@ -550,7 +561,11 @@ export class ApprovalService {
       await this.broadcast()
       return await this.toWire(await this.row(id))
     }
-    this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
+    this.deps.toMachine(
+      row.machineId,
+      { type: 'approvalExecRequest', requestId: id, op: row.op },
+      authorityAtDecision,
+    )
     // Start the stall clock (POD-2223). `stop` is exempt for the same reason it gets an
     // early notify below: its row staying `executing` is honest, not stuck.
     if (row.op.kind !== 'stop') this.stallClock.set(id, this.nowMs())
@@ -612,7 +627,15 @@ export class ApprovalService {
    * ApprovalServiceDeps.mayDispatchTo}. An owner that has become unresolvable
    * between the two reads refuses, rather than inheriting the decider's identity.
    */
-  private async assertMayDispatch(row: ApprovalRow, id: string): Promise<void> {
+  private async assertMayDispatch(row: ApprovalRow, id: string): Promise<number | undefined> {
+    // READ BEFORE THE QUESTION, NOT AFTER (PDM-410). The authority change can
+    // commit DURING `mayDispatchTo`'s own awaits. Reading afterwards would
+    // capture the POST-bump value for a check that may have answered from the
+    // pre-bump world, and a post-bump stamp MATCHES at flush -- the exact miss
+    // this is here to stop. Reading first can only stamp a value that is too
+    // OLD, which the flush comparison rejects. Refuses too much, never too
+    // little, like every other arm of this guard.
+    const authorityAtDecision = this.deps.authorityEpoch?.(row.machineId)
     const owner = await this.deps.sessionOwner(row.sessionId)
     if (owner === undefined || !(await this.deps.mayDispatchTo(owner, row.machineId))) {
       throw new Error(
@@ -620,6 +643,7 @@ export class ApprovalService {
           `is no longer yours to run on. Deny it, or ask again from a machine you own.`,
       )
     }
+    return authorityAtDecision
   }
 
   /** Daemon reply: execution finished. A `stop` op may never report (the daemon
