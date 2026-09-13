@@ -765,20 +765,24 @@ export class IssueCrudModule {
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
       //
-      // STILL ONE READER, DELIBERATELY, AND NOT AN OVERSIGHT OF PDM-408. That
-      // issue made the MARKS per-user; `archived` is a SHARED column, and a
-      // shared flag can only ever be gated on one reader — POD-1229 settled
-      // that in `applyObservedAutoArchive`, whose refusal when the observation
-      // names anyone else is what makes "the janitor and the server ask the
-      // same principal" a checked fact rather than two constants that agree.
+      // STILL ONE READER, AND NOT AN OVERSIGHT OF PDM-408 — but NOT settled
+      // here either. That issue made the MARKS per-user; `archived` is a SHARED
+      // column, so whatever gates it is answering for everyone.
       //
-      // The honest generalisations both fail: gating on the CLOSER hides a
-      // child from everyone because one person read it, and "skip if ANY member
-      // has it unread" degenerates the moment a second member exists, because
-      // absence of a row IS unread and most people have not touched most
-      // issues. Neither is a threading change; both need `archived` to become
-      // per-user first, which is a different resource. Recorded rather than
-      // guessed at.
+      // POD-1229 recorded the same reasoning in `applyObservedAutoArchive`,
+      // whose refusal when an observation names anyone else is what makes "the
+      // janitor and the server ask the same principal" a checked fact. That is
+      // HISTORICAL DESIGN CONTEXT, not authorization for the policy: whether a
+      // shared `archived` keeps one named gating reader is an open decision,
+      // filed as PDM-429.
+      //
+      // TWO GENERALISATIONS I REASONED ABOUT FROM THE SOURCE AND DID NOT RUN,
+      // labelled as reasoning rather than as experiments: gating on the CLOSER
+      // appears to hide a child from everyone because one person read it, and
+      // "skip if ANY member has it unread" appears to degenerate once a second
+      // member exists, since absence of a row IS unread and most people have
+      // not touched most issues. Neither is a threading change either way; both
+      // turn on the resource decision above.
       if (this.store.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue

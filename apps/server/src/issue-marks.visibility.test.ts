@@ -223,31 +223,27 @@ describe('user-match AND issue-read', () => {
     })
   })
 
-  it('DELIVERS a row whose issue is gone, to its own user and nobody else', async () => {
-    // REVERSED (PDM-408). This case used to assert a refusal, and the premise was
-    // wrong — PDM-139's source review is what exposed it, and the owner-retraction
-    // case in `issue-marks.feed.test.ts` is what proved it on the serving path.
+  it('REFUSES a row whose issue is gone — the gate has no operation to go on', async () => {
+    // REVERSED BACK (PDM-408, on PDM-139's returned correction), and the round
+    // trip is the point rather than an embarrassment: this case asserted a
+    // refusal, I flipped it to a delivery to stop a purge's tombstone being
+    // eaten, and the reviewer showed the flip was too broad.
     //
-    // DELETED IS NOT REVOKED. Revoked means the issue still EXISTS and this
-    // person may no longer read it, so delivering their row keeps telling them it
-    // is there — refused, above, unchanged. Deleted means the row names an id
-    // that resolves to nothing, and the only principal it can ever reach is the
-    // person whose key it is, who put the mark there themselves. Nothing is
-    // disclosed to anyone.
+    // `keyedUserOf` sees a REF. It has no operation and no history, so a relaxation
+    // here admits an ordinary UPSERT and a BOOTSTRAP row exactly as readily as a
+    // retraction. And asked-and-absent proves only that a lookup missed — never
+    // that the issue once existed, that it was deleted, or that THIS principal
+    // ever held the row. The startup reconcile republishes pre-existing orphan
+    // marks, so the flip would have served stale rows naming issues nobody can
+    // see.
     //
-    // AND REFUSING IT WAS ACTIVELY HARMFUL. A purge's tombstone is scoped at
-    // DELIVERY time, by which point the issue is already deleted, so the refusal
-    // ate the retraction: the holder's client kept a pin and a read mark for an
-    // issue that no longer exists, permanently. The gate would have eaten exactly
-    // the correction that exists to prevent that.
+    // The retraction is supplied by a DIFFERENT mechanism instead — the
+    // `issueMarks` arm of `visibilityEdge`, which evicts through the row's own
+    // audience. `issue-marks.feed.test.ts` is where that is witnessed, on the
+    // serving path, because it cannot be seen from this port at all.
     const { policy } = await fixture()
 
     expect(await recipients(policy, marksRef(owner, GHOST))).toEqual({
-      snapshot: owner,
-      delta: owner,
-    })
-    // Still nobody else's: "deleted" relaxes WHICH issues, never WHOSE row.
-    expect(await recipients(policy, marksRef(stranger, SHARED))).toEqual({
       snapshot: null,
       delta: null,
     })

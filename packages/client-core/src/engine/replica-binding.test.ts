@@ -360,3 +360,85 @@ describe('two simultaneously marked issues, through the kernel’s composite ids
     stop()
   })
 })
+
+describe('a cached replica APPLIES the retraction, and keeps the other mark', () => {
+  /**
+   * PDM-139's third correction, and the one the emission tests cannot answer:
+   * the source request was *cached-client disappearance*, not emission. A server
+   * that publishes a perfect tombstone and a client that never applies it look
+   * identical from the server side.
+   *
+   * So this holds TWO marks on TWO issues in a real replica, applies the
+   * eviction the feed delivers for one of them, and requires that ONLY that one
+   * disappears. Both preconditions are asserted first: a witness that never
+   * established the marks were held would be satisfied by a replica that showed
+   * nothing from the start.
+   */
+  const ME = 'mem_me'
+  const marksRow = (issueId: string, readAt: string) => ({
+    userId: ME,
+    issueId,
+    readAt,
+    tuckedAt: null,
+    pinned: false,
+  })
+
+  it('drops the purged issue’s mark and leaves the kept issue’s standing', async () => {
+    const cache = new BindingCache()
+    cache.put('issue', 'iss_gone', issue('iss_gone'))
+    cache.put('issue', 'iss_kept', issue('iss_kept'))
+    cache.put(
+      'issueMarks',
+      issueMarksRowId(asUserId(ME), 'iss_gone'),
+      marksRow('iss_gone', 'T-gone'),
+    )
+    cache.put(
+      'issueMarks',
+      issueMarksRowId(asUserId(ME), 'iss_kept'),
+      marksRow('iss_kept', 'T-kept'),
+    )
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const binding = createReplicaBinding({ replica })
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+
+    const held = publications[publications.length - 1]!.snapshot.issues
+    const readAtOf = (id: string) =>
+      (held.find((row) => row.id === id) as { readAt?: string | null } | undefined)?.readAt
+    // BOTH preconditions, before anything is removed.
+    expect(readAtOf('iss_gone')).toBe('T-gone')
+    expect(readAtOf('iss_kept')).toBe('T-kept')
+
+    publications.length = 0
+    // The purge, as the client receives it: the issue row goes, and the marks
+    // row arrives as an EVICTION addressed by its (user, issue) composite —
+    // which is what the anchor emits when the read gate can no longer carry it.
+    cache.drop('issue', 'iss_gone')
+    cache.drop('issueMarks', issueMarksRowId(asUserId(ME), 'iss_gone'))
+    replica.onKernelEvent({ type: 'evicted', entity: 'issue', entityId: 'iss_gone' })
+    replica.onKernelEvent({
+      type: 'evicted',
+      entity: 'issueMarks',
+      entityId: issueMarksRowId(asUserId(ME), 'iss_gone'),
+    })
+    await Promise.resolve()
+
+    const after = publications[publications.length - 1]!.snapshot
+    // The purged issue is gone from the client entirely…
+    expect(after.issues.map((row) => row.id)).not.toContain('iss_gone')
+    expect(after.issueMarks.map((row) => row.issueId)).not.toContain('iss_gone')
+    // …and the OTHER mark is untouched, which is what a retraction that took
+    // too much would fail. Without this the first two assertions are satisfied
+    // by a client that dropped everything.
+    expect(after.issueMarks.map((row) => row.issueId)).toEqual(['iss_kept'])
+    expect(
+      (after.issues.find((row) => row.id === 'iss_kept') as { readAt?: string | null } | undefined)
+        ?.readAt,
+    ).toBe('T-kept')
+    stop()
+  })
+})

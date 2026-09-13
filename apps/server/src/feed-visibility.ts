@@ -434,32 +434,23 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             return null
           }
           if (!prefetch) return null
-          // A GONE ISSUE IS NOT A REVOCATION, and conflating them strands the
-          // retraction (PDM-408, found by PDM-139's source review).
+          // FAIL CLOSED, INCLUDING WHEN THE ISSUE IS GONE.
           //
-          // The two cases this conjunct has to tell apart:
-          //   REVOKED — the issue still EXISTS and this person may no longer read
-          //     it. Delivering their row would keep telling them it is there, so
-          //     it is refused. That is the boundary and it is unchanged.
-          //   DELETED — the issue is gone. The row names an id that resolves to
-          //     nothing, and the ONLY principal it can ever reach is the person
-          //     whose key it is, who put the mark there themselves. There is no
-          //     third party to disclose it to and nothing left to disclose.
+          // An earlier revision escaped here when the issue was asked-for and
+          // absent, to stop a purge's tombstone being refused at delivery.
+          // PDM-139 returned it, and the objection is decisive: `keyedUserOf`
+          // sees a REF and has no operation or history. An escape here admits
+          // ordinary UPSERTS and BOOTSTRAP rows for a missing issue exactly as
+          // readily as a removal — and asked-and-absent proves only that a
+          // lookup missed, never that the issue once existed, was deleted, or
+          // that THIS principal ever held the row. The startup reconcile
+          // republishes pre-existing orphan marks, so that escape would have
+          // served stale rows naming issues nobody can see.
           //
-          // Refusing the deleted case is not conservative, it is harmful: the
-          // purge's tombstone is scoped at DELIVERY time, by which point the
-          // issue is already deleted, so the removal would be dropped and the
-          // holder's client would keep a pin and a read mark for an issue that no
-          // longer exists — permanently, with nothing left to correct it. The
-          // gate would have eaten exactly the retraction that exists to stop that.
-          //
-          // `issueIds` is the set the batch ASKED for, `issues` what the store
-          // RETURNED, so asked-and-absent is the honest spelling of "deleted"
-          // rather than "not loaded"; a ref nobody prefetched fails the first
-          // test and is refused below.
-          const askedFor = prefetch.issueIds.has(marks.issueId)
-          const stillExists = prefetch.issues.get(marks.issueId) !== undefined
-          if (askedFor && !stillExists) return marks.userId
+          // THE RETRACTION IS A DIFFERENT MECHANISM, not a hole in this one —
+          // see the `issueMarks` arm of {@link visibilityEdge} below, where an
+          // eviction is derived from the row's own audience rather than smuggled
+          // through the read gate.
           if (!mayReadIssueFromSnapshot(marks.userId, marks.issueId, prefetch)) return null
           return marks.userId
         }
@@ -739,6 +730,48 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
 
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
+      // A MARKS ROW IS ITS OWN ANCHOR (PDM-408), and this is what retracts it.
+      //
+      // `keyedUserOf` cannot tell a removal from an upsert, so the read gate
+      // must refuse both once the issue is unreadable or gone — which would
+      // strand the purge's tombstone, because scoping happens at DELIVERY time
+      // and the issue is already deleted by then. The holder's client would keep
+      // a pin and a read mark for an issue that no longer exists, permanently.
+      //
+      // The anchor supplies it WITHOUT weakening the gate. `anchorFor`
+      // re-decides each subject and emits `evict` when the decision refuses, so
+      // a marks row whose issue has gone reaches its own user as an EVICTION —
+      // an instruction to drop what they hold — while an ordinary upsert for the
+      // same row stays refused. Retraction and disclosure travel different
+      // paths, which is the property the escape collapsed.
+      //
+      // AUDIENCE IS THE ROW'S OWN USER, parsed from the key. Not the issue's
+      // audience: an owner-only issue has NO grant audience at all, so the
+      // issue's anchor never fires for exactly the person whose retraction went
+      // missing. Subject is the row itself, so no other row is disturbed.
+      if (ref.entity === 'issueMarks') {
+        let marks: { userId: UserId; issueId: string }
+        try {
+          marks = parseIssueMarksRowId(ref.entityId)
+        } catch {
+          return null
+        }
+        // ONLY WHEN THE ORDINARY PATH CAN NO LONGER CARRY IT. An edge returned
+        // unconditionally makes every ordinary marks change arrive TWICE — once
+        // from `visible` and once as an anchored upsert of the same row — which
+        // the suite caught immediately. An anchor answers "did this row MOVE
+        // anyone's visibility", not "did this row change".
+        //
+        // The issue going away is exactly that move, and it is
+        // principal-INDEPENDENT, which is what lets it be decided here: this port
+        // must not close over a principal. While the issue still resolves, the
+        // read gate is the whole answer and no anchor is wanted.
+        if ((await store.issues.getIssue(marks.issueId)) != null) return null
+        return {
+          audience: [marks.userId],
+          subjects: [{ entity: 'issueMarks' as const, entityId: ref.entityId }],
+        }
+      }
       if (ref.entity !== 'issue') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
