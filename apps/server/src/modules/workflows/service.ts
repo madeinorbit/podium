@@ -74,13 +74,19 @@ export interface WorkflowCaller {
    * acts for, resolved from the delegation record by the transport and never
    * from payload.
    *
-   * `undefined` means "the transport did not resolve one", and
-   * `workflowPrincipal` substitutes `SINGLE_USER_HUMAN` there. That is NOT every
-   * caller: `workflowCaller` over tRPC and `workflowCallerForCapability` over the
-   * relay both resolve a real human, so the substitution is the fallback branch
-   * rather than the shipped one. (This used to say *which today is every caller
-   * and resolves to the single human*; per-member login has landed — corrected by
-   * PDM-421.) `null` means REVOKED — A1's
+   * `undefined` means "the transport did not resolve one". `workflowPrincipal`
+   * substitutes `SINGLE_USER_HUMAN` for it in ONE branch only — the one where
+   * `caller.principal` is absent. Where a `CommandPrincipal` IS supplied, which
+   * `workflowCaller` over tRPC and `workflowCallerForCapability` over the relay
+   * both do, `onBehalfOf` is `onBehalfOfUser(caller.principal)` and
+   * `SINGLE_USER_HUMAN` never enters. THAT VALUE CAN BE `null`: `relay.ts`'s
+   * `workflowCallerForCapability` computes it explicitly and passes it onward.
+   *
+   * (Two corrections. This first read *which today is every caller and resolves to
+   * the single human* — false once per-member login landed. PDM-421 replaced it
+   * with "both resolve a real human", and the PDM-139 phase review found that an
+   * overclaim in the other direction: supplying a real principal does not
+   * guarantee a non-null human.) `null` means REVOKED — A1's
    * whole revocation semantics, and the reason it is a distinct value rather
    * than an absence: a long-lived unattended run whose delegating human has
    * been revoked must stop advancing at its next apply, with no reaper to

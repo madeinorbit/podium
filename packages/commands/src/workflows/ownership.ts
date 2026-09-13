@@ -58,11 +58,17 @@ export type WorkflowUserRef = string
  * the special case being, once more, the shape of the bug. That argument is why
  * the constant survives per-member login unchanged.
  *
- * (This was headed *The one human of a single-user instance*. Accounts exist and
- * `auth-route.ts` verifies the resolved member's own credential, so the shipped
- * doors supply a real human and this value is reached only on the fallback
- * branch — `workflowPrincipal` in the server's workflows handlers. Corrected by
- * PDM-421, which changed no value and no call site.)
+ * REACHED ON ONE BRANCH ONLY. `workflowPrincipal` (the server's workflows
+ * handlers) substitutes this value when the caller carries NO `CommandPrincipal`
+ * and its `onBehalfOf` is `undefined`. Where a principal IS supplied this value
+ * never enters, and an explicit `null` is preserved on both branches — so
+ * substituting here never converts a REVOKED human into a permitted one.
+ *
+ * (Two corrections. This was headed *The one human of a single-user instance*,
+ * which stopped being true when per-member login landed. PDM-421 replaced it with
+ * prose saying the shipped doors "supply a real human"; the PDM-139 phase review
+ * found that an overclaim — a supplied principal can still resolve `onBehalfOf`
+ * to `null`. Neither correction changed a value or a call site.)
  */
 export const SINGLE_USER_HUMAN: WorkflowUserRef = 'user:single'
 

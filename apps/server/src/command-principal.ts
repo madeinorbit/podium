@@ -4,7 +4,9 @@
  * (ADR 3 D7, ADR 3 Amendment 1 D14/D16, docs/multi-user-readiness.md §3.1.3).
  *
  * ---------------------------------------------------------------------------
- * WHY THIS EXISTS NOW, BEFORE ACCOUNTS DO
+ * WHY THIS IS A PORT AND NOT A CONSTANT
+ * (this section was headed "WHY THIS EXISTS NOW, BEFORE ACCOUNTS DO"; accounts
+ * exist, so the heading contradicted its own body — PDM-421)
  * ---------------------------------------------------------------------------
  *
  * POD-1075 landed the `User` aggregate, the `users` table and the per-user
@@ -23,11 +25,20 @@
  * admin*, and that per-user credentials were Phase 3 work not yet landed.
  * POD-1554 removed `hasPassword`/`setPassword`/`clearPassword`/`verifyPassword`/
  * `applyEnvPassword` from `auth-store.ts`, whose own header says so; what is left
- * there is the KDF over one `user_credentials` row per account. The one place
- * that still resolves to the earliest admin is OPEN MODE (`server.ts`'s
- * `requestPrincipal`, local request with no credential required), which is a
- * policy on a member rather than a property of the password. Corrected by
+ * there is the KDF over one `user_credentials` row per account. Corrected by
  * PDM-421.
+ *
+ * BOUNDED TO THE BRANCH THIS PARAGRAPH IS ABOUT, because the first version of
+ * this correction was itself an overclaim. Within `server.ts`'s
+ * `requestPrincipal`, the branch that resolves the EARLIEST ADMIN rather than a
+ * logged-in member is the open-mode one (local request, no credential required);
+ * the credentialed branch resolves whoever logged in. That is a statement about
+ * `requestPrincipal` and NOTHING WIDER. Other sites still substitute
+ * `firstAdminMemberId()` and are separately owned — `modules/sessions/repository.ts`
+ * on session hydration (PDM-428), several in `relay.ts`, and
+ * `device-grade-owner.ts` (PDM-369). `resolveLoginIdentifier` itself falls back to
+ * `earliestAdmin()` when the request carries no identifier. Anyone needing the
+ * repository-wide picture must census it rather than read it here.
  *
  * The port shape is unaffected by that correction, and the original argument for
  * it stands on its own terms.
