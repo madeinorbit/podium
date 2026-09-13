@@ -66,6 +66,19 @@ const floor = (over: Partial<Parameters<typeof checkBaseline>[0]> = {}) =>
     ...over,
   })
 
+/**
+ * PDM-325. A genesis record spells `from` as `null`, which is a CLAIM — "this
+ * key did not exist on the base commit" — and the comparison checks it. Written
+ * against literals for the same reason the two fixtures above are.
+ */
+const GENESIS: BaselineAuthorisation = {
+  key: 'seats',
+  from: null,
+  to: 46,
+  issue: 'POD-0000',
+  reason: 'a reason long enough to clear the minimum, which is the point of the minimum',
+}
+
 const checks = (fs: ReturnType<typeof checkBaseline>) => fs.map((f) => f.check)
 
 describe('constantsIn', () => {
@@ -190,8 +203,145 @@ describe('checkBaseline', () => {
     ])
   })
 
-  it('says nothing about a key the base commit never had', () => {
-    expect(raise({ base: {}, current: { seats: 46 } })).toEqual([])
+  /**
+   * PDM-325. This block replaces a test that asserted the opposite — `says
+   * nothing about a key the base commit never had` pinned `[]` here — because
+   * saying nothing was the defect. See the genesis section of the module
+   * comment for why the first value of a number is not free.
+   */
+  describe('a key the base commit never had', () => {
+    it('fails, because the first value of a gate is a value somebody chose', () => {
+      expect(checks(raise({ base: {}, current: { seats: 46 } }))).toEqual([
+        'baseline-introduced-without-authorisation',
+      ])
+    })
+
+    it('passes when a genesis record says it was absent and names this value', () => {
+      expect(raise({ base: {}, current: { seats: 46 }, authorisations: [GENESIS] })).toEqual([])
+    })
+
+    it('fails a genesis record that names a different value than the tree carries', () => {
+      expect(
+        checks(
+          raise({ base: {}, current: { seats: 46 }, authorisations: [{ ...GENESIS, to: 12 }] }),
+        ),
+      ).toEqual(['baseline-introduced-without-authorisation'])
+    })
+
+    it('fails a genesis record whose reason is a shrug', () => {
+      expect(
+        checks(
+          raise({
+            base: {},
+            current: { seats: 46 },
+            authorisations: [{ ...GENESIS, reason: 'ok' }],
+          }),
+        ),
+      ).toEqual(['baseline-introduced-without-authorisation'])
+    })
+
+    it('fails a genesis record that names no issue', () => {
+      expect(
+        checks(
+          raise({ base: {}, current: { seats: 46 }, authorisations: [{ ...GENESIS, issue: ' ' }] }),
+        ),
+      ).toEqual(['baseline-introduced-without-authorisation'])
+    })
+
+    /**
+     * The claim `from: null` makes is CHECKABLE, and this is the check. A key
+     * that was on the base commit is a raise; letting a genesis record cover it
+     * would make `from: null` the cheapest way to launder one, which is the
+     * whole failure this issue is about, one spelling along.
+     */
+    it('does not let a genesis record launder a raise of a key that WAS there', () => {
+      expect(checks(raise({ authorisations: [{ ...GENESIS, to: 46 }] }))).toEqual([
+        'baseline-raised-without-authorisation',
+      ])
+    })
+
+    it('says so when a genesis record contradicts the base commit', () => {
+      const [f] = raise({ authorisations: [{ ...GENESIS, to: 46 }] })
+      expect(f?.detail).toContain('did not exist on the base commit')
+    })
+
+    it('asks for the direction first, so a new key is not unguarded twice over', () => {
+      expect(checks(raise({ base: {}, current: { seats: 46 }, directions: {} }))).toEqual([
+        'baseline-direction-undeclared',
+      ])
+    })
+
+    /**
+     * A floor is introduced the same way a ceiling is. The direction decides
+     * which way it may not move LATER; it does not decide whether the first
+     * value costs an argument.
+     */
+    it('costs the same record whichever way the new key looks', () => {
+      expect(checks(floor({ base: {}, current: { sites: 1200 } }))).toEqual([
+        'baseline-introduced-without-authorisation',
+      ])
+    })
+
+    it('is silent about a key that is enforced and exists on neither side', () => {
+      expect(raise({ base: {}, current: {} })).toEqual([])
+    })
+
+    /**
+     * The far side of a recorded rename is already argued for: the retirement
+     * entry names the old key, its value on the base commit and this key's
+     * value here. A second record for one event is two numbers that can drift
+     * apart. This is not hypothetical — it is the state of
+     * `audit-ambient-principals` on the PDM-107 epic branch today, where
+     * `firstAdminMemberId` is absent at the merge base because the rename
+     * happened inside the epic.
+     */
+    it('needs no genesis record when a matched retirement already names it', () => {
+      expect(
+        raise({
+          base: { oldSeats: 41 },
+          current: { seats: 46 },
+          authorisations: [{ ...AUTH, key: 'oldSeats', from: 41, renamedTo: 'seats', to: 46 }],
+        }),
+      ).toEqual([])
+    })
+
+    /**
+     * ONE DEFECT, ONE FINDING. A retirement record that has drifted is already
+     * reported against the OLD key, in the rename's own words. Saying "and also
+     * this key was never introduced" would point the reader at the other half
+     * of the same event.
+     */
+    it('leaves a drifted retirement to be reported once, against the old key', () => {
+      expect(
+        checks(
+          raise({
+            base: { oldSeats: 41 },
+            current: { seats: 46 },
+            authorisations: [{ ...AUTH, key: 'oldSeats', from: 41, renamedTo: 'seats', to: 12 }],
+          }),
+        ),
+      ).toEqual(['baseline-raised-without-authorisation'])
+    })
+
+    /**
+     * And the exemption cannot be claimed by a record that names an old key the
+     * base commit never had. Such a key is in neither `base` nor `enforced`, so
+     * it is never iterated and nothing would report it anywhere — which would
+     * make a two-line fiction the cheapest way past this check.
+     */
+    it('refuses a retirement from a key that was never on the base commit', () => {
+      expect(
+        checks(
+          raise({
+            base: {},
+            current: { seats: 46 },
+            authorisations: [
+              { ...AUTH, key: 'neverExisted', from: 41, renamedTo: 'seats', to: 46 },
+            ],
+          }),
+        ),
+      ).toEqual(['baseline-introduced-without-authorisation'])
+    })
   })
 
   describe('when history cannot be read', () => {

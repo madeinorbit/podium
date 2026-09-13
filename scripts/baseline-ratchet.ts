@@ -1,5 +1,6 @@
 /**
- * THE BASELINE RATCHET — POD-3904, given its second direction by POD-3906.
+ * THE BASELINE RATCHET — POD-3904, given its second direction by POD-3906 and
+ * its first value by PDM-325.
  *
  * A ratchet whose expectation is a literal in the same file is not a ratchet.
  * `audit-ambient-principals.ts` measures how many places assume a default user
@@ -53,6 +54,29 @@
  * instrument's entire recorded history is travel in the direction it did not
  * guard. `scripts/audit-committed-floors.ts` is the census that now holds the
  * floors, and `BaselineDirection` below says why there is no default direction.
+ *
+ * AND THE FIRST VALUE COSTS A RECORD TOO — PDM-325. A key that is not on the
+ * base commit has no previous value to be compared with, and this module used
+ * to skip it: `if (was === undefined) continue`, with a comment saying the
+ * audit's own drift check covered it from there. It did not. For
+ * `audit-ambient-principals` that drift check compares the measurement against
+ * `BASELINE`, the hand-edited literal in the same file — the escape this module
+ * exists to close, named as the reason it was safe to leave open. For
+ * `audit-committed-floors`, which arrived later, there is no drift check at
+ * all. And because the base is a MERGE BASE, "not on the base commit" is not a
+ * first-run condition: a key introduced anywhere on a long-lived branch is
+ * absent at the base for every leaf of that branch, for the life of the branch.
+ * A ceiling registered at 92 on the PDM-107 epic and edited to 930 in the same
+ * tree produced no finding and exit 0 under `--require-base`.
+ *
+ * The fix is a `BaselineAuthorisation` with `from: null` — a genesis record, so
+ * that a new ratcheted number costs the same paragraph a raised one does. It is
+ * a property rather than a configuration deliberately: pointing
+ * `PODIUM_RATCHET_BASE` at a different commit was tried and does not work,
+ * because a key is introduced AFTER every commit it could be compared against,
+ * so there is no base at which it has a previous value. A guard that depends on
+ * every branch being configured correctly forever is the shape POD-3904 was
+ * filed about.
  *
  * AND IT MUST BE ABLE TO SAY IT COULDN'T LOOK. A comparison against history is
  * unavailable in a shallow clone, in a tree with no integration branch, and
@@ -209,7 +233,14 @@ export const constantsIn = (source: string, exportName: string): Record<string, 
  */
 export interface BaselineAuthorisation {
   readonly key: string
-  readonly from: number
+  /**
+   * The value on the base commit, or `null` for a key that was not there at all
+   * — PDM-325. `null` is a CLAIM about history and it is checked: a key the base
+   * commit DOES carry takes the raise path whatever this says, so `from: null`
+   * cannot be used to launder a movement. See {@link checkBaseline}'s genesis
+   * branch.
+   */
+  readonly from: number | null
   readonly to: number
   readonly issue: string
   readonly reason: string
@@ -305,25 +336,127 @@ export const checkBaseline = (input: BaselineInput): Finding[] => {
   // still there but no longer enforced.
   const keys = [...new Set([...Object.keys(base), ...enforced])].sort()
 
+  const undeclaredDirection = (key: string, now: number): Finding => ({
+    check: 'baseline-direction-undeclared',
+    where: `${instrument}:${key}`,
+    detail: `\`${key}\` is enforced at ${now} but this tree does not say which way it may not move, so nothing can tell a regression from a fix. Declare it: 'ceiling' if the measurement must stay at or below the number (the escape is raising it), 'floor' if it must stay at or above it (the escape is lowering it). There is no default on purpose — a guessed direction leaves the other half unguarded.`,
+  })
+
+  /**
+   * A retirement entry that is COMPLETE and agrees with BOTH commits. Read from
+   * two places — the key that vanished, and the key it was renamed into — so
+   * the two cannot come to disagree about what counts as recorded.
+   */
+  const retirementOf = (oldKey: string): BaselineAuthorisation | undefined =>
+    authorisations.find(
+      (a) =>
+        a.key === oldKey &&
+        a.renamedTo !== undefined &&
+        a.from === base[oldKey] &&
+        a.to === current[a.renamedTo] &&
+        a.issue.trim().length > 0 &&
+        a.reason.trim().length >= MIN_REASON_LENGTH,
+    )
+
   for (const key of keys) {
     const was = base[key]
     const now = current[key]
 
-    // Nothing on the base commit: a new baseline, which is a floor being set
-    // rather than moved. The audit's own drift check covers it from here.
-    if (was === undefined) continue
+    // ----------------------------------------------------------------------
+    // NOTHING ON THE BASE COMMIT — PDM-325.
+    //
+    // This branch used to be `continue`, on the reasoning that a key the base
+    // did not have is "a floor being set rather than moved" and that "the
+    // audit's own drift check covers it from here". BOTH HALVES WERE WRONG, and
+    // the second is the more interesting error.
+    //
+    // The drift check it named is `checkDrift` in `audit-ambient-principals.ts`,
+    // which compares the measured count against `BASELINE` — a hand-edited
+    // literal in the same file. That is the exact escape THIS MODULE EXISTS TO
+    // CLOSE, cited as the safety that made skipping the key acceptable. It was
+    // also a property of one caller: `audit-committed-floors.ts` arrived later
+    // with no measurement of any kind, so for every key in that census the
+    // named fallback did not exist at all.
+    //
+    // Nor was it a harmless first-run case. The base is
+    // `merge-base(HEAD, origin/main)`, so a key introduced anywhere on a
+    // long-lived branch is absent at the base for EVERY leaf of that branch for
+    // the life of the branch. Demonstrated on the PDM-107 epic: a ceiling
+    // registered at 92 and edited to 930 in the same tree produced no finding
+    // and exit 0 under `--require-base`.
+    //
+    // AND POINTING THE COMPARISON SOMEWHERE ELSE DOES NOT FIX IT. Setting
+    // `PODIUM_RATCHET_BASE` to a commit where every registered file exists was
+    // tried and the escape held, because a key is introduced AFTER every commit
+    // it could be compared against. There is no base at which a new key has a
+    // previous value, so the first value has to cost its own record instead.
+    // ----------------------------------------------------------------------
+    if (was === undefined) {
+      // On neither side. There is no number here to have an opinion about, and
+      // a registration naming a constant that does not exist is the registry
+      // check's finding rather than this one's.
+      if (now === undefined) continue
 
-    if (now === undefined) {
-      const retirement = authorisations.find(
+      // A key reaches this loop absent-at-base only by being ENFORCED — `keys`
+      // is the base's keys plus the enforced ones — so the direction question
+      // is live, and it is asked FIRST: a new key with no declared direction is
+      // unguarded twice over, and answering "write a record" would let it land
+      // still unable to tell a regression from a fix.
+      const direction = directions[key]
+      if (direction === undefined) {
+        findings.push(undeclaredDirection(key, now))
+        continue
+      }
+
+      // THE FAR SIDE OF A RENAME IS NOT A BIRTH. A retirement entry already
+      // names the old key, its value on the base commit and this key's value
+      // here, so a second record for one event would put the same number in two
+      // places where they can drift apart. This is not hypothetical: it is
+      // `firstAdminMemberId` on the PDM-107 epic branch, absent at the merge
+      // base because the rename happened inside the epic.
+      //
+      // The condition is that the record's OLD key is on the base commit — not
+      // that the record is otherwise valid. `keys` is the base's keys plus the
+      // enforced ones, so an old key that is on the base commit is certainly
+      // iterated, and every way the record can be wrong is reported THERE, in
+      // the rename's own words ("retired into X, whose authorisation records it
+      // at N, this tree baselines it at M"). Reporting it here as well would
+      // give one defect two findings that point at different halves of it.
+      // Requiring a VALID record instead would do exactly that, and requiring
+      // no old-key check at all would let a retirement naming a key that never
+      // existed silence this branch, since such a key is never iterated.
+      if (authorisations.some((a) => a.renamedTo === key && base[a.key] !== undefined)) continue
+
+      const genesis = authorisations.find(
         (a) =>
           a.key === key &&
-          a.renamedTo !== undefined &&
-          a.from === was &&
-          a.to === current[a.renamedTo] &&
+          a.from === null &&
+          a.renamedTo === undefined &&
+          a.to === now &&
           a.issue.trim().length > 0 &&
           a.reason.trim().length >= MIN_REASON_LENGTH,
       )
-      if (retirement) continue
+      if (genesis) continue
+
+      const near = authorisations.find((a) => a.key === key && a.from === null)
+      const why =
+        near === undefined
+          ? 'There is no record of it being introduced.'
+          : near.to !== now
+            ? `Its genesis record names ${near.to}; this tree carries ${now}.`
+            : near.issue.trim().length === 0
+              ? 'Its genesis record names no issue.'
+              : `Its genesis record's reason is ${near.reason.trim().length} characters; ${MIN_REASON_LENGTH} is the minimum.`
+      findings.push({
+        check: 'baseline-introduced-without-authorisation',
+        where: `${instrument}:${key}`,
+        detail: `\`${key}\` is enforced as a ${direction} at ${now} and the base commit (${how}) has no such key, so nothing here compares it against anything. The FIRST value of a gate is a value somebody chose, and choosing it to accommodate whatever the tree does today is how a debt is banked as a baseline — the same edit a raise would be, made once and never argued for. Record it: a BaselineAuthorisation { key: '${key}', from: null, to: ${now}, issue, reason } saying what the number bounds and why ${now} is the right place to start. ${why}`,
+      })
+      continue
+    }
+
+    if (now === undefined) {
+      if (retirementOf(key) !== undefined) continue
 
       // A retirement entry that no longer matches is the case a reader will
       // hit most often once a rename has landed: the entry pins the new key's
@@ -377,11 +510,7 @@ export const checkBaseline = (input: BaselineInput): Finding[] => {
     // waiting for that movement to complain is waiting for the escape.
     const direction = directions[key]
     if (direction === undefined) {
-      findings.push({
-        check: 'baseline-direction-undeclared',
-        where: `${instrument}:${key}`,
-        detail: `\`${key}\` is enforced at ${now} but this tree does not say which way it may not move, so nothing can tell a regression from a fix. Declare it: 'ceiling' if the measurement must stay at or below the number (the escape is raising it), 'floor' if it must stay at or above it (the escape is lowering it). There is no default on purpose — a guessed direction leaves the other half unguarded.`,
-      })
+      findings.push(undeclaredDirection(key, now))
       continue
     }
 
@@ -398,11 +527,18 @@ export const checkBaseline = (input: BaselineInput): Finding[] => {
     const verb = direction === 'ceiling' ? 'rose' : 'fell'
     const near = authorisations.find((a) => a.key === key && a.to === now)
     const why = near
-      ? near.from !== was
-        ? `Its authorisation says it ${verb} from ${near.from}, but the base commit says ${was}.`
-        : near.issue.trim().length === 0
-          ? 'Its authorisation names no issue.'
-          : `Its authorisation's reason is ${near.reason.trim().length} characters; ${MIN_REASON_LENGTH} is the minimum.`
+      ? // PDM-325: a genesis record claims the key was not on the base commit.
+        // It was. Reporting this as "the wrong previous value" would send the
+        // reader after the number when the false part is the claim about
+        // history — and letting it PASS would make `from: null` the cheapest
+        // way to launder a raise, which is this issue one spelling along.
+        near.from === null
+        ? `Its record says \`from: null\` — that this key did not exist on the base commit — but the base commit (${how}) carries it at ${was}. A key with a previous value is a movement, not an introduction: give the record that value.`
+        : near.from !== was
+          ? `Its authorisation says it ${verb} from ${near.from}, but the base commit says ${was}.`
+          : near.issue.trim().length === 0
+            ? 'Its authorisation names no issue.'
+            : `Its authorisation's reason is ${near.reason.trim().length} characters; ${MIN_REASON_LENGTH} is the minimum.`
       : 'There is no authorisation for it.'
 
     const movement = `${direction} ${was} -> ${now} (${direction === 'ceiling' ? '+' : '-'}${moved})`
@@ -440,8 +576,11 @@ export const checkBaselineAgainstBase = (
   const source = commit === null ? null : fileAtRevision(commit, opts.relativePath, git)
   // `base === null` means WE COULD NOT LOOK — no commit, or the file was not
   // there. An empty record means we looked and the base had no such baseline,
-  // which is what a genuinely new instrument looks like and is not a failure;
-  // it is spelled out in `how` so a reader can tell the two apart.
+  // which is what a genuinely new instrument looks like. That is no longer a
+  // free pass (PDM-325): every enforced key in it is a genesis and needs its
+  // own record. The two stay distinguishable, and `how` still spells out which
+  // happened, because the remedies differ — one is "fetch more history", the
+  // other is "say why this number".
   const base = source === null ? null : constantsIn(source, opts.exportName)
   const resolvedHow =
     commit === null

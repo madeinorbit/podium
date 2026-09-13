@@ -421,6 +421,50 @@ export const probe = (): Finding[] => {
     }),
   )
 
+  // PDM-325. A key the base commit does not have used to be skipped at ANY
+  // value, and this census is the caller where that was total: it has no drift
+  // check of its own, so nothing else ever looked at the number. Planted on
+  // every run because the unit tests for it live in a lane this epic has
+  // already shown can be red and unread.
+  expect(
+    'baseline-introduced-without-authorisation',
+    floorArgs({ base: {} }),
+    floorArgs({
+      base: {},
+      authorisations: [
+        {
+          key: 'PROBE_FLOOR',
+          from: null,
+          to: 1200,
+          issue: 'POD-0000',
+          reason:
+            'a probe fixture reason long enough to clear the minimum length the check requires',
+        },
+      ],
+    }),
+  )
+  // And `from: null` must not become the cheap way to launder a movement: the
+  // same record against a base that DOES carry the key is a raise, not a birth.
+  if (
+    floorArgs({
+      authorisations: [
+        {
+          key: 'PROBE_FLOOR',
+          from: null,
+          to: 1200,
+          issue: 'POD-0000',
+          reason:
+            'a probe fixture reason long enough to clear the minimum length the check requires',
+        },
+      ],
+    }).length === 0
+  )
+    broken.push({
+      check: 'baseline-genesis-cannot-launder-a-lowering',
+      where: '<probe>',
+      detail: 'a lowering recorded as if the key had never existed was accepted',
+    })
+
   // A lowering authorised at the WRONG `from` must not pass: the number an
   // author cannot write from memory is the entire mechanism.
   if (floorArgs({ authorisations: [{ ...authorised, from: 1700 }] }).length === 0)
