@@ -12,6 +12,9 @@
  * keeping the terminal path as its permanent fallback.
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -46,10 +49,12 @@ const savedInstanceEnv = {
   XDG_STATE_HOME: process.env.XDG_STATE_HOME,
 }
 
+let isolatedHome: string
+
 beforeEach(() => {
-  process.env.HOME = '/home/mgw'
+  isolatedHome = mkdtempSync(join(tmpdir(), 'podium-codex-app-server-home-'))
+  process.env.HOME = isolatedHome
   process.env.XDG_RUNTIME_DIR = '/run/user/1001'
-  delete process.env.PODIUM_STATE_DIR
   delete process.env.XDG_STATE_HOME
 })
 
@@ -58,6 +63,7 @@ afterEach(() => {
     if (value === undefined) delete process.env[key]
     else process.env[key] = value
   }
+  rmSync(isolatedHome, { recursive: true, force: true })
 })
 
 describe('the Codex app-server socket path budget', () => {
