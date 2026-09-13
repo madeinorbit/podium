@@ -10,15 +10,15 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  type BaselineAuthorisation,
   baseRevision,
-  checkRaise,
-  checkRaiseAgainstBase,
+  checkBaseline,
+  checkBaselineAgainstBase,
   constantsIn,
   type GitRunner,
-  type RaiseAuthorisation,
 } from './baseline-ratchet'
 
-const AUTH: RaiseAuthorisation = {
+const AUTH: BaselineAuthorisation = {
   key: 'seats',
   from: 41,
   to: 46,
@@ -26,11 +26,12 @@ const AUTH: RaiseAuthorisation = {
   reason: 'a reason long enough to clear the minimum, which is the point of the minimum',
 }
 
-const raise = (over: Partial<Parameters<typeof checkRaise>[0]> = {}) =>
-  checkRaise({
+const raise = (over: Partial<Parameters<typeof checkBaseline>[0]> = {}) =>
+  checkBaseline({
     instrument: 'probe',
     current: { seats: 46 },
     base: { seats: 41 },
+    directions: { seats: 'ceiling' },
     authorisations: [],
     enforced: ['seats'],
     how: 'a fixture',
@@ -38,7 +39,34 @@ const raise = (over: Partial<Parameters<typeof checkRaise>[0]> = {}) =>
     ...over,
   })
 
-const checks = (fs: ReturnType<typeof checkRaise>) => fs.map((f) => f.check)
+/**
+ * The mirror fixture — POD-3906. A floor's safe direction is UP, so every
+ * expectation here is the reverse of the block above. Written against literals
+ * for the same reason that block is: a fixture derived from the constant under
+ * test floats with it.
+ */
+const FLOOR_AUTH: BaselineAuthorisation = {
+  key: 'sites',
+  from: 1800,
+  to: 1200,
+  issue: 'POD-0000',
+  reason: 'a reason long enough to clear the minimum, which is the point of the minimum',
+}
+
+const floor = (over: Partial<Parameters<typeof checkBaseline>[0]> = {}) =>
+  checkBaseline({
+    instrument: 'probe',
+    current: { sites: 1200 },
+    base: { sites: 1800 },
+    directions: { sites: 'floor' },
+    authorisations: [],
+    enforced: ['sites'],
+    how: 'a fixture',
+    requireBase: false,
+    ...over,
+  })
+
+const checks = (fs: ReturnType<typeof checkBaseline>) => fs.map((f) => f.check)
 
 describe('constantsIn', () => {
   it('reads an object-literal baseline by key', () => {
@@ -76,12 +104,12 @@ describe('constantsIn', () => {
   })
 })
 
-describe('checkRaise', () => {
+describe('checkBaseline', () => {
   it('passes an unchanged baseline', () => {
     expect(raise({ current: { seats: 41 } })).toEqual([])
   })
 
-  it('passes a LOWERED baseline with no ceremony at all', () => {
+  it('passes a LOWERED ceiling with no ceremony at all', () => {
     expect(raise({ current: { seats: 12 } })).toEqual([])
   })
 
@@ -179,6 +207,101 @@ describe('checkRaise', () => {
   })
 })
 
+describe('a floor, where the escape is LOWERING it', () => {
+  // POD-3906. Half the repository's committed numbers are floors — a coverage
+  // floor, a file-count floor, a scanned-files floor — and for those the
+  // direction `checkBaseline` guards is the safe one. The ratchet's own recorded
+  // history is the demonstration: the single authorisation in the repository
+  // records 46 -> 42 -> 38, three movements, all downward, none of them a raise.
+
+  it('fails a lowering with no authorisation', () => {
+    expect(checks(floor())).toEqual(['baseline-lowered-without-authorisation'])
+  })
+
+  it('passes a RAISED floor with no ceremony at all', () => {
+    // The exact mirror of the ceiling's lowering: moving a floor up tightens it.
+    expect(floor({ current: { sites: 2400 } })).toEqual([])
+  })
+
+  it('passes an unchanged floor', () => {
+    expect(floor({ current: { sites: 1800 } })).toEqual([])
+  })
+
+  it('passes a lowering whose authorisation names both numbers', () => {
+    expect(floor({ authorisations: [FLOOR_AUTH] })).toEqual([])
+  })
+
+  it('fails a lowering whose authorisation names the wrong previous value', () => {
+    const found = floor({ authorisations: [{ ...FLOOR_AUTH, from: 1700 }] })
+    expect(checks(found)).toEqual(['baseline-lowered-without-authorisation'])
+    expect(found[0]?.detail).toContain('says it fell from 1700, but the base commit says 1800')
+  })
+
+  it('fails a lowering whose reason is a shrug, and says how short it was', () => {
+    const found = floor({ authorisations: [{ ...FLOOR_AUTH, reason: 'later' }] })
+    expect(checks(found)).toEqual(['baseline-lowered-without-authorisation'])
+    expect(found[0]?.detail).toContain('is 5 characters; 40 is the minimum')
+  })
+
+  it('says which way the gate looks, and by how much', () => {
+    // A reader who sees `1800 -> 1200` without the word `floor` cannot tell
+    // whether the number moving down is the problem or the fix.
+    expect(floor()[0]?.detail).toContain('floor 1800 -> 1200 (-600)')
+  })
+
+  it('names a stale retirement record by the direction the floor looks', () => {
+    // The rare path, and the one a reviewer reads last: once a retirement has
+    // landed, a later movement of the RENAMED key surfaces here rather than in
+    // the comparison above, and calling a collapse a `raise` would send the
+    // reader looking for the opposite defect.
+    const found = floor({
+      current: { scanned: 1200 },
+      directions: { sites: 'floor', scanned: 'floor' },
+      authorisations: [{ ...FLOOR_AUTH, from: 1800, to: 1500, renamedTo: 'scanned' }],
+    })
+    expect(checks(found)).toEqual(['baseline-lowered-without-authorisation'])
+    expect(found[0]?.where).toBe('probe:scanned')
+  })
+
+  it('still catches a floor that vanished, which a rename is', () => {
+    expect(checks(floor({ current: { scanned: 1800 } }))).toEqual(['baseline-key-disappeared'])
+  })
+
+  it('still catches a floor that is there but no longer enforced', () => {
+    expect(checks(floor({ current: { sites: 1800 }, enforced: [] }))).toEqual([
+      'baseline-enforcement-dropped',
+    ])
+  })
+})
+
+describe('the direction itself', () => {
+  // A default direction would reintroduce the hole one level up: add a floor,
+  // forget to declare it, and it silently gets ceiling semantics — so lowering
+  // it to zero is unguarded, which is the exact escape this issue closes.
+
+  it('refuses to guess for an enforced key that declares none', () => {
+    expect(checks(floor({ directions: {} }))).toEqual(['baseline-direction-undeclared'])
+  })
+
+  it('refuses to guess even when the number did not move', () => {
+    // The direction is a property of the CHECK, not of a movement: a key with
+    // no declared direction is unguarded the moment someone does move it.
+    expect(checks(floor({ current: { sites: 1800 }, directions: {} }))).toEqual([
+      'baseline-direction-undeclared',
+    ])
+  })
+
+  it("does not confuse one key's direction for another's", () => {
+    expect(checks(floor({ directions: { seats: 'floor' } }))).toEqual([
+      'baseline-direction-undeclared',
+    ])
+  })
+
+  it('reports the undeclared key by name', () => {
+    expect(floor({ directions: {} })[0]?.where).toBe('probe:sites')
+  })
+})
+
 describe('baseRevision', () => {
   const git = (table: Record<string, string | null>): GitRunner => {
     return (args) => {
@@ -245,7 +368,7 @@ describe('baseRevision', () => {
   })
 })
 
-describe('checkRaiseAgainstBase', () => {
+describe('checkBaselineAgainstBase', () => {
   const gitWith =
     (baseSource: string | null): GitRunner =>
     (args) => {
@@ -260,11 +383,12 @@ describe('checkRaiseAgainstBase', () => {
     }
 
   const run = (baseSource: string | null, current: Record<string, number>, requireBase = false) =>
-    checkRaiseAgainstBase({
+    checkBaselineAgainstBase({
       instrument: 'probe',
       relativePath: 'scripts/probe.ts',
       exportName: 'BASELINE',
       current,
+      directions: { seats: 'ceiling' },
       authorisations: [],
       enforced: ['seats'],
       requireBase,

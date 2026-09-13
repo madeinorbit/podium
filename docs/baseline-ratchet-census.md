@@ -170,9 +170,86 @@ authorisation can be a rubber stamp (wrong `from`, one-word reason).
   adopters; `web-bundle-budget.ts` has the most history of raises. Filed separately.
 - **The floors were not converted.** `checkRaise` guards direction-of-travel upward;
   a floor needs the mirror, which is a small addition and a separate argument.
+  *(Closed by POD-3906 — see "The mirror" below.)*
 - **The baseline was not re-based to 40.** POD-3903 owns that literal.
 - One escape remains and is not closed: renaming the *export* (`BASELINE` itself)
   rather than a key inside it moves the comparison to a name the base commit does
   not have, and the run then reports "no `BASELINE` there" rather than failing. It
   is visible in the printed output on every run, and it is a multi-file diff, but
   it is not mechanically refused.
+  *(Closed by POD-3906 for every number in the committed-floor census, by a
+  different route — see "The mirror" below.)*
+
+---
+
+## The mirror — POD-3906
+
+`checkRaise` is now `checkBaseline` and takes a **per-key direction**. A
+`ceiling` is POD-3904's shape (the measurement must stay at or below the number,
+so raising it is the escape); a `floor` is the mirror (it must stay at or above,
+so *lowering* it is). There is deliberately **no default**: an enforced key with
+no declared direction is reported as `baseline-direction-undeclared`, because a
+guessed direction would reintroduce this whole issue one level up — add a floor,
+forget to declare it, and lowering it to zero is unguarded again.
+
+**Why the direction is per key and not per instrument.** One instrument can hold
+both. `audit-ambient-principals.ts` caps how many places assume a default user,
+and could equally carry a floor under how many files its scan must reach before
+that count means anything.
+
+**The evidence that the gap was real, not theoretical.** The single
+`BaselineAuthorisation` in the repository records `FIRST_ADMIN_USER_ID` 46 →
+`firstAdminMemberId` 42 → 38. Three movements, every one of them DOWNWARD, and
+`checkRaise` only ever compared upward. The instrument's entire recorded history
+was travel in the direction it did not guard.
+
+### Where the floors live now
+
+`scripts/audit-committed-floors.ts` (`bun run audit:committed-floors`, which runs
+`--probe` then the real arm, as `audit:ambient-principals` does). A census rather
+than a check inside each instrument, because these four have no gate to hang one
+on: `entity-id-audit.ts`'s own `main` is a report and its gate lives in
+`rearch-audit.ts`, `verify-client-build.ts` has no `main` at all, and the floor in
+`audit-telegram-binding.ts` is enforced from inside a scan function. **None of the
+four guarded scripts was modified** — the census reads their numbers out of git and
+out of the working tree — which also keeps it clear of POD-3905 and POD-3907.
+
+| Number | Direction | Read off |
+| --- | --- | --- |
+| `entity-id-audit.ts:MIN_ID_FIELD_SITES` = 1800 | **floor** | `out.length < MIN` throws |
+| `verify-client-build.ts:CLIENT_FILE_FLOOR` = {web 400, mobile 30} | **floor** | `fileCount < FLOOR[label]` throws |
+| `audit-telegram-binding.ts:MIN_SCANNED_FILES` = 500 | **floor** | `wholeTree.size < MIN` throws |
+| `baseline-ratchet.ts:MIN_REASON_LENGTH` = 40 | **floor** | `reason.length >= MIN` admits the authorisation |
+| `server-construction-order.ts:ENROLLMENT_THRESHOLD` = 40 | **ceiling** | `statements.length < threshold` SKIPS the body |
+| `rearch-audit.ts:DAEMON_COMPOSITION_ROOT_MAX_LINES` = 300 | **ceiling** | `lineCount <= MAX` returns no finding |
+| `change-row-audit.ts:CHANGE_ROW_THRESHOLD` = 2 | **ceiling** | `matched >= THRESHOLD` counts the row |
+| `representation-audit.ts:ENTITY_SHAPE_THRESHOLD` = 3 | **ceiling** | below it, the site is skipped |
+
+### A correction this issue owes its brief
+
+POD-3906's filing brief listed **`ENROLLMENT_THRESHOLD` among the floors. It is a
+ceiling.** Bodies *below* it are skipped, so the escape is raising it — 40 → 400
+makes the next unwatched wiring body invisible, which is the exact failure
+(`wireSessionLifecycle`, POD-1411) the audit was built for. This document's own
+census never called it a floor; it listed it as category (c) without a direction,
+and the direction was supplied wrongly downstream. That is the argument for making
+`direction` a required field that names the comparison it was read off, rather
+than something a reader infers from the constant's name.
+
+### The census is itself checked
+
+A hand-kept list is a list that rots, which is its own way of reporting a green
+that checked nothing. So: a baseline-shaped constant anywhere under `scripts/`
+that is neither registered nor excused **fails**; an exclusion or a registration
+naming a constant that no longer exists **fails**; and every exclusion carries a
+written reason. Registration-staleness is what closes the export-rename escape
+listed above — rename `MIN_ID_FIELD_SITES` to anything at all and the entry stops
+resolving, whether or not the new name matches the naming convention.
+
+The scan's limits are named rather than assumed away: it cannot see a bound
+spelled as a list's `.length` (`DURABLE_STORES.length`), nor one written inline at
+its comparison (`web-bundle-budget.ts`'s eight byte ceilings). Both are in the
+table above this section; neither is in the scan. The first spelling of the
+pattern also missed `THRESHOLD` (no prefix) and `DAEMON_COMPOSITION_ROOT_MAX_LINES`
+(`_MAX_` in the middle) — both of which this document had already listed — which is
+why the prose column exists.

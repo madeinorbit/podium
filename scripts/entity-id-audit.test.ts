@@ -70,6 +70,32 @@ const SCAFFOLD = Array.from(
   (_, i) => `export const Scaffold${i} = z.object({ sessionId: SessionIdField })\n`,
 ).join('')
 
+/**
+ * A planted TEST file, with the scaffold kept in a separate PRODUCTION file.
+ *
+ * Two files, not one, and that is the whole point: `entityIdSites` skips a file
+ * marked `isTest`, so a context whose single file carries both the scaffold and
+ * the plant drops to ZERO sites the moment it is marked — and zero trips the
+ * population floor, which throws. The test that needed this read
+ * `ctxOf(...); ctx.files[0]!.isTest = true`, and had therefore been red since
+ * the day it was written (afd9da651, 2026-08-12) without ever asserting the
+ * thing it names. POD-3906 found it while giving the floor a ratchet; the
+ * scanner was never the problem, the fixture was zeroing itself.
+ */
+const ctxWithTestFile = (source: string, file: string): AuditContext => ({
+  repoRoot: '/nonexistent',
+  files: [
+    {
+      file: 'packages/model/src/entities/planted.ts',
+      stripped: stripComments(SCAFFOLD),
+      raw: SCAFFOLD,
+      isTest: false,
+    },
+    { file, stripped: stripComments(source), raw: source, isTest: true },
+  ],
+  listDir: () => [],
+})
+
 // ---------------------------------------------------------------------------
 // The vocabulary is the MODEL's, not this file's
 // ---------------------------------------------------------------------------
@@ -578,10 +604,23 @@ describe('the unbranded-ts-id-members item', () => {
   })
 
   it('preserves the detector population exclusion for test files', () => {
-    const source = `${SCAFFOLD}export interface FakeSession { sessionId: string }`
-    const ctx = ctxOf(source, 'apps/server/src/service.test.ts')
-    ctx.files[0]!.isTest = true
+    const ctx = ctxWithTestFile(
+      'export interface FakeSession { sessionId: string }',
+      'apps/server/src/service.test.ts',
+    )
     expect(unbrandedTsIdMembers(ctx)).toHaveLength(0)
+  })
+
+  it('and would SEE that member if the file were not a test file', () => {
+    // The control the assertion above needs. Without it `toHaveLength(0)` is
+    // satisfied by a scan that found nothing for any reason at all — which is
+    // exactly how its predecessor passed review while throwing.
+    const ctx = ctxWithTestFile(
+      'export interface FakeSession { sessionId: string }',
+      'apps/server/src/service.ts',
+    )
+    ctx.files[1]!.isTest = false
+    expect(unbrandedTsIdMembers(ctx)).toHaveLength(1)
   })
 
   it('counts a raw TypeScript member in neither zod nor drizzle items', () => {

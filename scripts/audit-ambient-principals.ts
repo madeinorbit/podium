@@ -74,7 +74,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkRaise, checkRaiseAgainstBase, type RaiseAuthorisation } from './baseline-ratchet'
+import {
+  type BaselineAuthorisation,
+  checkBaseline,
+  checkBaselineAgainstBase,
+} from './baseline-ratchet'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOTS = ['apps', 'packages']
@@ -321,7 +325,7 @@ export const BASELINE: Readonly<Record<string, number>> = {
  * with the tree, and they are the record of how a gate that says "must not
  * rise" came to be at the number it is at.
  */
-export const RAISE_AUTHORISATIONS: readonly RaiseAuthorisation[] = [
+export const RAISE_AUTHORISATIONS: readonly BaselineAuthorisation[] = [
   {
     key: 'FIRST_ADMIN_USER_ID',
     from: 46,
@@ -391,18 +395,19 @@ export const probe = (): Finding[] => {
   // direction of travel, so the new checks get the same treatment — and the
   // clean fixture for each is the authorised form, not an empty one, so a
   // rubber-stamp authorisation would show up as a probe that never fires.
-  const raiseArgs = (over: Partial<Parameters<typeof checkRaise>[0]>) =>
-    checkRaise({
+  const raiseArgs = (over: Partial<Parameters<typeof checkBaseline>[0]>) =>
+    checkBaseline({
       instrument: '<probe>',
       current: { seats: 46 },
       base: { seats: 41 },
+      directions: { seats: 'ceiling' },
       authorisations: [],
       enforced: ['seats'],
       how: '<probe>',
       requireBase: false,
       ...over,
     })
-  const authorised: RaiseAuthorisation = {
+  const authorised: BaselineAuthorisation = {
     key: 'seats',
     from: 41,
     to: 46,
@@ -431,6 +436,36 @@ export const probe = (): Finding[] => {
     'baseline-base-unavailable',
     raiseArgs({ base: null, requireBase: true }),
     raiseArgs({ base: null, requireBase: false }),
+  )
+
+  // THE OTHER DIRECTION — POD-3906. This instrument holds only ceilings, so
+  // planting a floor here is planting a fixture rather than exercising a real
+  // baseline. It belongs in this arm anyway: `probe()` is the one place that
+  // runs on every invocation of a gate somebody actually runs, and a floor
+  // check that only its own unit test ever exercises is the shape POD-3904's
+  // header warns about. The clean fixture is a floor moving UP, which is the
+  // safe direction for a floor and the unsafe one for everything above.
+  const floorArgs = (over: Partial<Parameters<typeof checkBaseline>[0]>) =>
+    checkBaseline({
+      instrument: '<probe>',
+      current: { sites: 1200 },
+      base: { sites: 1800 },
+      directions: { sites: 'floor' },
+      authorisations: [],
+      enforced: ['sites'],
+      how: '<probe>',
+      requireBase: false,
+      ...over,
+    })
+  expect(
+    'baseline-lowered-without-authorisation',
+    floorArgs({}),
+    floorArgs({ current: { sites: 2400 } }),
+  )
+  expect(
+    'baseline-direction-undeclared',
+    floorArgs({ directions: {} }),
+    floorArgs({ current: { sites: 1800 } }),
   )
 
   // A raise authorised at the WRONG `from` must not pass: the number an author
@@ -524,13 +559,20 @@ if (isMain()) {
   // THE BASELINE ITSELF, against the commit this branch started from. Reported
   // on every run rather than only in CI: an instrument whose second half only
   // exists in a workflow file is one nobody develops against.
-  const raise = checkRaiseAgainstBase({
+  // Every baseline here is a CEILING: the count of places that assume a default
+  // user must not grow. A fall is the work succeeding, which is what all three
+  // movements this instrument has recorded were (46 -> 42 -> 38) — and until
+  // POD-3906 gave the ratchet a direction, `ceiling` was the only thing it
+  // could mean, so saying it out loud is the change.
+  const enforced = VOCABULARIES.filter((v) => v.enforced).map((v) => v.symbol)
+  const raise = checkBaselineAgainstBase({
     instrument: 'audit-ambient-principals',
     relativePath: 'scripts/audit-ambient-principals.ts',
     exportName: 'BASELINE',
     current: BASELINE,
     authorisations: RAISE_AUTHORISATIONS,
-    enforced: VOCABULARIES.filter((v) => v.enforced).map((v) => v.symbol),
+    enforced,
+    directions: Object.fromEntries(enforced.map((s) => [s, 'ceiling' as const])),
     requireBase: wants('--require-base'),
   })
 

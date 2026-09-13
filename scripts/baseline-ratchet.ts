@@ -1,5 +1,5 @@
 /**
- * THE RAISE CHECK — POD-3904.
+ * THE BASELINE RATCHET — POD-3904, given its second direction by POD-3906.
  *
  * A ratchet whose expectation is a literal in the same file is not a ratchet.
  * `audit-ambient-principals.ts` measures how many places assume a default user
@@ -26,9 +26,10 @@
  *
  * SO THIS MODULE READS THE BASELINE OUT OF GIT. `baseRevision()` resolves the
  * merge base with the integration branch, `constantsAtRevision()` parses the
- * baseline out of the file AS IT WAS THERE, and `checkRaise()` fails a rise
- * unless the working tree carries a `RaiseAuthorisation` that names the OLD
- * value, the NEW value, an issue and a reason. An author cannot write that
+ * baseline out of the file AS IT WAS THERE, and `checkBaseline()` fails a move
+ * in the unsafe direction unless the working tree carries a
+ * `BaselineAuthorisation` that names the OLD value, the NEW value, an issue and
+ * a reason. An author cannot write that
  * entry without having looked up what they are raising from, and a reviewer
  * sees it as a block of prose rather than a digit.
  *
@@ -37,6 +38,21 @@
  * branch is open, the tip would make an unchanged baseline look like a raise —
  * a false red that teaches people to pass `--no-require-base`. The merge base
  * answers the question actually being asked: did THIS branch move it up?
+ *
+ * WHICH DIRECTION IS UNSAFE IS A PROPERTY OF THE KEY — POD-3906. POD-3904 built
+ * this for a CEILING, where the escape is raising the number, and let every
+ * fall through free. Half this repository's committed numbers are the other
+ * shape: `MIN_ID_FIELD_SITES`, `CLIENT_FILE_FLOOR`, `MIN_SCANNED_FILES` are
+ * FLOORS, and for those the free direction is the dangerous one — lowering a
+ * coverage floor to zero is a scan that measures nothing and still exits 0.
+ *
+ * The proof that this was not a theoretical gap is this module's own record.
+ * The single authorisation in the repository documents `FIRST_ADMIN_USER_ID` 46
+ * -> `firstAdminMemberId` 42 -> 38. Three movements, every one DOWNWARD, and
+ * until `BaselineDirection` existed the check only ever compared upward: the
+ * instrument's entire recorded history is travel in the direction it did not
+ * guard. `scripts/audit-committed-floors.ts` is the census that now holds the
+ * floors, and `BaselineDirection` below says why there is no default direction.
  *
  * AND IT MUST BE ABLE TO SAY IT COULDN'T LOOK. A comparison against history is
  * unavailable in a shallow clone, in a tree with no integration branch, and
@@ -191,7 +207,7 @@ export const constantsIn = (source: string, exportName: string): Record<string, 
  * cannot fill it in without looking up what they are raising, which is the
  * whole mechanism. `issue` and `reason` are what the reviewer reads.
  */
-export interface RaiseAuthorisation {
+export interface BaselineAuthorisation {
   readonly key: string
   readonly from: number
   readonly to: number
@@ -209,16 +225,40 @@ export interface RaiseAuthorisation {
 /** Long enough that "fix later" does not fit. */
 export const MIN_REASON_LENGTH = 40
 
-export interface RaiseInput {
+/**
+ * WHICH WAY A BASELINE MAY NOT MOVE — POD-3906.
+ *
+ * `ceiling` is the shape POD-3904 was built for: the measurement must stay AT
+ * OR BELOW the number, so the escape is raising it and a fall is free.
+ * `floor` is its mirror: the measurement must stay AT OR ABOVE the number, so
+ * the escape is LOWERING it and a rise is free.
+ *
+ * Per KEY, not per instrument, because one instrument holds both: an audit that
+ * caps how many places assume a default user can equally carry a floor under
+ * how many files its scan must reach before the count means anything.
+ *
+ * There is deliberately NO DEFAULT. A default would reintroduce this issue one
+ * level up — add a floor, forget to declare it, and it quietly gets ceiling
+ * semantics, which leaves lowering it to zero unguarded. An enforced key with
+ * no declared direction is reported rather than guessed at.
+ */
+export type BaselineDirection = 'ceiling' | 'floor'
+
+export interface BaselineInput {
   /** The instrument's name, for the message. */
   readonly instrument: string
   /** The baseline in the working tree. */
   readonly current: Readonly<Record<string, number>>
   /** The same baseline on the base commit, or null when it could not be read. */
   readonly base: Readonly<Record<string, number>> | null
-  readonly authorisations: readonly RaiseAuthorisation[]
+  readonly authorisations: readonly BaselineAuthorisation[]
   /** Only these keys gate; the rest are reported by their own audit. */
   readonly enforced: readonly string[]
+  /**
+   * Which way each enforced key may not move. Required, and required for EVERY
+   * enforced key — see {@link BaselineDirection} for why there is no default.
+   */
+  readonly directions: Readonly<Record<string, BaselineDirection>>
   /** How the base was resolved, for the message. */
   readonly how: string
   /** CI passes this: an unavailable comparison becomes a failure. */
@@ -233,8 +273,9 @@ export interface RaiseInput {
  * demonstrated way for a baseline to lose its history — and renaming a key is
  * as cheap an escape as raising its value if only the raise is guarded.
  */
-export const checkRaise = (input: RaiseInput): Finding[] => {
-  const { instrument, current, base, authorisations, enforced, how, requireBase } = input
+export const checkBaseline = (input: BaselineInput): Finding[] => {
+  const { instrument, current, base, authorisations, enforced, directions, how, requireBase } =
+    input
 
   if (base === null) {
     if (!requireBase) return []
@@ -248,7 +289,7 @@ export const checkRaise = (input: RaiseInput): Finding[] => {
   }
 
   const findings: Finding[] = []
-  const authorises = (key: string, from: number, to: number): RaiseAuthorisation | undefined =>
+  const authorises = (key: string, from: number, to: number): BaselineAuthorisation | undefined =>
     authorisations.find(
       (a) =>
         a.key === key &&
@@ -293,8 +334,15 @@ export const checkRaise = (input: RaiseInput): Finding[] => {
       )
       if (drifted?.renamedTo !== undefined) {
         const now_ = current[drifted.renamedTo]
+        // The direction of the key AS IT IS SPELLED NOW: a rename does not
+        // change which way the gate looks, and reporting a collapsed floor as
+        // a raise sends the reader after the opposite defect.
+        const renamedDirection = directions[drifted.renamedTo] ?? directions[key] ?? 'ceiling'
         findings.push({
-          check: 'baseline-raised-without-authorisation',
+          check:
+            renamedDirection === 'ceiling'
+              ? 'baseline-raised-without-authorisation'
+              : 'baseline-lowered-without-authorisation',
           where: `${instrument}:${drifted.renamedTo}`,
           detail:
             now_ === undefined
@@ -309,7 +357,7 @@ export const checkRaise = (input: RaiseInput): Finding[] => {
       findings.push({
         check: 'baseline-key-disappeared',
         where: `${instrument}:${key}`,
-        detail: `the base commit (${how}) baselines \`${key}\` at ${was} and this tree has no such key. A rename carries the value across and loses its history — which is exactly how \`FIRST_ADMIN_USER_ID\` became \`firstAdminMemberId\` still holding 46, and it is as cheap an escape as editing the number. If the rename is deliberate, record it: a RaiseAuthorisation { key: '${key}', from: ${was}, renamedTo: '<the new key>', to: <its value here>, issue, reason }.`,
+        detail: `the base commit (${how}) baselines \`${key}\` at ${was} and this tree has no such key. A rename carries the value across and loses its history — which is exactly how \`FIRST_ADMIN_USER_ID\` became \`firstAdminMemberId\` still holding 46, and it is as cheap an escape as editing the number. If the rename is deliberate, record it: a BaselineAuthorisation { key: '${key}', from: ${was}, renamedTo: '<the new key>', to: <its value here>, issue, reason }.`,
       })
       continue
     }
@@ -323,24 +371,52 @@ export const checkRaise = (input: RaiseInput): Finding[] => {
       continue
     }
 
-    if (now <= was) continue
+    // WHICH WAY, before HOW FAR. Asked of every enforced key and not only of
+    // one that moved: the direction is a property of the CHECK, so a key
+    // carrying none is unguarded from the moment somebody does move it, and
+    // waiting for that movement to complain is waiting for the escape.
+    const direction = directions[key]
+    if (direction === undefined) {
+      findings.push({
+        check: 'baseline-direction-undeclared',
+        where: `${instrument}:${key}`,
+        detail: `\`${key}\` is enforced at ${now} but this tree does not say which way it may not move, so nothing can tell a regression from a fix. Declare it: 'ceiling' if the measurement must stay at or below the number (the escape is raising it), 'floor' if it must stay at or above it (the escape is lowering it). There is no default on purpose — a guessed direction leaves the other half unguarded.`,
+      })
+      continue
+    }
+
+    // The safe direction is free, and it is the OPPOSITE one for a floor. This
+    // single line is the issue: until POD-3906 every key took the ceiling
+    // branch, so the three movements the repository's one authorisation
+    // records (46 -> 42 -> 38) all fell through it untouched.
+    const moved = direction === 'ceiling' ? now - was : was - now
+    if (moved <= 0) continue
 
     const authorisation = authorises(key, was, now)
     if (authorisation) continue
 
+    const verb = direction === 'ceiling' ? 'rose' : 'fell'
     const near = authorisations.find((a) => a.key === key && a.to === now)
     const why = near
       ? near.from !== was
-        ? `Its authorisation says it rose from ${near.from}, but the base commit says ${was}.`
+        ? `Its authorisation says it ${verb} from ${near.from}, but the base commit says ${was}.`
         : near.issue.trim().length === 0
           ? 'Its authorisation names no issue.'
           : `Its authorisation's reason is ${near.reason.trim().length} characters; ${MIN_REASON_LENGTH} is the minimum.`
       : 'There is no authorisation for it.'
 
+    const movement = `${direction} ${was} -> ${now} (${direction === 'ceiling' ? '+' : '-'}${moved})`
+    const howItHides =
+      direction === 'ceiling'
+        ? 'A raise is how a regression is made to look like a pass'
+        : 'A lowering is how a floor is made to accept the collapse it exists to catch — a coverage floor lowered to zero is a scan that measures nothing and still exits 0'
     findings.push({
-      check: 'baseline-raised-without-authorisation',
+      check:
+        direction === 'ceiling'
+          ? 'baseline-raised-without-authorisation'
+          : 'baseline-lowered-without-authorisation',
       where: `${instrument}:${key}`,
-      detail: `baseline ${was} -> ${now} (+${now - was}) against ${how}. A raise is how a regression is made to look like a pass, so it costs a record: add a RaiseAuthorisation { key: '${key}', from: ${was}, to: ${now}, issue, reason } naming what grew and why it is acceptable. ${why}`,
+      detail: `${movement} against ${how}. ${howItHides}, so it costs a record: add a BaselineAuthorisation { key: '${key}', from: ${was}, to: ${now}, issue, reason } naming what moved and why it is acceptable. ${why}`,
     })
   }
 
@@ -351,8 +427,8 @@ export const checkRaise = (input: RaiseInput): Finding[] => {
  * Read `exportName` out of `relativePath` as of the base commit and check the
  * working tree's value against it.
  */
-export const checkRaiseAgainstBase = (
-  opts: Omit<RaiseInput, 'base' | 'how'> & {
+export const checkBaselineAgainstBase = (
+  opts: Omit<BaselineInput, 'base' | 'how'> & {
     readonly relativePath: string
     readonly exportName: string
     readonly git?: GitRunner
@@ -376,7 +452,7 @@ export const checkRaiseAgainstBase = (
           ? `${how} (${commit.slice(0, 9)}) — no \`${opts.exportName}\` there`
           : `${how} (${commit.slice(0, 9)})`
   return {
-    findings: checkRaise({ ...opts, base, how: resolvedHow }),
+    findings: checkBaseline({ ...opts, base, how: resolvedHow }),
     how: resolvedHow,
     base,
   }
