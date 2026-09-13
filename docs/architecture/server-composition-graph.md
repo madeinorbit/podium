@@ -5,7 +5,7 @@
 
 Root: `apps/server/src/relay.ts`
 
-Runtime modules: 311. Runtime edges: 618. Cycles: 0.
+Runtime modules: 311. Runtime edges: 621. Cycles: 0.
 
 ## Verified topological order
 
@@ -22,21 +22,21 @@ Runtime modules: 311. Runtime edges: 618. Cycles: 0.
 11. `apps/server/src/modules/perf/registry.ts`
 12. `apps/server/src/feed-visibility.ts`
 13. `apps/server/src/file-relay-policy.ts`
-14. `apps/server/src/gateway/browser-open.ts`
-15. `apps/server/src/gateway/client-frame-routing.ts`
-16. `apps/server/src/gateway/client-principal.ts`
-17. `apps/server/src/gateway/feed-peer-trace.ts`
-18. `apps/server/src/gateway/client-mux.ts`
-19. `apps/server/src/gateway/client-registry.ts`
-20. `apps/server/src/gateway/daemon-frame-routing.ts`
-21. `apps/server/src/gateway/daemon-mux.ts`
-22. `apps/server/src/gateway/legacy-wire-v1-adapter.ts`
-23. `apps/server/src/gateway/wire-feed-edge.ts`
-24. `apps/server/src/publication-scope.ts`
-25. `apps/server/src/gateway/feed-serving.ts`
-26. `apps/server/src/gateway/presence-routing.ts`
-27. `apps/server/src/harness-manifest.ts`
-28. `apps/server/src/issue-authz.ts`
+14. `apps/server/src/issue-authz.ts`
+15. `apps/server/src/gateway/browser-open.ts`
+16. `apps/server/src/gateway/client-frame-routing.ts`
+17. `apps/server/src/gateway/client-principal.ts`
+18. `apps/server/src/gateway/feed-peer-trace.ts`
+19. `apps/server/src/gateway/client-mux.ts`
+20. `apps/server/src/gateway/client-registry.ts`
+21. `apps/server/src/gateway/daemon-frame-routing.ts`
+22. `apps/server/src/gateway/daemon-mux.ts`
+23. `apps/server/src/gateway/legacy-wire-v1-adapter.ts`
+24. `apps/server/src/gateway/wire-feed-edge.ts`
+25. `apps/server/src/publication-scope.ts`
+26. `apps/server/src/gateway/feed-serving.ts`
+27. `apps/server/src/gateway/presence-routing.ts`
+28. `apps/server/src/harness-manifest.ts`
 29. `apps/server/src/issue-lint.ts`
 30. `apps/server/src/issue-similarity.ts`
 31. `apps/server/src/issue-util.ts`
@@ -335,7 +335,7 @@ Runtime modules: 311. Runtime edges: 618. Cycles: 0.
 | `apps/server/src/features.ts` | — |
 | `apps/server/src/feed-visibility.ts` | `apps/server/src/modules/perf/principal.ts`<br>`apps/server/src/modules/perf/registry.ts` |
 | `apps/server/src/file-relay-policy.ts` | — |
-| `apps/server/src/gateway/browser-open.ts` | — |
+| `apps/server/src/gateway/browser-open.ts` | `apps/server/src/issue-authz.ts` |
 | `apps/server/src/gateway/client-frame-routing.ts` | — |
 | `apps/server/src/gateway/client-mux.ts` | `apps/server/src/gateway/client-frame-routing.ts`<br>`apps/server/src/gateway/client-principal.ts`<br>`apps/server/src/gateway/feed-peer-trace.ts` |
 | `apps/server/src/gateway/client-principal.ts` | — |
@@ -521,7 +521,7 @@ Runtime modules: 311. Runtime edges: 618. Cycles: 0.
 | `apps/server/src/modules/sessions/runtime-gateway.ts` | — |
 | `apps/server/src/modules/sessions/runtime-transcript.ts` | — |
 | `apps/server/src/modules/sessions/session-access.ts` | `apps/server/src/issue-authz.ts` |
-| `apps/server/src/modules/sessions/session-authz.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/modules/messages/types.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-state/grantees.ts` |
+| `apps/server/src/modules/sessions/session-authz.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-authz.ts`<br>`apps/server/src/machine-access.ts`<br>`apps/server/src/modules/messages/types.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/session-access.ts`<br>`apps/server/src/modules/sessions/session-state/grantees.ts` |
 | `apps/server/src/modules/sessions/session-binding.ts` | `apps/server/src/harness-manifest.ts` |
 | `apps/server/src/modules/sessions/session-client-plane.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/machine-access.ts` |
 | `apps/server/src/modules/sessions/session-control-policy.ts` | — |
@@ -532,7 +532,7 @@ Runtime modules: 311. Runtime edges: 618. Cycles: 0.
 | `apps/server/src/modules/sessions/session-start.ts` | `apps/server/src/harness-manifest.ts`<br>`apps/server/src/model-validation.ts`<br>`apps/server/src/modules/sessions/command-plane.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session.ts` |
 | `apps/server/src/modules/sessions/session-state/grantees.ts` | — |
 | `apps/server/src/modules/sessions/session-state/registry.ts` | `apps/server/src/modules/sessions/session-state/service.ts` |
-| `apps/server/src/modules/sessions/session-state/service.ts` | — |
+| `apps/server/src/modules/sessions/session-state/service.ts` | `apps/server/src/issue-authz.ts` |
 | `apps/server/src/modules/sessions/session-target-gate.ts` | `apps/server/src/modules/sessions/session-access.ts` |
 | `apps/server/src/modules/sessions/session-teardown.ts` | `apps/server/src/command-principal.ts`<br>`apps/server/src/issue-util.ts` |
 | `apps/server/src/modules/sessions/session-wiring.ts` | `apps/server/src/auto-continue.ts`<br>`apps/server/src/command-principal.ts`<br>`apps/server/src/features.ts`<br>`apps/server/src/gateway/browser-open.ts`<br>`apps/server/src/gateway/client-registry.ts`<br>`apps/server/src/harness-manifest.ts`<br>`apps/server/src/modules/sessions/activity-history.ts`<br>`apps/server/src/modules/sessions/client-control.ts`<br>`apps/server/src/modules/sessions/command-ctx.ts`<br>`apps/server/src/modules/sessions/concurrency-history.ts`<br>`apps/server/src/modules/sessions/contract-delivery.ts`<br>`apps/server/src/modules/sessions/daemon-lifecycle.ts`<br>`apps/server/src/modules/sessions/daemon-projection.ts`<br>`apps/server/src/modules/sessions/inbox.ts`<br>`apps/server/src/modules/sessions/issue-mail-nudge.ts`<br>`apps/server/src/modules/sessions/launch-config.ts`<br>`apps/server/src/modules/sessions/machine-reconciler.ts`<br>`apps/server/src/modules/sessions/naming.ts`<br>`apps/server/src/modules/sessions/publication/broadcast.ts`<br>`apps/server/src/modules/sessions/receipt-send.ts`<br>`apps/server/src/modules/sessions/repository.ts`<br>`apps/server/src/modules/sessions/runtime-event-gate.ts`<br>`apps/server/src/modules/sessions/runtime-gateway.ts`<br>`apps/server/src/modules/sessions/runtime-transcript.ts`<br>`apps/server/src/modules/sessions/session-authz.ts`<br>`apps/server/src/modules/sessions/session-binding.ts`<br>`apps/server/src/modules/sessions/session-client-plane.ts`<br>`apps/server/src/modules/sessions/session-kill.ts`<br>`apps/server/src/modules/sessions/session-meta-ops.ts`<br>`apps/server/src/modules/sessions/session-revival.ts`<br>`apps/server/src/modules/sessions/session-shared.ts`<br>`apps/server/src/modules/sessions/session-start.ts`<br>`apps/server/src/modules/sessions/session-state/registry.ts`<br>`apps/server/src/modules/sessions/session-state/service.ts`<br>`apps/server/src/modules/sessions/session-teardown.ts`<br>`apps/server/src/modules/sessions/terminal-proof.ts`<br>`apps/server/src/modules/sessions/turn-preview-flag.ts`<br>`apps/server/src/modules/sessions/turn-preview.ts`<br>`apps/server/src/modules/sessions/view.ts`<br>`apps/server/src/modules/sessions/workspace.ts`<br>`apps/server/src/modules/superagent/headless.ts`<br>`apps/server/src/store/executor/executor.ts` |
