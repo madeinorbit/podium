@@ -6114,6 +6114,164 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
   })
 })
 
+/**
+ * THE SOFT-DELETE / RESTORE LIFECYCLE, AT THE SERVING SEAM (PDM-424, review 3).
+ *
+ * The storage-level restore case in `session-marks.deletion.test.ts` shows the
+ * durable rows survive; the reviewer's objection is that it never shows a CLIENT
+ * receiving the session or its marks again. This drives the reachable production
+ * verbs — `deleteIssue` / `restoreIssue` — with a REAL attached client, and reads
+ * what that client was actually sent. No manual capture, no cache mutation.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ADMISSION CONTRACT THIS PINS, stated as a recommendation and not as an
+ * observation
+ * ---------------------------------------------------------------------------
+ *
+ * **A marks row REMAINS ADMITTED while its session is soft-deleted, and is NOT
+ * evicted.** The three things that make that defensible, each asserted below:
+ *
+ *  1. THE PREDICATE IS ABOUT ACCESS, NOT LIFECYCLE. `maySeeSession` asks "does
+ *     this person own, or hold a read grant on, this session row". A tombstone
+ *     changes where the session appears in someone's working set; it does not
+ *     change who may see its per-user state. `getSessions` returns the row and
+ *     the owner is unchanged, so the honest answer to the question the predicate
+ *     asks is still yes. Refusing here would mean overloading a visibility gate
+ *     with a lifecycle rule it does not otherwise carry.
+ *  2. A RETAINED MARKS ROW CANNOT RENDER A DELETED SESSION. `joinSessionMarks`
+ *     is driven by the SESSION list: the client walks sessions and looks marks up
+ *     by id. A marks row whose session is gone is never visited, so it is inert
+ *     rather than dangerous — it cannot put a deleted session on screen.
+ *  3. RESTORATION IS THEN CORRECT BY CONSTRUCTION AND FREE. The session row comes
+ *     back and the join re-attaches the marks the client still holds, with no
+ *     republish to get right and no window in which the session is visible and
+ *     unmarked.
+ *
+ * WHY NOT EVICTION. Evicting on delete would need a retraction emitted on the
+ * delete AND a republish on restore, neither of which production emits today —
+ * two new mechanisms, two new failure modes, to tidy a row that is already inert.
+ * It would also make "your session came back" and "your read state came back"
+ * two separately-orderable events, which is a race that retention does not have.
+ *
+ * THE COST I ACCEPT, stated rather than hidden: a client that never restores
+ * accumulates orphan marks rows. That is bounded by the same thing that bounds
+ * the durable rows — nothing purges them either, since `purgeSession` has no
+ * production caller — so this choice does not create the growth, and a cleanup
+ * would have to address both halves together.
+ *
+ * DESTRUCTIVE PURGE IS NOT PROPOSED and no purge code is wired.
+ */
+describe('a soft-deleted session keeps its marks, and a restore re-serves both', () => {
+  it('serves marks, keeps them through delete, and re-attaches on restore', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const me = firstAdminMemberId()
+    const issue = await reg.modules.issues.create({
+      repoPath: '/repo',
+      title: 'Doomed',
+      startNow: false,
+    })
+    const kept = await reg.modules.issues.create({
+      repoPath: '/repo',
+      title: 'Kept',
+      startNow: false,
+    })
+    const doomed = (await reg.modules.sessions.createSession({
+      ownerUserId: me,
+      agentKind: 'shell',
+      cwd: '/repo',
+      issueId: issue.id,
+    })).sessionId
+    const survivor = (await reg.modules.sessions.createSession({
+      ownerUserId: me,
+      agentKind: 'shell',
+      cwd: '/repo',
+      issueId: kept.id,
+    })).sessionId
+    // THROUGH PRODUCTION STATE, with a principal — not a store poke.
+    await reg.modules.sessions.markSessionRead(me, doomed)
+    await reg.modules.sessions.markSessionRead(me, survivor)
+    await reg.modules.sessions.flushBroadcasts()
+
+    // A REAL CLIENT, receiving the real bootstrap.
+    const c = sink()
+    await attachCurrent(reg, c.send)
+    const marksIds = () => feedValues(c.sent, 'sessionMarks').map(
+      (v) => (v as { sessionId: string }).sessionId,
+    )
+    // BOOTSTRAP: both marks served, and the session rows too.
+    expect.soft(marksIds().sort()).toEqual([doomed, survivor].sort())
+    expect.soft(
+      feedValues(c.sent, 'session').map((v) => (v as { sessionId: string }).sessionId),
+    ).toEqual(expect.arrayContaining([doomed, survivor]))
+    c.sent.length = 0
+
+    // DELETE THROUGH THE REACHABLE PRODUCTION VERB.
+    await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+
+    const allChanges = () =>
+      c.sent.flatMap((m) =>
+        m.type === 'feedBootstrap' || m.type === 'feedDelta'
+          ? (m.changes as unknown as { entity: string; id?: string; entityId?: string; op: string }[])
+          : [],
+      )
+    const removed = () =>
+      allChanges()
+        .filter((ch) => ch.entity === 'session' && ch.op !== 'upsert')
+        // A removal frame carries its subject as `entityId`; an upsert carries
+        // `id`. Reading only one silently yields `undefined` and an assertion
+        // that can never match.
+        .map((ch) => ch.id ?? ch.entityId)
+    // DELTA: the SESSION is retracted from the client. POLLED, because the
+    // delete's broadcast is an after-commit effect and the frame arrives on its
+    // own schedule — the same shape every other feed case in this file uses.
+    await expect.poll(removed).toContain(doomed)
+    // …and NO marks retraction rides with it. This is the contract, asserted at
+    // the wire rather than inferred from the store.
+    const marksRetractions = allChanges().filter(
+      (ch) => ch.entity === 'sessionMarks' && ch.op !== 'upsert',
+    )
+    expect.soft(marksRetractions).toEqual([])
+    // THE KEPT SESSION IS UNTOUCHED — the control that says the delete was scoped.
+    expect.soft(removed()).not.toContain(survivor)
+
+    // A FRESH CLIENT bootstrapping while the session is deleted still receives
+    // the marks row — the admission contract, at the serving seam.
+    const during = sink()
+    await attachCurrent(reg, during.send)
+    expect.soft(
+      feedValues(during.sent, 'sessionMarks').map((v) => (v as { sessionId: string }).sessionId),
+    ).toEqual(expect.arrayContaining([doomed]))
+    // …while the SESSION itself is NOT served, which is what makes the retained
+    // row inert rather than a way to see a deleted session.
+    expect.soft(
+      feedValues(during.sent, 'session').map((v) => (v as { sessionId: string }).sessionId),
+    ).not.toContain(doomed)
+
+    // RESTORE THROUGH THE REACHABLE PRODUCTION VERB.
+    await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+
+    // A client attaching after the restore is served the session again, AND the
+    // mark — so the retained row is what restoration uses.
+    const after = sink()
+    await attachCurrent(reg, after.send)
+    expect.soft(
+      feedValues(after.sent, 'session').map((v) => (v as { sessionId: string }).sessionId),
+    ).toEqual(expect.arrayContaining([doomed, survivor]))
+    expect.soft(
+      feedValues(after.sent, 'sessionMarks').map((v) => (v as { sessionId: string }).sessionId),
+    ).toEqual(expect.arrayContaining([doomed, survivor]))
+    // And the mark is the ORIGINAL one, not a neutral row wearing the same id.
+    const restoredMark = feedValues(after.sent, 'sessionMarks').find(
+      (v) => (v as { sessionId: string }).sessionId === doomed,
+    ) as { readAt: string | null } | undefined
+    expect.soft(restoredMark?.readAt).toBeTruthy()
+    await reg.dispose()
+  })
+})
+
 describe('SessionRegistry read state (#124)', () => {
   it('a fresh session is unread; markSessionRead clears it and persists across reload', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
