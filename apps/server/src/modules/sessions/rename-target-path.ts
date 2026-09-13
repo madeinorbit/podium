@@ -121,21 +121,29 @@ export type RenameDispatch =
 const DENIED: RenameDispatch = { outcome: 'denied' }
 
 /**
- * Resolve the authorization target from the STORE — owner and grants, read live,
- * never from payload (ADR 3 D7) and never cached (ADR 3 D8).
+ * Resolve the authorization target from the STORE — the owner, read live, never
+ * from payload (ADR 3 D7) and never cached (ADR 3 D8).
  *
  * An unknown session returns `undefined`, which the caller treats EXACTLY as a
  * denial. That equivalence is one code path rather than two branches a later edit
  * could pull apart, and it is what makes today's not-found behaviour and
  * tomorrow's invisible-session behaviour the same observable answer.
+ *
+ * A SESSION IS A PRIVATE RESOURCE, NOT AN OWNED ONE (B2/PDM-251). This built
+ * `kind: 'owned'` — the owner-or-GRANT shape — so a rename was decided by the
+ * rule that admits a second person, and a member granted on the shared TASK
+ * could rename another member's session. `private` is owner-only under every
+ * scope and carries its grant evidence at a type that cannot be compared to a
+ * user id. See `privateSession` in `session-state/registry.ts`, the sibling
+ * producer, for the full argument.
  */
-async function ownedTarget(
+async function privateTarget(
   deps: RenameTargetDeps,
   sessionId: SessionId,
 ): Promise<AuthTarget | undefined> {
   const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
-  return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
+  return { kind: 'private', id: sessionId, owner: owner.owner }
 }
 
 /**
@@ -201,6 +209,17 @@ function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
 
 /** Does this human currently own, or hold a grant on, the target? Read live. */
 function holdsTarget(human: UserId, target: AuthTarget): boolean {
+  // A PRIVATE resource — which is what a session is (B2/PDM-251) — is OWNER-ONLY,
+  // with no grant clause. This arm did not exist while sessions were built in the
+  // `owned` shape, and the bare `kind !== 'owned'` refusal below would have denied
+  // every agent rename of its own delegator's session: a liveness failure of
+  // exactly the shape the POD-1172 note above describes, "agents inexplicably
+  // cannot rename".
+  //
+  // `legacyGrants` is deliberately NOT consulted. It is evidence, not permission,
+  // and its type would not admit `human` to `includes` anyway — see
+  // `@podium/model`'s `authz/axes.ts`.
+  if (target.kind === 'private') return target.owner !== null && target.owner === human
   if (target.kind !== 'owned') return false
   // An UNOWNED entity is not ambient: absent ownership fails toward refusal
   // (§3.1.1 default-closed, §3.1.4 M4's all-in-one case).
@@ -236,7 +255,7 @@ export async function renameOnTargetPath(
   const input = parsed.data as SessionRenameInput & { mutationId?: MutationId }
 
   // 3. AUTHORIZATION — LIVE, over the delegation chain, BEFORE idempotency.
-  const target = await ownedTarget(deps, input.sessionId)
+  const target = await privateTarget(deps, input.sessionId)
   if (target === undefined) return DENIED
   if (!mayWrite(principal, target)) return DENIED
 

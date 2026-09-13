@@ -41,7 +41,7 @@
  * This file invents no policy. Each door asks the rule that already governs its
  * resource elsewhere, which is the whole of why it can be believed:
  *
- *  - A SESSION'S FILES — `mayReadSessionOwned`, the rule `sessions.transcriptRead`,
+ *  - A SESSION'S FILES — `mayReadSessionPrivate`, the rule `sessions.transcriptRead`,
  *    `read`, `recap` and `status` all run. That neighbour is the evidence the
  *    finding rests on: two reads of ONE session's bytes sat in adjacent modules,
  *    one asserting ownership and one asserting nothing. They now run one
@@ -103,7 +103,7 @@ import { checkMachineUse, machineAccessMessage, ownershipSnapshotFromMachines } 
 import type { RegistryModules } from '../../relay'
 import type { RepoRegistry } from '../../repo-registry'
 import { isAllowedRoot } from '../../root-allowlist'
-import { asyncSessionIssueAccess, mayReadSessionOwned } from '../sessions/session-access'
+import { asyncSessionIssueAccess, mayReadSessionPrivate } from '../sessions/session-access'
 
 /** The four modules a file decision reads. A `Pick`, so a caller cannot reach
  *  the rest of the seam through this argument — the same narrowing
@@ -271,7 +271,7 @@ export function fileAccessGate(
 
   return {
     async readSession(sessionId, path) {
-      const mayRead = await mayReadSessionOwned(
+      const mayRead = await mayReadSessionPrivate(
         caller.userId,
         sessionId,
         async (id) => await modules.sessions.sessionOwner(id as never),

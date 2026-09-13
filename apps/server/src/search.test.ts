@@ -627,7 +627,39 @@ describe('conversations.search reader scoping', () => {
     expect(await searchAs(bob, { query: 'ownershipneedle' })).toEqual(['bob-native'])
   })
 
-  it('admits a member the owner granted read on the conversation issue', async () => {
+  /**
+   * ── THIS ASSERTION WAS REVERSED, AND IT WAS THE BUG'S ONLY WITNESS ──────────
+   *
+   * It read `admits a member the owner granted read on the conversation issue`
+   * and asserted alice SEES `bob-native` once an ISSUE grant exists. Flagged in
+   * full because it is a test changed to match new behaviour — the edit that most
+   * deserves to be doubted.
+   *
+   * IT WAS NOT A BAD TEST. It is an accurate, real-store, real-policy end-to-end
+   * reproduction of PDM-251: a grant on a shared TASK opened the private SESSION
+   * attached to it. `bob-native` is reachable ONLY through bob's session, and
+   * `memory/visibility.ts#mayReadSessionRow` was resolving that session's owner
+   * and grants from the ISSUE row, so a task grantee read another member's
+   * private run. The test simply recorded the behaviour as intended.
+   *
+   * THE ACCEPTED ARCHITECTURE SAYS THE OPPOSITE, and says it in three places:
+   * ADR 9 Amendment 1 D7 (a member may not view another member's session),
+   * architecture section 10 (cross-user session grants are INEFFECTIVE), and B1's
+   * requirement 4 (compatibility session grants are inactive history — the rows
+   * stay and no longer confer). B1/PDM-133 enacted that for `sessionOwner` and
+   * did not reach this module; B2/PDM-251 finishes it.
+   *
+   * WHAT A GRANTEE STILL GETS is not nothing, and the difference is the point of
+   * D13: on a shared task another member's session remains visible as OWNER,
+   * TITLE and LIVE/IDLE STATE. That is a PROJECTION showing less — it is not
+   * admission to the resource, and the transcript and conversation bytes this
+   * test searches are the resource.
+   *
+   * The grant is still WRITTEN, not omitted, so this witnesses the refusal of a
+   * real edge rather than the absence of one — and `legacyGrants` carries those
+   * rows into the decision to be refused rather than dropped.
+   */
+  it('refuses a member the owner granted on the TASK the conversation behind it', async () => {
     const { store, issue, searchAs } = await seed()
     expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual([])
     await store.grants.upsert({
@@ -642,6 +674,76 @@ describe('conversations.search reader scoping', () => {
       actorId: bob,
       onBehalfOf: bob,
     })
-    expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual(['bob-native'])
+    // The grant is real and live — and it does not open the session.
+    expect(await searchAs(alice, { projectPath: '/bobrepo' })).toEqual([])
+    // COUNTERFACTUAL, and it is doing real work here: without it this test would
+    // pass identically against a fixture that indexed nothing, a seed that never
+    // wrote the grant, or a search that is simply broken. The owner still reads
+    // his own conversation AFTER the grant exists, so the empty array above is
+    // the policy talking and not an absence.
+    expect(await searchAs(bob, { projectPath: '/bobrepo' })).toEqual(['bob-native'])
+  })
+
+  /**
+   * THE OTHER HALF OF THE SAME DEFECT — the ISSUE-OWNER PRECEDENCE (MU-07/08).
+   *
+   * `mayReadSessionRow` resolved a session's owner as
+   * `issueRow?.ownerUserId ?? row.ownerUserId`, so the TASK owner outranked the
+   * session's own durable owner. Bob starting an agent on ALICE's task made it
+   * ALICE's session to read, and reassigning a task moved every private run on
+   * it. `session-authz.ts#sessionOwner`'s header describes deleting exactly this
+   * precedence in B1; this module kept it, and nothing in the repository failed.
+   *
+   * Note this case needs NO grant at all — which is why the reversed test above
+   * could not have caught it, and why it is asserted separately: the two halves
+   * fail independently and a single test covering both would pass if either were
+   * repaired alone.
+   */
+  it('refuses the TASK owner the conversation of a session someone else started on it', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    registry.gateway.attachDaemon('m2', () => {})
+
+    // ALICE owns the task; BOB starts the private run on it and owns the session.
+    const issue = await registry.issues.create({
+      repoPath: '/sharedrepo',
+      title: 'alice task, bob runs it',
+      startNow: false,
+      ownerUserId: alice,
+    })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/sharedrepo/worktree',
+      issueId: issue.id,
+      ownerUserId: bob,
+    })
+    await registry.gateway.routeDaemonFrame('m2', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'bob-on-alice-task' },
+    })
+    await store.conversations.index.upsert([
+      {
+        id: 'bob-on-alice-task',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        projectPath: '/sharedrepo',
+        machineId: asMachineId('m2'),
+        title: 'precedenceneedle conversation',
+      },
+    ])
+    const searchAs = async (id: UserId) =>
+      (
+        await registry.modules.memory
+          .forReader({ kind: 'user', id })
+          .searchConversations({ projectPath: '/sharedrepo' })
+      ).map((row) => row.id)
+
+    // Alice owns the TASK and does not own the RUN.
+    expect(await searchAs(alice)).toEqual([])
+    // COUNTERFACTUAL: the human who started it still reads it, so the refusal
+    // above is ownership talking and not an unindexed fixture.
+    expect(await searchAs(bob)).toEqual(['bob-on-alice-task'])
   })
 })

@@ -9,7 +9,7 @@ import {
   type IssueId,
   type SessionId,
 } from '@podium/model'
-import { mayReadOwned } from '../../issue-authz'
+import { mayReadOwned, mayReadPrivate } from '../../issue-authz'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
 import type { GrantRow } from '../../store/grants'
 import type { MemoryReader } from './types'
@@ -227,19 +227,49 @@ export class MemoryVisibilityPolicy {
     return this.request.issues.get(issueId) ?? null
   }
 
+  /**
+   * MAY THIS HUMAN READ THIS SESSION'S ROW — owner-only (B2/PDM-251).
+   *
+   * ── THE FIFTH SITE B1 DID NOT REACH, AND WHY IT SURVIVED ────────────────────
+   *
+   * B1 (PDM-133, "Own a session by the human who started it, not the task")
+   * removed issue-derived session authority, and its commit message enumerates
+   * the "four sites [that] decided this": `createdOwnership`, `SessionStart`,
+   * `sessionOwner` and `spawn/resume`. That census was hand-derived and this
+   * module was not in it, so BOTH halves of the defect stayed live here after
+   * `session-authz.ts#sessionOwner` was repaired:
+   *
+   *   const owner = issueId ? (issueRow?.ownerUserId ?? row.ownerUserId) : row.ownerUserId
+   *   grants: await this.readGranteesOf(issueId ? 'issue' : 'session', ...)
+   *
+   *  - the ISSUE's owner OUTRANKED the session's own durable owner, so Bob's
+   *    agent running on Alice's task was Alice's session to read — MU-07/08, the
+   *    precedence `sessionOwner`'s header describes as deleted;
+   *  - the ISSUE's grant edges were read live and handed to the owner-or-GRANT
+   *    predicate as though they were session grants, which `sessionOwner`'s
+   *    header calls "exactly the leak above". Anyone granted on the shared TASK
+   *    read the transcript of anyone else's private run on it.
+   *
+   * Reachable rather than theoretical: `memory/service.ts#canReadSession` and
+   * `#conversationPodiumId` forward here, and are consumed by the daemon
+   * transcript path (`machines/rpc.ts`) and by `conversations.search` on trpc.
+   *
+   * AUTHORITY IS THE SESSION ROW, FULL STOP. The attached issue no longer
+   * contributes an owner, matching `sessionOwner` and the execution charter: a
+   * private run keeps its initiating human after task reassignment, and
+   * reassignment never transfers session rights.
+   *
+   * WHAT STAYS HERE IS RESOLUTION, NOT POLICY — which row carries the owner, and
+   * which resource the edges hang off. The DECISION is the model's. The edges are
+   * still read and still passed, now as `legacyGrants`: evidence at a type that
+   * admits no `UserId` to `includes`, so they are carried, shown and refused
+   * rather than dropped into an unstated second policy.
+   */
   private async mayReadSessionRow(userId: UserId, row: SessionRow): Promise<boolean> {
-    const issueId = row.issueId ?? undefined
-    const owner = issueId
-      ? ((await this.issueById(issueId))?.ownerUserId ?? row.ownerUserId)
-      : row.ownerUserId
-    // The owner-or-grant rule itself comes from `@podium/model`'s `authorize`
-    // (POD-335). What stays here is the RESOLUTION — which row carries the
-    // owner, and which resource the grants hang off — which is this module's
-    // own knowledge and not a second authorization surface.
-    return mayReadOwned(userId, {
-      id: issueId ?? row.id,
-      owner,
-      grants: await this.readGranteesOf(issueId ? 'issue' : 'session', issueId ?? row.id),
+    return mayReadPrivate(userId, {
+      id: row.id,
+      owner: row.ownerUserId,
+      legacyGrants: await this.readGranteesOf('session', row.id),
     })
   }
 
