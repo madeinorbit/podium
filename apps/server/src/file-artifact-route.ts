@@ -57,6 +57,23 @@ export interface ArtifactRouteAccess {
  * authenticated tRPC error payload and is a needless detail on a raw byte
  * route. 404 here is spelled exactly as the missing-artifact 404 below it, so
  * "you may not read this issue" and "there is no such file" are one answer.
+ *
+ * PRECONDITION_FAILED IS UNREACHABLE TODAY AND NOTHING WITNESSES IT — said out
+ * loud rather than left for the next reader to discover, because an unexercised
+ * branch that looks exercised is worse than an absent one. `checkIssueAccess` is
+ * called here with the `read` action against an ISSUE target, and no member of
+ * the closed `IssueScope` set answers `confirm-required` for that pair: D20.2's
+ * issue-read short-circuit allows before the scope arm is reached, and `owned`
+ * and `self` are `forbidden` and deliberately not override-liftable. The route's
+ * own principal source narrows it further, minting only `all` and `owned`.
+ *
+ * It is KEPT anyway, and that is the third honest option rather than laziness —
+ * see PDM-134, which kept a redundant filter and wrote down that nothing
+ * witnessed it. The alternative is worse in the one direction that matters: drop
+ * the row and a future `confirm-required` on a read falls through to the rethrow
+ * below and reaches the caller as a 500, turning a policy answer into an
+ * incident. 412 degrades safely; a 500 does not. Delete this row only together
+ * with a check that the model still cannot produce the code.
  */
 const REFUSALS: Record<string, { status: 401 | 403 | 404 | 412; body: string }> = {
   UNAUTHORIZED: { status: 401, body: 'unauthorized' },
