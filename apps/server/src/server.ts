@@ -93,7 +93,7 @@ import {
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
-import { userCommandPrincipal } from './command-principal'
+import { onBehalfOfUser, userCommandPrincipal } from './command-principal'
 import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { fileAccessGate } from './modules/files/file-access-gate'
@@ -1658,23 +1658,26 @@ export async function startServer(
     doorFor: async (request) => {
       const principal = await requestPrincipal(
         {
-          ...(request.headers.get('cookie') !== null
-            ? { cookieHeader: request.headers.get('cookie') as string }
-            : {}),
-          ...(request.headers.get('authorization') !== null
-            ? { authorizationHeader: request.headers.get('authorization') as string }
-            : {}),
+          cookieHeader: request.headers.get('cookie') ?? undefined,
+          authorizationHeader: request.headers.get('authorization') ?? undefined,
         },
         request,
       )
       if (principal === undefined) return undefined
+      // `onBehalfOfUser`, NOT a `kind === 'user'` ternary spelled out here. The
+      // first draft of this block was that ternary, and it answers `undefined`
+      // for an AGENT principal where the rule answers its `onBehalfOf` — the
+      // exact respelling `file-access-gate.ts`'s header warns about, and wrong
+      // by rule even though `requestPrincipal` happens to mint only user
+      // principals today. `null` is the system principal, which holds no
+      // capability at all and is unreachable from every transport by D21.
+      // (Caught by PDM-262, working the same seam on `/files/asset`.)
+      const userId = onBehalfOfUser(principal)
+      if (userId === null) return undefined
       return fileAccessGate(
         registry.modules,
         repos,
-        {
-          userId: principal.kind === 'user' ? principal.user : undefined,
-          capability: principal.capability,
-        },
+        { userId, capability: principal.capability },
         principal,
       )
     },
