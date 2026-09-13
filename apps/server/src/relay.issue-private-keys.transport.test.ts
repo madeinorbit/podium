@@ -27,7 +27,11 @@ import { openTestStore } from './test-support/open-test-store'
  * never consulted a predicate. So the load-bearing assertion is surrounded by
  * three soft controls that must each hold for it to mean anything:
  *
- *   1. A STRANGER receives nothing for this issue      -> the fixture scopes.
+ *   1. A STRANGER receives nothing for this issue, WHILE receiving rows for a
+ *      second issue it does hold a grant on   -> the fixture scopes, and the
+ *                                                empty result is the grant
+ *                                                clause refusing rather than an
+ *                                                inert client.
  *   2. The GRANTEE receives the two shared kinds       -> the grant admits, so
  *                                                         the key assertion is
  *                                                         not vacuous.
@@ -125,11 +129,12 @@ async function registerMachine(
 async function grantRead(
   store: Awaited<ReturnType<typeof openTestStore>>,
   issueId: string,
+  grantee: string = GRANTEE,
 ): Promise<void> {
   await store.grants.upsert({
     resourceKind: 'issue',
     resourceId: issueId,
-    grantee: GRANTEE,
+    grantee,
     verb: 'read',
     owner: OWNER,
     visibility: 'personal',
@@ -173,6 +178,18 @@ describe('the shared issue rows a non-owner grant-holder receives [PDM-415]', ()
       startNow: false,
       startedBySession: STARTED_BY,
     })
+    // A SECOND issue the stranger DOES hold a read grant on. Its only job is to
+    // make control 1 discriminating. Without it, "the stranger received nothing"
+    // is one reason wide: it is equally satisfied by a client that never
+    // subscribed to anything, by a ref that never entered the prefetch, and by
+    // the grant clause actually refusing. With it, the SAME client in the SAME
+    // flush receives rows for one issue and not the other, so the only surviving
+    // explanation is the per-issue predicate.
+    const bystander = await registry.issues.create({
+      repoPath: '/r',
+      title: 'bystander',
+      startNow: false,
+    })
 
     // The fixture is only meaningful if the issue is owned by somebody OTHER
     // than the grantee. Pinned rather than assumed.
@@ -181,23 +198,33 @@ describe('the shared issue rows a non-owner grant-holder receives [PDM-415]', ()
     expect.soft(row?.ownerUserId).not.toBe(GRANTEE)
 
     await grantRead(store, issue.id)
+    await grantRead(store, bystander.id, STRANGER)
 
     const owner = await readyClient(registry, OWNER)
     const grantee = await readyClient(registry, GRANTEE)
     const stranger = await readyClient(registry, STRANGER)
     for (const inbox of [owner, grantee, stranger]) inbox.length = 0
 
-    // MOVE THE PRIVATE KEYS.
+    // MOVE THE PRIVATE KEYS, and touch the bystander in the SAME window so the
+    // stranger's two results are produced by one flush and one client.
     await registry.issues.update(issue.id, PLANTED)
+    await registry.issues.update(bystander.id, { notes: 'bystander touched' })
     registry.modules.funnel.flushDeltas()
 
     await expect.poll(() => rowsFor(owner, issue.id).length).toBeGreaterThan(0)
+    await expect.poll(() => rowsFor(stranger, bystander.id).length).toBeGreaterThan(0)
 
     const ownerRows = rowsFor(owner, issue.id)
     const granteeRows = rowsFor(grantee, issue.id)
     const strangerRows = rowsFor(stranger, issue.id)
+    const strangerBystanderRows = rowsFor(stranger, bystander.id)
 
-    // ---- CONTROL 1: the fixture scopes at all. ----------------------------
+    // ---- CONTROL 1: the fixture scopes, and it scopes BY ISSUE. -----------
+    // The negative and its discriminator, asserted as a pair. The stranger is a
+    // live feed participant — it receives the bystander it holds a grant on —
+    // and receives nothing for the issue it does not. An inert client would fail
+    // the first of these; only the grant clause explains both.
+    expect.soft(strangerBystanderRows.length).toBeGreaterThan(0)
     expect.soft(strangerRows.map((r) => r.entity)).toEqual([])
 
     // ---- CONTROL 2: the grant admits the shared rows (non-vacuity). -------
