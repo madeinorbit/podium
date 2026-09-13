@@ -422,87 +422,43 @@ export function legacyIdempotencyWrapper(files: Array<[string, string]>): Findin
 // ---------------------------------------------------------------------------
 
 /**
- * THE NINE `mcp` DECLARATIONS THIS INSTRUMENT CANNOT RESOLVE — a FINDING LIST,
- * not a waiver, and the reason it exists is the whole of PDM-422.
+ * MAIL PROCS DECLARING `mcp` THAT NO REVIEW HAS ACCOUNTED FOR — a FINDING LIST,
+ * not a waiver, and TODAY IT IS EMPTY.
  *
- * Nine mail contracts declare `mcp` in their `exposure`. The one MCP surface
- * this server serves is `POST /mcp`, registered in `server.ts` against
- * `superagent.mcpToolSpecs` / `superagent.callMcpTool` — the superagent's TOOL
- * BELT (`modules/superagent/tools.ts`), with the issue tools bridged into it.
- * The belt's own tools do not dispatch a proc NAME: `send_to_agent` and
- * `ask_agent` call `modules.messages.send(…)`, the SERVICE method, directly.
+ * THE EMPTY ARRAY IS NOT A WEAKER CLAIM THAN A LIST. It carried nine entries
+ * until PDM-422 read the MCP surface against them: `mail.send`, `reply`, `show`,
+ * `status`, `ledger`, `dismiss`, `inboxConsume`, `awaitAgent`, `spawnAgent`. The
+ * MCP surface is the superagent tool belt (`modules/superagent/tools.ts`),
+ * registered at `POST /mcp` in `server.ts`; its tools call SERVICE METHODS rather
+ * than dispatching a mail proc by name, and no superagent module references
+ * `MessageGate.dispatch`, which is the door a mail command is entered through.
+ * Across the static call sites inspected, nothing asked `isMailProcExposedOn`
+ * about `'mcp'`. The tags gated nothing, and they were removed from
+ * `packages/commands/src/mail/contracts.ts` rather than made true.
  *
- * THE CLAIM, AT THE STRENGTH THE EVIDENCE SUPPORTS. **This instrument has no
- * tool → contract-name mapping to compare these declarations against**, so it
- * records them as UNRESOLVED. That is a fact about this instrument, not a proof
- * that no instrument could ever resolve them: a reader of the belt's source
- * could decide, tool by tool, what each one serves. An earlier draft of this
- * comment said "no instrument can confirm or refute", which is stronger than
- * anything measured here and is exactly the overclaim this file exists to refuse.
+ * WHAT THE LIST DOES NOW. It is the default-closed guard on the other direction:
+ * any mail contract that declares `mcp` without an entry here is a finding, so a
+ * tag cannot come back unreviewed. Making one true again means routing the belt
+ * through the gate with a real capability — the belt sends as
+ * `{ kind: 'superagent' }` and has none — which is a design decision about the
+ * belt's identity model, not an exposure edit.
  *
- * WHAT WAS MEASURED, so the next reader does not re-derive it: at the pin this
- * list was written, no call site in either repo passes the literal `'mcp'` as
- * the `transport` argument to any exposure check. `isMailProcExposedOn(proc,
- * transport)` — the one runtime reader of this family's `exposure`, called from
- * `gate.ts` — is reached only with `'trpc'` (the router) and `'relay'` (the
- * relay dispatch and the default). Every other occurrence of the tag is a
- * declaration, a member of a `TransportTag`-style union, a BAN-list entry
- * (`AGENT_TRANSPORTS` in `modules/automations/trpc.ts`), or a doc comment
- * describing a plant.
- *
- * SO THE `mcp` ARM PINS AN UNRESOLVED DISPOSITION, AND NOTHING ELSE. It does not
- * establish that these nine are served, nor that they are unserved. The tRPC
- * comparison below is a real both-directions check and it says NOTHING about
- * MCP; do not let its green stand in for this list. PDM-435 carries the
- * separate, bounded finding about how the route census describes this door.
- *
- * THE LIST IS ASSERTED IN BOTH DIRECTIONS. A tenth contract growing an `mcp`
- * tag reddens this audit, and so does one of these nine losing it — the second
- * is the direction that matters, because a correct future repair should arrive
- * as a reviewed edit here rather than as a silently shrinking list.
+ * WHAT THIS LIST IS NOT EVIDENCE OF. It is a record of a SOURCE READ, and an
+ * empty list does not certify runtime behaviour: nothing here was executed. Nor
+ * is this audit run automatically — see PDM-434 — so it catches an unreviewed
+ * re-add only when someone invokes it.
  *
  * ---------------------------------------------------------------------------
- * WHAT REMAINS UNADJUDICATED — read this before citing PDM-422 as closed
+ * WHAT REMAINS UNADJUDICATED
  * ---------------------------------------------------------------------------
  *
- * PDM-422 was asked: nine mail commands declare they are reachable from the AI
- * tooling, and nothing compares that claim to what the AI tooling actually
- * serves. THAT QUESTION IS STILL OPEN, and this list does not answer it. What
- * this file added is a RECORDED INVENTORY of the nine plus a both-directions
- * drift alarm on it. An inventory is not an adjudication.
- *
- * The open question, precisely: FOR EACH OF THE NINE, does the superagent tool
- * belt in fact serve that contract's command over MCP — and if it does, by which
- * tool? Answering it is a contract-by-contract reading of the belt's ~24 tools,
- * which is source-reading work and not a scan. It ends in one of: the tag is
- * true and the belt tool that makes it true is named; or the tag is false and
- * should be deleted; or the belt should dispatch mail by proc name so the
- * declaration becomes load-bearing. All three are decisions, not measurements.
- *
- * WHERE IT IS **NOT** OWNED, since two neighbouring issues are easy to mistake
- * for it:
- *   · PDM-434 owns the fact that this audit and its siblings run in no CI job.
- *     Wiring them up would not adjudicate a single one of the nine.
- *   · PDM-435 owns the `served-route-census.ts` `POST /mcp` rationale, which
- *     describes only the bridged issue half of the belt. Correcting that row is
- *     about how the DOOR is described, not about which MAIL contracts it serves.
- *
- * So the disposition stays with PDM-422 (or a successor it names) and neither of
- * those two closes it. The `trpc` comparison below is a real both-directions
- * check on a DIFFERENT transport; its green says nothing whatever about MCP, and
- * this audit going green must not be read as the original question being settled.
+ * The `trpc` comparison below is a real both-directions check on a DIFFERENT
+ * transport. Its green says nothing about MCP, and this audit going green must
+ * not be read as certifying the MCP surface. The belt's own ~24 tools remain
+ * outside any command registry; PDM-435 owns how the route census describes that
+ * door, and neither it nor PDM-434 adjudicates what the belt serves.
  */
-export const MCP_DECLARED_UNRESOLVED: readonly string[] = [
-  'awaitAgent',
-  'dismiss',
-  'inbox',
-  'ledger',
-  'reply',
-  'send',
-  'show',
-  'spawnAgent',
-  'status',
-]
+export const MCP_DECLARED_UNRESOLVED: readonly string[] = []
 
 /**
  * THE UNCENSUSED MCP SUB-TRANSPORT, NAMED RATHER THAN LEFT UNSTATED — the same
@@ -2120,9 +2076,9 @@ function main(): void {
         '  · every mail contract DECLARES its visibility class\n' +
         '  · a command that can WAKE a session declares `machineVerb: use` (POD-1179)\n' +
         '  · the legacy `withMutation` wrapper stays deleted\n' +
-        '  · declared `trpc` exposure equals the tRPC call sites in router.ts, both ways; the\n' +
-        '    `mcp` declarations match MCP_DECLARED_UNRESOLVED; `cli` is UNVERIFIED and `relay`\n' +
-        '    is enforced-by-declaration, neither compared (PDM-422)\n',
+        '  · declared `trpc` exposure equals the tRPC call sites in router.ts, both ways; any\n' +
+        '    `mcp` declaration matches MCP_DECLARED_UNRESOLVED (empty since PDM-422); `cli` is\n' +
+        '    UNVERIFIED and `relay` is enforced-by-declaration, neither compared\n',
     )
     for (const f of findings) console.error(`  ${f.check}  ${f.where}\n      ${f.detail}`)
     process.exit(1)
@@ -2130,8 +2086,8 @@ function main(): void {
   console.log(
     'agent-mail surface audit OK — the derived surface is total, the deleted switch stayed deleted, ' +
       'authz has one door, every contract is classified, every wake path declares that it executes, ' +
-      'and declared `trpc` exposure matches the router call sites both ways (cli UNVERIFIED, mcp ' +
-      'unresolved by this instrument — see MCP_DECLARED_UNRESOLVED)',
+      'and declared `trpc` exposure matches the router call sites both ways (cli UNVERIFIED; no ' +
+      'mail contract declares `mcp`, and MCP_DECLARED_UNRESOLVED is empty)',
   )
 }
 

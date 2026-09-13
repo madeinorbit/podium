@@ -31,6 +31,26 @@
  * envelopes in the client Outbox, where a replica holding only its slice
  * (POD-1077) would enqueue sends against ids it can no longer see.
  *
+ * WHY NO MAIL CONTRACT DECLARES `mcp` (PDM-422)
+ * ---------------------------------------------
+ * Nine of these carried `mcp` until PDM-422 read the MCP surface against them.
+ * That surface is the superagent tool belt (`modules/superagent/tools.ts`),
+ * registered at `POST /mcp`; its tools call SERVICE METHODS rather than
+ * dispatching a mail proc by name, and no belt module references
+ * `MessageGate.dispatch` — the door every mail command enters through. In the
+ * static call sites inspected there, nothing asked `isMailProcExposedOn` about
+ * `'mcp'`, so the tag gated nothing and described a command surface that was not
+ * served.
+ *
+ * The tags were removed rather than made true, because making them true means
+ * routing the belt through the gate with a real capability — the belt sends as
+ * `{ kind: 'superagent' }` and has none — which is a design decision about the
+ * belt's identity model and not an exposure edit. `modules/automations/trpc.ts`
+ * refuses the mirror of that for its own family in as many words.
+ *
+ * `scripts/audit-mail-commands.ts` holds the record and reddens if an `mcp` tag
+ * reappears here without a reviewed entry beside it.
+ *
  * The corollary, and the reason `applyTimeReauthorization` is a required field:
  * because the accepted row is drained later, a send whose principal LOST access
  * between accept and drain must be REJECTED at apply and surfaced to its sender —
@@ -215,7 +235,7 @@ export const mailSendContract: CommandContract<typeof mailSendInput> = {
       "addressing is the delegating human's CURRENT rights (§3.1.5, D20.2), resolved at every " +
       "apply, never the agent's own scope and never a snapshot.",
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: DURABLE_QUEUED_ONLINE,
   redaction: NO_SECRETS,
   ownership: {
@@ -248,7 +268,7 @@ export const mailReplyContract: CommandContract<typeof mailReplyInput> = {
       'already been authorized to read, which is why no --outside-scope confirmation applies. The ' +
       'human ceiling is satisfied transitively: you cannot reply to a message you could not see.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: DURABLE_QUEUED_ONLINE,
   redaction: NO_SECRETS,
   ownership: {
@@ -293,7 +313,7 @@ export const spawnAgentContract: CommandContract<typeof spawnAgentInput> = {
       'placement is a denial, because moving the child to a machine the caller may use would run ' +
       'their code somewhere they did not choose.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation:
@@ -373,7 +393,7 @@ export const awaitAgentContract: CommandContract<typeof awaitAgentInput> = {
       'own child, across issue scopes, because the crossing was already confirmed at spawn) is ' +
       'kept. It is a wait, and a wait is not a hang.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation:
@@ -434,7 +454,7 @@ export const mailInboxConsumeContract: CommandContract<typeof mailInboxInput> = 
       "(agent scope intersected with the human's current rights), not against the agent's scope " +
       'alone.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: DURABLE_QUEUED_ONLINE,
   redaction: NO_SECRETS,
   ownership: {
@@ -498,7 +518,7 @@ export const mailLedgerContract: CommandContract<typeof mailLedgerInput> = {
   // rather than quietly patched, because "the classification was wrong" and
   // "the surface should not exist" are different claims and only the first is
   // true here.
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation:
@@ -584,7 +604,7 @@ export const mailShowContract: CommandContract<typeof mailShowInput> = {
       'not an owned entity — visibility follows sender-ship and recipient-ship, which is the ' +
       'mailbox conversation model, not an issue-scope question.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation:
@@ -619,7 +639,7 @@ export const mailDismissContract: CommandContract<typeof mailDismissInput> = {
       'That is why the shipped check is `isRecipient` and not `mayView`, and the difference is ' +
       'recorded here so a future author does not "simplify" the two into one predicate.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: DURABLE_QUEUED_ONLINE,
   redaction: NO_SECRETS,
   ownership: { creates: [], note: 'Mutates an existing row; creates nothing.' },
@@ -674,7 +694,7 @@ export const mailStatusContract: CommandContract<typeof mailStatusInput> = {
       'is what makes it answerable by the SENDER and not merely by the recipient. Deliberately NOT ' +
       'operator-only: the question it answers is about your own traffic.',
   },
-  exposure: ['trpc', 'cli', 'mcp', 'relay'],
+  exposure: ['trpc', 'cli', 'relay'],
   delivery: {
     class: 'online-only',
     outboxReconciliation: 'A query; nothing is enqueued. Stated rather than defaulted (D3 rule 1).',
