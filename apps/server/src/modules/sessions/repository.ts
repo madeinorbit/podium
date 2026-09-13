@@ -18,7 +18,6 @@ import { AgentKind } from '@podium/model'
  */
 export type SessionWirePrincipal = SessionStatePrincipal
 
-import { firstAdminMemberId } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type BaselineFoldPort, type EntityChangeSpec, StagedOverlay } from '@podium/sync'
@@ -744,6 +743,37 @@ export class SessionRepository {
       })
       return null
     }
+    /**
+     * AN UNOWNED ROW IS REFUSED, NOT ADOPTED BY THE FIRST ADMIN (PDM-428).
+     *
+     * This read was `r.ownerUserId ?? (await firstAdminMemberId(this.store))`.
+     * A row whose owner did not resolve came back owned by the earliest-enrolled
+     * administrator, and because the hydrated `Session` is what the next
+     * `upsertSession` persists, the substitution BECAME the stored owner — an
+     * owner replacement, from nobody to the principal with the most authority on
+     * the instance, performed silently during boot or restore.
+     *
+     * WHY THE REFUSAL RATHER THAN A DIFFERENT DEFAULT. `fleet/handlers.ts`
+     * records the same decision for a machine: D19.4b declined to auto-assign a
+     * quarantined machine to the first admin, because that hands somebody's
+     * personal Mac to whoever is admin on a database restore. A session's
+     * transcript and repo state are the same kind of private thing, and the
+     * failure direction is what matters — this branch did not refuse, it
+     * ASSIGNED.
+     *
+     * WHY IT IS A FAIL-CLOSED GUARD AND NOT A LIVE PATH. Nothing in the
+     * migration chain can produce the row it refuses: `owner_user_id` arrived
+     * NOT NULL with a backfilling DEFAULT (`20260731195047_phase-3-policy-ownership`)
+     * and every table rebuild since has carried NOT NULL. `SessionRow` types the
+     * field optional for legacy adapter boundaries, so the case is
+     * REPRESENTABLE in TypeScript while being unreachable through the store —
+     * which is exactly why the fallback was worth deleting rather than keeping:
+     * it read as a supported case. `ownerless-restore.test.ts` pins both halves.
+     */
+    if (!r.ownerUserId) {
+      log.warn('skipping a persisted session with no owner', { sessionId: r.id })
+      return null
+    }
     const reloadStatus =
       mode === 'restore'
         ? 'exited'
@@ -760,7 +790,7 @@ export class SessionRepository {
     let session!: Session
     session = new Session({
       sessionId: r.id,
-      ownerUserId: r.ownerUserId ?? (await firstAdminMemberId(this.store)),
+      ownerUserId: r.ownerUserId,
       agentKind: kind.data,
       cwd: r.cwd,
       title: r.title,
