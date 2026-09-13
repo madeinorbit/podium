@@ -650,16 +650,23 @@ export class SessionStateService {
     // sidecar row carries both halves, so filtering to read-mark holders would
     // need a second statement of which table owns which key, and that is the
     // duplication this split exists to avoid.
-    await this.ports.store.transact(async () => {
-      const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
-      await this.ports.store.sessions.clearAllReadAt(sessionId)
-      // INSIDE, so the publish reads the cleared values on this connection; and
-      // the invalidation is repeated after the transaction because a read taken
-      // during it can cache a value the rollback then discards.
+    // `finally`, NOT a trailing statement [PDM-424 review 2]. The second
+    // invalidation used to sit after the awaited `transact`, so a capture that
+    // threw skipped it entirely — and the publish INSIDE the span has already
+    // read each holder's overlay through {@link overlay}, which POPULATES the
+    // cache. The rollback then discards the rows while the service keeps serving
+    // the values it read from the doomed span. Same shape `persistPerUser`
+    // already uses, and for the same reason.
+    try {
+      await this.ports.store.transact(async () => {
+        const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
+        await this.ports.store.sessions.clearAllReadAt(sessionId)
+        this.invalidateAllOverlays()
+        await this.publishMarksForHolders(holders, sessionId)
+      })
+    } finally {
       this.invalidateAllOverlays()
-      await this.publishMarksForHolders(holders, sessionId)
-    })
-    this.invalidateAllOverlays()
+    }
   }
 
   async setSnooze(
@@ -693,15 +700,19 @@ export class SessionStateService {
     // outside it, so an append failure left the snoozes cleared and committed
     // with the holder rows stale or half-published, and a retry would find
     // `hasAnySnooze` false and return early having done nothing.
-    await this.ports.persistSession(sessionId, async () => {
-      const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
-      await this.ports.store.sessions.clearAllSnoozes(sessionId)
+    // `finally` for the reason {@link rearmUnreadForAll} states: a throw from a
+    // capture inside the span skips a trailing statement, and the publish has
+    // already populated the overlay cache from rows the rollback discards.
+    try {
+      await this.ports.persistSession(sessionId, async () => {
+        const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
+        await this.ports.store.sessions.clearAllSnoozes(sessionId)
+        this.invalidateAllOverlays()
+        await this.publishMarksForHolders(holders, sessionId)
+      })
+    } finally {
       this.invalidateAllOverlays()
-      await this.publishMarksForHolders(holders, sessionId)
-    })
-    // Again after the span: a projection read inside it can cache a value the
-    // rollback discards, which is the ghost-row rule `persistPerUser` states.
-    this.invalidateAllOverlays()
+    }
     this.ports.broadcastSessions()
   }
 

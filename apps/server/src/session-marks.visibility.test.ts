@@ -68,8 +68,11 @@ const owner = asUserId('owner')
 const reader = asUserId('reader')
 const stranger = asUserId('stranger')
 const LIVE = 'ses_live'
-/** Resolves to nothing — the deleted/purged case. */
+/** Resolves to nothing — the purged case. */
 const GHOST = 'ses_long_gone'
+/** Resolves, but carries a tombstone — the SOFT-deleted case, which is the one a
+ *  person can actually cause. `getSessions` returns it. */
+const DELETED = 'ses_soft_deleted'
 
 const stores: SessionStore[] = []
 afterEach(async () => {
@@ -81,6 +84,11 @@ async function fixture() {
   stores.push(store)
   const world = await WorldIndex.load(store)
   const session = { id: LIVE, ownerUserId: owner } as unknown as SessionRow
+  const deletedSession = {
+    id: DELETED,
+    ownerUserId: owner,
+    deletedAt: '2026-09-13T00:00:00.000Z',
+  } as unknown as SessionRow
   const rows: FeedVisibilityStore = {
     issues: {
       getIssue: async () => null,
@@ -90,8 +98,18 @@ async function fixture() {
       // Only LIVE exists. An id the map does not answer for is the purged case,
       // and `getSessions` returning a partial map is exactly what the real store
       // does for an id that is gone.
+      // LIVE and DELETED both resolve; DELETED carries a tombstone, exactly as
+      // `readSessions` returns it (no `deleted_at` filter anywhere on that path).
       getSessions: async (ids: readonly string[]) =>
-        new Map(ids.filter((id) => id === LIVE).map((id) => [id, session])),
+        new Map(
+          ids.flatMap<[string, SessionRow]>((id) =>
+            id === LIVE
+              ? [[LIVE, session]]
+              : id === DELETED
+                ? [[DELETED, deletedSession]]
+                : [],
+          ),
+        ),
       findSessionsByResumeValues: async () => new Map(),
       findSessionsByIssueIds: async () => [],
     },
@@ -278,6 +296,30 @@ describe('session-read: the conjunction, and it is not user-match twice', () => 
     // The live session is still served on the same fixture, so this is a refusal
     // about the GHOST and not about the policy having stopped answering.
     expect.soft((await recipients(policy, marksRef(owner, LIVE))).snapshot).toBe(owner)
+  })
+
+  it('ADMITS a row whose session is SOFT-DELETED — observed, and not endorsed', async () => {
+    // A SOFT-DELETED SESSION STILL RESOLVES. `getSessions` applies no
+    // `deleted_at` filter and `maySeeSession` checks asked-for, then owner, then
+    // grants — never the tombstone. So a marks row for a session the client has
+    // been told to DROP is still admitted to its owner and to a surviving
+    // grantee.
+    //
+    // THIS IS RECORDED AS OBSERVED BEHAVIOUR, NOT AS A DECISION [review 2 item
+    // 3]. I previously wrote that marks "must NOT" be retracted on deletion
+    // because they would be gone on restore; that conflated two things. Client
+    // EVICTION and durable DESTRUCTION are different, and an evicted client row
+    // can be re-delivered when the session is restored. So whether a marks row
+    // SHOULD be admitted while its session is tombstoned is a live question this
+    // issue does not settle — what it does is pin the current answer so a change
+    // to it is visible rather than silent.
+    const { policy, grant } = await fixture()
+    await grant(reader, DELETED)
+
+    expect.soft((await recipients(policy, marksRef(owner, DELETED))).snapshot).toBe(owner)
+    expect.soft((await recipients(policy, marksRef(reader, DELETED))).snapshot).toBe(reader)
+    // The stranger is still refused, so admission still tracks the person.
+    expect.soft((await recipients(policy, marksRef(stranger, DELETED))).snapshot).toBeNull()
   })
 
   it('does not let a grant on ANOTHER session admit this row', async () => {

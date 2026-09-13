@@ -118,6 +118,31 @@ describe('the sidecar is REGISTERED, not merely correct', () => {
   })
 })
 
+describe('the LEGACY replica can UPDATE a marks row, not only insert one', () => {
+  it('a second delivery of the same row REPLACES it rather than being discarded', async () => {
+    // THE `keyFor` ARM, WITNESSED ON THE OPERATION IT ACTUALLY DECIDES [review 2
+    // item 2]. The bootstrap case above proves the kind is REGISTERED — an
+    // insert. `keyFor` is used by `upsertRows` for one thing: insert or update?
+    // With no arm the key is `undefined`, `col.get(undefined)` misses, every row
+    // is classified an INSERT, and the collection's own `getKey` then dedupes it
+    // away — so the row never CHANGES and nothing reports a failure. An insert-
+    // only witness cannot see that, and the kernel binding cases cannot either:
+    // they drive a different replica with a different resolver.
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('sessionMarks', [myMarks()] as never)
+    expect(replica.rows('sessionMarks')).toHaveLength(1)
+    expect(replica.rows('sessionMarks')[0]?.readAt).toBe(READ_AT)
+
+    // The same (user, session) row, a different value — an ordinary mark change.
+    replica.applySnapshot('sessionMarks', [myMarks({ readAt: null })] as never)
+
+    // ONE row still, and it MOVED. Under a missing `keyFor` arm this reads
+    // READ_AT: the write is silently discarded as a duplicate insert.
+    expect.soft(replica.rows('sessionMarks')).toHaveLength(1)
+    expect.soft(replica.rows('sessionMarks')[0]?.readAt).toBeNull()
+  })
+})
+
 describe('joining this reader’s marks over the broadcast', () => {
   it('replaces the neutral read mark with this reader’s own', () => {
     const joined = joinSessionMarks(neutralWire(BEFORE_READ), myMarks())
