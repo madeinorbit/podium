@@ -983,6 +983,21 @@ export class SessionRepository {
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
     this.publishSessionProjection(recovered)
+    // AND THE PER-USER HALF, on the same boot and for the same reason [PDM-424].
+    //
+    // The baseline above carries NEUTRAL marks now — the split moved each
+    // person's readAt and snooze onto `sessionMarks` rows — and those rows are
+    // published only from a WRITE. So a mark made before that entity existed has
+    // no change-log entry, and a client bootstrapping after the upgrade would be
+    // shown every session unread and un-snoozed until its owner opened each one
+    // AGAIN. Invisible, because that is indistinguishable from somebody who has
+    // opened nothing.
+    //
+    // AFTER the session reconcile, deliberately: the marks row names a session
+    // id, and `feed-visibility.ts`'s `keyedUserOf` refuses a marks row whose
+    // session it cannot resolve. Publishing the per-user half first would emit
+    // rows that are correct and undeliverable.
+    await this.ports.state.reconcileSessionMarks()
   }
 
   forget(sessionId: SessionId): void {

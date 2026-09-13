@@ -231,6 +231,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
 
   bag.state = new SessionStateService({
     store,
+    // The `sessionMarks` sidecar's write seam [PDM-424] — the same ledger the
+    // repository captures session rows onto, so the shared half and the per-user
+    // half land on one log and share a cursor. A client that received the
+    // neutral session row and not its marks would render everything unread.
+    ledger: bag.deps.ledger,
     now: () => bag.now(),
     getSession: (sessionId) => bag.sessions.get(sessionId),
     sessionIds: () => bag.sessions.keys(),
