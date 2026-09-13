@@ -396,12 +396,21 @@ export class MachinesService {
    * discarded when it would still have been allowed. Within the changes it can
    * SEE, it refuses too much rather than too little.
    *
-   * WHAT IT CANNOT SEE, stated here because the guarantee is easy to overread:
-   * this epoch is keyed on the MACHINE, so an authority change that never writes
-   * a machine row or a machine-kind grant row does not bump it — a disabled
-   * account, a narrowed agent delegation, a change of a session's owner. Those
-   * are tracked as required remainders (PDM-409, PDM-410, PDM-411), NOT covered
-   * here. This is not a claim that a parked frame can never under-refuse.
+   * ACCOUNT STATE IS NOW A THIRD SOURCE (PDM-409). A machine-keyed epoch could
+   * not see an account losing the right to act, because disabling a user writes
+   * a `users` row and nothing else — no handover, no revoked share. That is the
+   * one authority-relevant column on `users` that can move after creation
+   * (this build has no role-mutation method at all), so the third subscription
+   * below reads the ROW rather than counting writes: a row that says DISABLED
+   * is a loss, and a signup or a password rotation on the same stream is not.
+   *
+   * WHAT IT STILL CANNOT SEE, stated here because the guarantee is easy to
+   * overread: a narrowed agent delegation and a change of a session's owner.
+   * Those are the remaining required remainders (PDM-410, PDM-411 track the
+   * ordering and stamping questions; the delegation seam has no production
+   * supplier at all — `MachineOwnershipIndex.delegatedMachines` is provided by
+   * no composition root in this build, only by test fixtures). This is still
+   * not a claim that a parked frame can never under-refuse.
    */
   /** Listeners told about refused parked deliveries — see
    *  {@link MachineService.onDeliveryDiscarded}. */
@@ -449,6 +458,15 @@ export class MachinesService {
 
   private readonly unsubscribeMachineWrites: () => void
   private readonly unsubscribeGrantWrites: () => void
+  private readonly unsubscribeUserWrites: () => void
+  /**
+   * Users this service has already counted as disabled, so calling `disable()`
+   * twice does not refuse a second queue for an authority change that already
+   * happened. Deliberately NOT a baseline of every account: unlike an owner,
+   * "disabled" is legible from the committed row itself, so there is nothing to
+   * compare against and therefore no pre-seed window to get wrong.
+   */
+  private readonly knownDisabledUsers = new Set<string>()
   /** Resolves once every persisted machine has an authority baseline — see
    *  {@link MachineService.seedCommittedOwners}. Never rejects. */
   readonly ownersSeeded: Promise<void>
@@ -481,6 +499,39 @@ export class MachinesService {
       for (const raw of change.rows) {
         if (raw.resourceKind !== 'machine') continue
         this.bumpAuthorityEpoch(raw.resourceId)
+      }
+    }) ?? (() => {})
+
+    // THE THIRD SOURCE: ACCOUNT STATE (PDM-409). `mayDispatchTo` refuses when
+    // `users.roleOf(owner)` answers nothing, and it answers nothing for a
+    // disabled account — so disabling is exactly the act that takes `use` away
+    // while leaving every machine row and every grant row untouched.
+    //
+    // WHY THIS BUMPS EVERY PARKED MACHINE RATHER THAN ONE. The epoch is read in
+    // exactly one place, `flushQueued`, so bumping a machine with nothing parked
+    // changes nothing observable — the blast radius is the set of machines that
+    // are OFFLINE WITH SOMETHING BUFFERED, and an attached daemon is untouched.
+    // Within that set it cannot be narrower: a parked frame carries no principal
+    // (that is this whole design's premise), so the service cannot ask which
+    // user a queue was parked for. The users who can hold `use` on a machine are
+    // its owner plus its `use` grantees, and only the owner half is in memory.
+    // Refusing too much, on an administrative act that is rare by construction,
+    // is the direction this guard fails in everywhere else.
+    //
+    // WHY IT READS THE ROW AND NOT THE FACT OF A WRITE. `create` and
+    // `setPasswordHash` publish on this same stream. Counting any `users` write
+    // as an authority change would let an unrelated signup delete the queue of
+    // every offline machine. A row whose `disabledAt` is set is the loss; a row
+    // whose `disabledAt` is null cannot be one, whatever produced it.
+    //
+    // OPTIONAL for the same reason the grants subscription is: this module's
+    // socket-only fixtures supply a store stub with `machines` and nothing else.
+    this.unsubscribeUserWrites = deps.store.users?.committed?.subscribe((change) => {
+      for (const raw of change.rows) {
+        const disabled = change.operation === 'delete' || raw.disabledAt !== null
+        if (!disabled || this.knownDisabledUsers.has(raw.id)) continue
+        this.knownDisabledUsers.add(raw.id)
+        this.bumpParkedAuthorityEpochs()
       }
     }) ?? (() => {})
 
@@ -801,6 +852,18 @@ export class MachinesService {
 
   private bumpAuthorityEpoch(machineId: string): void {
     this.authorityEpochByMachine.set(machineId, this.authorityEpoch(machineId) + 1)
+  }
+
+  /**
+   * Move the epoch of every machine that currently has something parked, for an
+   * authority change this service cannot attribute to one machine (PDM-409).
+   *
+   * Iterating `pendingByMachine` rather than the fleet is what keeps the cost
+   * proportional to what is actually at stake: a machine with no queue has no
+   * reader for its epoch.
+   */
+  private bumpParkedAuthorityEpochs(): void {
+    for (const machineId of this.pendingByMachine.keys()) this.bumpAuthorityEpoch(machineId)
   }
 
   /** Record a committed owner, bumping only when it actually MOVED — see
@@ -1143,6 +1206,7 @@ export class MachinesService {
   dispose(): void {
     this.unsubscribeMachineWrites()
     this.unsubscribeGrantWrites()
+    this.unsubscribeUserWrites()
   }
 
   /** Resolve the native login identity available on the machine that will run a session. */

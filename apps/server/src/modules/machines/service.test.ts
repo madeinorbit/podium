@@ -1714,3 +1714,213 @@ describe('MachinesService parked frames and a machine that changes hands', () =>
     expect(events).toEqual(['control', 'input'])
   })
 })
+
+/**
+ * PDM-409 — AN AUTHORITY CHANGE THAT WRITES NO MACHINE ROW.
+ *
+ * PDM-401's epoch is keyed on the MACHINE and bumped from two committed
+ * streams: `machines` when `ownerUserId` moves, and `grants` for a machine-kind
+ * row. Its own header says what that cannot see, and this is the first of the
+ * three remainders it names: an account losing the right to act writes a
+ * `users` row and NOTHING ELSE. The machine did not change hands, no share was
+ * revoked, and the parked frame flushed.
+ *
+ * WHY THE `users` ROW IS ENOUGH TO DECIDE IT. `mayDispatchTo` refuses when
+ * `users.roleOf(owner)` answers nothing, and `roleOf` answers nothing for a
+ * DISABLED account — so disabling is exactly the act that takes `use` away
+ * without touching anything machine-shaped. Censused over every writer of the
+ * `users` table, `disabledAt` is the only authority-relevant column that can
+ * move after creation: this build has no role-mutation method at all.
+ *
+ * WHICH MACHINES A DISABLE BUMPS, and why it is the coarse answer. The epoch is
+ * read in exactly one place — {@link MachinesService.flushQueued} — so bumping a
+ * machine with nothing parked is not observable. The parked frame carries no
+ * principal (that is PDM-401's whole design), so the service cannot ask which
+ * user a queue was parked for; the users who can hold `use` on a machine are
+ * its owner plus its `use` grantees, and only the owner half is in memory. So a
+ * disable refuses the parked queues of the machines that are currently OFFLINE,
+ * and costs nothing at all for a machine whose daemon is attached.
+ */
+describe('MachinesService parked frames and an authority change with no machine write', () => {
+  const approvalExec: ControlMessage = {
+    type: 'approvalExecRequest',
+    requestId: 'req-409',
+    op: { kind: 'update' },
+  } as ControlMessage
+
+  const ALICE = asUserId('alice')
+
+  /** A real account row, because the witness turns on a committed `users` write. */
+  async function withAlice(store: SessionStore, role: 'admin' | 'member' = 'member'): Promise<void> {
+    await store.users.create(
+      {
+        id: ALICE,
+        displayName: 'Alice',
+        email: 'alice@example.com',
+        role,
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'password-hash',
+    )
+  }
+
+  test('a parked frame is NOT flushed after the owner’s account is disabled', async () => {
+    const { svc, store } = await storedService()
+    await withAlice(store)
+    // The handover to Alice happens BEFORE the park, so its own epoch bump is
+    // spent and the only thing left to move is her account.
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    // The whole authority change: one `users` row. No machine row, no grant row.
+    await store.users.disable(ALICE, new Date().toISOString())
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([])
+  })
+
+  test('parked PTY bytes are NOT flushed after the owner’s account is disabled', async () => {
+    // The queue is generic plumbing: a guard that governed only control frames
+    // would leave canonical keystrokes replaying into a disabled account's shell.
+    const { svc, store } = await storedService()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0x6c, 0x73, 0x0d),
+    }
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toPtyInput(MACHINE, input)
+
+    await store.users.disable(ALICE, new Date().toISOString())
+
+    const received: DaemonPtyInputBatch[] = []
+    await svc.attach(MACHINE, { send: () => {}, sendInput: (b) => received.push(b) })
+    svc.flushQueued(MACHINE)
+
+    expect(received).toEqual([])
+  })
+
+  test('REMOVING a member is a disable too, and must refuse the same queue', async () => {
+    // THE SECOND WRITER OF `disabledAt`, and the one that made the first version
+    // of this fix a lie. `removeMember` disables the account with a RAW
+    // `db.update(users)` inside its claim transaction — it never reached
+    // `CommittedRows.write`, so it published no committed row and no subscriber
+    // heard it. Subscribing to `users.committed` and stopping there would have
+    // governed `disable()` and left the product's actual "remove this person"
+    // button ungoverned.
+    const { svc, store } = await storedService()
+    await withAlice(store)
+    const admin = asUserId('admin-409')
+    await store.users.create(
+      {
+        id: admin,
+        displayName: 'Admin',
+        email: 'admin409@example.com',
+        role: 'admin',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'password-hash',
+    )
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    await store.users.removeMember(ALICE, admin)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([])
+  })
+
+  test('a refused-for-account-state delivery is REPORTED like any other', async () => {
+    // The settle-as-refused seam PDM-401 built is the reason an approval does
+    // not sit `executing` until the stall sweep blames the daemon's version. It
+    // must fire for THIS cause too, or the new refusal is a silent loss.
+    const { svc, store } = await storedService()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const discarded: { kind: string; type?: string }[] = []
+    svc.onDeliveryDiscarded((d) =>
+      discarded.push({ kind: d.kind, ...(d.message ? { type: d.message.type } : {}) }),
+    )
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+    await store.users.disable(ALICE, new Date().toISOString())
+    await svc.attach(MACHINE, recorder().send)
+    svc.flushQueued(MACHINE)
+
+    expect(discarded).toEqual([{ kind: 'control', type: 'approvalExecRequest' }])
+  })
+
+  test('CREATING an account is not a loss of authority — the queue still flushes', async () => {
+    // THE COST DIRECTION, and the reason this reads the ROW rather than counting
+    // writes. `users.create` publishes a committed row on the same stream; so
+    // does `setPasswordHash`. Treating any `users` write as an authority change
+    // would let an unrelated signup or a password rotation delete the queue of
+    // every machine that happened to be offline.
+    const { svc, store } = await storedService()
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    await withAlice(store)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([approvalExec])
+  })
+
+  test('a password rotation is not a loss of authority — the queue still flushes', async () => {
+    const { svc, store } = await storedService()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    await store.users.setPasswordHash(ALICE, 'rotated-hash', new Date().toISOString())
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([approvalExec])
+  })
+
+  test('a machine whose daemon is ATTACHED is untouched by a disable elsewhere', async () => {
+    // The blast radius, pinned. Nothing is parked, so there is nothing to refuse
+    // and the frame goes straight out — a disable must not become a global
+    // outage for every machine on the instance.
+    const { svc, store } = await storedService()
+    await withAlice(store)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    await store.users.disable(ALICE, new Date().toISOString())
+    svc.toMachine(MACHINE, approvalExec)
+
+    expect(daemon.got).toEqual([approvalExec])
+  })
+})

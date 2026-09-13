@@ -392,11 +392,25 @@ export class UsersRepository {
       if (userId === actor) throw new Error('You cannot remove yourself')
       if (!(await this.get(userId))) throw new Error('Member unavailable')
       // Preserve ownership of issues and sessions; disabled members fail every principal lookup.
-      await this.db
-        .update(users)
-        .set({ disabledAt: new Date().toISOString() })
-        .where(eq(users.id, userId))
-        .run()
+      //
+      // THROUGH THE COMMIT FUNNEL, NOT AROUND IT (PDM-409). This is the SECOND
+      // writer of `disabledAt` — `disable()` is the other — and it was a raw
+      // `db.update` that published nothing, so every subscriber to
+      // `users.committed` heard the disable and missed the removal. That is not
+      // a distinction any of them can defend: to WorldIndex and to the machines
+      // service's authority epoch, "this person may no longer act" is the same
+      // fact whichever button produced it. Same shape as `disable()`, joined to
+      // the surrounding claim transaction by `CommittedRows.write`.
+      await this.committed.write(
+        async () =>
+          this.db
+            .update(users)
+            .set({ disabledAt: new Date().toISOString() })
+            .where(eq(users.id, userId))
+            .returning()
+            .all(),
+        'upsert',
+      )
       await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
       await this.db.delete(userCredentials).where(eq(userCredentials.userId, userId)).run()
       await this.db.delete(memberInvites).where(eq(memberInvites.memberId, userId)).run()
