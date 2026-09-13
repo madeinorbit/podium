@@ -56,7 +56,7 @@ import {
   NoDelegationsGranted,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
-import { hashToken } from './auth-route'
+import { hashToken } from './auth-tokens'
 import {
   type CommandPrincipal,
   onBehalfOfUser,

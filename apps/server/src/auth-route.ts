@@ -1,5 +1,6 @@
 import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
-import { createHash, randomBytes } from 'node:crypto'
+import { hashToken } from './auth-tokens'
+import { randomBytes } from 'node:crypto'
 import {
   asUserId,
   type CredentialSource,
@@ -71,10 +72,6 @@ const SESSION_RENEW_AFTER_MS = 24 * 60 * 60 * 1000
 
 const DEFAULT_MAX_FAILURES = 8
 const DEFAULT_LOCKOUT_MS = 5 * 60 * 1000
-
-export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex')
-}
 
 /** True when the request carries a valid (unexpired) session cookie. Reused by the
  *  auth middleware and the /client WS upgrade gate so they share one definition of "authed". */

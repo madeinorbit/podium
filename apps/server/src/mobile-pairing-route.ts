@@ -13,12 +13,12 @@ import {
 import type { Context, Hono } from 'hono'
 import {
   type ClientCredentialHeaders,
-  hashToken,
   isHttps,
   resolveClientCredential,
   SESSION_TTL_MS,
   setSessionCookie,
 } from './auth-route'
+import { hashToken } from './auth-tokens'
 import type { MobilePairingManager } from './mobile-pairing'
 import type { AuthRepository } from './store/auth'
 

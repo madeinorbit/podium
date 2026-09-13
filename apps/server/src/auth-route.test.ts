@@ -8,13 +8,13 @@ import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   clientAuthGuard,
-  hashToken,
   isRequestAuthed,
   isSecureRequest,
   registerAuthRoute,
   requestUserId,
   resolveLoginIdentifier,
 } from './auth-route'
+import { hashToken } from './auth-tokens'
 import { authReadinessBoundary } from './readiness-boundary'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
