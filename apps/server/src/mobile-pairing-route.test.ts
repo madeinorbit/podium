@@ -3,7 +3,8 @@ import { firstAdminMemberId } from '@podium/model'
 import { decodePairingEnvelope } from '@podium/protocol'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { hashToken, resolveClientCredential } from './auth-route'
+import { resolveClientCredential } from './auth-route'
+import { hashToken } from './auth-tokens'
 import { MobilePairingManager } from './mobile-pairing'
 import {
   clientAddressForRequest,
