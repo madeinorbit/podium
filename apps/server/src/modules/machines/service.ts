@@ -391,11 +391,17 @@ export class MachinesService {
    * explicit places, exactly the site that declines to ask. The queue is the one
    * place that cannot be bypassed by a caller that forgets.
    *
-   * DELIBERATELY COARSE, IN THE SAFE DIRECTION ONLY. Any grant write touching a
-   * machine bumps it, including a pure ADDITION that took nothing from anybody,
-   * so a parked frame can be discarded when it would still have been allowed.
-   * It over-refuses and never under-refuses, and only ever while that machine's
-   * daemon is offline.
+   * DELIBERATELY COARSE. Any grant write touching a machine bumps it, including
+   * a pure ADDITION that took nothing from anybody, so a parked frame can be
+   * discarded when it would still have been allowed. Within the changes it can
+   * SEE, it refuses too much rather than too little.
+   *
+   * WHAT IT CANNOT SEE, stated here because the guarantee is easy to overread:
+   * this epoch is keyed on the MACHINE, so an authority change that never writes
+   * a machine row or a machine-kind grant row does not bump it — a disabled
+   * account, a narrowed agent delegation, a change of a session's owner. Those
+   * are tracked as required remainders (PDM-409, PDM-410, PDM-411), NOT covered
+   * here. This is not a claim that a parked frame can never under-refuse.
    */
   /** Listeners told about refused parked deliveries — see
    *  {@link MachineService.onDeliveryDiscarded}. */
@@ -443,6 +449,9 @@ export class MachinesService {
 
   private readonly unsubscribeMachineWrites: () => void
   private readonly unsubscribeGrantWrites: () => void
+  /** Resolves once every persisted machine has an authority baseline — see
+   *  {@link MachineService.seedCommittedOwners}. Never rejects. */
+  readonly ownersSeeded: Promise<void>
 
   constructor(private readonly deps: MachinesDeps) {
     this.unsubscribeMachineWrites = deps.store.machines.committed.subscribe((change) => {
@@ -474,6 +483,13 @@ export class MachinesService {
         this.bumpAuthorityEpoch(raw.resourceId)
       }
     }) ?? (() => {})
+
+    // AUTHORITY BASELINES (PDM-413). Started here and awaited by nobody on the
+    // hot path; `ownersSeeded` exists so a caller that needs determinism — a
+    // test, or a composition root that wants the fleet baselined before it
+    // serves — can wait for it. Until it resolves, an unseeded machine with a
+    // parked queue refuses rather than trusts.
+    this.ownersSeeded = this.seedCommittedOwners()
 
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
@@ -792,7 +808,53 @@ export class MachinesService {
   private noteCommittedOwner(machineId: string, owner: string | null): void {
     const previous = this.lastCommittedOwner.get(machineId)
     this.lastCommittedOwner.set(machineId, owner)
-    if (previous !== undefined && previous !== owner) this.bumpAuthorityEpoch(machineId)
+    if (previous !== undefined) {
+      if (previous !== owner) this.bumpAuthorityEpoch(machineId)
+      return
+    }
+    // FIRST OWNER THIS PROCESS HAS SEEN COMMITTED FOR THIS MACHINE (PDM-413).
+    //
+    // Normally unreachable, because {@link seedCommittedOwners} reads every
+    // persisted row at construction — that seed, and NOT the write stream, is
+    // what gives an already-offline remote machine a baseline. Inferring the
+    // baseline from the first observed write is what an earlier revision did,
+    // and it was wrong in the one case that matters: a handover can BE the first
+    // write this service ever sees for a machine, and calling that "not a
+    // change" let the parked frame through under authority nobody had confirmed.
+    //
+    // What remains here is the window before the seed resolves. With no baseline
+    // the write is not known to be a change and not known to be harmless, so the
+    // answer depends on whether anything is waiting: a machine with nothing
+    // parked has nothing to lose, and one with a queue is refused rather than
+    // trusted. That can refuse a queue whose owner did not in fact change, which
+    // is the direction that fails safe.
+    if (this.pendingByMachine.has(machineId)) this.bumpAuthorityEpoch(machineId)
+  }
+
+  /**
+   * Read every persisted machine's owner once, so a machine that is ALREADY
+   * OFFLINE when this process starts has an authority baseline (PDM-413).
+   *
+   * `ensureHostMachine` seeds only THIS host. Every other machine row was
+   * written before this process existed, so without this read the first write
+   * such a machine produces — which can be its handover — has nothing to be
+   * compared against.
+   *
+   * NEVER OVERWRITES a value already learned from a committed write: that write
+   * is newer than this read by construction, and the two can interleave.
+   */
+  private async seedCommittedOwners(): Promise<void> {
+    try {
+      for (const row of await this.deps.store.machines.listMachines()) {
+        if (!this.lastCommittedOwner.has(row.id)) {
+          this.lastCommittedOwner.set(row.id, row.ownerUserId ?? null)
+        }
+      }
+    } catch (err) {
+      // A failed seed leaves every machine unseeded, which the rule above then
+      // resolves conservatively. Loud, because it silently widens refusals.
+      log.warn('could not seed machine authority baselines', { err })
+    }
   }
 
   /**

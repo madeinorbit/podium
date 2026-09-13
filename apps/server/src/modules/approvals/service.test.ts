@@ -73,6 +73,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
     const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
     return new ApprovalService({
+      onDeliveryDiscarded: () => () => {},
       store: new ApprovalsRepository(stage),
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
@@ -458,6 +459,7 @@ describe('ApprovalService under the async store (POD-3806)', () => {
     const store = await openTestStore(':memory:')
     const mails: string[] = []
     const svc = new ApprovalService({
+      onDeliveryDiscarded: () => () => {},
       store: store.approvals,
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: () => {},
@@ -543,6 +545,7 @@ describe('an approval belongs to the human whose run it is about', () => {
     const toOwner: LiveServerMessage[] = []
     const toStranger: LiveServerMessage[] = []
     const svc = new ApprovalService({
+      onDeliveryDiscarded: () => () => {},
       store: new ApprovalsRepository(stage),
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: () => {},
@@ -731,7 +734,7 @@ describe('an exec frame the queue refused', () => {
     return id
   }
 
-  it('settles the row as refused, saying it did NOT run and what to do', async () => {
+  it('settles the row as refused, naming the machine and bounding the claim', async () => {
     const { svc, mails, broadcasts, events } = harness()
     const id = await discardable(svc)
     expect((await svc.get({ id }, SELF)).status).toBe('executing')
@@ -741,11 +744,32 @@ describe('an exec frame the queue refused', () => {
     const w = await svc.get({ id }, SELF)
     expect(w.status).toBe('failed')
     expect(w.resultText).toContain('ludovico')
-    expect(w.resultText).toMatch(/changed hands/i)
-    expect(w.resultText).toMatch(/did NOT run/i)
+    expect(w.resultText).toMatch(/access configuration changed/i)
+    expect(w.resultText).toMatch(/could not confirm/i)
+    // BOUNDED TO THIS DISPATCH, not to global non-execution — what the server
+    // knows is that it declined to send this frame.
+    expect(w.resultText).toMatch(/this dispatch was not delivered/i)
     expect(mails.at(-1)).toContain('REFUSED')
     expect(events.at(-1)?.kind).toBe('issue.approval_failed')
     expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
+  })
+
+  it('never claims the caller lost access, because a refusal does not prove that', async () => {
+    // PDM-414. The queue refuses on an ACCESS-CONFIGURATION CHANGE, which also
+    // fires on a grant ADDITION or an edit to a different grantee. Saying the
+    // machine "changed hands", that the operation is "no longer yours", or
+    // "ask again from a machine you own" would each be FALSE in those cases and
+    // would send the reader to look for a loss that never happened.
+    const { svc } = harness()
+    const id = await discardable(svc)
+
+    await svc.onExecDiscarded(id)
+
+    const w = await svc.get({ id }, SELF)
+    expect(w.resultText).not.toMatch(/changed hands/i)
+    expect(w.resultText).not.toMatch(/no longer yours/i)
+    expect(w.resultText).not.toMatch(/machine you (currently )?own/i)
+    expect(w.resultText).not.toMatch(/did NOT run/i)
   })
 
   it('does NOT blame the daemon’s version, which is the stall sweep’s cause and not this one', async () => {
@@ -791,7 +815,7 @@ describe('an exec frame the queue refused', () => {
 
     const w = await svc.get({ id }, SELF)
     expect(w.status).toBe('failed')
-    expect(w.resultText).toMatch(/changed hands/i)
+    expect(w.resultText).toMatch(/access configuration changed/i)
   })
 
   it('does nothing for an unknown request id', async () => {

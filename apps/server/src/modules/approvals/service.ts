@@ -105,6 +105,18 @@ export interface ApprovalServiceDeps {
   /** Server-owned operations return a result string. null means this operation
    * belongs to the daemon executor. */
   executeServerOp?(op: ApprovalOp, sessionId: SessionId): string | null | Promise<string | null>
+  /**
+   * SUBSCRIBE TO REFUSED DISPATCHES — `MachinesService.onDeliveryDiscarded`.
+   *
+   * REQUIRED, and required is the point (PDM-414). This service registers
+   * itself in its constructor, so the queue-discard -> settlement path is part
+   * of CONSTRUCTING the broker rather than a line in a composition root that can
+   * be deleted without any test noticing. An optional dep would have left the
+   * production wiring exactly as unwitnessed as it was.
+   */
+  onDeliveryDiscarded(
+    sink: (delivery: { kind: 'control' | 'input'; message?: ControlMessage }) => void,
+  ): () => void
   /** True when `machineId` has a live daemon socket RIGHT NOW. The stall deadline
    *  below runs only while this is true — see {@link ApprovalService.sweepStalledExecutions}. */
   hasDaemon?(machineId: MachineId): boolean
@@ -201,7 +213,22 @@ export class ApprovalService {
    *  — being told "it failed" about an op that ran is worse than being told nothing. */
   private readonly stalled = new Set<string>()
 
-  constructor(private readonly deps: ApprovalServiceDeps) {}
+  private readonly unsubscribeDiscarded: () => void
+
+  constructor(private readonly deps: ApprovalServiceDeps) {
+    // THE PRODUCTION EDGE, BOUND HERE (PDM-414). A parked exec frame the queue
+    // refused must reach a terminal state; registering at construction means no
+    // composition root can forget to connect the two halves.
+    this.unsubscribeDiscarded = deps.onDeliveryDiscarded((delivery) => {
+      if (delivery.message?.type !== 'approvalExecRequest') return
+      void this.onExecDiscarded(delivery.message.requestId)
+    })
+  }
+
+  /** Drop the refused-dispatch subscription. */
+  dispose(): void {
+    this.unsubscribeDiscarded()
+  }
 
   private nowMs(): number {
     return this.deps.nowMs?.() ?? Date.now()
@@ -696,13 +723,21 @@ export class ApprovalService {
     const row = await this.deps.store.get(requestId)
     if (!row) return
     const where = machineName ?? (await this.deps.machineName(row.machineId)) ?? row.machineId
-    // Say what is known and no more. What is CERTAIN is that the operation did
-    // not run and why the server refused to send it; the operator's one action
-    // is to ask again from a machine that is currently theirs.
+    // SAY WHAT IS KNOWN AND NO MORE, which is narrower than it first looks
+    // (PDM-414). The queue refuses on an ACCESS-CONFIGURATION CHANGE, and that
+    // is coarser than a loss of rights: it also fires on a grant ADDITION, or an
+    // edit to a different grantee entirely. So this must NOT say the machine
+    // changed hands, must NOT say the operation is no longer theirs, and must
+    // NOT tell them to use a machine they own — for a pure addition every one of
+    // those is false, and each sends the reader somewhere wrong.
+    //
+    // It also says THIS DISPATCH was not delivered rather than that the
+    // operation never ran anywhere. What the server knows is that it declined to
+    // send this frame; that is not the same claim as global non-execution.
     const text =
-      `not sent to ${where}: that machine changed hands while its daemon was offline, ` +
-      `so the approved operation was no longer yours to run there. It did NOT run. ` +
-      `Ask again from a machine you currently own.`
+      `refused for ${where}: its access configuration changed while its daemon was offline, ` +
+      `so the server could not confirm this approval was still authorized and did not send it. ` +
+      `This dispatch was not delivered. Ask again if you still have access to that machine.`
     if (!await this.deps.store.transition(requestId, 'executing', 'failed', text)) return
     this.stallClock.delete(requestId)
     await this.log(row, 'issue.approval_failed', { discarded: true })

@@ -32,6 +32,7 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
     /** Swapped by the test once a row is executing, so only the sweep re-enters. */
     let onHasDaemon: () => void = () => {}
     const svc = new ApprovalService({
+      onDeliveryDiscarded: () => () => {},
       store: new Proxy(store, {
         get(target, prop, receiver) {
           if (prop === 'listExecuting') {

@@ -967,6 +967,7 @@
       "testFiles": [
         "apps/server/src/modules/accounts/list-scope.test.ts",
         "apps/server/src/modules/accounts/native-login.test.ts",
+        "apps/server/src/modules/approvals/discard-wiring.test.ts",
         "apps/server/src/modules/approvals/service.test.ts",
         "apps/server/src/modules/automations/scheduler.test.ts",
         "apps/server/src/modules/bus.test.ts",
@@ -1211,6 +1212,7 @@
         "src/modules/accounts/queries.ts",
         "src/modules/accounts/registry.ts",
         "src/modules/accounts/trpc.ts",
+        "src/modules/approvals/discard-wiring.test.ts",
         "src/modules/approvals/queries.ts",
         "src/modules/approvals/registry.ts",
         "src/modules/approvals/service.test.ts",

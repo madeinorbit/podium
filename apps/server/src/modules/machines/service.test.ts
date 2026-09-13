@@ -68,6 +68,10 @@ async function storedService(
     clients: () => [],
     machinesForPrincipal: async () => [],
   } satisfies MachinesDeps)
+  // Deterministic baselines (PDM-413): the seed is async, and a test that parks
+  // before it resolves would measure the conservative pre-seed window instead of
+  // the steady state. Tests that WANT that window say so explicitly.
+  await svc.ownersSeeded
   return { svc, store }
 }
 
@@ -1521,6 +1525,43 @@ describe('MachinesService parked frames and a machine that changes hands', () =>
 
     expect(fired).toBe(1)
     expect(daemon.got).toEqual([later])
+  })
+
+  test('a machine whose owner this process never saw is still protected on the FIRST change', async () => {
+    // PDM-413. `lastCommittedOwner` starts EMPTY and `ensureHostMachine` seeds
+    // only THIS host — every other persisted machine row was written before the
+    // process existed. So a remote machine that is already offline at boot can
+    // have a frame parked for it and then be handed over, with that handover as
+    // the FIRST write this service ever observes.
+    //
+    // THE DISCRIMINATING PART IS THAT NOTHING ATTACHES FIRST. The other handover
+    // tests attach a daemon before parking, and `attach` records the durable
+    // daemon component — a committed write that SEEDS the owner map. Attaching
+    // first is what made the earlier revision look safe when it was not.
+    const { svc, store } = await storedService()
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0x6c, 0x73, 0x0d),
+    }
+
+    // Alice's machine is already offline: no attach, no detach, nothing seeded.
+    svc.toMachine(MACHINE, approvalExec)
+    svc.toPtyInput(MACHINE, input)
+
+    // The handover is the FIRST committed machine write this service sees.
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    const received: DaemonPtyInputBatch[] = []
+    const daemon: ControlMessage[] = []
+    await svc.attach(MACHINE, {
+      send: (m) => daemon.push(m),
+      sendInput: (b) => received.push(b),
+    })
+    svc.flushQueued(MACHINE)
+
+    expect(daemon).toEqual([])
+    expect(received).toEqual([])
   })
 
   test('an unchanged machine still flushes its parked frames in order', async () => {

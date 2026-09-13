@@ -852,6 +852,7 @@
         "src/modules/accounts/queries.ts",
         "src/modules/accounts/registry.ts",
         "src/modules/accounts/trpc.ts",
+        "src/modules/approvals/discard-wiring.test.ts",
         "src/modules/approvals/queries.ts",
         "src/modules/approvals/registry.ts",
         "src/modules/approvals/service.test.ts",

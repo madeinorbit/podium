@@ -2492,6 +2492,12 @@ export class SessionRegistry {
       // The stall deadline runs only while a machine's daemon is actually attached:
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      // A PARKED EXEC FRAME THE QUEUE REFUSED MUST SETTLE AS REFUSED (PDM-401).
+      // The broker subscribes itself in its constructor; this is a REQUIRED dep
+      // so the edge cannot be dropped without the compiler saying so. The
+      // machines service reports refusals generically and does not know what an
+      // approval is — teaching the queue that is the coupling B5 refused.
+      onDeliveryDiscarded: (sink) => machines.onDeliveryDiscarded(sink),
       clients: () => clientRegistry.values(),
       // The run owner an approval belongs to (B1, PDM-133) — the same
       // `sessionOwner` every other session authorization path consults, so the
@@ -2630,24 +2636,6 @@ export class SessionRegistry {
           })
         } catch {}
       },
-    })
-    /**
-     * A PARKED EXEC FRAME THAT THE QUEUE REFUSED MUST SETTLE AS REFUSED (PDM-401).
-     *
-     * `MachinesService` drops a parked delivery when the machine's authority
-     * moved while its daemon was away. It reports that generically — it names
-     * the frame and does not know what one MEANS — and the approvals surface
-     * recognises its own here. That seam is deliberate: teaching the queue the
-     * approval state machine is the coupling B5 (PDM-137) refused.
-     *
-     * LATE-BOUND because `machines` is constructed far above this line and
-     * cannot close over a service that does not exist yet.
-     */
-    machines.onDeliveryDiscarded((discarded) => {
-      if (discarded.message?.type !== 'approvalExecRequest') return
-      void approvals
-        .onExecDiscarded(discarded.message.requestId)
-        .catch((err) => log.warn('settling a discarded approval failed', { err }))
     })
     // Commands are assembled immediately before Shipping, but handlers run only
     // after construction. Bind the narrow service port through one initialized-
