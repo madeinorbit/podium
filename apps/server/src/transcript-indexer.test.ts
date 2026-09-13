@@ -210,7 +210,15 @@ describe('TranscriptIndexer', () => {
     ).not.toThrow()
     await indexer.settled()
     expect(await store.conversations.transcriptIndex.indexedCursor(asMachineId('m1'), 'nofts')).toBe(0) // nothing consumed
-    expect(() => indexer.onTruncate(asMachineId('m1'), 'nofts')).not.toThrow()
+    // AWAITED: onTruncate drops the FTS rows AND writes indexed_bytes=0 on
+    // conversation_segments — the second write is outside the isAvailable guard,
+    // so "no FTS" does not make this a no-op against the store. Dropped, the
+    // update is still in flight when afterEach closes the store and it rejects
+    // with SchedulerClosedError, which vitest reports under `Errors` rather than
+    // `Tests` — an all-green summary on a lane that exits 1 (PDM-378).
+    // `indexer.settled()` cannot stand in for this await: it polls the `running`
+    // map, and onTruncate never enters it (unlike onBytes above).
+    await expect(indexer.onTruncate(asMachineId('m1'), 'nofts')).resolves.toBeUndefined()
   })
 
   // ---- backfill (pre-P5 lakes): segments fully mirrored before the indexer
