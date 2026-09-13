@@ -495,10 +495,21 @@ describe('a PRIVATE target is owner-only, whatever the scope (A5.1)', () => {
     onBehalfOf: READER,
   })
 
+  /**
+   * `expect.soft` IN EVERY TOTALITY LOOP, AND THAT IS NOT A STYLE CHOICE
+   * (PDM-394). A hard `expect` inside a `for` aborts at the FIRST failing key,
+   * so a break that reddens several scopes reports only the earliest one and
+   * the rest of the column is invisible. That happened: a deliberate break to
+   * `privateTargetDecision` reddened `all` and `subtree` together, the message
+   * named `all` alone, and the `subtree` row — the one the server's transport
+   * matrix could not see at all (PDM-394) — only became visible once `subtree`
+   * was broken in isolation. A totality table whose whole point is to answer
+   * for EVERY scope kind must report for every scope kind when it fails.
+   */
   it('refuses every scope kind a private resource it does not own', () => {
     for (const [kind, expected] of Object.entries(EXPECTED_READ_OF_ANOTHERS_PRIVATE_RESOURCE)) {
       const scope = SCOPES_FOR_READER[kind as IssueScope['kind']]
-      expect(authorize(readerCap(scope), 'read', privateResource(OWNER)), kind).toBe(expected)
+      expect.soft(authorize(readerCap(scope), 'read', privateResource(OWNER)), kind).toBe(expected)
     }
   })
 
@@ -507,7 +518,7 @@ describe('a PRIVATE target is owner-only, whatever the scope (A5.1)', () => {
     // caller must not open another person's session under ANY capability.
     for (const [kind, expected] of Object.entries(EXPECTED_READ_OF_ANOTHERS_PRIVATE_RESOURCE)) {
       const scope = SCOPES_FOR_READER[kind as IssueScope['kind']]
-      expect(
+      expect.soft(
         authorize(readerCap(scope), 'read', privateResource(OWNER, [READER])),
         kind,
       ).toBe(expected)
@@ -517,8 +528,10 @@ describe('a PRIVATE target is owner-only, whatever the scope (A5.1)', () => {
   it('refuses a WRITE to another person’s private resource, granted or not', () => {
     for (const kind of Object.keys(SCOPES_FOR_READER) as IssueScope['kind'][]) {
       const scope = SCOPES_FOR_READER[kind]
-      expect(authorize(readerCap(scope), 'write', privateResource(OWNER)), kind).toBe('forbidden')
-      expect(
+      expect.soft(authorize(readerCap(scope), 'write', privateResource(OWNER)), kind).toBe(
+        'forbidden',
+      )
+      expect.soft(
         authorize(readerCap(scope), 'write', privateResource(OWNER, [READER])),
         kind,
       ).toBe('forbidden')

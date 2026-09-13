@@ -721,6 +721,92 @@ describe('D7 — a private session is owner-only on every transport, grant or no
   )
 
   /**
+   * ── THE AGENT'S OWN SCOPE, WHICH NOTHING ABOVE ASKS (PDM-394) ─────────────
+   *
+   * `asPerson` is right for the question it was written for, and its comment
+   * says why: moving `scope` without `onBehalfOf` would decide these cases by
+   * accident. But it REPLACES the agent transports' scope before asking, so
+   * every leg above — `cli` and `relay` included — asks the identical
+   * `owned`-scope question. The parametrisation sweeps the transports and is
+   * uniform in the one dimension they actually differ in.
+   *
+   * The pair a session read is made of in production is (worker/`subtree`) x
+   * (`private` target), and until this leg no assertion in this file joined
+   * them. The SINGLE-USER PARITY test above does drive the SHIPPED agent
+   * capability, but against `someoneElsesSession`, which is the `owned` shape —
+   * and B2/PDM-251 repointed both session producers (`session-state/registry.ts`,
+   * `rename-target-path.ts`) onto `private`. So the file covered (real scope x
+   * obsolete shape) and (substituted scope x live shape), and neither is the one
+   * a real read takes.
+   *
+   * WHY THAT GAP HAD TEETH. `privateTargetDecision` is a conjunction, and under
+   * `subtree` the OWNERSHIP conjunct is the only half that refuses: the
+   * `none`/`subtree` arm of `privateScopeReach` read-allows whatever it is
+   * handed. Dropping the owner check for `subtree` ALONE — an evaluator that
+   * lets any agent read any second member's session — left this file at
+   * 74 passed / exit 0. Measured twice (PDM-380, then again on this branch
+   * before these legs were written); the legs below redden on it, which is the
+   * property they exist to hold.
+   */
+  const AGENT_SCOPE_LEGS = TRANSPORTS.filter(
+    (t) => t.capabilityFor(AGENT_OF_OWNER).scope.kind === 'subtree',
+  )
+
+  it('the agent-scope sweep is not empty, and covers every transport that mints one', () => {
+    // A derived filter shrinks in silence: a transport that stopped minting an
+    // agent shape would simply drop out of the legs below and leave them green
+    // over a smaller world. Pinned to the tags so that is a failure instead.
+    expect(AGENT_SCOPE_LEGS.map((t) => t.tag).sort()).toEqual(['cli', 'outbox-apply', 'relay'])
+  })
+
+  it.each(AGENT_SCOPE_LEGS.map((t) => [t.tag, t] as const))(
+    '%s — an agent, on its OWN capability, reads the private session of the person it acts for',
+    (_tag, transport) => {
+      const cap = transport.capabilityFor(AGENT_OF_OWNER)
+      // The scope IS the subject of these two legs, so it is asserted rather
+      // than assumed. If a later edit routes them through `asPerson` — the very
+      // substitution this issue is about — they stop being the legs PDM-394
+      // added, and say so here rather than passing quietly.
+      expect(cap.scope, transport.tag).toEqual({ kind: 'subtree', rootId: ROOT_ISSUE })
+      expect(cap.onBehalfOf, transport.tag).toBe(OWNER)
+
+      // The can-say-YES arm, on the shipped capability: without it the refusals
+      // below would also be produced by a capability that reaches nothing.
+      expect(authorize(cap, 'read', myPrivateSession), transport.tag).toBe('allow')
+
+      // And the reach stops at reads, which is the `subtree` arm of
+      // `privateScopeReach` — stated here so the allow above cannot be read as
+      // the agent holding the session outright.
+      expect(authorize(cap, 'write', myPrivateSession), transport.tag).toBe('forbidden')
+    },
+  )
+
+  it.each(AGENT_SCOPE_LEGS.map((t) => [t.tag, t] as const))(
+    '%s — and does NOT read a second member’s, on that same scope, grant edge or not (PDM-394)',
+    (_tag, transport) => {
+      const cap = transport.capabilityFor(AGENT_OF_OWNER)
+      expect(cap.scope, transport.tag).toEqual({ kind: 'subtree', rootId: ROOT_ISSUE })
+
+      // Ownership is the only conjunct refusing this, because the scope conjunct
+      // read-allows a `subtree` capability. This is the assertion that reddens.
+      expect(authorize(cap, 'read', theirPrivateSession), transport.tag).toBe('forbidden')
+      expect(authorize(cap, 'write', theirPrivateSession), transport.tag).toBe('forbidden')
+
+      // A5.1 kept, now on an agent scope: an edge naming the agent's own
+      // principal does not admit it either — a private resource has no
+      // grantees, only `legacyGrants` carried as evidence.
+      const withEdge = {
+        kind: 'private',
+        id: 'ps7',
+        owner: OTHER,
+        legacyGrants: [asLegacyGrant(OWNER)],
+      } as const
+      expect(authorize(cap, 'read', withEdge), transport.tag).toBe('forbidden')
+      expect(authorize(cap, 'write', withEdge), transport.tag).toBe('forbidden')
+    },
+  )
+
+  /**
    * THE OWNERSHIP CONJUNCT, ISOLATED — and this test exists because the grantee
    * case above does NOT isolate it.
    *
