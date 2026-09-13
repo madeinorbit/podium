@@ -1947,10 +1947,22 @@ describe('MachinesService parked frames and an authority change with no machine 
  * reader to slip into. Both epoch subscribers are synchronous.
  *
  * SO THE ASSERTION IS THE ABSENCE OF AN AWAIT. Each write below is followed
- * IMMEDIATELY by the epoch read, in the same continuation. If publication ever
- * became mechanism 3 (an external effect, which the outer promise explicitly
- * does NOT wait for) or gained a microtask hop, these reads would see the old
- * value and this reddens — which is the only way that change is visible at all.
+ * IMMEDIATELY by the epoch read, in the same continuation.
+ *
+ * WHAT THAT DOES AND DOES NOT DETECT — MEASURED, NOT REASONED, after the phase B
+ * reviewer pointed out the first version of this paragraph claimed more than the
+ * test witnesses. Two plants in `CommittedRows.write`:
+ *
+ *   listener dispatch wrapped in setTimeout(..., 0)   -> 21 failed | 47 passed
+ *   listener dispatch wrapped in queueMicrotask(...)  ->  0 failed | 68 passed
+ *
+ * So it catches publication the writer's promise does not WAIT for — mechanism 3,
+ * or any hop onto a macrotask. IT DOES NOT CATCH A MICROTASK HOP, because a
+ * microtask queued inside the drain still runs before the continuation that
+ * awaits it. The earlier wording said "or gained a microtask hop" and was simply
+ * wrong. The property witnessed is: THE EPOCH HAS MOVED BY THE TIME THE AWAITING
+ * CONTINUATION RUNS — which is the property `flushQueued`'s callers depend on,
+ * and it is weaker than "the dispatch is synchronous".
  */
 describe('MachinesService authority epoch and the committed-write ordering', () => {
   test('each authority stream has ALREADY bumped when its own write resolves', async () => {
@@ -2001,110 +2013,228 @@ describe('MachinesService authority epoch and the committed-write ordering', () 
     expect.soft(svc.authorityEpoch(MACHINE)).toBe(beforeDisable + 1)
   })
 
-  test('every AUTHORITY-CHANGING write to the three tables goes through the commit funnel', async () => {
-    // THE OTHER HALF OF PDM-411, AND THE ONE THAT WAS ACTUALLY BROKEN. The
-    // ordering above is worth nothing for a write that never publishes at all:
-    // `UsersRepository.removeMember` disabled an account with a raw
-    // `db.update(users)` and no subscriber ever heard it (PDM-409).
-    //
-    // DERIVED, NOT LISTED. The write statements are read out of the repository
-    // sources rather than enumerated here, because a hand-written "where writes
-    // may live" list is exactly the blind spot this is meant to find.
-    //
-    // AUTHORITY-CHANGING, not merely "a write". A `users` row also carries an
-    // email, a display name, an avatar and a cloud account id, and changing any
-    // of those alters nobody's right to run anything — a census that flagged
-    // them would be noise a reader learns to ignore. What decides `use` is
-    // `users.disabledAt` and `users.role`, `machines.ownerUserId`, and ANY
-    // change to a `grants` row.
+  /**
+   * A BOUNDED STRUCTURAL CHECK, NOT AN EXHAUSTIVE CENSUS — the name and the
+   * bounds are the reviewer's correction and they are load-bearing.
+   *
+   * The first version called itself a census and was a heuristic: it decided
+   * "funnelled" by looking for the TEXT `committed.write` in the six lines
+   * above, so a comment mentioning it, or an unrelated funnelled write just
+   * before, made a raw write invisible. It also excluded every `insert`, on the
+   * premise that a creation cannot take authority away — false for
+   * `insert ... onConflictDoUpdate`, which mutates an existing row. And it read
+   * `.set(...)` as text, so a payload passed as an identifier was silently
+   * treated as naming nothing.
+   *
+   * WHAT IT DOES NOW:
+   *  - FUNNELLED is decided by BRACKET NESTING: the statement must lie inside an
+   *    unclosed `committed.write(` call. A comment cannot satisfy that and a
+   *    preceding closed call cannot either.
+   *  - `insert` counts when it carries `onConflictDoUpdate`, and its `set:`
+   *    payload is what is read.
+   *  - A payload that is not an object literal is UNRESOLVED, and an unresolved
+   *    shape is REPORTED rather than passed. That is the difference between an
+   *    instrument that is bounded and one that is merely lucky.
+   *
+   * WHAT IT STILL CANNOT DO, stated so nobody reads it as more: it is a source
+   * scan over recognised SPELLINGS. A writer reaching these tables through an
+   * aliased import, a helper that builds the statement elsewhere, or raw SQL is
+   * outside it. It is a tripwire for the shape that actually occurred
+   * (`removeMember`), not a proof that no other shape exists.
+   */
+  type WriteSite = { where: string; verdict: 'raw' | 'unresolved' }
+
+  /** Which lines lie inside an unclosed `committed.write(` — by bracket depth. */
+  const funnelledLines = (source: string): Set<number> => {
+    const inside = new Set<number>()
+    let depth = 0
+    const openFunnels: number[] = []
+    source.split('\n').forEach((line, index) => {
+      if (openFunnels.length > 0) inside.add(index)
+      for (let i = 0; i < line.length; i += 1) {
+        if (line.startsWith('committed.write(', i)) {
+          openFunnels.push(depth)
+          depth += 1
+          i += 'committed.write('.length - 1
+          inside.add(index)
+          continue
+        }
+        if (line[i] === '(' || line[i] === '{' || line[i] === '[') depth += 1
+        else if (line[i] === ')' || line[i] === '}' || line[i] === ']') {
+          depth -= 1
+          while (openFunnels.length > 0 && depth <= (openFunnels.at(-1) as number)) openFunnels.pop()
+        }
+      }
+    })
+    return inside
+  }
+
+  /** Raw or unresolved authority writes to `table` in `source`. */
+  const authorityWritesOutsideTheFunnel = (
+    source: string,
+    table: string,
+    columns: readonly string[],
+  ): WriteSite[] => {
+    const lines = source.split('\n')
+    const funnelled = funnelledLines(source)
+    const found: WriteSite[] = []
+    for (const [index, line] of lines.entries()) {
+      const verb = new RegExp(`\\.(insert|update|delete)\\(${table}\\)`).exec(line)
+      if (!verb) continue
+      const statement = lines.slice(index, index + 14).join('\n')
+      const where = `${table}:${index + 1}: ${line.trim()}`
+      const conflictUpdate = /onConflictDoUpdate/.test(statement)
+
+      // A PLAIN insert cannot take authority away: a row that did not exist held
+      // nothing. One with onConflictDoUpdate can, and is read as an update.
+      if (verb[1] === 'insert' && !conflictUpdate) continue
+      if (verb[1] !== 'delete' && columns.length > 0) {
+        const payload = conflictUpdate
+          ? /onConflictDoUpdate\(\{[\s\S]*?set:\s*([\s\S]*?)\}\s*\)/.exec(statement)?.[1]
+          : /\.set\(([\s\S]*?)\)\s*\n?\s*\./.exec(statement)?.[1]
+        if (payload === undefined) {
+          if (!funnelled.has(index)) found.push({ where, verdict: 'unresolved' })
+          continue
+        }
+        // NOT AN OBJECT LITERAL means this check cannot read what is assigned.
+        if (!payload.trimStart().startsWith('{')) {
+          if (!funnelled.has(index)) found.push({ where, verdict: 'unresolved' })
+          continue
+        }
+        if (!columns.some((column) => new RegExp(`\\b${column}\\b`).test(payload))) continue
+      }
+      if (!funnelled.has(index)) found.push({ where, verdict: 'raw' })
+    }
+    return found
+  }
+
+  test('the bracket check catches every shape that hid from the text version', () => {
+    // THE PROBES ARE THE INSTRUMENT'S OWN EVIDENCE. A check that can only say
+    // YES is not a passing check, and each of these is a shape the first
+    // version got wrong rather than a shape chosen to pass.
+    const users = ['disabledAt', 'role'] as const
+    const caught = (src: string, table = 'users', cols: readonly string[] = users) =>
+      authorityWritesOutsideTheFunnel(src, table, cols)
+
+    // (1) The real defect's syntax.
+    expect.soft(caught('  await this.db.update(users).set({ disabledAt }).where(x).run()')).toHaveLength(1)
+
+    // (2) A RAW write a few lines after a SEPARATE, CLOSED funnelled write. The
+    //     text version read the earlier call's name and fell silent.
+    expect
+      .soft(
+        caught(
+          [
+            "    await this.committed.write(async () => this.db.update(users).set({ role }).returning().all(), 'upsert')",
+            '    // housekeeping',
+            '    await this.db.update(users).set({ disabledAt }).where(x).run()',
+          ].join('\n'),
+        ),
+      )
+      .toHaveLength(1)
+
+    // (3) A COMMENT naming the funnel above a raw write.
+    expect
+      .soft(
+        caught(
+          ['    // this used to go through committed.write(...)', '    await this.db.update(users).set({ disabledAt }).run()'].join('\n'),
+        ),
+      )
+      .toHaveLength(1)
+
+    // (4) insert ... onConflictDoUpdate, which MUTATES an existing row. The
+    //     first version excluded every insert and could not see this at all.
+    expect
+      .soft(
+        caught(
+          '    await this.db.insert(users).values(v).onConflictDoUpdate({ target: users.id, set: { disabledAt } }).run()',
+        ),
+      )
+      .toHaveLength(1)
+
+    // (5) A payload passed as an IDENTIFIER: unreadable, therefore REPORTED.
+    const identifierPayload = caught('    await this.db.update(users).set(patch).where(x).run()')
+    expect.soft(identifierPayload).toHaveLength(1)
+    expect.soft(identifierPayload[0]?.verdict).toBe('unresolved')
+
+    // ...and the other direction, so it is not simply flagging everything.
+    // (6) Genuinely inside the funnel, across lines.
+    expect
+      .soft(
+        caught(
+          [
+            '    await this.committed.write(',
+            '      async () =>',
+            '        this.db.update(users).set({ disabledAt }).where(x).returning().all(),',
+            "      'upsert',",
+            '    )',
+          ].join('\n'),
+        ),
+      )
+      .toHaveLength(0)
+    // (7) A plain insert, even one naming a role.
+    expect.soft(caught("    await this.db.insert(users).values({ role: 'admin' }).run()")).toHaveLength(0)
+    // (8) An authority-irrelevant column.
+    expect.soft(caught('    await this.db.update(users).set({ avatar }).where(x).run()')).toHaveLength(0)
+    // (9) An authority column named only in the PREDICATE.
+    expect
+      .soft(caught('    await this.db.update(users).set({ cloudAccountId }).where(isNull(users.disabledAt)).run()'))
+      .toHaveLength(0)
+    // (10) Grants: every shape but a plain insert counts, with no column list.
+    expect.soft(caught('    await this.db.delete(grants).where(m).run()', 'grants', [])).toHaveLength(1)
+  })
+
+  test('no raw or unresolved authority write survives in the three repositories', async () => {
     const { readFileSync } = await import('node:fs')
     const here = new URL('.', import.meta.url)
-    const repositories = [
+    const findings = [
       { file: '../../store/users.ts', table: 'users', columns: ['disabledAt', 'role'] },
       { file: '../../store/machines.ts', table: 'machines', columns: ['ownerUserId'] },
-      // Every grant row change alters who may use something; there is no
-      // authority-irrelevant column on the edge itself.
+      // No authority-irrelevant column exists on a grant edge itself.
       { file: '../../store/grants.ts', table: 'grants', columns: [] },
-    ]
-
-    const unfunnelled = (source: string, table: string, columns: string[]): string[] => {
-      const lines = source.split('\n')
-      const found: string[] = []
-      for (const [index, line] of lines.entries()) {
-        const verb = new RegExp(`\\.(insert|update|delete)\\(${table}\\)`).exec(line)
-        if (!verb) continue
-        // The statement runs from here to whatever terminates it. Reading the
-        // whole span is what lets a `.set({...})` on a following line be seen.
-        const statement = lines.slice(index, index + 12).join('\n')
-        // AN INSERT CANNOT TAKE AUTHORITY AWAY. A row that did not exist held
-        // nothing, so a creation is a first sighting and never a loss — the same
-        // rule `noteCommittedOwner` applies to a machine's first owner. (It is
-        // still a publication gap for anything that wants to LEARN of the row:
-        // `createUnclaimed` bypasses the funnel and WorldIndex never sees an
-        // unclaimed member appear. That is not this guard's question.)
-        //
-        // A DELETE always is. A grants row change always is, whatever it names.
-        // For an UPDATE, only the `.set({...})` payload counts: `attachAccount`
-        // mentions `disabledAt` in its WHERE clause and assigns nothing of the
-        // kind, and reading the whole statement made it a false row.
-        const assigned = /\.set\(([\s\S]*?)\)/.exec(statement)?.[1] ?? ''
-        const touchesAuthority =
-          verb[1] === 'delete' ||
-          (columns.length === 0 && verb[1] !== 'insert') ||
-          (verb[1] === 'update' &&
-            columns.some((column) => new RegExp(`\\b${column}\\b`).test(assigned)))
-        if (!touchesAuthority) continue
-        // The funnel opens at most a few lines above the statement it wraps.
-        const preamble = lines.slice(Math.max(0, index - 6), index + 1).join('\n')
-        if (!preamble.includes('committed.write')) found.push(`${table}:${index + 1}: ${line.trim()}`)
-      }
-      return found
-    }
-
-    // THE PROBE, so a census that can only ever say YES is not mistaken for a
-    // passing one. Both directions, on all three shapes.
-    const raw = '    await this.db.update(users).set({ disabledAt }).where(eq(users.id, userId)).run()'
-    expect.soft(unfunnelled(raw, 'users', ['disabledAt', 'role'])).toHaveLength(1)
-    expect
-      .soft(
-        unfunnelled(
-          "    await this.committed.write(async () => this.db.update(users).set({ disabledAt }).returning().all(), 'upsert')",
-          'users',
-          ['disabledAt', 'role'],
-        ),
-      )
-      .toHaveLength(0)
-    // An authority-IRRELEVANT raw write must stay quiet, or the census reduces
-    // to "every write", which is the version that produced four false rows.
-    expect
-      .soft(
-        unfunnelled('    await this.db.update(users).set({ avatar }).where(eq(users.id, userId)).run()', 'users', [
-          'disabledAt',
-          'role',
-        ]),
-      )
-      .toHaveLength(0)
-    // And a grants write is authority-relevant whatever column it names.
-    expect.soft(unfunnelled('    await this.db.delete(grants).where(match).run()', 'grants', [])).toHaveLength(1)
-    // A column named only in the PREDICATE is not an assignment.
-    expect
-      .soft(
-        unfunnelled(
-          '    await this.db.update(users).set({ cloudAccountId }).where(isNull(users.disabledAt)).run()',
-          'users',
-          ['disabledAt', 'role'],
-        ),
-      )
-      .toHaveLength(0)
-    // And an insert is never a loss, even one that names a role.
-    expect
-      .soft(unfunnelled('    await this.db.insert(users).values({ role: "admin" }).run()', 'users', ['disabledAt', 'role']))
-      .toHaveLength(0)
-
-    const findings: string[] = []
-    for (const { file, table, columns } of repositories) {
-      findings.push(...unfunnelled(readFileSync(new URL(file, here), 'utf8'), table, columns))
-    }
+    ].flatMap(({ file, table, columns }) =>
+      authorityWritesOutsideTheFunnel(readFileSync(new URL(file, here), 'utf8'), table, columns),
+    )
     expect(findings).toEqual([])
+  })
+
+  test('the three repositories are the only recognised writers of those tables', async () => {
+    // THE POPULATION, DERIVED RATHER THAN ASSERTED. The check above reads three
+    // files; that they are the only ones was a sentence in a receipt until the
+    // reviewer pointed out the test did not establish it.
+    //
+    // BOUNDED THE SAME WAY: this finds RECOGNISED SPELLINGS. An aliased import,
+    // a statement built by a helper, or raw SQL is outside it.
+    const { readdirSync, readFileSync, statSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const root = new URL('../../../../..', import.meta.url).pathname
+    const writers = new Set<string>()
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue
+        const full = join(dir, entry)
+        if (statSync(full).isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!full.endsWith('.ts') || full.endsWith('.test.ts')) continue
+        const source = readFileSync(full, 'utf8')
+        if (/\.(insert|update|delete)\((users|machines|grants)\)/.test(source)) {
+          writers.add(full.slice(root.length).replace(/^\/+/, ''))
+        }
+      }
+    }
+    for (const top of ['apps', 'packages', 'services', 'scripts']) {
+      try {
+        walk(join(root, top))
+      } catch {
+        // A tree that is not present in this checkout contributes nothing.
+      }
+    }
+    expect([...writers].sort()).toEqual([
+      'apps/server/src/store/grants.ts',
+      'apps/server/src/store/machines.ts',
+      'apps/server/src/store/users.ts',
+    ])
   })
 })
