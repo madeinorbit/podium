@@ -1135,7 +1135,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     // · mail claim <msgId> · mail pending [<id>].
     name: 'mail',
     summary:
-      'Agent mail addressed to an issue: mail send <id> --body "…" · mail inbox [<id>] [--limit n] · mail claim <msgId> · mail pending [<id>].',
+      'Agent mail addressed to an issue: mail send <id> --body "…" · mail inbox [<id>] [--limit=n] · mail claim <msgId> · mail pending [<id>].',
     args: z.strictObject({
       sub: z.enum(['send', 'inbox', 'claim', 'pending']),
       ref: idArg.optional(),

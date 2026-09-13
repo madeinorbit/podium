@@ -43,6 +43,18 @@ export const MAIL_INBOX_MAX_LIMIT = 500
 export function mailInboxTruncationNotice(limit: number, command: string): string[] {
   return [
     `TRUNCATED: showing the newest ${limit}; older messages are not listed.`,
-    `  Widen with: ${command} --limit <n> (max ${MAIL_INBOX_MAX_LIMIT}).`,
+    // `--limit=<n>`, NOT `--limit <n>`, and the `=` is load-bearing [PDM-427].
+    // `flagsFromZodShape` calls a key value-LESS iff its schema accepts `true` and
+    // rejects every VALUE_PROBE, and `z.coerce.number()` does exactly that: it
+    // coerces true to 1 and rejects 'a-value'. So on the issue CLI a numeric flag
+    // parses as a boolean, the space form drops its value, and the number falls
+    // through to the next POSITIONAL — which on `mail` is the issue ref, turning
+    // `mail inbox --limit 500` into a lookup for issue 500. The `=` form assigns
+    // regardless of that classification and works on BOTH inbox CLIs.
+    //
+    // A banner that recommends a form its own CLI ignores is the defect PDM-427
+    // was filed for, wearing a new mouth — and this banner is NEW guidance, so it
+    // would have shipped that defect rather than inherited it.
+    `  Widen with: ${command} --limit=<n> (max ${MAIL_INBOX_MAX_LIMIT}).`,
   ]
 }
