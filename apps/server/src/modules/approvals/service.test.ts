@@ -52,6 +52,19 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
   const mails: string[] = []
   /** Whether the owning machine's daemon is attached — the stall deadline's one gate. */
   const daemon = { attached: true }
+  /**
+   * WHO MAY RUN ON WHICH MACHINE, RIGHT NOW (B5, PDM-137).
+   *
+   * Mutable on purpose, and the mutation IS the test: an approval waits for a
+   * human indefinitely, so the interesting window is the one between filing a
+   * request and answering it. `machine-access.ts` reads ownership live on every
+   * call so a hand-over or a revoked grant bites at the next decision; this
+   * fixture is that fact, held where a test can move it.
+   */
+  const fleet = { usable: new Set<string>([`${OWNER}@m1`, `${STRANGER}@m1`]) }
+  /** Every question the service asked of the fleet, in order — so a test can pin
+   *  WHOSE authority was checked, not merely that something was. */
+  const dispatchAsks: Array<{ owner: string; machineId: string }> = []
   /** The stall deadline's clock, driven by the tests rather than the wall. */
   const clock = { ms: 1_000_000 }
   /** A service over the SAME durable store. Called twice, it models a server restart:
@@ -69,6 +82,10 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
         { send: (m: LiveServerMessage) => broadcasts.push(m), principal: { user: OWNER } },
       ],
       sessionOwner: async (sessionId) => OWNERS[sessionId],
+      mayDispatchTo: async (owner, machineId) => {
+        dispatchAsks.push({ owner, machineId })
+        return fleet.usable.has(`${owner}@${machineId}`)
+      },
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -81,11 +98,29 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       ...(executeServerOp ? { executeServerOp } : {}),
     })
   }
-  return { svc: build(), restart: build, sent, broadcasts, events, mails, daemon, clock }
+  return {
+    svc: build(),
+    restart: build,
+    sent,
+    broadcasts,
+    events,
+    mails,
+    daemon,
+    clock,
+    fleet,
+    dispatchAsks,
+  }
 }
 
 const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
   svc.request({ op, sessionId: S1, machineId: 'm1' })
+
+/** The same filing, from a named session — the second human's agent, or the same
+ *  human's second session. `machineId` is stamped by the relay from the daemon
+ *  socket in production (`relay-gate.ts`), never by the payload, so both of these
+ *  legitimately name one machine. */
+const reqFrom = (svc: ApprovalService, sessionId: SessionId, op: unknown = { kind: 'update' }) =>
+  svc.request({ op, sessionId, machineId: 'm1' })
 
 describe('ApprovalService', () => {
   it('request files a pending row, logs, and broadcasts', async () => {
@@ -428,6 +463,8 @@ describe('ApprovalService under the async store (POD-3806)', () => {
       toMachine: () => {},
       clients: () => [],
       sessionOwner: async () => OWNER,
+      // Not this test's subject: the owner may always run on the machine here.
+      mayDispatchTo: async () => true,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -514,6 +551,8 @@ describe('an approval belongs to the human whose run it is about', () => {
         { send: (m: LiveServerMessage) => toStranger.push(m), principal: { user: STRANGER } },
       ],
       sessionOwner: async () => OWNER,
+      // Not this test's subject: the owner may always run on the machine here.
+      mayDispatchTo: async () => true,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',
@@ -530,5 +569,146 @@ describe('an approval belongs to the human whose run it is about', () => {
     // ...but only the owner's payload carries the row.
     expect((toOwner.at(-1) as { pending: unknown[] }).pending).toHaveLength(1)
     expect((toStranger.at(-1) as { pending: unknown[] }).pending).toEqual([])
+  })
+})
+
+/**
+ * B5 · PDM-137 — AUTHORIZE EXECUTION AT DISPATCH, USING THE ORIGINAL HUMAN.
+ *
+ * An approval is the longest-lived queued effect this server has: it waits for a
+ * human, indefinitely, and then hands a management operation to a daemon. That
+ * makes it the one place where "the rights that accepted this request" and "the
+ * rights at the moment it runs" are most likely to be different facts.
+ *
+ * Two properties are witnessed here, and each is proved in BOTH directions —
+ * a refusal a broken build would not produce, and the matching success on the
+ * unbroken one, because a refusal test that passes when nothing can ever run is
+ * worth nothing (false-green catalogue shapes 4 and 33).
+ */
+describe('ApprovalService · dispatch-time machine authority (B5, PDM-137)', () => {
+  it('a machine revoked while the approval waited refuses, and reaches no daemon', async () => {
+    const { svc, sent, fleet } = harness()
+    const filed = await req(svc)
+    expect(filed.status).toBe('pending')
+
+    // The window this whole mechanism is about: the operator took days, and in
+    // the meantime that machine stopped being theirs to run on.
+    fleet.usable.delete(`${OWNER}@m1`)
+
+    await expect(svc.approve(filed.id, OWNER)).rejects.toThrow(/no longer yours to run on/)
+    // NOTHING CROSSED THE WIRE. The refusal has to be checked here and not only
+    // by the thrown message: `toMachine` queues for an absent daemon, so a frame
+    // sent and parked looks identical to one never sent from the caller's side.
+    expect(sent).toEqual([])
+    // ...and no state moved, so the operator can still deny it.
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
+    expect((await svc.listPending(OWNER))[0]).toMatchObject({ id: filed.id, status: 'pending' })
+  })
+
+  it('the same approval, with the machine still theirs, does dispatch', async () => {
+    // THE OTHER DIRECTION. Without this the refusal above passes on a build where
+    // approve() can never dispatch at all, which is a different defect wearing
+    // the same green.
+    const { svc, sent } = harness()
+    const filed = await req(svc)
+    const wire = await svc.approve(filed.id, OWNER)
+    expect(wire.status).toBe('executing')
+    expect(sent).toEqual([
+      { machineId: 'm1', msg: { type: 'approvalExecRequest', requestId: filed.id, op: { kind: 'update' } } },
+    ])
+  })
+
+  it('asks about the RUN OWNER, not the human doing the approving', async () => {
+    /**
+     * THE PROPERTY PIN (false-green catalogue shape 19).
+     *
+     * `mayDecide` forces decider and run owner equal today, so no input to the
+     * public API can make them diverge — pointing the decider at a stranger only
+     * produces an `unknown approval request` from the gate above, and would
+     * prove nothing about which identity reached the fleet (shape 33: the naive
+     * plant moves both values together).
+     *
+     * So the question the service actually ASKED is pinned instead. If a later
+     * change re-points the dispatch check at `actor`, this still passes today and
+     * starts failing the moment the two can differ — which is exactly when it
+     * matters, and is loud where reading `actor` would be silent.
+     */
+    const { svc, dispatchAsks } = harness()
+    const filed = await req(svc)
+    dispatchAsks.length = 0
+    await svc.approve(filed.id, OWNER)
+    expect(dispatchAsks).toEqual([{ owner: OWNER, machineId: 'm1' }])
+  })
+
+  it('an agent cannot even file against a machine that is not its human\'s', async () => {
+    // The enqueue half. It narrows nothing the dispatch check does not already
+    // cover; it keeps the operator's queue free of undecidable rows.
+    const { svc, fleet } = harness()
+    fleet.usable.delete(`${OWNER}@m1`)
+    await expect(req(svc)).rejects.toThrow(/not yours to run on/)
+    expect(await svc.listPending(OWNER)).toEqual([])
+  })
+
+  it('a session with no resolvable owner still files, and still cannot execute', async () => {
+    /**
+     * PDM-278's path, kept working. An agent whose human cannot be resolved polls
+     * the request it filed itself through `mayRead`'s session arm; refusing to
+     * file it would break that for no authorization gain, because the row is
+     * inert — no human passes `mayDecide`, so nothing can approve it.
+     */
+    const { svc } = harness()
+    const ORPHAN = asSessionId('s_orphan') // absent from OWNERS
+    const filed = await reqFrom(svc, ORPHAN)
+    expect(filed.status).toBe('pending')
+    expect(await svc.listPending(OWNER)).toEqual([])
+    expect(await svc.listPending(STRANGER)).toEqual([])
+    await expect(svc.approve(filed.id, OWNER)).rejects.toThrow(/unknown approval request/)
+  })
+})
+
+describe('ApprovalService · idempotency is bound to the principal (B5, PDM-137)', () => {
+  it('two humans filing the same op on one machine get two rows, not one', async () => {
+    /**
+     * THE DEFECT: the dedup keyed on `machineId + op` across every pending row on
+     * the instance, so the second human was handed the FIRST human's row id and
+     * the words "already requested" — a reference to a decision only somebody
+     * else could make, on a row they are not even allowed to read.
+     */
+    const { svc } = harness()
+    const mine = await reqFrom(svc, S1)
+    const theirs = await reqFrom(svc, S_STRANGER)
+
+    expect(theirs.id).not.toBe(mine.id)
+    expect(theirs.message).toContain('awaiting the operator')
+
+    const ownerQueue = await svc.listPending(OWNER)
+    const strangerQueue = await svc.listPending(STRANGER)
+    expect(ownerQueue.map((r) => r.id)).toEqual([mine.id])
+    expect(strangerQueue.map((r) => r.id)).toEqual([theirs.id])
+  })
+
+  it('but ONE human retrying still dedups, across a respawn onto a new session', async () => {
+    /**
+     * THE OTHER DIRECTION, and it is the one that says the fix did not simply
+     * delete the dedup. The anti-stacking purpose is per HUMAN, not per session:
+     * an agent that respawned keeps the same operator and must not stack a second
+     * popup on them.
+     */
+    const { svc } = harness()
+    const first = await reqFrom(svc, S1)
+    const retry = await reqFrom(svc, S1_SIBLING)
+    expect(retry.id).toBe(first.id)
+    expect(retry.message).toContain('already requested')
+    expect(await svc.listPending(OWNER)).toHaveLength(1)
+  })
+
+  it('a different op from the same human is not deduped either', async () => {
+    // Pins that the dedup still discriminates on the OP — otherwise the test
+    // above would pass over a dedup that collapses everything one human files.
+    const { svc } = harness()
+    const a = await reqFrom(svc, S1, { kind: 'update' })
+    const b = await reqFrom(svc, S1, { kind: 'stop' })
+    expect(b.id).not.toBe(a.id)
+    expect(await svc.listPending(OWNER)).toHaveLength(2)
   })
 })

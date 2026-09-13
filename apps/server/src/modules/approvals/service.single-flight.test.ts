@@ -52,6 +52,8 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
       nowMs: () => clock.ms,
       clients: () => [{ send: (_m: LiveServerMessage) => {} }],
       sessionOwner: async () => SF_OWNER,
+      // Not this test's subject: the owner may always run on the machine here.
+      mayDispatchTo: async () => true,
       sessionIssueId: () => asIssueId('iss_1'),
       issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
       machineName: () => 'ludovico',

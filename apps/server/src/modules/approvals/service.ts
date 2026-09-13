@@ -51,6 +51,40 @@ export interface ApprovalServiceDeps {
    * unresolvable owner denies rather than defaulting.
    */
   sessionOwner(sessionId: SessionId): Promise<UserId | undefined>
+  /**
+   * MAY THE RUN'S OWNER STILL EXECUTE ON THIS MACHINE, AT THIS INSTANT (B5, PDM-137)?
+   *
+   * An approval WAITS FOR A HUMAN, INDEFINITELY — this file says so at the top,
+   * and it is the whole reason this port exists. Between the agent filing a
+   * request and the operator answering it, a machine's owner can change and a
+   * `use` grant can be revoked; `machine-access.ts` reads both LIVE on every
+   * call precisely so that "an owner change or a revoked share takes effect at
+   * the next decision" (D16.1). `approve` IS that next decision — it hands a
+   * management operation to a daemon and that daemon runs it — and it was the
+   * one execution door on this server that never asked.
+   *
+   * Every sibling asks. The queued-input apply gate re-resolves its principal
+   * and calls `machineUseDecision` at APPLY (`sessions/session-authz.ts`); the
+   * mail wake path re-resolves the sender and calls `placementDecision` at
+   * DELIVERY (`messages/handlers/context.ts`); native login checks
+   * `checkMachineUse` per start, and the session command plane gates `mayUse` on
+   * it. The approval broker dispatched to `row.machineId` unconditionally.
+   *
+   * RESOLVED FROM THE ORIGINAL HUMAN — the session's owner — NEVER from the
+   * caller deciding. `mayDecide` forces the two equal today, so reading `actor`
+   * would give the same answer and would be right for the wrong reason: it would
+   * be a rule that holds only because another rule happens to hold, and the next
+   * change to who may decide would silently re-point this at the decider. B5's
+   * requirement is stated the other way round on purpose — authorize execution
+   * at dispatch using the ORIGINAL HUMAN.
+   *
+   * REQUIRED, not optional-with-a-fallback, on PDM-276's argument: an absent
+   * port that defaults to allow is the single-user fail-open shape, and a
+   * composition root that forgets this one would re-open exactly the door it
+   * closes, silently. There is one production construction site; making it
+   * required means a second one cannot compile without answering the question.
+   */
+  mayDispatchTo(owner: UserId, machineId: MachineId): Promise<boolean>
   issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null | Promise<{ seq: number; title: string; displayRef?: string } | null>
   machineName(machineId: MachineId): string | undefined | Promise<string | undefined>
   /** Append to the durable event log (renders in the issue activity feed). */
@@ -285,9 +319,63 @@ export class ApprovalService {
     const sessionId = asSessionId(String(raw.sessionId ?? ''))
     const machineId = asMachineId(String(raw.machineId ?? ''))
     if (!sessionId || !machineId) throw new Error('approval request lost its relay context')
-    const dup = (await this.deps.store
-      .listPending())
-      .find((r) => r.machineId === machineId && JSON.stringify(r.op) === JSON.stringify(op))
+    const owner = await this.deps.sessionOwner(sessionId)
+    /**
+     * REFUSE AT ENQUEUE WHAT COULD NOT BE DISPATCHED (B5, PDM-137).
+     *
+     * B5 requires the recheck at ENQUEUE AND DISPATCH, and they are not the same
+     * question asked twice: this one keeps the operator's pending queue free of
+     * rows that can never run, so a popup never offers a decision whose only
+     * outcome is a refusal. It NARROWS and never widens — `approve` asks again
+     * below, against the state at that instant, and that is the check that
+     * actually stands between a stale request and a daemon.
+     *
+     * Only when the owner RESOLVES. A session whose owner cannot be resolved
+     * files an inert row: `mayDecide` is a NO for every human, so nobody can
+     * approve it and nothing can execute from it. Refusing to file it would
+     * break the requesting agent's own polling path (`mayRead`'s session arm,
+     * PDM-278) for no authorization gain.
+     */
+    if (owner !== undefined && !(await this.deps.mayDispatchTo(owner, machineId))) {
+      throw new Error(
+        `cannot request an approval on ${machineId}: that machine is not yours to run on`,
+      )
+    }
+    /**
+     * THE IDEMPOTENCY RESULT IS BOUND TO THE PRINCIPAL (B5, PDM-137).
+     *
+     * This deduped on `machineId + op` across EVERY pending row on the instance,
+     * so two different humans filing the same operation on one machine collapsed
+     * onto ONE row — owned by whichever of them got there first. The second
+     * agent was handed that row's id and the words "already requested", then
+     * blocked on a decision only the FIRST human could make, and could not even
+     * read the row it had been pointed at (`mayRead` refuses it, correctly). One
+     * person's request silently became a reference to another person's, which is
+     * exactly what "bind idempotency results to principal" forbids.
+     *
+     * Scoped to the requesting HUMAN rather than the requesting SESSION, because
+     * that preserves what the dedup is for: an agent retrying — including across
+     * a respawn onto a new session id — must not stack popups on its operator.
+     * Two humans are two queues.
+     *
+     * An unresolvable owner dedups against its OWN SESSION's rows only. It cannot
+     * be grouped by a human it does not have, and matching it against other
+     * ownerless rows would re-create this defect among exactly the rows nobody
+     * can decide.
+     */
+    const sameOp = (r: ApprovalRow): boolean =>
+      r.machineId === machineId && JSON.stringify(r.op) === JSON.stringify(op)
+    const pending = (await this.deps.store.listPending()).filter(sameOp)
+    const mine = await Promise.all(
+      pending.map(async (r) =>
+        (owner === undefined
+          ? r.sessionId === sessionId
+          : (await this.deps.sessionOwner(r.sessionId)) === owner)
+          ? r
+          : undefined,
+      ),
+    )
+    const dup = mine.find((r): r is ApprovalRow => r !== undefined)
     if (dup) {
       return {
         id: dup.id,
@@ -371,6 +459,7 @@ export class ApprovalService {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
     await this.assertMayDecide(row, actor, id)
+    await this.assertMayDispatch(row, id)
     if (!await this.deps.store.transition(id, 'pending', 'executing')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
@@ -429,6 +518,38 @@ export class ApprovalService {
   private async assertMayDecide(row: ApprovalRow, actor: UserId, id: string): Promise<void> {
     if (!(await this.mayDecide(row, actor))) {
       throw new Error(`unknown approval request: ${id}`)
+    }
+  }
+
+  /**
+   * AUTHORIZE EXECUTION AT DISPATCH, USING THE ORIGINAL HUMAN (B5, PDM-137).
+   *
+   * Runs after {@link assertMayDecide} and BEFORE the `pending -> executing`
+   * transition, so a refusal changes no state at all: the row stays pending, the
+   * daemon is sent nothing, and the operator can still deny it. That is the
+   * conservative direction, and it is why this is a throw rather than a
+   * transition to `failed` — the request is still a truthful record of what an
+   * agent asked for, and this server does not know that the machine will not
+   * come back to its owner.
+   *
+   * NOT THE INDISTINGUISHABLE REFUSAL `assertMayDecide` USES, deliberately. That
+   * one collapses onto `unknown approval request` to avoid an existence oracle
+   * over somebody else's run (D20.2). Here the caller has ALREADY proved they own
+   * the run — they got past `mayDecide` — so there is nothing left to conceal
+   * from them, and telling them "unknown approval request" about a row they own
+   * and can see in their own queue would be a lie that sends them hunting.
+   *
+   * The owner is re-read rather than taken from `actor`: see {@link
+   * ApprovalServiceDeps.mayDispatchTo}. An owner that has become unresolvable
+   * between the two reads refuses, rather than inheriting the decider's identity.
+   */
+  private async assertMayDispatch(row: ApprovalRow, id: string): Promise<void> {
+    const owner = await this.deps.sessionOwner(row.sessionId)
+    if (owner === undefined || !(await this.deps.mayDispatchTo(owner, row.machineId))) {
+      throw new Error(
+        `approval ${id} cannot run: ${await this.deps.machineName(row.machineId) ?? row.machineId} ` +
+          `is no longer yours to run on. Deny it, or ask again from a machine you own.`,
+      )
     }
   }
 

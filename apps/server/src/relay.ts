@@ -2497,6 +2497,33 @@ export class SessionRegistry {
       // `sessionOwner` every other session authorization path consults, so the
       // approval surface cannot form a second opinion about who owns a run.
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
+      /**
+       * THE MACHINE HALF OF THE SAME QUESTION, RE-READ AT DISPATCH (B5, PDM-137).
+       *
+       * `ownershipSnapshotFromMachines` is resolved HERE, per call, and not
+       * hoisted: an approval may have waited days, and the point of this port is
+       * that a machine handed over or a `use` grant revoked in the meantime takes
+       * effect at the next decision (D16.1). A snapshot taken at composition
+       * would freeze the fleet at boot, which is the defect with extra steps.
+       *
+       * The principal is minted from the RUN OWNER's account, so this asks
+       * exactly what `checkMachineUse` asks everywhere else — the session command
+       * plane's `machines.mayUse`, native login's per-start check, and the queued
+       * apply gate all reach the same function. A human whose account has since
+       * been removed or disabled has no role and therefore no principal: refused,
+       * with no fallback to anybody.
+       */
+      mayDispatchTo: async (owner, machineId) => {
+        const role = await this.store.users.roleOf(owner)
+        if (!role) return false
+        return (
+          checkMachineUse(
+            userCommandPrincipal(owner, role),
+            machineId,
+            await ownershipSnapshotFromMachines(machines),
+          ) === undefined
+        )
+      },
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
