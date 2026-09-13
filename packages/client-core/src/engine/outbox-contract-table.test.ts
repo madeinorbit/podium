@@ -352,27 +352,51 @@ describe('the client outbox contract table matches the contracts', () => {
   })
 
   it('a contract-resolved kind is STILL definition-checked — the PDM-416 control', () => {
-    // THE DISCRIMINATING CONTROL PDM-449 REQUIRES, and the reason the cases above do
-    // not cover it: they run over `definitionResolved`, so if that population were ever
-    // re-coupled to contract resolution they would simply stop GENERATING rows for
-    // `rename` — and a case that does not run cannot fail. This names the scenario.
+    // THE DISCRIMINATING CONTROL PDM-449 REQUIRES. The cases above cannot cover this:
+    // they run OVER the population, so re-coupling it to contract resolution would stop
+    // them GENERATING rows for `rename` — and a case that does not run cannot fail.
     //
-    // PREMISE: simulate PDM-416 by resolving the standalone contract that today's
-    // registry-shaped `lookup` cannot see.
-    //
-    // NOT asserted: that `lookup` currently FAILS to resolve it. That is today's
-    // accident, and pinning it would make this control redden the day PDM-416 lands —
-    // for a reason with nothing to do with the invariant it protects.
+    // It DRIVES the widened resolver rather than asserting beside it (PDM-449 follow-up).
+    // An earlier draft built `widened` and then only asked whether it returned something,
+    // while every other assertion ran against the LIVE resolver — so the scenario was
+    // named and never exercised. Both predicate shapes are evaluated under BOTH
+    // resolvers below, and the repaired one is the shape production uses.
     const widened = (name: string): CommandContract | undefined =>
       name === 'sessions.rename' ? sessionRenameContract : lookup(name)
-    expect(widened('sessions.rename'), 'premise: contract-resolved under PDM-416').toBeDefined()
 
-    // INVARIANT: being contract-resolved must not remove it from the definition checks.
-    expect(definitionResolved.map(([kind]) => kind)).toContain('rename')
+    const populationsUnder = (contractResolver: (name: string) => CommandContract | undefined) => ({
+      // The repair: definitions alone decide the population.
+      repaired: entries
+        .filter(([, c]) => resolveDef(c.name) !== undefined)
+        .map(([kind]) => kind)
+        .sort(),
+      // The shape this file used to carry, evaluated under the SAME resolver.
+      previous: entries
+        .filter(([, c]) => contractResolver(c.name) === undefined && resolveDef(c.name) !== undefined)
+        .map(([kind]) => kind)
+        .sort(),
+    })
 
-    // DISCRIMINATION: with the full contract UNCHANGED and correct, a definition whose
-    // eligibility is wrong must still be distinguishable. If this can pass while the
-    // definition says `direct-only`, the eligibility check is doing no work here.
+    const live = populationsUnder(lookup)
+    const afterPdm416 = populationsUnder(widened)
+
+    // WHY THIS WAS LATENT, stated as an assertion rather than as a comment: under the
+    // resolver that ships TODAY the two shapes agree exactly, so no run could tell them
+    // apart and the defect was invisible until PDM-416 moved the resolver underneath it.
+    expect(live.previous).toEqual(live.repaired)
+
+    // THE PREMISE IS LIVE: the widened resolver really does change the old answer.
+    // Without this the next assertion could pass against a simulation that does nothing.
+    expect(afterPdm416.previous).not.toContain('rename')
+
+    // AND THE REPAIR HOLDS UNDER EXACTLY THAT RESOLVER — the population production
+    // computes is unchanged by a kind gaining a full contract.
+    expect(afterPdm416.repaired).toContain('rename')
+    expect(afterPdm416.repaired).toEqual(definitionResolved.map(([kind]) => kind).sort())
+
+    // WHAT THE OLD SHAPE WOULD HAVE COST, made concrete: excluded from the population,
+    // `rename`'s definition is never examined at all, so a wrong delivery class on it is
+    // unobservable while its contract stays correct.
     const def = resolveDef('sessions.rename')
     expect(def, 'rename definition must be reachable').toBeDefined()
     const wrongDefinition: CommandDef = { ...(def as CommandDef), offline: 'direct-only' }
