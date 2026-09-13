@@ -1,9 +1,12 @@
 # Phase B's rows of the read census — a disposition for each one
 
-PDM-253, under PDM-230 (A3.2). Written against OSS `issue/pdm-107-multi-user` =
-`fe8a3ce8474f970fdafeef3bb695a86ac020d7c8`, which is exactly the commit the cloud gitlink on
-`issue/107-multi-user-architecture` = `e5aed636633e816eba4a627e58d27a1b35afdc90` pins. Both
-resolved here rather than taken from a brief.
+PDM-253, under PDM-230 (A3.2).
+
+**Re-derived at OSS `issue/pdm-107-multi-user` = `0716b67b97a1f40c4a86e0cae662b40b0cc53a64`**, which
+is exactly the commit the cloud gitlink on `issue/107-multi-user-architecture` =
+`25f30f25cb81a726a4924bb4d24a30685dc0e317` pins. Both resolved from the remotes rather than taken
+from a brief. The first pass was written at `fe8a3ce84`, 46 OSS commits earlier; every row below is
+re-read against the current tree, not carried.
 
 ## Why this document exists
 
@@ -13,12 +16,16 @@ disposition. This is phase B's half of that obligation, by row.
 
 ## The population, re-derived rather than inherited
 
-The brief quotes **19 ungoverned reads of 69**. That figure is dead. A5.4/PDM-248 rebound
-discovery to `appRouter._def.procedures` and the real surface is **108 served tRPC reads — 32
-classified by a command definition elsewhere, 76 owned by the census**. Of those 76, A5.4 carried
-forward **22** findings, **14** of them marked `owner: 'B'`.
+The brief quotes **19 ungoverned reads of 69**. That figure was dead before this issue started.
+A5.4/PDM-248 rebound discovery to `appRouter._def.procedures` and the real surface is **108 served
+tRPC reads — 32 classified by a command definition elsewhere, 76 owned by the census**. Of those
+76, A5.4 carried forward **22** findings, **14** of them marked `owner: 'B'`.
 
-Fourteen is the set this issue owns. Each one below was read against its shipped handler.
+Fourteen is the set this issue owns. Each one was read against its shipped handler.
+
+**The census now stands at 65 governed / 11 findings**, unchanged in totality at 76. Across the
+phase, nine rows were corrected as never having been defects — each disproved by deleting the cited
+rule and watching a named test redden, not by argument. Eight of those nine were this issue's.
 
 ## The result
 
@@ -26,24 +33,46 @@ Fourteen is the set this issue owns. Each one below was read against its shipped
 exist, and that the lists are total against the router. It did not re-read the CONTENT of the
 findings it carried, and eight did not survive being read.
 
-**Six remain, and all six are `discloses-private-execution`.** After the correction, phase B's
-read gap is not a mixed list where the urgent rows wait behind the tidy ones. It is six
-disclosures of one person's private execution, and every one of them now has an owner.
+**Six remained, and all six were `discloses-private-execution`.** Phase B's read gap stopped being
+a mixed list where the urgent rows wait behind the tidy ones.
+
+**Three of those six have since closed. Three remain, and they are one issue.** `sessions.status`
+(PDM-229) and `accounts.list` (PDM-271, completed by PDM-280) were real defects and are fixed.
+`conversations.search` (PDM-274) turned out not to be a defect at all — it was governed the whole
+time, three hops below a one-line forwarding method. What is left is `files.read`, `files.list` and
+`files.search`, all three carried by PDM-272, which is in planning.
 
 ---
 
 ## By row
 
-### Genuinely ungoverned — the six that remain
+### Still open — the three that remain
 
 | Row | What the handler does | Disposition | Owner |
 |---|---|---|---|
-| `sessions.status` | `modules/sessions/queries.ts:110` resolves a caller-supplied `ref` and returns the session's issue, its repo's `git log`/`git status` and the files it touched. Its siblings `transcriptRead` (`:101`), `read` (`:120`) and `recap` (`:128`) each `assertMayReadSession` first. | **Already owned and in flight.** PDM-229, stage `planning`, with a live session. It blocks B3 (PDM-135) and the B review (PDM-139). | PDM-229 → B1/B3 |
-| `accounts.list` | `modules/accounts/queries.ts:40` returns managed credential rows plus the native CLI logins observed on every machine, scoped to nobody. `modules/accounts/trpc.ts:25` already puts `callerUserId` in the service state; the query never reads it. | **No owner existed.** Filed as a finding beneath PDM-139 this turn. | new finding → B2 |
-| `files.read` | `modules/files/queries.ts:35`. Three arms. The `artifactId` arm reads any issue's artifact by id. The `sessionId` arm reaches `state.rpc.readFile` with no ownership check and no root check. The `root` arm calls `assertAllowedRoot` (`modules/files/registry.ts:58`), which asks whether the path is a known repository — a rule about PATHS, not about PEOPLE. | **No owner existed** for the tRPC arm. PDM-261/PDM-262 cover the RAW HTTP routes only, and say so. Filed as a finding beneath PDM-139 this turn, cross-referenced to both. | new finding → B3 |
-| `files.list` | `modules/files/queries.ts:56` — directory listing on a named machine, `assertAllowedRoot` only. | as `files.read` | new finding → B3 |
-| `files.search` | `modules/files/queries.ts:81` — content search across a root on a named machine, `assertAllowedRoot` only. | as `files.read` | new finding → B3 |
-| `conversations.search` | `modules/conversations/queries.ts:39` — free-text and project-path search over the durable conversation index, no reader scoping. Conversations are session transcripts under another name, and `sessions.transcriptRead` next door asserts ownership for the same bytes. | **No owner existed.** Filed as a finding beneath PDM-139 this turn. B1's boundary names "conversations, interactions and approvals" explicitly. | new finding → B1 |
+| `files.read` | `modules/files/queries.ts` — three arms. The `artifactId` arm reads any issue's artifact by id. The `sessionId` arm takes neither guarded branch and reaches `state.rpc.readFile` with no ownership check and no root check. The `root` arm calls `assertAllowedRoot`, which asks whether the path is a known repository — a rule about PATHS, not about PEOPLE. | **Open.** PDM-272, stage `planning`. Blocks the B review. | PDM-272 → B3 |
+| `files.list` | Directory listing on a named machine, `assertAllowedRoot` only. | as `files.read` | PDM-272 → B3 |
+| `files.search` | Content search across a root on a named machine, `assertAllowedRoot` only. | as `files.read` | PDM-272 → B3 |
+
+PDM-272 is deliberately **not** being closed one arm at a time. It is the tRPC transport over the
+same bytes that PDM-261 (`GET /files/artifact/…`) and PDM-262 (`GET /files/asset`) expose over raw
+HTTP. Closing one door of three would build the two-transport defect that the exposure check below
+exists to find.
+
+### Closed since the first pass — three of the six
+
+Re-read against the current tree rather than believed from a handoff.
+
+| Row | What happened | Verified how |
+|---|---|---|
+| `sessions.status` | **Was a real defect; fixed.** PDM-229 landed the ownership assertion. Its census row now records `mayReadSession` plus a rule the original finding did not reach: the caller-supplied REF is resolved exactly once, so the id that is checked is the id that is projected — a second resolution could authorize one member of an issue and describe another. | Row moved to `PROJECTION_POLICIES`, `caller-only`. |
+| `accounts.list` | **Was a real defect; fixed.** PDM-271 — the issue this register filed — scoped both arms through `machineIdsUsableBy`, one answer per call, reusing `machine-access.ts`'s own `checkMachineUse` rather than restating it. PDM-280 then gave the managed credential slots an owner column, so `caller-only` is literally true of every row rather than true only of the rows that name somebody. | Refusals observed in `modules/accounts/list-scope.test.ts` and `native-login.test.ts`. One documented exception remains inside the row: the LEGACY `server_secrets` arm has no owner recorded anywhere to scope by. |
+| `conversations.search` | **Was NOT a defect.** It was governed all along. `modules/conversations/trpc.ts` builds the service as `forReader({ kind: 'user', id: caller.userId })`, `modules/memory/search.ts` filters every candidate through `mayRead` and applies the limit AFTER the filter — so a row the caller may not read cannot consume a slot and reveal itself by absence — ending at `mayReadOwned`, the same rule `sessions.transcriptRead` applies to the same bytes. | A3.2 listed it ungoverned because the query table hands its three arguments straight to the service. The principal is two hops further down. This is the ninth finding in the phase to fall to reading past a one-line forward. Refusals observed in `search.test.ts`. |
+
+**The pattern in that last row is worth more than the row.** Eight of this issue's fourteen, and
+nine across the phase, were recorded as ungoverned by someone who stopped at the query table. A
+read whose `run` is one call into a service is not an unscoped read; it is a read whose scoping is
+somewhere else. That is now catalogue shape 21, "the row read only to its forwarding method".
 
 ### Corrected — the eight that were not ungoverned
 
@@ -191,13 +220,83 @@ Attributed by baseline **at the branch point**, not at this tree: `census.ts` wa
 file `relay.test.ts` reaches, and the same two tests failed with the same assertions. The set
 difference against the probe run is exactly the one test the probe was supposed to break, and
 nothing else. 209 tests reported against 209 `it(` blocks in the file, so this is not a crashed
-worker reporting absence as green. Filed separately; not this issue's to fix.
+worker reporting absence as green.
+
+**Filed as PDM-279, and it was a DUPLICATE — my premise was wrong.** I wrote that the boundary shard
+had been reported green in this epic. It has not: phase A's acceptance receipt records it as
+1658 passed / 20 failed / 1 skipped / 1 unfinished / 2 errors, and both of my names are already
+rows 2 and 3 of PDM-231's roster at
+`docs/plans/multi-user-epic/A/A3-3-boundary-shard-red-roster.md:101-102`, with the same assertions
+and analysis already written. The roster was on my own branch the whole time. **Grep the roster
+before filing an inherited red.**
+
+What survives is not the finding but the confirmation: two of those twenty were re-derived
+independently — different phase, different method, byte-identical tree at the pin — and produced
+exactly the same names and assertions. That is the roster checked from outside for the first time,
+which is what phase A's attribution discipline was for.
+
+## The exposure field is wrong on seven rows, and that is the POD-3900 shape
+
+Asked by the PDM-107 coordinator to check their own two edits rather than assume them. The two
+edits are right. Checking whether they were COMPLETE found something bigger.
+
+**What they did.** POD-3900 found `sessions.status` and `sessions.read` gating on the target ISSUE
+over the relay where tRPC gated on session OWNERSHIP — a colleague with issue write received the
+full payload D13 gives only an owner. Both rows had said `exposure: TRPC`. They are now
+`TRPC_RELAY`, and `sessions.recap` was deliberately left `TRPC`.
+
+**Their edit is complete for that family, and that is checked, not assumed.**
+`RELAY_ALLOWED.sessions` (`modules/issues/relay-gate.ts:44`) is
+`{sendText, resumeAndSend, continue, status, read, title, stop, handoff}`. The only READS in it are
+`status` and `read` — exactly the two changed. `recap`, `transcriptRead`, `list` and
+`activityHistory` are genuinely absent, so their `TRPC` is right.
+
+**But the same question asked of the whole census finds seven more rows with the same wrong tag.**
+Every census row name was matched against `RELAY_ALLOWED` and then against the actual dispatch arms,
+because an allowlist entry is permission to route, not proof that anything serves it — a permitted
+pair with no arm returns `NO_SUCH_PROCEDURE` and is not served at all. All seven have real arms.
+
+| Row | Declared | Relay arm | Do the two gates agree? |
+|---|---|---|---|
+| `machines.list` | `TRPC` | `relay-dispatch.ts:220` | **Yes** — calls the SAME `visibleMachinesFor(modules(), capability)` the router calls, inheriting the projection rather than restating it |
+| `features.state` | `TRPC` | `:181` | Yes, vacuously — `rowScope: 'instance-wide'`, instance configuration, no rows |
+| `quota.summary` | `TRPC` | `:184` | Yes, vacuously — `rowScope: 'instance-wide'`, an instance fact |
+| `specs.list` / `specs.get` / `specs.search` | `TRPC` | `:240`, `specs: null` so every proc | Yes, vacuously — `rowScope: 'instance-wide'`, repository material both sides |
+| `repos.inferFromPath` | `TRPC` | `dispatcher.ts:87` | Yes, vacuously — `rowScope: 'none'`, answers from its argument |
+
+**Seven wrong tags, zero authorization defects.** Six are `instance-wide` or `none`, where there
+are no person-rows for a second transport to leak. The seventh, `machines.list`, is `caller-only` —
+the scope where a divergent second gate is exactly the POD-3900 defect — and its relay arm inherits
+the same projection, verified by reading it rather than by trusting its comment.
+
+**So why fix a tag that hides no bug?** Because the census's own `sessions.status` rationale now
+says it, in the coordinator's words: *"an exposure tag naming one transport makes the other one's
+gate unaskable, so record every transport that serves a read even when their gates agree."*
+`sessions.status` did not hide a divergent gate because someone chose to hide it. It hid one
+because nobody could ask the question — the row said there was only one transport. Six of these
+seven agree today. Nothing in the instrument would notice the day one stopped.
+
+**What I changed and what I did not.** `machines.list` is this issue's own row and is corrected here
+to `TRPC_RELAY`, with the inheritance recorded. The other six belong to other rows and other
+owners, and the coordinator holds the census slot, so they are filed rather than edited.
+
+**The durable fix is not six edits.** `projection-census.test.ts` derives the read population from
+`appRouter._def.procedures` — the dispatch table tRPC actually routes on — which is why a missing
+row is now unrepresentable. Nothing does the equivalent for the relay: `RELAY_ALLOWED` and the
+dispatch arms are a second served surface that no instrument compares against the census. Deriving
+`exposure` from those two the way the population is derived from the router would make this whole
+class unrepresentable instead of found by hand twice. That is an implementation task, named here,
+not built here.
 
 ## Evidence
 
-Source SHA for every run: OSS working tree at `7dc64bbe20bd5fd62579c8497db6467d6d567622`
-(`issue/253-b-rows-of-the-read-census`, cut from `origin/issue/pdm-107-multi-user` at
-`fe8a3ce8474f970fdafeef3bb695a86ac020d7c8`).
+Source SHA for the counterfactual runs below: OSS working tree at
+`7dc64bbe20bd5fd62579c8497db6467d6d567622`, cut from `origin/issue/pdm-107-multi-user` at
+`fe8a3ce8474f970fdafeef3bb695a86ac020d7c8`. Those runs are NOT re-executed for the re-derive pass
+and are not claimed to have been: the eight rows they verified are unchanged in the current census,
+and `git log` shows no commit touching this register between `8789a14c2` and
+`0716b67b97a1f40c4a86e0cae662b40b0cc53a64`. The re-derive pass re-reads the census and the relay
+surface at `0716b67b9` and re-runs the census gate there; that run is recorded separately below.
 
 Selection was DERIVED, not chosen: `packages/commands/src/projections/census.ts` is imported by
 exactly one test in the repository, `apps/server/src/projection-census.test.ts` (boundary shard).
@@ -215,6 +314,26 @@ encodes, not as a gate on the change.
 No baseline set-difference is quoted because no test failed at any point in this work; the two
 files above were green before the change and after it. No shard-wide or package-wide lane was
 run, and no heavy lease was taken.
+
+### The re-derive pass, at `0716b67b9`
+
+Selection derived the same way: `census.ts` is imported by exactly one test, and it is a typed L1
+data table so it needs a compiler lane. One row changed (`machines.list` exposure), so no other
+lane is justified and none was run.
+
+| Command | Exit | Result |
+|---|---|---|
+| `bun run --cwd apps/server test:boundary src/projection-census.test.ts` | 0 | 17 passed / 17, reconciling with 17 `it(` in the file |
+| `bun run typecheck -- --filter @podium/commands --filter @podium/server --concurrency=1` | 0 | 12/12, `@podium/server` a cache MISS that executed |
+
+Window: load average 4.98, 14 GB available. No heavy lease taken because neither lane is a shard or
+a package run.
+
+**What this green does NOT cover, again.** The `machines.list` exposure change is a claim about
+which transports serve a read. `projection-census.test.ts` never reads `exposure` — nothing does.
+The evidence for that row is `RELAY_ALLOWED.machines` containing `list` and `relay-dispatch.ts:220`
+serving it, both read directly, and that is precisely the gap the last paragraph of the exposure
+section asks someone to close with an instrument.
 
 ### Both instruments proved by deliberate break
 

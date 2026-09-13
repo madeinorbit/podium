@@ -883,14 +883,14 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   // ---- machines: the read whose rule was right and whose home was wrong -----
   p({
     name: 'machines.list',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'caller-only',
     resource: 'machine',
     indirectResources: [],
     forbiddenFields: [],
     rationale:
-      "`visibleMachinesFor` is an authorization projection: `canSeeMachine` filters the rows and `machineUseDecision` attaches each machine's `use` answer, so a machine the principal may not execute on is never OFFERED and one it may not see is simply absent. A3.2 listed it as ungoverned because its rule lives in a `router.ts` procedure rather than in a table this census can read — but the ungoverned list means A READ WITH NO SERVER-SIDE READER SCOPING, and this read has one. The rule is recorded HERE, which is the home it was missing; that its procedure is still the one hand-written read in `router.ts` is a structural note for B2, not a gap in reader scoping.",
+      "`visibleMachinesFor` is an authorization projection: `canSeeMachine` filters the rows and `machineUseDecision` attaches each machine's `use` answer, so a machine the principal may not execute on is never OFFERED and one it may not see is simply absent. A3.2 listed it as ungoverned because its rule lives in a `router.ts` procedure rather than in a table this census can read — but the ungoverned list means A READ WITH NO SERVER-SIDE READER SCOPING, and this read has one. The rule is recorded HERE, which is the home it was missing; that its procedure is still the one hand-written read in `router.ts` is a structural note for B2, not a gap in reader scoping. TWO TRANSPORTS, AND THIS ROW SAID ONE — corrected here by the same check POD-3900 forced onto `sessions.status`. `RELAY_ALLOWED.machines` carries `list` and `relay-dispatch.ts:220` serves it, so an agent reaches this read over the relay as well. THE GATES AGREE, and that is verified rather than assumed: the relay arm calls the SAME `visibleMachinesFor(modules(), capability)` the router calls, inheriting the projection rather than restating it, and its own comment says so. Recording it anyway is the point — a row naming one transport makes the other one's gate unaskable, which is exactly how `sessions.status` hid a divergent relay gate behind a correct tRPC one.",
   }),
 ] as const
 
