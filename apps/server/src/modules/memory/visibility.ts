@@ -1,6 +1,8 @@
 import {
   asIssueId,
+  asLegacyGrant,
   asSessionId,
+  type LegacyGrant,
   ROW,
   type VisibilityClass,
   visibilityClassOf,
@@ -269,7 +271,7 @@ export class MemoryVisibilityPolicy {
     return mayReadPrivate(userId, {
       id: row.id,
       owner: row.ownerUserId,
-      legacyGrants: await this.readGranteesOf('session', row.id),
+      legacyGrants: await this.legacyGranteesOfSession(row.id),
     })
   }
 
@@ -305,6 +307,26 @@ export class MemoryVisibilityPolicy {
    * a search index. Returning the grantee list hands `authorize` the FACT and
    * leaves it the decision.
    */
+  /**
+   * THE SESSION ARM'S EDGES, AT THE BRAND (PDM-355).
+   *
+   * This module is a THIRD independent source of session grant evidence — it
+   * reads `store.grants` itself and never consults `sessionOwner` — which is
+   * precisely why it was the live leak B1's four-site census could not see
+   * (PDM-251 leak 1). Typing `sessionOwner`'s return does not reach here, so the
+   * brand is applied at this source too: `legacyGrants.includes(someUserId)`
+   * does not compile against it.
+   *
+   * `readGranteesOf` below stays UNBRANDED on purpose. Its other caller is the
+   * ISSUE arm, where owner-or-grant is the genuine task rule and a grantee IS
+   * admitted — branding that would be claiming a policy this module does not
+   * hold. The split is the point: one resource's edges are evidence, the other's
+   * are permission, and the types now say which is which.
+   */
+  private async legacyGranteesOfSession(sessionId: string): Promise<readonly LegacyGrant[]> {
+    return (await this.readGranteesOf('session', sessionId)).map(asLegacyGrant)
+  }
+
   private async readGranteesOf(resourceKind: string, resourceId: string): Promise<string[]> {
     const key = `${resourceKind}\0${resourceId}`
     if (this.request?.grants.has(key)) return this.request.grants.get(key) ?? []

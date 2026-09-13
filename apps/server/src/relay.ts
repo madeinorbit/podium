@@ -116,7 +116,11 @@ import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
 import { MemoryService } from './modules/memory/service'
 import { MessageGate } from './modules/messages/gate'
-import { principalMailPolicy } from './modules/messages/handlers/context'
+import {
+  type MachineAccess,
+  principalMailPolicy,
+} from './modules/messages/handlers/context'
+import type { HumanCeiling } from '@podium/commands'
 import { cancelInterruptedQueuedMessage, QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
@@ -361,6 +365,26 @@ export interface RegistryModules {
   messages: MessageDeliveryService
   /** `podium mail` command surface over the substrate (#237) [spec:SP-34d7]. */
   messageGate: MessageGate
+  /**
+   * THE COMPOSED MAIL POLICY — the SAME closure `messageGate` holds (PDM-355).
+   *
+   * Exposed because its session arm was UNWITNESSABLE from outside. `canSee`
+   * decides who reaches another person's session on the feed ceiling, it reads
+   * the grant edge table directly rather than through the authorization model,
+   * and it was a live cross-user leak until B2/PDM-251 — but every test near it
+   * substituted the whole ceiling (`ceiling: { canSee: async () => canSee }`),
+   * which cannot fail when the real one is wrong.
+   *
+   * THIS IS NOT A SECOND CEILING, and that is the only property that makes it
+   * worth exposing. It is the identical `mail.gateOptions.policyFor` value
+   * passed to `MessageGate` on the line that constructs it — a re-derived one
+   * would be exactly the stub it replaces. `MessageGate`'s own boot check
+   * already refuses when the gate's ceiling and the delivery service's are
+   * different objects; this field is read-only and adds no third.
+   */
+  mailPolicyFor: (principal: CommandPrincipal) =>
+    | { ceiling: HumanCeiling; machines: MachineAccess }
+    | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   /** Read toolkit tiers 1–2 — session status/read (#237) [spec:SP-34d7]. */
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
@@ -3290,6 +3314,7 @@ export class SessionRegistry {
       lockCommands,
       messages: messagesSvc,
       messageGate,
+      mailPolicyFor: mail.gateOptions.policyFor,
       readToolkit,
       issueArtifacts,
       automations,
