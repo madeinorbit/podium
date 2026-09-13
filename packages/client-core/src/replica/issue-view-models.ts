@@ -177,9 +177,15 @@ export function buildIssueViewModel(
    * IT IS NOT OPTIONAL IN THE SENSE `execution` IS. Skipping the join does not
    * leave the reader with less; it leaves them with the values `IssueWire` still
    * carries, which are now NEUTRAL for everybody and were, until PDM-408, the
-   * EARLIEST ADMIN'S. That is why {@link joinIssueMarks} overwrites rather than
-   * defaults: it is the last gate, and a producer that regressed and baked a
-   * viewer's marks back into the broadcast would be caught here.
+   * EARLIEST ADMIN'S — so the join is what turns a neutral broadcast row into
+   * THIS person's row, and a call site that forgot it renders an unmarked board
+   * rather than an obviously broken one.
+   *
+   * {@link joinIssueMarks} LEAVES AN UNMARKED ROW ALONE rather than forcing
+   * neutral onto it. An earlier version of this comment said the opposite and
+   * called the join "the last gate" against a regressed producer; that claim is
+   * withdrawn, because forcing neutral also wiped this client's own optimistic
+   * overlay. The producer is guarded at the producer.
    */
   marks?: IssueMarksWire,
 ): IssueViewModel | undefined {

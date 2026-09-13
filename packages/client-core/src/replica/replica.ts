@@ -1588,6 +1588,18 @@ class TanstackReplica implements Replica {
         return layoutRowId(layout.userId, layout.key)
       }
     }
+    // PER-USER ISSUE MARKS HAVE NO `id` EITHER (PDM-408). Their identity is the
+    // issue's, spelled `issueId` so nobody mistakes the row for an entity with a
+    // life of its own — and this resolver falls through to `.id` for everything
+    // it does not name, so without this arm every marks row keys on `undefined`
+    // and the whole collection collapses onto ONE row.
+    //
+    // THE SECOND PLACE. `kernel/kinds.ts` carries the matching `rowKey` arm for
+    // the kernel replica; this is the legacy replica's own copy of the same
+    // question, and having the kernel arm is not having this one. Found by
+    // writing PDM-139's marks-only-delta witness, which published nothing at all
+    // until this existed.
+    if (kind === 'issueMarks') return (row) => (row as IssueMarksWire).issueId
     return (row) =>
       (
         row as

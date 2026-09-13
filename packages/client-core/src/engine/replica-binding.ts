@@ -215,13 +215,21 @@ function readChanged(
     // the correlation that TypeScript loses while iterating a union of keys.
     ;(next as Record<ReplicaKind, unknown>)[kind] = replica.rows(kind)
   }
-  // `issues` DEPENDS ON `issueExecutions` [B4, PDM-136], so a batch that changed
-  // only the sidecar must still re-derive the joined issue rows — otherwise an
-  // owner's worktree path appears on the first frame that happens to touch an
-  // issue and never on the frame that actually delivered it. This is the one
-  // cross-kind dependency in this adapter and it is the reason the join lives
-  // here rather than in each reader.
-  if (changed.has('issues') || changed.has('issueExecutions')) {
+  // `issues` DEPENDS ON `issueExecutions` [B4, PDM-136] AND ON `issueMarks`
+  // [PDM-408], so a batch that changed only a sidecar must still re-derive the
+  // joined issue rows — otherwise an owner's worktree path, or this reader's own
+  // pin, appears on the first frame that happens to touch an issue and never on
+  // the frame that actually delivered it. These are the cross-kind dependencies
+  // in this adapter and they are the reason the joins live here rather than in
+  // each reader.
+  //
+  // `issueMarks` WAS MISSING FROM THIS CONDITION (PDM-419, found by PDM-139's
+  // source review). A marks-only delta is not an edge case — it is the ORDINARY
+  // one: it is what arrives when this person marks an issue read on another
+  // device, or when the server echoes the mark they just made here. Without it
+  // `st.issues` kept the pre-mark values until something unrelated moved an
+  // issue, which reads as lag rather than as a bug.
+  if (changed.has('issues') || changed.has('issueExecutions') || changed.has('issueMarks')) {
     next.issues = joinMarks(
       joinExecutions(replica.rows('issues'), replica.rows('issueExecutions')),
       replica.rows('issueMarks'),

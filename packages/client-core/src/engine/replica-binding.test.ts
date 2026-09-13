@@ -149,3 +149,68 @@ class BindingCache implements KernelCacheRead {
     )
   }
 }
+
+describe('a marks-only delta re-derives the joined issue rows (PDM-419)', () => {
+  /**
+   * FOUND BY PDM-139'S SOURCE REVIEW, not by a failing test — `readChanged`
+   * re-derived `next.issues` only when `issues` or `issueExecutions` moved, so a
+   * batch carrying ONLY `issueMarks` left `st.issues` holding the pre-mark
+   * values. That is not an edge case: a marks-only delta is exactly what arrives
+   * when this person marks an issue read on another device, or when the server
+   * echoes the mark they just made here. The stale row then corrects itself on
+   * the next unrelated issue change, which reads as lag rather than as a bug.
+   *
+   * `st.issues` is the binding roughly thirty surfaces read, so the witness is a
+   * DIRECT SUBSCRIBER — what a publication actually carries — rather than a
+   * re-derivation through the view models, which have their own join and would
+   * mask this.
+   */
+  const marks = (issueId: string, readAt: string | null, pinned: boolean) =>
+    ({ userId: 'mem_me', issueId, readAt, tuckedAt: null, pinned }) as never
+
+  it('publishes issue rows carrying the new mark when ONLY issueMarks changed', async () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    // The broadcast row as the server now sends it: neutral marks for everybody.
+    replica.applySnapshot('issues', [issue('iss_1', null)])
+    const binding = createReplicaBinding({ replica })
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+    publications.length = 0
+
+    // Nothing but the marks row moves.
+    replica.applyChanges('issueMarks', [marks('iss_1', '2026-08-04T00:00:00.000Z', true)], [])
+    // Row notifications are deferred out of `applyChanges`'s batch and flushed
+    // on the microtask queue, same as every other event in this file.
+    await Promise.resolve()
+
+    expect(publications).toHaveLength(1)
+    expect(publications[0]!.changed).toContain('issueMarks')
+    // THE CLAIM: the joined issue row in the published snapshot carries MY mark,
+    // on the very frame that delivered it. Before the fix this read `null`.
+    const published = publications[0]!.snapshot.issues.find((row) => row.id === 'iss_1')
+    expect(published?.readAt).toBe('2026-08-04T00:00:00.000Z')
+    expect((published as { pinned?: boolean } | undefined)?.pinned).toBe(true)
+    stop()
+  })
+
+  it('still leaves an unmarked issue unmarked — the control', async () => {
+    // Without this, the case above is satisfied by a binding that had started
+    // reporting a mark for every row.
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issues', [issue('iss_1', null), issue('iss_2', null)])
+    const binding = createReplicaBinding({ replica })
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+    publications.length = 0
+
+    replica.applyChanges('issueMarks', [marks('iss_1', '2026-08-04T00:00:00.000Z', true)], [])
+    await Promise.resolve()
+
+    const rows = publications[0]!.snapshot.issues
+    expect(rows.find((row) => row.id === 'iss_1')?.readAt).toBe('2026-08-04T00:00:00.000Z')
+    expect(rows.find((row) => row.id === 'iss_2')?.readAt ?? null).toBeNull()
+    stop()
+  })
+})
