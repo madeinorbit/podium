@@ -55,7 +55,7 @@
  * `scripts/audit-issue-commands.ts`, and only for the ISSUE family's CLI/MCP table —
  * the `mail.*` family and the superagent tool belt are outside it (PDM-422).
  *
- * WHAT THIS CANNOT SEE, said out loud: the eleven kinds in {@link UNGUARDED}. They
+ * WHAT THIS CANNOT SEE, said out loud: the ten kinds in {@link UNGUARDED}. They
  * are presence-class `CommandDef`s, whose `CommandTransport` union does not even
  * CONTAIN `'outbox'` — the mismatch is not merely undeclared there, it is
  * unspellable. That is a gap in the vocabulary, not in this guard, and the exact
@@ -92,20 +92,32 @@ import { OUTBOX_COMMANDS } from './wiring'
  * exhaustive. That is the shape this epic keeps finding: a census cannot see a site
  * that declines to answer the question the way the census expects it asked.
  */
+const looksLikeContract = (v: unknown): v is CommandContract =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as CommandContract).name === 'string' &&
+  Array.isArray((v as { exposure?: unknown }).exposure)
+
 const byName = new Map<string, CommandContract>()
 let REGISTRIES_FOUND = 0
+let STANDALONE_FOUND = 0
 for (const exported of Object.values(COMMANDS as Record<string, unknown>)) {
   if (typeof exported !== 'object' || exported === null) continue
+  // THE EXPORT ITSELF MAY BE THE CONTRACT. `sessionRenameContract` is exported
+  // standalone from the package root and declares `outbox`; a walk that only
+  // looked INSIDE each export skipped it, so a claim about "every contract this
+  // package exports" was false for exactly the shape that matters here — a
+  // standalone declaration is the one with no registry to make it visible.
+  // Reviewer's finding (PDM-139), and it was a LIVE miss, not a latent one.
+  if (looksLikeContract(exported)) {
+    STANDALONE_FOUND += 1
+    byName.set(exported.name, exported)
+    continue
+  }
   const values = Array.isArray(exported)
     ? (exported as unknown[])
     : Object.values(exported as Record<string, unknown>)
-  const contracts = values.filter(
-    (v): v is CommandContract =>
-      typeof v === 'object' &&
-      v !== null &&
-      typeof (v as CommandContract).name === 'string' &&
-      Array.isArray((v as { exposure?: unknown }).exposure),
-  )
+  const contracts = values.filter(looksLikeContract)
   if (contracts.length === 0) continue
   REGISTRIES_FOUND += 1
   for (const contract of contracts) byName.set(contract.name, contract)
@@ -132,7 +144,14 @@ const lookup = (name: string): CommandContract | undefined => {
  *
  * `sessions.*` and `snoozes.*` are the presence class (POD-380): they are
  * `CommandDef`s today, not full `CommandContract`s, so they carry no
- * `policy.confirmation` to compare against. `sessions.resumeAndSend` is
+ * `policy.confirmation` to compare against.
+ *
+ * `rename` USED TO BE ON THIS LIST AND IS NOT ANY MORE, which is this list doing its
+ * job rather than a relaxation. `sessionRenameContract` is a FULL contract and has
+ * been all along — it was only ever missing because the contract walk above skipped
+ * standalone exports, so a real contract was being misdescribed here as presence
+ * class. Fixing the walk moved it under the guard, and the exact assertion is what
+ * made that visible instead of silent. `sessions.resumeAndSend` is
  * command-plane (POD-381) and lives in a registry this module does not reach.
  *
  * The three `issues.*` kinds are NOT here: they have full contracts and are
@@ -153,7 +172,6 @@ const lookup = (name: string): CommandContract | undefined => {
 const UNGUARDED = [
   'dismissOffer',
   'pinSet',
-  'rename',
   'tabSetOrder',
   'resumeAndSend',
   'sessionMarkRead',
@@ -210,6 +228,10 @@ describe('the client outbox contract table matches the contracts', () => {
     expect(byName.has('issues.close')).toBe(true)
     expect(byName.has('files.write')).toBe(true)
     expect(byName.has('mail.send')).toBe(true)
+    // The third shape: a contract exported on its own, in no registry at all. The
+    // floor above cannot catch a single missing export, so this names one.
+    expect(STANDALONE_FOUND).toBeGreaterThanOrEqual(1)
+    expect(byName.has('sessions.rename')).toBe(true)
   })
 
   it('no contract declares `outbox` that this table does not queue', () => {

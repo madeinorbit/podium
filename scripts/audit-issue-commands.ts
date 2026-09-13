@@ -283,24 +283,47 @@ export function exposureMismatch(
   )) {
     const body = m[2] as string
     cellTags.set(m[1] as string, new Set([...body.matchAll(/'(\w+)'/g)].map((t) => t[1] as string)))
-    cellSpreads.set(m[1] as string, [...body.matchAll(/\.\.\.(\w+)/g)].map((t) => t[1] as string))
+    cellSpreads.set(
+      m[1] as string,
+      [...body.matchAll(/\.\.\.(\w+)/g)].map((t) => t[1] as string),
+    )
   }
-  /** A cell's tags including everything it spreads in. Cycle-guarded: a cell that
-   *  spreads itself must not hang the audit, it must resolve to what it states. */
-  const tagsOf = (cellName: string, seen = new Set<string>()): Set<string> => {
-    if (seen.has(cellName)) return new Set()
+  /**
+   * A cell's tags including everything it spreads in, AND the names of any spread
+   * parents this file could not parse.
+   *
+   * THE UNRESOLVED LIST IS THE POINT, and it is the same defect as the one above
+   * met one level down. An earlier version returned only a Set, so a cell that
+   * spread an UNPARSED parent resolved to the tags it happened to state directly
+   * and looked completely resolved. `A = [...UNKNOWN, 'outbox']` then answers "I do
+   * not name cli/mcp" with total confidence, when the truthful answer is "I cannot
+   * tell you" — and the root-level check cannot catch it, because `A` itself parses
+   * fine. A contract citing `A` that nothing reaches would drop out of `declared`
+   * silently. Reviewer's finding (PDM-139), source-read.
+   *
+   * Cycle-guarded: a cell that spreads itself must not hang the audit, it must
+   * resolve to what it states.
+   */
+  const resolveCell = (
+    cellName: string,
+    seen = new Set<string>(),
+  ): { tags: Set<string>; unresolved: string[] } => {
+    if (seen.has(cellName)) return { tags: new Set(), unresolved: [] }
     seen.add(cellName)
     const own = cellTags.get(cellName)
-    if (!own) return new Set()
-    const all = new Set(own)
+    if (!own) return { tags: new Set(), unresolved: [cellName] }
+    const tags = new Set(own)
+    const unresolved: string[] = []
     for (const parent of cellSpreads.get(cellName) ?? []) {
-      for (const tag of tagsOf(parent, seen)) all.add(tag)
+      const resolved = resolveCell(parent, seen)
+      for (const tag of resolved.tags) tags.add(tag)
+      unresolved.push(...resolved.unresolved)
     }
-    return all
+    return { tags, unresolved }
   }
   /** The cells that mean "on the CLI and MCP". More than one is normal. */
   const cliMcpCells = [...cellTags.keys()].filter((name) => {
-    const tags = tagsOf(name)
+    const { tags } = resolveCell(name)
     return tags.has('cli') && tags.has('mcp')
   })
   if (cliMcpCells.length === 0) {
@@ -367,6 +390,23 @@ export function exposureMismatch(
     // undeclared — and OPEN in the other: a contract nothing reaches would drop out
     // of the `declared` set silently and its decayed declaration would never be
     // named. So an unknown cell is its own finding, exactly like an absent one.
+    // A cell that parses but DEPENDS on one that does not is unresolved too. Reported
+    // conservatively — even when the cell already states cli/mcp directly — because
+    // the honest claim is that this audit cannot see the whole declaration, and a
+    // gate that cannot see it should say so rather than answer from the part it can.
+    const unresolvedParents = cellTags.has(exposure) ? resolveCell(exposure).unresolved : []
+    if (unresolvedParents.length > 0) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: CELLS,
+        detail:
+          `\`issues.${block.name}\` cites exposure cell \`${exposure}\`, which spreads ` +
+          `\`${[...new Set(unresolvedParents)].sort().join('`, `')}\` — not parsed here, so the ` +
+          'cell resolves to only the tags it states DIRECTLY and this comparison would be ' +
+          'answering from a partial declaration',
+      })
+      continue
+    }
     if (!cellTags.has(exposure)) {
       findings.push({
         check: 'exposure-matches-reach',
@@ -613,6 +653,31 @@ function probe(): Finding[] {
   expect(
     'exposure-matches-reach/unreached-via-spread-cell',
     exposureMismatch(queuedFixture, QUEUED_CELLS, 'client.issues.other.query()\n'),
+  )
+
+  // A cell that PARSES but spreads a parent that does not must be unresolved too —
+  // the root-level check cannot see this, because the cited cell itself is fine.
+  // Shape specified by the PDM-139 reviewer: a valid root, an unknown PARENT, and an
+  // unrelated valid cli/mcp declaration that IS reached, so the empty-side guard
+  // stays green and this fires on the spread arm alone rather than on a degenerate
+  // comparison.
+  expect(
+    'exposure-matches-reach/unknown-spread-parent',
+    exposureMismatch(
+      [
+        contractsFixture,
+        '',
+        'export const spreadsUnknownContract = {',
+        "  name: 'issues.spreadsunknown',",
+        '  exposure: CELL_WITH_UNKNOWN_PARENT,',
+        '} as const',
+      ].join('\n'),
+      [
+        CELLS_OK,
+        "export const CELL_WITH_UNKNOWN_PARENT: readonly TransportTag[] = [...DEFINED_ELSEWHERE, 'outbox']",
+      ].join('\n'),
+      'client.issues.shown.query()\n',
+    ),
   )
 
   // An exposure cell the audit never parsed must be UNRESOLVED, not silently read as
