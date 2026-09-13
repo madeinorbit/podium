@@ -592,11 +592,16 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     const expiresMs = at + SESSION_TTL_MS
     const expiresAt = new Date(expiresMs).toISOString()
     await store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
-    // WHICH PERSON this device belongs to. The shared password authenticates a
-    // CONNECTION, not a human (ADR 9 D1.3), so the only true answer available is
-    // the instance's one account — passed EXPLICITLY rather than defaulted in the
-    // store, so per-user login (POD-315) changes this line and nothing silently
-    // keeps writing one id for everybody.
+    // WHICH PERSON this device belongs to. Password login has already VERIFIED
+    // THE RESOLVED MEMBER'S OWN CREDENTIAL above, so the identity passed here is
+    // that member rather than a default. It is passed EXPLICITLY, and
+    // createClientSession requires it explicitly, because a default is the one
+    // place an authenticator could silently keep writing one id for everybody.
+    //
+    // (This comment previously said the shared password authenticates a
+    // connection rather than a human and that the instance's one account was the
+    // only available answer. Corrected under the PDM-139 phase B review
+    // disposition; the per-member path is immediately above.)
     if (nativeLogin) {
       await store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
         sessionId: randomBytes(18).toString('base64url'),

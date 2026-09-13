@@ -37,14 +37,21 @@
  * WHAT IS DELIBERATELY NOT ASSERTED HERE
  * ---------------------------------------------------------------------------
  *
- * Two humans. `auth-store.ts` is still one password per instance, so every
- * authenticated caller resolves to `firstAdminMemberId()` and the transports
- * cannot yet tell two people apart. The matrix therefore drives the POLICY layer
- * with the principals the transports WILL supply — which is the only way read
- * denial and the delegation ceiling can be tested before login lands, and
- * exactly the ordering ADR 3 Amendment 1's rejected-alternatives table demands
- * ("keeping OPERATOR and adding users later" leaves every ownership check dead
- * code until the flip). Where a property is bounded by that, it says so.
+ * This matrix exercises POLICY DECISIONS with capability shapes. It does not
+ * perform HTTP login or transport requests and therefore does not establish
+ * end-to-end authentication or principal propagation.
+ *
+ * Per-member password login and provider principals EXIST — `auth-route.ts`
+ * resolves a login identifier to a member id, verifies that member's own
+ * credential, and persists that identity on the session. Their presence does not
+ * substitute for this matrix, nor for transport acceptance tests. Where a
+ * property is bounded by that split, it says so.
+ *
+ * (The header this replaces claimed one shared password per instance and that
+ * every authenticated caller resolved to `firstAdminMemberId()`. That was true
+ * when written and is not true now. Corrected under the PDM-139 phase B review
+ * disposition, which established it by reading the code rather than the
+ * migration list.)
  */
 
 import { type Principal } from '@podium/protocol'

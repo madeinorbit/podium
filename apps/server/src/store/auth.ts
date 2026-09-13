@@ -9,13 +9,17 @@
  * A ROW IS A DEVICE THAT RESOLVES TO A USER (POD-1075, ADR 9 D1.3)
  * ---------------------------------------------------------------------------
  *
- * Every row now carries a `user_id`. That does NOT mean the login can tell two
- * people apart — `auth-store.ts` is still one shared password, so every session
- * this repository mints belongs to the first admin, and
- * `CLIENT_PRINCIPAL_GRADE` stays `'device'` accordingly. What it means is that
- * "which device" and "who" are two answers in storage instead of one, which is
- * what makes per-user login (POD-315) a change to the AUTHENTICATOR rather than
- * a second table migration after the wire cutover.
+ * Every row carries a `user_id`. CLIENT SESSIONS PERSIST THE userId SUPPLIED BY
+ * THE AUTHENTICATOR. Password login verifies the RESOLVED MEMBER'S credential
+ * before issuing a session, so "which device" and "who" are two answers in
+ * storage AND two answers at the door, rather than one answer wearing both hats.
+ * `CLIENT_PRINCIPAL_GRADE` stays `'device'`: what a session row records is still
+ * a device that resolves to a user.
+ *
+ * (This paragraph previously said the login could not tell two people apart and
+ * that every session belonged to the first admin. Corrected under the PDM-139
+ * phase B review disposition, established by reading auth-route.ts rather than
+ * the migration list.)
  *
  * `createClientSession` takes the user as a REQUIRED parameter rather than
  * defaulting it here. A default would be the one place a future per-user login
@@ -70,9 +74,10 @@ export class AuthRepository {
   }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
-   *  token. `userId` is the person the device resolves to — today always the
-   *  first admin, because the shared-password transport cannot authenticate a
-   *  second one (POD-315). `label` says WHY the row exists so the classes stay
+   *  token. `userId` is the person the device resolves to. This method REQUIRES
+   *  that identity explicitly and does not choose an admin by default — a
+   *  default would be the one place an authenticator could silently write the
+   *  wrong person's id for everybody. `label` says WHY the row exists so the classes stay
    *  separately revocable (POD-1376): the default 'login' is a browser sign-in,
    *  'upstream' a node⇄hub provisioning token, 'break-glass' a session minted
    *  from local state-dir access. */
