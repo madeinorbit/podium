@@ -233,26 +233,41 @@ export const census = (root = ROOT): Map<string, Site[]> => {
  */
 export const BASELINE: Readonly<Record<string, number>> = {
   /**
-   * 42 usage sites (A2). LOWERED FROM 46, and the four are real reductions —
-   * places that assumed the first admin and now RESOLVE a member instead. The
-   * spelling changed in the same commit (`FIRST_ADMIN_USER_ID` became
-   * `firstAdminMemberId()`), which moves no site: a rename is exactly the
-   * artefact this census was built to be immune to, and the file-by-file counts
-   * are unchanged apart from the four below.
+   * 38 usage sites (POD-3903). LOWERED FROM 42, re-measured on the PDM-107 epic
+   * branch at e9820be79. The 42 was accurate when A2 set it at e7371f6d0; phase
+   * B has been retiring sites since, and nobody lowered it on the way past.
    *
-   *   REMOVED (-4, callers now resolve)
-   *      -3  apps/server/src/server.ts   open mode, the setup bootstrap account
-   *                                      and its principal all read the earliest
-   *                                      admin member out of the store
-   *      -1  apps/server/src/auth-route.ts  a login with no identifier resolves
-   *                                      that member rather than defaulting to a
-   *                                      compiled-in id
+   * The -4 is a NET of twelve sites removed against eight added, so read the
+   * movements rather than the delta:
    *
-   * One of the 42 is the accessor's own definition in
-   * `packages/model/src/identity/first-admin.ts`. It is left in rather than
-   * special-cased: the census counts a spelling, and carving out the one file
-   * that may legitimately use it is the kind of exception that later hides a
-   * second one.
+   *   REMOVED (-12, callers now resolve a member)
+   *      -4  apps/daemon/.../fixtures/server-recovery-worker.ts
+   *      -2  apps/server/src/modules/sessions/view.ts
+   *      -2  apps/server/src/modules/superagent/service.ts
+   *      -1  apps/server/src/modules/sessions/session-start.ts
+   *      -1  apps/server/src/modules/sessions/session-authz.ts   (file has none left)
+   *      -1  apps/server/src/modules/sessions/session.ts         (file has none left)
+   *      -1  packages/janitor/src/janitor.ts                     (file has none left)
+   *
+   *   ADDED (+8, and none of them is a production caller defaulting a principal)
+   *      +2  packages/model/src/identity/first-admin.ts   the accessor grew a
+   *          store-taking overload beside the deprecated fixture one, so its own
+   *          definition now spells itself three times instead of once
+   *      +4  apps/server/src/test-support/{session-state-principal,session-facts,
+   *          open-test-store}.ts   fixture helpers that prime the sole-human
+   *          identity for tests
+   *      +1  apps/server/src/modules/issues/service/crud.ts
+   *      +1  apps/server/src/modules/messages/characterization-support.ts
+   *
+   * Three of the 38 are the accessor's own definition in
+   * `packages/model/src/identity/first-admin.ts` (two overload signatures and the
+   * implementation). They are left in rather than special-cased: the census counts
+   * a spelling, and carving out the one file that may legitimately use it is the
+   * kind of exception that later hides a second one.
+   *
+   * Six of the 38 are in `apps/server/src/relay.ts` (lines 930, 1642, 1727, 1987,
+   * 2003, 2455) — PDM-295 observed the last three without touching them, and they
+   * are still here.
    *
    * The journey to the original 41 is still the point:
    *   77  the hand grep everyone quoted (content filter dropped 2 lines)
@@ -270,7 +285,7 @@ export const BASELINE: Readonly<Record<string, number>> = {
    * hand-authored, so an ambient principal appearing in one is a property of its
    * GENERATOR and should be audited there, where a human could fix it.
    */
-  firstAdminMemberId: 42,
+  firstAdminMemberId: 38,
 }
 
 export const checkDrift = (
