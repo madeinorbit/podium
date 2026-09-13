@@ -2141,26 +2141,36 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.managedCredentials,
     section: 'settings-secrets-accounts',
-    title: 'Managed credentials / accounts (`accounts`)',
-    sites: ['`accounts.credential`'],
+    title: 'Managed credentials / connected accounts (`managed_credentials`)',
+    sites: [
+      '`managed_credentials`, keyed `(owner_user_id, id)` — THE LIVE TABLE since PDM-280, which moved every reader to it in one commit. Definition: apps/server/src/migrations/schema.ts (`managedCredentials`). Store: apps/server/src/store/accounts.ts.',
+      '`accounts.credential` — RETIRED and unread. PDM-280 left it in place so one release of rollback still finds its data; PDM-296 drops it. When that lands, DELETE THIS ENTRY and nothing else in the row changes — the entry above is the answer either way. scripts/audit-durable-classes.test.ts holds this to it: while `accounts` is in the schema the row must say it is retired, and once it is not, the row must stop naming it.',
+    ],
     home: 'server',
-    idMinting: 'Server account id',
+    idMinting:
+      'Server account id. `managedAccountId()` mints a SLOT NAME (`managed:anthropic`) and PDM-280 did not change the spelling — it changed what the name is scoped to, from an instance singleton to a slot inside ONE person’s credentials. The durable key is the PAIR, so two people may hold the same slot name.',
     writers: ['operator', 'system'],
     replication: 'none',
     replicationNote:
-      'Presence / identity reach clients; VALUES never do. Injection at spawn is server→daemon.',
+      'Presence / identity reach clients; VALUES never do. Injection at spawn is server→daemon. STILL `none` FOR A PER-USER CREDENTIAL (PDM-327): `owner_user_id` decides WHOSE rows a caller may read, and a read that returns fewer rows cannot turn a never-replicated value into a replicated one. D6 is untouched by the key.',
     conflict: 'exp-rev',
     tombstone: 'hard-delete',
-    tombstoneNote: 'Delete the row.',
+    tombstoneNote:
+      'Delete the row — and since PDM-280 “the row” is the `(owner_user_id, id)` PAIR, so removing one person’s slot leaves another person’s slot of the same name standing.',
     offline: 'never-enqueue',
     secret: 'secret-value',
-    secretNote: '`secret-value` at rest.',
-    owner: { kind: 'none', reason: 'secret', note: '`secret` at rest (D15).' },
+    secretNote:
+      '`secret-value` at rest, and STILL `secret-value` per person (PDM-327). What PDM-280 added was an OWNER column, not a change to `credential`: the material is the same material it always was, and a secret with a named holder is still a secret. Nothing here weakens to `secret-presence`, which is what the wire carries.',
+    owner: {
+      kind: 'none',
+      reason: 'secret',
+      note: "STILL `none` AFTER PDM-280, and that is a decision, not an oversight — the cells were never revisited when the class acquired a per-person key, so PDM-327 revisits them here. THE TWO SENSES ARE DIFFERENT. `managed_credentials.owner_user_id` records who is ACCOUNTABLE for a credential; its schema comment says so and deliberately picks that vocabulary over the `user_id` of the per-user-state family, which keys a person’s VIEW of something. This COLUMN asks a narrower question: who owns the class such that ownership can be granted or transferred. ADR 1 D15 answers it — credential material authenticates a person and is not theirs to hand on — and a key that says who is answerable for a secret does not make the secret giftable. So an accountable human AND no matrix owner is coherent, and is what the table now expresses. `kind: 'user'` here would also contradict the D6 obligation matrix.test.ts asserts over every `secret-value` row; moving it is an ADR 1 amendment, not an edit.",
+    },
     visibility: 'secret',
     grants: {
       kind: 'none',
       reason: 'secret-admin-grade',
-      note: '`manage` is admin-grade; INJECTION at spawn is bounded by the spawning principal’s rights. O5 is adjacent and open: server-injected material is separable from a host and should plausibly bill the DELEGATING human rather than the machine owner — that is a per-feature call and must not be modelled speculatively.',
+      note: '`manage` is admin-grade; INJECTION at spawn is bounded by the spawning principal’s rights. UNCHANGED BY PDM-280 (checked, PDM-327): the owner column scopes which rows a person READS, and reading your own keys was never the privileged verb — rotating or replacing them is, and that is still admin-grade. O5 is adjacent and open: server-injected material is separable from a host and should plausibly bill the DELEGATING human rather than the machine owner — that is a per-feature call and must not be modelled speculatively.',
     },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',

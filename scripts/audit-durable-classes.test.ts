@@ -233,3 +233,149 @@ describe('the runtime-table scanner reads the forms the repo actually uses', () 
     ])
   })
 })
+
+// ---------------------------------------------------------------------------
+// The matrix row must point at a table that is actually there — PDM-327
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THIS LIVES HERE AND NOT IN `packages/model/src/annotations/matrix.test.ts`.
+ *
+ * The obligation joins two populations, and this file is the only place they
+ * meet: the matrix row is `@podium/model`'s, the schema that says which tables
+ * exist is `apps/server`'s, and nothing in the model package may read across to
+ * it. A test in matrix.test.ts could only compare the row's prose against a
+ * hand-typed table name — the second copy of the same assumption that catalogue
+ * shape 7 is about. Here the liveness half is DERIVED, by asking the shipped
+ * `checkDrizzleTables` against the shipped schema files.
+ *
+ * WHAT WENT WRONG, so the assertions below are readable as repairs. PDM-280
+ * replaced `accounts` with `managed_credentials` and moved every reader in one
+ * commit, but left the matrix row's `title` and `sites` naming only `accounts`.
+ * PDM-296 deletes `accounts`. So the class's one pointer was aimed at a table
+ * scheduled for removal, and on the day it went the row would have described
+ * nothing — silently, because no gate reads a `sites` string.
+ *
+ * AND THE TIE FLIPS BY ITSELF. The retirement case is written against what the
+ * schema says TODAY, not against a date or a ticket state: while `accounts` is
+ * still a live drizzle table the row may name it and must mark it retired; the
+ * moment PDM-296 drops it from the schema, the second case takes over and
+ * reddens by name until the row stops naming it. That is deliberate — catalogue
+ * shape 27 is a comment promising a future fix, and a comment cannot fail.
+ *
+ * `@podium/scripts#test` lists `$TURBO_ROOT$/packages/**` and
+ * `$TURBO_ROOT$/apps/**` among its Turbo inputs (checked in turbo.json), so both
+ * an edit to the row and an edit to the schema invalidate this lane's cache. A
+ * cross-package assertion whose inputs missed one of its two populations would
+ * replay a green it had not earned.
+ */
+describe('the managed-credentials row names the table that exists (PDM-327)', () => {
+  const ROW_ID = 'managed-credentials'
+
+  const schemas = (): { file: string; source: string }[] =>
+    readSources([
+      'apps/server/src/migrations/schema.ts',
+      'packages/sync/src/adapters/sqlite/schema.ts',
+    ])
+
+  /** Liveness DERIVED from the schema, via the gate's own reader: declare the
+   *  table alone and see whether the gate calls the declaration stale. */
+  const isLiveTable = (table: string): boolean =>
+    !checkDrizzleTables(schemas(), [
+      { store: table, kind: 'drizzle-table', row: ROW_ID } as DurableStore,
+    ]).some((f) => f.check === 'drizzle-table-stale' && f.where === table)
+
+  const row = () => {
+    const r = OWNERSHIP_MATRIX_INDEX.get(ROW_ID)
+    if (r === undefined) throw new Error(`${ROW_ID} is not on the matrix`)
+    return r
+  }
+  const sitesText = () => row().sites.join('\n')
+
+  it('the liveness probe can say NO, so the cases below are not vacuous', () => {
+    // Without this the whole block passes on a probe that answers YES to
+    // everything, and "the table is live" would assert nothing at all.
+    expect(isLiveTable('managed_credentials')).toBe(true)
+    expect(isLiveTable('managed_credentials_that_never_existed')).toBe(false)
+  })
+
+  it('points at `managed_credentials`, which is a live table', () => {
+    expect(sitesText()).toContain('managed_credentials')
+    expect(row().title).toContain('managed_credentials')
+    // The half that makes the first half worth asserting: the name in the row is
+    // a table the schema still declares, not just a plausible string.
+    expect(isLiveTable('managed_credentials')).toBe(true)
+  })
+
+  it('names the retired table only while it is retired, and never as the answer', () => {
+    if (isLiveTable('accounts')) {
+      // PDM-296 has not landed. `accounts` may appear — it still holds the
+      // pre-adoption rows — but only marked as what it is.
+      expect(sitesText()).toMatch(/RETIRED/)
+      expect(sitesText()).toMatch(/PDM-296/)
+      // And it must not be the row's headline answer any more.
+      expect(row().title).not.toContain('(`accounts`)')
+    } else {
+      // PDM-296 HAS landed and this test is now your instruction: delete the
+      // `accounts.credential` entry from the row's `sites`, and this arm goes
+      // quiet on its own.
+      expect(
+        sitesText(),
+        'the `accounts` table is gone from the schema — remove it from the managed-credentials row',
+      ).not.toContain('accounts.credential')
+    }
+  })
+
+  it('records WHY the per-person key left owner, replication and secret alone', () => {
+    // PDM-280 gave the class a `(owner_user_id, id)` key. The cells were not
+    // revisited then; the repair was to decide and write it down, so assert the
+    // writing-down rather than trusting a reviewer to notice its absence.
+    const r = row()
+    expect(r.owner.kind).toBe('none')
+    if (r.owner.kind === 'none') {
+      expect(r.owner.reason).toBe('secret')
+      expect(r.owner.note).toContain('owner_user_id')
+      expect(r.owner.note).toContain('ACCOUNTABLE')
+    }
+    expect(r.replicationNote ?? '').toContain('PDM-327')
+    expect(r.secretNote ?? '').toContain('PDM-327')
+  })
+
+  it('is still a member of the D6 secret family, BY NAME', () => {
+    // matrix.test.ts asserts D6 over `rows.filter(r => r.secret === 'secret-value')`.
+    // That loop cannot notice a row LEAVING the family — it would simply stop
+    // covering it and stay green (catalogue shape 8/9, a list that shrank). So
+    // pin the membership and the cells the loop would have checked, here, by
+    // name: catalogue shape 19's cheap detector, applied to the row this issue
+    // repaired.
+    const r = row()
+    expect(r.secret).toBe('secret-value')
+    expect(r.visibility).toBe('secret')
+    expect(r.replication).toBe('none')
+    expect(r.offline).toBe('never-enqueue')
+    expect(r.grants.kind).toBe('none')
+    if (r.grants.kind === 'none') expect(r.grants.reason).toBe('secret-admin-grade')
+  })
+
+  it('is the row `managed_credentials` and `accounts` BOTH classify, and it exists', () => {
+    // One row, two stores, for the one release in which both tables exist —
+    // PDM-324's reason for not minting a second row. Asserted from the shipped
+    // inventory so a later split is loud here rather than silent.
+    const named = DURABLE_STORES.filter(
+      (s) => s.store === 'managed_credentials' || s.store === 'accounts',
+    )
+    // `managed_credentials` is required; `accounts` is present until PDM-296 and
+    // is not asserted here, so this case does not become a second thing that
+    // issue has to edit. Whichever are present must agree on the row.
+    expect(named.map((s) => s.store)).toContain('managed_credentials')
+    expect(new Set(named.map((s) => s.row))).toEqual(new Set([ROW_ID]))
+    // MEMBERSHIP, with the miss planted in both directions: a real id is
+    // accepted and a near-miss is reported, so this cannot pass against an
+    // empty index.
+    expect(OWNERSHIP_MATRIX_INDEX.has(ROW_ID)).toBe(true)
+    expect(
+      checkMatrixMembership(named.map((s) => ({ ...s, row: `${ROW_ID}x` }))).map((f) => f.check),
+    ).toContain('store-names-a-row-that-does-not-exist')
+    expect(checkMatrixMembership(named)).toEqual([])
+  })
+})
