@@ -7,6 +7,7 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -72,7 +73,7 @@ async function waitFor(pred: () => boolean, timeoutMs = 10000): Promise<void> {
 
 describe('e2e: daemon -> server -> client', () => {
   it('streams real fixture output to a client, round-trips input, and bumps epoch on takeover', async () => {
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     // Start daemon first so it is attached before we create the session.
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,

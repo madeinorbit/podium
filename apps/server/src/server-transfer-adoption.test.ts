@@ -12,6 +12,7 @@ import { OperationStore } from './modules/operations/store'
 import { TransferJournal } from './modules/server-transfer/journal'
 import type { TransferRecord } from './modules/server-transfer/types'
 import { startServer, type ServerHandle } from './server'
+import { defaultDbPath } from './store'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 const finalTransferId = '00000000-0000-4000-8000-000000000002'
@@ -142,7 +143,7 @@ describe('target server deferred move adoption', () => {
     mkdirSync(stage, { recursive: true })
     metadataPath = join(stage, 'state.json')
     writeFileSync(metadataPath, JSON.stringify(promotingMetadata()))
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({ dbPath: defaultDbPath(), janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {
@@ -183,7 +184,7 @@ describe('target server deferred move adoption', () => {
 
   it('reboots with durable promoted proof and opens the data plane before binding', async () => {
     await handle.close()
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({ dbPath: defaultDbPath(), janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
 
     const response = await fetch(`http://127.0.0.1:${handle.port}/readiness`)
     expect(response.status).toBe(200)
@@ -270,7 +271,7 @@ describe('source server deferred move adoption', () => {
       }
       new TransferJournal(join(root, '.server-transfer')).begin(record)
 
-      handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+      handle = await startServer({ dbPath: defaultDbPath(), janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       const engine = handle.registry.modules.operations.engine
       const deferred = (await engine.get(operation.id))?.operation
       expect(engine.isAdoptionDeferred(operation.id)).toBe(true)

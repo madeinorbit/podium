@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 /** The page's origin. Nothing listens there; only the header matters. */
 const APP_ORIGIN = 'http://app.localtest.me:55556'
@@ -83,7 +84,7 @@ describe('a same-site app host talking to an API on another host', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     // Read once at boot, so it has to be here rather than in a test.
     process.env.PODIUM_ALLOWED_ORIGINS = APP_ORIGIN
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ dbPath: defaultDbPath(), port: 0 })
     const trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
     await trpc.setup.complete.mutate({ publicUrl: 'https://api.localtest.me', password: PASSWORD })
   })

@@ -110,7 +110,19 @@ export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
 export { normalizeRepoPath }
 
-/** Default DB file: podium.db below the selected instance state root. */
+/**
+ * The database file this machine calls the default: podium.db below the selected
+ * instance state root.
+ *
+ * THIS IS A STATEMENT, NOT A FALLBACK [PDM-346]. It used to be the default value of
+ * `SessionStore.open`'s first parameter, which made opening, BACKING UP and MIGRATING
+ * the operator's live database the behaviour of omission — `SessionStore.open()` with
+ * nothing typed did it, and a single process-global (`PODIUM_STATE_DIR`) was the only
+ * thing deciding which database that was. The default is gone; every caller names a
+ * path. A caller that genuinely means "whichever database this machine is configured
+ * for" calls THIS function, and `grep -rn 'defaultDbPath()'` then enumerates exactly
+ * those callers instead of returning one default parameter and nothing else.
+ */
 export function defaultDbPath(): string {
   return join(stateDir(), 'podium.db')
 }
@@ -247,8 +259,19 @@ export class SessionStore {
     return this.searchIndexEnabledValue
   }
 
+  /**
+   * Open a store, applying any outstanding migrations to it.
+   *
+   * `path` IS REQUIRED AND HAS NO DEFAULT [PDM-346]. This function is the only
+   * caller of `openStoreDatabase` and the only caller of `migrateStoreConnection`
+   * in the repository, which makes it the single door through which any database
+   * is opened, backed up and migrated. A default here meant that door swung open
+   * onto the live instance whenever a caller said nothing — which is what happened.
+   * Callers that mean the configured instance pass {@link defaultDbPath}(); tests
+   * pass `':memory:'` or their own file.
+   */
   static async open(
-    path: string = defaultDbPath(),
+    path: string,
     hostMachineId: MachineId = asMachineId(randomUUID()),
     options: SnapshotVerifierDeps & { queryOnly?: boolean } = {},
     watchdog: WatchdogOptions = {

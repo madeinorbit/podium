@@ -12,6 +12,7 @@ import { registerDevFeedRoutes } from '../../server/src/modules/updates/artifact
 import { developmentArtifactUrl } from '../../server/src/modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from '../../server/src/modules/updates/signing-key'
 import { startServer } from '../../server/src/server'
+import { defaultDbPath } from '../../server/src/store'
 import { startDaemon } from './daemon'
 import { readPendingGrant } from './pending-grant'
 
@@ -161,7 +162,11 @@ describe('daemon update grant over the live server socket', () => {
       const bytes = packHeadless(stage, toVersion)
       const bundlePath = join(stage, 'bundle.tar.gz')
 
-      server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+      server = await startServer({
+        dbPath: defaultDbPath(),
+        janitorWorkerForTests: noJanitorWorkerForTests,
+        port: 0,
+      })
       // The server's OWN persisted instance key — the same one its handshake
       // hands the daemon to pin. Reading it here signs the artifact as the
       // publisher would; nothing about the trust root is faked.
@@ -187,9 +192,9 @@ describe('daemon update grant over the live server socket', () => {
       await waitFor(async () =>
         Boolean(
           (await server?.registry.modules.machines.listMachines())?.some(
-              (machine) =>
-                machine.id === machineId && machine.online && machine.appVersion === fromVersion,
-            ),
+            (machine) =>
+              machine.id === machineId && machine.online && machine.appVersion === fromVersion,
+          ),
         ),
       )
 
@@ -221,10 +226,14 @@ describe('daemon update grant over the live server socket', () => {
       updates.setTarget(target)
       expect(await updates.tick()).toEqual([machineId])
 
-      await waitFor(async () => readFileSync(join(installDir, 'VERSION'), 'utf8').trim() === toVersion)
+      await waitFor(
+        async () => readFileSync(join(installDir, 'VERSION'), 'utf8').trim() === toVersion,
+      )
       await waitFor(async () => typeof markerAtRestart?.grantId === 'string')
       await waitFor(
-        async () => (await updates.fleet()).find((machine) => machine.id === machineId)?.state === 'restarting',
+        async () =>
+          (await updates.fleet()).find((machine) => machine.id === machineId)?.state ===
+          'restarting',
       )
 
       expect(markerAtRestart).toMatchObject({

@@ -57,6 +57,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import { startServer } from '../server'
+import { defaultDbPath } from '../store'
 
 const SESSIONS = 40
 const ROUNDS = 6
@@ -83,7 +84,7 @@ describe('a daemon reattach storm', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({ dbPath: defaultDbPath(), janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     machineId = handle.registry.modules.machines.hostMachineId
     // A session can only be created on an ONLINE machine, so the host has to be
     // attached before the fixture exists. This sink is superseded by the storm's

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
+import { defaultDbPath } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { type JanitorHandle, startJanitor } from '../packages/janitor/src/janitor'
 
@@ -80,7 +81,11 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       await seed.close()
 
       expect(messageStatus(dbPath)).toBe('queued')
-      server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+      server = await startServer({
+        dbPath: defaultDbPath(),
+        janitorWorkerForTests: noJanitorWorkerForTests,
+        port: 0,
+      })
       janitor = await startJanitor({
         serverUrl: `http://127.0.0.1:${server.port}`,
         token: server.bootstrapToken,

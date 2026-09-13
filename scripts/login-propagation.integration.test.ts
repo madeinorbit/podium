@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { type DaemonHandle, startDaemon } from '../apps/daemon/src/daemon'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { defaultDbPath } from '../apps/server/src/store'
 
 const DONOR_ID = asMachineId('00000000-0000-4000-8000-000000001708')
 const TARGET_ID = asMachineId('00000000-0000-4000-8000-000000001709')
@@ -153,6 +154,7 @@ describe('real daemon-to-daemon login propagation', () => {
       installClaudeFixture(targetHome, false)
 
       server = await startServer({
+        dbPath: defaultDbPath(),
         janitorWorkerForTests: noJanitorWorkerForTests,
         host: '127.0.0.1',
         port: 0,

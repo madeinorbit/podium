@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { ServerHandle } from './server'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 const LARGE_JSON = JSON.stringify({
   rows: Array.from({ length: 2_000 }, (_, i) => ({ id: i, value: 'transport-proof-value' })),
@@ -288,6 +289,7 @@ describe('transport compression on real Bun wires', () => {
     process.env.PODIUM_WEB_DIR = webDir
     process.env.PODIUM_MOBILE_WEB_DIR = mobileDir
     server = await startServer({
+      dbPath: defaultDbPath(),
       janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       plugins: [

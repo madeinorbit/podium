@@ -5,9 +5,11 @@
  *
  * Run: PODIUM_STATE_DIR=/tmp/podium-dogfood bunx tsx tests/e2e/serve-min.ts   (Ctrl-C to stop)
  */
-import { startDaemon } from '../../apps/daemon/src/daemon'
+
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -18,7 +20,10 @@ import { startServer } from '../../apps/server/src/server'
  *  (and minted into) the real state dir before that happened. */
 const hostMachineId = (): string => readOrCreateLocalMachineId()
 
-const server = await startServer({ port: Number(process.env.PORT ?? 8787) })
+const server = await startServer({
+  dbPath: defaultDbPath(),
+  port: Number(process.env.PORT ?? 8787),
+})
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,

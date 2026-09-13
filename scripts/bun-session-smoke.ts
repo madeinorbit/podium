@@ -16,6 +16,7 @@ import { startDaemon } from '../apps/daemon/src/daemon'
 import { startServer } from '../apps/server/src/server'
 import { encode, parseServerMessage } from '../packages/protocol/src/index.js'
 import { applyHarnessEnv, reapHarnessSessions } from '../tests/e2e/harness-env'
+import { defaultDbPath } from '../apps/server/src/store'
 
 const PORT = 9931
 const FIXTURE = fileURLToPath(
@@ -65,7 +66,7 @@ async function waitFor(
 const runtime = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`
 console.log(`[smoke] runtime: ${runtime}`)
 
-const srv = await startServer()
+const srv = await startServer({ dbPath: defaultDbPath() })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${srv.port}`,
   launch: () => ({ cmd: 'node', args: [FIXTURE], cwd: '/tmp' }),

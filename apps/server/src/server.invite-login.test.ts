@@ -6,6 +6,7 @@ import { hashPassword } from '@podium/runtime/auth-store'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 let stateDir: string
@@ -27,7 +28,11 @@ beforeAll(async () => {
     JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
   )
   process.env.PODIUM_STATE_DIR = stateDir
-  handle = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
+  handle = await startServer({
+    dbPath: defaultDbPath(),
+    port: 0,
+    janitorWorkerForTests: noJanitorWorkerForTests,
+  })
   // Bootstrap only the existing admin's credentials. Every invite and session is
   // created over HTTP through the production server's own identity resolver.
   const users = handle.registry.sessionStore.users

@@ -48,6 +48,7 @@ import {
   harnessScratchRepo,
   reapStaleHarnessDirs,
 } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -244,7 +245,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   })
 }
 
-let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
+let server = await startServer({ dbPath: defaultDbPath(), port: PORT, redirectPhoneRootToMobile: false })
 
 /**
  * WHO THIS HARNESS'S SESSIONS BELONG TO, STATED ONCE (PDM-276).
@@ -1048,7 +1049,7 @@ const restartServer = async (): Promise<void> => {
     await server.close()
     await new Promise((resolve) => setTimeout(resolve, 750))
     if (shuttingDown) return
-    server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
+    server = await startServer({ dbPath: defaultDbPath(), port: PORT, redirectPhoneRootToMobile: false })
     restartSerial += 1
     writeFileSync(restartSerialFile, String(restartSerial))
   } finally {

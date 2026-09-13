@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { PodiumPluginHooks } from './plugins'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 // The cloud plugin seam (docs/offline-sync-architecture.md §4 rule 2, issue
 // #157): a private module composes in at build time via startServer plugins —
@@ -23,6 +24,7 @@ describe('startServer plugin seam', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-plugin-'))
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({
+      dbPath: defaultDbPath(),
       janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       plugins: [

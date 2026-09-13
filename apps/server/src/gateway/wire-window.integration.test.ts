@@ -63,6 +63,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import { startServer } from '../server'
+import { defaultDbPath } from '../store'
 import { loginTestClient } from '../test-support/client-auth'
 
 const CLIENT_PASSWORD = 'wire-window-client-password'
@@ -92,7 +93,11 @@ describe('the wire window, over real sockets', () => {
     process.env.PODIUM_STATE_DIR = stateDir
     originalPassword = process.env.PODIUM_PASSWORD
     process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,

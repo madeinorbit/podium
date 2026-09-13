@@ -34,16 +34,24 @@ import { SessionStore } from '../store'
  * Build a `SessionStore` for a test. The parameters are the constructor's, in
  * its order: the database path (`':memory:'` unless the test needs a file), the
  * host machine identity, and the snapshot-verifier seam.
+ *
+ * `path` IS REQUIRED [PDM-346]. It used to be optional and forwarded `undefined`
+ * to `SessionStore.open`, whose own default was the LIVE database — so this
+ * helper was a second door onto it, and the one the incident actually walked
+ * through: `openTestStore(process.env.SEED_DB)` with `SEED_DB` unset passed
+ * `undefined`, and the operator's real database was opened, backed up and
+ * migrated. An omitted path can no longer mean anything at all, and a path
+ * that arrives as `undefined` from the environment no longer typechecks.
  */
 export async function openTestStore(
-  path?: string,
+  path: string,
   hostMachineId?: MachineId,
   snapshotVerifierDeps?: SnapshotVerifierDeps,
 ): Promise<SessionStore> {
-  // Every parameter of the constructor has a default and an explicit `undefined`
-  // selects it, so forwarding all three keeps the state-dir path, the freshly
-  // minted machine id and the real verifier exactly as a bare `await SessionStore.open()`
-  // would have them.
+  // The remaining two parameters still default, and an explicit `undefined`
+  // selects those defaults — a freshly minted machine id and the real verifier,
+  // exactly as `await SessionStore.open(path)` would have them. The path does not
+  // default, here or below; see the note above.
   const store = await SessionStore.open(path, hostMachineId, snapshotVerifierDeps)
   primeFirstAdminMember(await firstAdminMemberId(store))
   return store

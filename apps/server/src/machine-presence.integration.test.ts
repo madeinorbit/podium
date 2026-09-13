@@ -35,6 +35,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 
@@ -65,7 +66,11 @@ describe('machine presence (live server, real daemon socket)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-presence-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    server = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
   })
   afterAll(async () => {
     await server.close()

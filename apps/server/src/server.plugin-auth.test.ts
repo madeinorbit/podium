@@ -11,6 +11,7 @@ import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 import type { Principal, PrincipalRequest } from './plugin-auth'
+import { defaultDbPath } from './store'
 const prior = process.env.PODIUM_STATE_DIR
 let dir: string
 let handle: Awaited<ReturnType<typeof startServer>>
@@ -44,6 +45,7 @@ beforeAll(async () => {
     }),
   )
   handle = await startServer({
+    dbPath: defaultDbPath(),
     port: 0,
     trustedProxyHops: 1,
     janitorWorkerForTests: noJanitorWorkerForTests,

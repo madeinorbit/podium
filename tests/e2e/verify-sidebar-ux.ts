@@ -16,6 +16,7 @@ import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/wo
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -87,7 +88,7 @@ async function main() {
           cwd: KEYECHO_PKG,
         }
 
-  const server = await startServer({ port: PORT })
+  const server = await startServer({ dbPath: defaultDbPath(), port: PORT })
   const daemon = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
     bootstrapToken: server.bootstrapToken,

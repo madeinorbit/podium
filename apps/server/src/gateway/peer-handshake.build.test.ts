@@ -36,7 +36,7 @@ const frame = (value: unknown): string => JSON.stringify(value)
 
 describe('build report on hello accept', () => {
   it('persists a report carried by the hello', async () => {
-    const store = await openTestStore()
+    const store = await openTestStore(':memory:')
     await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
@@ -53,7 +53,7 @@ describe('build report on hello accept', () => {
   })
 
   it('leaves an existing report untouched when a hello carries none', async () => {
-    const store = await openTestStore()
+    const store = await openTestStore(':memory:')
     await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
@@ -75,7 +75,7 @@ describe('build report on hello accept', () => {
   })
 
   it('records the build only after the envelope hello authenticates', async () => {
-    const store = await openTestStore()
+    const store = await openTestStore(':memory:')
     await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',

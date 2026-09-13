@@ -11,7 +11,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
-import { SessionStore } from '../../apps/server/src/store'
+import { SessionStore, defaultDbPath } from '../../apps/server/src/store'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
@@ -83,7 +83,7 @@ describe('e2e: split server/daemon local transition', () => {
     seed.repos.addRepo('/tmp/legacy-repo', '__local__')
     seed.close()
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const serverUrl = `ws://localhost:${srv.port}`
 
     try {

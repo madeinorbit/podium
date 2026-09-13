@@ -10,6 +10,7 @@ import { OperationStore } from './modules/operations/store'
 import { UPDATE_OPERATION_KIND, UPDATE_STEP_SERVER } from './modules/updates/operation'
 import { startServer, type ServerHandle } from './server'
 import { syncQueriesOver } from './store/executor/sync-drizzle'
+import { defaultDbPath } from './store'
 
 it('startServer adopts a durable update using resolved production fleet records', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-update-adoption-'))
@@ -49,7 +50,7 @@ it('startServer adopts a durable update using resolved production fleet records'
       db.close()
     }
 
-    handle = await startServer({ port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
+    handle = await startServer({ dbPath: defaultDbPath(), port: 0, janitorWorkerForTests: noJanitorWorkerForTests })
     const engine = handle.registry.modules.operations.engine
     await engine.whenSettled('update-before-restart')
     const adopted = (await engine.get('update-before-restart'))?.operation

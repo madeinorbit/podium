@@ -11,6 +11,7 @@ import { networkInterfaces } from 'node:os'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4318)
@@ -24,7 +25,7 @@ function lanIp(): string {
   return 'localhost'
 }
 
-const server = await startServer({ port: PORT })
+const server = await startServer({ dbPath: defaultDbPath(), port: PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,

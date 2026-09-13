@@ -8,6 +8,7 @@ import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -50,7 +51,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     const tmp1 = mkdtempSync(join(tmpdir(), 'podium-d1-'))
     const tmp2 = mkdtempSync(join(tmpdir(), 'podium-d2-'))
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const serverUrl = `ws://localhost:${srv.port}`
 
     // daemon1: the local/bootstrap machine

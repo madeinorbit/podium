@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { JanitorHost, StartJanitorWorkerFn } from './janitor-host'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 /**
  * The server OWNS the janitor thread (PDM-27).
@@ -75,7 +76,7 @@ describe('startServer hosts the janitor itself', () => {
       calls.push(options)
       return fakeWorker()
     }
-    handle = await startServer({ port: 0, janitorWorkerForTests: start })
+    handle = await startServer({ dbPath: defaultDbPath(), port: 0, janitorWorkerForTests: start })
     await until(() => calls.length === 1, 'the janitor worker to start')
     expect(calls).toHaveLength(1)
     expect(calls[0]?.serverUrl).toContain(`:${handle.port}`)
@@ -92,6 +93,7 @@ describe('startServer hosts the janitor itself', () => {
       release = resolve
     })
     handle = await startServer({
+      dbPath: defaultDbPath(),
       port: 0,
       janitorWorkerForTests: async () => {
         await started
@@ -108,6 +110,7 @@ describe('startServer hosts the janitor itself', () => {
 
   it('reports a worker that fails to start as degraded instead of failing the boot', async () => {
     handle = await startServer({
+      dbPath: defaultDbPath(),
       port: 0,
       janitorWorkerForTests: async () => {
         throw new Error('worker module missing')
@@ -127,6 +130,7 @@ describe('startServer hosts the janitor itself', () => {
     let closed = 0
     let hosted = false
     handle = await startServer({
+      dbPath: defaultDbPath(),
       port: 0,
       janitorWorkerForTests: async () => {
         hosted = true

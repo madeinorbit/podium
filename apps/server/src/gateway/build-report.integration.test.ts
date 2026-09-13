@@ -12,6 +12,7 @@ import {
   type WaveMachine,
 } from '../modules/updates/wave'
 import { startServer } from '../server'
+import { defaultDbPath } from '../store'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 const priorAppVersion = process.env.PODIUM_APP_VERSION
@@ -24,7 +25,11 @@ describe('machine build report over a live daemon socket', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-build-report-'))
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    server = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     await server.registry.modules.updates.setTarget('stable', {
       version: '0.4.2',
       critical: false,

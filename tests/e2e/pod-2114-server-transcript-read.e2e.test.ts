@@ -43,6 +43,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 // Own isolation port, distinct from every other lane (9925 is the acceptance
 // lane this one complements).
@@ -83,7 +84,7 @@ describe.skipIf(!live)('e2e: POD-2114 — a server session is readable through s
     const tmp = mkdtempSync(join(tmpdir(), 'podium-pod2114-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),

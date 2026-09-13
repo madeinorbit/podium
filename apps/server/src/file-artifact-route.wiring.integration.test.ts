@@ -36,6 +36,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { type ServerHandle, startServer } from './server'
+import { defaultDbPath } from './store'
 
 const ISSUE = 'wiring-proof-issue'
 const ARTIFACT = 'wiring-proof-artifact'
@@ -60,7 +61,11 @@ describe('GET /files/artifact/… on a real server [PDM-261]', () => {
     const artifactDir = join(stateDir, 'artifacts', ISSUE, ARTIFACT)
     mkdirSync(artifactDir, { recursive: true })
     writeFileSync(join(artifactDir, 'proof.txt'), BODY)
-    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    server = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
   })
 
   afterAll(async () => {

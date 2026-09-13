@@ -38,6 +38,7 @@ import { RepoRegistry } from '../../apps/server/src/repo-registry'
 import { startServer } from '../../apps/server/src/server'
 import type { SessionStore } from '../../apps/server/src/store'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 function inlineWorkerClient(): DiscoveryWorkerClient {
   return new DiscoveryWorkerClient({
@@ -107,7 +108,7 @@ writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one'
 
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => agentLaunchCommand(kind, opts)
 
-const server = await startServer({ port: PORT })
+const server = await startServer({ dbPath: defaultDbPath(), port: PORT })
 const store = (server.registry as unknown as { store: SessionStore }).store
 store.machines.upsertMachine({
   id: VMI_ID,
