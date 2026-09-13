@@ -489,31 +489,35 @@ describe('the authority-write funnel scanner', () => {
   })
 
   it('adjudicates the WHOLE onConflictDoUpdate options object, not its first set', () => {
-    // THE SHAPE THAT BEAT THE PREVIOUS VERSION. It returned the literal
-    // `{ avatar }` and classified it irrelevant, while the spread can replace
-    // `set` outright with an authority-changing payload.
-    const spreadOuter = scan(
+    // WHICH SHAPES THIS REPAIR ACTUALLY FIXES, MEASURED AGAINST THE PIN rather
+    // than assumed. PDM-409-B bounded this and was right; I then ran the pin's
+    // own scanner (extracted from `git show 3f62981c3:…`) over each fixture, and
+    // the rule is sharper than "outer options were unhandled":
+    //
+    //   THE PIN ONLY WENT WRONG WHEN IT FOUND A LITERAL `set` AND RETURNED IT,
+    //   ignoring the rest of the object. With no `set` to find it already
+    //   answered `unresolved`.
+    //
+    // So a spread or a computed key ALONGSIDE a benign `set` was missed (0
+    // findings), while the same shapes with NO `set`, and a non-literal options
+    // object, were ALREADY CORRECT. The second group are CONTROLS here, not
+    // repairs, and counting them as repairs would inflate this fix exactly the
+    // way B declined to inflate its own discrimination count.
+
+    // --- MISSED AT THE PIN (0 findings there). These are the repair. ---
+    const spreadBesideSet = scan(
       '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, ...patch }).run()',
     )
-    expect.soft(spreadOuter).toHaveLength(1)
-    expect.soft(spreadOuter[0]?.verdict).toBe('unresolved')
+    expect.soft(spreadBesideSet).toHaveLength(1)
+    expect.soft(spreadBesideSet[0]?.verdict).toBe('unresolved')
 
-    // A COMPUTED KEY in the OUTER object can introduce `set` without naming it.
-    const computedOuter = scan(
-      '    await this.db.insert(users).values(v).onConflictDoUpdate({ [key]: { disabledAt } }).run()',
+    const computedBesideSet = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, [key]: x }).run()',
     )
-    expect.soft(computedOuter).toHaveLength(1)
-    expect.soft(computedOuter[0]?.verdict).toBe('unresolved')
+    expect.soft(computedBesideSet).toHaveLength(1)
+    expect.soft(computedBesideSet[0]?.verdict).toBe('unresolved')
 
-    // The OPTIONS OBJECT ITSELF passed as an identifier is equally unreadable.
-    const identifierOuter = scan(
-      '    await this.db.insert(users).values(v).onConflictDoUpdate(options).run()',
-    )
-    expect.soft(identifierOuter).toHaveLength(1)
-    expect.soft(identifierOuter[0]?.verdict).toBe('unresolved')
-
-    // A DUPLICATE `set` later in the literal wins at runtime, so the last one is
-    // what must be read -- here an authority payload hiding behind a harmless one.
+    // A duplicate `set` wins at runtime, so the LAST one is what must be read.
     expect
       .soft(
         scan(
@@ -522,8 +526,19 @@ describe('the authority-write funnel scanner', () => {
       )
       .toHaveLength(1)
 
-    // CLEAN CONTROLS. A fully readable options object naming no authority column
-    // stays silent...
+    // --- ALREADY CORRECT AT THE PIN. Controls: they must STAY caught, and they
+    //     are not evidence for this repair. ---
+    for (const alreadyCorrect of [
+      '    await this.db.insert(users).values(v).onConflictDoUpdate(options).run()',
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ [key]: { disabledAt } }).run()',
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ ...patch }).run()',
+    ]) {
+      const found = scan(alreadyCorrect)
+      expect.soft(found, alreadyCorrect).toHaveLength(1)
+      expect.soft(found[0]?.verdict, alreadyCorrect).toBe('unresolved')
+    }
+
+    // --- CLEAN CONTROLS, so the new conservatism has not collapsed the verdicts. ---
     expect
       .soft(
         scan(
@@ -531,14 +546,11 @@ describe('the authority-write funnel scanner', () => {
         ),
       )
       .toHaveLength(0)
-    // ...and one that does name an authority column is still caught as RAW, not
-    // merely unresolved, so the new conservatism has not collapsed the two.
     const readableAuthority = scan(
       '    await this.db.insert(users).values(v).onConflictDoUpdate({ target: users.id, set: { disabledAt } }).run()',
     )
     expect.soft(readableAuthority).toHaveLength(1)
     expect.soft(readableAuthority[0]?.verdict).toBe('raw')
-    // ...and a genuinely funnelled one, spread and all, stays silent.
     expect
       .soft(
         scan(
