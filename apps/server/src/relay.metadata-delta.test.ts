@@ -230,7 +230,7 @@ describe('SessionRegistry metadata deltas', () => {
     // A SECOND client is watching while the first one tucks.
     const other = await client(registry, ['metadataDelta'])
     const before = other.inbox.length
-    await registry.issues.setIssueTucked(w.id, true)
+    await registry.issues.setIssueTucked(w.id, true, firstAdminMemberId())
     flush(registry)
 
     await expect.poll(() => deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issue').length).toBe(1)

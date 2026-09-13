@@ -472,9 +472,11 @@ export class IssueGitWorkflowModule {
       row.duplicateOf = null
       // …including the tuck-away dismissal (POD-333), same as update()'s reopen:
       // work picked back up must not carry a stale fold into its next close.
-      // PER-USER (POD-1076): clears the broadcast viewer's fold, which is what
-      // this cleared when the stamp was a column.
-      await this.store.writeIssueUserState(row.id, { tuckedAt: null })
+      // PER-USER (POD-1076), AND EVERY MEMBER'S (PDM-402): this used to clear
+      // the broadcast viewer's fold alone — what it cleared when the stamp was a
+      // column — leaving every other member's dismissal of a PREVIOUS close
+      // standing, ready to hide the row the moment this one finished.
+      await this.store.clearIssueTuckedForEveryone(row.id)
     }
     row.stage = 'in_progress'
     // THE `agent:<kind>` WRITE IS GONE (A2). This line was

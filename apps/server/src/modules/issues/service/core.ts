@@ -138,27 +138,33 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE per-user markers the broadcast carries: THE EARLIEST ADMIN'S, for
+   * WHOSE per-user markers the BROADCAST carries: THE EARLIEST ADMIN'S, for
    * every client. A KNOWN, STILL-OPEN single-user fallback — not a design.
    *
-   * PDM-295 REVIEWED THIS AND DELIBERATELY DID NOT REPAIR IT, which is why the
-   * comment is rewritten rather than left. That issue removed the sibling
-   * fallback at `SessionAuthz.settingsViewer()`, whose comment pointed HERE —
-   * "spelled out for the reason IssueService.broadcastViewer spells it out" — so
-   * without this note the survivor would read as intentional.
+   * THE WRITE HALF IS NO LONGER THIS METHOD'S (PDM-402). {@link
+   * writeIssueUserState} now takes the member whose row it is stamping, threaded
+   * from `ctx.requirePrincipal()` through the registry, and refuses rather than
+   * defaulting when nobody can name one. So marking an issue read, tucking it
+   * away and pinning it land on the CALLER's `(user_id, issue_id)` row, which is
+   * what POD-1076 keyed the table for and what `markIssueUnread`'s doc has
+   * claimed all along. This method is down to the READ half.
    *
-   * WHAT THE OLD COMMENT CLAIMED, AND WHY IT WAS CHECKED. It said "POD-1077
-   * replaces the body with the request's principal; every caller already asks
-   * the question". POD-1077 IS CLOSED. It shipped a real scoped-feed kernel —
-   * `packages/sync/src/authority/scoping.ts` evaluates a batch for ONE
-   * principal, `feed/visibility.ts` carries a shipped policy — so VISIBILITY,
-   * meaning which rows a principal receives, genuinely is per-principal.
+   * WHAT IS STILL WRONG HERE, AND IT IS THE READ. The wire every client receives
+   * carries ONE person's `pinned` / `tuckedAt` / `readAt`, and that person is the
+   * earliest admin. A second member sees the admin's fold and the admin's unread
+   * dots over their own rows — and, since the write half landed, no longer sees
+   * their own marks reflected there at all. That asymmetry is deliberate and is
+   * the honest state: a member's mark is now recorded correctly and displayed
+   * wrongly, where before it was recorded wrongly and displayed consistently.
    *
-   * IT NEVER MADE THE OVERLAY CONTENT PER-PRINCIPAL, which is what this method
-   * decides. So the sentence promised something that is not coming, exactly as
-   * POD-315's did beside `settingsViewer()`. Both of its clauses are false: the
-   * projection callers do NOT already ask, and nothing is scheduled to change
-   * that. Do not reach for POD-1077 as a blocker; check the tracker.
+   * DO NOT REACH FOR POD-1077 AS A BLOCKER; CHECK THE TRACKER. An older comment
+   * here said "POD-1077 replaces the body with the request's principal; every
+   * caller already asks the question". POD-1077 IS CLOSED. It shipped a real
+   * scoped-feed kernel — `packages/sync/src/authority/scoping.ts` evaluates a
+   * batch for ONE principal, `feed/visibility.ts` carries a shipped policy — so
+   * VISIBILITY, meaning which rows a principal receives, genuinely is
+   * per-principal. It never made the overlay CONTENT per-principal, which is what
+   * this method decides, so both clauses of that sentence were false.
    *
    * WHAT ACTUALLY STANDS IN THE WAY — ordinary work, not a dependency:
    *   1. {@link hydrated} fills `viewerState` ONCE PER PROCESS for this viewer.
@@ -166,17 +172,10 @@ export class IssueStore {
    *      principal can arrive later — see the note at the hydrate site.
    *   3. {@link wireCache} is keyed by ISSUE ID ALONE, with no viewer in the
    *      key, so every client is served the same memoized payload.
+   *   4. The server fan-out is unscoped, asserted rather than assumed by
+   *      `gateway/client-mux.test.ts`'s "does NOT scope by principal".
    * Making `viewerState` per-principal, or putting the viewer in that cache key,
    * is the repair. It is sizeable and it is NOT blocked.
-   *
-   * THE WRITE CALLERS ARE A SEPARATE AND MORE URGENT CASE. {@link
-   * writeIssueUserState} is reached from `markRead`/`markUnread`/`setTucked`,
-   * whose command context can answer `requirePrincipal()` TODAY. Those writes
-   * stamp the earliest admin's row whatever member asked — which makes
-   * `markIssueUnread`'s own doc ("marking MY copy unread never touches yours")
-   * false as written. A write landing on the wrong person's row is a different
-   * defect class from a read resolving the wrong identity, and it needs none of
-   * the above. Filed beneath PDM-139.
    */
   async broadcastViewer(): Promise<UserId> {
     return (await firstAdminMemberId(this.deps.store))
@@ -219,18 +218,87 @@ export class IssueStore {
   }
 
   /**
-   * Write one of the broadcast viewer's markers, through the store and the cache
-   * together. A PARTIAL patch — see the repository method — so marking an issue
-   * read cannot silently un-pin it.
+   * One member's stored markers for one issue, read FOR THAT MEMBER.
    *
-   * Bumps `issueInputsGen`: a marker change is an issue-side wire input, and
-   * POD-723's memo would otherwise serve the pre-change payload.
+   * {@link issueUserState} answers the same question off the hydrated map, which
+   * holds the broadcast viewer's rows and nobody else's — so a caller deciding
+   * something about a member who is not the earliest admin has to come here and
+   * pay the query. The two are deliberately separate names rather than one
+   * method with an optional user: "whose?" is the question this file keeps
+   * getting wrong, and an optional parameter is how it went unanswered.
    */
-  async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = (await this.broadcastViewer())
-    await this.deps.store.issues.setIssueUserState(user, issueId, patch)
+  async storedUserStateFor(
+    viewer: UserId,
+    issueId: IssueId,
+  ): Promise<StoredIssueUserState | undefined> {
+    return await this.deps.store.issues.getIssueUserState(viewer, issueId)
+  }
+
+  /**
+   * Write ONE MEMBER'S markers for one issue. A PARTIAL patch — see the
+   * repository method — so marking an issue read cannot silently un-pin it.
+   *
+   * `viewer` IS REQUIRED, AND THAT IS THE REPAIR (PDM-402). This method used to
+   * resolve {@link broadcastViewer} for itself, so every member-initiated
+   * mutation — mark read, mark unread, tuck, pin — stamped the EARLIEST ADMIN's
+   * `(user_id, issue_id)` row whoever had actually pressed the control. POD-1076
+   * keyed the table per person; only the writers never asked. A required
+   * parameter is what stops it recurring: there is no default to fall back to
+   * and no overload that omits it, so a new caller must answer the question.
+   *
+   * THE CACHE REFRESH IS CONDITIONAL FOR THE SAME REASON. {@link viewerState} is
+   * ONE person's map — the broadcast viewer's — so refreshing it from another
+   * member's write would publish that member's fold and unread state to every
+   * client as the admin's. When the write is not the broadcast viewer's the map
+   * is genuinely unchanged, and so is the payload: no bump, because
+   * `issueInputsGen` exists to invalidate POD-723's memo when the payload moves,
+   * and bumping it here would rebuild every wire to produce identical bytes.
+   *
+   * The member therefore does NOT see their own mark come back on the broadcast.
+   * That is the READ half of PDM-402, tracked at {@link broadcastViewer}; the
+   * client paints it optimistically in the meantime (`enqueueOverlayed`).
+   */
+  async writeIssueUserState(
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+    viewer: UserId,
+  ): Promise<void> {
+    await this.deps.store.issues.setIssueUserState(viewer, issueId, patch)
+    if (viewer !== (await this.broadcastViewer())) return
     const viewerState = this.requireHydrated().viewerState
-    const next = await this.deps.store.issues.getIssueUserState(user, issueId)
+    const next = await this.deps.store.issues.getIssueUserState(viewer, issueId)
+    if (next) viewerState.set(issueId, next)
+    else viewerState.delete(issueId)
+    this.bumpIssueInputs()
+  }
+
+  /**
+   * Retire EVERY member's tuck on one issue — the reopen path, and the one
+   * per-user write here that deliberately is not per-viewer (PDM-402).
+   *
+   * A tuck is a personal dismissal of FINISHED work, so reopening has to clear
+   * all of them: a member who never dismissed this round would otherwise watch
+   * the issue fold itself out of their sidebar the moment it next closed,
+   * carrying a stamp from a close they may never have seen. Before this existed
+   * the reopen cleared `broadcastViewer()`'s tuck and left everybody else's
+   * standing, which is the same defect wearing the opposite sign.
+   *
+   * Written through {@link IssuesRepository.setIssueUserState} once per holder
+   * rather than as one UPDATE, so the "a row whose markers are all null is
+   * DELETED" invariant stays in the single place that knows the marker list. A
+   * hand-written null-check here would go stale the next time a marker is added
+   * — which is exactly the failure that method's own comment warns about.
+   */
+  async clearIssueTuckedForEveryone(issueId: IssueId): Promise<void> {
+    const holders = await this.deps.store.issues.listIssueUserStateHolders(issueId)
+    if (holders.length === 0) return
+    for (const holder of holders) {
+      await this.deps.store.issues.setIssueUserState(holder, issueId, { tuckedAt: null })
+    }
+    const broadcast = (await this.broadcastViewer())
+    if (!holders.includes(broadcast)) return
+    const viewerState = this.requireHydrated().viewerState
+    const next = await this.deps.store.issues.getIssueUserState(broadcast, issueId)
     if (next) viewerState.set(issueId, next)
     else viewerState.delete(issueId)
     this.bumpIssueInputs()

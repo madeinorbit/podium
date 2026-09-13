@@ -1108,6 +1108,14 @@ export class IssueCrudModule {
       cascadeArchive?: boolean
       repoPath?: string
       clearSuggestion?: boolean
+      /** WHOSE pin this patch moves (PDM-402). `pinned` is the one per-user
+       *  field that rides the general update patch, so it is the one field here
+       *  that has to name a person; every other key on `IssuePatch` belongs to
+       *  the shared row. Absent is legal — most updates do not touch a pin — but
+       *  a patch that DOES carry `pinned` without it is refused rather than
+       *  falling back to the earliest admin, which is how one member's pin
+       *  became the issue's for everybody. */
+      viewer?: UserId
     },
   ): Promise<IssueWire> {
     const row = await this.store.draft(await this.store.resolveRef(id))
@@ -1157,7 +1165,7 @@ export class IssueCrudModule {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = this.store.issueOverlay(row.id).pinned
+    const prevPinned = await this.pinnedFor(opts?.viewer, row.id)
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     const prevParentBranch = row.parentBranch
@@ -1188,11 +1196,24 @@ export class IssueCrudModule {
     }
 
     if (pinnedPatch !== undefined) {
-      // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      const prevPinnedAt = this.store.issueUserState(row.id)?.pinnedAt ?? null
-      await this.store.writeIssueUserState(row.id, {
-        pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null,
-      })
+      // FAIL CLOSED (PDM-402). No `?? broadcastViewer()` here: substituting a
+      // viewer is precisely how this write came to land on the earliest admin
+      // for every member, and a silent default would restore it the first time
+      // a new caller forgot.
+      const pinner = opts?.viewer
+      if (!pinner) {
+        throw new Error(
+          `refusing to pin ${row.id}: a pin is per-user and this update cannot name the member pinning`,
+        )
+      }
+      // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away — read
+      // for the PINNER, since the hydrated map holds the broadcast viewer's rows.
+      const prevPinnedAt = (await this.store.storedUserStateFor(pinner, row.id))?.pinnedAt ?? null
+      await this.store.writeIssueUserState(
+        row.id,
+        { pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null },
+        pinner,
+      )
     }
     if ('parentId' in rowPatch) {
       await this.hierarchy().setParentForUpdate(
@@ -1246,7 +1267,7 @@ export class IssueCrudModule {
       // itself away without the operator ever seeing it. A later close offers
       // Tuck away again. Cleared here — on the closed-predicate flip itself — so
       // every client converges on it through the same broadcast.
-      await this.store.writeIssueUserState(row.id, { tuckedAt: null })
+      await this.store.clearIssueTuckedForEveryone(row.id)
     }
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
@@ -1333,7 +1354,7 @@ export class IssueCrudModule {
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    const nowPinned = this.store.issueOverlay(row.id).pinned
+    const nowPinned = await this.pinnedFor(opts?.viewer, row.id)
     if (nowPinned !== prevPinned) {
       await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
     }
@@ -1387,16 +1408,32 @@ export class IssueCrudModule {
     }
   }
 
+  /**
+   * Is this issue pinned FOR THIS MEMBER — the before/after reading the
+   * pin/unpin events are emitted from (PDM-402).
+   *
+   * `viewer` absent means the caller is an update that cannot pin at all (the
+   * pin branch refuses without one), so the broadcast viewer's overlay is the
+   * right and cheap answer: the value is only ever compared with itself across
+   * the same update, and no patch without `pinned` can move it.
+   */
+  private async pinnedFor(viewer: UserId | undefined, issueId: IssueId): Promise<boolean> {
+    if (!viewer) return this.store.issueOverlay(issueId).pinned
+    return ((await this.store.storedUserStateFor(viewer, issueId))?.pinnedAt ?? null) !== null
+  }
+
   /** Mark this issue read (issue #124): stamp a covering read_at, persist + broadcast,
    *  and log issue.read. The stamp is max(now, this issue's updatedAt, descendant
    *  updatedAts, subtree lastActiveAt) so a session whose clock is a tick ahead of
    *  `now` cannot flip derived unread back on the same click (POD-912). PER-USER
    *  STATE (POD-1076): the marker is written to the actor's `(userId, issueId)`
-   *  row, not to the issue. */
-  async markIssueRead(id: string): Promise<IssueWire> {
+   *  row, not to the issue — and `reader` is who that actor actually is
+   *  (PDM-402), threaded from `ctx.requirePrincipal()` rather than resolved here
+   *  as the earliest admin, which is what every member's click used to stamp. */
+  async markIssueRead(id: string, reader: UserId): Promise<IssueWire> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) })
+    await this.store.writeIssueUserState(row.id, { readAt: await this.coveringReadAt(row) }, reader)
     const wire = await this.store.persist(row, { touch: false })
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
@@ -1430,11 +1467,14 @@ export class IssueCrudModule {
    *  markIssueRead): clear the marker so the derived `unread` (readAt null ⇒ unread)
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
-   *  marking MY copy unread never touches yours. */
-  async markIssueUnread(id: string): Promise<IssueWire> {
+   *  marking MY copy unread never touches yours. THAT SENTENCE IS TRUE AS OF
+   *  PDM-402 AND WAS NOT BEFORE: `reader` names the member, where the write used
+   *  to resolve the earliest admin, so it was false in both directions at once —
+   *  always touching the admin's row, never the caller's. */
+  async markIssueUnread(id: string, reader: UserId): Promise<IssueWire> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
-    await this.store.writeIssueUserState(row.id, { readAt: null })
+    await this.store.writeIssueUserState(row.id, { readAt: null }, reader)
     const wire = await this.store.persist(row, { touch: false })
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
@@ -1450,15 +1490,22 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(id: string, tucked: boolean): Promise<IssueWire> {
+  async setIssueTucked(id: string, tucked: boolean, viewer: UserId): Promise<IssueWire> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new Error(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
-    // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
-    const prev = this.store.issueOverlay(row.id).tuckedAt
-    await this.store.writeIssueUserState(row.id, { tuckedAt: tucked ? (prev ?? this.store.now()) : null })
+    // PER-USER (POD-1076): my fold is mine — tucking never hides your copy, and
+    // `viewer` is what finally makes that true (PDM-402). Read the previous
+    // stamp for the TUCKING member: the hydrated map holds the broadcast
+    // viewer's rows, so consulting it would preserve the wrong person's stamp.
+    const prev = (await this.store.storedUserStateFor(viewer, row.id))?.tuckedAt ?? null
+    await this.store.writeIssueUserState(
+      row.id,
+      { tuckedAt: tucked ? (prev ?? this.store.now()) : null },
+      viewer,
+    )
     return await this.store.persist(row, { touch: false })
   }
 

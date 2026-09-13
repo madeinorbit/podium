@@ -400,7 +400,7 @@ describe('IssueService unread (#124)', () => {
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(await svc.unreadFor(w.id)).toBe(true)
     expect(w.readAt).toBeNull()
-    const read = await svc.markIssueRead(w.id)
+    const read = await svc.markIssueRead(w.id, firstAdminMemberId())
     expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
     expect(await svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
@@ -410,9 +410,9 @@ describe('IssueService unread (#124)', () => {
   it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', async () => {
     const { svc, store } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id, firstAdminMemberId())
     expect(await svc.unreadFor(w.id)).toBe(false)
-    const un = await svc.markIssueUnread(w.id)
+    const un = await svc.markIssueUnread(w.id, firstAdminMemberId())
     expect(un.readAt).toBeNull()
     expect(await svc.unreadFor(w.id)).toBe(true)
     // Freshly-derived wire agrees, and the transition event mirrors issue.read.
@@ -454,18 +454,18 @@ describe('IssueService unread (#124)', () => {
   it('pin / unpin / sortKey-only update leave a read issue read', async () => {
     const { svc, store } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id, firstAdminMemberId())
     expect(await svc.unreadFor(w.id)).toBe(false)
     const readAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
-    const pinned = await svc.update(w.id, { pinned: true })
+    const pinned = await svc.update(w.id, { pinned: true }, { viewer: firstAdminMemberId() })
     expect(pinned.pinned).toBe(true)
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(pinned.readAt).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
-    const unpinned = await svc.update(w.id, { pinned: false })
+    const unpinned = await svc.update(w.id, { pinned: false }, { viewer: firstAdminMemberId() })
     expect(unpinned.pinned).toBe(false)
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
@@ -476,7 +476,7 @@ describe('IssueService unread (#124)', () => {
     expect(reordered.updatedAt).toBe(updatedAt)
 
     // Combined organizational patch (pin + reorder) also stays read.
-    const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' })
+    const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' }, { viewer: firstAdminMemberId() })
     expect(both.pinned).toBe(true)
     expect(both.sortKey).toBe('x2d')
     expect(await svc.unreadFor(w.id)).toBe(false)
@@ -513,17 +513,17 @@ describe('IssueService unread (#124)', () => {
     }
     const svc = await IssueService.create(deps)
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id, firstAdminMemberId())
     expect(await svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:01.000Z'
     const renamed = await svc.update(w.id, { title: 'Y' })
     expect(renamed.title).toBe('Y')
     expect(await svc.unreadFor(w.id)).toBe(true)
     // Same clock step: pin alone must still leave a re-read issue read.
-    await svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id, firstAdminMemberId())
     expect(await svc.unreadFor(w.id)).toBe(false)
     clock = '2026-06-30T00:00:02.000Z'
-    const pinned = await svc.update(w.id, { pinned: true })
+    const pinned = await svc.update(w.id, { pinned: true }, { viewer: firstAdminMemberId() })
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(pinned.updatedAt).toBe('2026-06-30T00:00:01.000Z')
   })
@@ -547,7 +547,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     const w = await closedIssue(svc)
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
 
-    const tucked = await svc.setIssueTucked(w.id, true)
+    const tucked = await svc.setIssueTucked(w.id, true, firstAdminMemberId())
     expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     expect((await svc.get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
     // Durable, not in-memory: it is in the DB column…
@@ -564,7 +564,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     const w = await closedIssue(svc)
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
 
-    await svc.setIssueTucked(w.id, true)
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
 
     // The single-issue publish path — the same delivery every issue field uses,
     // which is precisely what the ui-state key could never reach.
@@ -615,32 +615,32 @@ describe('IssueService tuck-away (POD-333)', () => {
     }
     const svc = await IssueService.create(deps)
     const w = await closedIssue(svc)
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
     clock = '2026-06-30T00:01:00.000Z'
     // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
     // same control) must not move the stamp.
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
 
-    expect((await svc.setIssueTucked(w.id, false)).tuckedAt).toBeNull()
+    expect((await svc.setIssueTucked(w.id, false, firstAdminMemberId())).tuckedAt).toBeNull()
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
     // A fresh tuck after an untuck takes the NEW clock.
-    expect((await svc.setIssueTucked(w.id, true)).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
   })
 
   it('refuses to tuck work that is not finished', async () => {
     const { svc } = await harness()
     const open = await svc.create({ repoPath: '/r', title: 'open', startNow: false })
-    await expect(svc.setIssueTucked(open.id, true)).rejects.toThrow(/not finished/)
+    await expect(svc.setIssueTucked(open.id, true, firstAdminMemberId())).rejects.toThrow(/not finished/)
     expect((await svc.get(open.id))!.tuckedAt).toBeNull()
     // Untuck stays legal on anything — it only clears.
-    expect((await svc.setIssueTucked(open.id, false)).tuckedAt).toBeNull()
+    expect((await svc.setIssueTucked(open.id, false, firstAdminMemberId())).tuckedAt).toBeNull()
   })
 
   it('reopening clears the tuck, so the next close offers Tuck away again', async () => {
     const { svc } = await harness()
     const w = await closedIssue(svc)
-    await svc.setIssueTucked(w.id, true)
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
     expect((await svc.get(w.id))!.tuckedAt).not.toBeNull()
 
     const reopened = await svc.update(w.id, { stage: 'in_progress' })
@@ -658,7 +658,7 @@ describe('IssueService tuck-away (POD-333)', () => {
     // would leave it silently pre-folded.
     const { svc } = await harness()
     const w = await closedIssue(svc)
-    await svc.setIssueTucked(w.id, true)
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
 
     await svc.start(w.id)
 
@@ -669,11 +669,11 @@ describe('IssueService tuck-away (POD-333)', () => {
   it('is curation, not activity: it does not touch updatedAt or re-raise unread', async () => {
     const { svc, store } = await harness()
     const w = await closedIssue(svc)
-    await svc.markIssueRead(w.id)
+    await svc.markIssueRead(w.id, firstAdminMemberId())
     const before = (await store.issues.getIssue(w.id))!
     const beforeReadAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
 
-    const tucked = await svc.setIssueTucked(w.id, true)
+    const tucked = await svc.setIssueTucked(w.id, true, firstAdminMemberId())
 
     expect(tucked.updatedAt).toBe(before.updatedAt)
     // The tuck patch must not disturb the read marker — the two share a row now
@@ -691,7 +691,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const h = await harness()
     const w = await h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
     await h.svc.close(w.id) // stage=done, closedReason=done, updatedAt=harness now
-    await h.svc.markIssueRead(w.id) // readAt=harness now, unread→false
+    await h.svc.markIssueRead(w.id, firstAdminMemberId()) // readAt=harness now, unread→false
     return { ...h, id: w.id }
   }
 
@@ -728,7 +728,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
   it('leaves a not-done issue alone even when read long ago', async () => {
     const h = await harness()
     const w = await h.svc.create({ repoPath: '/r', title: 'Still open', startNow: false })
-    await h.svc.markIssueRead(w.id) // read, but stage is backlog (open)
+    await h.svc.markIssueRead(w.id, firstAdminMemberId()) // read, but stage is backlog (open)
     const archived = await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
     expect((await h.svc.get(w.id))!.archived).toBe(false)
@@ -747,7 +747,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const canonical = await h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
     const dup = await h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
     await h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
-    await h.svc.markIssueRead(dup.id)
+    await h.svc.markIssueRead(dup.id, firstAdminMemberId())
     const archived = await h.svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)
     expect(archived.map((w) => w.id)).toContain(dup.id)
     expect((await h.svc.get(canonical.id))!.archived).toBe(false) // still open → untouched
@@ -762,7 +762,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
       startNow: false,
     })
     await h.svc.close(child.id)
-    await h.svc.markIssueRead(child.id)
+    await h.svc.markIssueRead(child.id, firstAdminMemberId())
     expect(await h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)).toEqual([])
     expect((await h.svc.get(child.id))?.archived).toBe(false)
 
@@ -782,11 +782,11 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     await h.svc.close(unread.id)
     const withLive = await mk('done, read, agent still running')
     await h.svc.close(withLive.id)
-    await h.svc.markIssueRead(withLive.id)
+    await h.svc.markIssueRead(withLive.id, firstAdminMemberId())
     sessions.push({ ...sess('/r/wt-live'), issueId: withLive.id } as unknown as SessionMeta)
     const done = await mk('done and read')
     await h.svc.close(done.id)
-    await h.svc.markIssueRead(done.id)
+    await h.svc.markIssueRead(done.id, firstAdminMemberId())
 
     await h.svc.close(parent.id)
     expect((await h.svc.get(open.id))?.archived).toBe(false)
@@ -821,7 +821,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     const h = await harness()
     const w = await h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
     await h.svc.close(w.id)
-    await h.svc.markIssueRead(w.id)
+    await h.svc.markIssueRead(w.id, firstAdminMemberId())
     return { ...h, id: w.id }
   }
   const observation = (id: IssueId, readerUserId: UserId) => ({
@@ -872,7 +872,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
     // freshness check already covers it: re-reading moves readAt to `now`, which
     // is inside the seven-day window.
     const { svc, id } = await doneAndRead()
-    await svc.markIssueRead(id) // re-read at the harness clock, long after the observation
+    await svc.markIssueRead(id, firstAdminMemberId()) // re-read at the harness clock, long after the observation
     expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), readAtMs + 1000)).toBe(
       'not-due',
     )
@@ -881,7 +881,7 @@ describe('IssueService.tryAutoArchiveObserved — whose read gates the shared fl
 
   it('REFUSES once the viewer marked it unread — the other half of the removed CAS', async () => {
     const { svc, id } = await doneAndRead()
-    await svc.markIssueUnread(id) // deletes the marker; absent row == never read
+    await svc.markIssueUnread(id, firstAdminMemberId()) // deletes the marker; absent row == never read
     expect(await svc.tryAutoArchiveObserved(observation(id, firstAdminMemberId()), DUE)).toBe(
       'precondition',
     )
@@ -1011,7 +1011,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/r/wt' })
     await svc.close(w.id) // done
-    await svc.markIssueRead(w.id) // read at harness now
+    await svc.markIssueRead(w.id, firstAdminMemberId()) // read at harness now
     setSessionArchived.mockClear()
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
     const archived = await svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
@@ -1104,7 +1104,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     })
     await svc.update(leftover.id, { stage: 'in_progress' })
     await svc.close(epic.id)
-    await svc.markIssueRead(epic.id)
+    await svc.markIssueRead(epic.id, firstAdminMemberId())
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
     const archived = await svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((row) => row.id)).toEqual([epic.id])
@@ -1188,7 +1188,7 @@ describe('archive frees the worktree, keeping the branch (POD-567)', () => {
     recordOps(h)
     const id = await startedIssue(h, 'Aged out')
     await h.svc.close(id)
-    await h.svc.markIssueRead(id)
+    await h.svc.markIssueRead(id, firstAdminMemberId())
 
     const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
     expect((await h.svc.sweepAutoArchive(readAtMs + 8 * 24 * 3600_000)).map((w) => w.id)).toEqual([id])

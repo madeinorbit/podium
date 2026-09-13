@@ -637,6 +637,11 @@ const defs = {
         if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
         return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
+          // `pinned` is the one per-user field on this patch, so the member is
+          // resolved only when the patch actually carries it (PDM-402). Asking
+          // unconditionally would make every ordinary field edit require an
+          // authenticated human, which is a different policy and not this one.
+          ...(input.patch.pinned !== undefined ? { viewer: ctx.markerViewer() } : {}),
         })
       }),
   }),
@@ -918,25 +923,41 @@ const defs = {
   // a mutation on the wire.
   markRead: def('markRead', {
     kind: 'mutation',
-    handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueRead(input.id)),
+    // `ctx.markerViewer()` is resolved OUTSIDE `withMutation` deliberately: an
+    // unauthenticated caller must be refused, not recorded as an applied
+    // mutation whose body happened to throw (PDM-402).
+    handler: async (ctx, input) => {
+      const reader = ctx.markerViewer()
+      return await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.markIssueRead(input.id, reader),
+      )
+    },
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Like markRead, read-tracking needs only 'read'.
   markUnread: def('markUnread', {
     kind: 'mutation',
-    handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => await ctx.attention.markIssueUnread(input.id)),
+    handler: async (ctx, input) => {
+      const reader = ctx.markerViewer()
+      return await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.markIssueUnread(input.id, reader),
+      )
+    },
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
   // (POD-333). Sidebar curation the operator performs while reading the board —
   // 'read' authority like markRead, despite being a mutation on the wire.
   setTucked: def('setTucked', {
     kind: 'mutation',
-    handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () =>
-        await ctx.attention.setIssueTucked(input.id, input.tucked),
-      ),
+    handler: async (ctx, input) => {
+      const viewer = ctx.markerViewer()
+      return await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.setIssueTucked(input.id, input.tucked, viewer),
+      )
+    },
   }),
   setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',

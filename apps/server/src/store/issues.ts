@@ -1486,6 +1486,25 @@ export class IssuesRepository {
       .run()
   }
 
+  /**
+   * Every user who holds markers for this issue.
+   *
+   * The per-user table is normally read one person at a time — that is the whole
+   * point of the key — so this exists for the one question that is genuinely
+   * about ALL of them: reopening an issue has to retire EVERY member's tuck, not
+   * the reader's (PDM-402). Returns the holders rather than doing the write, so
+   * the update still goes through {@link setIssueUserState} and keeps the
+   * all-markers-null deletion rule in the one place that knows the marker list.
+   */
+  async listIssueUserStateHolders(issueId: IssueId): Promise<UserId[]> {
+    const rows = await this.db
+      .select({ userId: issueUserState.userId })
+      .from(issueUserState)
+      .where(eq(issueUserState.issueId, issueId))
+      .all()
+    return rows.map((r) => r.userId as UserId)
+  }
+
   /** Drop every user's per-user rows for an issue. Called from the issue's own
    *  purge path: the rows are not the issue's (they follow the USER), but a
    *  hard-deleted issue leaves them addressing nothing. */

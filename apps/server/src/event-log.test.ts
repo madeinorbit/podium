@@ -388,7 +388,7 @@ describe('IssueService event emission', () => {
   it('markIssueRead emits issue.read', async () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.markIssueRead(a.id)
+    await svc.markIssueRead(a.id, firstAdminMemberId())
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.read'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -397,9 +397,9 @@ describe('IssueService event emission', () => {
   it('pin change emits issue.pinned with the new value (both directions)', async () => {
     const { svc, store } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.update(a.id, { pinned: true })
-    await svc.update(a.id, { pinned: true }) // no change — no duplicate event
-    await svc.update(a.id, { pinned: false })
+    await svc.update(a.id, { pinned: true }, { viewer: firstAdminMemberId() })
+    await svc.update(a.id, { pinned: true }, { viewer: firstAdminMemberId() }) // no change — no duplicate event
+    await svc.update(a.id, { pinned: false }, { viewer: firstAdminMemberId() })
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
     expect(evs.length).toBe(2)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })

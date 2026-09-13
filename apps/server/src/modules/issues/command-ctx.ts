@@ -229,6 +229,31 @@ export class IssueCommandCtx {
     return principal
   }
 
+  /**
+   * WHOSE per-user marks this command writes (PDM-402).
+   *
+   * `read_at`, `tucked_at` and `pinned_at` are keyed `(user_id, issue_id)`
+   * (POD-1076), so every writer has to name a person. Until this existed they
+   * named `IssueService.broadcastViewer()` — the earliest admin — so whichever
+   * member pressed the control, the marker landed on somebody else's row.
+   *
+   * FAIL CLOSED, for the reason {@link requirePrincipal} spells out and one
+   * more: a substituted identity on a READ shows the wrong thing, and on a WRITE
+   * it edits the wrong person's record. There is no safe default, so an absent
+   * principal and a principal with no human behind it (a system job, ADR 3
+   * Amendment 1 D21) are both refused rather than resolved.
+   */
+  markerViewer(): UserId {
+    const user = onBehalfOfUser(this.requirePrincipal())
+    if (user === null) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'per-user issue marks require a human principal',
+      })
+    }
+    return user
+  }
+
   private readerUser(): string {
     const principal = this.caller.principal
     const user = principal ? onBehalfOfUser(principal) : null
