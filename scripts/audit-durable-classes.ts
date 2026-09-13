@@ -624,6 +624,11 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'Serves and stages files the operator explicitly points at inside their own repos. The bytes are the repo’s, not the instance’s; what Podium stores about them is the artifact row.',
     },
     {
+      file: 'apps/server/src/modules/files/file-access-gate.ts',
+      reason:
+        'Authorizes and FORWARDS; it opens nothing. PDM-272 moved `registry.ts`’s `rpc.writeFile` call behind this port, and the excuse moved with the call rather than being widened: the gate imports no filesystem module, and its only write-shaped tokens are its own `writeFile` method — declaration, implementation, and the one `modules.rpc.writeFile` forward — into `machines/rpc.ts`, excused one line below as a transport. The bytes are the operator’s own repo’s, classified at their destination.',
+    },
+    {
       file: 'apps/server/src/modules/machines/rpc.ts',
       reason:
         'Relays file operations to a daemon on behalf of a caller. A transport, not a store: every byte it moves lands in a store that is classified at its destination.',
