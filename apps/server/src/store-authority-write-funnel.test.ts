@@ -237,9 +237,20 @@ const conflictSetPayload = (call: ts.CallExpression): ts.Expression | undefined 
     if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
       return undefined
     }
-    if (property.name && ts.isIdentifier(property.name) && property.name.text === 'set') {
+    // AN IDENTIFIER KEY AND A QUOTED KEY ARE THE SAME PROPERTY AT RUNTIME.
+    // Recognising only `ts.isIdentifier` meant `{ set: { avatar }, 'set': {
+    // disabledAt } }` kept the earlier benign initializer and classified the
+    // write irrelevant — the same last-one-wins bug the duplicate-identifier
+    // case has, reached through a different spelling. A key this cannot read at
+    // all is unresolved rather than skipped.
+    const key =
+      property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+        ? property.name.text
+        : undefined
+    if (key === undefined) return undefined
+    if (key === 'set') {
       // A later duplicate wins at runtime, so keep overwriting rather than
-      // returning the first.
+      // returning the first, whichever spelling each one uses.
       resolved = ts.isPropertyAssignment(property) ? property.initializer : undefined
       if (resolved === undefined) return undefined
     }
@@ -511,20 +522,45 @@ describe('the authority-write funnel scanner', () => {
     expect.soft(spreadBesideSet).toHaveLength(1)
     expect.soft(spreadBesideSet[0]?.verdict).toBe('unresolved')
 
+    // The computed key CARRIES the authority payload, so the old scanner
+    // returns the earlier benign `set` and calls the write irrelevant. A
+    // computed key with no `set` present would not witness that — it was
+    // already unresolved — which is why this form and not that one.
     const computedBesideSet = scan(
-      '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, [key]: x }).run()',
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, [key]: { disabledAt } }).run()',
     )
     expect.soft(computedBesideSet).toHaveLength(1)
     expect.soft(computedBesideSet[0]?.verdict).toBe('unresolved')
 
     // A duplicate `set` wins at runtime, so the LAST one is what must be read.
+    // ITS VERDICT IS `raw`, NOT `unresolved`: the winning initializer is a
+    // readable literal naming an authority column, which is a stronger and more
+    // precise answer than "unreadable". An earlier handoff of mine said
+    // unresolved; the measured verdict is this one.
+    const duplicateIdentifier = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, set: { disabledAt } }).run()',
+    )
+    expect.soft(duplicateIdentifier).toHaveLength(1)
+    expect.soft(duplicateIdentifier[0]?.verdict).toBe('raw')
+
+    // A QUOTED KEY IS THE SAME PROPERTY. Same last-one-wins rule, different
+    // spelling, and it survived the previous repair.
+    const quotedWins = scan(
+      "    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, 'set': { disabledAt } }).run()",
+    )
+    expect.soft(quotedWins).toHaveLength(1)
+    expect.soft(quotedWins[0]?.verdict).toBe('raw')
+
+    // REVERSED-ORDER CLEAN CONTROL: the authority payload comes FIRST and is
+    // overwritten by a benign one, so the write is genuinely irrelevant and must
+    // stay silent. Without this, "any quoted set" would pass for handling order.
     expect
       .soft(
         scan(
-          '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, set: { disabledAt } }).run()',
+          "    await this.db.insert(users).values(v).onConflictDoUpdate({ 'set': { disabledAt }, set: { avatar } }).run()",
         ),
       )
-      .toHaveLength(1)
+      .toHaveLength(0)
 
     // --- ALREADY CORRECT AT THE PIN. Controls: they must STAY caught, and they
     //     are not evidence for this repair. ---
