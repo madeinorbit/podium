@@ -122,9 +122,15 @@ export const FILE_QUERIES = {
       // Keying on `input.machineId` files the default machine's index under
       // `undefined` and then serves it to a caller who named a different machine
       // explicitly.
-      const machineId = await state.files.requireSearchableRoot(input.root, input.machineId)
-      const paths = await PATH_INDEX.paths({ machineId, root: input.root }, async () =>
-        await state.files.lsFiles(input.root, machineId),
+      //
+      // AND ON THE RESOLVED ROOT, NOT `input.root` (PDM-262). The gate collapses
+      // `..` before it authorizes, so `/repo/sub/..` and `/repo` are one
+      // checkout with one authorization — and must therefore be one cache key.
+      // Keyed on the raw string they are two, which both duplicates the index
+      // and lets an unnormalized spelling name an entry the check never saw.
+      const target = await state.files.requireSearchableRoot(input.root, input.machineId)
+      const paths = await PATH_INDEX.paths(target, async () =>
+        await state.files.lsFiles(target.root, target.machineId),
       )
       return { paths: rankPaths(paths, input.query.trim(), input.limit).map((hit) => hit.path) }
     },
