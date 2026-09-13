@@ -113,7 +113,19 @@ async function revocableStack() {
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
   user: userId as UserId,
-  capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(userId) } },
+  // BOTH HALVES OF THE ATTRIBUTION PAIR, because that is what the transports mint
+  // and what `resolvePrincipal` requires of a human capability (it throws on
+  // `onBehalfOf === undefined || actorUser !== onBehalfOf`). The pair was omitted
+  // here and the omission was invisible while a session was decided by
+  // `scope.userId`; a `private` target is decided by `cap.onBehalfOf` (B2/PDM-251),
+  // so without it this fixture refuses the session's own owner — a failure that
+  // exists nowhere in the product.
+  capability: {
+    role: 'worker',
+    scope: { kind: 'owned', userId: asUserId(userId) },
+    actorUser: asUserId(userId),
+    onBehalfOf: asUserId(userId),
+  },
 })
 
 const human = humanScoped(firstAdminMemberId())
@@ -128,7 +140,16 @@ const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal =
   kind: 'agent',
   agentSessionId: asSessionId(agentSessionId),
   onBehalfOf: onBehalfOf as UserId,
-  capability: { ...OPERATOR, actorSessionId: asSessionId(agentSessionId) },
+  // The capability carries the SAME human the principal does, which is what
+  // `resolvePrincipal` now guarantees by construction (B2/PDM-251): it resolves
+  // the chain-root human and reconciles the capability to it, rather than
+  // returning a capability that may name somebody else or nobody. Role and scope
+  // stay admin/all deliberately — see the note above.
+  capability: {
+    ...OPERATOR,
+    actorSessionId: asSessionId(agentSessionId),
+    onBehalfOf: onBehalfOf as UserId,
+  },
   chain: [],
 })
 
@@ -235,7 +256,22 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(await s.nameNow()).toBe('yes')
   })
 
-  it('a GRANT, not just ownership, is enough — and is also read live', async () => {
+  /**
+   * ── THIS ASSERTION WAS INVERTED (B2/PDM-251), AND IT IS THE ISSUE'S SUBJECT ──
+   *
+   * It read `a GRANT, not just ownership, is enough — and is also read live` and
+   * asserted that a principal named in the grant list renames a session owned by
+   * somebody else. That is the defect PDM-251 exists to close: a session is a
+   * PRIVATE resource, owner-only under every scope (ADR 9 Amendment 1 D7;
+   * architecture section 10, which requires cross-user session grants to be
+   * INEFFECTIVE), and the rename path was asking it the TASK question.
+   *
+   * The "read live" half of the old title is not lost — it is the subject of the
+   * two tests above this one, where OWNERSHIP is what moves between drains. What
+   * this test now pins is that the grant list is not consulted AT ALL, in either
+   * direction: adding one admits nobody, so there is nothing live to re-read.
+   */
+  it('a GRANT is NOT enough — a session is owner-only (PDM-251)', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
     s.ownership.grants = [firstAdminMemberId()]
@@ -247,19 +283,25 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
         human,
         'outbox',
       )).outcome,
-    ).toBe('applied')
+    ).toBe('denied')
+    // Nothing was written, so the refusal is not merely a reported outcome.
+    expect(await s.nameNow()).not.toBe('granted')
 
-    // Revoke the GRANT specifically (ownership unchanged) — the write stops.
+    // COUNTERFACTUAL, and it is load-bearing: the SAME principal, the SAME
+    // envelope shape and the SAME stack succeed the moment it OWNS the row. So
+    // the denial above is the grant being refused, and not a fixture in which
+    // nobody can rename anything.
+    s.ownership.owner = firstAdminMemberId()
     s.ownership.grants = []
     expect(
       (await renameOnTargetPath(
         s.deps,
-        { sessionId: s.sessionId, name: 'after grant revoked', mutationId: 'g2' },
+        { sessionId: s.sessionId, name: 'owned now', mutationId: 'g2' },
         human,
         'outbox',
       )).outcome,
-    ).toBe('denied')
-    expect(await s.nameNow()).toBe('granted')
+    ).toBe('applied')
+    expect(await s.nameNow()).toBe('owned now')
   })
 })
 

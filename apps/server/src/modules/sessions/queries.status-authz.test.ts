@@ -190,23 +190,40 @@ describe('sessions.status ownership', () => {
   })
 
   /**
-   * TRANSITIONAL, AND IT MUST FLIP WHEN PDM-251 LANDS — do not read this as the
-   * v1 sharing rule. It pins what `mayReadOwned` answers TODAY, which is the
-   * task owner-or-grant shape (`AuthTarget` kind `owned`). PDM-251 is open
-   * against exactly that: a grant on a shared task still opens the private
-   * sessions attached to it, and the owner-only `private` target that should
-   * decide a SESSION exists in the model with nothing building one yet.
+   * THE FLIP THIS TEST WAS WRITTEN FOR (PDM-251 has landed).
    *
-   * So when a session authorization target becomes `private`, THIS ASSERTION
-   * BECOMES A REFUSAL. It is here to stop a regression to bare `owner ===
-   * caller` equality, not to defend grantee access on its merits. Left as a
-   * positive case so the flip is a visible, deliberate edit rather than a test
-   * that quietly already agreed.
+   * It used to read `answers a grantee today — transitional, see PDM-251` and
+   * assert that a grantee gets the status payload, pinning what `mayReadOwned`
+   * answered while a session was built in the task owner-or-grant shape. Its own
+   * note said: "when a session authorization target becomes `private`, THIS
+   * ASSERTION BECOMES A REFUSAL... left as a positive case so the flip is a
+   * visible, deliberate edit rather than a test that quietly already agreed."
+   * The target is now `private` (`session-access.ts#mayReadSessionPrivate`), so
+   * this is that edit.
+   *
+   * WHAT IT STILL GUARDS is unchanged and is why it is not simply deleted: the
+   * grant is REAL and live in the fixture, so this witnesses a grant edge being
+   * REFUSED rather than the absence of one — which is the distinction between
+   * this rule and a regression to bare `owner === caller` equality that would
+   * pass identically with no edge present.
+   *
+   * NOT_FOUND rather than FORBIDDEN, and it is compared to the stranger's answer
+   * rather than pinned on its own: §3.1.5 requires an invisible session and a
+   * nonexistent one to be indistinguishable, and a grantee must land on the same
+   * side of that as anybody else who is not the owner.
    */
-  it('answers a grantee today — transitional, see PDM-251', async () => {
+  it('refuses a grantee — a task grant does not open the session (PDM-251)', async () => {
     const h = harness({ owners: { [TARGET]: { owner: OWNER, grants: [GRANTEE] } } })
-    const result = await statusFor(h.stateFor(GRANTEE), TARGET)
-    expect(result.sessionId).toBe(TARGET)
+    const err = await statusFor(h.stateFor(GRANTEE), TARGET).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(TRPCError)
+    expect((err as TRPCError).code).toBe('NOT_FOUND')
+    // The grantee is answered EXACTLY as a stranger is — D13 bounds what a member
+    // learns of another's session to a projection, never admission to the bytes.
+    const stranger = await statusFor(h.stateFor(STRANGER), TARGET).catch((e: unknown) => e)
+    expect((err as TRPCError).code).toBe((stranger as TRPCError).code)
+    // COUNTERFACTUAL: the OWNER still reads it under the very same fixture, so the
+    // refusal is the policy and not a harness that stopped answering anybody.
+    expect((await statusFor(h.stateFor(OWNER), TARGET)).sessionId).toBe(TARGET)
   })
 
   it('refuses a stranger with NOT_FOUND rather than FORBIDDEN', async () => {
