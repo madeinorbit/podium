@@ -197,14 +197,25 @@ describe('files.read — the session-addressed arm', () => {
     expect(r).toMatchObject({ ok: true, content: 'SECRET BYTES' })
   })
 
-  /** Transitional in exactly the way `queries.status-authz.test.ts` documents:
-   *  it pins what `mayReadOwned` answers TODAY (owner-or-grant), and becomes a
-   *  REFUSAL when a session's authorization target becomes `private` under
-   *  PDM-251. Left positive so that flip is a deliberate, visible edit. */
-  it('answers a grantee today — transitional, see PDM-251', async () => {
+  /** THE FLIP THIS TEST WAS WRITTEN FOR, in exactly the way
+   *  `queries.status-authz.test.ts` documents: it pinned what `mayReadOwned`
+   *  answered while a session was the owner-or-grant shape, and becomes a REFUSAL
+   *  now that the target is `private` (PDM-251). The grant is still seeded, so
+   *  this witnesses a real edge being refused rather than the absence of one; and
+   *  the owner still reads the same file under the same fixture, so the refusal
+   *  cannot be a harness that stopped answering. */
+  it('refuses a grantee — a task grant does not open the session’s files (PDM-251)', async () => {
     const h = harness({ owners: { [TARGET]: { owner: OWNER, grants: [GRANTEE] } } })
-    const r = await readFile(h.fileStateFor(GRANTEE), { sessionId: TARGET, path: '/wt/a/x.ts' })
-    expect(r).toMatchObject({ ok: true })
+    expect(
+      await codeOf(readFile(h.fileStateFor(GRANTEE), { sessionId: TARGET, path: '/wt/a/x.ts' })),
+    ).toBe('NOT_FOUND')
+    // And the refusal costs the target nothing — no daemon reached for a grantee
+    // either, which is the property the stranger case below asserts.
+    expect(h.rpcCalls).toEqual([])
+    // COUNTERFACTUAL.
+    expect(
+      await readFile(h.fileStateFor(OWNER), { sessionId: TARGET, path: '/wt/a/secret.ts' }),
+    ).toMatchObject({ ok: true, content: 'SECRET BYTES' })
   })
 
   it('refuses a stranger with NOT_FOUND rather than FORBIDDEN', async () => {

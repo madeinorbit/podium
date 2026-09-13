@@ -433,8 +433,11 @@ describe('the unconstrained admin capability keeps its reach across the new targ
  *     through phases A and B, and C4 (PDM-144) replaces the predicate in one
  *     reviewed change afterwards.
  *   - a PRIVATE RESOURCE — a session, an automation, a machine, a per-user row
- *     — built by `modules/sessions/session-state/registry.ts` and
- *     `modules/sessions/rename-target-path.ts`. These are OWNER-ONLY in this
+ *     — built by `modules/sessions/session-state/registry.ts#privateSession` and
+ *     `modules/sessions/rename-target-path.ts#privateTarget`, and on the READ
+ *     side by `modules/sessions/session-access.ts`, `modules/memory/visibility.ts`
+ *     and `modules/sessions/session-state/service.ts` (B2/PDM-251 repointed all
+ *     five; before it they built the `owned` shape). These are OWNER-ONLY in this
  *     release (A3-spec; ADR 9 Amendment 1 D7; architecture §10, which requires
  *     cross-user session grants to be ineffective), so owner-or-grant admitted
  *     a second human to another person's private execution.
@@ -596,14 +599,23 @@ describe('a PRIVATE target is owner-only, whatever the scope (A5.1)', () => {
  * grant clause in it. Under `all` that clause is unreachable by any TASK: the
  * server's `checkIssueAccess` returns before the target is built when the scope
  * is `all`, and `mayReadOwned` always mints an `owned` SCOPE — so the only live
- * producers of an `owned` target under an unconstrained capability are
- * `session-state/registry.ts` and `rename-target-path.ts`, and both build
+ * producers of an `owned` target under an unconstrained capability were
+ * `session-state/registry.ts` and `rename-target-path.ts`, and both built
  * SESSIONS. The arm was a private-resource path wearing the task target's name.
  *
- * So it is decided as private until those two producers are repointed at the
- * `private` member, which is the later integration sweep's to do. The `owned`
- * arm under an `owned` SCOPE is NOT changed with it — there the same shape does
- * still carry issues, and narrowing it would move task exposure.
+ * THAT SWEEP HAS LANDED (B2/PDM-251): both producers now build `private`, which
+ * is decided above the scope switch. So this describe no longer covers any live
+ * traffic — it pins the `owned` shape's rule under an unconstrained scope, which
+ * is still correct for the shape and still the right thing to meet if a future
+ * producer builds one. The assertions that cover a real SESSION today are in
+ * `apps/server/src/authz-matrix.test.ts`, under 'D7 — a private session is
+ * owner-only on every transport, grant or no grant'. Recorded rather than
+ * deleted, because an unwitnessed rule that nobody says is unwitnessed is how a
+ * green stops meaning anything.
+ *
+ * The `owned` arm under an `owned` SCOPE is NOT changed with any of it — there
+ * the same shape does still carry issues, and narrowing it would move task
+ * exposure, which is C4/PDM-144's.
  */
 describe('an owned target under an unconstrained scope is owner-only (A5.1)', () => {
   const ADMIN_GRANTEE: Capability = {
