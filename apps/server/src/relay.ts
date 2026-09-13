@@ -72,7 +72,7 @@ import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
-import { checkIssueAccess } from './issue-authz'
+import { checkIssueAccess, mayReadPrivate } from './issue-authz'
 import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { NativeLoginService } from './modules/accounts/native-login'
@@ -1408,8 +1408,30 @@ export class SessionRegistry {
               if (ref.kind === 'issue')
                 return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
               if (ref.kind === 'session') {
+                // ── A SESSION IS PRIVATE, AND THIS ARM CONFERRED GRANTS (B2/PDM-251)
+                //
+                // This read `owner?.grants.includes(userId) === true`, and its
+                // grant list is NOT `sessionOwner`'s — `liveSessionOwnership`
+                // above reads the edge table directly
+                // (`store.grants.listForResource('session', …)`, filtered to
+                // read/write/manage). So B1's "grants become inactive history"
+                // did not reach here: a live edge on a SESSION resource still
+                // admitted a second person to the feed ceiling, which is what
+                // architecture section 10 requires to be INEFFECTIVE and what
+                // ADR 9 Amendment 1 D7 forbids.
+                //
+                // The edges are still READ and still passed — as `legacyGrants`,
+                // evidence at a type that admits no `UserId` to `includes` — so
+                // they are carried, shown and refused rather than dropped into an
+                // unstated second policy. D13's owner/title/live-idle projection
+                // is a narrower view computed elsewhere, not admission here.
                 const owner = await liveSessionOwnership(asSessionId(ref.id))
-                return owner?.owner === userId || owner?.grants.includes(userId) === true
+                if (!owner) return false
+                return mayReadPrivate(userId, {
+                  id: ref.id,
+                  owner: owner.owner,
+                  legacyGrants: owner.grants,
+                })
               }
               return false
             },
