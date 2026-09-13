@@ -22,6 +22,9 @@ import {
   checkWriteSites,
   DURABLE_STORES,
   type DurableStore,
+  type Finding,
+  isDurableWriteSite,
+  NON_CLASS_WRITE_SITES,
   probe,
   readSources,
   runtimeTables,
@@ -377,5 +380,128 @@ describe('the managed-credentials row names the table that exists (PDM-327)', ()
       checkMatrixMembership(named.map((s) => ({ ...s, row: `${ROW_ID}x` }))).map((f) => f.check),
     ).toContain('store-names-a-row-that-does-not-exist')
     expect(checkMatrixMembership(named)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The file-access gate's excuse, and the premise that excuse rests on — PDM-336
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THIS BLOCK EXISTS, and why it is not simply one more row on a list.
+ *
+ * PDM-272 introduced `modules/files/file-access-gate.ts` and the sweep went from
+ * 68 findings to 69. Nobody saw it, because §3's exhaustiveness assertion is RED
+ * and has been since before this epic: a new `write-site-unaccounted` lands
+ * inside a test that is already failing, under an unchanged name, so a NAME diff
+ * is empty and only the COUNT moves. PDM-324 hit the same shape one table family
+ * over and answered it the same way; this is that answer applied to §3.
+ *
+ * WHAT THE FINDING ACTUALLY WAS — an over-read, not a write. `isDurableWriteSite`
+ * is a regex over source text, and the gate's three hits are its own `writeFile`
+ * METHOD: the interface declaration, the implementation, and one forward to
+ * `modules.rpc.writeFile`. The gate imports no filesystem module at all. The
+ * identical forwarding call sat at `files/registry.ts:72` (`state.rpc.writeFile`)
+ * before PDM-272 moved it, and `registry.ts` was ALREADY excused — so the call
+ * did not become unaccounted by changing what it does, only by changing which
+ * file it lives in. Moved, not added.
+ *
+ * SO THE ENTRY IS AN EXCUSE, AND AN EXCUSE IS THE DANGEROUS KIND OF FIX. It
+ * pardons a WHOLE FILE for good: the day someone adds a real `writeFileSync` to
+ * this gate, the excuse would cover that too and §3 would stay quiet. A row that
+ * asserts only "the entry is present" would not notice. So the last test below
+ * pins the PREMISE — no filesystem import, and no write-shaped token but the
+ * forwarded method — and that is the test that has to survive, not the entry.
+ *
+ * IF THE GATE EVER GENUINELY WRITES, delete the excuse and classify it; do not
+ * loosen the premise test to keep this block green.
+ */
+describe('the file-access gate is excused as a forwarder — PDM-336', () => {
+  const GATE = 'apps/server/src/modules/files/file-access-gate.ts'
+  const gateSource = (): string => readSources([GATE])[0]?.source as string
+  // Scoped to the gate's OWN row on purpose. §3 also reports `write-site-excuse-stale`
+  // for every excused file absent from the list it was handed, so a single-file
+  // scan would otherwise report the other 32 excuses as stale — noise from the
+  // harness, not from the tree. This block asserts about exactly one file.
+  const reported = (
+    nonClass: readonly { readonly file: string; readonly reason: string }[],
+  ): Finding[] =>
+    checkWriteSites(readSources([GATE]), DURABLE_STORES, nonClass).filter((f) => f.where === GATE)
+
+  it('is flagged by the scanner at all — the premise of needing an entry', () => {
+    // If this ever goes false the entry is dead weight and `write-site-excuse-stale`
+    // is the check that should be arguing about it, not this block.
+    expect(isDurableWriteSite(gateSource())).toBe(true)
+  })
+
+  it('is excused, once, with a reason the gate accepts', () => {
+    const entries = NON_CLASS_WRITE_SITES.filter((n) => n.file === GATE)
+    expect(entries.length, `${GATE} must have exactly one excuse entry`).toBe(1)
+    expect((entries[0] as { reason: string }).reason.length).toBeGreaterThanOrEqual(60)
+    expect(reported(NON_CLASS_WRITE_SITES)).toEqual([])
+  })
+
+  it('is what makes §3 quiet about it', () => {
+    // The discriminating half, in PDM-324's shape. Without it this passes on an
+    // entry that merely sits in the array while something else does the
+    // silencing — and then deleting the entry would change nothing.
+    const without = NON_CLASS_WRITE_SITES.filter((n) => n.file !== GATE)
+    expect(without.length).toBe(NON_CLASS_WRITE_SITES.length - 1)
+    expect(reported(without).map((f) => f.check)).toContain('write-site-unaccounted')
+    expect(reported(without).map((f) => f.where)).toContain(GATE)
+  })
+
+  it('a reason too thin to be one would still be reported', () => {
+    // The excuse is only worth anything while the gate checks it for substance.
+    expect(reported([{ file: GATE, reason: 'forwards' }]).map((f) => f.check)).toContain(
+      'write-site-excuse-too-thin',
+    )
+  })
+
+  /**
+   * THE PREMISE. Everything above only says the entry is wired up correctly;
+   * this says the entry is TRUE.
+   */
+  it('THE PREMISE: the gate forwards and opens nothing', () => {
+    const source = gateSource()
+
+    // 1. No filesystem module reaches this file, so no direct write is possible.
+    expect(/from\s+'(node:)?fs(\/promises)?'/.test(source), 'the gate imports fs').toBe(false)
+
+    // 2. Of every token `isDurableWriteSite` looks for, only `writeFile(` may
+    //    appear — the gate's own method name. Any other is a real write.
+    const DIRECT = [
+      'writeFileSync',
+      'appendFileSync',
+      'mkdirSync',
+      'appendFile(',
+      'mkdir(',
+      'openDatabase(',
+      'new Database(',
+    ] as const
+    expect(DIRECT.filter((t) => source.includes(t))).toEqual([])
+
+    // 3. And every `writeFile(` is the method, not a call into something else:
+    //    its declaration, its implementation, or the one RPC forward.
+    const stray = source
+      .split('\n')
+      .filter((l) => l.includes('writeFile('))
+      .filter((l) => !/^\s*writeFile\(|^\s*async writeFile\(|\.rpc\.writeFile\(/.test(l))
+    expect(stray, 'a `writeFile(` in the gate that is not its own forwarded method').toEqual([])
+  })
+
+  it('the premise test can say NO — a planted direct write is caught', () => {
+    // Without this, all three assertions above could be vacuous against a source
+    // that simply never contains the tokens. Plant one of each and watch them
+    // fire, so a future direct write cannot slip past a green premise.
+    const planted = `import { writeFileSync } from 'node:fs'\nwriteFileSync('/tmp/x', 'y')\n`
+    expect(/from\s+'(node:)?fs(\/promises)?'/.test(planted)).toBe(true)
+    expect(planted.includes('writeFileSync')).toBe(true)
+    // and a stray call that is neither declaration nor forward is visible
+    const strayed = '  await someOtherThing.writeFile(input)'
+    expect(
+      /^\s*writeFile\(|^\s*async writeFile\(|\.rpc\.writeFile\(/.test(strayed),
+      'a non-forwarding writeFile call must NOT be accepted by the premise filter',
+    ).toBe(false)
   })
 })
