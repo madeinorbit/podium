@@ -18,6 +18,11 @@ import {
   sessionMarksRowId,
 } from '@podium/model'
 import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import {
+  type AuthorityReadPort,
+  InMemoryReplicaStore,
+  Replica,
+} from '@podium/sync/replica'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { advanceToComposerReady, expectSubmitStillDeferred } from './test-support/readiness-queue'
@@ -6175,23 +6180,98 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
   const idOf = (ch: { id?: string; entityId?: string }) => ch.id ?? ch.entityId
 
   /**
-   * THE CLIENT'S OWN VIEW, FOLDED FROM ITS OWN FRAMES — no manual cache
-   * mutation. Upserts install, anything else removes, in arrival order. This is
-   * the consumer state PDM-450 asked to see: what this client would render from.
+   * THE REAL CONSUMER, FED THIS CLIENT'S OWN FRAMES [PDM-450, second round].
+   *
+   * The previous version of this helper built a fresh Map from the recorded
+   * frames with test-authored upsert/removal handling. **That is a second
+   * replica implemented in the test**, and the reviewer was right that it proves
+   * nothing about the production one: a broken eviction application would leave
+   * it green because the production code was never called.
+   *
+   * This drives the actual `Replica` from `@podium/sync/replica` over a real
+   * `InMemoryReplicaStore`, with the server's OWN recorded frames as its input —
+   * bootstrap chunks through the real `connect()`/bootstrap walk, deltas through
+   * the real `receive()` — and reads the resulting CACHE.
+   *
+   * WHAT THIS DOES NOT COVER, stated rather than implied: the client-core
+   * BINDING and `joinSessionMarks` are NOT executed here — `apps/server` does not
+   * depend on `@podium/client-core`, so they cannot be. They are witnessed
+   * separately in `engine/replica-binding.test.ts` and
+   * `replica/session-marks-join.test.ts`, each with a plant that reddens when its
+   * seam is removed. **This is therefore server-through-cache, not
+   * server-through-UI, and no sentence here should be read as end-to-end.**
    */
-  const fold = (sent: ServerMessage[], entity: string) => {
-    const rows = new Map<string, unknown>()
-    for (const ch of changesOf(sent)) {
-      if (ch.entity !== entity) continue
-      const id = idOf(ch)
-      if (id === undefined) continue
-      if (ch.op === 'upsert') rows.set(id, ch.value)
-      else rows.delete(id)
+  /**
+   * ONE FIELD RENAME, AND IT STANDS IN FOR A PRODUCTION STEP — declared rather
+   * than buried. The protocol spells a change row's body `value`
+   * (`changeRowArm`); the kernel `Replica` reads `payload`. In production that
+   * translation is the client transport's job, which this package cannot reach.
+   * So this adapter is NOT a neutral shim: it is a one-line stand-in for a real
+   * mapping, and a defect in THAT mapping would not be caught here.
+   */
+  const toReplicaChanges = (changes: readonly unknown[]) =>
+    changes.map((ch) => {
+      const row = ch as { seq: number; entity: string; entityId: string; op: string; value?: unknown }
+      return { seq: row.seq, entity: row.entity, entityId: row.entityId, op: row.op, payload: row.value }
+    })
+
+  const applyToRealReplica = async (sent: ServerMessage[]) => {
+    const bootstrapChunks = sent.filter((m) => m.type === 'feedBootstrap')
+    const deltas = sent.filter((m) => m.type === 'feedDelta')
+    const store = new InMemoryReplicaStore()
+    const authority: AuthorityReadPort = {
+      changesSince: async () =>
+        ({ kind: 'bootstrap-required', reason: 'fixture replays recorded frames' }) as never,
+      bootstrap: () =>
+        (async function* () {
+          for (const chunk of bootstrapChunks) {
+            const f = chunk as unknown as {
+              feedId: string; epoch: string; seq: number; changes: unknown[]; last: boolean
+            }
+            yield {
+              feedId: f.feedId,
+              epoch: f.epoch,
+              snapshotSeq: f.seq,
+              changes: toReplicaChanges(f.changes),
+              last: f.last,
+            } as never
+          }
+        })(),
     }
-    return rows
+    const replica = new Replica({
+      store: store.cache,
+      authority,
+      unitOfWork: store.unitOfWork,
+    } as never)
+    replica.connect()
+    await replica.settled()
+    for (const frame of deltas) {
+      const f = frame as unknown as {
+        feedId: string; epoch: string; fromSeq: number; seq: number
+        minAvailableSeq: number; changes: unknown[]
+      }
+      await replica.receive({
+        kind: 'delta',
+        feedId: f.feedId,
+        epoch: f.epoch,
+        fromSeq: f.fromSeq,
+        seq: f.seq,
+        minAvailableSeq: f.minAvailableSeq,
+        changes: toReplicaChanges(f.changes),
+      } as never)
+      await replica.settled()
+    }
+    return store
   }
 
-  it('the ORIGINAL client keeps its mark through a delete and has it re-joined on restore', async () => {
+  /** Ids of one kind held in the REAL cache after the real consumer ran. */
+  const heldIn = (store: InMemoryReplicaStore, entity: string): string[] =>
+    store.cache
+      .readEntities()
+      .filter((r) => r.entity === entity)
+      .map((r) => r.entityId)
+
+  it('the ORIGINAL client keeps its mark through a delete and has it back on restore', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const me = firstAdminMemberId()
@@ -6203,57 +6283,65 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     const survivor = (await reg.modules.sessions.createSession({
       ownerUserId: me, agentKind: 'shell', cwd: '/repo', issueId: kept.id,
     })).sessionId
-    // Through production state, with a principal.
     await reg.modules.sessions.markSessionRead(me, doomed)
     await reg.modules.sessions.markSessionRead(me, survivor)
     await reg.modules.sessions.flushBroadcasts()
 
-    // ONE client, attached ONCE, followed across the whole lifecycle.
+    // ONE client, attached ONCE, its frames recorded across the whole lifecycle.
     const c = sink()
     await attachCurrent(reg, c.send)
-    const marksNow = () => fold(c.sent, 'sessionMarks')
-    const sessionsNow = () => fold(c.sent, 'session')
-    // THE ORIGINAL VALUE, captured for an EXACT comparison later.
-    const originalMark = (marksNow().get(sessionMarksRowId(me, doomed)) as
+    const markRow = sessionMarksRowId(me, doomed)
+
+    // The value to compare EXACTLY against later, read from the real cache.
+    const atStart = await applyToRealReplica(c.sent)
+    const originalMark = (atStart.cache.read('sessionMarks', markRow)?.value as
       | { readAt: string | null }
       | undefined)?.readAt
     expect.soft(typeof originalMark).toBe('string')
-    expect.soft([...sessionsNow().keys()]).toEqual(expect.arrayContaining([doomed, survivor]))
+    expect.soft(heldIn(atStart, 'session')).toEqual(expect.arrayContaining([doomed, survivor]))
 
     await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
     await reg.modules.sessions.flushBroadcasts()
-    // The SESSION leaves this client's fold…
-    await expect.poll(() => [...sessionsNow().keys()]).not.toContain(doomed)
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .not.toContain(doomed)
 
-    // …AND THE MARK DOES NOT. This is the contract, read off the original
-    // client's own folded state rather than from the store.
-    expect.soft([...marksNow().keys()]).toContain(sessionMarksRowId(me, doomed))
-    // CONSUMER EVIDENCE FOR "IT CANNOT RENDER A DELETED SESSION": the retained
-    // mark is held while the session is absent from the same client's view.
-    expect.soft([...sessionsNow().keys()]).not.toContain(doomed)
-    // The kept session and its mark are untouched — the control that says the
-    // delete was scoped rather than total.
-    expect.soft([...sessionsNow().keys()]).toContain(survivor)
-    expect.soft([...marksNow().keys()]).toContain(sessionMarksRowId(me, survivor))
+    // THE REAL CACHE, after the real consumer applied the real removal: the
+    // session is gone and THE MARK IS STILL HELD.
+    const afterDelete = await applyToRealReplica(c.sent)
+    expect.soft(heldIn(afterDelete, 'sessionMarks')).toContain(markRow)
+    expect.soft(heldIn(afterDelete, 'session')).not.toContain(doomed)
+    // Kept session and its mark untouched — the scope control.
+    expect.soft(heldIn(afterDelete, 'session')).toContain(survivor)
+    expect.soft(heldIn(afterDelete, 'sessionMarks')).toContain(sessionMarksRowId(me, survivor))
 
     await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
     await reg.modules.sessions.flushBroadcasts()
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .toContain(doomed)
 
-    // THE ORIGINAL CLIENT is served the session again…
-    await expect.poll(() => [...sessionsNow().keys()]).toContain(doomed)
-    // …and the mark it never lost still carries the ORIGINAL value. `toBeTruthy`
-    // was the old assertion and a neutral row wearing this id would pass it.
-    const afterMark = (marksNow().get(sessionMarksRowId(me, doomed)) as
+    const afterRestore = await applyToRealReplica(c.sent)
+    const back = (afterRestore.cache.read('sessionMarks', markRow)?.value as
       | { readAt: string | null }
       | undefined)?.readAt
-    expect.soft(afterMark).toBe(originalMark)
-    // NO UNMARKED WINDOW at this client: the mark was present continuously, so
-    // the session never reappeared before its read state.
-    expect.soft([...marksNow().keys()]).toContain(sessionMarksRowId(me, doomed))
+    // EXACT equality, not truthiness: a neutral row wearing this id would pass
+    // `toBeTruthy` and is precisely the substitution this has to exclude.
+    expect.soft(back).toBe(originalMark)
     await reg.dispose()
   })
 
-  it('a FRESH bootstrap during the delete is a distinct seam, and agrees', async () => {
+  it('the mark is present at EVERY step of the delete/restore sequence, not just the ends', async () => {
+    // THE CONTINUITY CLAIM, MEASURED RATHER THAN ASSERTED [PDM-450, second
+    // round]. I had claimed "no unmarked window" from two endpoint observations,
+    // which cannot exclude an intermediate removal and re-add. This replays the
+    // recorded frames through the real consumer ONE FRAME AT A TIME and checks
+    // the mark after each, so an intervening drop would be caught where a
+    // before/after comparison is blind to it.
+    //
+    // BOUND: this is the sequence of frames THIS SERVER SENT and the cache state
+    // after each. It is not a claim about what a UI painted between frames —
+    // that would need the binding, which this package cannot execute.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const me = firstAdminMemberId()
@@ -6263,16 +6351,44 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     })).sessionId
     await reg.modules.sessions.markSessionRead(me, doomed)
     await reg.modules.sessions.flushBroadcasts()
+    const c = sink()
+    await attachCurrent(reg, c.send)
+    const markRow = sessionMarksRowId(me, doomed)
+
+    // THE DELETE'S FRAME IS AWAITED BEFORE RESTORING, and that is not test
+    // tuning — it is what makes a SEQUENCE exist to analyse. The first version
+    // fired delete and restore back to back; the client received ONE frame for
+    // the pair, my non-vacuity guard caught it (`expected 1 to be greater than
+    // 1`), and the poll that followed was being satisfied by the BOOTSTRAP rather
+    // than by any restore delta. A continuity claim over a single frame is not
+    // weak evidence, it is no evidence, and without the guard this case would
+    // have passed while observing nothing.
     await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
     await reg.modules.sessions.flushBroadcasts()
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .not.toContain(doomed)
+    await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+    await expect
+      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .toContain(doomed)
 
-    // A client that never saw the session: cold bootstrap while deleted.
-    const cold = sink()
-    await attachCurrent(reg, cold.send)
-    expect.soft([...fold(cold.sent, 'sessionMarks').keys()]).toContain(
-      sessionMarksRowId(me, doomed),
-    )
-    expect.soft([...fold(cold.sent, 'session').keys()]).not.toContain(doomed)
+    // PREFIX BY PREFIX: replay frames 1..n through a fresh real consumer for
+    // every n, and require the mark at each step.
+    const frames = c.sent.filter((m) => m.type === 'feedBootstrap' || m.type === 'feedDelta')
+    // THE NON-VACUITY GUARD. More than one frame means the delete and the restore
+    // are actually represented in the sequence, so the prefixes below cross the
+    // transition rather than re-reading one bootstrap N times.
+    expect(frames.length).toBeGreaterThan(1)
+    const missingAt: number[] = []
+    for (let n = 1; n <= frames.length; n += 1) {
+      const store = await applyToRealReplica(frames.slice(0, n))
+      if (!heldIn(store, 'sessionMarks').includes(markRow)) missingAt.push(n)
+    }
+    // NOT VACUOUS: the loop ran over more than one prefix and the LAST prefix is
+    // the full sequence, which the case above already shows holds the mark.
+    expect.soft(missingAt).toEqual([])
     await reg.dispose()
   })
 
@@ -6313,7 +6429,7 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
         type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION,
       })
       await vi.waitFor(() => expect(done).toBe(true))
-      return [...fold(c.sent, 'sessionMarks').keys()]
+      return heldIn(await applyToRealReplica(c.sent), 'sessionMarks')
     }
 
     const ownerRows = await asUser(owner)
