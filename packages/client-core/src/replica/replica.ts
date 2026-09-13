@@ -1590,9 +1590,18 @@ class TanstackReplica implements Replica {
     }
     // PER-USER ISSUE MARKS HAVE NO `id` EITHER (PDM-408). Their identity is the
     // issue's, spelled `issueId` so nobody mistakes the row for an entity with a
-    // life of its own — and this resolver falls through to `.id` for everything
-    // it does not name, so without this arm every marks row keys on `undefined`
-    // and the whole collection collapses onto ONE row.
+    // life of its own, and this resolver falls through to `.id` for everything
+    // it does not name.
+    //
+    // WHAT ACTUALLY BREAKS WITHOUT THIS ARM — measured, because I first wrote
+    // down a different symptom and it was wrong. `keyFor` is used by
+    // {@link upsertRows} for ONE decision: is this row an insert or an update?
+    // With no arm the key is `undefined`, `col.get(undefined)` misses, and every
+    // row is classified an INSERT. The collection's own `getKey` then dedupes it
+    // against the row already there, so the write is SILENTLY DISCARDED. The
+    // collection does not collapse — two rows stay two rows, and a removal still
+    // works — but no marks row can ever CHANGE. Read stays read, a pin cannot be
+    // undone, and nothing anywhere reports a failure.
     //
     // THE SECOND PLACE. `kernel/kinds.ts` carries the matching `rowKey` arm for
     // the kernel replica; this is the legacy replica's own copy of the same

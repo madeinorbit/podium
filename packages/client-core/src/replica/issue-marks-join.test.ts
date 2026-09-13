@@ -254,3 +254,67 @@ describe('the VIEW MODEL applies the join, not just the helper', () => {
     expect(model?.pinned).toBe(false)
   })
 })
+
+describe('the replica keys each marks row separately', () => {
+  /**
+   * `Replica.keyFor` falls through to `row.id` for every kind it does not name.
+   * Marks rows have no `id` — their identity is `issueId`.
+   *
+   * PDM-139 asked for two rows plus update/remove discrimination because *a
+   * one-row witness can hide the collapse*, and running the plant showed the
+   * ask was right for a sharper reason than either of us had in mind. MEASURED,
+   * with the arm removed:
+   *
+   *     seed two rows  -> BOTH land, keyed correctly by the collection itself
+   *     update one     -> SILENTLY DISCARDED; the row keeps its old value
+   *     remove one     -> works, and takes only the one
+   *
+   * So the rows never collapse and a removal is fine. What breaks is that no
+   * marks row can ever CHANGE: `keyFor` is used only to decide insert-vs-update,
+   * an `undefined` key misses, every row is classified an insert, and the
+   * collection dedupes it away against the row already there. A read mark could
+   * never be cleared and a pin could never be undone, with nothing reporting a
+   * failure anywhere.
+   *
+   * Which is why the UPDATE case below is the one that reddens, and why a
+   * witness built only on "are there two rows?" or "does remove work?" would
+   * have stayed green over a client whose marks were frozen forever.
+   */
+  const marksFor = (issueId: string, readAt: string | null): IssueMarksWire =>
+    ({ userId: ME, issueId, pinned: false, tuckedAt: null, readAt }) as IssueMarksWire
+
+  const seeded = () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applyChanges('issueMarks', [marksFor('iss_1', 'T1'), marksFor('iss_2', 'T2')], [])
+    return replica
+  }
+
+  it('holds two rows as two rows', () => {
+    const rows = seeded().rows('issueMarks')
+
+    expect(rows).toHaveLength(2)
+    expect(rows.map((r) => r.issueId).sort()).toEqual(['iss_1', 'iss_2'])
+  })
+
+  it('UPDATES one row without rewriting the other', () => {
+    const replica = seeded()
+
+    replica.applyChanges('issueMarks', [marksFor('iss_1', 'T1-changed')], [])
+
+    const byIssue = new Map(replica.rows('issueMarks').map((r) => [r.issueId as string, r]))
+    expect(byIssue.get('iss_1')?.readAt).toBe('T1-changed')
+    // Under the collapse this read 'T1-changed' too, because both rows were one.
+    expect(byIssue.get('iss_2')?.readAt).toBe('T2')
+  })
+
+  it('REMOVES one row without taking the other', () => {
+    const replica = seeded()
+
+    replica.applyChanges('issueMarks', [], ['iss_1'])
+
+    const rows = replica.rows('issueMarks')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.issueId).toBe('iss_2')
+    expect(rows[0]?.readAt).toBe('T2')
+  })
+})

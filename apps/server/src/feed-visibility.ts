@@ -400,16 +400,42 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
-        // PDM-408. The delivery filter for marks is THIS, not a `mayRead` arm:
-        // the owner is parsed back out of the row id, so a row can only ever
-        // reach the person named in its own key. `mayRead` returns false for
-        // `per-user-state` by design — see the comment at the end of that arm.
+        // PDM-408. THREE PROPERTIES AT ONCE, and they are different changes:
+        //
+        //  1. USER-MATCH — the owner is parsed back out of the row id, so a row
+        //     can only ever reach the person named in its own key.
+        //  2. AND ISSUE-READ — the recipient must currently be able to read the
+        //     issue the row is ABOUT. A marks row's payload is an issue id, so a
+        //     member who marked an issue and later lost access would otherwise
+        //     keep learning that the issue exists, from a row that is correctly
+        //     theirs. User-match answers "whose row is this"; it does not answer
+        //     "may they still see what it names" (PDM-139).
+        //  3. AND STILL NOT GRANTABLE — the kind stays `per-user-state`, so
+        //     `mayRead` is never consulted for it and a grant edge cannot widen
+        //     it. Falling through to `personal` would route the row through the
+        //     ISSUE's audience, which is WIDER than either half; the conjunction
+        //     below is NARROWER than both. Opposite directions, and only the
+        //     narrowing is wanted.
+        //
+        // Done HERE rather than in `mayRead` because the kernel does not consult
+        // `mayRead` for this class at all (`visibility.ts`: "the only admissible
+        // answer is 'you are the user in the key'"). Returning `null` is that
+        // port's spelling of "not yours", so an unreadable issue and a foreign
+        // row refuse through one door.
+        //
+        // REVOCATION IS A GATE HERE, NOT A CLEANUP PROMISE. The tombstone path
+        // retracts stale rows, but a retraction is a timing guarantee and this
+        // is a boundary, so both exist and neither substitutes for the other.
         if (ref.entity === 'issueMarks') {
+          let marks: { userId: UserId; issueId: string }
           try {
-            return parseIssueMarksRowId(ref.entityId).userId
+            marks = parseIssueMarksRowId(ref.entityId)
           } catch {
             return null
           }
+          if (!prefetch) return null
+          if (!mayReadIssueFromSnapshot(marks.userId, marks.issueId, prefetch)) return null
+          return marks.userId
         }
         if (ref.entity === 'userReadPosition') {
           try {
@@ -474,6 +500,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         ref.entity === 'issueExecution'
       ) {
         issueIds.add(ref.entityId)
+      } else if (ref.entity === 'issueMarks') {
+        // PDM-408: the marks arm now CONJOINS an issue-read check, so the issue
+        // named inside the row id has to be prefetched like every other subject.
+        // Omit this and `keyedUserOf` denies every recipient for want of a row
+        // rather than for want of a right — a vacuously-closed gate that passes
+        // every refusal test and delivers nothing, which is the exact failure
+        // the `issueExecution` note above was written about.
+        try {
+          issueIds.add(parseIssueMarksRowId(ref.entityId).issueId)
+        } catch {
+          // Unparseable ids are refused by `keyedUserOf`; nothing to prefetch.
+        }
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
         if (dep !== null) issueIds.add(dep.fromId)
