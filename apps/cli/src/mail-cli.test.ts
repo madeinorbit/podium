@@ -288,18 +288,29 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out2).not.toMatch(/older messages/i)
   })
 
-  it('THE CONSUMING-BOUNDARY WITNESS: every read-marked row is named [PDM-139]', async () => {
-    // `messages.inbox` is a MUTATION — a consuming read — so every row it returns
-    // has been marked read by the time this renders. Per-row identity accounting
-    // over a maximum page of long bodies: none may go unnamed.
+  it('renders every RETURNED id, and holds past the supported page [PDM-139]', async () => {
+    // SCOPE, STATED HONESTLY [PDM-139]. This mocks the mutation reply, so it
+    // establishes that the CLI renders every id the boundary RETURNED. It does
+    // NOT exercise server read-status accounting, and it is not the maximum page
+    // the real boundary can produce: the contract caps a page at
+    // MAIL_INBOX_MAX_LIMIT, and 1500 is deliberately past it.
+    //
+    // It is therefore an OVERFLOW DEFENCE, and that is the only way to reach the
+    // renderer's floor through a real CLI — at a supported page the id tier fits
+    // the budget, so a dropping renderer never reaches its drop path and this
+    // test passed against a deliberately restored defect until it overshot.
+    //
+    // The read-status semantics it does NOT prove are covered server-side, where
+    // the marking actually happens:
+    //   apps/server/src/issues.test.ts
+    //     "THE ACCEPTANCE CHECK: past the cap, the NEWEST message is readable"
+    //     — a 50-row page of a 60-row box leaves mailPending unread = 10
+    //   apps/server/src/modules/messages/service.test.ts, same name
+    //     — countPendingForSession = 10 after the same page
+    // Together: the server marks exactly the page it returns, and this test says
+    // the renderer names every row of whatever it was handed.
     const long = (t: string) =>
       Array.from({ length: 60 }, (_, i) => `${t} ${i} ${'z'.repeat(90)}`).join('\n')
-    // BEYOND THE SUPPORTED PAGE ON PURPOSE. At a supported page the id tier fits
-    // the budget, so a renderer that drops rows never reaches its drop path and
-    // this witness would pass vacuously — which it did, until a deliberate break
-    // showed it could not fail for the reason it exists. Overshooting the bound
-    // is the only way to exercise the floor through the REAL boundary, and the
-    // never-drop guarantee is unconditional precisely so it still holds here.
     const returned = Array.from({ length: 1500 }, (_, i) => ({
       ...WIRE,
       id: `msg_${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,

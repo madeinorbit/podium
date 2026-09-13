@@ -58,8 +58,31 @@ export const MAIL_INBOX_MAX_LIMIT = 500
  * So newest-first protects the newest for a MEASURED consumer budget, not for
  * every unknown cut size — no renderer can promise the latter.
  */
-export const MAIL_INBOX_MAX_ID_CHARS = 64
+/**
+ * THE SUPPORTED ID DOMAIN, in BYTES rather than characters [PDM-139].
+ *
+ * A 64-CHARACTER id is not a 64-byte id: one non-ASCII character can cost four
+ * UTF-8 bytes, so a character count cannot establish a byte bound. Grounded in
+ * the actual producers rather than assumed — both emit `msg_` + `randomUUID()`,
+ * 40 ASCII bytes, comfortably inside this:
+ *
+ *   apps/server/src/modules/issues/service/mail.ts:65   `msg_${randomUUID()}`
+ *   apps/server/src/modules/messages/service.ts:1108    `msg_${randomUUID()}`
+ *
+ * THE ONE PATH OUT OF THE DOMAIN, named rather than wished away: that second
+ * site reads `input.correlationId ?? ...`, and `correlationId` is an unbounded
+ * internal `string` (modules/messages/types.ts:65). It is not reachable from the
+ * wire contract, but nothing in the type system keeps an id inside this bound.
+ * The consequence is bounded and stated: an id beyond the domain can push a page
+ * OVER BUDGET. It can never cost a row, because ids are never truncated and rows
+ * are never dropped. No valid id is widened speculatively to accommodate this.
+ */
+export const MAIL_INBOX_MAX_ID_BYTES = 64
 export const MAIL_INBOX_MAX_HEADER_CHARS = 120
+
+/** The longest `showCommand` the notice allowance is sized for; both call sites
+ *  pass `podium mail show` (16 bytes). */
+export const MAIL_INBOX_MAX_SHOW_COMMAND_BYTES = 64
 
 /**
  * Sized FROM the bound rather than picked round: the most degraded rendering of a
@@ -102,14 +125,27 @@ const clipBody = (body: string, chars: number, id: string, showCommand: string):
   return `${flat.slice(0, chars)}… (+${flat.length - chars} chars — ${showCommand} ${id})`
 }
 
+/**
+ * THE ID GUARANTEE, applied to EVERY tier [PDM-139].
+ *
+ * The renderer takes `header` from its caller and cannot assume the caller put
+ * the id in it. An earlier version enforced this only in the clipped-header tier,
+ * so the two richest tiers — the ones a normal inbox actually uses — rendered
+ * whatever the caller supplied. A SHORT header omitting its id produced a page
+ * with no id for that row, which is the unrecoverable case, reached without any
+ * oversized input and therefore invisible to a test that only probed clipping.
+ */
+const withId = (entry: InboxEntry, line: string): string =>
+  line.includes(entry.id) ? line : `${entry.id} ${line}`
+
 /** A header that can never lose its id, however long the caller made it. */
-const clipHeader = (entry: InboxEntry): string => {
-  const h =
+const clipHeader = (entry: InboxEntry): string =>
+  withId(
+    entry,
     entry.header.length <= MAIL_INBOX_MAX_HEADER_CHARS
       ? entry.header
-      : `${entry.header.slice(0, MAIL_INBOX_MAX_HEADER_CHARS)}…`
-  return h.includes(entry.id) ? h : `${entry.id} ${h}`
-}
+      : `${entry.header.slice(0, MAIL_INBOX_MAX_HEADER_CHARS)}…`,
+  )
 
 /**
  * Render a mailbox page so the NEWEST message survives a cut of unknown size.
@@ -146,10 +182,11 @@ export function renderInboxPage(entries: InboxEntry[], opts: InboxRenderOptions)
   const asText = (blocks: string[], header: string[]) => [...header, '', ...blocks].join('\n')
 
   const tiers: { blocks: string[]; header: string[] }[] = [
-    { blocks: newestFirst.map((e) => `${e.header}\n  ${e.body}`), header: head() },
+    { blocks: newestFirst.map((e) => `${withId(e, e.header)}\n  ${e.body}`), header: head() },
     {
       blocks: newestFirst.map(
-        (e) => `${e.header}\n  ${clipBody(e.body, previewChars, e.id, opts.showCommand)}`,
+        (e) =>
+          `${withId(e, e.header)}\n  ${clipBody(e.body, previewChars, e.id, opts.showCommand)}`,
       ),
       header: head('  Bodies are shortened to fit; every id above is complete.'),
     },

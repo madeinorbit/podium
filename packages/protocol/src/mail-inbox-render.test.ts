@@ -23,8 +23,9 @@ import { describe, expect, it } from 'vitest'
 import {
   MAIL_INBOX_DEFAULT_LIMIT,
   MAIL_INBOX_MAX_HEADER_CHARS,
-  MAIL_INBOX_MAX_ID_CHARS,
+  MAIL_INBOX_MAX_ID_BYTES,
   MAIL_INBOX_MAX_LIMIT,
+  MAIL_INBOX_MAX_SHOW_COMMAND_BYTES,
   MAIL_INBOX_NOTICE_ALLOWANCE_BYTES,
   MAIL_INBOX_OUTPUT_BUDGET_BYTES,
   renderInboxPage,
@@ -163,7 +164,7 @@ describe('renderInboxPage — the newest survives an arbitrary consumer cut', ()
     // page size or the id length and quietly breaking the guarantee this file
     // advertises. Assert the arithmetic, not just an example of it.
     const worstCase =
-      MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_ID_CHARS + 1) + MAIL_INBOX_NOTICE_ALLOWANCE_BYTES
+      MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_ID_BYTES + 1) + MAIL_INBOX_NOTICE_ALLOWANCE_BYTES
     expect(worstCase).toBeLessThanOrEqual(MAIL_INBOX_OUTPUT_BUDGET_BYTES)
     // And the floor really is one id per line: a header tier at full page does
     // NOT fit, which is why the id tier has to exist rather than being dead code.
@@ -178,7 +179,9 @@ describe('renderInboxPage — the newest survives an arbitrary consumer cut', ()
     // exact lesson that produced this round of review.
     const entries = Array.from({ length: MAIL_INBOX_MAX_LIMIT }, (_, i) => {
       const id = `msg_${String(i).padStart(8, '0')}-0000-4000-8000-${'0'.repeat(12)}`
-      expect(id.length).toBeLessThanOrEqual(MAIL_INBOX_MAX_ID_CHARS)
+      // BYTES, not characters — the bound is a byte bound and a character count
+      // cannot establish it. This is the shape both real producers emit.
+      expect(utf8Len(id)).toBeLessThanOrEqual(MAIL_INBOX_MAX_ID_BYTES)
       return {
         id,
         header: `${id} issue:#212 -> issue:#228 t${i} [queued]`,
@@ -188,5 +191,45 @@ describe('renderInboxPage — the newest survives an arbitrary consumer cut', ()
     const out = renderInboxPage(entries, { showCommand: 'podium mail show', pageWasFull: true })
     for (const e of entries) expect(out).toContain(e.id)
     expect(utf8Len(out)).toBeLessThanOrEqual(MAIL_INBOX_OUTPUT_BUDGET_BYTES)
+  })
+
+  it('names the id in EVERY tier, including a short header that omits it [PDM-139]', () => {
+    // THE CASE THE CLIPPED TIER COULD NOT REACH. The renderer takes `header` from
+    // its caller; an earlier version enforced the id only when clipping, so the
+    // two richest tiers — the ones a normal inbox actually uses — rendered
+    // whatever the caller supplied. A SHORT header omitting its id therefore
+    // produced a page with no id for that row, with no oversized input anywhere
+    // and nothing for a clipping test to catch.
+    const entries = [
+      { id: 'msg_aaa', header: 'from someone, no id here', body: 'short' },
+      { id: 'msg_bbb', header: 'also no id', body: 'short' },
+    ]
+    // Tier 1 (full bodies) — the default path, comfortably inside the budget.
+    const full = renderInboxPage(entries, { showCommand: 'podium mail show', pageWasFull: false })
+    for (const e of entries) expect(full).toContain(e.id)
+    // Tier 2 (previews), forced by a budget too small for full bodies.
+    const preview = renderInboxPage(
+      [
+        { id: 'msg_aaa', header: 'no id', body: 'x'.repeat(4000) },
+        { id: 'msg_bbb', header: 'no id', body: 'y'.repeat(4000) },
+      ],
+      { showCommand: 'podium mail show', pageWasFull: false, budgetBytes: 1200 },
+    )
+    expect(preview).toContain('msg_aaa')
+    expect(preview).toContain('msg_bbb')
+  })
+
+  it('sizes the notice allowance for the declared show-command bound [PDM-139]', () => {
+    // The head lines interpolate `showCommand`, so the allowance is only honest
+    // if the command is bounded too. Both call sites pass `podium mail show`.
+    expect(utf8Len('podium mail show')).toBeLessThanOrEqual(MAIL_INBOX_MAX_SHOW_COMMAND_BYTES)
+    const head = renderInboxPage([{ id: 'm', header: 'm h', body: 'b' }], {
+      showCommand: 'x'.repeat(MAIL_INBOX_MAX_SHOW_COMMAND_BYTES),
+      pageWasFull: true,
+    })
+      .split('\n')
+      .slice(0, 4)
+      .join('\n')
+    expect(utf8Len(head)).toBeLessThanOrEqual(MAIL_INBOX_NOTICE_ALLOWANCE_BYTES)
   })
 })

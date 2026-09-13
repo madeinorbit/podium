@@ -94,24 +94,29 @@ describe('podium issue mail inbox — page size and truncation', () => {
     expect((empty as { text: string }).text).toBe('(no mail)')
   })
 
-  it('THE CONSUMING-BOUNDARY WITNESS: every read-marked row is named [PDM-139]', async () => {
-    // Through the REAL consuming path. `issues.mailInbox` is a MUTATION: the rows
-    // it returns are marked read server-side by the time this renderer runs. So
-    // the accounting that matters is per-row and it is identity, not count —
-    // every row the boundary handed back must appear, by id, in what the reader
-    // sees. A row consumed with no id shown is unrecoverable, which is the same
-    // reason an over-fetch probe was rejected.
+  it('renders every RETURNED id, and holds past the supported page [PDM-139]', async () => {
+    // SCOPE, STATED HONESTLY [PDM-139]. This mocks the mutation reply, so it
+    // establishes that the CLI renders every id the boundary RETURNED. It does
+    // NOT exercise server read-status accounting, and it is not the maximum page
+    // the real boundary can produce: the contract caps a page at
+    // MAIL_INBOX_MAX_LIMIT, and 1500 is deliberately past it.
     //
-    // Maximum page, full-length ids, long multiline bodies: the worst case the
-    // boundary can produce.
+    // It is therefore an OVERFLOW DEFENCE, and that is the only way to reach the
+    // renderer's floor through a real CLI — at a supported page the id tier fits
+    // the budget, so a dropping renderer never reaches its drop path and this
+    // test passed against a deliberately restored defect until it overshot.
+    //
+    // The read-status semantics it does NOT prove are covered server-side, where
+    // the marking actually happens:
+    //   apps/server/src/issues.test.ts
+    //     "THE ACCEPTANCE CHECK: past the cap, the NEWEST message is readable"
+    //     — a 50-row page of a 60-row box leaves mailPending unread = 10
+    //   apps/server/src/modules/messages/service.test.ts, same name
+    //     — countPendingForSession = 10 after the same page
+    // Together: the server marks exactly the page it returns, and this test says
+    // the renderer names every row of whatever it was handed.
     const long = (tag: string) =>
       Array.from({ length: 60 }, (_, i) => `${tag} line ${i} ${'z'.repeat(90)}`).join('\n')
-    // BEYOND THE SUPPORTED PAGE ON PURPOSE. At a supported page the id tier fits
-    // the budget, so a renderer that drops rows never reaches its drop path and
-    // this witness would pass vacuously — which it did, until a deliberate break
-    // showed it could not fail for the reason it exists. Overshooting the bound
-    // is the only way to exercise the floor through the REAL boundary, and the
-    // never-drop guarantee is unconditional precisely so it still holds here.
     const returned = Array.from({ length: 1500 }, (_, i) => {
       const id = `msg_${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`
       return {
@@ -128,6 +133,7 @@ describe('podium issue mail inbox — page size and truncation', () => {
     const text = (out as { text: string }).text
 
     // PER-ROW IDENTITY ACCOUNTING over everything the boundary consumed.
+    // Per-row IDENTITY accounting over everything the boundary returned.
     const missing = returned.filter((m) => !text.includes(m.id)).map((m) => m.id)
     expect(missing).toEqual([])
     // Newest first, so an arbitrary downstream cut takes the OLDEST.
