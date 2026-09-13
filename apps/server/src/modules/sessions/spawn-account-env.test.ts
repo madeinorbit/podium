@@ -81,7 +81,7 @@ async function createFrame(
   agentKind: 'claude-code' | 'shell' = 'claude-code',
 ) {
   const { reg, daemon } = await makeRegistry(store)
-  await reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
+  await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind, cwd: '/proj' })
   const frame = spawns(daemon).at(-1)
   expect(frame).toBeDefined()
   return frame as Extract<ControlMessage, { type: 'spawn' }>

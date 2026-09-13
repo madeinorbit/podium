@@ -42,7 +42,7 @@ describe('approval broker relay arm (#410)', () => {
     const A = await registry.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
     await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     wtA = (await registry.issues.get(A.id))?.worktreePath as string
-    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
     daemonInbox = []
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
   })
@@ -270,7 +270,7 @@ describe('approval broker relay arm (#410)', () => {
     // capability's human can admit it — pass just `actorSessionId` from the arm
     // and this one refuses while every other assertion here still passes.
     const sC = (
-      await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })
+      await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })
     ).sessionId
     const sibling = await relayFrom(asSessionId(sC), 'get', { id })
     expect(sibling.ok).toBe(true)

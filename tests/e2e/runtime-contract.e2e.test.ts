@@ -38,6 +38,7 @@
  * than implying coverage it does not have.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -126,7 +127,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
       // A HARNESS KIND, not a shell: the flag only reaches a kind whose manifest
       // declares a terminal runtime, and `terminalProfileFor` returns undefined
       // for a shell by design — there are no turns to be honest about.
-      const { sessionId } = sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      const { sessionId } = sessions.createSession({ ownerUserId: await firstAdminMemberId(srv.registry.sessionStore), agentKind: 'claude-code', cwd: tmp })
       await waitFor(
         () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
       )
@@ -278,7 +279,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
           srv.registry.modules.machines.listMachines().find((m) => m.id === hostMachineId())
             ?.online === true,
       )
-      const { sessionId } = sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      const { sessionId } = sessions.createSession({ ownerUserId: await firstAdminMemberId(srv.registry.sessionStore), agentKind: 'claude-code', cwd: tmp })
       await waitFor(
         () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
       )

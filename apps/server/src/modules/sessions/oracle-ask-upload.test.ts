@@ -16,7 +16,7 @@
  *    allowlist, and turns both daemon failure modes into TRPCErrors.
  */
 
-import { asMachineId, asSessionId, BUILTIN_HARNESS_KINDS } from '@podium/model'
+import { asMachineId, asSessionId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -145,6 +145,7 @@ describe('oracle: sessions.ask (the seance)', () => {
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const target = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
@@ -235,10 +236,12 @@ describe('oracle: sessions.ask (the seance)', () => {
     const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
     const peer = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: a.id,

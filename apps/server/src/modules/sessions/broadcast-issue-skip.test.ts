@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -23,6 +24,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     await reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo/w',
     })).sessionId

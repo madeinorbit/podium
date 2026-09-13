@@ -76,7 +76,7 @@ describe('server agent relay handler (P1b)', () => {
     await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = (await registry.issues.get(A.id))?.worktreePath as string
     B = await registry.issues.create({ repoPath, title: 'unrelated', startNow: false })
-    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
   afterEach(async () => {
@@ -416,6 +416,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('scope-gates direct messages to a session on another issue', async () => {
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/r/other',
       agentKind: 'shell',
       issueId: asIssueId(B.id),
@@ -436,6 +437,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('delivers an explicitly overridden direct session message', async () => {
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/r/other',
       agentKind: 'shell',
       issueId: asIssueId(B.id),
@@ -459,6 +461,7 @@ describe('server agent relay handler (P1b)', () => {
     // No issue to gate on must not mean no gate: only the operator or the
     // target's own parent (spawnedBy) may message an issueless session.
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/nowhere/unrelated',
       agentKind: 'shell',
     })).sessionId
@@ -479,6 +482,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('lets the PARENT message its issueless child session (#237)', async () => {
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/nowhere/unrelated',
       agentKind: 'shell',
       spawnedBy: `session:${sA}`,
@@ -551,6 +555,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     B = await registry.issues.create({ repoPath, title: 'unrelated stop', startNow: false })
     await registry.issues.update(B.id, { worktreePath: '/r/.worktrees/issue-stop-b' })
     sA = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: wtA,
       agentKind: 'shell',
       issueId: asIssueId(A.id),
@@ -606,6 +611,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
 
   it('same-issue sibling stop is free (no outside-scope)', async () => {
     const sibling = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: wtA,
       agentKind: 'shell',
       issueId: asIssueId(A.id),
@@ -626,6 +632,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   it('unrelated issue session stop is rejected without --outside-scope', async () => {
     const wtB = (await registry.issues.get(B.id))?.worktreePath as string
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: wtB,
       agentKind: 'shell',
       issueId: asIssueId(B.id),
@@ -647,6 +654,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   it('unrelated issue session stop succeeds with --outside-scope', async () => {
     const wtB = (await registry.issues.get(B.id))?.worktreePath as string
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: wtB,
       agentKind: 'shell',
       issueId: asIssueId(B.id),
@@ -666,6 +674,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
 
   it('issueless unrelated stop needs --outside-scope; succeeds with it', async () => {
     const target = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/nowhere',
       agentKind: 'shell',
     })).sessionId
@@ -740,8 +749,8 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     const wtA = (await registry.issues.get(A.id))?.worktreePath as string
     // Two sessions on the SAME issue — siblings in the sidebar, which is exactly the
     // situation a session title has to disambiguate.
-    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
-    sB = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
+    sB = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
   afterEach(async () => {
@@ -832,6 +841,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
 
   it('says nothing about titles when the session has no issue to sit under', async () => {
     const loose = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/elsewhere',
       agentKind: 'shell',
     })).sessionId
@@ -875,8 +885,8 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    sA = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
-    sB = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: '/r', agentKind: 'shell' })).sessionId
+    sB = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: '/r', agentKind: 'shell' })).sessionId
   })
   afterEach(async () => {
     for (const r of registries.splice(0)) await r.dispose()

@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -128,7 +129,7 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = await makeRegistry()
     const delta = await readyClient(registry, ['metadataDelta'])
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     flush(registry)
     await vi.waitFor(() => {
       expect(deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId)).toBe(true)
@@ -169,7 +170,7 @@ describe('SessionRegistry metadata deltas', () => {
 
     const created = await registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
     await registry.issues.close(created.id, 'wontfix')
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
 
     const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
     expect(catchUp.kind).toBe('delta')

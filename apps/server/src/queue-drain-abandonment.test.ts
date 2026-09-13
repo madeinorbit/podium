@@ -69,6 +69,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     body: string,
   ): Promise<{ sessionId: SessionId; messageId: string }> {
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/w',
       machineId: asMachineId(MACHINE),

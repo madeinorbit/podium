@@ -187,6 +187,7 @@ describe('multi-daemon routing', () => {
   it('routes a spawn to the chosen machine only', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/x',
       machineId: asMachineId('m2'),
@@ -198,6 +199,7 @@ describe('multi-daemon routing', () => {
   it('a session carries its machineId in meta', async () => {
     const { reg } = await regWithTwoDaemons()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/x',
       machineId: asMachineId('m2'),
@@ -217,6 +219,7 @@ describe('multi-daemon routing', () => {
         startNow: false,
       })
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'codex',
         cwd: '/repo',
         issueId: issue.id,
@@ -245,6 +248,7 @@ describe('multi-daemon routing', () => {
   it('acknowledges an exact native binding back to its owner after storing it', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/x',
       machineId: asMachineId('m1'),
@@ -275,6 +279,7 @@ describe('multi-daemon routing', () => {
   it('rejects a native binding and acknowledgement from a non-owner daemon', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/x',
       machineId: asMachineId('m1'),
@@ -356,11 +361,13 @@ describe('multi-daemon routing', () => {
   it('detaching m1 only marks m1 sessions reconnecting', async () => {
     const { reg } = await regWithTwoDaemons()
     const a = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/a',
       machineId: asMachineId('m1'),
     })).sessionId
     const b = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/b',
       machineId: asMachineId('m2'),
@@ -412,7 +419,7 @@ describe('multi-daemon routing', () => {
   it('routes an unresolved spawn (no machineId, unregistered cwd) to an online machine, not __local__', async () => {
     const { reg, m1, m2 } = await regWithTwoDaemons()
     // No machineId provided, cwd matches no registered repo — must NOT dead-queue under __local__.
-    await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/no/repo/here' })
+    await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/no/repo/here' })
     const spawns = [...m1, ...m2].filter((m) => m.type === 'spawn')
     // The spawn must have reached one of the online daemons, not vanished into __local__.
     expect(spawns).toHaveLength(1)
@@ -760,6 +767,7 @@ describe('session handoff orchestration', () => {
     const targetRepo = (await store.repos.listRepos(asMachineId('m2')))[0]
     expect(prepared).toEqual({ cwd: targetRepo?.path, machineId: 'm2' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       ...prepared,
     })

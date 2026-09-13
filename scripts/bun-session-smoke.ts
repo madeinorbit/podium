@@ -10,6 +10,7 @@
  *
  * Run: bun --conditions=@podium/source scripts/bun-session-smoke.ts
  */
+import { firstAdminMemberId } from '@podium/model'
 import { fileURLToPath } from 'node:url'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { startServer } from '../apps/server/src/server'
@@ -70,6 +71,8 @@ const daemon = await startDaemon({
   launch: () => ({ cmd: 'node', args: [FIXTURE], cwd: '/tmp' }),
 })
 const { sessionId } = await srv.registry.modules.sessions.createSession({
+  // Stated, not defaulted (PDM-276).
+  ownerUserId: await firstAdminMemberId(srv.registry.sessionStore),
   agentKind: 'claude-code',
   cwd: '/tmp',
   title: 'bun-smoke',

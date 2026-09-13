@@ -2,13 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  actorAgent,
-  asAgentIdentityId,
-  asUserId,
-  type MachineId,
-  SOLE_USER_ID,
-} from '@podium/model'
+import { actorAgent, asAgentIdentityId, asUserId, firstAdminMemberId, type MachineId, SOLE_USER_ID } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 
 /**
@@ -160,6 +154,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       await settled()
 
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/repo',
       })

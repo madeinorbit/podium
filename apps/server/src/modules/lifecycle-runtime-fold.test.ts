@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
@@ -41,6 +42,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
   it('does not tear a session down for a kill the enclosing span rolled back (site 8)', async () => {
     const { store, registry } = await build()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -63,6 +65,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
   it('still tears the session down when the enclosing span commits (site 8)', async () => {
     const { store, registry } = await build()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -108,6 +111,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       startNow: false,
     })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
       issueId: issue.id,
@@ -171,6 +175,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       startNow: false,
     })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
       issueId: issue.id,

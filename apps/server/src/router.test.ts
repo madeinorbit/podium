@@ -323,6 +323,7 @@ describe('markRead mutations (#124)', () => {
   it('sessions.markRead flips a session to read', async () => {
     const { call, registry } = await repoCaller()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -346,6 +347,7 @@ describe('markRead mutations (#124)', () => {
   it('sessions.markUnread flips a read session back to unread (#138)', async () => {
     const { call, registry } = await repoCaller()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })

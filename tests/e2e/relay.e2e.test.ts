@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { fileURLToPath } from 'node:url'
 import { encode, parseServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -88,6 +89,7 @@ describe('e2e: daemon -> server -> client', () => {
     // Create a session after the daemon is connected — the server will immediately
     // send a spawn control message that the daemon picks up.
     const { sessionId } = srv.registry.modules.sessions.createSession({
+      ownerUserId: await firstAdminMemberId(srv.registry.sessionStore),
       agentKind: 'claude-code',
       cwd: '/tmp',
       title: 'e2e-test',

@@ -1,4 +1,4 @@
-import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { Capability, SessionId, UserId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -196,6 +196,7 @@ describe('cloud router', () => {
       'https://github.com/madeinorbit/podium.git',
     )
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',
@@ -357,6 +358,7 @@ describe('cloud router', () => {
     const cloud = captureCloudProvider()
     const { call, registry } = await caller(cloud.provider)
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',

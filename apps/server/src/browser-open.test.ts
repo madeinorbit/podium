@@ -47,6 +47,7 @@ async function setup() {
   await attachDaemonWithInventory(registry, 'm1', (message) => m1.push(message), inventory)
   await attachDaemonWithInventory(registry, 'm2', (message) => m2.push(message), inventory)
   const sessionId = (await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: '/repo',
     machineId: asMachineId('m1'),

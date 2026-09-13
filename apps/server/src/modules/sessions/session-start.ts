@@ -69,7 +69,6 @@ import {
   AgentKind,
   asMachineId,
   asSessionId,
-  firstAdminMemberId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -185,12 +184,48 @@ export interface SessionStartPorts {
   }): void
 }
 
+/**
+ * WHO THE SESSION IS FOR, STATED RATHER THAN ASSUMED (PDM-276).
+ *
+ * `create()` used to end its owner chain with `?? firstAdminMemberId(store)`, so
+ * a caller that mentioned no human got one anyway -- the earliest-enrolled
+ * account. That is the last of B1's ownerless-creation paths, and it was NOT
+ * unreachable in production: `spawnOwner()` answers "nobody" for a system
+ * principal by design, and three conditional spreads between there and here drop
+ * the key when it is falsy, so an unattributable spawn arrived with no owner and
+ * left owned by, bound to and attributed to the first admin. The witness is
+ * `ownerless-creation.test.ts`.
+ *
+ * THE FIX IS A TYPE, NOT A GUARD, because a guard is one edit away from being
+ * removed and a convention ("every caller happens to pass it") is not a
+ * property. Either shape is accepted and nothing else is:
+ *
+ *   - an explicit `ownerUserId` -- the caller resolved a human and says so; or
+ *   - a `binding`, whose principal already carries one (for an agent spawn, its
+ *     parent session's owner), which is what makes "child agents keep their
+ *     human ceiling" true by construction.
+ *
+ * `spawn()` took this route in B1 for the same reason; this is `create()`
+ * catching up. What a caller may NOT do any more is stay silent and be assigned
+ * somebody -- ADR 3 Amendment 1 D17.5/D21.2, "representable none, never
+ * defaulted to an operator or to a row's owner".
+ */
+type SessionOwnerInput =
+  | {
+      /** The binding principal carries the human; an explicit owner is optional. */
+      binding: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
+      ownerUserId?: UserId
+    }
+  | {
+      binding?: undefined
+      /** No binding, so the caller must name the human this run belongs to. */
+      ownerUserId: UserId
+    }
+
 export class SessionStart {
   constructor(private readonly ports: SessionStartPorts) {}
 
   async create(input: {
-    /** Authenticated human owner; every production caller supplies this. */
-    ownerUserId?: UserId
     agentKind?: AgentKind
     cwd: string
     title?: string
@@ -209,7 +244,6 @@ export class SessionStart {
     sessionId?: SessionId
     workflowRevisionId?: string
     use?: MachineUseResolver
-    binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     loginHarness?: Exclude<AgentKind, 'shell'>
     /**
      * THE OPERATOR'S PER-SPAWN DRIVER CHOICE (POD-1761 W5; spec §9 phase 3).
@@ -230,7 +264,7 @@ export class SessionStart {
      * spawn dialog would be a product decision nobody has made.
      */
     runtimeContract?: RuntimeContractRequest
-  }): Promise<SessionSpawnResult> {
+  } & SessionOwnerInput): Promise<SessionSpawnResult> {
     /**
      * RESOLVED FIRST, BECAUSE THE PREFERENCE READS BELOW ASK FOR A PERSON
      * (PDM-295). This used to sit further down, after the harness and account
@@ -263,17 +297,20 @@ export class SessionStart {
      * makes "child agents retain the same human ceiling and do not inherit the
      * task assignee" true by construction rather than by convention.
      *
-     * WHY `firstAdminMemberId` IS STILL HERE, AND WHY IT IS HARMLESS WHERE IT
-     * IS. B1 was meant to delete it outright. It survives ONLY as the last term,
-     * where it can no longer outrank anything: it is reachable exclusively when
-     * a caller supplies neither a binding nor an explicit owner, and no
-     * production caller does — `command-plane`, `relay`, `superagent`,
-     * `automations`, `native-login` and `messages/spawn` all pass `ownerUserId`.
-     * What still reaches it is 428 in-process call sites across 70 test files
-     * (`createSession({ agentKind, cwd })`), so deleting the term is a fixture
-     * migration across files B1 does not own rather than a change to this
-     * decision. Filed beneath PDM-139; the ORDER — which is the security
-     * property — is fixed here and now.
+     * `firstAdminMemberId` IS GONE FROM THIS CHAIN (PDM-276), and the argument
+     * that kept it was wrong. B1 left it as the last term on the ground that it
+     * was reachable only when a caller supplied neither a binding nor an owner,
+     * "and no production caller does". One does. `spawnOwner()` answers
+     * "nobody" for a system principal deliberately — ADR 3 Amendment 1
+     * D17.5/D21.2 — and `issues/registry.ts`, `issues/service/workflow.ts`
+     * and `relay.ts`'s `spawnSession` each drop the key with a conditional
+     * spread when it is falsy, so that "nobody" arrived here and was answered
+     * with the earliest-enrolled admin. Worse than a mis-read: the binding below
+     * is built FROM this value, so the run was also BOUND to that person.
+     *
+     * It is now a required input rather than a defaulted one — see
+     * `SessionOwnerInput` above — and `ownerless-creation.test.ts` is the
+     * end-to-end witness that reddens if the fallback comes back.
      *
      * `spawn()` below took the stricter route because it has exactly two callers
      * and both resolve a real human: there its `ownerUserId` is REQUIRED.
@@ -290,8 +327,35 @@ export class SessionStart {
         : input.binding?.principal.kind === 'agent'
           ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
           : undefined
-    const ownerUserId =
-      bindingOwner ?? input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    /**
+     * NO THIRD TERM. There used to be `?? (await firstAdminMemberId(store))`
+     * here; `SessionOwnerInput` above is what replaced it, and the reasoning is
+     * written out there. The type guarantees one of these two is present, so
+     * this cannot be undefined -- and if a future edit makes it so, the compiler
+     * says so at the call site rather than this line quietly picking a person.
+     */
+    const ownerUserId = bindingOwner ?? input.ownerUserId
+    /**
+     * AND IF THE BINDING'S HUMAN DOES NOT RESOLVE, REFUSE (PDM-276).
+     *
+     * The type above guarantees a caller stated SOMETHING, but one of its two
+     * arms is a binding, and a binding can fail to yield a human at runtime: an
+     * agent principal reaches its person through its parent session's owner, and
+     * that lookup returns undefined for a parent that no longer exists or never
+     * had one. That is precisely the hole the old `?? firstAdminMemberId(store)`
+     * filled by inventing somebody.
+     *
+     * REFUSING IS THE SAME ANSWER `automations` ALREADY GIVES — `ownerFor()`
+     * throws "automation writes require a human principal" rather than
+     * substituting one — and it fails CLOSED: a spawn that cannot name its human
+     * does not happen, instead of happening as the earliest admin. The session
+     * has not been created at this point; the only work done above is reads.
+     */
+    if (ownerUserId === undefined) {
+      throw new Error(
+        'a session must belong to a human: pass ownerUserId, or a binding whose principal resolves to one',
+      )
+    }
 
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid

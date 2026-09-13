@@ -6,6 +6,7 @@
  * `agent.model_forced` event so the override is observable.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { MODEL_CATALOG_VERSION } from '../../model-catalog'
@@ -47,7 +48,7 @@ it('rejects an unlisted model before spawning — no frame, no session', async (
   const { reg, daemon } = await makeRegistry(store)
   let err: unknown
   try {
-    await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.7' })
+    await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.7' })
   } catch (e) {
     err = e
   }
@@ -62,6 +63,7 @@ it('rejects an unlisted effort with a suggestion', async () => {
   const { reg } = await makeRegistry(store)
   await expect(
     reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/tmp/x',
       model: 'gpt-5.6',
@@ -74,6 +76,7 @@ it('force spawns the unlisted model AND records agent.model_forced', async () =>
   const store = await storeWithCatalog()
   const { reg, daemon } = await makeRegistry(store)
   const { sessionId } = await reg.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: '/tmp/x',
     model: 'gpt-6-experimental',
@@ -90,7 +93,7 @@ it('force spawns the unlisted model AND records agent.model_forced', async () =>
 it('a known model spawns with no forced event', async () => {
   const store = await storeWithCatalog()
   const { reg, daemon } = await makeRegistry(store)
-  await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.6' })
+  await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.6' })
   expect(spawnFrames(daemon)).toHaveLength(1)
   expect(await store.events.listEventsSince(0, { kinds: ['agent.model_forced'] })).toHaveLength(0)
 })

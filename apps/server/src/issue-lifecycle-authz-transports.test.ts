@@ -164,6 +164,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       const f = await fixture(registry)
       await registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
       const sessionId = (await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         cwd: '/wt/lifecycle-root',
         agentKind: 'shell',
       })).sessionId

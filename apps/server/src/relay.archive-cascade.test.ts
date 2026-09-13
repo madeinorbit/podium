@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 
@@ -18,9 +18,9 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     const reg = await regWithDaemon()
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     await reg.issues.update(issue.id, { worktreePath: '/repo/wt' })
-    const a = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
+    const a = (await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
-    const b = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
+    const b = (await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((s) => s.archived)).toHaveLength(0)
 
@@ -70,6 +70,7 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     await reg.issues.update(issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
     const s = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo/wt',
       issueId: issue.id,
@@ -90,7 +91,7 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
   it('un-archiving the issue leaves the sessions archived (no cascade back)', async () => {
     const reg = await regWithDaemon()
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    const s = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo', issueId: issue.id }))
+    const s = (await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'claude-code', cwd: '/repo', issueId: issue.id }))
       .sessionId
     await reg.issues.archive(issue.id)
     await reg.issues.update(issue.id, { archived: false })

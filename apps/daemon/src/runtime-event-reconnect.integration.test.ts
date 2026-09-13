@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type MachineId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type MachineId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -144,6 +144,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
       await settled()
 
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'codex',
         cwd: '/repo',
       })

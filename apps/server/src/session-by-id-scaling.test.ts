@@ -35,7 +35,7 @@
  * `listSessions().find(...)` in modules/sessions/command-ctx.ts turns both red.
  */
 
-import { asSessionId, spawnedByTag } from '@podium/model'
+import { asSessionId, firstAdminMemberId, spawnedByTag } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { SessionView } from './modules/sessions/view'
@@ -55,6 +55,7 @@ async function seedChain(reg: SessionRegistry, count: number, chainDepth: number
   for (let i = 0; i < count; i++) {
     const parent = i > 0 && i > count - 1 - chainDepth ? ids[i - 1] : undefined
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: `/p/${i}`,
       ...(parent ? { spawnedBy: spawnedByTag({ kind: 'session', id: asSessionId(parent) }) } : {}),

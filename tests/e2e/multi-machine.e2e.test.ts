@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -116,6 +117,7 @@ describe('e2e: two-daemon pairing + routing', () => {
 
       // 3) Create a session explicitly targeting daemon2 (the "remote" paired machine)
       const { sessionId } = srv.registry.modules.sessions.createSession({
+        ownerUserId: await firstAdminMemberId(srv.registry.sessionStore),
         // This runtime injects a fixture launcher, not an installed agent CLI.
         // Shell requires only the live daemon and still proves socket routing.
         agentKind: 'shell',

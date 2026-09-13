@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -32,6 +33,7 @@ describe('causal session observation gate', () => {
     )
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -196,6 +198,7 @@ describe('causal session observation gate', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -250,6 +253,7 @@ describe('causal session observation gate', () => {
     const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -466,14 +470,14 @@ describe('causal session observation gate', () => {
     const sent: ControlMessage[] = []
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
-    const owner = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const owner = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'codex', cwd: '/proj' })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId: owner.sessionId,
       resume: { kind: 'codex-thread', value: 'thread-owned' },
       confidence: 'exact',
     })
-    const fresh = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const fresh = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'codex', cwd: '/proj' })
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
@@ -544,7 +548,7 @@ describe('causal session observation gate', () => {
     const store = await openTestStore(':memory:')
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'codex', cwd: '/proj' })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,

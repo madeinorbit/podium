@@ -1,4 +1,4 @@
-import { asIssueId } from '@podium/model'
+import { asIssueId, firstAdminMemberId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -34,6 +34,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
 
   const spawned = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: ISSUE.worktreePath,
     issueId: asIssueId(ISSUE.id),

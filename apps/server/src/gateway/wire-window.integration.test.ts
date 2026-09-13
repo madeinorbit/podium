@@ -56,7 +56,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { CAP_METADATA_DELTA, MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -102,6 +102,7 @@ describe('the wire window, over real sockets', () => {
     machineId = handle.registry.modules.machines.hostMachineId
     handle.registry.gateway.attachDaemon(machineId, () => {})
     await handle.registry.modules.sessions.createSession({
+      ownerUserId: await firstAdminMemberId(handle.registry.sessionStore),
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
       machineId: asMachineId(machineId),
@@ -203,6 +204,7 @@ describe('the wire window, over real sockets', () => {
 
     // A write AFTER all three connected.
     await handle.registry.modules.sessions.createSession({
+      ownerUserId: await firstAdminMemberId(handle.registry.sessionStore),
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
       machineId: asMachineId(machineId),

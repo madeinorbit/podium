@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/model'
-import { asAccountId } from '@podium/model'
+import { asAccountId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -55,7 +55,7 @@ async function createFrame(
   override: { model?: string; effort?: string } = {},
 ): Promise<Extract<ControlMessage, { type: 'spawn' }>> {
   const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
-  await registry.modules.sessions.createSession({ agentKind, cwd: '/proj', ...override })
+  await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind, cwd: '/proj', ...override })
   return latestSpawn(daemon)
 }
 
@@ -107,6 +107,7 @@ it('omits configured model and effort when another harness is selected', async (
 it('resolves an omitted incompatible native role account to the selected agent', async () => {
   const { registry } = await makeRegistry(await storeWithClaudeDefaults())
   const { sessionId } = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'opencode',
     cwd: '/proj',
   })
@@ -116,6 +117,7 @@ it('resolves an omitted incompatible native role account to the selected agent',
 it('normalizes an omitted colliding native harness prefix', async () => {
   const { registry } = await makeRegistry(await storeWithClaudeDefaults('native:opencodeevil'))
   const { sessionId } = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'opencode',
     cwd: '/proj',
   })
@@ -129,6 +131,7 @@ it.each([
 ])('preserves the explicit account %s exactly', async (accountId) => {
   const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
   const { sessionId } = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'opencode',
     cwd: '/proj',
     accountId: asAccountId(accountId),

@@ -35,6 +35,7 @@
  * plumbing test should not be a bill.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -186,6 +187,7 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
       // The per-spawn override, which is the whole selection story: default
       // stays terminal, and this one session says otherwise.
       const { sessionId } = sessions.createSession({
+        ownerUserId: await firstAdminMemberId(sessions.sessionStore),
         agentKind: 'opencode',
         cwd: tmp,
         model: testModel(),

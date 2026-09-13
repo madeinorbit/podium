@@ -152,12 +152,14 @@ describe('oracle: not-found shape, per write', () => {
     const b = await o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })
     await o.reg.issues.update(b.id, { worktreePath: '/r/.worktrees/b' })
     const agent = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
     // A session that EXISTS but is outside the caller's subtree — the invisible
     // case's closest present-day analogue.
     const stranger = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/b',
       issueId: b.id,

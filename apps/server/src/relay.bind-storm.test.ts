@@ -47,6 +47,7 @@ describe('bind-storm regression', () => {
       const machineId = i % 2 ? 'm2' : 'm1'
       const cwd = `/repo/w${i}`
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd,
         machineId: asMachineId(machineId),

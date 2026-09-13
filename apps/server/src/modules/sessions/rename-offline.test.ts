@@ -64,7 +64,7 @@ async function revocableStack() {
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   const sessions = reg.modules.sessions
-  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
 
   // Mutable ownership, read LIVE on every call — which is the whole mechanism.
   // There is no snapshot to invalidate because there is no snapshot.

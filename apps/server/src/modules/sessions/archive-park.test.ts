@@ -54,6 +54,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('archiving a live resumable session hibernates it and sends kill', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -80,6 +81,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('archiving a live session without a resume ref marks it exited', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -94,6 +96,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('archiving an already-parked session sends no kill', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -111,6 +114,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('unarchiving does not resurrect the process', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -129,6 +133,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('refuses to resurrect an archived session even when its resume ref survives', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -149,6 +154,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('attachDaemon parks legacy archived-but-live rows instead of reattaching', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -179,6 +185,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('parks a stale session on the age backstop and reports its refusals [POD-1884]', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -209,6 +216,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('parks a stale session without a resume ref as exited [POD-1884]', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -223,6 +231,7 @@ describe('archive parks the session process [POD-108]', () => {
   it('permanent removal clears issue-owned session attribution', async () => {
     const { reg } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r',
     })

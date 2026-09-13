@@ -377,6 +377,7 @@ describe('session-steering tool belt (issue #62)', () => {
     await sa.history(firstAdminMemberId())
     const spawn = async (live = false): Promise<string> => {
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/w',
       })
@@ -395,6 +396,7 @@ describe('session-steering tool belt (issue #62)', () => {
       const threadId = asThreadId('answer_test')
       if (!await registry.sessionStore.superagent.getSuperagentThread(threadId)) {
         const { sessionId } = await registry.modules.sessions.createSession({
+          ownerUserId: firstAdminMemberId(),
           agentKind: 'claude-code',
           cwd: '/w',
           spawnedBy: `superagent:${threadId}`,
@@ -764,6 +766,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('list_sessions rows carry spawnedBy + snoozedUntil', async () => {
     const h = await harness()
     const { sessionId } = await h.registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
       spawnedBy: 'user',

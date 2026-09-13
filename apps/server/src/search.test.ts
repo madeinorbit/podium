@@ -42,6 +42,7 @@ describe('MemoryService omni-search', () => {
 
     // Session named after the phrase.
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -273,6 +274,7 @@ describe('MemoryService omni-search', () => {
         onBehalfOf: READER.id,
       })
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: `/repo/session-${i}`,
         issueId: issue.id,
@@ -519,6 +521,7 @@ describe('search.query tRPC', () => {
   it('serves ranked results over the wire shape', async () => {
     const { registry, trpc } = await caller()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })

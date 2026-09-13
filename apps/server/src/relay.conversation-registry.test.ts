@@ -34,6 +34,7 @@ describe('SessionRegistry conversation registry', () => {
     await registry.gateway.attachDaemon('m1', () => {})
     for (const conversationId of ['parent-1', 'sub-1']) {
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/owned/' + conversationId,
       })
@@ -105,6 +106,7 @@ describe('SessionRegistry conversation registry', () => {
       }
     })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/moved/to',
     })
@@ -137,6 +139,7 @@ describe('SessionRegistry conversation registry', () => {
     const registry = await makeRegistry()
     await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })

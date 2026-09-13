@@ -264,6 +264,7 @@ describe('oracle: activity flush and cumulative compute', () => {
   it(`${MUST_NOT_CHANGE}: frame activity writes once at flush, a clean flush writes nothing, and daemon counter resets accumulate`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/work',
     })
@@ -330,10 +331,12 @@ describe('oracle: priority pushes', () => {
   it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, async () => {
     const o = await makeOracle()
     const first = (await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/one',
     })).sessionId
     const second = (await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/two',
     })).sessionId
@@ -480,6 +483,7 @@ describe('oracle: browser-open forwarding', () => {
   it(`${MUST_NOT_CHANGE}: forwards an owning-daemon intent and stamps callback identity from the authenticated browser, never payload`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/work',
     })
@@ -557,6 +561,7 @@ describe('oracle: spawn placement fails closed', () => {
     expect(
       await messageOf(() =>
         o.reg.modules.sessions.createSession({
+          ownerUserId: firstAdminMemberId(),
           agentKind: 'claude-code',
           cwd: '/work',
           machineId: asMachineId('online'),
@@ -569,6 +574,7 @@ describe('oracle: spawn placement fails closed', () => {
     expect(
       await messageOf(() =>
         o.reg.modules.sessions.createSession({
+          ownerUserId: firstAdminMemberId(),
           agentKind: 'claude-code',
           cwd: '/work',
           machineId: asMachineId('offline'),
@@ -580,6 +586,7 @@ describe('oracle: spawn placement fails closed', () => {
 
     expect(
       (await o.reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/work',
         machineId: asMachineId('online'),

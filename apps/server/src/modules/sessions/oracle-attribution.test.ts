@@ -63,6 +63,7 @@ describe('oracle: who created this session', () => {
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const parent = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -89,6 +90,7 @@ describe('oracle: who named this session', () => {
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
     })
@@ -197,6 +199,7 @@ describe('oracle: who asked the human a question', () => {
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,

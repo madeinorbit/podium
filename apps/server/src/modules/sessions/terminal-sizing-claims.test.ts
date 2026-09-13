@@ -514,7 +514,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
   it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the published row both carry', async () => {
     expect(DEFAULT_GEOMETRY).toEqual({ cols: 80, rows: 24 })
     const { reg, daemon } = await registryFor()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
     const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
@@ -523,7 +523,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
 
   it('create() has no geometry parameter: an extra key is not read, and the spawn is still 80x24', async () => {
     const { reg, daemon } = await registryFor()
-    const input = { agentKind: 'shell' as const, cwd: '/w' }
+    const input = { ownerUserId: firstAdminMemberId(), agentKind: 'shell' as const, cwd: '/w' }
     // @ts-expect-error — the claim: SessionStart.create accepts NO geometry. If a
     // geometry input is ever added this line stops erroring and typecheck fails,
     // which is the point.
@@ -538,6 +538,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
   it('wake carries the STORED geometry, not the default', async () => {
     const { reg, daemon } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -586,7 +587,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
 describe('C10: SessionMeta.geometry is a required field carrying the server value to the client row', () => {
   it('the schema REFUSES a session row without geometry', async () => {
     const { reg } = await registryFor()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(row).toBeDefined()
     expect(SessionMeta.safeParse(row).success).toBe(true)
@@ -600,6 +601,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
   it('the published row tracks the terminal geometry, so the value the panel could read is the server W', async () => {
     const { reg } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -651,6 +653,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
   }> {
     const { reg, daemon } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -756,6 +759,7 @@ describe('POD-3279: a bind without geometry keeps W, marks it unknown, and annou
     // confirmation. This is the whole round trip that ends the `unknown`.
     const { reg, daemon } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })

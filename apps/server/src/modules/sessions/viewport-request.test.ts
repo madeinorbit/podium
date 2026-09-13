@@ -577,7 +577,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
       (m: ControlMessage) => daemon.push(m),
       caps,
     )
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     expect(session).toBeDefined()
     return { reg, session: session as Session, daemon }
@@ -651,7 +651,7 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(first)
-    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
 
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)

@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,6 +67,7 @@ function draftFixture() {
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
   const draft = await reg.issues.createDraftFor(repo, 'codex')
   const { sessionId } = await reg.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: repo,
     issueId: draft.id,
@@ -147,6 +149,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
     const second = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: draft.id,
@@ -161,6 +164,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: issue.id,
@@ -201,6 +205,7 @@ describe('explicit rehome draft cleanup', () => {
       code: 0,
     })
     const liveSessionId = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/repo',
       issueId: exited.draft.id,
@@ -303,6 +308,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
     const activeSessionId = (await reg1.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/repo',
       issueId: draft.id,

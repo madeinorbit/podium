@@ -134,6 +134,7 @@ describe('stopSession [spec:SP-9904]', () => {
       branch: 'issue/1-stop-target',
     })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/issue-1-stop-target',
       issueId: issue.id,
@@ -171,6 +172,7 @@ describe('stopSession [spec:SP-9904]', () => {
   it('refuses the stop when the durable parking write fails before killing the process', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -202,6 +204,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
 
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/issue-2-dirty',
       issueId: issue.id,
@@ -239,6 +242,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
 
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/issue-3-force',
       issueId: issue.id,
@@ -258,6 +262,7 @@ describe('stopSession [spec:SP-9904]', () => {
   it('self-stop holds the kill until finalizeDeferredStopKill (after-reply)', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -285,11 +290,13 @@ describe('stopSession [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-4-shared'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/4-shared' })
     const a = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
     })).sessionId
     const b = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -320,11 +327,13 @@ describe('stopSession [spec:SP-9904]', () => {
     await reg.modules.issues.update(a.id, { worktreePath: wt, branch: 'issue/a-owner' })
     // B is a different issue but its session runs inside A's worktree.
     const owner = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: a.id,
     })).sessionId
     const squatter = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: b.id,
@@ -424,6 +433,7 @@ describe('stopSession [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-stop-attr'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/stop-attr' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -453,6 +463,7 @@ describe('stopSession [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-5-resume'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/5-resume' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -487,6 +498,7 @@ describe('stopSession [spec:SP-9904]', () => {
       branch: null,
     })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
       issueId: issue.id,
@@ -518,6 +530,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-close-target'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/close-target' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -552,6 +565,7 @@ describe('stopIssue [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-parked-close-target'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/parked-close-target' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -577,11 +591,13 @@ describe('stopIssue [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-6-all'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/6-all' })
     const a = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
     })).sessionId
     const b = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
@@ -612,11 +628,13 @@ describe('stopIssue [spec:SP-9904]', () => {
     const wt = '/r/.worktrees/issue-7-ref'
     await reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/7-ref' })
     const a = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,
     })).sessionId
     const b = (await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: wt,
       issueId: issue.id,

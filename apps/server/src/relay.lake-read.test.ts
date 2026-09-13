@@ -70,6 +70,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   ): Promise<string> {
     await registry.gateway.attachDaemon('m1', () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -324,6 +325,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const { registry } = await setup()
     await registry.gateway.attachDaemon('m1', () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })

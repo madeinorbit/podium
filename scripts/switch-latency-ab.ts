@@ -195,6 +195,9 @@ async function runArm(label: string): Promise<ArmReport> {
       sessionIds.push(
         (
           await registry.modules.sessions.createSession({
+            // Stated, not defaulted (PDM-276): a bench session belongs to the
+            // instance's admin, and now says so instead of being assigned one.
+            ownerUserId: await firstAdminMemberId(store),
             agentKind: 'shell',
             cwd: `/switch-latency-bench/session-${index}`,
           })

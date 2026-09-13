@@ -92,6 +92,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         sessionIds.push(
           (
             await registry.modules.sessions.createSession({
+              ownerUserId: firstAdminMemberId(),
               agentKind: 'shell',
               cwd: `/representative-load/session-${index}`,
             })

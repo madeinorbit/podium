@@ -656,7 +656,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
 
     // And the value that IS written comes from the principal: an agent's create
     // stamps that agent, a human's stamps `user`.
-    const agentSession = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const agentSession = await o.reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     const asAgent = await ctxFor(o, agentFor(agentSession.sessionId, firstAdminMemberId()))
     const created = await dispatchSessionCommand(asAgent, 'create', {
       agentKind: 'shell',
@@ -749,6 +749,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
     const target = await o.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/p',
       machineId: asMachineId('box'),
@@ -800,7 +801,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     const o = await makeOracle()
     // A session on the host this server runs on, exactly as a single-machine
     // install produces it (no explicit placement).
-    const target = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const target = await o.reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = await ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
@@ -862,7 +863,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     TARGETED.map((row) => [row.key, row] as const),
   )('%s answers an INVISIBLE session exactly as it answers a nonexistent one', async (_key, row) => {
     const o = await makeOracle()
-    const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const live = await o.reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
 
     // Nonexistent: an id nothing ever created.
     const ghostCtx = await ctxFor(o, human(firstAdminMemberId()))
@@ -883,7 +884,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // Without this, every case above would pass if `dispatchSessionCommand` threw
     // the same thing for all inputs, or if `settle` swallowed everything.
     const o = await makeOracle()
-    const live = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const live = await o.reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     const visible = await settle(async () =>
       dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'hibernate', {
         sessionId: live.sessionId,

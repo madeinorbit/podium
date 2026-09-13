@@ -57,6 +57,7 @@
  * somebody else's module.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -340,6 +341,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
       // A restart lane that started from a session it never saw work would not
       // be able to tell adoption from a session that was broken all along.
       const { sessionId } = sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'opencode',
         cwd: tmp,
         model: MODEL,

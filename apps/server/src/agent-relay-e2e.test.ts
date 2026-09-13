@@ -1,5 +1,5 @@
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
-import { asSessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
@@ -44,7 +44,7 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
     await registry.issues.update(A.id, { worktreePath: '/wt/A' })
     const wtA = (await registry.issues.get(A.id))?.worktreePath as string
     B = await registry.issues.create({ repoPath, title: 'unrelated B', startNow: false })
-    sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
+    sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
 
     // The capability-scoped command service is built into the registry (issue #13
     // Phase 2 step 4) — the P1a gate (checkIssueAccess) runs on every relayed op

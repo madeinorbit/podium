@@ -360,6 +360,7 @@ describe('/client WS auth gate', () => {
     if (!registry) throw new Error('missing test registry')
     const sessionId = (
       await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd: '/feed-only',
       })

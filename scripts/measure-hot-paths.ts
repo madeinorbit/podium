@@ -269,6 +269,8 @@ async function buildFixture(): Promise<Fixture> {
     const machineId = index % 2 ? 'm2' : 'm1'
     const cwd = `/repo/w${index}`
     const { sessionId } = await registry.modules.sessions.createSession({
+      // Stated, not defaulted (PDM-276).
+      ownerUserId: await firstAdminMemberId(store),
       agentKind: 'shell',
       cwd,
       machineId: asMachineId(machineId),

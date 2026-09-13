@@ -139,6 +139,7 @@ describe('SessionStart: creation-owned first prompt', () => {
   it('queues a non-argv OpenCode prompt and seeds a recoverable draft', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'opencode',
       cwd: '/proj',
       initialPrompt: 'hello',
@@ -160,6 +161,7 @@ describe('resolved runtime driver projection', () => {
   it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -222,6 +224,7 @@ describe('Claude SDK continuity projection', () => {
     const store = await openTestStore(':memory:')
     const { reg, daemon } = await makeRegistry(store)
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/proj',
       runtimeContract: 'claude-sdk',
@@ -293,6 +296,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const store = await openTestStore(':memory:')
     const first = await makeRegistry(store)
     const { sessionId } = await first.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'opencode',
       cwd: '/proj',
     })
@@ -323,6 +327,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const store = await openTestStore(':memory:')
     const { reg, daemon } = await makeRegistry(store)
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'opencode',
       cwd: '/proj',
     })
@@ -365,6 +370,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const store = await openTestStore(':memory:')
     const { reg, daemon } = await makeRegistry(store)
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'opencode',
       cwd: '/proj',
       runtimeContract: 'opencode-server',
@@ -407,6 +413,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const store = await openTestStore(':memory:')
     const first = await makeRegistry(store)
     const { sessionId } = await first.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'codex',
       cwd: '/proj',
     })
@@ -437,6 +444,7 @@ describe('SessionStart: live session-id collision guard', () => {
     const { reg, daemon } = await makeRegistry()
 
     await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/proj',
       sessionId,
@@ -463,6 +471,7 @@ describe('SessionStart: live session-id collision guard', () => {
 
     await expect(
       reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd: '/other',
         sessionId,

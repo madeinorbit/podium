@@ -446,6 +446,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       startNow: false,
     })
     const { sessionId } = await h.registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
     })
@@ -854,6 +855,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
   it('startBtwTurn ensures the thread; the first send seeds from the origin transcript', async () => {
     const h = await harness()
     const { sessionId } = await h.registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -882,6 +884,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // stuck there until a reload. The digest rides the turn instead.
     const h = await harness()
     const { sessionId } = await h.registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -912,6 +915,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // operator's question about a specific session into a general one.
     const h = await harness()
     const { sessionId } = await h.registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })

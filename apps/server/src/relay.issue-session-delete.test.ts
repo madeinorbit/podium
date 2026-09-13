@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -21,15 +22,18 @@ describe('issue/session deletion lifecycle', () => {
     })
     await registry.issues.update(issue.id, { worktreePath: '/repo/worktree' })
     const attached = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: issue.id,
     })).sessionId
     const inWorktree = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/repo/worktree',
     })).sessionId
     const unrelated = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/repo',
     })).sessionId
@@ -94,7 +98,7 @@ describe('issue/session deletion lifecycle', () => {
     const { registry, store } = await registryWithDaemon()
     try {
       const issue = await registry.issues.create({ repoPath: '/repo', title: 'Prepared restore', startNow: false })
-      const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+      const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/repo', issueId: issue.id })
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
       const plan = await registry.modules.sessions.prepareIssueSessionRestore(issue.id)
       const times = vi.spyOn(store.sessions, 'loadDraftTimes').mockRejectedValue(new Error('read during apply'))
@@ -117,7 +121,7 @@ describe('issue/session deletion lifecycle', () => {
       const { registry, store } = await registryWithDaemon()
       try {
         const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed deletion', startNow: false })
-        const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+        const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/repo', issueId: issue.id })
         const reject = async () => {
           await new Promise(resolve => setTimeout(resolve, 0))
           throw new Error('session write failed')
@@ -140,7 +144,7 @@ describe('issue/session deletion lifecycle', () => {
     const { registry, store } = await registryWithDaemon()
     try {
       const issue = await registry.issues.create({ repoPath: '/repo', title: 'Failed restoration', startNow: false })
-      const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/repo', issueId: issue.id })
+      const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/repo', issueId: issue.id })
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
       vi.spyOn(store.sessions, 'restoreDeletedForIssue').mockImplementationOnce(async () => {
         await new Promise(resolve => setTimeout(resolve, 0))
@@ -159,6 +163,7 @@ describe('issue/session deletion lifecycle', () => {
     const { registry, store, messages } = await registryWithDaemon()
     const issue = await registry.issues.create({ repoPath: '/repo', title: 'Atomic', startNow: false })
     const sessionId = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/repo',
       issueId: issue.id,
@@ -191,6 +196,7 @@ describe('issue/session deletion lifecycle', () => {
       startNow: false,
     })
     const sessionId = (await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/repo',
       issueId: issue.id,
@@ -229,6 +235,7 @@ describe('issue/session deletion lifecycle', () => {
     try {
       const issue = await registry.issues.create({ repoPath: '/repo', title: 'Nested restore', startNow: false })
       const { sessionId } = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell', cwd: '/repo', issueId: issue.id,
       })
       await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)

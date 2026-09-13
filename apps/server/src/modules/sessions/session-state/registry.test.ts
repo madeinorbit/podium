@@ -92,7 +92,7 @@ async function fixture() {
    * with no ownership check, which is exactly what the OPERATOR version did.
    */
   const asSelf = (userId: string): SessionStatePrincipal => asUser(userId, 'self')
-  const session = async () => await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const session = async () => await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
   /**
    * A SESSION THIS PERSON OWNS — and since B1 (PDM-133) that is the only way a
    * session is readable by anybody.
@@ -550,7 +550,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
 
       mutations: reg.modules.mutations,
     })
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     const svc = reg.modules.sessions as unknown as {
       draftRevision: (id: string) => number | undefined
     }

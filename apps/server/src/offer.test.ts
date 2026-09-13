@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -40,6 +40,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -62,6 +63,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -86,6 +88,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('clearOffer removes it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -105,6 +108,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('dismissOffer clears the offer it names, and leaves one that replaced it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -241,6 +245,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     async function seeded() {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/p',
       })
@@ -300,6 +305,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const file = join(dir, 'store.db')
       const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/p',
       })
@@ -327,6 +333,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('clearing when there is no offer writes nothing and says nothing', async () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/p',
       })
@@ -371,6 +378,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -389,6 +397,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -420,6 +429,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     // A session with no live daemon parks the send into the durable queue, which
     // is the clear-on-turn path a button click also rides through.
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -449,6 +459,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/p',
       })
@@ -550,7 +561,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     async function seed(agentKind: 'claude-code' | 'codex') {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-      const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
+      const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind, cwd: '/p' })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
@@ -774,6 +785,7 @@ describe('offer retirement across awaited owner notification', () => {
       vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'))
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd: '/p',
       })

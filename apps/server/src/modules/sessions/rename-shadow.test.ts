@@ -109,7 +109,7 @@ type Actor = 'human' | 'agent'
 /** Run one rename on the LEGACY path and report the verdict + resulting row. */
 async function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
   const { store, sessions, mutations } = await stack()
-  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
   const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
 
@@ -136,7 +136,7 @@ async function runLegacy(input: { sessionId: string; name: string }, actor: Acto
 /** Run the SAME rename on the TARGET path, on its own identically-seeded stack. */
 async function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
   const { sessions, mutations } = await stack()
-  const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+  const created = await sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
   const deps = { sessions: sessions as RenameServices, mutations }
 
   const dispatch = await renameOnTargetPath(
@@ -403,7 +403,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // everything — which is exactly what the unreconciled constants DID, and
     // what nothing in the suite would have distinguished from correctness.
     const { sessions, mutations } = await stack()
-    const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const created = await sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     const ownAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-8'),
@@ -428,7 +428,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     // two together are what make the ceiling an instrument rather than a
     // constant answer.
     const { sessions, mutations } = await stack()
-    const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const created = await sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
       agentSessionId: asSessionId('agent-sess-9'),

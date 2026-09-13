@@ -41,7 +41,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('awaits metadata persistence and propagates issue attachment failures', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const issue = await registry.issues.create({ repoPath: '/w', title: 'Attachment', startNow: false })
     const sessions = registry.modules.sessions
     const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockRejectedValueOnce(new Error('attach failed'))
@@ -59,7 +59,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('resolves the trusted principal for snooze and read operations', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const sessions = registry.modules.sessions
     await sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toHaveProperty(sessionId)
@@ -160,7 +160,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(b) an agentState persist yields a durable ledger change (the staleness-gap fix)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const cursor = await cursorOf(registry)
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'agentState',
@@ -178,7 +178,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(b2) a title persist yields a durable ledger change', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const cursor = await cursorOf(registry)
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'title',
@@ -198,7 +198,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.issues.create({ repoPath: '/r', title: 'interleaved', startNow: false })
     await registry.modules.sessions.renameSession({ sessionId, name: 'renamed-mid-stream' })
     await registry.modules.sessions.flushBroadcasts() // drain the coalesced pipeline
@@ -222,7 +222,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     await vi.waitFor(() => {
       const seen = sessionChanges(delta.inbox.slice(before)).filter((c) => c.id === sessionId)
@@ -242,7 +242,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(e) kill commits a remove in the same transaction as the row tombstone', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const cursor = await cursorOf(registry)
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
@@ -276,7 +276,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('(f) boot reconcile records offline row changes durably, with no fan-out', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await first.dispose()
     const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
     // Offline mutation: rename the row behind the server's back.
@@ -296,8 +296,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(g) a reentrant ledger commit during oplog.appended cannot reorder the delta stream (#247)', async () => {
     const registry = await makeRegistry()
-    const a = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
-    const b = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w2' })
+    const a = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w1' })
+    const b = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w2' })
     await registry.modules.sessions.flushBroadcasts()
     const delta = await deltaClient(registry)
     const before = delta.inbox.length
@@ -335,7 +335,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(i) startup adoption and a machine rename re-capture machineId/machineName (#247)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     // The session was created ON this host already (POD-318: no placeholder, no
@@ -376,7 +376,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     // The host daemon attaches under the id the session is already attributed to.
     const host = registry.modules.machines.hostMachineId
     await registry.gateway.attachDaemon(host, () => {})
@@ -400,7 +400,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     reconcile.mockClear()
 
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(registry.clientGateway, () => {})
     await registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await registry.clientGateway.routeClientFrame(clientId, {
@@ -435,7 +435,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const events: ProjectionEvent[] = []
     const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const afterCreate = registry.modules.sessions.sessionsGeneration()
 
     await registry.gateway.routeDaemonFrame('m1', {
@@ -502,7 +502,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('resets the internal generation across restart without disturbing durable ledger order', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await first.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(first.clientGateway, () => {})
     await first.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await first.clientGateway.routeClientFrame(clientId, {
@@ -551,7 +551,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('publishes the final state when coalesced changes revert to identical bytes', async () => {
     const registry = await makeRegistry()
     const current = await deltaClient(registry)
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const originalSession = (await registry.modules.sessions
       .listSessions(undefined, 'rpc'))
@@ -579,7 +579,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('coalesces a resize burst into one async capture and one projection event', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(registry.clientGateway, () => {})
     await registry.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
     await registry.clientGateway.routeClientFrame(clientId, {
@@ -620,7 +620,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('prepares room grants without admitting unauthorized viewers or counting duplicate tabs', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const room = { kind: 'session' as const, id: sessionId }
     const viewer = asUserId('room-viewer')
     const stranger = asUserId('room-stranger')
@@ -670,7 +670,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('retains dirty live-view and machine patches across one append failure', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.machines.ensureHostMachine('first-host')
     await registry.modules.sessions.flushBroadcasts()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -755,7 +755,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       Array.from(
         { length: 588 },
         async (_, i) =>
-          (await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` })).sessionId,
+          (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: `/w/` })).sessionId,
       ),
     )
     const clientId = attachTestClient(registry.clientGateway, () => {})
@@ -796,7 +796,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('rolls back live rename state when the durable append fails', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     const events: ProjectionEvent[] = []
@@ -840,7 +840,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('rolls back live and SQLite snooze state when the durable append fails', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     const events: ProjectionEvent[] = []
@@ -915,6 +915,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   ] as const)('(exit fence) %s session emits terminal proof only for a durable terminal fence', async (_name, checkpointRecord, terminalFenceReported) => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/w',
     })
@@ -939,7 +940,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
   it('(k) a failed change append on kill leaves the session fully live (#247)', async () => {
     const registry = await makeRegistry()
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     await registry.modules.sessions.flushBroadcasts()
     const cursor = await cursorOf(registry)
     const spy = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockImplementationOnce(() => {
@@ -976,8 +977,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   // POD-797: deleted the session-derived issue append retry test with the wire path it exercised.
   it('replaying the whole durable log folds to the live session list', async () => {
     const registry = await makeRegistry()
-    const a = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
-    const b = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w2' })
+    const a = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w1' })
+    const b = await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w2' })
     await registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'kept' })
     await registry.modules.sessions.killSession({ sessionId: b.sessionId })
     const healed = await registry.modules.sessions.syncChangesSince(0)
@@ -1010,6 +1011,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     const registry = await makeRegistry()
     const cursor = await cursorOf(registry)
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
       spawnedBy: 'user',
@@ -1089,7 +1091,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // the FIRST SERVABLE SEQ, so on an empty log it is honestly 0 and the `>= 1`
     // check would be asserting that the log is non-empty rather than that the
     // floor is published. Seeding makes the floor a real one.
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const boot = await registry.modules.sessions.syncChangesSince(null)
     expect(boot.kind).toBe('snapshot')
     expect(boot.feedId).toBeTruthy()
@@ -1103,7 +1105,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // not see the identity change under it, or it would re-bootstrap forever.
     const registry = await makeRegistry()
     const boot = await registry.modules.sessions.syncChangesSince(null)
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
     expect(catchUp.kind).toBe('delta')
     expect(catchUp.feedId).toBe(boot.feedId)
@@ -1113,7 +1115,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
 
   it('publishes minAvailableSeq consistently with what it will actually serve', async () => {
     const registry = await makeRegistry()
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     const reply = await registry.modules.sessions.syncChangesSince(null)
     const horizon = reply.minAvailableSeq as number
     // Nothing has been pruned, so the whole log is servable and the horizon is
@@ -1129,7 +1131,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     asked.inbox.length = 0
     baseline.inbox.length = 0
 
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     registry.modules.funnel.flushDeltas()
 
     await vi.waitFor(() => {
@@ -1161,9 +1163,9 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     withIdentity.inbox.length = 0
     legacy.inbox.length = 0
 
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     registry.modules.funnel.flushDeltas()
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
     registry.modules.funnel.flushDeltas()
 
     const strip = (m: ServerMessage[]) => deltas(m).map((d) => ({ seq: d.seq, changes: d.changes }))

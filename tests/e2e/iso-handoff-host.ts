@@ -15,6 +15,7 @@
  *   POST /handoff {sessionId,machineId} → sessions.handoffSession (awaited)
  *   POST /scan                          → RepoRegistry.scanReposAll()
  */
+import { firstAdminMemberId } from '@podium/model'
 import { createServer } from 'node:http'
 import { handoffControl } from './iso-handoff-control'
 import { writeFileSync } from 'node:fs'
@@ -133,7 +134,9 @@ const control = createServer(handoffControl({
   listMachines: () => mods.machines.listMachines(),
   listSessions: () => mods.sessions.listSessions(),
   listRepos: () => store.repos.listRepos(),
-  createSession: (body) => mods.sessions.createSession({
+  createSession: async (body) => await mods.sessions.createSession({
+    // Stated, not defaulted (PDM-276).
+    ownerUserId: await firstAdminMemberId(store),
     agentKind: 'claude-code',
     machineId: readOrCreateLocalMachineId(),
     ...(body as { cwd: string; title?: string }),

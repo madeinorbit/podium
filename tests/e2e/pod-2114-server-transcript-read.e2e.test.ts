@@ -28,6 +28,7 @@
  * resume-keyed read returns the conversation rather than an empty page.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
@@ -128,6 +129,7 @@ describe.skipIf(!live)('e2e: POD-2114 — a server session is readable through s
       )
 
       const { sessionId } = sessions.createSession({
+        ownerUserId: await firstAdminMemberId(sessions.sessionStore),
         agentKind: 'opencode',
         cwd: tmp,
         model: MODEL,

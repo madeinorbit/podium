@@ -1725,8 +1725,31 @@ export class SessionRegistry {
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.
       getSettings: async () => await this.store.settings.getSettingsFor((await firstAdminMemberId(this.store))),
-      spawnSession: async (o) =>
-        await sessionsSvc.createSession({
+      /**
+       * THE ISSUE WORKFLOW'S SPAWN, AND WHERE ITS HUMAN STOPS BEING OPTIONAL
+       * (PDM-276).
+       *
+       * `ownerUserId` is optional on the port all the way up — `spawnOwner()`
+       * answers "nobody" for a system principal on purpose, and both
+       * `issues/registry.ts` and `issues/service/workflow.ts` forward that
+       * absence with a conditional spread. This line used to do the same, and
+       * `createSession` then filled the gap with the earliest-enrolled admin, so
+       * an unattributable issue start ran as that person and was BOUND to them.
+       * `ownerless-creation.test.ts` is the witness.
+       *
+       * So the absence is resolved HERE, at the last seam that still knows it is
+       * an absence, and it is resolved by refusing rather than by choosing
+       * somebody — the same answer `AutomationsService.ownerFor` gives. Fails
+       * closed: the spawn does not happen, instead of happening as the admin.
+       */
+      spawnSession: async (o) => {
+        if (!o.ownerUserId) {
+          throw new Error(
+            'cannot start a session for this issue: no human initiated it. ' +
+              'A system job has no person behind it and a run is never assigned one.',
+          )
+        }
+        return await sessionsSvc.createSession({
           ...(o.sessionId ? { sessionId: o.sessionId } : {}),
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
@@ -1736,8 +1759,9 @@ export class SessionRegistry {
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
-          ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
-        }),
+          ownerUserId: o.ownerUserId,
+        })
+      },
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       requireMachineForRepo: async (machineId, repoPath) =>

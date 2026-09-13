@@ -1,4 +1,4 @@
-import { asThreadId } from '@podium/model'
+import { asThreadId, firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -58,6 +58,7 @@ async function harness({
     daemon.push(message),
   )
   const { sessionId } = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: '/proj',
   })
@@ -158,6 +159,7 @@ describe('durable terminal hibernation proof', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/repo',
     })

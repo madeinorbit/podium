@@ -555,6 +555,7 @@ it('attaches, transfers control, and delivers input through the real async owner
   try {
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/tmp',
     })

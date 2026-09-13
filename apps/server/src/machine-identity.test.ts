@@ -243,6 +243,7 @@ describe('composition threads deployment identity explicitly', () => {
 
     expect(registry.modules.machines.instanceId).toBe('blue')
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/w',
     })
@@ -269,6 +270,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     await registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/w',
     })

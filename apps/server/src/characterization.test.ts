@@ -68,6 +68,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     const daemon1: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon1.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/proj',
     })
@@ -509,6 +510,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/proj',
     })

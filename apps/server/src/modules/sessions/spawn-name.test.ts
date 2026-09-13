@@ -4,6 +4,7 @@
  * Reuses setAgentName rules: user-set names stay sovereign.
  */
 
+import { firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -24,6 +25,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
   it('lands in name with nameSource=agent, not the derived title', async () => {
     const reg = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/proj',
       name: '  Spawn placement worker  ',
@@ -38,6 +40,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
   it('omits name when not passed (unchanged self-title path)', async () => {
     const reg = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/proj',
     })
@@ -50,6 +53,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
     const reg = await makeRegistry()
     await expect(
       reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd: '/proj',
         name: '   ',
@@ -61,6 +65,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
   it('a user-set name is never clobbered by setAgentName', async () => {
     const reg = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/proj',
       name: 'Agent first name',
@@ -80,6 +85,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
   it('an agent may re-title its own agent-set name', async () => {
     const reg = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/proj',
       name: 'First cut',
@@ -96,7 +102,7 @@ describe('createSession name (spawner-prescribed curated slot)', () => {
 describe('session naming write completion', () => {
   it.each(['human', 'agent'] as const)('%s naming waits for persistence', async (actor) => {
     const reg = await makeRegistry()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/proj' })
     let markEntered!: () => void
     const entered = new Promise<void>((resolve) => { markEntered = resolve })
     let release!: () => void
@@ -130,7 +136,7 @@ describe('session naming write completion', () => {
 
   it.each(['human', 'agent'] as const)('%s naming rejects a failed write without publishing the name', async (actor) => {
     const reg = await makeRegistry()
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
+    const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/proj' })
     const store = reg.sessionStore.sessions
     const spy = vi.spyOn(store, 'upsertSession').mockRejectedValueOnce(new Error('naming write failed'))
     try {

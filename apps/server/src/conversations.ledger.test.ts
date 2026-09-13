@@ -71,6 +71,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
 
   const ownConversation = async (registry: SessionRegistry, conversationId: string): Promise<void> => {
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/owned-conversation',
     })

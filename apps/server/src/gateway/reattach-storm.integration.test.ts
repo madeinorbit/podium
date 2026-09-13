@@ -43,7 +43,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type MachineId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type MachineId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -94,6 +94,7 @@ describe('a daemon reattach storm', () => {
         { length: SESSIONS },
         async (_, i) =>
           (await handle.registry.modules.sessions.createSession({
+            ownerUserId: await firstAdminMemberId(handle.registry.sessionStore),
             agentKind: 'shell',
             cwd: `/repo/w${i}`,
             machineId,

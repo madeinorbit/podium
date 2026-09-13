@@ -203,6 +203,7 @@ describe('concierge threads (issue #64)', () => {
     const asking = await registry.issues.create({ repoPath: '/r', title: 'Deploy', startNow: false })
     await registry.issues.setNeedsHuman(asking.id, 'Which region?')
     await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/r',
       spawnedBy: 'user',
@@ -445,6 +446,7 @@ describe('search_all tool', () => {
       startNow: false,
     })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -483,6 +485,7 @@ describe('search_all tool', () => {
     const { registry, sa } = await harness()
     await registry.issues.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -514,10 +517,11 @@ describe('list_sessions boundIssue', () => {
     expect(issue?.worktreePath).toBeTruthy()
     // A second session inside the issue worktree, one outside.
     await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: issue?.worktreePath ?? '/x',
     })
-    await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/elsewhere' })
     const rows = JSON.parse(await sa.callMcpTool('list_sessions', {})) as {
       cwd: string
       boundIssue?: { seq: number; title: string }

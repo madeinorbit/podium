@@ -810,17 +810,20 @@ describe('issues.get session membership', () => {
       const issue = await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
       registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
       const first = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'codex',
         cwd: '/r',
         issueId: issue.id,
         model: 'gpt-5.7',
       })
       const second = await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/r',
         issueId: issue.id,
       })
       await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'shell',
         cwd: '/r',
         issueId: issue.id,
@@ -1046,11 +1049,13 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
       // The ids are the sessions' own; the arrangement (two agents, one issue,
       // one shared mailbox) is unchanged.
       const sA = (await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'codex',
         cwd: '/r',
         issueId: issue.id,
       })).sessionId
       const sB = (await registry.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/r',
         issueId: issue.id,

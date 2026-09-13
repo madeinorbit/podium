@@ -61,7 +61,7 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 
 /** live claude session with a resume ref, parked via hibernate. */
 async function hibernatedSession(reg: SessionRegistry): Promise<string> {
-  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+  const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'claude-code', cwd: '/w' })
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
@@ -179,10 +179,12 @@ describe('queueText (durable outbox sends)', () => {
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
 
       const source = (await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/source',
       })).sessionId
       const target = (await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/target',
         spawnedBy: `session:${source}`,
@@ -310,7 +312,7 @@ describe('queueText (durable outbox sends)', () => {
       // The lost wake is admitted while the process is live, then the process
       // dies before a wake can be reconstructed. A bare bind after hibernation
       // does not resume a parked row (Session.markLive deliberately preserves it).
-      const { sessionId } = await regA.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = await regA.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'claude-code', cwd: '/w' })
       await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(sessionId))
       await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
@@ -439,6 +441,7 @@ describe('queueText (durable outbox sends)', () => {
     const daemon: ControlMessage[] = []
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const { sessionId } = await reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/w',
     })
@@ -529,6 +532,7 @@ describe('queueText (durable outbox sends)', () => {
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/w',
       })
@@ -584,6 +588,7 @@ describe('queueText (durable outbox sends)', () => {
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/w',
       })
@@ -747,6 +752,7 @@ describe('framework idempotency (modules.mutations)', () => {
       const daemon: ControlMessage[] = []
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/w',
       })

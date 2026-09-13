@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
@@ -38,6 +38,7 @@ async function regWithDaemon() {
  */
 async function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`): Promise<string> {
   const { sessionId } = await reg.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'claude-code',
     cwd,
   })

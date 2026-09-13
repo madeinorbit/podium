@@ -263,6 +263,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     const wt = (await registry.issues.get(i.id))!.worktreePath as string
 
     const { sessionId: sid } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: wt,
       agentKind: 'shell',
     })
@@ -276,6 +277,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     const { sessionId: sid2 } = await registry.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       cwd: '/unowned',
       agentKind: 'shell',
     })

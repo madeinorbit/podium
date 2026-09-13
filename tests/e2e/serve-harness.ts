@@ -29,6 +29,7 @@ import {
   type LaunchOptions,
   type LaunchSpec,
 } from '@podium/harness'
+import { firstAdminMemberId } from '@podium/model'
 import type { AgentKind } from '@podium/model'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
@@ -245,6 +246,19 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
 
 let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
 
+/**
+ * WHO THIS HARNESS'S SESSIONS BELONG TO, STATED ONCE (PDM-276).
+ *
+ * `createSession` used to end its owner chain with `?? firstAdminMemberId()`, so
+ * every spawn below was silently handed to the earliest-enrolled admin. That
+ * fallback is gone and an owner is now required, which is the right shape: the
+ * harness really does drive the instance as its admin, and this line is that
+ * fact written down instead of assumed. Resolved ONCE here rather than at each
+ * call because several of the spawns below sit inside `setTimeout` callbacks
+ * where `await` is not available.
+ */
+const HARNESS_OWNER = await firstAdminMemberId(server.registry.sessionStore)
+
 // The ordinary harness must never read authenticated provider quota just to paint
 // a health chip. Keep it deterministic (and make mixed-pool UI testable) unless
 // the explicitly opt-in real-agent lane is running.
@@ -413,6 +427,7 @@ if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
     for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
       try {
         sessionId = server.registry.modules.sessions.createSession({
+          ownerUserId: HARNESS_OWNER,
           agentKind: subject.agentKind,
           cwd: REPO_ROOT,
           issueId: issue.id,
@@ -496,6 +511,7 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
       sessionId = server.registry.modules.sessions.createSession({
+        ownerUserId: HARNESS_OWNER,
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
@@ -566,6 +582,7 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
       sessionId = server.registry.modules.sessions.createSession({
+        ownerUserId: HARNESS_OWNER,
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
@@ -637,6 +654,7 @@ if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
       sessionId = server.registry.modules.sessions.createSession({
+        ownerUserId: HARNESS_OWNER,
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
@@ -683,6 +701,7 @@ if (process.env.PODIUM_E2E_TRANSCRIPT_INCARNATION === '1') {
   for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
     try {
       sessionId = server.registry.modules.sessions.createSession({
+        ownerUserId: HARNESS_OWNER,
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
@@ -787,6 +806,7 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
     startNow: false,
   })
   const { sessionId } = server.registry.modules.sessions.createSession({
+    ownerUserId: HARNESS_OWNER,
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
@@ -818,6 +838,7 @@ if (process.env.PODIUM_E2E_FINISHED_DELEGATE === '1') {
   })
   server.registry.modules.sessions.hibernateSession({ sessionId })
   const { sessionId: secondId } = server.registry.modules.sessions.createSession({
+    ownerUserId: HARNESS_OWNER,
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
@@ -860,6 +881,7 @@ if (process.env.PODIUM_E2E_OFFER === '1') {
     startNow: false,
   })
   const { sessionId } = server.registry.modules.sessions.createSession({
+    ownerUserId: HARNESS_OWNER,
     agentKind: 'codex',
     cwd: REPO_ROOT,
     issueId: issue.id,
@@ -894,6 +916,7 @@ if (process.env.PODIUM_E2E_OFFER === '1') {
 }
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   server.registry.modules.sessions.createSession({
+    ownerUserId: HARNESS_OWNER,
     agentKind: 'claude-code',
     cwd: SCRATCH_FEAT,
     machineId: hostMachineId(),
@@ -927,6 +950,7 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   for (let attempt = 0; attempt < 80 && parentId === undefined; attempt++) {
     try {
       parentId = server.registry.modules.sessions.createSession({
+        ownerUserId: HARNESS_OWNER,
         agentKind: 'claude-code',
         cwd: REPO_ROOT,
         issueId: issue.id,
@@ -971,6 +995,11 @@ if (process.env.PODIUM_E2E_SESSION_ATTRIBUTION === '1') {
   let childId: string | undefined
   for (let attempt = 0; attempt < 30 && childId === undefined; attempt++) {
     const candidate = server.registry.modules.sessions.createSession({
+      // NO ownerUserId HERE, deliberately. This spawn carries a `binding`, and
+      // the point of the case is that the child derives its human FROM that
+      // binding principal (ADR 3 D7). An explicit owner would satisfy the same
+      // required-owner type while silently rescuing a binding that failed to
+      // resolve -- which is the one outcome this case exists to detect.
       agentKind: 'claude-code',
       cwd: REPO_ROOT,
       issueId: issue.id,

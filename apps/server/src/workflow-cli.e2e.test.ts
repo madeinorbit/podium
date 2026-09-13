@@ -119,6 +119,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
       ],
     })
     const { sessionId } = await registry.modules.sessions.createSession({
+      ownerUserId: await firstAdminMemberId(registry.sessionStore),
       agentKind: 'claude-code',
       cwd: '/repo/wt',
       initialPrompt: 'do the work',

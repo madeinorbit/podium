@@ -91,6 +91,7 @@ function terminalItemEvent(input: {
 async function bindContract(registry: SessionRegistry, store: SessionStore) {
   registry.gateway.attachDaemon(store.hostMachineId, () => {})
   const { sessionId } = await registry.modules.sessions.createSession({
+    ownerUserId: firstAdminMemberId(),
     agentKind: 'codex',
     cwd: '/project',
   })

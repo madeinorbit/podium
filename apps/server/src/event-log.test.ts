@@ -632,6 +632,7 @@ describe('SessionRegistry session.phase events', () => {
     try {
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
+        ownerUserId: firstAdminMemberId(),
         agentKind: 'claude-code',
         cwd: '/proj',
       })

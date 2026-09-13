@@ -739,6 +739,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
   it(`${MUST_NOT_CHANGE}: a session with no resume ref cannot be handed off — the conversation would not survive`, async () => {
     const f = await handoffFixture()
     const shell = await f.reg.modules.sessions.createSession({
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
       cwd: '/source/repo/.worktrees/x',
       machineId: asMachineId('m1'),
