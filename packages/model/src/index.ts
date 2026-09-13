@@ -121,6 +121,10 @@ export * from './user-state/family'
 // could not classify, because it had no server row to be per-user in.
 export * from './user-state/read-position-state'
 export * from './user-state/issue-state'
+// One person's pins, folds and read marks for one issue (PDM-408) — the
+// per-user half the broadcast payload used to carry for one named viewer.
+export * from './user-state/issue-marks-state'
+export * from './user-state/composite-row-id'
 export * from './user-state/layout-state'
 // The personal preference half (POD-1213) — the member POD-1076 recorded as
 // absent because its storage was still the instance-wide settings blob.

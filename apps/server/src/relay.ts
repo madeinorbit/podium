@@ -1127,6 +1127,14 @@ export class SessionRegistry {
       issueExecutions: await ledger.authority.snapshot(
         'issueExecution',
       ) as SnapshotTail['issueExecutions'],
+      // This principal's OWN issue marks (PDM-408), through the same
+      // `authority.snapshot` and therefore the same per-principal scoping — but
+      // decided by a different mechanism, which is worth naming here because the
+      // comment above says "arm". Marks are `per-user-state`, so `scopeBootstrap`
+      // filters them through `keyedUserOf` parsing the owner out of the row id,
+      // not through a `mayRead` arm. A row cannot reach anyone but the person
+      // named in its own key.
+      issueMarks: await ledger.authority.snapshot('issueMarks') as SnapshotTail['issueMarks'],
       issueDeps: await ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
       repos: repoProjectionRows(await this.store.repos.listRepos()).map((row) => row.value),
       shipOrders: await ledger.authority.snapshot('shipOrder') as SnapshotTail['shipOrders'],

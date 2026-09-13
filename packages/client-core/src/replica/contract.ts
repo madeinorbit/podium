@@ -62,6 +62,7 @@ import type {
   ConversationSummaryWire,
   IssueDepProjection,
   IssueExecutionProjection,
+  IssueMarksWire,
   IssueEventWire,
   IssueProjection,
   IssueWire,
@@ -116,6 +117,17 @@ export interface ReplicaRows {
    *  `@podium/model` — which is why every existing reader of those four keys
    *  keeps working for the owner without knowing this kind exists. */
   issueExecutions: IssueExecutionProjection
+  /** THIS READER'S OWN pins, folds and read marks (PDM-408) — `(userId, issueId)`.
+   *  Keyed by issue id in the collection, because a client only ever holds its
+   *  OWN rows: the server's `keyedUserOf` arm parses the owner out of the row id
+   *  and a foreign row can never be delivered, so the user half is constant
+   *  across every row this replica will ever see.
+   *
+   *  `IssueWire` still carries `pinned` / `tuckedAt` / `readAt`, at NEUTRAL
+   *  values — the views join these over them (`joinIssueMarks`), which is why a
+   *  replica that has not received its rows yet paints an unmarked board rather
+   *  than somebody else's. */
+  issueMarks: IssueMarksWire
   /** Logical repos [POD-822] — `(id, prefix)`. The views join `issue.repoId →
    *  repo.prefix` for `displayRef`; a prefix change moves every `POD-13` in the
    *  repo without rewriting an issue (D7.2). */
@@ -167,6 +179,7 @@ export interface ReplicaHydrateResult {
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
   issueExecutions: IssueExecutionProjection[]
+  issueMarks: IssueMarksWire[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
   pendingInteractions: PendingInteractionWire[]

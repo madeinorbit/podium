@@ -36,6 +36,9 @@ const ENTITY_TO_KIND = {
   /** B4's owner-scoped execution sidecar. Same rule again: `issueExecution` is
    *  `MetadataEntityKind`'s literal, not a guess. */
   issueExecution: 'issueExecutions',
+  /** PDM-408's per-user issue marks. Same rule again: `issueMarks` is
+   *  `MetadataEntityKind`'s literal, not a guess. */
+  issueMarks: 'issueMarks',
   repo: 'repos',
   /** POD-1772's curated issue events. Same rule as the three kinds above: the
    *  entity spelling is `MetadataEntityKind`'s literal, not a guess. */
@@ -96,5 +99,9 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   // there: a row whose key fell through to `.id` would key on `undefined`, and
   // every issue's private half would collide on one row.
   if (kind === 'issueExecutions') return (row as ReplicaRows['issueExecutions']).issueId
+  // The marks row is keyed by ITS ISSUE for the reason the collection is: every
+  // row a client holds is its own, so the user half is a constant. Keying on
+  // `.id` would be `undefined` here too, and every issue's marks would collide.
+  if (kind === 'issueMarks') return (row as ReplicaRows['issueMarks']).issueId
   return (row as ReplicaRows['issues']).id
 }

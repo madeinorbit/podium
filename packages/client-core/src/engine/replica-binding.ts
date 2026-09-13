@@ -14,7 +14,7 @@
  * therefore produce no Store publication.
  */
 
-import { type IssueWire, joinIssueExecution } from '@podium/model'
+import { type IssueWire, joinIssueExecution, joinIssueMarks } from '@podium/model'
 import type { Replica, ReplicaHydrateResult, ReplicaKind, ReplicaRows } from '../replica/contract'
 
 /**
@@ -34,6 +34,29 @@ import type { Replica, ReplicaHydrateResult, ReplicaKind, ReplicaRows } from '..
  * decide what the Store republishes, so allocating a new array unconditionally
  * would make every unrelated batch look like an issue change.
  */
+/**
+ * THE ENGINE'S OWN JOIN for this reader's marks (PDM-408).
+ *
+ * `st.issues` reaches roughly thirty surfaces through this binding, so joining
+ * only in the view models would leave every one of them rendering the broadcast's
+ * NEUTRAL marks — an unmarked board for everybody, which is a false green of
+ * exactly the shape neutral values invite. B4 learned this on its own sidecar:
+ * the engine path is the catch.
+ *
+ * An empty marks list is the ordinary state of a person who has marked nothing,
+ * and the join then leaves every row as the producer sent it — neutral. It must
+ * NOT force neutral itself: the rows reaching here have already had this client's
+ * optimistic overlay applied, and an unconditional overwrite wiped the `readAt`
+ * a person had just written by pressing "mark read".
+ */
+function joinMarks(
+  issues: readonly ReplicaRows['issues'][],
+  marks: readonly ReplicaRows['issueMarks'][],
+): ReplicaRows['issues'][] {
+  const byIssue = new Map(marks.map((row) => [row.issueId as string, row]))
+  return issues.map((issue) => joinIssueMarks(issue, byIssue.get(issue.id)) as IssueWire)
+}
+
 function joinExecutions(
   issues: readonly ReplicaRows['issues'][],
   executions: readonly ReplicaRows['issueExecutions'][],
@@ -49,6 +72,7 @@ export const REPLICA_BINDING_KINDS = [
   'issueProjections',
   'issueDeps',
   'issueExecutions',
+  'issueMarks',
   'repos',
   'issueEvents',
   'pendingInteractions',
@@ -161,10 +185,14 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
 function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
   return {
     sessions: replica.rows('sessions'),
-    issues: joinExecutions(replica.rows('issues'), replica.rows('issueExecutions')),
+    issues: joinMarks(
+      joinExecutions(replica.rows('issues'), replica.rows('issueExecutions')),
+      replica.rows('issueMarks'),
+    ),
     issueProjections: replica.rows('issueProjections'),
     issueDeps: replica.rows('issueDeps'),
     issueExecutions: replica.rows('issueExecutions'),
+    issueMarks: replica.rows('issueMarks'),
     repos: replica.rows('repos'),
     issueEvents: replica.rows('issueEvents'),
     pendingInteractions: replica.rows('pendingInteractions'),
@@ -194,7 +222,10 @@ function readChanged(
   // cross-kind dependency in this adapter and it is the reason the join lives
   // here rather than in each reader.
   if (changed.has('issues') || changed.has('issueExecutions')) {
-    next.issues = joinExecutions(replica.rows('issues'), replica.rows('issueExecutions'))
+    next.issues = joinMarks(
+      joinExecutions(replica.rows('issues'), replica.rows('issueExecutions')),
+      replica.rows('issueMarks'),
+    )
   }
   return next
 }

@@ -147,10 +147,15 @@ function storeFor(replica: Replica): IssueViewsStore {
   // owner-scoped private half back onto the issue, so a sidecar-only delta must
   // invalidate or the owner's worktree path never repaints — it would appear on
   // the next unrelated issue change and look like a lag rather than a bug.
+  // `issueMarks` joins here for the same reason and with a sharper failure
+  // (PDM-408): a marks-only delta is what arrives when THIS person pins or marks
+  // read on another device, and without it the board would not repaint until an
+  // unrelated issue changed.
   const relevantKinds = new Set([
     'issues',
     'issueProjections',
     'issueExecutions',
+    'issueMarks',
     'issueDeps',
     'repos',
     'sessions',
@@ -168,6 +173,7 @@ function storeFor(replica: Replica): IssueViewsStore {
     replica.subscribeRows('issues', invalidate)
     replica.subscribeRows('issueProjections', invalidate)
     replica.subscribeRows('issueExecutions', invalidate)
+    replica.subscribeRows('issueMarks', invalidate)
     replica.subscribeRows('issueDeps', invalidate)
     replica.subscribeRows('repos', invalidate)
     replica.subscribeRows('sessions', invalidate)

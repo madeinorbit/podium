@@ -61,6 +61,7 @@ import {
   type ConversationSummaryWire,
   type IssueDepProjection,
   type IssueExecutionProjection,
+  type IssueMarksWire,
   interactionRowId,
   type IssueEventWire,
   type IssueProjection,
@@ -300,6 +301,7 @@ const ENTITY_STORE_KINDS = [
   'issueProjections',
   'issueDeps',
   'issueExecutions',
+  'issueMarks',
   'repos',
   'issueEvents',
   'pendingInteractions',
@@ -469,6 +471,16 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // This reader's own marks (PDM-408). Keyed on `issueId` alone: every row
+      // here belongs to this principal by construction — the server's
+      // `keyedUserOf` arm cannot deliver anybody else's — so the user half would
+      // be a constant in the key and would only make the join look conditional.
+      issueMarks: this.makeCollection<IssueMarksWire>(
+        'issueMarks',
+        (m) => m.issueId,
+        guarded,
+        guardedEvents,
+      ),
       repos: this.makeCollection<RepoProjection>('repos', (r) => r.id, guarded, guardedEvents),
       issueEvents: this.makeCollection<IssueEventWire>(
         'issueEvents',
@@ -555,6 +567,7 @@ class TanstackReplica implements Replica {
       issueProjections: [],
       issueDeps: [],
       issueExecutions: [],
+      issueMarks: [],
       repos: [],
       issueEvents: [],
       pendingInteractions: [],
@@ -605,6 +618,7 @@ class TanstackReplica implements Replica {
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         issueExecutions: this.cols.issueExecutions.toArray as IssueExecutionProjection[],
+        issueMarks: this.cols.issueMarks.toArray as IssueMarksWire[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
         pendingInteractions: this.cols.pendingInteractions

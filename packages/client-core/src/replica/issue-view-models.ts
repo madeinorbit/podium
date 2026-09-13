@@ -9,9 +9,11 @@
 import {
   type IssueExecutionProjection,
   type IssueId,
+  type IssueMarksWire,
   type IssueProjection,
   type IssueWire,
   joinIssueExecution,
+  joinIssueMarks,
   type SessionId,
 } from '@podium/model'
 import {
@@ -163,6 +165,23 @@ export function buildIssueViewModel(
    * handle absence, because absence was always reachable.
    */
   execution?: IssueExecutionProjection,
+  /**
+   * THIS READER'S OWN marks for this issue (PDM-408), or `undefined`.
+   *
+   * `undefined` is the ORDINARY case here too, and for a plainer reason than
+   * `execution`'s: most people have not touched most issues, and the store only
+   * holds a row for an issue somebody has actually marked. It resolves to
+   * `NEUTRAL_ISSUE_MARKS` — unpinned, unfolded, never read — which is what an
+   * untouched issue has always looked like.
+   *
+   * IT IS NOT OPTIONAL IN THE SENSE `execution` IS. Skipping the join does not
+   * leave the reader with less; it leaves them with the values `IssueWire` still
+   * carries, which are now NEUTRAL for everybody and were, until PDM-408, the
+   * EARLIEST ADMIN'S. That is why {@link joinIssueMarks} overwrites rather than
+   * defaults: it is the last gate, and a producer that regressed and baked a
+   * viewer's marks back into the broadcast would be caught here.
+   */
+  marks?: IssueMarksWire,
 ): IssueViewModel | undefined {
   const view = snapshot.views.get(projection.id)
   if (!view) return undefined
@@ -187,9 +206,15 @@ export function buildIssueViewModel(
   } = legacy
   // The retained issue row is the one cursor home: persistence and optimistic
   // overlays both write it, and unread is derived from that exact value.
-  const readAt = legacy.readAt ?? null
+  // THIS READER'S OWN marks, over the broadcast's neutral ones (PDM-408).
+  // Applied to the legacy supplement BEFORE `readAt` is taken from it, because
+  // `readAt` is the one cursor home — persistence, optimistic overlays and the
+  // derived `unread` all key off this exact value, so taking it from the
+  // unjoined row would leave every rollup below describing nobody's marks.
+  const held = joinIssueMarks(legacySupplement, marks)
+  const readAt = held.readAt ?? null
   return {
-    ...legacySupplement,
+    ...held,
     // The private half goes on FIRST, under the projection's legacy spelling,
     // so the `?? null` normalisation below still decides the final value of
     // `worktreePath` — otherwise an owner's path would arrive as `undefined`
@@ -214,6 +239,7 @@ export function buildIssueViewModels(
   projectionRows: readonly IssueProjection[],
   legacyRows: readonly IssueWire[],
   executionRows: readonly IssueExecutionProjection[] = [],
+  marksRows: readonly IssueMarksWire[] = [],
 ): Map<string, IssueViewModel> {
   const models = new Map<string, IssueViewModel>()
   const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
@@ -221,12 +247,15 @@ export function buildIssueViewModels(
   // O(world) path POD-1053 split `buildIssueViewModel` out of, and a linear find
   // inside it would put the shape back.
   const executionByIssue = new Map(executionRows.map((row) => [row.issueId as string, row]))
+  // Indexed once per pass, same reason as the line above.
+  const marksByIssue = new Map(marksRows.map((row) => [row.issueId as string, row]))
   for (const projection of projectionRows) {
     const model = buildIssueViewModel(
       snapshot,
       projection,
       legacyById.get(projection.id),
       executionByIssue.get(projection.id),
+      marksByIssue.get(projection.id),
     )
     if (model) models.set(projection.id, model)
   }
@@ -238,11 +267,13 @@ export function issueViewModelsFromReplica(
   projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
   legacyRows: readonly IssueWire[] = replica.rows('issues'),
   executionRows: readonly IssueExecutionProjection[] = replica.rows('issueExecutions'),
+  marksRows: readonly IssueMarksWire[] = replica.rows('issueMarks'),
 ): Map<string, IssueViewModel> {
   return buildIssueViewModels(
     deriveIssueViewsSnapshot(replica),
     projectionRows,
     legacyRows,
     executionRows,
+    marksRows,
   )
 }

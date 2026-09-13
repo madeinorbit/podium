@@ -396,12 +396,20 @@ describe('IssueService single-issue publish (#22)', () => {
 
 describe('IssueService unread (#124)', () => {
   it('a never-read issue with activity is unread; markIssueRead clears it', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     expect(await svc.unreadFor(w.id)).toBe(true)
     expect(w.readAt).toBeNull()
-    const read = await svc.markIssueRead(w.id, firstAdminMemberId())
-    expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
+    await svc.markIssueRead(w.id, firstAdminMemberId())
+    // THE MARKER MOVED OFF THE BROADCAST (PDM-408). `read.readAt` used to carry
+    // it; the wire now carries NEUTRAL marks for everybody, because a value that
+    // differs per reader cannot be a field of a payload sent to many readers.
+    // The claim is re-pointed at where the truth lives rather than deleted — the
+    // stored row for THIS person — so it still says no if the write stops.
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt,
+    ).toBe('2026-06-30T00:00:00.000Z')
+    expect((await svc.get(w.id))!.readAt).toBeNull() // neutral on the wire
     expect(await svc.unreadFor(w.id)).toBe(false)
     // The freshly-derived wire reflects it too.
     expect(await svc.unreadFor(w.id)).toBe(false)
@@ -459,14 +467,23 @@ describe('IssueService unread (#124)', () => {
     const readAt = (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt
     const updatedAt = (await store.issues.getIssue(w.id))!.updatedAt
 
+    // PDM-408: `pinned` / `readAt` on the WIRE are neutral for everybody now, so
+    // the pin is read back off the pinner's own row. What this test is actually
+    // about — that an organizational patch does not re-raise unread or move
+    // updatedAt — is unchanged and still asserted below.
+    const pinnedAt = async () =>
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))?.pinnedAt ?? null
     const pinned = await svc.update(w.id, { pinned: true }, { viewer: firstAdminMemberId() })
-    expect(pinned.pinned).toBe(true)
+    expect(await pinnedAt()).not.toBeNull()
+    expect(pinned.pinned).toBe(false) // neutral on the wire
     expect(await svc.unreadFor(w.id)).toBe(false)
-    expect(pinned.readAt).toBe(readAt)
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt,
+    ).toBe(readAt)
     expect(pinned.updatedAt).toBe(updatedAt)
 
     const unpinned = await svc.update(w.id, { pinned: false }, { viewer: firstAdminMemberId() })
-    expect(unpinned.pinned).toBe(false)
+    expect(await pinnedAt()).toBeNull()
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(unpinned.updatedAt).toBe(updatedAt)
 
@@ -477,7 +494,7 @@ describe('IssueService unread (#124)', () => {
 
     // Combined organizational patch (pin + reorder) also stays read.
     const both = await svc.update(w.id, { pinned: true, sortKey: 'x2d' }, { viewer: firstAdminMemberId() })
-    expect(both.pinned).toBe(true)
+    expect(await pinnedAt()).not.toBeNull()
     expect(both.sortKey).toBe('x2d')
     expect(await svc.unreadFor(w.id)).toBe(false)
     expect(both.updatedAt).toBe(updatedAt)
@@ -542,21 +559,32 @@ describe('IssueService tuck-away (POD-333)', () => {
     return w
   }
 
-  it('stamps tuckedAt on the wire and PERSISTS it — a fresh client hydrates the fold', async () => {
+  it('PERSISTS the fold on the tucker’s own row — a fresh client hydrates it', async () => {
+    // RENAMED (PDM-408), old name: 'stamps tuckedAt on the wire and PERSISTS it
+    // — a fresh client hydrates the fold'. The first half of that claim is now
+    // FALSE BY DESIGN: the wire carries neutral marks for every reader, and the
+    // fold rides the per-user `issueMarks` sidecar. The durability half — which
+    // is what the test was really for — is unchanged and is what remains.
     const { svc, deps, store } = await harness()
     const w = await closedIssue(svc)
     expect((await svc.get(w.id))!.tuckedAt).toBeNull()
 
-    const tucked = await svc.setIssueTucked(w.id, true, firstAdminMemberId())
-    expect(tucked.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
-    expect((await svc.get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
-    // Durable, not in-memory: it is in the DB column…
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
+    // Durable, not in-memory: it is in the DB row for THIS person…
     expect((await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.tuckedAt).toBe(
       '2026-06-30T00:00:00.000Z',
     )
-    // …so a cold service over the same store — the "different browser / after a
-    // restart" case — serves the same fold instead of an un-tucked live row.
-    expect((await (await IssueService.create(deps)).get(w.id))!.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    // …and a cold service over the same store re-publishes it, which is the
+    // "different browser / after a restart" case this test exists for. Observed
+    // through the store rather than through the cold service's own wire: the
+    // wire is neutral by design now, so asking it would be vacuous.
+    await IssueService.create(deps)
+    expect((await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.tuckedAt).toBe(
+      '2026-06-30T00:00:00.000Z',
+    )
+    // And the broadcast stays neutral throughout — the negative half, without
+    // which this could pass against a wire that had simply started lying again.
+    expect((await svc.get(w.id))!.tuckedAt ?? null).toBeNull()
   })
 
   it('broadcasts the change so every OTHER connected client folds the same row', async () => {
@@ -583,7 +611,14 @@ describe('IssueService tuck-away (POD-333)', () => {
           (row.entity === undefined || row.entity === 'issue'),
       )
     expect(sent).toHaveLength(1)
-    expect(sent[0]?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    // PDM-408: the ISSUE row that goes to every client carries NEUTRAL marks —
+    // it cannot say whose fold it means. The fold itself rides a separate
+    // `issueMarks` row addressed to the tucker, asserted just below.
+    expect(sent[0]?.value?.tuckedAt ?? null).toBeNull()
+    const marks = deps.broadcast.mock.calls
+      .map((c) => c[0] as { entity?: string; value?: { tuckedAt?: string | null } })
+      .filter((row) => row.entity === 'issueMarks')
+    expect(marks.at(-1)?.value?.tuckedAt).toBe('2026-06-30T00:00:00.000Z')
   })
 
   it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', async () => {
@@ -615,17 +650,25 @@ describe('IssueService tuck-away (POD-333)', () => {
     }
     const svc = await IssueService.create(deps)
     const w = await closedIssue(svc)
-    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    // PDM-408: read the stamp off the tucker's own row, not off the broadcast,
+    // which is neutral for every reader now. The property under test — that a
+    // re-tuck keeps the ORIGINAL moment — is unchanged.
+    const foldAt = async () =>
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))?.tuckedAt ?? null
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
+    expect(await foldAt()).toBe('2026-06-30T00:00:00.000Z')
 
     clock = '2026-06-30T00:01:00.000Z'
     // Idempotent re-tuck (a retried outbox entry, or a second client pressing the
     // same control) must not move the stamp.
-    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:00:00.000Z')
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
+    expect(await foldAt()).toBe('2026-06-30T00:00:00.000Z')
 
-    expect((await svc.setIssueTucked(w.id, false, firstAdminMemberId())).tuckedAt).toBeNull()
-    expect((await svc.get(w.id))!.tuckedAt).toBeNull()
+    await svc.setIssueTucked(w.id, false, firstAdminMemberId())
+    expect(await foldAt()).toBeNull()
     // A fresh tuck after an untuck takes the NEW clock.
-    expect((await svc.setIssueTucked(w.id, true, firstAdminMemberId())).tuckedAt).toBe('2026-06-30T00:01:00.000Z')
+    await svc.setIssueTucked(w.id, true, firstAdminMemberId())
+    expect(await foldAt()).toBe('2026-06-30T00:01:00.000Z')
   })
 
   it('refuses to tuck work that is not finished', async () => {
@@ -638,14 +681,21 @@ describe('IssueService tuck-away (POD-333)', () => {
   })
 
   it('reopening clears the tuck, so the next close offers Tuck away again', async () => {
-    const { svc } = await harness()
+    const { svc, store } = await harness()
     const w = await closedIssue(svc)
     await svc.setIssueTucked(w.id, true, firstAdminMemberId())
-    expect((await svc.get(w.id))!.tuckedAt).not.toBeNull()
+    // PDM-408: the fold is on the tucker's row, so that is where it is observed
+    // both before and after. Asserting the wire would be vacuous now — it reads
+    // null whether or not the reopen cleared anything.
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))?.tuckedAt ?? null,
+    ).not.toBeNull()
 
     const reopened = await svc.update(w.id, { stage: 'in_progress' })
     expect(reopened.closedReason).toBeUndefined()
-    expect(reopened.tuckedAt).toBeNull()
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))?.tuckedAt ?? null,
+    ).toBeNull()
 
     // Closing again leaves it untucked — the row comes back as a live "done" row
     // carrying the control, rather than auto-folding on a stale dismissal.
@@ -677,8 +727,11 @@ describe('IssueService tuck-away (POD-333)', () => {
 
     expect(tucked.updatedAt).toBe(before.updatedAt)
     // The tuck patch must not disturb the read marker — the two share a row now
-    // (POD-1076), so this also covers the partial-patch rule at the service level.
-    expect(tucked.readAt).toBe(beforeReadAt)
+    // (POD-1076), so this also covers the partial-patch rule at the service
+    // level. Read off that row (PDM-408) rather than off the neutral wire.
+    expect(
+      (await store.issues.getIssueUserState(firstAdminMemberId(), w.id))!.readAt,
+    ).toBe(beforeReadAt)
     expect(await svc.unreadFor(w.id)).toBe(false)
   })
 })

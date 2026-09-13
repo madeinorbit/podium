@@ -20,6 +20,8 @@ import {
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   issueOverlayOf,
+  issueMarksRowId,
+  NEUTRAL_ISSUE_MARKS,
   type RepoProjection,
   requireInstant,
   type SessionId,
@@ -258,12 +260,50 @@ export class IssueStore {
    * That is the READ half of PDM-402, tracked at {@link broadcastViewer}; the
    * client paints it optimistically in the meantime (`enqueueOverlayed`).
    */
+  /**
+   * **PUBLISH ONE PERSON'S MARKS ON ONE ISSUE** (PDM-408) — the sidecar row that
+   * replaces what the broadcast payload used to carry for one named viewer.
+   *
+   * Entity kind `issueMarks`, classified `per-user-state` in `feed-visibility.ts`
+   * alongside `userLayout` and `userReadPosition`: never grantable, and the
+   * delivery filter is `keyedUserOf` parsing the owner back out of the row id
+   * rather than any `mayRead` arm. That is the difference from B4's
+   * `issueExecution`, whose arm resolves the ISSUE's owner — routing marks
+   * through that would hand one person's pins to whoever owns the task.
+   *
+   * Captured, not reconciled. A per-user kind has no "full truth for everyone"
+   * to diff against: `Ledger.reconcile` treats a missing row as a REMOVE, so a
+   * reconcile would have to enumerate every member × every issue they have ever
+   * marked, and getting that list one row short would durably delete somebody's
+   * pins. `capture` states only what changed, which is what a write knows.
+   */
+  private async publishIssueMarks(viewer: UserId, issueId: IssueId): Promise<void> {
+    const stored = await this.deps.store.issues.getIssueUserState(viewer, issueId)
+    await this.deps.ledger.capture([
+      {
+        entity: 'issueMarks',
+        id: issueMarksRowId(viewer, issueId),
+        op: 'upsert',
+        // A row with every marker cleared is still an UPSERT carrying neutral
+        // values, never a remove: the reader already holds the old row, and a
+        // remove is how a client is told "no opinion" rather than "unpinned".
+        // `issueOverlayOf(undefined)` is exactly that neutral, so the deleted
+        // and the never-existed cases agree without a second spelling.
+        value: { userId: viewer, issueId, ...issueOverlayOf(stored) },
+      },
+    ])
+  }
+
   async writeIssueUserState(
     issueId: IssueId,
     patch: Partial<StoredIssueUserState>,
     viewer: UserId,
   ): Promise<void> {
     await this.deps.store.issues.setIssueUserState(viewer, issueId, patch)
+    // The sidecar carries the REAL value to this one person, whether or not they
+    // are the broadcast viewer — that is the whole point of the split, so it is
+    // published BEFORE the early return below rather than after it.
+    await this.publishIssueMarks(viewer, issueId)
     if (viewer !== (await this.broadcastViewer())) return
     const viewerState = this.requireHydrated().viewerState
     const next = await this.deps.store.issues.getIssueUserState(viewer, issueId)
@@ -294,6 +334,10 @@ export class IssueStore {
     if (holders.length === 0) return
     for (const holder of holders) {
       await this.deps.store.issues.setIssueUserState(holder, issueId, { tuckedAt: null })
+      // EVERY holder gets their own row (PDM-408). A reopen clears N people's
+      // folds, so it publishes N sidecar rows — one per audience of one — not
+      // one broadcast row that would have to say whose fold it meant.
+      await this.publishIssueMarks(holder, issueId)
     }
     const broadcast = (await this.broadcastViewer())
     if (!holders.includes(broadcast)) return
@@ -798,7 +842,25 @@ export class IssueStore {
       ...(issue.prUrl ? { prUrl: issue.prUrl } : {}),
       priority: issue.priority,
       type: issue.type,
-      pinned: this.issueOverlay(row.id).pinned,
+      // NOBODY'S MARKS ON THE BROADCAST (PDM-408) — this key and `tuckedAt` /
+      // `readAt` below. All three used to be `this.issueOverlay(row.id).…`, i.e.
+      // the EARLIEST ADMIN'S, baked into the payload every client receives, so a
+      // member saw that person's pins, folds and unread dots over their own
+      // rows. A value that differs per reader cannot be a field of a payload
+      // broadcast to many readers — `entities/issue.ts`'s own header has said so
+      // since POD-1076 and named the feed as the gap.
+      //
+      // THE KEYS STAY, AT NEUTRAL, rather than leaving the shape (coordinator
+      // ruling): narrowing `IssueWire` costs the protocol arms, the arm-count
+      // gates and a wire-golden regeneration, and buys only a type that stops
+      // lying. Written in PLACE rather than as one spread of
+      // `NEUTRAL_ISSUE_MARKS`, deliberately — the wire goldens compare
+      // serialized bytes and key ORDER is part of them, so a spread would move
+      // two keys and put unrelated churn in a corpus several landings touch.
+      //
+      // The real values ride the `issueMarks` sidecar, whose audience is one
+      // person, and the client joins them back on with `joinIssueMarks`.
+      pinned: NEUTRAL_ISSUE_MARKS.pinned,
       ...(issue.sortKey ? { sortKey: issue.sortKey } : {}),
       // A corrupt/unknown stored slot already degraded to "no colour" in
       // `fromStorage` [spec:SP-b4d1] — one tolerant decode, not two.
@@ -828,7 +890,7 @@ export class IssueStore {
       ...(issue.closedAt ? { closedAt: issue.closedAt } : {}),
       // Always on the wire (like readAt, not spread-when-truthy): the client
       // reads absence as "not tucked", and an untuck must be able to say so.
-      tuckedAt: this.issueOverlay(row.id).tuckedAt,
+      tuckedAt: NEUTRAL_ISSUE_MARKS.tuckedAt,
       ...(issue.estimateMin != null ? { estimateMin: issue.estimateMin } : {}),
       ...(issue.panel ? { panel: issue.panel } : {}),
       labels,
@@ -843,7 +905,7 @@ export class IssueStore {
       createdAt: issue.createdAt,
       updatedAt: issue.updatedAt,
       archived: issue.archived,
-      readAt: this.issueOverlay(row.id).readAt,
+      readAt: NEUTRAL_ISSUE_MARKS.readAt,
       ...(issue.deletedAt ? { deletedAt: issue.deletedAt } : {}),
       // NO `sessions` / `sessionSummary` / `unread` [POD-797, taken from main at
       // the POD-1246 catch-up]. Dropping them from the schema alone would not have

@@ -25,6 +25,9 @@ import {
   interactionRowId,
   joinIssueExecution,
   layoutRowId,
+  type IssueMarksWire,
+  issueMarksRowId,
+  joinIssueMarks,
   readPositionRowId,
 } from '@podium/model'
 import {
@@ -669,6 +672,7 @@ export class SocketHub {
    *  row landed second — which is most of the time, since it is emitted after
    *  the shared row in the same write. */
   private issueExecutionList: IssueExecutionProjection[] = []
+  private issueMarksList: IssueMarksWire[] = []
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
@@ -2387,6 +2391,18 @@ export class SocketHub {
             (x) => x.issueId === c.id,
           )
           break
+        case 'issueMarks':
+          // PDM-408's per-user marks. Matched on the composite id the Authority
+          // logs (`issueMarksRowId`), not on `issueId` alone: every row this
+          // client receives is its own, but the LOG's id is the pair, and a
+          // remove carries only that composite.
+          this.issueMarksList = applyChange(
+            this.issueMarksList,
+            c.op,
+            c.value,
+            (x) => issueMarksRowId(x.userId, x.issueId) === c.id,
+          )
+          break
         case 'userReadPosition':
           // Same demux for POD-1380's read positions, matched on readPositionRowId.
           this.userReadPositionList = applyChange(
@@ -2409,8 +2425,18 @@ export class SocketHub {
         (issue) => joinIssueExecution(issue, executionByIssue.get(issue.id)) as IssueWire,
       )
     }
+    // The same re-join for this reader's marks (PDM-408), and for the same
+    // reason: neither half has to land first. Re-joined when EITHER side moved,
+    // because an issue row that arrives after the marks carries the broadcast's
+    // neutral values and would otherwise overwrite a mark already held.
+    if (touched.has('issueMarks') || touched.has('issue')) {
+      const marksByIssue = new Map(this.issueMarksList.map((x) => [x.issueId as string, x]))
+      this.issueList = this.issueList.map(
+        (issue) => joinIssueMarks(issue, marksByIssue.get(issue.id)) as IssueWire,
+      )
+    }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
-    if (touched.has('issue') || touched.has('issueExecution')) {
+    if (touched.has('issue') || touched.has('issueExecution') || touched.has('issueMarks')) {
       this.emit('issues', this.issueList)
     }
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)

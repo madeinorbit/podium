@@ -32,6 +32,7 @@ import {
   parseIssueEventRowId,
   parseInteractionRowId,
   parseLayoutRowId,
+  parseIssueMarksRowId,
   parseReadPositionRowId,
   type IssueId,
   type UserId,
@@ -296,6 +297,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // state" is not a verb — it is the privacy defect this member exists to
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
+        // One person's pins, folds and read mark for one issue (PDM-408). Same
+        // class, same reason, one degree sharper: these three values were
+        // BROADCAST for one named viewer until this row existed. Falling through
+        // to `personal` would make them grantable — "share my pins" is not a
+        // verb any more than "share my read state" is — and, worse here, would
+        // route them through the ISSUE's audience, which is every member who can
+        // read the task.
+        if (entity === 'issueMarks') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -391,6 +400,17 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
+        // PDM-408. The delivery filter for marks is THIS, not a `mayRead` arm:
+        // the owner is parsed back out of the row id, so a row can only ever
+        // reach the person named in its own key. `mayRead` returns false for
+        // `per-user-state` by design — see the comment at the end of that arm.
+        if (ref.entity === 'issueMarks') {
+          try {
+            return parseIssueMarksRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity === 'userReadPosition') {
           try {
             return parseReadPositionRowId(ref.entityId).userId

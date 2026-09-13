@@ -1,4 +1,4 @@
-import { type IssueWire, joinIssueExecution } from '@podium/model'
+import { type IssueWire, joinIssueExecution, joinIssueMarks } from '@podium/model'
 import {
   type MetadataDeltaMessageLenient,
   parseChangesSinceResult,
@@ -198,8 +198,18 @@ const projectionOf = (
     const executionByIssue = new Map(
       (snapshot.issueExecutions ?? []).map((row) => [row.issueId as string, row]),
     )
+    // …and this reader's own marks over the snapshot's neutral ones (PDM-408).
+    // Joined unconditionally, even when the list is empty, because the join is
+    // what FORCES neutral rather than trusting the producer — see joinIssueMarks.
+    const marksByIssue = new Map(
+      (snapshot.issueMarks ?? []).map((row) => [row.issueId as string, row]),
+    )
     return snapshot.issues.map(
-      (issue) => joinIssueExecution(issue, executionByIssue.get(issue.id)) as IssueWire,
+      (issue) =>
+        joinIssueMarks(
+          joinIssueExecution(issue, executionByIssue.get(issue.id)),
+          marksByIssue.get(issue.id),
+        ) as IssueWire,
     )
   })(),
   issueProjections: snapshot.issueProjections ?? [],

@@ -67,6 +67,12 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   // owner's cold start would paint their own tasks as though never started —
   // silently, because absence is exactly what an unstarted issue looks like.
   issueExecution: 'issueExecutions',
+  // This reader's own issue marks (PDM-408). It MUST be here for the same reason
+  // one line up, and the silent-failure shape is the same again: the broadcast
+  // payload carries NEUTRAL marks, so a kind missing from this map would drop
+  // every marks row on bootstrap and paint an unmarked board — indistinguishable
+  // from a person who has genuinely marked nothing.
+  issueMarks: 'issueMarks',
   repo: 'repos',
   shipOrder: 'shipOrders',
   conversation: 'conversations',

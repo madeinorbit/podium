@@ -5,6 +5,7 @@ import {
   ChangeSeqField,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
+  IssueMarksWire,
   ReadPositionWire,
   GlobalChangeOpField,
   IssueDepProjection,
@@ -215,6 +216,20 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  cursor. Additive on the wire; older clients ignore it via
    *  UnknownMetadataChange and advance the cursor. */
   metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
+  /** One person's pins, folds and read mark for ONE issue (PDM-408) — keyed
+   *  `(userId, issueId)` on the change id via `issueMarksRowId`. Visibility class
+   *  `per-user-state`, the third instance of the pattern the two arms above
+   *  spell out, and for the sharper of the two reasons: these three values were
+   *  BROADCAST for one named viewer until this arm existed, so every member was
+   *  shown the earliest admin's pins and unread dots over their own rows.
+   *
+   *  The values also still ride `IssueWire`, at NEUTRAL (see
+   *  `NEUTRAL_ISSUE_MARKS`). That is deliberate and is not a duplicate arm: the
+   *  broadcast half says "nobody's", this one says whose. A client that joins
+   *  neither still renders a coherent unmarked board rather than a stranger's.
+   *  Additive on the wire; older clients ignore it via UnknownMetadataChange and
+   *  advance the cursor. */
+  metadataChangeArm(z.literal('issueMarks'), IssueMarksWire),
   /** One curated issue event (POD-1772) — `podium_events` rows as first-class
    *  entities, keyed by `issueEventRowId(eventId, subject)`.
    *
@@ -268,6 +283,7 @@ export const MetadataEntityKind = z.enum([
   'automationRun',
   'userLayout',
   'userReadPosition',
+  'issueMarks',
   'issueEvent',
   'pendingInteraction',
 ])
@@ -379,6 +395,13 @@ const changesSinceSnapshotArm = () =>
     issues: z.array(SharedIssueWire),
     issueProjections: z.array(SharedIssueProjection).optional(),
     issueExecutions: z.array(IssueExecutionProjection).optional(),
+    // …and this reader's OWN marks (PDM-408), on the same terms. Optional for
+    // the same forward-compat reason, and load-bearing for a sharper one: the
+    // snapshot's issue rows carry NEUTRAL marks, so a v1 consumer that never
+    // received this list would render an unmarked board — indistinguishable from
+    // a person who has marked nothing, which is the failure neutral values
+    // invite and the reason this list is not left to the delta path alone.
+    issueMarks: z.array(IssueMarksWire).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),
