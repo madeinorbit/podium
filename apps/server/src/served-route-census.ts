@@ -501,6 +501,15 @@ export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
 /**
  * RAW HTTP ROUTES WITH NO READER SCOPING. A finding list with owners, not a
  * waiver — the same contract `UNGOVERNED_PROJECTIONS` carries on the tRPC side.
+ *
+ * WHOEVER LANDS PDM-262 HAS TWO EDITS TO MAKE HERE, and they are named so the
+ * landing is not a surprise. Move `GET /files/asset` into
+ * {@link RAW_ROUTE_POLICIES} with the guard it then actually runs, and delete
+ * `keeps the ungoverned list a finding list, not a waiver`'s non-empty
+ * assertion in the test — which is deliberately the thing that has to be
+ * removed by hand, so a list emptied by deleting rows cannot look like a list
+ * emptied by fixing routes. The totality assertions independently refuse a
+ * route that ends up in neither list, so nothing can be lost in the move.
  */
 export const UNGOVERNED_RAW_ROUTES: readonly UngovernedRawRoute[] = [
   {

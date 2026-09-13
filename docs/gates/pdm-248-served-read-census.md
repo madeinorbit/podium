@@ -207,3 +207,41 @@ re-run — so each line says which instrument, and says so honestly when there i
 
   A closure line is worth exactly as much as the thing it points at; this one points at a test that
   fails when the rule is removed.
+
+- **2026-09-13** — NOT A ROW CLOSURE. **The instrument this document said phase B could take now
+  exists**, and the sections above are superseded as a source of truth about the raw HTTP and
+  WebSocket surfaces. *"What this document does not claim"* ends by saying a gate over the Hono
+  route table is work phase B can take; **PDM-353** took it, at OSS
+  `d277c91edd1809fb1400cfe8a805c3cc3d32d2b8` on `issue/pdm-353-raw-route-census`, branched from
+  `issue/pdm-107-multi-user` at `4d5ba336c785ac122a48322174501c64e07f9a2b`. **Not yet landed on the
+  integration ref** at the time of writing — the coordinator lands it.
+
+      bun run --cwd apps/server test:boundary -- src/served-route-census.test.ts
+
+  `apps/server/src/served-route-census.test.ts` derives its population from
+  `ServerHandle.httpRoutes` — `app.routes` snapshotted after every registration has run — so a
+  route added anywhere enters the census with nobody remembering anything. The WebSocket planes are
+  a second population derived from `WEBSOCKET_UPGRADE_PATHS`, which is now the object
+  `handleRequest` itself decides on.
+
+  **THE HAND-READ SECTIONS ABOVE HAD ALREADY GONE STALE, and the first derived measurement is what
+  showed it.** They are not edited — they are a dated measurement and stay true about their own pin
+  — but a reader must not take them for the current surface:
+
+  - The **`/updates/feed/dev/*` family is absent from them entirely**. The server serves six routes
+    there (`latest.json`, `podium-update.json`, and GET+HEAD on two artifact patterns).
+  - **`POST /mcp` is listed alone.** `GET /mcp` and `DELETE /mcp` are also registered; both answer
+    405 and reach nothing, which is harmless — and is exactly the kind of omission a derived
+    population cannot make.
+  - The **`/client` exclusion's justification no longer holds.** It reads: *"The three `sync.*`
+    reads are already in `UNGOVERNED_PROJECTIONS` at owner C for precisely this reason."* At this
+    pin no `sync.*` entry remains in that list. The exclusion may still be right; the reason given
+    for it is not. PDM-353 re-read all three planes from `gateway/ws-server.ts` rather than carrying
+    any verdict across, and records that `/daemon` and `/machine` are **upgraded before anything is
+    asked of them** — authentication is deferred to `wireDaemonSocket`'s handshake acceptor.
+    Describing them as "authenticated by the pairing/enrollment ledger", as the row above does,
+    hides that ordering.
+
+  What did NOT change: `GET /files/asset` is still the one raw route that reads stored rows with no
+  reader scoping, and the census lands asserting it as such. PDM-262 has a fix on
+  `issue/pdm-262-asset-route-gate`, which is not an ancestor of this pin.
