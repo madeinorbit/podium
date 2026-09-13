@@ -119,15 +119,17 @@ async function fixture(count: number) {
   const view = new SessionView({ sessions, store, state, machines: machines as never, sessionOccupancyCount: () => 3 })
   // THE SPY THAT USED TO BE HERE IS GONE [PDM-424], and so is what it stood in
   // for. A principal-less pass resolved `internalOverlayUser()` — the earliest
-  // admin — and wired HER overlay onto the broadcast every client reads; this
+  // admin — and WIRED HER OVERLAY onto the broadcast every client reads; this
   // fixture pinned the READER instead so the broadcast slice would wire the same
   // overlay rows the reader-scoped cases wire, and the two budgets could be
   // compared. That pinning was the only reason the broadcast budget matched.
   //
-  // A principal-less pass now wires NOBODY's overlay, so there is no identity to
-  // resolve and no overlay rows to read. The broadcast budget below is
-  // recalibrated to the two reads that removed, and stated as the measurement it
-  // is rather than carried over.
+  // A principal-less pass still RESOLVES that identity — it has to, see
+  // `internalOverlayUser`'s own note — but no longer WIRES it, so there is
+  // nothing for a spy to pin and the real read now shows up in the budget where
+  // it was previously hidden. Left unspied deliberately: a spy here would put the
+  // identity read back out of sight, which is how it stayed invisible through the
+  // issue that removed its consumer.
   return { store, rows, sessions, authz, state, machines, view }
 }
 
@@ -334,18 +336,29 @@ describe('one projection pass', () => {
         expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
       } finally { await f.store.close() }
     }
-    // Repo registry is warm from fixture creation. FOUR physical reads: issues,
-    // two grant kinds and queue counts. Calibration accounts for POD-3852 double
-    // recording, and still works after that fix lands.
+    // Repo registry is warm from fixture creation. SIX physical reads — and the
+    // NUMBER IS UNCHANGED BY PDM-424 WHILE ITS COMPOSITION IS NOT, which is worth
+    // saying because an unmoved number reads like nothing happened.
     //
-    // WAS SIX, AND THE TWO THAT WENT ARE `listReadAt` + `listSnoozes` [PDM-424].
-    // A broadcast pass no longer resolves an overlay user, so it no longer reads
-    // anybody's overlay: the real values ride the `sessionMarks` sidecar and the
-    // broadcast row carries neutral ones. The reader-scoped budget above is
-    // UNCHANGED at six, which is the discriminating part — if this number had
-    // fallen because the pass stopped reading overlays for everyone, that one
-    // would have fallen too.
-    expect(counts[0]).toBe(4)
+    // Before: issues, two grant kinds, queue counts, and `listReadAt` +
+    // `listSnoozes` for the overlay this pass wired. The identity read was
+    // invisible here because the fixture SPIED it away.
+    // After: issues, two grant kinds, queue counts, and the `earliestAdmin`
+    // identity read — which is no longer spied, because a broadcast pass no
+    // longer WIRES that identity and the spy existed only to make it wire the
+    // reader's. The two overlay reads are gone; the real values ride the
+    // `sessionMarks` sidecar and the broadcast row carries neutral ones.
+    //
+    // THE IDENTITY READ IS STILL PERFORMED AND ITS ANSWER DISCARDED. That is not
+    // waste anybody chose — see `SessionView.internalOverlayUser`, where four
+    // probes pin a PRE-EXISTING ordering dependency on an awaited store read at
+    // that position. Removing it breaks worktree adoption at the base commit too.
+    //
+    // The reader-scoped budget above is UNCHANGED at six and its composition is
+    // unchanged as well: a principal-ful pass never resolved that identity and
+    // still does not. Making the call unconditional cost it 8 — measured, and
+    // reverted.
+    expect(counts[0]).toBe(6)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 

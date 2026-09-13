@@ -4,6 +4,14 @@ import { join } from 'node:path'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
+
+// PDM-424: a case that reads a member's OWN read state or snooze asks for a
+// projection wired FOR that member. `listSessions(undefined, …)` is the
+// BROADCAST; it carries neutral marks for everybody now, and it used to carry
+// the earliest admin's — which is the defect PDM-424 removed.
+const MINE = () => soleHumanSessionStatePrincipal(OPERATOR)
+
 
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
@@ -326,10 +334,10 @@ describe('markRead mutations (#124)', () => {
       cwd: '/p',
     })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions(MINE(), 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(true)
     await call.sessions.markRead({ sessionId })
-    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions(MINE(), 'rpc')).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
@@ -351,10 +359,10 @@ describe('markRead mutations (#124)', () => {
     })
     await call.sessions.markRead({ sessionId })
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
+      (await registry.modules.sessions.listSessions(MINE(), 'rpc')).find((s) => s.sessionId === sessionId)?.unread,
     ).toBe(false)
     await call.sessions.markUnread({ sessionId })
-    const s = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === sessionId)
+    const s = (await registry.modules.sessions.listSessions(MINE(), 'rpc')).find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
     expect(s?.readAt).toBeNull()
   })

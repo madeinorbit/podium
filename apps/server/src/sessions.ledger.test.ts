@@ -9,6 +9,15 @@ import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/p
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { OPERATOR } from './test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
+
+// PDM-424: a case that reads a member's OWN read state or snooze asks for a
+// projection wired FOR that member. `listSessions(undefined, …)` is the
+// BROADCAST; it carries neutral marks for everybody now, and it used to carry
+// the earliest admin's — which is the defect PDM-424 removed.
+const MINE = () => soleHumanSessionStatePrincipal(OPERATOR)
+
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
@@ -66,9 +75,11 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await sessions.clearSnooze(firstAdminMemberId(), sessionId)
     expect(await registry.sessionStore.sessions.listSnoozes(firstAdminMemberId())).not.toHaveProperty(sessionId)
     await sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
-    await sessions.markSessionUnread(firstAdminMemberId(), sessionId)
+    expect((await sessions.listSessions(MINE(), 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeTruthy()
+    // …and the BROADCAST carries it to nobody, which the old shape could not say.
     expect((await sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
+    await sessions.markSessionUnread(firstAdminMemberId(), sessionId)
+    expect((await sessions.listSessions(MINE(), 'rpc')).find(s => s.sessionId === sessionId)?.readAt).toBeNull()
   })
 
   async function deltaClient(registry: SessionRegistry): Promise<{ inbox: ServerMessage[] }> {
@@ -892,16 +903,42 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     // Same future deadline as the failed attempt, for the same reason: a lapsed
     // timed snooze is pruned on read and would produce no change to project.
+    const afterFailure = await cursorOf(registry)
     await registry.modules.sessions.setSnooze({
       userId: firstAdminMemberId(),
       sessionId,
       until: '2999-07-20T12:00:00.000Z',
     })
-    expect(events).toHaveLength(1)
-    expect(events[0]?.changes).toHaveLength(1)
-    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
-      '2999-07-20T12:00:00.000Z',
-    )
+
+    // RE-POINTED AT THE SIDECAR [PDM-424], and the claim got STRONGER rather than
+    // weaker. This asserted one SESSION projection event carrying
+    // `value.snoozedUntil`. A snooze no longer changes the session wire at all —
+    // its marks are neutral before and after — so zero session events is now the
+    // correct answer, and the ledger's byte-dedup is what produces it.
+    expect(events).toHaveLength(0)
+
+    // The observable change is a `sessionMarks` row addressed to its owner. This
+    // is the assertion that would have caught a publish that silently stopped.
+    await registry.modules.sessions.flushBroadcasts()
+
+    // AGAINST THE DURABLE CHANGE LOG, not `modules.sessions.syncChangesSince`.
+    // That method is the SESSIONS module's own scoped view and does not carry
+    // `sessionMarks` — measured, it returns [] here while the log holds the row —
+    // which is consistent with the sidecar kinds being absent from the legacy
+    // session feed generally. The Authority-side delivery is proved separately in
+    // `session-marks.feed.test.ts`; what this case needs is that the write
+    // reached the log at all.
+    const logged = await registry.sessionStore.sync.changesSince(afterFailure)
+    const marks = logged.filter((c) => c.entity === 'sessionMarks')
+    expect(marks).toHaveLength(1)
+    expect(
+      (JSON.parse(marks[0]?.payload ?? '{}') as { snoozedUntil?: string | null }).snoozedUntil,
+    ).toBe('2999-07-20T12:00:00.000Z')
+    // AND THE SESSION ROW CARRIES NO SNOOZE on the same window — the half that
+    // keeps this from passing on a wire that went back to serving one viewer.
+    for (const c of logged.filter((x) => x.entity === 'session')) {
+      expect('snoozedUntil' in (JSON.parse(c.payload ?? '{}') as object)).toBe(false)
+    }
   })
 
   it.each([

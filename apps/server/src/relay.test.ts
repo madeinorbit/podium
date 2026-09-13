@@ -25,6 +25,15 @@ import { advanceToComposerReady, expectSubmitStillDeferred } from './test-suppor
 const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
+import { OPERATOR } from './test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
+
+// PDM-424: a case that reads a member's OWN read mark or snooze asks for a
+// projection wired FOR that member. `listSessions(undefined, …)` is the
+// BROADCAST; it carries neutral marks for everybody now, and it used to carry
+// the earliest admin's — which is the defect PDM-424 removed.
+const MINE = () => soleHumanSessionStatePrincipal(OPERATOR)
+
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/messages/service'
 import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
@@ -6117,18 +6126,23 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    const before = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const before = (await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const after = (await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
+    // …and the BROADCAST carries the mark to nobody [PDM-424]. Asserted here, at
+    // the only moment the two can differ: before the mark, "never opened" and
+    // "nobody's" are the same bytes.
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBeNull()
 
     // read_at is durable — a fresh registry over the same store reads it back.
+    // READ FOR THE SAME MEMBER, or this compares two nulls and proves nothing.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBe(after?.readAt)
+    expect((await reg2.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.readAt).toBe(after?.readAt)
     await reg.dispose()
     await reg2.dispose()
   })
@@ -6149,9 +6163,19 @@ describe('SessionRegistry read state (#124)', () => {
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
-    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
-      expect.objectContaining({ sessionId, unread: false }),
+    // RE-POINTED AT THE SIDECAR [PDM-424]. The mark used to ride the SESSION row,
+    // which is how one person's read state reached every client; the session row
+    // is neutral now and the mark travels as a `sessionMarks` change addressed to
+    // its owner. Same claim — "marking read is broadcast" — read off the row that
+    // actually carries it.
+    await expect.poll(() => feedValues(c.sent, 'sessionMarks')).toContainEqual(
+      expect.objectContaining({ sessionId, readAt: expect.any(String) }),
     )
+    // AND THE SESSION ROW CARRIES IT TO NOBODY, which is the half that fails if
+    // the producer ever goes back to baking a viewer's marks into the broadcast.
+    for (const v of feedValues(c.sent, 'session')) {
+      expect((v as { readAt?: unknown }).readAt).toBeNull()
+    }
     await reg.dispose()
   })
 
@@ -6166,7 +6190,7 @@ describe('SessionRegistry read state (#124)', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
     await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.unread).toBe(false)
+    expect((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.unread).toBe(false)
 
     const c = sink()
     await attachCurrent(reg, c.send)
@@ -6174,15 +6198,18 @@ describe('SessionRegistry read state (#124)', () => {
     await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId)
     await reg.modules.sessions.flushBroadcasts()
 
-    const after = (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]
+    const after = (await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]
     expect(after?.readAt).toBeNull()
     expect(after?.unread).toBe(true)
     // Durable: a fresh registry over the same store reads readAt back as null.
+    // READ FOR THE SAME MEMBER [PDM-424]; against the broadcast this would be a
+    // null that is null for everybody and would prove nothing about the delete.
     const reg2 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc'))[0]?.readAt).toBeNull()
-    // And the scoped-feed change was broadcast to clients.
-    await expect.poll(() => feedValues(c.sent, 'session')).toContainEqual(
-      expect.objectContaining({ sessionId, unread: true }),
+    expect((await reg2.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.readAt).toBeNull()
+    // And the change was broadcast — as a `sessionMarks` row carrying the CLEARED
+    // mark to its owner, not as an `unread` flag on a row everybody reads.
+    await expect.poll(() => feedValues(c.sent, 'sessionMarks')).toContainEqual(
+      expect.objectContaining({ sessionId, readAt: null }),
     )
     await reg.dispose()
     await reg2.dispose()
@@ -6215,11 +6242,15 @@ describe('SessionRegistry snooze', () => {
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: null,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.snoozedUntil).toBeNull()
+    // The broadcast carries it to nobody [PDM-424] — the half the old
+    // principal-less read could not state, since it showed one person's snooze
+    // to everyone.
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
 
     await reg.modules.sessions.clearSnooze(firstAdminMemberId(), sessionId)
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
-    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0] ?? {})).toBe(false)
   })
 
   it('a submitted prompt (sendText) clears the snooze', async () => {
@@ -6293,7 +6324,9 @@ describe('SessionRegistry snooze', () => {
     })
     await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.snoozedUntil).toBeNull()
+    // Seeded for its OWNER and nobody else [PDM-424].
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
   })
 })
 

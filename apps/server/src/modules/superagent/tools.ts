@@ -125,10 +125,25 @@ export async function buildSuperagentTools(
           'issue worktree.',
         parameters: { type: 'object', properties: {} },
       },
-      run: async () =>
-        JSON.stringify(
+      run: async () => {
+        // FOR THE THREAD'S OWNER, NOT THE BROADCAST [PDM-424]. `snoozedUntil` is
+        // per-person state, and a principal-less projection now carries nobody's —
+        // it used to carry the earliest admin's, which is how this tool came to
+        // report one person's snoozes as though they were the session's. The
+        // superagent acts on behalf of a human and that human's own view is the
+        // right one; `ownerUserId` is the same identity `snooze_session` below
+        // already writes with, so read and write agree.
+        //
+        // `undefined` — a thread with no resolvable owner — keeps the broadcast
+        // projection and therefore NEUTRAL marks. That is the honest answer for a
+        // caller with no person behind it: better an unmarked list than a
+        // stranger's.
+        const viewer = ownerUserId
+          ? await sessions.view.principalForTrustedUser(ownerUserId)
+          : undefined
+        return JSON.stringify(
           await Promise.all(
-            (await sessions.listSessions(undefined, 'listAllTool')).map(async (s) => {
+            (await sessions.listSessions(viewer, 'listAllTool')).map(async (s) => {
               // Reverse of issue_show's session list (issue #72): session cwd →
               // bound issue, via the same worktree-containment rule as authz scope.
               const issueId = issues.issueForCwd(s.cwd)
@@ -150,7 +165,8 @@ export async function buildSuperagentTools(
               }
             }),
           ),
-        ),
+        )
+      },
     },
     {
       spec: {

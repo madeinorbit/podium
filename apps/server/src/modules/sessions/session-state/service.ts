@@ -496,17 +496,25 @@ export class SessionStateService {
       await this.ports.persistSession(sessionId, async () => {
         await write()
         this.invalidateOverlay(userId)
+        // INSIDE THE TRANSACTION, AND THAT IS THE CORRECTION [PDM-424]. I first
+        // published AFTER the persist, reasoning that the sidecar row must read
+        // COMMITTED values rather than pre-write ones. Both halves of that were
+        // wrong. The read sees this span's own uncommitted write — same
+        // connection — so it is already correct here; and putting a second ledger
+        // write outside the transaction meant a FAILED PUBLISH LEFT THE DURABLE
+        // ROW COMMITTED while the caller saw a rejection. `sessions.ledger`'s
+        // "rolls back live and SQLite snooze state when the durable append fails"
+        // caught it: the store kept a snooze the caller was told had failed.
+        //
+        // Rolling back together is the point, not a hazard to avoid: the mark and
+        // the row that announces it are one fact.
+        await this.publishSessionMarks(userId, sessionId)
       })
     } finally {
       // The projection read inside persist may cache a value whose transaction
       // later rolls back. A second invalidation prevents serving that ghost row.
       this.invalidateOverlay(userId)
     }
-    // AFTER the persist and the cache invalidation, and OUTSIDE them: the
-    // sidecar row is read back from the store through {@link overlay}, so it must
-    // see the committed values rather than the pre-write ones. Publishing inside
-    // the persist would capture a row whose transaction can still roll back.
-    await this.publishSessionMarks(userId, sessionId)
     this.ports.broadcastSessions()
     return true
   }

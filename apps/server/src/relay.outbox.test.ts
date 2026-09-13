@@ -23,6 +23,15 @@ import { describe, expect, it, vi } from 'vitest'
 const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { userCommandPrincipal } from './command-principal'
+import { OPERATOR } from './test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
+
+// PDM-424: a case that reads a member's OWN snooze or read mark asks for a
+// projection wired FOR that member. `listSessions(undefined, …)` is the
+// BROADCAST; it carries neutral marks for everybody now, and it used to carry
+// the earliest admin's — which is the defect PDM-424 removed.
+const MINE = () => soleHumanSessionStatePrincipal(OPERATOR)
+
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
@@ -672,10 +681,13 @@ describe('queueText (durable outbox sends)', () => {
       sessionId: asSessionId(sessionId),
       until: null,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.snoozedUntil).toBeNull()
+    expect((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0]?.snoozedUntil).toBeNull()
+    // The broadcast carries the snooze to nobody, which is the half the old
+    // principal-less read could not state [PDM-424].
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
 
     await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
-    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0] ?? {})).toBe(false)
+    expect('snoozedUntil' in ((await reg.modules.sessions.listSessions(MINE(), 'rpc'))[0] ?? {})).toBe(false)
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 })

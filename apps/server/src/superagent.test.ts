@@ -11,6 +11,15 @@ import {
   transcriptDelta,
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
+import { OPERATOR } from './test-support/capabilities'
+import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
+
+// PDM-424: a case that reads a member's OWN snooze or read mark asks for a
+// projection wired FOR that member. `listSessions(undefined, …)` is the
+// BROADCAST; it carries neutral marks for everybody now, and it used to carry
+// the earliest admin's — which is the defect PDM-424 removed.
+const MINE = () => soleHumanSessionStatePrincipal(OPERATOR)
+
 import { RepoRegistry } from './repo-registry'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 
@@ -409,9 +418,15 @@ describe('session-steering tool belt (issue #62)', () => {
       return await sa.callMcpTool('answer_question', input, threadId)
     }
 
+    // THE CALLER'S OWN projection [PDM-424]. Every case using this reads its own
+    // snooze or read mark; the principal-less broadcast carries neither for
+    // anybody now. `broadcastMetaOf` below is the other half, for cases that mean
+    // "what a stranger receives".
     const metaOf = async (id: string) =>
+      (await registry.modules.sessions.listSessions(MINE(), 'rpc')).find((s) => s.sessionId === id)
+    const broadcastMetaOf = async (id: string) =>
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
-    return { registry, sa, inputs, spawn, answer, metaOf }
+    return { registry, sa, inputs, spawn, answer, metaOf, broadcastMetaOf }
   }
 
   const askItem = (multiSelect = false): TranscriptItem =>
@@ -623,6 +638,8 @@ describe('session-steering tool belt (issue #62)', () => {
       ),
     ).toBe(JSON.stringify({ snoozedUntil: null }))
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeNull()
+    // …and nobody else's wire carries it [PDM-424].
+    expect('snoozedUntil' in ((await h.broadcastMetaOf(sessionId)) ?? {})).toBe(false)
     // A FUTURE deadline. It used to be a fixed past date and still round-tripped,
     // because the projection read a `snoozedUntil` MIRROR on the live session that
     // never lapsed. POD-1076 deleted the mirror, so the projection reads the
@@ -657,7 +674,12 @@ describe('session-steering tool belt (issue #62)', () => {
     // …while an open-ended snooze (null) never lapses by time. The counterfactual
     // that keeps the assertion above from passing for the wrong reason: if the
     // projection had simply stopped carrying snoozes, this would fail too.
-    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    // AWAITED [PDM-424]. This call was fire-and-forget and the read that follows
+    // happened to win, because the projection served a cached overlay the write
+    // had already touched. Reading the CALLER's projection makes the ordering
+    // real, and an un-awaited write followed by a read of its result was never
+    // the claim this case meant to make.
+    await h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeNull()
   })
 
@@ -771,11 +793,35 @@ describe('session-steering tool belt (issue #62)', () => {
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    // AWAITED, for the reason given on the snooze case above [PDM-424].
+    await h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+
+    // THE THREAD NOW HAS AN OWNER, and that is the point rather than setup noise
+    // [PDM-424]. `snoozedUntil` is per-person state, so `list_sessions` reports
+    // the THREAD OWNER's view; an ownerless thread has no person to report for
+    // and gets the neutral broadcast. This case means "the caller's own snooze
+    // reaches the tool", so the caller has to exist.
+    await h.registry.sessionStore.superagent.upsertSuperagentThread({
+      id: 'btw_x',
+      ownerUserId: firstAdminMemberId(),
+      kind: 'btw',
+    })
     const rows = JSON.parse(
       await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_x')),
     ) as Array<Record<string, unknown>>
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
+
+    // AND AN OWNERLESS THREAD GETS NOBODY'S — the negative half, and the one that
+    // says the row above came from the owner rather than from the wire still
+    // carrying one person's state to every caller.
+    const anon = JSON.parse(
+      await h.sa.callMcpTool('list_sessions', {}, asThreadId('btw_unowned')),
+    ) as Array<Record<string, unknown>>
+    // The KEY IS ABSENT, not null: the tool copies `undefined` and JSON.stringify
+    // drops the key entirely. Asserting `=== null` here would have been the
+    // "until the next message" state, which is a different fact.
+    expect(anon[0]?.sessionId).toBe(sessionId)
+    expect('snoozedUntil' in (anon[0] ?? {})).toBe(false)
   })
 })
 
