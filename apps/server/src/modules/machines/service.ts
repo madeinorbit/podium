@@ -66,9 +66,38 @@ export const MACHINE_PRESENCE_GRACE_MS = 30_000
  */
 export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
 
-type PendingDaemonDelivery =
+/**
+ * One parked delivery, stamped with the machine's AUTHORITY EPOCH at the moment
+ * it was parked (PDM-401). See {@link MachineService.authorityEpoch}.
+ *
+ * The stamp is on the DELIVERY rather than on the queue because the queue is
+ * drained as a whole but filled one frame at a time: two frames parked either
+ * side of a handover are owed different answers.
+ */
+type PendingDaemonDelivery = { readonly authorityEpoch: number } & (
   | { readonly kind: 'control'; readonly message: ControlMessage }
   | { readonly kind: 'input'; readonly input: DaemonPtyInputBatch }
+)
+
+/**
+ * A parked delivery REFUSED at flush because the machine's authority moved
+ * (PDM-401). Reported to whoever registered through
+ * {@link MachineService.onDeliveryDiscarded}.
+ *
+ * GENERIC ON PURPOSE. It says a frame was refused and names it; it does not say
+ * what the frame MEANT. The machines service must not learn any other module's
+ * state machine — that coupling is what B5 (PDM-137) refused when it declined
+ * to special-case approvals inside the queue. The approvals surface recognises
+ * its own frame on the other side of this seam.
+ */
+export interface DiscardedDelivery {
+  readonly machineId: MachineId
+  readonly kind: 'control' | 'input'
+  /** Present for a control frame; absent for canonical PTY bytes. */
+  readonly message?: ControlMessage
+  readonly parkedAtEpoch: number
+  readonly currentEpoch: number
+}
 
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
   if (typeof transport === 'function') transport(message)
@@ -338,6 +367,53 @@ export class MachinesService {
   // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
   /**
+   * PER-MACHINE AUTHORITY EPOCH (PDM-401) — bumped whenever a committed write
+   * changes WHO MAY USE that machine.
+   *
+   * A FLUSH IS A DISPATCH, NOT A DECISION. `machine-access.ts` reads ownership
+   * and grants live on every call so that "an owner change or a revoked share
+   * takes effect at the next decision" (D16.1) — but a parked frame replayed by
+   * {@link MachineService.flushQueued} re-enters no decision at all. B5
+   * (PDM-137) closed the decision-time hole inside `ApprovalService.approve`;
+   * this closes the dispatch-time one, for the queue rather than for approvals.
+   *
+   * WHY A COUNTER AND NOT A SNAPSHOT OF THE OWNER AND GRANTS. `ownershipRows()`
+   * and `grantsForMachine()` are both async, and `toMachine` is a synchronous
+   * arrow reached from forty call sites. A snapshot taken at park would resolve
+   * a microtask AFTER the park, so a handover landing in that window would be
+   * captured as the parked frame's own baseline and then MATCH at flush — a
+   * miss, in the one place a miss is an authorization bypass. Reading a counter
+   * is synchronous and atomic, so no such window exists.
+   *
+   * WHY IT STAMPS ITSELF RATHER THAN TRUSTING ITS CALLERS. The alternative was
+   * a principal threaded through every `toMachine`, but most of those sites are
+   * server-internal and would answer "system" — reintroducing, in twenty-odd
+   * explicit places, exactly the site that declines to ask. The queue is the one
+   * place that cannot be bypassed by a caller that forgets.
+   *
+   * DELIBERATELY COARSE, IN THE SAFE DIRECTION ONLY. Any grant write touching a
+   * machine bumps it, including a pure ADDITION that took nothing from anybody,
+   * so a parked frame can be discarded when it would still have been allowed.
+   * It over-refuses and never under-refuses, and only ever while that machine's
+   * daemon is offline.
+   */
+  /** Listeners told about refused parked deliveries — see
+   *  {@link MachineService.onDeliveryDiscarded}. */
+  private readonly discardSinks = new Set<(delivery: DiscardedDelivery) => void>()
+  private readonly authorityEpochByMachine = new Map<string, number>()
+  /**
+   * The owner this service last saw COMMITTED for each machine, so an ordinary
+   * row write (a hostname touch, an inventory report — both frequent) can be
+   * told from a handover and only the handover bumps the epoch.
+   *
+   * An id absent here is one whose owner this process has never seen committed,
+   * and it does NOT bump: `ensureHostMachine` writes the host row before the
+   * first session exists, so the baseline is always seeded before anything can
+   * park, and treating "never seen" as a change would discard the boot queue
+   * this offline buffer was built for.
+   */
+  private readonly lastCommittedOwner = new Map<string, string | null>()
+  /**
    * Latest durable inventory report received while the server-transfer fence owns
    * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
    * sufficient: an abort flushes the newest report after writability returns; a
@@ -366,11 +442,13 @@ export class MachinesService {
   private readonly enrollmentHost: EnrollmentHost
 
   private readonly unsubscribeMachineWrites: () => void
+  private readonly unsubscribeGrantWrites: () => void
 
   constructor(private readonly deps: MachinesDeps) {
     this.unsubscribeMachineWrites = deps.store.machines.committed.subscribe((change) => {
       this.machineCacheEpoch += 1
       for (const raw of change.rows) {
+        this.noteCommittedOwner(raw.id, change.operation === 'delete' ? null : raw.ownerUserId ?? null)
         // WorldIndex subscribed during boot, before this service. Its committed
         // entry is already current here; never read it inside the write span.
         const patch = change.operation === 'delete' ? undefined
@@ -380,6 +458,22 @@ export class MachinesService {
         this.applyMachineWrite(raw.id, patch)
       }
     })
+
+    // THE OTHER HALF OF THE AUTHORITY EPOCH (PDM-401). A revoked `use` share
+    // changes who may run on a machine without touching the machine row at all,
+    // so the owner subscription above cannot see it. Grants deliberately bypass
+    // every cache (D16.1), and this subscribes to the same committed stream the
+    // machines repository exposes rather than inventing a second notification.
+    //
+    // OPTIONAL because the socket-only fixtures in this module's tests supply a
+    // store stub with `machines` and nothing else. Every real composition root
+    // passes a SessionStore, which always has `grants`.
+    this.unsubscribeGrantWrites = deps.store.grants?.committed?.subscribe((change) => {
+      for (const raw of change.rows) {
+        if (raw.resourceKind !== 'machine') continue
+        this.bumpAuthorityEpoch(raw.resourceId)
+      }
+    }) ?? (() => {})
 
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
@@ -664,10 +758,95 @@ export class MachinesService {
     const pending = this.pendingByMachine.get(machineId)
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
+      const epoch = this.authorityEpoch(machineId)
       for (const delivery of pending) {
+        // THE RE-ASK (PDM-401). A frame parked under one answer to "who may use
+        // this machine" is not owed delivery under a different one. Dropped
+        // rather than deferred: the authority it was parked under is gone, and
+        // nothing later restores it.
+        if (delivery.authorityEpoch !== epoch) {
+          this.onParkedDeliveryDiscarded(machineId, delivery)
+          continue
+        }
         if (delivery.kind === 'control') sendControl(transport, delivery.message)
         else sendPtyInput(transport, delivery.input)
       }
+    }
+  }
+
+  /**
+   * Who-may-use-this-machine, as a counter. Parked deliveries carry the value
+   * current when they were parked; {@link MachineService.flushQueued} refuses
+   * any whose value has moved. See {@link authorityEpochByMachine}.
+   */
+  authorityEpoch(machineId: string): number {
+    return this.authorityEpochByMachine.get(machineId) ?? 0
+  }
+
+  private bumpAuthorityEpoch(machineId: string): void {
+    this.authorityEpochByMachine.set(machineId, this.authorityEpoch(machineId) + 1)
+  }
+
+  /** Record a committed owner, bumping only when it actually MOVED — see
+   *  {@link lastCommittedOwner} for why a first sighting is not a move. */
+  private noteCommittedOwner(machineId: string, owner: string | null): void {
+    const previous = this.lastCommittedOwner.get(machineId)
+    this.lastCommittedOwner.set(machineId, owner)
+    if (previous !== undefined && previous !== owner) this.bumpAuthorityEpoch(machineId)
+  }
+
+  /**
+   * SAY THAT IT HAPPENED. A frame that is silently dropped is indistinguishable
+   * from one that was never sent, and this drop is a refusal — the operator who
+   * approved it is owed a reason when they go looking.
+   *
+   * An `approvalExecRequest` discarded here leaves its row `executing` until the
+   * approval stall sweep terminates it, and that sweep's message blames the
+   * daemon's VERSION — which is now a lie for this one cause. Narrowing that is
+   * PDM-401's remaining half and is deliberately NOT done from inside the
+   * machines service, which must not learn the approvals state machine.
+   */
+  private onParkedDeliveryDiscarded(machineId: MachineId, delivery: PendingDaemonDelivery): void {
+    const discarded: DiscardedDelivery = {
+      machineId,
+      kind: delivery.kind,
+      ...(delivery.kind === 'control' ? { message: delivery.message } : {}),
+      parkedAtEpoch: delivery.authorityEpoch,
+      currentEpoch: this.authorityEpoch(machineId),
+    }
+    log.warn('parked frame discarded — this machine changed hands while its daemon was away', {
+      machineId,
+      kind: discarded.kind,
+      ...(discarded.message ? { messageType: discarded.message.type } : {}),
+      parkedAtEpoch: discarded.parkedAtEpoch,
+      currentEpoch: discarded.currentEpoch,
+    })
+    for (const sink of this.discardSinks) {
+      // A SINK MUST NOT BE ABLE TO STOP THE FLUSH. The remaining deliveries in
+      // this queue are owed their answer whatever a listener does with this one.
+      try {
+        sink(discarded)
+      } catch (err) {
+        log.warn('a discarded-delivery listener threw', { machineId, err })
+      }
+    }
+  }
+
+  /**
+   * Be told when a parked delivery is REFUSED at flush, so the effect it
+   * belonged to can SETTLE AS REFUSED rather than merely not happen.
+   *
+   * Without this a discarded frame is indistinguishable from a lost one: the
+   * effect does not occur and nothing records that it was refused, which moves
+   * the defect rather than closing it. Registration rather than a constructor
+   * dep because this service is built long before its listeners are.
+   *
+   * Returns an unsubscribe.
+   */
+  onDeliveryDiscarded(sink: (delivery: DiscardedDelivery) => void): () => void {
+    this.discardSinks.add(sink)
+    return () => {
+      this.discardSinks.delete(sink)
     }
   }
 
@@ -782,7 +961,11 @@ export class MachinesService {
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    const delivery = { kind: 'control' as const, message: msg }
+    const delivery = {
+      kind: 'control' as const,
+      message: msg,
+      authorityEpoch: this.authorityEpoch(machineId),
+    }
     if (q) q.push(delivery)
     else this.pendingByMachine.set(machineId, [delivery])
   }
@@ -796,7 +979,11 @@ export class MachinesService {
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    const delivery = { kind: 'input' as const, input }
+    const delivery = {
+      kind: 'input' as const,
+      input,
+      authorityEpoch: this.authorityEpoch(machineId),
+    }
     if (q) q.push(delivery)
     else this.pendingByMachine.set(machineId, [delivery])
   }
@@ -891,7 +1078,10 @@ export class MachinesService {
     }
   }
 
-  dispose(): void { this.unsubscribeMachineWrites() }
+  dispose(): void {
+    this.unsubscribeMachineWrites()
+    this.unsubscribeGrantWrites()
+  }
 
   /** Resolve the native login identity available on the machine that will run a session. */
   async nativeAccountIdForMachine(

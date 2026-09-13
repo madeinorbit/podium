@@ -2631,6 +2631,24 @@ export class SessionRegistry {
         } catch {}
       },
     })
+    /**
+     * A PARKED EXEC FRAME THAT THE QUEUE REFUSED MUST SETTLE AS REFUSED (PDM-401).
+     *
+     * `MachinesService` drops a parked delivery when the machine's authority
+     * moved while its daemon was away. It reports that generically — it names
+     * the frame and does not know what one MEANS — and the approvals surface
+     * recognises its own here. That seam is deliberate: teaching the queue the
+     * approval state machine is the coupling B5 (PDM-137) refused.
+     *
+     * LATE-BOUND because `machines` is constructed far above this line and
+     * cannot close over a service that does not exist yet.
+     */
+    machines.onDeliveryDiscarded((discarded) => {
+      if (discarded.message?.type !== 'approvalExecRequest') return
+      void approvals
+        .onExecDiscarded(discarded.message.requestId)
+        .catch((err) => log.warn('settling a discarded approval failed', { err }))
+    })
     // Commands are assembled immediately before Shipping, but handlers run only
     // after construction. Bind the narrow service port through one initialized-
     // once cell instead of making either module construct the other. The cell

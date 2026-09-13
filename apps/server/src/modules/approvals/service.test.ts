@@ -712,3 +712,92 @@ describe('ApprovalService · idempotency is bound to the principal (B5, PDM-137)
     expect(await svc.listPending(OWNER)).toHaveLength(2)
   })
 })
+
+/**
+ * PDM-401 — A REFUSED DISPATCH HAS TO SETTLE.
+ *
+ * `MachinesService` parks an exec frame for a machine whose daemon is away, and
+ * since PDM-401 it REFUSES that frame at flush if the machine changed hands in
+ * the meantime. A refusal nothing records is indistinguishable from a loss: the
+ * effect does not happen and no reader can tell the server decided it, on
+ * purpose. These pin the settlement, and — sharply — pin that it does NOT reuse
+ * the stall sweep's explanation, which for this cause is false in its one
+ * actionable clause.
+ */
+describe('an exec frame the queue refused', () => {
+  const discardable = async (svc: ApprovalService) => {
+    const { id } = await req(svc, { kind: 'channel', target: 'dev' })
+    await svc.approve(id, OWNER)
+    return id
+  }
+
+  it('settles the row as refused, saying it did NOT run and what to do', async () => {
+    const { svc, mails, broadcasts, events } = harness()
+    const id = await discardable(svc)
+    expect((await svc.get({ id }, SELF)).status).toBe('executing')
+
+    await svc.onExecDiscarded(id)
+
+    const w = await svc.get({ id }, SELF)
+    expect(w.status).toBe('failed')
+    expect(w.resultText).toContain('ludovico')
+    expect(w.resultText).toMatch(/changed hands/i)
+    expect(w.resultText).toMatch(/did NOT run/i)
+    expect(mails.at(-1)).toContain('REFUSED')
+    expect(events.at(-1)?.kind).toBe('issue.approval_failed')
+    expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
+  })
+
+  it('does NOT blame the daemon’s version, which is the stall sweep’s cause and not this one', async () => {
+    // THE WHOLE POINT OF A SEPARATE SETTLEMENT. The stall text says the machine's
+    // podium "predates this operation ... check its version, update it" and that
+    // the op "may or may not have run". For a frame the server refused to send,
+    // every one of those is wrong: the version is fine, and the op certainly did
+    // not run. Left to the sweep, the operator inspects a healthy version and is
+    // told the outcome is unknown when the server knows exactly what happened.
+    const { svc } = await Promise.resolve(harness())
+    const id = await discardable(svc)
+
+    await svc.onExecDiscarded(id)
+
+    const w = await svc.get({ id }, SELF)
+    expect(w.resultText).not.toMatch(/predates this operation/i)
+    expect(w.resultText).not.toMatch(/check its version/i)
+    expect(w.resultText).not.toMatch(/may or may not have run/i)
+  })
+
+  it('is idempotent, and a row that already settled is left exactly as it was', async () => {
+    const { svc } = harness()
+    const id = await discardable(svc)
+
+    await svc.onExecDiscarded(id)
+    const first = await svc.get({ id }, SELF)
+    await svc.onExecDiscarded(id)
+    const second = await svc.get({ id }, SELF)
+
+    expect(second.status).toBe('failed')
+    expect(second.resultText).toBe(first.resultText)
+  })
+
+  it('takes the row out of the stall sweep’s reach, so it cannot be re-explained later', async () => {
+    // The sweep reads `listExecuting`. A settled row is no longer in it, so the
+    // deadline can never overwrite this reason with the version one.
+    const { svc } = harness()
+    const id = await discardable(svc)
+    await svc.onExecDiscarded(id)
+
+    await svc.sweepStalledExecutions(1_000_000)
+    await svc.sweepStalledExecutions(1_000_000 + APPROVAL_EXEC_DEADLINE_MS)
+
+    const w = await svc.get({ id }, SELF)
+    expect(w.status).toBe('failed')
+    expect(w.resultText).toMatch(/changed hands/i)
+  })
+
+  it('does nothing for an unknown request id', async () => {
+    const { svc, broadcasts } = harness()
+    const before = broadcasts.length
+    await svc.onExecDiscarded('no-such-request')
+    expect(broadcasts).toHaveLength(before)
+  })
+})

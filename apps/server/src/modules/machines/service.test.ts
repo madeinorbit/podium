@@ -1329,3 +1329,223 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
     expect(resolved).toBe(1)
   })
 })
+
+/**
+ * PDM-401 — A FLUSH IS A DISPATCH, NOT A DECISION.
+ *
+ * B5 (PDM-137) closed the DECISION-time hole: `ApprovalService.approve` now
+ * re-asks machine authority immediately before the pending -> executing
+ * transition. What it could not reach is the OFFLINE QUEUE underneath it.
+ *
+ * `toMachine` parks a control frame when no daemon transport is registered and
+ * `flushQueued` replays it on the machine's next attach. Between those two
+ * moments the machine can change hands. Nothing in the flush path asks anything
+ * — the parked frame carries no principal and the flush has no access to one —
+ * so an effect authorized for Alice executes on a machine that is now Bob's.
+ *
+ * These tests are the WITNESS for that, built rather than read. B5 filed the
+ * finding from the code path and noted it was not observed; the premise it
+ * recorded ("reproducing it needs a real-process boundary") turns out not to
+ * hold — `attach`/`detach` are method calls and the handover is a store write,
+ * so the whole cycle fits in a unit test against a real store.
+ *
+ * The queue is GENERIC plumbing shared by every ControlMessage and by
+ * `toPtyInput`, so both classes are witnessed here: a fix that governs only the
+ * approval frame would leave the queue itself ungoverned.
+ */
+describe('MachinesService parked frames and a machine that changes hands', () => {
+  /** The sharpest parked frame: arbitrary privileged execution on the daemon. */
+  const approvalExec: ControlMessage = {
+    type: 'approvalExecRequest',
+    requestId: 'req-1',
+    op: { kind: 'update' },
+  } as ControlMessage
+
+  test('a control frame parked for Alice is NOT flushed after the machine becomes Bob’s', async () => {
+    const { svc, store } = await storedService()
+
+    // T0/T1 — the machine is Alice's and her daemon is away, so the frame parks.
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    expect(svc.hasDaemon(MACHINE)).toBe(false)
+    svc.toMachine(MACHINE, approvalExec)
+
+    // T2 — the handover. `machine-access.ts` reads ownership LIVE precisely so
+    // that this takes effect "at the next decision" (D16.1).
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    // T3 — the daemon attaches and the queue drains. This is the dispatch that
+    // is not a decision: there is no next decision for the handover to bite at.
+    const bobsDaemon = recorder()
+    await svc.attach(MACHINE, bobsDaemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(bobsDaemon.got).toEqual([])
+  })
+
+  test('PTY bytes parked for Alice are NOT flushed after the machine becomes Bob’s', async () => {
+    const { svc, store } = await storedService()
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0x6c, 0x73, 0x0d),
+    }
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toPtyInput(MACHINE, input)
+
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    const received: DaemonPtyInputBatch[] = []
+    await svc.attach(MACHINE, {
+      send: () => {},
+      sendInput: (batch) => received.push(batch),
+    })
+    svc.flushQueued(MACHINE)
+
+    expect(received).toEqual([])
+  })
+
+  test('a parked frame is NOT flushed after a `use` share on that machine is revoked', async () => {
+    // THE SECOND T2 FORM, and the half the owner subscription cannot see: a
+    // revoked share changes who may run on a machine without touching the
+    // machine row at all. Without the grants subscription this test is the one
+    // that stays red while the handover tests go green.
+    const { svc, store } = await storedService()
+    await store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: MACHINE,
+      grantee: 'carol',
+      verb: 'use',
+      owner: firstAdminMemberId(),
+      visibility: 'private',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: firstAdminMemberId(),
+      onBehalfOf: null,
+    })
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    expect(await store.grants.remove('machine', MACHINE, 'carol', 'use')).toBe(true)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([])
+  })
+
+  test('an ordinary row write is not a handover — a hostname touch still flushes', async () => {
+    // THE COST OF GETTING THIS WRONG is the offline queue's whole reason to
+    // exist. Inventory reports and hostname touches write the machine row
+    // constantly; if any row write counted as a change of authority, a daemon
+    // that blipped would lose its traffic on the way back.
+    const { svc, store } = await storedService()
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    await store.machines.touchMachine(MACHINE, 'vmi.local')
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([approvalExec])
+  })
+
+  test('the owner this process has never seen committed is not treated as a change', async () => {
+    // `ensureHostMachine` writes the host row before the first session exists,
+    // so a baseline is always seeded before anything can park. This pins the
+    // decision that a FIRST sighting does not bump: reading it as a change
+    // would discard the boot queue this buffer was built for.
+    const { svc } = await storedService()
+
+    svc.toMachine(MACHINE, approvalExec)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([approvalExec])
+  })
+
+  test('a refused delivery is REPORTED, so the effect it belonged to can settle', async () => {
+    // A refusal nothing records is indistinguishable from a loss. The machines
+    // service says a frame was refused and names it; it does NOT know what an
+    // approval is — the approvals surface recognises its own frame on the other
+    // side of this seam.
+    const { svc, store } = await storedService()
+    const discarded: { kind: string; type?: string }[] = []
+    svc.onDeliveryDiscarded((d) =>
+      discarded.push({ kind: d.kind, ...(d.message ? { type: d.message.type } : {}) }),
+    )
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+    await svc.attach(MACHINE, recorder().send)
+    svc.flushQueued(MACHINE)
+
+    expect(discarded).toEqual([{ kind: 'control', type: 'approvalExecRequest' }])
+  })
+
+  test('a listener that throws cannot stop the rest of the queue being answered', async () => {
+    // The listener must ACTUALLY FIRE for this to test anything, so the queue
+    // holds one frame from BEFORE the handover (refused — the listener throws on
+    // it) and one from AFTER (still owed its delivery).
+    const { svc, store } = await storedService()
+    const later: ControlMessage = { type: 'inventoryRequest' } as ControlMessage
+    let fired = 0
+    svc.onDeliveryDiscarded(() => {
+      fired += 1
+      throw new Error('listener exploded')
+    })
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+    svc.toMachine(MACHINE, later)
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    expect(() => svc.flushQueued(MACHINE)).not.toThrow()
+
+    expect(fired).toBe(1)
+    expect(daemon.got).toEqual([later])
+  })
+
+  test('an unchanged machine still flushes its parked frames in order', async () => {
+    // THE OTHER DIRECTION. A guard that discarded every parked frame would pass
+    // both tests above and silently delete the queue's whole reason to exist:
+    // a daemon that blips offline and comes back must still get its traffic.
+    const { svc } = await storedService()
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0x6c, 0x73, 0x0d),
+    }
+
+    await svc.attach(MACHINE, recorder().send)
+    svc.detach(MACHINE)
+    svc.toMachine(MACHINE, approvalExec)
+    svc.toPtyInput(MACHINE, input)
+
+    const events: string[] = []
+    await svc.attach(MACHINE, {
+      send: () => events.push('control'),
+      sendInput: () => events.push('input'),
+    })
+    svc.flushQueued(MACHINE)
+
+    expect(events).toEqual(['control', 'input'])
+  })
+})

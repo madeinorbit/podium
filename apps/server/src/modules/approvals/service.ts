@@ -666,4 +666,47 @@ export class ApprovalService {
     await this.notify(row, `FAILED — ${text}`)
     return true
   }
+
+  /**
+   * THE EXEC FRAME WAS REFUSED AT THE QUEUE, NOT DELIVERED (PDM-401).
+   *
+   * `toMachine` parks a frame for a machine whose daemon is away and replays it
+   * on the next attach. If that machine changes hands in between, the queue now
+   * REFUSES the parked frame instead of dispatching it under authority that has
+   * since been taken away.
+   *
+   * A refusal has to SETTLE. Without this the row would sit `executing` until
+   * the stall deadline, and then fail with a message blaming the daemon's
+   * VERSION — which for this cause is not merely unhelpful but false in its one
+   * actionable clause, and would send the operator to inspect a version that is
+   * fine. Worse, a refusal nothing recorded is indistinguishable from a loss:
+   * the next reader cannot tell that the server decided this, on purpose.
+   *
+   * SETTLES AS `failed` WITH AN EXPLICIT REASON, not as a new `discarded`
+   * status. `ApprovalStatus` is a protocol enum with client arms; widening it is
+   * a protocol change and belongs with whoever owns that surface. `failed` is
+   * terminal, it is already the arm every client renders for "this did not
+   * happen", and the reason text carries the distinction a reader needs.
+   *
+   * IDEMPOTENT via the store's compare-and-set transition: a row that already
+   * settled (raced with the stall sweep, or a duplicate notification) is left
+   * exactly as it is.
+   */
+  async onExecDiscarded(requestId: string, machineName?: string): Promise<void> {
+    const row = await this.deps.store.get(requestId)
+    if (!row) return
+    const where = machineName ?? (await this.deps.machineName(row.machineId)) ?? row.machineId
+    // Say what is known and no more. What is CERTAIN is that the operation did
+    // not run and why the server refused to send it; the operator's one action
+    // is to ask again from a machine that is currently theirs.
+    const text =
+      `not sent to ${where}: that machine changed hands while its daemon was offline, ` +
+      `so the approved operation was no longer yours to run there. It did NOT run. ` +
+      `Ask again from a machine you currently own.`
+    if (!await this.deps.store.transition(requestId, 'executing', 'failed', text)) return
+    this.stallClock.delete(requestId)
+    await this.log(row, 'issue.approval_failed', { discarded: true })
+    await this.notify(row, `REFUSED — ${text}`)
+    await this.broadcast()
+  }
 }
