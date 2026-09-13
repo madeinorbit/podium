@@ -498,10 +498,26 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
     expect(f.registry.size).toBe(2)
   })
 
-  it('does NOT scope by principal — that is POD-1077 and it is not built', async () => {
+  it('does NOT scope by principal — the client-mux fan-out is unscoped', async () => {
     // Stated as a test so a green suite cannot be read as evidence of scoping.
     // Every connection here holds a distinct device principal and every one of
     // them still receives the broadcast.
+    //
+    // THE ASSERTION IS UNCHANGED; ONLY ITS JUSTIFICATION WAS WRONG (PDM-295).
+    // This used to be named "that is POD-1077 and it is not built". POD-1077 IS
+    // built: `packages/sync` carries a real scoped-feed kernel — `authority/
+    // scoping.ts` evaluates a batch for ONE principal and `feed/visibility.ts`
+    // holds a shipped policy. What it did not build is THIS: the server's
+    // client-mux fan-out, and the per-user overlay CONTENT that rides it, which
+    // is still one viewer's for everybody (see `IssueService.broadcastViewer`,
+    // and PDM-307).
+    //
+    // The name mattered. A reader meeting "POD-1077 is not built" concludes the
+    // feed kernel does not exist, and nearly filed PDM-307 as blocked on a
+    // ticket that had already closed. A justification ages exactly like a
+    // comment, and nothing checks it — which is the whole reason this test,
+    // written so a green suite could not stand in for scoping, was right to
+    // exist and still is.
     const f = await fanout()
     const devices = [...f.registry.values()].map((c) => c.principal.device)
     expect(new Set(devices).size).toBe(3)

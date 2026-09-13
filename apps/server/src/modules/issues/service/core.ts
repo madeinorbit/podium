@@ -135,10 +135,45 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE per-user markers the broadcast carries. `firstAdminMemberId()` spelled
-   * out, never a default: an unidentified principal must fail closed rather than
-   * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
-   * body with the request's principal; every caller already asks the question.
+   * WHOSE per-user markers the broadcast carries: THE EARLIEST ADMIN'S, for
+   * every client. A KNOWN, STILL-OPEN single-user fallback — not a design.
+   *
+   * PDM-295 REVIEWED THIS AND DELIBERATELY DID NOT REPAIR IT, which is why the
+   * comment is rewritten rather than left. That issue removed the sibling
+   * fallback at `SessionAuthz.settingsViewer()`, whose comment pointed HERE —
+   * "spelled out for the reason IssueService.broadcastViewer spells it out" — so
+   * without this note the survivor would read as intentional.
+   *
+   * WHAT THE OLD COMMENT CLAIMED, AND WHY IT WAS CHECKED. It said "POD-1077
+   * replaces the body with the request's principal; every caller already asks
+   * the question". POD-1077 IS CLOSED. It shipped a real scoped-feed kernel —
+   * `packages/sync/src/authority/scoping.ts` evaluates a batch for ONE
+   * principal, `feed/visibility.ts` carries a shipped policy — so VISIBILITY,
+   * meaning which rows a principal receives, genuinely is per-principal.
+   *
+   * IT NEVER MADE THE OVERLAY CONTENT PER-PRINCIPAL, which is what this method
+   * decides. So the sentence promised something that is not coming, exactly as
+   * POD-315's did beside `settingsViewer()`. Both of its clauses are false: the
+   * projection callers do NOT already ask, and nothing is scheduled to change
+   * that. Do not reach for POD-1077 as a blocker; check the tracker.
+   *
+   * WHAT ACTUALLY STANDS IN THE WAY — ordinary work, not a dependency:
+   *   1. {@link hydrated} fills `viewerState` ONCE PER PROCESS for this viewer.
+   *   2. `toWire` bakes it synchronously (`pinned`, `tuckedAt`, `readAt`), so no
+   *      principal can arrive later — see the note at the hydrate site.
+   *   3. {@link wireCache} is keyed by ISSUE ID ALONE, with no viewer in the
+   *      key, so every client is served the same memoized payload.
+   * Making `viewerState` per-principal, or putting the viewer in that cache key,
+   * is the repair. It is sizeable and it is NOT blocked.
+   *
+   * THE WRITE CALLERS ARE A SEPARATE AND MORE URGENT CASE. {@link
+   * writeIssueUserState} is reached from `markRead`/`markUnread`/`setTucked`,
+   * whose command context can answer `requirePrincipal()` TODAY. Those writes
+   * stamp the earliest admin's row whatever member asked — which makes
+   * `markIssueUnread`'s own doc ("marking MY copy unread never touches yours")
+   * false as written. A write landing on the wrong person's row is a different
+   * defect class from a read resolving the wrong identity, and it needs none of
+   * the above. Filed beneath PDM-139.
    */
   async broadcastViewer(): Promise<UserId> {
     return (await firstAdminMemberId(this.deps.store))

@@ -274,6 +274,22 @@ export class SessionView {
 
   readonly wire = wireSession
 
+  /**
+   * THE SESSION-SIDE TWIN of {@link IssueService.broadcastViewer} — a separately
+   * declared method with an identical body and the same open defect. Every
+   * client's session overlay (`readAt`, snooze, pin) is wired with the EARLIEST
+   * ADMIN's state.
+   *
+   * PDM-295 reviewed both and repaired neither; the reasoning, the POD-1077
+   * check and the list of what actually stands in the way live in one place, on
+   * the issues-side twin. Read that before changing this. The short version: the
+   * scoped feed shipped, per-principal overlay CONTENT did not, and this is
+   * unbuilt rather than blocked.
+   *
+   * NOT {@link internalOverlayUser} BELOW, which resolves the same person for a
+   * narrower and deliberate reason (PDM-291). Two methods, one identity, only
+   * one of them intentional.
+   */
   async broadcastViewer(): Promise<UserId> {
     return (await firstAdminMemberId(this.ports.store))
   }
