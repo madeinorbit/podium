@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { onBehalfOfUser } from './command-principal'
+import { fileAccessGate } from './modules/files/file-access-gate'
 import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
 import { OPERATOR } from './test-support/capabilities'
 
 // The in-process MCP reaches the tracker through the command registry's derived
@@ -16,6 +19,43 @@ afterEach(async () => {
 async function client() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
+  /**
+   * THE FILE GATE IS THE COMPOSITION ROOT'S, AND THIS FIXTURE IS ONE (PDM-135).
+   *
+   * `artifact-add` pulls bytes off a machine, so it reads through a per-caller
+   * `ArtifactSourceGate` that needs a `RepoRegistry` — built OVER the relay, so
+   * the relay cannot build its own. Until `installFileGate` runs, the relay
+   * refuses every artifact source read, deliberately: "ABSENT DENIES", because
+   * the alternative is a default that reads without asking.
+   *
+   * `server.ts` installs it at boot, so production always has one. A bare
+   * `SessionRegistry.create` does not, and `registry.ts` binds `source:
+   * ctx.fileGate` when it builds the op's options — BEFORE `panelArtifactAdd`
+   * runs any of its own checks. So the refusal below arrived in place of the
+   * worktree one this test is about, and the fail-closed relay was answering for
+   * a read that never happens for a worktree-less issue.
+   *
+   * Installing the REAL gate here, the way the root does, is what keeps the
+   * assertion about what it says it is about. A stub would have done the same
+   * job for this one case and quietly stopped being a gate.
+   */
+  const repos = new RepoRegistry(registry, registry.sessionStore)
+  registry.installFileGate((caller) => {
+    const principal = caller.principal
+    if (principal === undefined) throw new Error('fixture caller carries no principal')
+    const userId = onBehalfOfUser(principal)
+    if (userId === null) throw new Error('fixture caller holds no capability to read files with')
+    return fileAccessGate(
+      registry.modules,
+      repos,
+      {
+        userId,
+        capability: caller.capability,
+        ...(caller.overrideScope ? { overrideScope: true } : {}),
+      },
+      principal,
+    )
+  })
   return registry.issueCommands.asIssueTrpc(OPERATOR)
 }
 
