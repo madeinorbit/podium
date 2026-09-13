@@ -237,7 +237,7 @@ export function parseFlags(
 
 /** The zod internals this module reads. Narrow on purpose: only the shape. */
 interface ShapeCarrier {
-  shape?: Record<string, { safeParse(v: unknown): { success: boolean } }>
+  shape?: Record<string, { safeParse(v: unknown): { success: boolean; data?: unknown } }>
 }
 
 /**
@@ -250,20 +250,33 @@ const VALUE_PROBES = ['a-value', 'true', 'false'] as const
 /**
  * Derive a command's flag declaration from its zod input object.
  *
- * A key is a VALUE-LESS (boolean) flag iff its schema accepts `true` and accepts
- * NO string — a runtime probe rather than a walk over `_def.typeName`, because
- * the probe reads the same public surface every zod version keeps and cannot be
- * fooled by a wrapper (`.optional()`, `.default()`) it has not been taught about.
+ * A key is a VALUE-LESS (boolean) flag iff its schema accepts `true` AS A
+ * BOOLEAN and accepts NO string — a runtime probe rather than a walk over
+ * `_def.typeName`, because the probe reads the same public surface every zod
+ * version keeps and cannot be fooled by a wrapper (`.optional()`, `.default()`)
+ * it has not been taught about.
  *
- * BOTH halves are load-bearing, and the second one in a way that is easy to get
- * wrong. `z.union([z.string(), z.number()])` (lock's `--ttl`) refuses `true` and
- * so stays a value flag — the case the hand-maintained sets kept getting wrong.
- * But the issue registry's `cliBool` accepts `true` AND the strings `'true'` and
+ * ALL THREE HALVES ARE LOAD-BEARING.
+ *
+ * `z.union([z.string(), z.number()])` (lock's `--ttl`) refuses `true` and so
+ * stays a value flag — the case the hand-maintained sets kept getting wrong.
+ *
+ * The issue registry's `cliBool` accepts `true` AND the strings `'true'` and
  * `'false'`, precisely so `--pinned`, `--pinned true` and `--pinned=false` all
  * work. Calling that value-less would make `--pinned false` parse as
  * `pinned: true` and leave `false` on the floor as a positional: the flag would
  * set exactly what its author asked it to clear. So a field that accepts any
  * string is a value flag, whatever else it also accepts.
+ *
+ * AND `true` MUST COME BACK AS A BOOLEAN (PDM-427). `z.coerce.number()` accepts
+ * `true` — it COERCES it to 1 — and refuses every string probe, so asking only
+ * "did it accept `true`?" called every count, cursor and index flag in the
+ * registries a boolean: `podium issue events --limit 3` parsed as `limit: true`
+ * with `3` orphaned onto the positionals, and `events` PRINTED that spelling in
+ * its own "Next page:" hint. Reading the parsed value back is what separates
+ * "this field is a boolean" from "this field coerced my probe", and unlike a
+ * numeric probe string it cannot be sized out of range: a schema whose bounds
+ * exclude 1 already rejects `true`, so it never reached this test at all.
  */
 export function flagsFromZodShape(
   schema: unknown,
@@ -273,9 +286,10 @@ export function flagsFromZodShape(
   const booleans = new Set<string>(globals?.booleans ?? [])
   const known = new Set<string>([...Object.keys(shape), ...(globals?.known ?? []), ...booleans])
   for (const [key, field] of Object.entries(shape)) {
-    const takesTrue = field.safeParse?.(true).success === true
+    const asTrue = field.safeParse?.(true)
+    const takesTrueAsBoolean = asTrue?.success === true && typeof asTrue.data === 'boolean'
     const takesText = VALUE_PROBES.some((probe) => field.safeParse?.(probe).success === true)
-    if (takesTrue && !takesText) booleans.add(key)
+    if (takesTrueAsBoolean && !takesText) booleans.add(key)
   }
   return { known, booleans, shorts: new Map() }
 }

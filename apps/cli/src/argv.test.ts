@@ -142,10 +142,14 @@ describe('flagsFromZodShape', () => {
     pinned: z
       .union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
       .optional(),
+    // The numeric spelling every registry uses for counts and cursors
+    // (`--limit`, `--max-nodes`, `--since`). PDM-427.
+    count: z.coerce.number().int().optional(),
   })
 
   it('declares every key in the shape as a flag', () => {
     expect([...flagsFromZodShape(schema).known].sort()).toEqual([
+      'count',
       'force',
       'id',
       'pinned',
@@ -170,6 +174,24 @@ describe('flagsFromZodShape', () => {
       usage: 'podium issue update',
     })
     expect(parsed.args).toEqual({ pinned: 'false' })
+  })
+
+  it('does not classify a coerced-number key as value-less', () => {
+    // `z.coerce.number()` ACCEPTS `true` (it coerces to 1), so a probe list that
+    // asks only "does it take true?" and "does it take a non-numeric string?"
+    // calls every count/cursor flag value-less. PDM-427.
+    expect(flagsFromZodShape(schema).booleans.has('count')).toBe(false)
+  })
+
+  it('keeps the value beside a space-separated numeric flag, off the positionals', () => {
+    // The defect this pins is silent in BOTH halves: the value is dropped AND it
+    // lands on the next positional, which on `mail inbox` is the issue ref — so
+    // `--limit 500` asked for issue 500 and showed the default page. PDM-427.
+    const parsed = parseFlags(['--count', '7'], flagsFromZodShape(schema), {
+      usage: 'podium issue events',
+    })
+    expect(parsed.args).toEqual({ count: '7' })
+    expect(parsed.positionals).toEqual([])
   })
 
   it('adds the dispatcher-owned global flags it is given', () => {

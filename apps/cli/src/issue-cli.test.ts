@@ -1,5 +1,12 @@
+import { ISSUE_COMMANDS, LOCK_COMMANDS, SPEC_COMMANDS } from '@podium/issue-client'
 import { describe, expect, it, vi } from 'vitest'
-import { parseIssueArgs, resolveRepoArg, runIssueCli } from './issue-cli'
+import {
+  commandHelpText,
+  parseIssueArgs,
+  registryFlags,
+  resolveRepoArg,
+  runIssueCli,
+} from './issue-cli'
 
 describe('parseIssueArgs', () => {
   it('parses the command, positionals, --flag value, --flag=value, and --bool', () => {
@@ -394,5 +401,226 @@ describe('unknown flags on podium issue', () => {
   it('still accepts the dispatcher-owned globals on every command', () => {
     const { args } = parseIssueArgs(['list', '--json', '--outside-scope'])
     expect(args).toMatchObject({ json: true, outsideScope: true })
+  })
+})
+
+/**
+ * PDM-427: NUMERIC FLAGS IN THE SPACE-SEPARATED FORM.
+ *
+ * `flagsFromZodShape` called a key value-LESS iff its schema accepted `true` and
+ * rejected every probe in a list that held no numeric string. `z.coerce.number()`
+ * coerces `true` to 1 (so it "accepts true") and rejects `a-value`/`true`/`false`
+ * — so EVERY count, cursor and index flag in the registries was classified a
+ * boolean, and `--limit 3` parsed as `limit: true` with `3` left on the floor.
+ *
+ * Two harms, and the second is the worse one:
+ *   - the value is dropped and a DEFAULT is substituted, silently;
+ *   - the orphaned value becomes the next POSITIONAL, so `todo --done 2 PDM-1`
+ *     addresses issue `2`. A redirected subject reads as your own.
+ *
+ * And `issue events` PRINTS the space form in its own "Next page:" hint, so an
+ * operator following the tool's instruction pages forever over one window.
+ */
+describe('space-separated numeric flags (PDM-427)', () => {
+  it('honours events --since and --limit in the space form', () => {
+    const { command, args, positionals } = parseIssueArgs([
+      'events',
+      '--since',
+      '240000',
+      '--limit',
+      '3',
+    ])
+    expect(command).toBe('events')
+    expect(args.since).toBe('240000')
+    expect(args.limit).toBe('3')
+    expect(positionals).toEqual([])
+  })
+
+  it('honours tree --max-nodes in the space form', () => {
+    const { args, positionals } = parseIssueArgs(['tree', 'PDM-107', '--max-nodes', '500'])
+    expect(args.maxNodes).toBe('500')
+    expect(positionals).toEqual(['PDM-107'])
+  })
+
+  it('does not redirect a space-form value onto the next positional', () => {
+    // The id positional must stay PDM-1. Before the fix `done` was value-less,
+    // so `2` fell through to the positionals and became the ISSUE REF.
+    const { args, positionals } = parseIssueArgs(['todo', '--done', '2', 'PDM-1'])
+    expect(args.done).toBe('2')
+    expect(positionals).toEqual(['PDM-1'])
+  })
+
+  it('leaves genuine boolean flags value-less', () => {
+    // The counterpart the fix must not break: a real boolean still takes no
+    // value, and a tri-state flag still reads the word after it.
+    const { args, positionals } = parseIssueArgs(['todo', 'PDM-1', '--clear'])
+    expect(args.clear).toBe(true)
+    expect(positionals).toEqual(['PDM-1'])
+  })
+
+  /**
+   * The derived census. Enumerated from the registries rather than listed, so a
+   * numeric flag added tomorrow is covered without anyone remembering to add it
+   * — a hand-written list of "where numeric flags live" is the exact blind spot
+   * this defect came from.
+   */
+  const REGISTRIES: [string, readonly { name: string; args: unknown }[]][] = [
+    ['issue', ISSUE_COMMANDS],
+    ['spec', SPEC_COMMANDS],
+    ['lock', LOCK_COMMANDS],
+  ]
+
+  /**
+   * Every `<tool> <command> --<flag>` whose schema accepts the string "1".
+   *
+   * "1" and not "7": `--priority` is `min(0).max(4)`, so a 7 is refused by the
+   * RANGE and the flag drops out of the population entirely — a probe sized for
+   * convenience that quietly excludes the flags with the tightest bounds. Every
+   * value a coercing schema accepts for `true` it also accepts for "1", because
+   * `true` coerces to 1.
+   */
+  function valueTakingFlags(): { row: string; valueLess: boolean }[] {
+    const out: { row: string; valueLess: boolean }[] = []
+    for (const [tool, cmds] of REGISTRIES) {
+      for (const cmd of cmds) {
+        const shape =
+          (cmd.args as { shape?: Record<string, { safeParse(v: unknown): { success: boolean } }> })
+            .shape ?? {}
+        const valueLessKeys = registryFlags(cmd).booleans
+        for (const [key, field] of Object.entries(shape)) {
+          if (!field.safeParse('1').success) continue
+          out.push({ row: `${tool} ${cmd.name} --${key}`, valueLess: valueLessKeys.has(key) })
+        }
+      }
+    }
+    return out
+  }
+
+  it('examines the flags this defect was reported on', () => {
+    // Verify the instrument before trusting a green from it: a census that
+    // silently covered nothing would pass the assertion below for free.
+    const rows = valueTakingFlags().map((f) => f.row)
+    expect(rows).toContain('issue events --since')
+    expect(rows).toContain('issue events --limit')
+    expect(rows).toContain('issue tree --maxNodes')
+    expect(rows).toContain('issue todo --done')
+    expect(rows.length).toBeGreaterThan(20)
+  })
+
+  it('classifies no value-taking flag as value-less, in any registry', () => {
+    expect(valueTakingFlags().filter((f) => f.valueLess)).toEqual([])
+  })
+})
+
+/**
+ * PDM-427, acceptance 3: THE PRINTED HINT MUST MATCH WHAT THE CLI HONOURS.
+ *
+ * `issue events` prints its own "Next page:" invocation when it truncates, in
+ * the space-separated form. That is the part that made the parser defect a trap
+ * rather than a quirk: an operator following the tool's instruction got the same
+ * window back forever and reasonably concluded the feed had no recent rows.
+ *
+ * So the assertion takes the tokens OUT OF THE RENDERED TEXT and parses them,
+ * rather than restating the spelling the hint is believed to use — a restated
+ * literal drifts away from the printed one the first time either is edited.
+ */
+describe('the events paging hint round-trips (PDM-427)', () => {
+  const events = ISSUE_COMMANDS.find((c) => c.name === 'events')
+
+  /** Run `events` against a stub that always returns a FULL page, so it truncates. */
+  async function renderFullPage(argv: string[]): Promise<string> {
+    const { args } = parseIssueArgs(['events', ...argv])
+    const parsed = (events?.args as { parse(v: unknown): Record<string, unknown> }).parse(args)
+    const limit = (parsed.limit as number | undefined) ?? 200
+    const since = (parsed.since as number) ?? 0
+    const client = {
+      issues: {
+        events: {
+          query: async () =>
+            Array.from({ length: limit }, (_, i) => ({
+              id: since + i + 1,
+              ts: '2026-09-13T00:00:00.000Z',
+              kind: 'issue.read',
+              subject: 'iss_stub',
+              payload: {},
+            })),
+        },
+      },
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: a stub standing in for IssueTrpc.
+    const out = await events?.run(client as any, parsed)
+    return out?.text ?? ''
+  }
+
+  it('prints a next-page invocation whose flags the CLI actually honours', async () => {
+    const text = await renderFullPage(['--since', '240000', '--limit', '3'])
+    const hint = text.split('\n').find((l) => l.includes('Next page:'))
+    expect(hint).toBeDefined()
+
+    // Take the invocation from the OUTPUT, not from a literal restated here.
+    const line = hint ?? ''
+    const tokens = line.slice(line.indexOf('podium issue events')).split(/\s+/).slice(3)
+    expect(tokens).toContain('--since')
+    expect(tokens).toContain('--limit')
+
+    const replay = parseIssueArgs(['events', ...tokens])
+    // The cursor must ADVANCE past the last row the page showed, and the page
+    // size must survive. Before the fix both became `true` and the replay asked
+    // for the default window again.
+    expect(replay.args.since).toBe('240003')
+    expect(replay.args.limit).toBe('3')
+    expect(replay.positionals).toEqual([])
+  })
+
+  it('prints a tree More: invocation whose flags the CLI actually honours', async () => {
+    // The SECOND printed invocation in the registry, and the same trap: both its
+    // caps are space-separated numeric flags.
+    const tree = ISSUE_COMMANDS.find((c) => c.name === 'tree')
+    const client = {
+      issues: {
+        tree: {
+          query: async () => ({
+            root: {
+              seq: 107,
+              priority: 1,
+              stage: 'in_progress',
+              title: 'root',
+              closed: false,
+              blocked: false,
+              ready: true,
+              blocksDeps: [],
+              needsHuman: false,
+              children: [],
+              omittedChildren: 4,
+              sessions: [],
+            },
+            totalNodes: 100,
+            omitted: 4,
+            maxDepth: 3,
+            maxNodes: 100,
+          }),
+        },
+      },
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: a stub standing in for IssueTrpc.
+    const out = await tree?.run(client as any, { id: 'PDM-107' })
+    const hint = (out?.text ?? '').split('\n').find((l) => l.includes('More:'))
+    expect(hint).toBeDefined()
+
+    const line = hint ?? ''
+    const tokens = line.slice(line.indexOf('podium issue tree')).split(/\s+/).slice(3)
+    const replay = parseIssueArgs(['tree', ...tokens])
+    expect(replay.args.maxDepth).toBe('6')
+    expect(replay.args.maxNodes).toBe('400')
+    expect(replay.positionals).toEqual(['PDM-107'])
+  })
+
+  it('renders numeric flags in help with a value placeholder', () => {
+    // The same "printed form matches honoured form" obligation, one layer up:
+    // `commandHelpText` omits `<value>` for anything the classifier calls
+    // value-less, so under the defect `--limit` advertised itself as a switch.
+    const help = commandHelpText('issue', events as Parameters<typeof commandHelpText>[1])
+    expect(help).toContain('--limit <value>')
+    expect(help).toContain('--since <value>')
   })
 })
