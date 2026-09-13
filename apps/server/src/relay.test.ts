@@ -4555,6 +4555,25 @@ describe('hibernation', () => {
           refusal: { reason: 'busy', detail: 'driver is still handling the prior turn' },
         },
       })
+
+      /**
+       * AND THE NEXT BIND — WHICH IS THIS TEST'S OWN TITLE (POD-2291).
+       *
+       * A `busy` refusal used to re-arm a server-side poll, and this line used
+       * to wait for the retry that poll produced. POD-2291 took that away on
+       * purpose: the server stopped predicting when a CLI can take a turn, and
+       * `inbox.test.ts` pins the new answer by name in two places — "forwards
+       * during a busy turn without any server readiness polling" and "does not
+       * poll or settle after a busy refusal", the second of which re-drains
+       * explicitly and still expects ONE call.
+       *
+       * So the row stays visibly queued and waits for the next bind, reconnect
+       * or enqueue, exactly as `forwardContractRows` says. Re-binding is what a
+       * recovered Grok does and what this test is named for; nothing here is
+       * weaker than it was, because the second request still has to happen and
+       * still has to carry the same `turnId`.
+       */
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
       await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(2))
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'runtimeEvent',

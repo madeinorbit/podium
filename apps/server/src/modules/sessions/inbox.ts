@@ -1386,42 +1386,9 @@ export class SessionInbox {
         binding.ids.add(row.id)
         // Awaiting this RPC would put subsequent rows behind a slow transport reply.
         // Receipts acknowledge custody only; the event stream owns settlement.
-        void this.deps.contractDeliver({ sessionId, rowId: row.id, turnId: row.sourceMessageId ?? row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).then(
-          (receipt) => {
-            /**
-             * A REFUSAL IS NOT CUSTODY — AND STILL NOT SETTLEMENT (POD-2291).
-             *
-             * Settlement stays where POD-2411 put it: the driver's own
-             * `delivery` event, never this reply. But `binding.ids` is a claim
-             * that the driver HAS this row, and a `refused` receipt is the
-             * driver saying it does not. Leaving the id marked forwarded on a
-             * refusal strands the row until a fresh bind rebuilds the binding —
-             * the row stays visibly queued and nothing re-offers it, which is a
-             * silent stall rather than a loss, but a stall the sender is never
-             * told about.
-             *
-             * `busy` / `needs_user` are an ordinary race: a turn opened, or an
-             * ask arrived, between the readiness check and the send. So re-offer
-             * the row at the next boundary. Any other refusal un-marks it and
-             * stops here — the row is still queued, and the next bind, reconnect
-             * or enqueue re-drains it, which is what the other outcomes rely on
-             * too.
-             */
-            if (receipt.outcome !== 'refused') return
-            binding.ids.delete(row.id)
-            if (receipt.refusal.reason !== 'busy' && receipt.refusal.reason !== 'needs_user') return
-            setTimeout(() => {
-              const retryable = this.deps.getSession(sessionId)
-              if (!retryable || this.disposed) return
-              void this.forwardContractRows(retryable, false).catch((error) => {
-                log.warn('contract queue re-offer failed', { sessionId, err: error })
-              })
-            }, READY_POLL_MS).unref?.()
-          },
-          (error) => {
-            log.warn('contract queue forwarding failed', { sessionId, err: error })
-          },
-        )
+        void this.deps.contractDeliver({ sessionId, rowId: row.id, turnId: row.sourceMessageId ?? row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).catch((error) => {
+          log.warn('contract queue forwarding failed', { sessionId, err: error })
+        })
       }
       if (current()) {
         const remaining = await this.deps.queue.list(sessionId)

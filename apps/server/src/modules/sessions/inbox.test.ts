@@ -2610,10 +2610,30 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(await queueOne(h, 'srv-1', 'msg_srv_1')).toEqual({ ok: true, queued: true })
     await vi.advanceTimersByTimeAsync(1_000)
 
+    /**
+     * `rowId` AND `turnId` ARE DIFFERENT IDENTITIES (POD-2291).
+     *
+     * `rowId` is the physical queue row, and it is what a later delivery outcome
+     * is matched against — the two `deliveryOutcome` calls below use it.
+     * `turnId` is the DRIVER-facing "stable delivery identity", the id a driver
+     * reports a lost turn under and the id a re-send after a bind or reconnect
+     * must repeat so an at-least-once write stays idempotent.
+     *
+     * This pinned `turnId: 'srv-1'` — the ROW id — which made the two contract
+     * paths disagree about the same turn. `ReceiptSender` sends a row it did not
+     * have to queue with `turnId: input.sourceMessageId`, and this drain sends
+     * the row it DID queue; if one says `msg_srv_1` and the other says `srv-1`,
+     * a driver keying idempotency on `turnId` sees two turns where there is one,
+     * which is precisely what the protocol note forbids. The ledger message id
+     * is the one identity both paths can name, so it wins where it exists — and
+     * the test below this one pins the fallback for a row with no ledger message
+     * behind it, so neither direction can be changed silently.
+     */
     expect(h.contractCalls).toEqual([
       expect.objectContaining({
         sessionId: SID,
-        turnId: 'srv-1',
+        rowId: 'srv-1',
+        turnId: 'msg_srv_1',
         text: 'first prompt',
       }),
     ])
@@ -2626,6 +2646,21 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).toHaveBeenCalledTimes(1)
     expect(h.applied).toHaveBeenCalledWith({ sourceMessageId: 'msg_srv_1', sessionId: SID })
     expect(h.rows).toEqual([])
+  })
+  it('falls back to the row id as the turn identity when no ledger message is behind it', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
+
+    // No `sourceMessageId`: a queued keystroke, not mail. There is no ledger id
+    // to name the turn with, so the row's own id has to serve — and asserting it
+    // is what stops the rule above from being changed to "always the ledger id",
+    // which would send `turnId: undefined` for every row on this path.
+    expect(await queueOne(h, 'srv-bare')).toEqual({ ok: true, queued: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ sessionId: SID, rowId: 'srv-bare', turnId: 'srv-bare' }),
+    ])
   })
   it('parks a durable row while native terminal control is declared', async () => {
     vi.useFakeTimers()
