@@ -218,13 +218,23 @@ describe('a marks-only delta re-derives the joined issue rows (PDM-419)', () => 
 
 describe('two simultaneously marked issues, through the kernel’s composite ids', () => {
   /**
-   * PDM-139 asked for this shape specifically, and it is the one that
-   * discriminates TWO defects at once with a single fixture:
+   * PDM-139 asked for this shape specifically: two rows with distinct values,
+   * changed and cleared rather than only added, which is PDM-419's own
+   * "changing and clearing" requirement — a witness that only ever ADDS a mark
+   * cannot reach it.
    *
-   *  - the legacy `Replica.keyFor` collapse (marks rows misclassified as inserts
-   *    so an UPDATE is silently discarded), and
-   *  - PDM-419's own "changing and clearing" requirement, which a witness that
-   *    only ever ADDS a mark cannot reach.
+   * WHAT THIS BLOCK DOES **NOT** WITNESS, corrected after a plant said so. An
+   * earlier version of this header claimed it also discriminated the legacy
+   * `Replica.keyFor` defect. It does not, and the two are not one defect:
+   *
+   *  - LEGACY `Replica.keyFor` — an undefined key misclassifies every update as
+   *    an insert, so the write is SILENTLY DISCARDED. Witnessed in
+   *    `replica/issue-marks-join.test.ts`, over the legacy replica.
+   *  - KERNEL `rowKey` — feeds `facade.keyOf` and therefore the SORT, so its
+   *    failure is unstable row ORDER, not lost data. Witnessed by the ordering
+   *    case below, and by nothing else here: I planted that arm expecting the
+   *    update and removal cases to redden and THEY STAYED GREEN, because the
+   *    kernel indexes by `entityId` and reads values off the payload.
    *
    * And it runs over the KERNEL replica rather than the legacy one, because the
    * mapping the reviewer named lives there: the kernel stores and addresses rows

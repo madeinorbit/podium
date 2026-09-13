@@ -87,6 +87,11 @@ const marksRowsFor = (user: UserId, issueId: string): IssueMarksWire[] =>
     .filter((c) => c.entity === 'issueMarks' && c.id === issueMarksRowId(user, issueId))
     .map((c) => (c as { value: IssueMarksWire }).value)
 
+/** The STORED row for one person, straight out of the table — the durable half,
+ *  as distinct from what was published. */
+const storedMarksFor = async (user: UserId, issueId: string) =>
+  await store.issues.getIssueUserState(user, issueId as never)
+
 const latestMarksFor = (user: UserId, issueId: string): IssueMarksWire | undefined =>
   marksRowsFor(user, issueId).at(-1)
 
@@ -202,5 +207,78 @@ describe('the per-user sidecar', () => {
     expect(new Set(ids).size).toBe(2)
     expect(ids).toContain(issueMarksRowId(ada, w.id))
     expect(ids).toContain(issueMarksRowId(BEN, w.id))
+  })
+})
+
+describe('purging an issue retracts its marks', () => {
+  /**
+   * THE TOMBSTONE PATH (PDM-408). A marks row is addressed to ONE person, so its
+   * retraction has to be too: there is no row a single broadcast remove could
+   * name that every holder is subscribed to.
+   *
+   * Two distinct failures were here, and they are different:
+   *
+   *  1. `issue_user_state` has NO foreign key to `issues` — only a composite
+   *     primary key — so `deleteIssue` never cascaded to it. `purgeIssueUserState`
+   *     existed for exactly this and had NO PRODUCTION CALLER AT ALL, so every
+   *     purge left those rows in the database for good.
+   *  2. Nothing published a removal, so a cached client kept rendering its
+   *     owner's pin and read mark for an issue that no longer exists — the
+   *     issue's own `remove` does not name the marks rows, and nothing else
+   *     would ever correct them.
+   *
+   * This issue CREATED the row that can go stale, so retracting it belongs here.
+   */
+  /** `purgeEmptyDraft` is the ONLY production purge path, and it refuses
+   *  anything that is not an empty draft — so the fixture has to be one. */
+  const emptyDraft = async () =>
+    await svc.create({
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+      origin: 'agent',
+      audience: 'agent',
+      draft: true,
+    })
+
+  it('publishes a remove for EVERY holder, addressed to each of them', async () => {
+    const w = await emptyDraft()
+    await svc.markIssueRead(w.id, ada)
+    await svc.markIssueRead(w.id, BEN)
+    published = []
+
+    await svc.purgeEmptyDraft(w.id)
+
+    const removed = published
+      .filter((c) => c.entity === 'issueMarks' && c.op === 'remove')
+      .map((c) => c.id)
+    // One per person. A single broadcast removal could not say whose row it
+    // meant, which is the whole reason the rows are keyed per user.
+    expect(removed.sort()).toEqual([issueMarksRowId(ada, w.id), issueMarksRowId(BEN, w.id)].sort())
+  })
+
+  it('drops the stored rows too, which nothing used to do', async () => {
+    const w = await emptyDraft()
+    await svc.markIssueRead(w.id, ada)
+    await svc.markIssueRead(w.id, BEN)
+    expect(await storedMarksFor(BEN, w.id)).toBeDefined()
+
+    await svc.purgeEmptyDraft(w.id)
+
+    // No foreign key cascades these; before PDM-408 they outlived every purge.
+    expect(await storedMarksFor(ada, w.id)).toBeUndefined()
+    expect(await storedMarksFor(BEN, w.id)).toBeUndefined()
+  })
+
+  it('retracts nothing for an issue nobody marked — a remove per HOLDER, not per issue', async () => {
+    // The control. Without it, "publishes removes" is satisfied by a purge that
+    // emits a tombstone for every member on the instance whether or not they
+    // held a row, which would tell a stranger the issue had existed.
+    const w = await emptyDraft()
+    published = []
+
+    await svc.purgeEmptyDraft(w.id)
+
+    expect(published.filter((c) => c.entity === 'issueMarks')).toEqual([])
   })
 })

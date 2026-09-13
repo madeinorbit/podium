@@ -238,6 +238,17 @@ describe('what a principal is actually SERVED', () => {
     await publishMarks(reader, 'T-reader-2')
 
     const denied = await authority.changesSince(afterRevoke, humanPrincipal(reader))
+    // ASSERT THE RESPONSE BEFORE NARROWING TO IT (PDM-139). The granted arm
+    // above does this; this one used to open with a bare
+    // `if (denied?.kind !== 'batch') return`, so a `reset`, an `undefined`, or
+    // any unexpected shape would have finished GREEN without ever reaching the
+    // no-marks assertion — a refusal test that passes because nothing was
+    // examined is the failure this whole file exists to rule out.
+    //
+    // `batch` is the only legitimate outcome here: the cursor was taken after
+    // the revoke and one change has been appended since, so there is a
+    // contiguous window to serve and no reason for the Authority to reset.
+    expect(denied?.kind).toBe('batch')
     if (denied?.kind !== 'batch') return
     expect(denied.changes.filter((c) => c.entity === 'issueMarks')).toEqual([])
   })

@@ -8,6 +8,7 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  issueMarksRowId,
   canonicalIssueCloseReason,
   type GrantVerb,
   type IssueId,
@@ -1578,6 +1579,9 @@ export class IssueCrudModule {
   async purgeEmptyDraft(ref: string): Promise<void> {
     const id = await this.store.resolveRef(ref)
     await this.store.rowOrThrow(id)
+    /** Everyone holding marks on this issue, read INSIDE the span and before the
+     *  delete — the only moment the list exists. See the tombstone note below. */
+    let markHolders: readonly UserId[] = []
     await this.store.deps.ledger.commit({
       write: async () => {
         // Explicit draft rehome detaches every session it can SEE before calling
@@ -1587,9 +1591,38 @@ export class IssueCrudModule {
         // to catch it (POD-1926). Same transaction as the delete: a reference to
         // a half-deleted issue must never be observable.
         await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
+        // THE PER-USER HALF, WHICH NOTHING USED TO PURGE (PDM-408).
+        //
+        // `issue_user_state` is keyed `(user_id, issue_id)` and has NO foreign
+        // key to `issues` — only a composite primary key — so `deleteIssue` does
+        // not cascade to it and every purge left those rows behind for good.
+        // `purgeIssueUserState` existed for exactly this and had no production
+        // caller at all; its own test file says so in its header.
+        //
+        // Read the holders FIRST: after the delete the list is gone, and it is
+        // what the tombstone rows below are addressed to.
+        markHolders = await this.store.deps.store.issues.listIssueUserStateHolders(id)
+        await this.store.deps.store.issues.purgeIssueUserState(id)
         await this.store.deps.store.issues.deleteIssue(id)
       },
-      changes: () => [{ entity: 'issue', id, op: 'remove' }],
+      // A TOMBSTONE PER HOLDER, not one broadcast removal (PDM-408). A marks row
+      // is addressed to ONE person, so its retraction has to be too — there is no
+      // row a single remove could name that every holder is subscribed to.
+      //
+      // WITHOUT THESE the store rows would go and the CLIENTS would not hear:
+      // a cached replica keeps showing its owner's pin and read mark for an issue
+      // that no longer exists, and nothing ever corrects it, because the issue's
+      // own `remove` does not name the marks rows. This issue CREATED the row
+      // that can go stale, so retracting it belongs here rather than in a
+      // follow-up.
+      changes: () => [
+        { entity: 'issue', id, op: 'remove' },
+        ...markHolders.map((holder) => ({
+          entity: 'issueMarks' as const,
+          id: issueMarksRowId(holder, id),
+          op: 'remove' as const,
+        })),
+      ],
     })
     // THE INSTALL IS A TARGETED REMOVAL, NOT A WHOLE-MAP RE-READ [POD-3366].
     //
