@@ -1,8 +1,12 @@
 import {
+  asDeviceId,
   asUserId,
   firstAdminMemberId,
   ISSUE_PRIVATE_EXECUTION_KEYS,
+  type IssueExecutionProjection,
+  joinIssueExecution,
 } from '@podium/model'
+import { asCapabilityRef, type Principal } from '@podium/protocol'
 import type { ServerMessage } from '@podium/protocol'
 import { encode } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -284,5 +288,203 @@ describe('the shared issue rows a non-owner grant-holder receives [PDM-415]', ()
     // Non-vacuity: there must BE rows to inspect after the round trip.
     expect.soft(shared.length).toBeGreaterThan(0)
     expect(shared.flatMap((c) => privateValuesOn((c as { value?: unknown }).value))).toEqual([])
+  })
+})
+
+
+/** A real user principal, so the scoped reads below are made AS somebody rather
+ *  than as the device-grade default that bypasses per-user scoping. */
+const principalFor = (user: string): Principal => ({
+  kind: 'user',
+  user: asUserId(user),
+  device: asDeviceId('device:pdm-415'),
+  capability: asCapabilityRef('cap:pdm-415'),
+})
+
+/** Every row for one issue in a bootstrap OR a delta frame. The bootstrap
+ *  carries the same `FeedChange` shape as a delta, so one reader serves both and
+ *  the two paths are compared like with like. */
+const allRowsFor = (inbox: ServerMessage[], issueId: string): Seen[] =>
+  inbox.flatMap((message) => {
+    if (message.type !== 'feedDelta' && message.type !== 'feedBootstrap') return []
+    return message.changes
+      .filter((c) => c.op !== 'evict' && c.entityId === issueId)
+      .map((c) => ({ entity: c.entity, id: c.entityId, value: (c as { value?: unknown }).value }))
+  })
+
+/**
+ * **THE OTHER HALF OF THE REPAIR** — masking must not strand the owner.
+ *
+ * Removing the keys from the broadcast payload is only correct if the entitled
+ * reader gets them back. The owner's client does that with `joinIssueExecution`,
+ * already wired at five call sites in `client-core`. These witnesses EXECUTE
+ * that join over the real delta stream rather than arguing from those call
+ * sites, because five wired callers is a source reading and the reviewer asked
+ * for an executed one.
+ */
+describe("the owner's reassembly after masking [PDM-415]", () => {
+  const reassemble = (rows: Seen[]) => {
+    const shared = rows.find((r) => r.entity === 'issue')?.value as object | undefined
+    const sidecar = rows.find((r) => r.entity === 'issueExecution')?.value as
+      | IssueExecutionProjection
+      | undefined
+    return shared === undefined ? undefined : joinIssueExecution(shared, sidecar)
+  }
+
+  it('the owner re-gains all four values, and an update moves them', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'solo',
+      startNow: false,
+      startedBySession: STARTED_BY,
+    })
+    const owner = await readyClient(registry, OWNER)
+    owner.length = 0
+
+    await registry.issues.update(issue.id, PLANTED)
+    registry.modules.funnel.flushDeltas()
+    await expect.poll(() => rowsFor(owner, issue.id).length).toBeGreaterThan(0)
+
+    // NON-VACUITY: the shared row must have been masked, or the join below is
+    // not what put the values back and this witness proves nothing.
+    const sharedRow = rowsFor(owner, issue.id).find((r) => r.entity === 'issue')
+    expect.soft(privateValuesOn(sharedRow?.value)).toEqual([])
+
+    const joined = reassemble(rowsFor(owner, issue.id))
+    expect.soft(joined).toBeDefined()
+    expect(privateValuesOn(joined).sort()).toEqual(
+      [
+        `coordinatorSessionId=${PLANTED.coordinatorSessionId}`,
+        `machineId=${PLANTED.machineId}`,
+        `startedBySession=${STARTED_BY}`,
+        `worktreePath=${PLANTED.worktreePath}`,
+      ].sort(),
+    )
+
+    // AN UPDATE MOVES THEM. A join that returned a stale value would pass the
+    // assertion above and fail this one.
+    owner.length = 0
+    await registry.issues.update(issue.id, { worktreePath: '/wt/moved' })
+    registry.modules.funnel.flushDeltas()
+    await expect.poll(() => rowsFor(owner, issue.id).length).toBeGreaterThan(0)
+    const moved = reassemble(rowsFor(owner, issue.id))
+    expect(privateValuesOn(moved)).toContain('worktreePath=/wt/moved')
+    expect(privateValuesOn(moved)).not.toContain(`worktreePath=${PLANTED.worktreePath}`)
+  })
+
+  /**
+   * THE REMOVAL HALF IS **UNCLEARED**, AND DELIBERATELY NOT ASSERTED HERE.
+   *
+   * The reviewer asked for owner-side reassembly including removal, so that
+   * masking cannot strand entitled values. I measured it and found a defect that
+   * is NOT MINE, so this file does not carry a red for it and does not pin the
+   * behaviour either.
+   *
+   * WHAT I MEASURED. `purgeEmptyDraft` is the one HARD-remove path on the issue
+   * service — the user-facing delete is a SOFT delete riding an `upsert` that
+   * carries `deletedAt` (`prepareSoftDelete`), which masks like any other upsert
+   * and IS covered by the witnesses above. On the hard path, an attached owner's
+   * bootstrap carries all three rows for the draft —
+   * `["issue/upsert","issueProjection/upsert","issueExecution/upsert"]` — and
+   * after the purge the owner receives ZERO change rows. Nothing evicts any of
+   * the three, including the `issueExecution` sidecar holding all four private
+   * execution values.
+   *
+   * WHY IT IS NOT MINE. Run with the mask REMOVED from
+   * `authority-arbitration.ts`, the same diagnostic prints the same three
+   * bootstrap rows and the same zero changes. The behaviour is identical with
+   * and without this issue's change, so the mask neither causes nor worsens it.
+   * (`maskChangeSpecs` returns a `remove` spec by identity — a removal carries no
+   * value — which is the mechanism behind that control.)
+   *
+   * THE BOUND, because it decides how alarming this is. I measured that NO
+   * EVICTION ACCOMPANIES THE PURGE ITSELF, over a flush and ~600ms with no
+   * further writes. I did NOT measure whether a later unrelated issue write
+   * heals it through the full-truth `allProjections` reconcile. So "the row is
+   * stranded forever" is NOT established; "the purge emits no eviction" is.
+   * Filed as its own finding rather than absorbed here.
+   */
+})
+
+/**
+ * **THE SNAPSHOT AND CATCH-UP PRODUCERS, MEASURED SEPARATELY.**
+ *
+ * These read the same masked ledger baseline as the delta path, so it is
+ * tempting to argue them from the delta result. That is a SOURCE ARGUMENT and it
+ * is refused here on purpose: a shared payload source is not an executed
+ * transport witness, and the whole reason PDM-415 exists is that an unexecuted
+ * argument about these payloads was wrong once already.
+ */
+describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
+  it('a non-owner grant-holder attaching FRESH gets no private values in its bootstrap', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'solo',
+      startNow: false,
+      startedBySession: STARTED_BY,
+    })
+    await registry.issues.update(issue.id, PLANTED)
+    await grantRead(store, issue.id)
+
+    // Attached AFTER the keys were set, so its world arrives in the BOOTSTRAP
+    // rather than as a delta. This is a different producer from the one the
+    // first file measured.
+    const grantee = await readyClient(registry, GRANTEE)
+    const owner = await readyClient(registry, OWNER)
+
+    const granteeBoot = allRowsFor(grantee, issue.id).filter(
+      (r) => r.entity === 'issue' || r.entity === 'issueProjection',
+    )
+    // NON-VACUITY FIRST: the bootstrap must actually carry the issue, or the
+    // absence of keys below is the absence of the row.
+    expect.soft(granteeBoot.length).toBeGreaterThan(0)
+    expect(granteeBoot.flatMap((r) => privateValuesOn(r.value))).toEqual([])
+
+    // AND THE OWNER IS NOT STRANDED ON THIS PATH EITHER: its bootstrap carries
+    // the sidecar, so its join still yields the four values.
+    const ownerSidecar = allRowsFor(owner, issue.id).find((r) => r.entity === 'issueExecution')
+    expect.soft(ownerSidecar).toBeDefined()
+    expect(privateValuesOn(ownerSidecar?.value).length).toBe(4)
+    // The grantee is refused that same row, which is what keeps the join
+    // owner-only rather than merely relocating the disclosure.
+    expect(allRowsFor(grantee, issue.id).filter((r) => r.entity === 'issueExecution')).toEqual([])
+  })
+
+  it('the catch-up producer masks for a non-owner principal', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'solo',
+      startNow: false,
+      startedBySession: STARTED_BY,
+    })
+    await registry.issues.update(issue.id, PLANTED)
+    await grantRead(store, issue.id)
+
+    // `syncChangesSince` takes a PRINCIPAL, so this is the catch-up path read AS
+    // the grantee rather than as the device-grade default that scopes nothing.
+    const boot = await registry.modules.sessions.syncChangesSince(null, principalFor(GRANTEE))
+    expect.soft(boot.kind).toBe('snapshot')
+    if (boot.kind !== 'snapshot') return
+
+    const mine = boot.issues.filter((i) => (i as { id?: string }).id === issue.id)
+    expect.soft(mine.length).toBeGreaterThan(0) // non-vacuity
+    expect(mine.flatMap((i) => privateValuesOn(i))).toEqual([])
+    expect(
+      (boot.issueProjections ?? [])
+        .filter((p) => (p as { id?: string }).id === issue.id)
+        .flatMap((p) => privateValuesOn(p)),
+    ).toEqual([])
   })
 })

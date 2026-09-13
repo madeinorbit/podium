@@ -9,6 +9,7 @@ import {
   type LedgerCommitResult,
 } from '@podium/sync'
 import { throwIssueRevisionConflict } from './conflict'
+import { maskChangeSpecs, maskCommitOp, maskReconcileRows } from './shared-payload-mask'
 
 export interface IssueArbitrationInput {
   command: string
@@ -48,8 +49,16 @@ export class IssueAuthorityArbitration {
   constructor(private readonly source: Ledger) {
     this.ledger = {
       commit: async (op) => await this.commit(op),
-      capture: async (specs) => await this.source.capture(specs),
-      reconcile: async (entity, rows) => await this.source.reconcile(entity, rows),
+      // THE BROADCAST PAYLOAD IS MASKED HERE, AND ONLY HERE [PDM-415, for
+      // PDM-387]. Every `entity: 'issue'` and `'issueProjection'` producer in
+      // the service reaches the change log through these two lambdas, so the
+      // private execution keys come off by construction rather than by a list
+      // of call sites somebody keeps complete. See `shared-payload-mask.ts` on
+      // why the chokepoint is here and not at the eight producers.
+      // Specs and rows for every other kind pass through by identity.
+      capture: async (specs) => await this.source.capture(maskChangeSpecs(specs)),
+      reconcile: async (entity, rows) =>
+        await this.source.reconcile(entity, maskReconcileRows(entity, rows)),
     }
   }
 
@@ -66,6 +75,12 @@ export class IssueAuthorityArbitration {
   // runtime; only the type refused it, which is the quietest way for a
   // post-commit install to go missing.
   private async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+    // MASKED BEFORE EITHER BRANCH [PDM-415]. `commit` is the THIRD door of this
+    // wrapper and the one the ordinary write path uses — `crud.ts`'s
+    // `changes: () => [{ entity: 'issue', ... }]` arms never reach `capture`.
+    // Applied here rather than in each branch so the early return below cannot
+    // become an unmasked path.
+    op = maskCommitOp(op)
     const active = this.scope.getStore()
     if (active === undefined || active.commitClaimed) return await this.source.commit(op)
     active.commitClaimed = true
