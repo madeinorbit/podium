@@ -288,6 +288,29 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out2).not.toMatch(/older messages/i)
   })
 
+  it('THE CONSUMING-BOUNDARY WITNESS: every read-marked row is named [PDM-139]', async () => {
+    // `messages.inbox` is a MUTATION — a consuming read — so every row it returns
+    // has been marked read by the time this renders. Per-row identity accounting
+    // over a maximum page of long bodies: none may go unnamed.
+    const long = (t: string) =>
+      Array.from({ length: 60 }, (_, i) => `${t} ${i} ${'z'.repeat(90)}`).join('\n')
+    // BEYOND THE SUPPORTED PAGE ON PURPOSE. At a supported page the id tier fits
+    // the budget, so a renderer that drops rows never reaches its drop path and
+    // this witness would pass vacuously — which it did, until a deliberate break
+    // showed it could not fail for the reason it exists. Overshooting the bound
+    // is the only way to exercise the floor through the REAL boundary, and the
+    // never-drop guarantee is unconditional precisely so it still holds here.
+    const returned = Array.from({ length: 1500 }, (_, i) => ({
+      ...WIRE,
+      id: `msg_${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`,
+      body: long(`m${i}`),
+    }))
+    const out = await runMailCli(['inbox', '--limit=500'], client({ inbox: returned }))
+    const missing = returned.filter((m) => !out.includes(m.id)).map((m) => m.id)
+    expect(missing).toEqual([])
+    expect(out.indexOf(returned[1499]!.id)).toBeLessThan(out.indexOf(returned[0]!.id))
+  })
+
   it('show needs an id and renders thread metadata', async () => {
     const c = client()
     await expect(runMailCli(['show'], c)).rejects.toThrow(/message id/)

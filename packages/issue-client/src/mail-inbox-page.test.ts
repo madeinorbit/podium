@@ -93,4 +93,48 @@ describe('podium issue mail inbox — page size and truncation', () => {
     const empty = await mail().run(client([]).trpc, { sub: 'inbox', ref: '#107', limit: 3 })
     expect((empty as { text: string }).text).toBe('(no mail)')
   })
+
+  it('THE CONSUMING-BOUNDARY WITNESS: every read-marked row is named [PDM-139]', async () => {
+    // Through the REAL consuming path. `issues.mailInbox` is a MUTATION: the rows
+    // it returns are marked read server-side by the time this renderer runs. So
+    // the accounting that matters is per-row and it is identity, not count —
+    // every row the boundary handed back must appear, by id, in what the reader
+    // sees. A row consumed with no id shown is unrecoverable, which is the same
+    // reason an over-fetch probe was rejected.
+    //
+    // Maximum page, full-length ids, long multiline bodies: the worst case the
+    // boundary can produce.
+    const long = (tag: string) =>
+      Array.from({ length: 60 }, (_, i) => `${tag} line ${i} ${'z'.repeat(90)}`).join('\n')
+    // BEYOND THE SUPPORTED PAGE ON PURPOSE. At a supported page the id tier fits
+    // the budget, so a renderer that drops rows never reaches its drop path and
+    // this witness would pass vacuously — which it did, until a deliberate break
+    // showed it could not fail for the reason it exists. Overshooting the bound
+    // is the only way to exercise the floor through the REAL boundary, and the
+    // never-drop guarantee is unconditional precisely so it still holds here.
+    const returned = Array.from({ length: 1500 }, (_, i) => {
+      const id = `msg_${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`
+      return {
+        id,
+        fromAuthor: 'issue:#212',
+        body: long(`m${i}`),
+        createdAt: `2026-09-13T10:${String(i % 60).padStart(2, '0')}:00.000Z`,
+        status: 'unread',
+        wasUnread: true,
+      }
+    })
+    const c = client(returned)
+    const out = await mail().run(c.trpc, { sub: 'inbox', ref: '#107', limit: 500 })
+    const text = (out as { text: string }).text
+
+    // PER-ROW IDENTITY ACCOUNTING over everything the boundary consumed.
+    const missing = returned.filter((m) => !text.includes(m.id)).map((m) => m.id)
+    expect(missing).toEqual([])
+    // Newest first, so an arbitrary downstream cut takes the OLDEST.
+    expect(text.indexOf(returned[1499]!.id)).toBeLessThan(text.indexOf(returned[0]!.id))
+    // And the newest id is reachable inside a brutal consumer budget, with a route.
+    const seen = Buffer.from(text, 'utf8').subarray(0, 2048).toString('utf8')
+    expect(seen).toContain(returned[1499]!.id)
+    expect(seen).toContain('podium mail show')
+  })
 })

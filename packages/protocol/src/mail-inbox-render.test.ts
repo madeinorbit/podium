@@ -22,7 +22,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAIL_INBOX_DEFAULT_LIMIT,
+  MAIL_INBOX_MAX_HEADER_CHARS,
+  MAIL_INBOX_MAX_ID_CHARS,
   MAIL_INBOX_MAX_LIMIT,
+  MAIL_INBOX_NOTICE_ALLOWANCE_BYTES,
   MAIL_INBOX_OUTPUT_BUDGET_BYTES,
   renderInboxPage,
 } from './issue-read-limits'
@@ -71,12 +74,49 @@ describe('renderInboxPage — the newest survives an arbitrary consumer cut', ()
     expect(seen).not.toContain(oldest)
   })
 
-  it('is bounded BY CONSTRUCTION at the maximum page of maximum bodies', () => {
-    // 32_768 is the send-path body cap, so this is the worst page that can
-    // exist. A renderer bounded only by row count fails here by ~500x.
-    const entries = page(MAIL_INBOX_MAX_LIMIT, 400)
+  it('NEVER DROPS A ROW — consumption must not outrun the listing [PDM-139]', () => {
+    // THE INVARIANT THIS RENDERER EXISTS TO KEEP. The server marks the page it
+    // RETURNS read. So a renderer that omits a row has consumed a message and
+    // shown the reader no id for it — unrecoverable, and exactly the read-status
+    // defect that made an over-fetch probe unacceptable. A count of how many
+    // were withheld does not restore their ids or their unread status.
+    //
+    // Asserted at the worst page that can exist: the maximum page, maximum
+    // headers, maximum bodies. An earlier version of this renderer dropped from
+    // the oldest end here and reported the number, which is the bug.
+    const entries = Array.from({ length: MAIL_INBOX_MAX_LIMIT }, (_, i) => ({
+      id: `msg_${String(i).padStart(4, '0')}`,
+      header: `msg_${String(i).padStart(4, '0')} ${'H'.repeat(MAIL_INBOX_MAX_HEADER_CHARS)}`,
+      body: longBody(`m${i}`, 400),
+    }))
     const out = renderInboxPage(entries, { showCommand: 'podium mail show', pageWasFull: true })
+    for (const e of entries) expect(out).toContain(e.id)
     expect(utf8Len(out)).toBeLessThanOrEqual(MAIL_INBOX_OUTPUT_BUDGET_BYTES)
+  })
+
+  it('keeps every id even when the budget cannot hold the headers [PDM-139]', () => {
+    // THE DEGENERATE BOUNDARY the reviewer named: a budget smaller than the
+    // notices, or a single header larger than the whole budget. The bound is
+    // CONDITIONAL on the supported page; NEVER-DROP is not. When the two cannot
+    // both hold, the ids win and the budget is the thing that gives.
+    const entries = page(20)
+    const out = renderInboxPage(entries, {
+      showCommand: 'podium mail show',
+      pageWasFull: true,
+      budgetBytes: 10,
+    })
+    for (const e of entries) expect(out).toContain(e.id)
+  })
+
+  it('renders ids newest-first even in the most degraded tier [PDM-139]', () => {
+    // Degrading must not silently reverse the order the whole fix depends on.
+    const entries = page(30)
+    const out = renderInboxPage(entries, {
+      showCommand: 'podium mail show',
+      pageWasFull: true,
+      budgetBytes: 400,
+    })
+    expect(out.indexOf('msg_029')).toBeLessThan(out.indexOf('msg_000'))
   })
 
   it('prints short mail in full — the bound must not cost the common case', () => {
@@ -114,5 +154,39 @@ describe('renderInboxPage — the newest survives an arbitrary consumer cut', ()
     const banner = out.split('\n').slice(0, 4).join('\n')
     expect(banner).toContain('podium mail show')
     expect(banner).not.toMatch(/--limit/)
+  })
+
+  it('THE SUPPORTED BOUND, asserted between the constants themselves [PDM-139]', () => {
+    // The budget is claimed to hold a full page at the most degraded tier — one
+    // id per line — plus the notices. That is a relationship between four
+    // constants sitting in one file, and nothing stops a later edit raising the
+    // page size or the id length and quietly breaking the guarantee this file
+    // advertises. Assert the arithmetic, not just an example of it.
+    const worstCase =
+      MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_ID_CHARS + 1) + MAIL_INBOX_NOTICE_ALLOWANCE_BYTES
+    expect(worstCase).toBeLessThanOrEqual(MAIL_INBOX_OUTPUT_BUDGET_BYTES)
+    // And the floor really is one id per line: a header tier at full page does
+    // NOT fit, which is why the id tier has to exist rather than being dead code.
+    expect(MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_HEADER_CHARS + 1)).toBeGreaterThan(
+      MAIL_INBOX_OUTPUT_BUDGET_BYTES,
+    )
+  })
+
+  it('holds the bound at a REALISTIC maximum page, ids at full length [PDM-139]', () => {
+    // The never-drop test above uses short ids; real ones are `msg_` + a uuid.
+    // Sizing the fixture from the real population rather than convenience is the
+    // exact lesson that produced this round of review.
+    const entries = Array.from({ length: MAIL_INBOX_MAX_LIMIT }, (_, i) => {
+      const id = `msg_${String(i).padStart(8, '0')}-0000-4000-8000-${'0'.repeat(12)}`
+      expect(id.length).toBeLessThanOrEqual(MAIL_INBOX_MAX_ID_CHARS)
+      return {
+        id,
+        header: `${id} issue:#212 -> issue:#228 t${i} [queued]`,
+        body: longBody(`m${i}`, 400),
+      }
+    })
+    const out = renderInboxPage(entries, { showCommand: 'podium mail show', pageWasFull: true })
+    for (const e of entries) expect(out).toContain(e.id)
+    expect(utf8Len(out)).toBeLessThanOrEqual(MAIL_INBOX_OUTPUT_BUDGET_BYTES)
   })
 })
