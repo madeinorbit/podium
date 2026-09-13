@@ -257,7 +257,10 @@ export const census = (root = ROOT): Map<string, Site[]> => {
  */
 export const BASELINE: Readonly<Record<string, number>> = {
   /**
-   * 38 usage sites (POD-3903). LOWERED FROM 42, re-measured on the PDM-107 epic
+   * 37 usage sites. LOWERED FROM 38 by PDM-276, which deleted create()'s
+   * `?? firstAdminMemberId(store)` owner fallback; verified as a TREE change and
+   * not a scanner change by running the PRE-POD-3906 script against this tree and
+   * getting 37 from it too. 38 was POD-3903's, LOWERED FROM 42, re-measured on the PDM-107 epic
    * branch at e9820be79. The 42 was accurate when A2 set it at e7371f6d0; phase
    * B has been retiring sites since, and nobody lowered it on the way past.
    *
@@ -283,13 +286,13 @@ export const BASELINE: Readonly<Record<string, number>> = {
    *      +1  apps/server/src/modules/issues/service/crud.ts
    *      +1  apps/server/src/modules/messages/characterization-support.ts
    *
-   * Three of the 38 are the accessor's own definition in
+   * Three of the 37 are the accessor's own definition in
    * `packages/model/src/identity/first-admin.ts` (two overload signatures and the
    * implementation). They are left in rather than special-cased: the census counts
    * a spelling, and carving out the one file that may legitimately use it is the
    * kind of exception that later hides a second one.
    *
-   * Six of the 38 are in `apps/server/src/relay.ts` (lines 930, 1642, 1727, 1987,
+   * Six of the 37 are in `apps/server/src/relay.ts` (lines 930, 1642, 1727, 1987,
    * 2003, 2455) — PDM-295 observed the last three without touching them, and they
    * are still here.
    *
@@ -309,7 +312,7 @@ export const BASELINE: Readonly<Record<string, number>> = {
    * hand-authored, so an ambient principal appearing in one is a property of its
    * GENERATOR and should be audited there, where a human could fix it.
    */
-  firstAdminMemberId: 38,
+  firstAdminMemberId: 37,
 }
 
 /**
@@ -330,10 +333,10 @@ export const RAISE_AUTHORISATIONS: readonly BaselineAuthorisation[] = [
     key: 'FIRST_ADMIN_USER_ID',
     from: 46,
     renamedTo: 'firstAdminMemberId',
-    to: 38,
+    to: 37,
     issue: 'POD-3904',
     reason:
-      'A2 retired the `FIRST_ADMIN_USER_ID` constant in favour of the `firstAdminMemberId()` accessor (65be6da71), and the baseline key was renamed with it. The sites are the same sites — a rename moves none — and the count FELL 46 -> 42 in the same work, because three sites in `server.ts` and one in `auth-route.ts` now resolve the earliest admin member out of the store instead of defaulting to a compiled-in id. It then fell again, 42 -> 38, when POD-3903 re-measured it on the PDM-107 epic branch at e9820be79 after phase B removed four more ambient resolutions; POD-3903 was filed precisely because the number had fallen and nobody had lowered the baseline, leaving the gate red with nothing to see. Both movements are recorded here rather than passed over, because a rename that carries a value across is how a baseline loses its history, and this instrument now refuses one that is not argued for. Note what this single entry demonstrates about the instrument itself: every movement it has ever recorded is DOWNWARD, and the ratchet only compares upward — POD-3906 carries that gap.',
+      'A2 retired the `FIRST_ADMIN_USER_ID` constant in favour of the `firstAdminMemberId()` accessor (65be6da71), and the baseline key was renamed with it. The sites are the same sites — a rename moves none — and the count FELL 46 -> 42 in the same work, because three sites in `server.ts` and one in `auth-route.ts` now resolve the earliest admin member out of the store instead of defaulting to a compiled-in id. It then fell again, 42 -> 38, when POD-3903 re-measured it on the PDM-107 epic branch at e9820be79 after phase B removed four more ambient resolutions; POD-3903 was filed precisely because the number had fallen and nobody had lowered the baseline, leaving the gate red with nothing to see. Both movements are recorded here rather than passed over, because a rename that carries a value across is how a baseline loses its history, and this instrument now refuses one that is not argued for. It fell once more, 38 -> 37, when PDM-276 deleted the `?? firstAdminMemberId(store)` owner fallback at the end of the `create()` owner chain — the seventh and last of the earliest-admin sites phase B set out to remove. Before lowering it I ran the PRE-POD-3906 script against this tree and got 37 from it as well, because a baseline that falls when the SCANNER changed is a different object from one that falls when the TREE did, and only the second is safe to accept (entity-id-audit says exactly this in its own failure text: fix the scan, do not rebaseline). Note what this single entry demonstrates about the instrument itself: every movement it has ever recorded is DOWNWARD, 46 -> 42 -> 38 -> 37, and checkRaise only compares upward — POD-3906 built the direction half, and PDM-325 is the hole underneath both.',
   },
 ]
 
