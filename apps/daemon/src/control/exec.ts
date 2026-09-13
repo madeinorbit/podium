@@ -14,6 +14,7 @@ import { buildHarnessExec } from '../harness-exec.js'
 import { scanQuotaHistory } from '../quota-history-scan'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
+import { removeWorktreeWithSubmodules } from '../worktree-remove'
 import type { ControlHandlers, DaemonContext } from './context'
 import {
   harnessChildStripEnv,
@@ -22,7 +23,8 @@ import {
 
 const execFileAsync = promisify(execFile)
 
-/** Allowlisted git operations for the superagent — each op is a fixed argv. */
+/** Allowlisted git operations for the superagent — each op is a fixed argv,
+ *  except `worktreeRemove`, which escalates (see below). */
 async function runRepoOp(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
@@ -50,6 +52,30 @@ async function runRepoOp(
     const staged = bundleStagePath(ctx.homeDir ?? homedir(), args.token)
     if (msg.op === 'bundleCreate') args.out = staged
     else args.bundle = staged
+  }
+  /**
+   * THE ONE OP THAT IS NOT A SINGLE ARGV (PDM-373).
+   *
+   * `git worktree remove` refuses outright on any superproject carrying a
+   * submodule, so freeing such a worktree is "try, ask git's own clean question,
+   * retry with --force" — three commands and a decision between them, which the
+   * op table cannot express and should not try to. Both callers of the op
+   * (`issue stop` and `issue cleanup`) come through here, so they are fixed, and
+   * constrained, by the same function.
+   */
+  if (msg.op === 'worktreeRemove') {
+    const removal = await removeWorktreeWithSubmodules({
+      repoPath: msg.cwd,
+      path: args.path ?? '',
+      force: args.force === '1' || args.force === 'true',
+    })
+    ctx.send({
+      type: 'repoOpResult',
+      requestId: msg.requestId,
+      ok: removal.ok,
+      output: removal.output,
+    })
+    return
   }
   const cmd = repoOpCommand(msg.op, args)
   if ('error' in cmd) {
