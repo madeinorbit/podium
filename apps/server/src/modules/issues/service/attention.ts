@@ -613,9 +613,18 @@ export class IssueAttentionModule {
     const draft = this.store.draftOf(row)
     draft.archived = true
     const wire = await this.store.persist(draft)
+    // WHOSE readAt THIS AUDIT RECORD CARRIES (PDM-408). `archived` is a SHARED
+    // column and the sweep deliberately gates it on ONE reader — see the
+    // refusal in `applyObservedAutoArchive`, which makes "the janitor and the
+    // server ask the same principal" a checked fact rather than two constants
+    // that happen to agree. So this field is not "the" read time; it is the read
+    // time the sweep ACTED ON, and the record now says who that was instead of
+    // leaving a bare timestamp a later reader would take for everyone's.
+    const sweepViewer = await this.store.broadcastViewer()
     await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
-      readAt: this.store.issueOverlay(draft.id).readAt,
+      readerUserId: sweepViewer,
+      readAt: (await this.store.storedUserStateFor(sweepViewer, draft.id))?.readAt ?? null,
       ...(principal ? { attribution: attributionOf(principal) } : {}),
     })
     // Same teardown as the manual archive path — the sweep must not leave a

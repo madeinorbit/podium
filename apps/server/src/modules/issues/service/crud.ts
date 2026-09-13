@@ -764,6 +764,21 @@ export class IssueCrudModule {
       if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
+      //
+      // STILL ONE READER, DELIBERATELY, AND NOT AN OVERSIGHT OF PDM-408. That
+      // issue made the MARKS per-user; `archived` is a SHARED column, and a
+      // shared flag can only ever be gated on one reader — POD-1229 settled
+      // that in `applyObservedAutoArchive`, whose refusal when the observation
+      // names anyone else is what makes "the janitor and the server ask the
+      // same principal" a checked fact rather than two constants that agree.
+      //
+      // The honest generalisations both fail: gating on the CLOSER hides a
+      // child from everyone because one person read it, and "skip if ANY member
+      // has it unread" degenerates the moment a second member exists, because
+      // absence of a row IS unread and most people have not touched most
+      // issues. Neither is a threading change; both need `archived` to become
+      // per-user first, which is a different resource. Recorded rather than
+      // guessed at.
       if (this.store.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
@@ -836,6 +851,13 @@ export class IssueCrudModule {
       const sameScope = parentId
         ? r.parentId === parentId
         : r.parentId == null &&
+          // ONE READER'S PIN GATING A SHARED ORDER, and the same class as the
+          // archive cascade above (PDM-408). `sortKey` is a SHARED column, so
+          // the scope it renumbers cannot be per-viewer: if membership of the
+          // unpinned scope depended on WHO asked, two members would renumber
+          // two different sets into one key space. Making this per-viewer means
+          // deciding what a shared order over per-user pins even IS, which is a
+          // question about `sortKey`, not about marks. Recorded, not guessed.
           (opts?.includePinned === true || !this.store.issueOverlay(r.id).pinned) &&
           (r.repoId ? r.repoId === repoId : r.repoPath === repoPath)
       if (sameScope) rows.push(r)
