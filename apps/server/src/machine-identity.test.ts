@@ -290,7 +290,15 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     expect(await registry.modules.machines.defaultMachine()).toBe(HOST)
     expect(registry.modules.machines.hasDaemon(HOST)).toBe(false)
     // …and a connected remote takes precedence, so this is not a hard-coded answer.
-    registry.gateway.attachDaemon(asMachineId('remote-1'), () => {})
+    // AWAITED (PDM-345). `attachDaemon` registers the socket synchronously — which
+    // is why the assertion below passed either way — and only THEN awaits the
+    // machine's `daemon` component write. Dropped, that write was still in flight
+    // when `store.close()` below started draining the scheduler, so it rejected
+    // with `SchedulerClosedError` into a promise nobody held. Vitest counts a
+    // rejection that lands after the file finishes under `Errors`, NOT under
+    // `Tests`: this lane printed `Tests 12 passed (12)` and exited 1, and anyone
+    // grepping the summary for a failing test name found nothing to explain it.
+    await registry.gateway.attachDaemon(asMachineId('remote-1'), () => {})
     expect(await registry.modules.machines.defaultMachine()).toBe(asMachineId('remote-1'))
     await store.close()
   })
