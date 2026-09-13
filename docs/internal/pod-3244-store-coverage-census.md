@@ -6,8 +6,8 @@ Measured coverage of every public method on every repository class under the sto
 
 ## What was measured, and how
 
-- **Files.** 40 repository files, 39 of which declare a public member: `apps/server/src/store/*.ts` (excluding `helpers.ts`, `types.ts` and `issue-storage.ts`, which hold free functions and Zod schemas rather than a repository class), `apps/server/src/store/conversations/*.ts`, `apps/server/src/modules/operations/store.ts`, and `packages/sync/src/adapters/sqlite/sync-repository.ts`. `store/issue-revision.ts` is the fortieth: an exported error class whose only member is its constructor.
-- **Methods.** 511 public members that carry a function body, taken from the TypeScript AST (methods, accessors and arrow-function properties on exported classes; constructors, `private`/`protected` and `#private` members excluded). Eight members landed after the last six-lane measurement and are inventoried unmeasured (`**no**`) until the next `generate`.
+- **Files.** 41 repository files, 40 of which declare a public member: `apps/server/src/store/*.ts` (excluding `helpers.ts`, `types.ts` and `issue-storage.ts`, which hold free functions and Zod schemas rather than a repository class), `apps/server/src/store/conversations/*.ts`, `apps/server/src/modules/operations/store.ts`, and `packages/sync/src/adapters/sqlite/sync-repository.ts`. `store/issue-revision.ts` is the forty-first: an exported error class whose only member is its constructor.
+- **Methods.** 532 public members that carry a function body, taken from the TypeScript AST (methods, accessors and arrow-function properties on exported classes; constructors, `private`/`protected` and `#private` members excluded). 502 of them carry a verdict from the last six-lane measurement. The other 30 landed after it and are inventoried unmeasured — see below, because the number is now large enough to change how the full table reads.
 - **Lanes.** All five `@podium/server` shards (`store`, `services`, `boundary`, `contracts`, `normalized-wire`) plus the `@podium/sync` package lane, each run once with coverage. Service and boundary tests are in scope deliberately: they are what actually exercise several repositories (locks through `LockService`), which is the whole reason the naming heuristic overstates thinness.
 - **Provider: istanbul, not v8.** These lanes run under Bun (`bun --bun .../vitest.mjs`), and Bun has no inspector coverage API — `@vitest/coverage-v8` dies with `Coverage APIs are not supported` before a single test runs. `@vitest/coverage-istanbul` instruments at transform time and works unchanged in the lane's normal runner.
 - **Attribution.** A method is mapped to its istanbul `fnMap` entry by declaration line. As a check on that mapping, function-hit and statement-hit are computed independently for all 503 methods and agree on every one (0 disagreements). A member no lane instrumented at all is refused rather than recorded: it would otherwise read as "never executed", which is the most consequential verdict here.
@@ -35,6 +35,19 @@ Then `bun scripts/store-coverage-census.ts generate <dir>` rewrites every table 
 `--coverage.reportOnFailure=true` is not optional here: Vitest writes no coverage report at all when a lane ends red, and some of these lanes do end red (below).
 
 `PODIUM_TEST_WORKERS=1` was set in the session that produced these numbers, and the host was under heavy concurrent load from the other epic worktrees (load average around 18 on 8 cores). Neither changes which methods execute.
+
+## A row with no measured verdict is not a row that says "unguarded"
+
+30 of the 532 rows below have never been through a six-lane `generate`: they are members that landed after the last measurement. The gate is deliberately blind to this — `censusDrift` compares files, classes, members and the naming column and never reads the Covered column at all — so an unmeasured member is caught the moment it has no ROW, and never again once it has one.
+
+That matters because `**no**` in the full table now means two different things:
+
+- **Measured, and never executed by any test in any lane** — the 14 rows in the never-executed list above. This is the consequential verdict: a conversion here is unguarded.
+- **Not measured at all** — the 30 rows whose Covering cell reads *not measured — landed after the last six-lane generate*. This says nothing about whether a test executes them. Several plainly are executed; `UsersRepository.removeMember` is named in five test files.
+
+Read the Covering cell, not the Covered cell, before treating a `**no**` as unguarded. The pessimism is the safe direction — it can only make the unguarded list look longer than it is — but it is pessimism, not measurement, and at 30 rows it is no longer a rounding error.
+
+**The six generated blocks above describe the last six-lane run, not this tree.** The headline, the never-executed list, the no-caller table, the per-repository table and the two repository sections are rewritten only by `generate`, which needs the lanes; the full table below is the live inventory the gate checks. So the headline totals 503 members where the tree has 532. Do not hand-patch a generated block to close that gap — a hand-written number there is indistinguishable from a measured one, which is the failure this document exists to prevent. One had already crept in: the row for `UsersRepository.earliestAdmin` was hand-added with `yes` and two named lanes, which no `generate` produced, and it is now marked unmeasured with the rest [PDM-323].
 
 ## Some lanes are red, and what that does to the numbers
 
@@ -218,12 +231,12 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `markTerminal` | 136 | yes | `apps/server/src/modules/operations/engine.test.ts` | — |
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `get` | 142 | yes | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` — also server:services, server:boundary | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` +1 |
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `activeByGroup` | 157 | yes | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts`, `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` |
-| `apps/server/src/modules/operations/store.ts` | OperationStore | `claimGroup` | 164 | **no** | — | `apps/server/src/modules/operations/store.test.ts` |
+| `apps/server/src/modules/operations/store.ts` | OperationStore | `claimGroup` | 164 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/modules/operations/store.test.ts` |
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `active` | 172 | yes | `apps/server/src/modules/operations/engine.test.ts` — also server:services, server:boundary | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/trpc.test.ts` +2 |
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `history` | 180 | yes | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` — also server:services, server:boundary | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` +3 |
 | `apps/server/src/modules/operations/store.ts` | OperationStore | `sweepRetention` | 197 | yes | `apps/server/src/modules/operations/engine.test.ts`, `apps/server/src/modules/operations/store.test.ts` — also server:services, server:boundary | `apps/server/src/modules/operations/store.test.ts` |
-| `apps/server/src/modules/operations/store.ts` | OperationStore | `pendingCleanup` | 293 | **no** | — | — |
-| `apps/server/src/modules/operations/store.ts` | OperationStore | `approvedTarget` | 332 | **no** | — | `apps/server/src/modules/operations/store.test.ts` |
+| `apps/server/src/modules/operations/store.ts` | OperationStore | `pendingCleanup` | 293 | **no** |  *not measured — landed after the last six-lane generate*  | — |
+| `apps/server/src/modules/operations/store.ts` | OperationStore | `approvedTarget` | 332 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/modules/operations/store.test.ts` |
 | `apps/server/src/store/accounts.ts` | AccountsRepository | `list` | 55 | yes | `apps/server/src/store/accounts.test.ts` — also server:boundary | `apps/server/src/store/accounts.test.ts` |
 | `apps/server/src/store/accounts.ts` | AccountsRepository | `get` | 60 | yes | `apps/server/src/modules/sessions/account-env.test.ts`, `apps/server/src/store/accounts.test.ts` — also server:services | `apps/server/src/store/accounts.test.ts`, `scripts/managed-account-spawn.integration.test.ts` |
 | `apps/server/src/store/accounts.ts` | AccountsRepository | `upsert` | 65 | yes | `apps/server/src/modules/sessions/account-env.test.ts`, `apps/server/src/store/accounts.test.ts` — also server:services, server:boundary | `apps/server/src/accounts.test.ts`, `apps/server/src/modules/sessions/account-env.test.ts` +3 |
@@ -258,6 +271,8 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `listRuns` | 266 | yes | server:services, server:boundary | — |
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `listAllRuns` | 278 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/automations.ts` | AutomationsRepository | `lastSpawnedSessions` | 292 | yes | server:services, server:boundary | — |
+| `apps/server/src/store/committed-rows.ts` | CommittedRows | `write` | 30 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/committed-rows.ts` | CommittedRows | `subscribe` | 23 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/modules/world-index/index.test.ts` |
 | `apps/server/src/store/conversations.ts` | ConversationsRepository | `ensureFts` | 42 | yes | `apps/server/src/migrations/change-provenance-upgrade.test.ts`, `apps/server/src/migrations/convergence.test.ts`, `apps/server/src/migrations/integrity.test.ts` +11 more — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `enableFts` | 21 | yes | server:services, server:boundary | — |
 | `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `disableFts` | 56 | yes | `apps/server/src/migrations/change-provenance-upgrade.test.ts`, `apps/server/src/migrations/convergence.test.ts`, `apps/server/src/migrations/integrity.test.ts` +11 more — also server:services, server:boundary, server:normalized-wire | — |
@@ -266,7 +281,6 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `curatedMeta` | 130 | yes | server:boundary | — |
 | `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `setMeta` | 147 | yes | server:boundary | `apps/server/src/store.test.ts` |
 | `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `searchCandidates` | 167 | yes | server:boundary | `apps/server/src/store.conversation-idle-writes.test.ts`, `apps/server/src/store.search-index.test.ts` |
-| `apps/server/src/store/conversations/index.ts` | ConversationIndexRepository | `search` | 214 | yes | server:boundary | `apps/server/src/conversations.ledger.test.ts`, `apps/server/src/store.test.ts` |
 | `apps/server/src/store/conversations/mirror.ts` | TranscriptMirrorRepository | `segmentsToMirror` | 16 | yes | server:boundary | `apps/server/src/store.mirror.test.ts` |
 | `apps/server/src/store/conversations/mirror.ts` | TranscriptMirrorRepository | `segmentsToMirrorDirty` | 23 | yes | server:services, server:boundary | `apps/server/src/modules/memory/lake.test.ts`, `apps/server/src/store.mirror.test.ts` +1 |
 | `apps/server/src/store/conversations/mirror.ts` | TranscriptMirrorRepository | `setReportedBytes` | 43 | yes | server:services, server:boundary | `apps/server/src/relay.lake-read.test.ts`, `apps/server/src/store.mirror.test.ts` +1 |
@@ -331,6 +345,7 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/grants.ts` | GrantsRepository | `listForResource` | 140 | yes | `apps/server/src/store/grants.test.ts`, `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/modules/fleet/authz.test.ts` +1 |
 | `apps/server/src/store/grants.ts` | GrantsRepository | `listForResources` | 174 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/grants.ts` | GrantsRepository | `listForKind` | 204 | yes | `apps/server/src/store/grants.test.ts` | `apps/server/src/store/grants.test.ts` |
+| `apps/server/src/store/grants.ts` | GrantsRepository | `loadWorldGrants` | 215 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/grants.ts` | GrantsRepository | `upsert` | 220 | yes | `apps/server/src/store/grants.test.ts` — also server:services, server:boundary | `apps/server/src/browser-open.test.ts`, `apps/server/src/enrollment-durability.test.ts` +6 |
 | `apps/server/src/store/grants.ts` | GrantsRepository | `remove` | 246 | yes | `apps/server/src/store/grants.test.ts` — also server:services | `apps/server/src/modules/fleet/authz.test.ts`, `apps/server/src/store/grants.test.ts` |
 | `apps/server/src/store/grants.ts` | GrantsRepository | `removeAllForResource` | 270 | yes | `apps/server/src/store/grants.test.ts` — also server:services, server:boundary | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/store/grants.test.ts` |
@@ -354,6 +369,7 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/issues.ts` | IssuesRepository | `getIssues` | 535 | yes | server:services, server:boundary, server:normalized-wire | `apps/server/src/store-issues-frame-cache.test.ts` |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `listIssueParentEdges` | 592 | yes | server:services | — |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `listIssueRows` | 605 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/issues.ledger.test.ts`, `apps/server/src/search.test.ts` +1 |
+| `apps/server/src/store/issues.ts` | IssuesRepository | `loadWorldIssuePaths` | 721 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `deleteIssue` | 646 | yes | `apps/server/src/migrations/integrity.test.ts` — also server:services, server:boundary | `apps/server/src/migrations/integrity.test.ts`, `apps/server/src/relay.draft-reap.test.ts` +2 |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `pruneOrphanRefLetters` | 670 | yes | `apps/server/src/migrations/change-provenance-upgrade.test.ts`, `apps/server/src/migrations/convergence.test.ts`, `apps/server/src/migrations/integrity.test.ts` +11 more — also server:services, server:boundary, server:normalized-wire | `apps/server/src/relay.draft-reap.test.ts` |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `nextIssueSeq` | 682 | yes | server:services, server:boundary | `apps/server/src/store-issues.test.ts` |
@@ -375,11 +391,11 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/issues.ts` | IssuesRepository | `countIssueComments` | 961 | yes | server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `countIssueCommentsByIssue` | 972 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `searchIssueComments` | 981 | yes | server:boundary | — |
-| `apps/server/src/store/issues.ts` | IssuesRepository | `backfillLegacyWorktreeMachineIds` | 985 | **no** | — | `apps/server/src/store.legacy-worktree-machine.test.ts` |
+| `apps/server/src/store/issues.ts` | IssuesRepository | `backfillLegacyWorktreeMachineIds` | 985 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/store.legacy-worktree-machine.test.ts` |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `addIssueMessage` | 1017 | yes | `apps/server/src/migrations/integrity.test.ts` — also server:services, server:boundary | `apps/server/src/issues.test.ts`, `apps/server/src/migrations/integrity.test.ts` +2 |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `getIssueMessage` | 1027 | yes | server:services, server:boundary | `apps/server/src/modules/messages/authz.test.ts`, `apps/server/src/modules/messages/multi-user.test.ts` +1 |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `listIssueMessages` | 1034 | yes | `apps/server/src/migrations/integrity.test.ts` — also server:services, server:boundary | `apps/server/src/migrations/integrity.test.ts`, `apps/server/src/modules/messages/multi-user.test.ts` +1 |
-| `apps/server/src/store/issues.ts` | IssuesRepository | `legacyWorktreeContradictionSql` | 1053 | **no** | — | `apps/server/src/store.legacy-worktree-machine.test.ts` |
+| `apps/server/src/store/issues.ts` | IssuesRepository | `legacyWorktreeContradictionSql` | 1053 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/store.legacy-worktree-machine.test.ts` |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `countUnreadIssueMessages` | 1054 | yes | server:services, server:boundary | `apps/server/src/issues.test.ts`, `apps/server/src/modules/messages/characterization.delivery.test.ts` +2 |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `markIssueMessagesRead` | 1072 | yes | server:services, server:boundary | `apps/server/src/modules/messages/service.test.ts`, `apps/server/src/store.issues.test.ts` |
 | `apps/server/src/store/issues.ts` | IssuesRepository | `listIssueMessageReadAt` | 1089 | yes | server:boundary | `apps/server/src/store.issues.test.ts` |
@@ -415,15 +431,16 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/machines.ts` | MachinesRepository | `setMachineOwner` | 320 | yes | server:services, server:boundary | `apps/server/src/modules/machines/service.test.ts` |
 | `apps/server/src/store/machines.ts` | MachinesRepository | `deleteMachine` | 324 | yes | server:boundary | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/store.machines.test.ts` |
 | `apps/server/src/store/machines.ts` | MachinesRepository | `touchMachine` | 328 | yes | server:services, server:boundary | `apps/server/src/modules/machines/service.test.ts`, `apps/server/src/store.machines.test.ts` |
-| `apps/server/src/store/machines.ts` | MachinesRepository | `setSupervisorPresence` | 429 | **no** | — | `apps/server/src/store/machines.build.test.ts` |
-| `apps/server/src/store/machines.ts` | MachinesRepository | `setServiceAssignment` | 452 | **no** | — | — |
-| `apps/server/src/store/machines.ts` | MachinesRepository | `setPresenceSource` | 460 | **no** | — | — |
+| `apps/server/src/store/machines.ts` | MachinesRepository | `setSupervisorPresence` | 429 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/store/machines.build.test.ts` |
+| `apps/server/src/store/machines.ts` | MachinesRepository | `setServiceAssignment` | 452 | **no** |  *not measured — landed after the last six-lane generate*  | — |
+| `apps/server/src/store/machines.ts` | MachinesRepository | `setPresenceSource` | 460 | **no** |  *not measured — landed after the last six-lane generate*  | — |
 | `apps/server/src/store/maintenance.ts` | MaintenanceRepository | `getLease` | 35 | yes | server:services | — |
 | `apps/server/src/store/maintenance.ts` | MaintenanceRepository | `putLease` | 42 | yes | server:services | — |
 | `apps/server/src/store/maintenance.ts` | MaintenanceRepository | `getCommand` | 67 | yes | server:services | `apps/server/src/modules/maintenance/service.test.ts` |
 | `apps/server/src/store/maintenance.ts` | MaintenanceRepository | `recordCommand` | 75 | yes | server:services | `apps/server/src/modules/maintenance/service.test.ts` |
 | `apps/server/src/store/maintenance.ts` | MaintenanceRepository | `pruneCommandsBatch` | 89 | yes | server:services | — |
 | `apps/server/src/store/messages.ts` | MessagesRepository | `addMessage` | 127 | yes | server:services, server:boundary | `apps/server/src/issues.test.ts`, `apps/server/src/modules/issues/service/mail-pending.test.ts` +10 |
+| `apps/server/src/store/messages.ts` | MessagesRepository | `loadWorldPending` | 246 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/messages.ts` | MessagesRepository | `getMessage` | 177 | yes | server:services, server:boundary | `apps/daemon/src/queue-drain-reconnect.integration.test.ts`, `apps/server/src/issues.test.ts` +8 |
 | `apps/server/src/store/messages.ts` | MessagesRepository | `listMessagesFor` | 185 | yes | server:services, server:boundary | `apps/server/src/modules/messages/characterization.delivery.refusals.test.ts`, `apps/server/src/modules/messages/service.test.ts` +1 |
 | `apps/server/src/store/messages.ts` | MessagesRepository | `pendingForSessionProof` | 210 | yes | server:boundary | `apps/server/src/terminal-hibernation-proof.test.ts` |
@@ -507,6 +524,7 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/repos.ts` | ReposRepository | `derivePrefixFor` | 171 | yes | `apps/server/src/migrations/pre-migrated-fixture.test.ts` — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/repos.ts` | ReposRepository | `prefixForRepoId` | 176 | yes | `apps/server/src/migrations/pre-migrated-fixture.test.ts`, `apps/server/src/store/repos-read-cost.test.ts`, `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/machine-identity.test.ts` |
 | `apps/server/src/store/repos.ts` | ReposRepository | `prefixForPath` | 185 | yes | `apps/server/src/store/repos-read-cost.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/issues.test.ts`, `apps/server/src/store.refs.test.ts` +1 |
+| `apps/server/src/store/repos.ts` | ReposRepository | `prefixResolver` | 238 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/repos.ts` | ReposRepository | `repoForPrefix` | 190 | yes | server:boundary | `apps/server/src/store.refs.test.ts` |
 | `apps/server/src/store/repos.ts` | ReposRepository | `ensurePrefixForRepoId` | 204 | yes | `apps/server/src/migrations/pre-migrated-fixture.test.ts` — also server:services, server:boundary, server:normalized-wire | — |
 | `apps/server/src/store/repos.ts` | ReposRepository | `setRepoPrefix` | 221 | yes | `apps/server/src/store/repos-read-cost.test.ts` — also server:boundary | `apps/server/src/store.refs.test.ts`, `apps/server/src/store/repos-read-cost.test.ts` |
@@ -527,6 +545,7 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/server-secrets.ts` | ServerSecretsRepository | `clear` | 173 | yes | `apps/server/src/migrations/server-secret-store.test.ts` — also server:services | `apps/server/src/migrations/server-secret-store.test.ts` |
 | `apps/server/src/store/server-secrets.ts` | ServerSecretsRepository | `updatedAt` | 178 | yes | `apps/server/src/migrations/server-secret-store.test.ts` | `apps/server/src/migrations/server-secret-store.test.ts` |
 | `apps/server/src/store/server-secrets.ts` | ServerSecretsRepository | `presence` | 194 | yes | `apps/server/src/migrations/server-secret-store.test.ts`, `apps/server/src/store/server-secrets.test.ts` — also server:services | `apps/server/src/migrations/server-secret-store.test.ts`, `apps/server/src/modules/machines/login-propagation.test.ts` +2 |
+| `apps/server/src/store/sessions.ts` | SessionsRepository | `bindingOwnersForMachine` | 82 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/sessions.ts` | SessionsRepository | `loadSessions` | 46 | yes | `apps/server/src/store/runtime-events.test.ts`, `apps/server/src/store/session-by-resume-value.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/characterization.test.ts`, `apps/server/src/feed-bootstrap-scaling.test.ts` +24 |
 | `apps/server/src/store/sessions.ts` | SessionsRepository | `getSession` | 51 | yes | `apps/server/src/store/runtime-events.test.ts`, `apps/server/src/store/session-attribution.test.ts`, `apps/server/src/store/session-oom-death.test.ts` +1 more — also server:services, server:boundary | `apps/server/src/machine-identity.test.ts`, `apps/server/src/modules/sessions/session-requested-model-reload.test.ts` +7 |
 | `apps/server/src/store/sessions.ts` | SessionsRepository | `findSessionByResumeValue` | 71 | yes | `apps/server/src/store/session-by-resume-value.test.ts` | `apps/server/src/store/session-by-resume-value.test.ts` |
@@ -672,12 +691,26 @@ Every method in these files is reached only through a caller. There is no test t
 | `apps/server/src/store/user-read-position.ts` | UserReadPositionRepository | `advance` | 92 | yes | `apps/server/src/store/user-read-position.test.ts` — also server:services | `apps/server/src/modules/read-position/authz.test.ts`, `apps/server/src/store/user-read-position.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `get` | 99 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/modules/sessions/oracle-decomposition.test.ts` +1 |
 | `apps/server/src/store/users.ts` | UsersRepository | `roleOf` | 129 | yes | `apps/server/src/store/runtime-events.test.ts` — also server:services, server:boundary, server:normalized-wire | `apps/server/src/store-users-frame-cache.test.ts` |
-| `apps/server/src/store/users.ts` | UsersRepository | `earliestAdmin` | 164 | yes | server:services, server:boundary | `apps/server/src/store/users-earliest-admin.test.ts`, `apps/server/src/server.open-mode.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `earliestAdmin` | 164 | **no** |  *not measured — landed after the last six-lane generate*  | `apps/server/src/store/users-earliest-admin.test.ts`, `apps/server/src/server.open-mode.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `setEmail` | 203 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/auth-route.test.ts`, `apps/server/src/store/users-email.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `byEmail` | 192 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/member-routes.test.ts`, `apps/server/src/store/users-email.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `list` | 133 | yes | server:services, server:boundary | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `disable` | 229 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/modules/world-index/index.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `loadWorldUsers` | 224 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/users.ts` | UsersRepository | `credentialFor` | 143 | yes | server:boundary | `apps/server/src/router.setup.test.ts` |
 | `apps/server/src/store/users.ts` | UsersRepository | `hasPerUserCredentials` | 162 | yes | server:boundary | — |
 | `apps/server/src/store/users.ts` | UsersRepository | `create` | 171 | yes | server:services, server:boundary | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/modules/fleet/authz.test.ts` +1 |
 | `apps/server/src/store/users.ts` | UsersRepository | `setPasswordHash` | 196 | yes | server:boundary | `apps/server/src/auth-route.test.ts`, `apps/server/src/router.setup.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `deleteInvite` | 418 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `inviteByHash` | 414 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `pendingInvites` | 410 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/store/member-invites.test.ts` |
+| `apps/server/src/store/users.ts` | UsersRepository | `insertInvite` | 406 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `removeMember` | 389 | **no** | *not measured — landed after the last six-lane generate* | `apps/server/src/enrollment-durability.test.ts`, `apps/server/src/store/member-invites.test.ts` +3 |
+| `apps/server/src/store/users.ts` | UsersRepository | `attachAccount` | 379 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `writeProfile` | 366 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `findMemberByAccount` | 357 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `createUnclaimed` | 342 | **no** | *not measured — landed after the last six-lane generate* | — |
+| `apps/server/src/store/users.ts` | UsersRepository | `claimTransaction` | 333 | **no** | *not measured — landed after the last six-lane generate* | — |
 | `apps/server/src/store/workflows.ts` | WorkflowsRepository | `ownerOf` | 171 | yes | server:boundary | — |
 | `apps/server/src/store/workflows.ts` | WorkflowsRepository | `listWorkflows` | 203 | yes | server:services | — |
 | `apps/server/src/store/workflows.ts` | WorkflowsRepository | `getWorkflow` | 230 | yes | server:services, server:boundary | — |
