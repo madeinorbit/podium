@@ -33,6 +33,7 @@ import {
   parseInteractionRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
+  parseSessionMarksRowId,
   type IssueId,
   type UserId,
   type SessionId,
@@ -296,6 +297,14 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // state" is not a verb — it is the privacy defect this member exists to
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
+        // One person's read mark and snooze for one session (PDM-424). Same
+        // class, same reason, and the same degree sharper as `issueMarks`: these
+        // values were BROADCAST for one named viewer until this row existed, so
+        // every member saw the earliest admin's unread dots over their own
+        // sessions. Falling through to `personal` would make them grantable —
+        // "share my unread state" is not a verb — and would route them through
+        // the SESSION's audience, which is everyone who can watch the session.
+        if (entity === 'sessionMarks') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issue' ||
@@ -391,6 +400,63 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return false
       },
       keyedUserOf: (ref) => {
+        // PDM-424, carrying PDM-408's conjunction across to the session
+        // resource. THREE PROPERTIES AT ONCE, and they pull in different
+        // directions:
+        //
+        //  1. USER-MATCH — the owner is parsed back out of the row id, so a row
+        //     can only reach the person named in its own key.
+        //  2. AND SESSION-READ — the recipient must currently be able to see the
+        //     session the row is ABOUT. A marks row's payload names a session id,
+        //     so a member who opened a session and later lost access would
+        //     otherwise keep learning it exists, from a row that is correctly
+        //     theirs. User-match answers "whose row is this"; it does not answer
+        //     "may they still see what it names".
+        //  3. AND STILL NOT GRANTABLE — the kind stays `per-user-state`, so
+        //     `mayRead` is never consulted for it and no grant edge can widen it.
+        //     Falling through to `personal` would route the row through the
+        //     SESSION's audience, which is WIDER than either half; this
+        //     conjunction is NARROWER than both.
+        //
+        // Done HERE rather than in `mayRead` because the kernel does not consult
+        // `mayRead` for this class at all. Returning `null` is this port's
+        // spelling of "not yours", so an unreadable session and a foreign row
+        // refuse through ONE door.
+        //
+        // FAIL CLOSED, INCLUDING WHEN THE SESSION IS GONE. `keyedUserOf` sees a
+        // REF: it has no operation and no history, so an escape here would admit
+        // ordinary upserts and bootstrap rows for a missing session exactly as
+        // readily as a retraction. The retraction is a DIFFERENT MECHANISM — see
+        // the `sessionMarks` arm of `visibilityEdge` below, where an eviction is
+        // derived from the row's own audience rather than smuggled through the
+        // read gate. That is PDM-139's ruling on the issue twin and it transfers
+        // unchanged.
+        if (ref.entity === 'sessionMarks') {
+          let marks: { userId: UserId; sessionId: string }
+          try {
+            marks = parseSessionMarksRowId(ref.entityId)
+          } catch {
+            return null
+          }
+          if (!prefetch) return null
+          // THE SESSION MUST STILL EXIST, and this condition is marks-specific on
+          // purpose. `maySeeSession` checks asked-for, then OWNER, then GRANTS —
+          // and never that the session row is still there. Deleting a session
+          // does not delete its grant edges, so a previously admitted grantee
+          // stays admitted by a surviving edge and would keep being SERVED stale
+          // marks naming a session nobody can open. The OWNER is refused only
+          // because their branch reads a row that is gone, which is an accident
+          // of which check fails first rather than a property of the gate.
+          //
+          // NOT fixed inside `maySeeSession`: its other consumers — the `session`
+          // arm and `pendingInteraction` — ask it about sessions they have their
+          // own reasons to reach, and tightening it for all of them is a change
+          // to arms nobody reviewed here. The condition lives where the
+          // requirement is.
+          if (prefetch.sessions.get(marks.sessionId) === undefined) return null
+          if (!maySeeSession(marks.userId, marks.sessionId)) return null
+          return marks.userId
+        }
         if (ref.entity === 'userReadPosition') {
           try {
             return parseReadPositionRowId(ref.entityId).userId
@@ -470,6 +536,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         shipOrderIds.add(ref.entityId)
       } else if (ref.entity === 'session') {
         sessionIds.add(ref.entityId)
+      } else if (ref.entity === 'sessionMarks') {
+        // PDM-424: the marks arm CONJOINS a session-read check, so the session
+        // named inside the row id has to be prefetched like every other subject.
+        // Omit this and `keyedUserOf` denies every recipient for want of a row
+        // rather than for want of a right — a vacuously-closed gate that passes
+        // every refusal test and delivers nothing, which is the exact failure the
+        // `issueExecution` note above was written about.
+        try {
+          sessionIds.add(parseSessionMarksRowId(ref.entityId).sessionId)
+        } catch {
+          // Unparseable ids are refused by `keyedUserOf`; nothing to prefetch.
+        }
       } else if (ref.entity === 'conversation') {
         resumeValues.add(ref.entityId)
       } else if (ref.entity === 'automation') {
@@ -655,6 +733,54 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
 
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
+      // A MARKS ROW IS ITS OWN ANCHOR (PDM-424), and this is what retracts it.
+      //
+      // `keyedUserOf` cannot tell a removal from an upsert, so the read gate
+      // must refuse both once the session is unreadable or gone — which would
+      // strand a deletion's tombstone, because scoping happens at DELIVERY time
+      // and the session row is already gone by then. The holder's client would
+      // keep an unread dot and a snooze for a session that no longer exists,
+      // permanently.
+      //
+      // The anchor supplies it WITHOUT weakening the gate. `anchorFor` re-decides
+      // each subject and emits `evict` when the decision refuses, so a marks row
+      // whose session has gone reaches its own user as an EVICTION — drop what
+      // you hold — while an ordinary upsert for the same row stays refused.
+      // Retraction and disclosure travel different paths.
+      //
+      // AUDIENCE IS THE ROW'S OWN USER, parsed from the key, and NOT the
+      // session's audience: a session nobody was granted has no grant audience at
+      // all, so the session's own anchor never fires for exactly the person whose
+      // retraction went missing. Subject is the row itself, so no other row is
+      // disturbed.
+      if (ref.entity === 'sessionMarks') {
+        let marks: { userId: UserId; sessionId: string }
+        try {
+          marks = parseSessionMarksRowId(ref.entityId)
+        } catch {
+          return null
+        }
+        // ONLY WHEN THE ORDINARY PATH CAN NO LONGER CARRY IT. An edge returned
+        // unconditionally makes every ordinary marks change arrive TWICE — once
+        // from `visible` and once as an anchored upsert of the same row. An
+        // anchor answers "did this row MOVE anyone's visibility", not "did this
+        // row change".
+        //
+        // The session going away is exactly that move, and it is
+        // principal-INDEPENDENT, which is what lets it be decided here: this port
+        // must not close over a principal. While the session still resolves, the
+        // read gate is the whole answer and no anchor is wanted.
+        // `getSessions` rather than a point read: the visibility store port
+        // exposes the BATCHED reader and only that, and widening it for one
+        // anchor would add a second door onto the same table.
+        if ((await store.sessions.getSessions([marks.sessionId])).get(marks.sessionId) !== undefined) {
+          return null
+        }
+        return {
+          audience: [marks.userId],
+          subjects: [{ entity: 'sessionMarks' as const, entityId: ref.entityId }],
+        }
+      }
       if (ref.entity !== 'issue') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null

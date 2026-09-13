@@ -121,6 +121,12 @@ export * from './user-state/family'
 // could not classify, because it had no server row to be per-user in.
 export * from './user-state/read-position-state'
 export * from './user-state/issue-state'
+// One person's read mark and snooze for one session (PDM-424) — the per-user
+// half the broadcast payload carried for the earliest admin. `composite-row-id`
+// is the shared escaped two-part row id; PDM-408 adds the same file for
+// `issueMarks`, see its header before resolving a conflict here.
+export * from './user-state/session-marks-state'
+export * from './user-state/composite-row-id'
 export * from './user-state/layout-state'
 // The personal preference half (POD-1213) — the member POD-1076 recorded as
 // absent because its storage was still the instance-wide settings blob.

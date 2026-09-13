@@ -117,14 +117,17 @@ async function fixture(count: number) {
   const machines = { factsSnapshot: vi.fn(async () => ({ name: () => 'Build box', loginCondition: () => 'logged-out' as const })),
     machineName: async () => 'Build box', agentLoginCondition: async () => 'logged-out' as const }
   const view = new SessionView({ sessions, store, state, machines: machines as never, sessionOccupancyCount: () => 3 })
-  // Broadcast still resolves its principal-less overlay user exactly once — the
-  // budget assertion below counts the calls, so the seam has to be a spy.
-  // `openTestStore` primes a first admin, so the real `internalOverlayUser()`
-  // would answer THAT member and every overlay in a principal-less pass would be
-  // empty. Pinning the READER is what makes the broadcast slice wire the same
-  // overlay rows the reader-scoped `list()` cases above wire, which is what the
-  // two files' budgets are written to compare.
-  vi.spyOn(view, 'internalOverlayUser').mockResolvedValue(reader)
+  // THE SPY THAT USED TO BE HERE IS GONE [PDM-424], and so is what it stood in
+  // for. A principal-less pass resolved `internalOverlayUser()` — the earliest
+  // admin — and wired HER overlay onto the broadcast every client reads; this
+  // fixture pinned the READER instead so the broadcast slice would wire the same
+  // overlay rows the reader-scoped cases wire, and the two budgets could be
+  // compared. That pinning was the only reason the broadcast budget matched.
+  //
+  // A principal-less pass now wires NOBODY's overlay, so there is no identity to
+  // resolve and no overlay rows to read. The broadcast budget below is
+  // recalibrated to the two reads that removed, and stated as the measurement it
+  // is rather than carried over.
   return { store, rows, sessions, authz, state, machines, view }
 }
 
@@ -328,14 +331,21 @@ describe('one projection pass', () => {
         process.stdout.write(`broadcast ${size}: ${counts.at(-1)} physical read statements, ${(performance.now() - start).toFixed(2)} ms\n`)
         expect(result.changes).toHaveLength(size)
         expect(result.remaining).toBe(0)
-        expect(f.view.internalOverlayUser).toHaveBeenCalledTimes(1)
         expect(f.machines.factsSnapshot).toHaveBeenCalledTimes(1)
       } finally { await f.store.close() }
     }
-    // Repo registry is warm from fixture creation. Six physical reads: issues,
-    // two grant kinds, queue counts and two overlays. Calibration accounts for
-    // POD-3852 double recording, and still works after that fix lands.
-    expect(counts[0]).toBe(6)
+    // Repo registry is warm from fixture creation. FOUR physical reads: issues,
+    // two grant kinds and queue counts. Calibration accounts for POD-3852 double
+    // recording, and still works after that fix lands.
+    //
+    // WAS SIX, AND THE TWO THAT WENT ARE `listReadAt` + `listSnoozes` [PDM-424].
+    // A broadcast pass no longer resolves an overlay user, so it no longer reads
+    // anybody's overlay: the real values ride the `sessionMarks` sidecar and the
+    // broadcast row carries neutral ones. The reader-scoped budget above is
+    // UNCHANGED at six, which is the discriminating part — if this number had
+    // fallen because the pass stopped reading overlays for everyone, that one
+    // would have fallen too.
+    expect(counts[0]).toBe(4)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 

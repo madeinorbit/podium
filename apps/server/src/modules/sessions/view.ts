@@ -1,6 +1,5 @@
 import {
   firstAdminMemberId,
-  asUserId,
   NO_SESSION_USER_STATE,
   type SessionId,
   type SessionMeta,
@@ -229,16 +228,45 @@ export class SessionView {
     sessions: readonly (SessionDurableFields & { sessionId: SessionId })[],
     forPrincipal?: SessionStatePrincipal,
   ): Promise<ProjectionPass> {
-    // RESOLVED FIRST, BEFORE ANY OTHER READ IN THIS METHOD, and that position is
-    // load-bearing [PDM-291]. `defaultPrincipal()` used to be awaited exactly
-    // here, and moving this read down to where the overlay is actually consumed
-    // inserts a fresh await into the middle of a pass that runs inside a caller's
-    // transaction span — which reopens the interleaving window that
-    // `lifecycle-runtime-fold.test.ts`'s site 7 catches, as a
+    // A PASS WITH NO PRINCIPAL NOW WIRES NOBODY'S OVERLAY [PDM-424].
+    //
+    // It used to fall through to `internalOverlayUser()` — the earliest admin —
+    // and that identity reached the CLIENTS, because `SessionRepository`
+    // publishes the result of a principal-less pass as the one `entity:
+    // 'session'` value every subscriber reads. The feed decides WHO receives a
+    // row; it cannot give two recipients two payloads. So every member was shown
+    // one administrator's `readAt`, derived `unread` and `snoozedUntil` over
+    // their own sessions.
+    //
+    // `undefined` here leaves `overlays` empty and `wireSession` falls to
+    // `NO_SESSION_USER_STATE`, which is exactly `NEUTRAL_SESSION_MARKS`: never
+    // opened, never snoozed. The REAL values reach each person on the
+    // `sessionMarks` sidecar, addressed to them by `sessionMarksRowId` and gated
+    // by `feed-visibility.ts`'s `keyedUserOf`.
+    //
+    // NOT A NARROWING OF THE PRINCIPAL-FUL PATH. `list(principal)` and
+    // `byId(id, principal)` still wire that principal's own overlay, unchanged —
+    // this branch only stops inventing a viewer when the caller named none.
+    //
+    // WHAT WENT WITH IT. `internalOverlayUser()` was PDM-291's named answer to
+    // "whose overlay does a principal-less pass wire", left deliberately in place
+    // when that issue removed visibility's borrowing of the same identity. This
+    // was its only caller, so the method is deleted rather than left standing —
+    // a surviving resolver with no consumer reads as a fallback somebody may
+    // reach for again, which is the shape PDM-295 rewrote comments across three
+    // files to prevent. The question it answered is now answered by the split.
+    //
+    // THE READ IT REPLACED WAS POSITIONED HERE ON PURPOSE [PDM-291] and that
+    // reasoning is recorded rather than discarded: `defaultPrincipal()` used to
+    // be awaited exactly at this line, and moving it DOWN to where the overlay is
+    // consumed inserted a fresh await into the middle of a pass that runs inside
+    // a caller's transaction span, reopening the interleaving window
+    // `lifecycle-runtime-fold.test.ts`'s site 7 catches — a
     // `StaleIssueRevisionError: expected revision 1, found 2` three frames away
-    // from anything this file mentions. Measured, not predicted: 3 runs of that
-    // file failed with the read moved down and 3 passed with it here.
-    const overlayUser = forPrincipal ? forPrincipal.userId : await this.internalOverlayUser()
+    // from anything this file mentions (measured: 3 runs failed with the read
+    // moved down, 3 passed with it here). Removing the await entirely cannot
+    // reopen that window; adding one back below can, so do not.
+    const overlayUser = forPrincipal ? forPrincipal.userId : undefined
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
       [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
@@ -275,20 +303,36 @@ export class SessionView {
   readonly wire = wireSession
 
   /**
-   * THE SESSION-SIDE TWIN of {@link IssueService.broadcastViewer} — a separately
-   * declared method with an identical body and the same open defect. Every
-   * client's session overlay (`readAt`, snooze, pin) is wired with the EARLIEST
-   * ADMIN's state.
+   * A DEFINED OBSERVER FOR THE SESSION JANITOR — no longer a broadcast identity,
+   * despite the name [PDM-424].
    *
-   * PDM-295 reviewed both and repaired neither; the reasoning, the POD-1077
-   * check and the list of what actually stands in the way live in one place, on
-   * the issues-side twin. Read that before changing this. The short version: the
-   * scoped feed shipped, per-principal overlay CONTENT did not, and this is
-   * unbuilt rather than blocked.
+   * IT USED TO CARRY THE DEFECT AND NOW DOES NOT, which is worth stating because
+   * the method still resolves `firstAdminMemberId` and reads at a glance exactly
+   * as it did when PDM-291's audit named it and PDM-295 declined to repair it.
+   * The reason it was a defect was never this body. It was that the earliest
+   * admin's overlay reached every client — and that happened through
+   * `buildProjectionPass`, whose principal-less branch this method was never on.
+   * PDM-424 measured the consumers before changing anything, and the brief that
+   * sent it here named this method as THE site; it was not.
    *
-   * NOT {@link internalOverlayUser} BELOW, which resolves the same person for a
-   * narrower and deliberate reason (PDM-291). Two methods, one identity, only
-   * one of them intentional.
+   * WHAT ACTUALLY READS IT, and both are server-side judgements rather than
+   * anything a member is shown:
+   *   - `session-teardown.ts`'s `readerUserId` precondition and its `readAt`
+   *     probe — the auto-archive observer, which needs a DEFINED person to have
+   *     observed a session, not an arbitrary one.
+   *   - `session-meta-ops.ts`'s `prepareIssueSessionDelete`, which builds metas
+   *     ONLY to run `sessionsForIssue` for membership and DISCARDS the overlay.
+   *     Wasteful, not a leak; narrowing it is not this issue's business.
+   *
+   * This is the class PDM-408 deliberately kept on the issue twin — its
+   * `computeUnread`, `unreadFor` and auto-archive sweep still call
+   * `broadcastViewer()` for the same reason. A janitor that observed "whoever
+   * asked" would make archival depend on who happened to be connected.
+   *
+   * WHAT A MEMBER SEES no longer comes from here at all: the broadcast wires
+   * nobody's overlay and the per-person values ride the `sessionMarks` sidecar.
+   * If you are here because a member is seeing the wrong marks, this is not the
+   * method — start at {@link buildProjectionPass}.
    */
   async broadcastViewer(): Promise<UserId> {
     return (await firstAdminMemberId(this.ports.store))
@@ -301,31 +345,29 @@ export class SessionView {
   }
 
   /**
-   * WHOSE per-user overlay a PRINCIPAL-LESS pass is wired with.
+   * `internalOverlayUser()` WAS HERE AND IS DELETED [PDM-424]. Recorded rather
+   * than simply removed, because its absence is the repair and a later reader
+   * finding neither the method nor a note would reasonably add it back.
    *
-   * THIS IS THE OTHER HALF OF `defaultPrincipal()`, AND ALL THAT IS LEFT OF IT
-   * [PDM-291]. That method answered two questions with one impersonated admin:
-   * "may this read see the session" (now {@link INTERNAL_PROJECTION_READ}, which
-   * has no human at all) and "whose `readAt`/snooze/pin state goes on the wire"
-   * — which genuinely needs a user id, because the overlay is keyed by one.
+   * It resolved `users.earliestAdmin()` and answered ONE question: whose
+   * per-user overlay a principal-less pass is wired with. PDM-291 left it
+   * standing on purpose — that issue removed visibility's borrowing of the
+   * admin's CAPABILITY and said, correctly, that the overlay genuinely needs a
+   * user id because it is keyed by one, so the single-user fallback was NAMED
+   * rather than hidden.
    *
-   * The identity is UNCHANGED and now named: `users.earliestAdmin()` is exactly
-   * what `defaultPrincipal()` resolved, and what {@link broadcastViewer} already
-   * calls `firstAdminMemberId(store)` for. So a principal-less pass wires the
-   * same overlay it wired before, and this is deliberately NOT a repair of that:
-   * a broadcast that carries ONE person's snooze/read state to every client is a
-   * separate single-user fallback, and it is already named at
-   * {@link broadcastViewer} rather than hidden here. What changed in PDM-291 is
-   * only that VISIBILITY stopped borrowing that person's capability.
+   * What made it wrong was never the identity; it was that a principal-less pass
+   * is the BROADCAST, and one ledger value per session id reaches every
+   * subscriber. Naming the fallback made it honest and left it live. The split
+   * removes the question instead: the broadcast wires nobody's overlay (see
+   * {@link buildProjectionPass}) and each person's real values arrive on the
+   * `sessionMarks` sidecar.
    *
-   * `undefined` — no admin yet, i.e. before bootstrap — keeps this method's old
-   * answer: an empty overlay map, not a refusal. Visibility no longer depends on
-   * it, so a pre-bootstrap internal read now projects rather than returning [].
+   * NOT to be confused with {@link broadcastViewer} above, which survives. That
+   * one resolves the same person for the JANITOR decisions in
+   * `session-teardown.ts` — a defined observer for a server-side judgement, which
+   * is the class PDM-408 deliberately kept on the issue twin.
    */
-  async internalOverlayUser(): Promise<UserId | undefined> {
-    const member = await this.ports.store.users.earliestAdmin()
-    return member ? asUserId(member.id) : undefined
-  }
 
   async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
     return await this.ports.state.overlay((await this.broadcastViewer()), sessionId)

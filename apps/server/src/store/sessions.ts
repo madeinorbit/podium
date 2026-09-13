@@ -10,6 +10,7 @@ import {
   actorColumns,
   actorFromColumns,
   asSessionId,
+  compositeRowId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -689,6 +690,111 @@ export class SessionsRepository {
       .delete(sessionUserState)
       .where(eq(sessionUserState.sessionId, asSessionId(sessionId.trim())))
       .run()
+  }
+
+  /**
+   * EVERY per-user session row on the instance, for every person and every
+   * session — the read mark and the snooze together, one entry per pair.
+   *
+   * The one read of these tables that is not about a single person, and it
+   * exists for the reconcile that repairs a fleet on FIRST UPGRADE [PDM-424]:
+   * rows written before the `sessionMarks` entity existed have no change-log
+   * entry, so nothing would ever serve them and a member's unread dots and
+   * snoozes would silently do nothing until they opened that session AGAIN.
+   * Worst for exactly the people who have used the product longest, and
+   * INVISIBLE — a session list with no marks and one whose marks never arrived
+   * look identical.
+   *
+   * A UNION OF THE TWO TABLES, not `session_user_state` alone. A person who has
+   * snoozed a session they never opened has a `snoozes` row and no read row; a
+   * list built from one table would leave their snooze unserved, which is the
+   * same upgrade defect scoped to one of the two halves.
+   *
+   * EXPIRED SNOOZES ARE OMITTED rather than carried, matching
+   * {@link listSnoozes}'s rule. They are NOT deleted here: this is a boot-time
+   * read that must not depend on write permission or mutate on a path the
+   * reconcile treats as a pure observation — the per-user read reaps them.
+   *
+   * Unbounded by design and safe because the tables are not: a row exists only
+   * where somebody has actually opened or snoozed something, never per
+   * (member × session).
+   */
+  async listAllSessionMarks(
+    now: number = Date.now(),
+  ): Promise<{ userId: UserId; sessionId: SessionId; readAt: string | null; snoozedUntil: string | null | undefined }[]> {
+    const readRows = await this.db
+      .select({
+        userId: sessionUserState.userId,
+        sessionId: sessionUserState.sessionId,
+        readAt: sessionUserState.readAt,
+      })
+      .from(sessionUserState)
+      .all()
+    const snoozeRows = await this.db
+      .select({
+        userId: snoozesTable.userId,
+        sessionId: snoozesTable.sessionId,
+        snoozedUntil: snoozesTable.snoozedUntil,
+      })
+      .from(snoozesTable)
+      .all()
+    const byPair = new Map<
+      string,
+      { userId: UserId; sessionId: SessionId; readAt: string | null; snoozedUntil: string | null | undefined }
+    >()
+    // `compositeRowId` rather than a hand-rolled join: it is the audited escape
+    // (see its header) and this map's key must not let a userId containing the
+    // separator collide with a different pair — the same requirement, one layer
+    // in from the feed row id these entries become.
+    const keyOf = (userId: string, sessionId: string) => compositeRowId(userId, sessionId)
+    for (const r of readRows) {
+      byPair.set(keyOf(r.userId, r.sessionId), {
+        userId: r.userId as UserId,
+        sessionId: asSessionId(r.sessionId),
+        readAt: r.readAt,
+        snoozedUntil: undefined,
+      })
+    }
+    for (const r of snoozeRows) {
+      if (r.snoozedUntil !== null && Date.parse(r.snoozedUntil) <= now) continue
+      const key = keyOf(r.userId, r.sessionId)
+      const existing = byPair.get(key)
+      if (existing) existing.snoozedUntil = r.snoozedUntil
+      else {
+        byPair.set(key, {
+          userId: r.userId as UserId,
+          sessionId: asSessionId(r.sessionId),
+          readAt: null,
+          snoozedUntil: r.snoozedUntil,
+        })
+      }
+    }
+    return [...byPair.values()]
+  }
+
+  /**
+   * Every user holding a per-user row for ONE session — a read mark, a snooze,
+   * or both.
+   *
+   * For the two writes in this family that legitimately cross owners:
+   * {@link clearAllReadAt} and {@link clearAllSnoozes}. Each changes N people's
+   * rows, so each must publish N sidecar rows — one audience of one apiece — and
+   * the holder list is how the publisher knows whose. Read BEFORE the clear, for
+   * the obvious reason: afterwards there is nobody left to enumerate.
+   */
+  async listSessionMarkHolders(sessionId: SessionId): Promise<UserId[]> {
+    const id = asSessionId(sessionId.trim())
+    const readRows = await this.db
+      .select({ userId: sessionUserState.userId })
+      .from(sessionUserState)
+      .where(eq(sessionUserState.sessionId, id))
+      .all()
+    const snoozeRows = await this.db
+      .select({ userId: snoozesTable.userId })
+      .from(snoozesTable)
+      .where(eq(snoozesTable.sessionId, id))
+      .all()
+    return [...new Set([...readRows, ...snoozeRows].map((r) => r.userId as UserId))]
   }
 
   // ---- snoozes ----

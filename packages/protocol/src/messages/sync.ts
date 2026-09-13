@@ -6,6 +6,7 @@ import {
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   ReadPositionWire,
+  SessionMarksWire,
   GlobalChangeOpField,
   IssueDepProjection,
   IssueEventWire,
@@ -215,6 +216,23 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  cursor. Additive on the wire; older clients ignore it via
    *  UnknownMetadataChange and advance the cursor. */
   metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
+  /** One person's read mark and snooze for ONE session (PDM-424) — keyed
+   *  `(userId, sessionId)` on the change id via `sessionMarksRowId`. Visibility
+   *  class `per-user-state`, the same pattern as the two arms above and for the
+   *  same sharp reason as `issueMarks`: these values were BROADCAST for one named
+   *  viewer until this arm existed, so every member saw the earliest admin's
+   *  unread dots and snoozes over their own sessions.
+   *
+   *  IT CARRIES THE INPUTS, NOT `unread`. That flag is derived from this row's
+   *  `readAt` AND the shared session's `lastActiveAt`, so a stored copy would go
+   *  stale the moment the session became active again — see
+   *  `joinSessionMarks`, which re-derives at the join.
+   *
+   *  The values also still ride `SessionMeta`, at NEUTRAL (see
+   *  `NEUTRAL_SESSION_MARKS`). Not a duplicate arm: the broadcast half says
+   *  "nobody's", this one says whose. Additive on the wire; older clients ignore
+   *  it via UnknownMetadataChange and advance the cursor. */
+  metadataChangeArm(z.literal('sessionMarks'), SessionMarksWire),
   /** One curated issue event (POD-1772) — `podium_events` rows as first-class
    *  entities, keyed by `issueEventRowId(eventId, subject)`.
    *
@@ -268,6 +286,7 @@ export const MetadataEntityKind = z.enum([
   'automationRun',
   'userLayout',
   'userReadPosition',
+  'sessionMarks',
   'issueEvent',
   'pendingInteraction',
 ])
@@ -370,6 +389,14 @@ const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
+    // …and THIS reader's own session marks (PDM-424), on the same terms as
+    // `issueExecutions` below. `.optional()` for the same forward-compat reason,
+    // and load-bearing for a sharper one: the snapshot's session rows carry
+    // NEUTRAL marks, so a consumer that never received this list renders every
+    // session unread and un-snoozed — indistinguishable from a person who has
+    // opened nothing. That is the failure neutral values invite, and it is why
+    // the bootstrap carries the list rather than leaving it to the delta path.
+    sessionMarks: z.array(SessionMarksWire).optional(),
     // THE SNAPSHOT SPLITS THE SAME WAY THE DELTA DOES [B4, PDM-136]. A bootstrap
     // that carried the wide shapes would hand a new connection exactly what the
     // delta arm refuses it, and `scopeBootstrap` has no field seam either — it

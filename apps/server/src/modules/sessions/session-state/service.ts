@@ -38,12 +38,15 @@ import {
   type DraftDoc,
   emptyDraftDoc,
   type SessionId,
+  type SessionMarksWire,
+  sessionMarksRowId,
   type SessionUserOverlay,
   type UserId,
   type WorkState,
   type MachineId,
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
+import type { Ledger } from '@podium/sync'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
@@ -155,6 +158,19 @@ export interface SessionOwnerMemo {
 
 export interface SessionStatePorts {
   readonly store: Pick<SessionStore, 'sessions'>
+  /**
+   * WRITE-SEAM LEDGER for the `sessionMarks` sidecar [PDM-424].
+   *
+   * Per-person read marks and snoozes ride entity kind `sessionMarks`, so
+   * bootstrap and delta share one log — the shape `ReadPositionService` uses.
+   * `reconcile` is the boot repair for rows that predate the entity.
+   *
+   * OPTIONAL ONLY FOR PURE UNIT FIXTURES of storage and policy; production
+   * always wires it. A fixture that omits it exercises the durable write and
+   * skips the publish, which is why the delivery witnesses supply a real one
+   * rather than asserting on a spy.
+   */
+  readonly ledger?: Pick<Ledger, 'capture' | 'reconcile'>
   readonly now: () => number
   readonly getSession: (sessionId: SessionId) => SessionStateRecord | undefined
   readonly sessionIds: () => Iterable<SessionId>
@@ -486,8 +502,106 @@ export class SessionStateService {
       // later rolls back. A second invalidation prevents serving that ghost row.
       this.invalidateOverlay(userId)
     }
+    // AFTER the persist and the cache invalidation, and OUTSIDE them: the
+    // sidecar row is read back from the store through {@link overlay}, so it must
+    // see the committed values rather than the pre-write ones. Publishing inside
+    // the persist would capture a row whose transaction can still roll back.
+    await this.publishSessionMarks(userId, sessionId)
     this.ports.broadcastSessions()
     return true
+  }
+
+  /**
+   * ONE PERSON'S MARKS FOR ONE SESSION, onto the feed [PDM-424].
+   *
+   * The sidecar carries the REAL values to the one person they belong to, which
+   * is the whole point of the split: the broadcast `session` row now carries
+   * nobody's (see `SessionView.buildProjectionPass`). Delivery is decided
+   * server-side in `feed-visibility.ts`'s `keyedUserOf`, from the row id.
+   *
+   * A ROW WITH EVERYTHING CLEARED IS STILL AN UPSERT carrying neutral values,
+   * never a remove. The reader already holds the old row, and a remove is how a
+   * client is told "this row is gone", not "you have not opened this" — marking
+   * unread DELETES the durable row and must still reach the client as
+   * `readAt: null`. {@link overlay} answers `NO_SESSION_USER_STATE` for an absent
+   * row, so the deleted and the never-existed cases agree without a second
+   * spelling.
+   */
+  private async publishSessionMarks(userId: UserId, sessionId: SessionId): Promise<void> {
+    const ledger = this.ports.ledger
+    if (!ledger) return
+    const overlay = await this.overlay(userId, sessionId)
+    const value: SessionMarksWire = {
+      userId,
+      sessionId,
+      readAt: overlay.readAt,
+      // Three-valued: an ABSENT key is "no snooze row", which is not the same as
+      // `null` ("until the next message"). Spread rather than assigned so the
+      // undefined case stays absent in the captured payload.
+      ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
+    }
+    await ledger.capture([
+      {
+        entity: 'sessionMarks',
+        id: sessionMarksRowId(userId, sessionId),
+        op: 'upsert',
+        value,
+      },
+    ])
+  }
+
+  /**
+   * **EVERY EXISTING MARK, PUBLISHED ONCE AT BOOT** [PDM-424].
+   *
+   * {@link publishSessionMarks} is reached only from a WRITE. A row written
+   * before this entity existed therefore has no change-log entry, and nothing
+   * would ever serve it: on the first upgrade every member's existing unread
+   * state and snoozes silently do nothing until they open that session AGAIN —
+   * worst for exactly the people who have used the product longest, and
+   * invisible, because a list with no marks and a list whose marks never arrived
+   * look identical.
+   *
+   * A RECONCILE RATHER THAN A CAPTURE LOOP, because reconcile is the operation
+   * that means "this is the whole truth for this kind": it diffs against what the
+   * log already holds, so a boot after a boot writes nothing, and a row deleted
+   * out from under the log is retracted rather than left. That is also why
+   * {@link SessionsRepository.listAllSessionMarks} must return EVERY row for
+   * EVERY person — a partial list would be diffed as a mass REMOVE and would
+   * durably delete the marks of whoever was missing.
+   */
+  async reconcileSessionMarks(): Promise<void> {
+    const ledger = this.ports.ledger
+    if (!ledger) return
+    const rows = await this.ports.store.sessions.listAllSessionMarks(this.ports.now())
+    await ledger.reconcile(
+      'sessionMarks',
+      rows.map((row) => ({
+        id: sessionMarksRowId(row.userId, row.sessionId),
+        value: {
+          userId: row.userId,
+          sessionId: row.sessionId,
+          readAt: row.readAt,
+          ...(row.snoozedUntil !== undefined ? { snoozedUntil: row.snoozedUntil } : {}),
+        } satisfies SessionMarksWire,
+      })),
+    )
+  }
+
+  /**
+   * Publish one sidecar row per HOLDER after a write that crossed owners.
+   *
+   * {@link rearmUnreadForAll} and {@link clearAllSnoozes} are the two writes in
+   * this family that legitimately touch everybody's rows, and each changes N
+   * people's marks. N rows, each an audience of one — not one broadcast row,
+   * which would have to say whose marks it meant and is the defect this issue
+   * exists to remove. The holder list is read BEFORE the clear, because
+   * afterwards there is nobody left to enumerate.
+   */
+  private async publishMarksForHolders(
+    holders: readonly UserId[],
+    sessionId: SessionId,
+  ): Promise<void> {
+    for (const holder of holders) await this.publishSessionMarks(holder, sessionId)
   }
 
   async markRead(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
@@ -509,8 +623,11 @@ export class SessionStateService {
   }
 
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
+    // Holders BEFORE the clear: the delete is what removes them from the table.
+    const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
     await this.ports.store.sessions.clearAllReadAt(sessionId)
     this.invalidateAllOverlays()
+    await this.publishMarksForHolders(holders, sessionId)
   }
 
   async setSnooze(
@@ -535,8 +652,14 @@ export class SessionStateService {
   async clearAllSnoozes(sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!await this.ports.store.sessions.hasAnySnooze(sessionId)) return
+    // Holders BEFORE the clear, and the read-mark holders come with them: a
+    // person whose snooze this clears may also hold a read mark, and one sidecar
+    // row carries both halves, so republishing the union keeps every holder's row
+    // consistent with the store rather than only the half that changed.
+    const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
     await this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
     this.invalidateAllOverlays()
+    await this.publishMarksForHolders(holders, sessionId)
     this.ports.broadcastSessions()
   }
 
