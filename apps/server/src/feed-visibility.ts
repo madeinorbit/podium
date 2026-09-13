@@ -434,6 +434,32 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             return null
           }
           if (!prefetch) return null
+          // A GONE ISSUE IS NOT A REVOCATION, and conflating them strands the
+          // retraction (PDM-408, found by PDM-139's source review).
+          //
+          // The two cases this conjunct has to tell apart:
+          //   REVOKED — the issue still EXISTS and this person may no longer read
+          //     it. Delivering their row would keep telling them it is there, so
+          //     it is refused. That is the boundary and it is unchanged.
+          //   DELETED — the issue is gone. The row names an id that resolves to
+          //     nothing, and the ONLY principal it can ever reach is the person
+          //     whose key it is, who put the mark there themselves. There is no
+          //     third party to disclose it to and nothing left to disclose.
+          //
+          // Refusing the deleted case is not conservative, it is harmful: the
+          // purge's tombstone is scoped at DELIVERY time, by which point the
+          // issue is already deleted, so the removal would be dropped and the
+          // holder's client would keep a pin and a read mark for an issue that no
+          // longer exists — permanently, with nothing left to correct it. The
+          // gate would have eaten exactly the retraction that exists to stop that.
+          //
+          // `issueIds` is the set the batch ASKED for, `issues` what the store
+          // RETURNED, so asked-and-absent is the honest spelling of "deleted"
+          // rather than "not loaded"; a ref nobody prefetched fails the first
+          // test and is refused below.
+          const askedFor = prefetch.issueIds.has(marks.issueId)
+          const stillExists = prefetch.issues.get(marks.issueId) !== undefined
+          if (askedFor && !stillExists) return marks.userId
           if (!mayReadIssueFromSnapshot(marks.userId, marks.issueId, prefetch)) return null
           return marks.userId
         }

@@ -47,6 +47,9 @@ import { openTestStore } from './test-support/open-test-store'
 const owner = asUserId('owner')
 const reader = asUserId('reader')
 const SHARED = asIssueId('shared')
+/** A second readable issue that the purge must not touch. */
+const KEPT = asIssueId('kept')
+const strangerUser = asUserId('stranger')
 
 type AuthorityStore = ConstructorParameters<typeof Authority>[0]['store']
 
@@ -106,11 +109,25 @@ async function build() {
   stores.push(store)
   const world = await WorldIndex.load(store)
   const issue = { id: SHARED, ownerUserId: owner } as IssueRow
+  const kept = { id: KEPT, ownerUserId: owner } as IssueRow
+  /** Flipped by `purge()` below: after a hard delete SHARED resolves to nothing,
+   *  which is the state the retraction has to be delivered IN. KEPT is
+   *  unaffected, so "the purge took everything" cannot pass. */
+  let issueExists = true
   const session = { id: 'shared', ownerUserId: owner } as unknown as SessionRow
   const rows: FeedVisibilityStore = {
     issues: {
-      getIssue: async (id: string) => (id === SHARED ? issue : null),
-      getIssues: async () => new Map([[issue.id, issue]]),
+      getIssue: async (id: string) =>
+        id === KEPT ? kept : id === SHARED && issueExists ? issue : null,
+      getIssues: async () =>
+        new Map(
+          issueExists
+            ? [
+                [issue.id, issue],
+                [kept.id, kept],
+              ]
+            : [[kept.id, kept]],
+        ),
     },
     sessions: {
       getSessions: async () => new Map([['shared', session]]),
@@ -136,11 +153,11 @@ async function build() {
     visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
   })
-  const grant = async (grantee: string) =>
+  const grant = async (grantee: string, resourceId: string = SHARED) =>
     await store.transact(async () => {
       await store.grants.upsert({
         resourceKind: 'issue',
-        resourceId: SHARED,
+        resourceId,
         grantee,
         verb: 'read' as GrantRow['verb'],
         owner,
@@ -155,16 +172,32 @@ async function build() {
     await store.transact(async () => {
       await store.grants.remove('issue', SHARED, grantee, 'read')
     })
-  const publishMarks = async (user: UserId, readAt: string) =>
+  const publishMarks = async (user: UserId, readAt: string, issueId: string = SHARED) =>
     await authority.capture([
       {
         entity: 'issueMarks',
-        entityId: issueMarksRowId(user, SHARED),
+        entityId: issueMarksRowId(user, issueId),
         op: 'upsert',
-        value: { userId: user, issueId: SHARED, readAt, tuckedAt: null, pinned: false },
+        value: { userId: user, issueId, readAt, tuckedAt: null, pinned: false },
       },
     ])
-  return { authority, grant, revoke, publishMarks }
+  /**
+   * A PURGE, in the order `purgeEmptyDraft` does it: the issue row is gone by the
+   * time the tombstone is emitted. That ordering is the whole question — see the
+   * describe block at the bottom of this file.
+   */
+  const purge = async (holders: readonly UserId[]) => {
+    issueExists = false
+    await authority.capture([
+      { entity: 'issue', entityId: SHARED, op: 'remove' },
+      ...holders.map((h) => ({
+        entity: 'issueMarks' as const,
+        entityId: issueMarksRowId(h, SHARED),
+        op: 'remove' as const,
+      })),
+    ])
+  }
+  return { authority, grant, revoke, publishMarks, purge }
 }
 
 /** The marks rows a FRESH CLIENT is served — the cold-bootstrap path. */
@@ -251,5 +284,100 @@ describe('what a principal is actually SERVED', () => {
     expect(denied?.kind).toBe('batch')
     if (denied?.kind !== 'batch') return
     expect(denied.changes.filter((c) => c.entity === 'issueMarks')).toEqual([])
+  })
+})
+
+describe('a purge actually RETRACTS the marks it published', () => {
+  /**
+   * PDM-139's source concern, and it is a real interaction between two things I
+   * built: `keyedUserOf` for `issueMarks` requires the issue-read snapshot, but
+   * a purge DELETES the issue before the tombstone is emitted — and
+   * `Authority.scopeBatch` runs `policy.decide` over REMOVALS too. If the
+   * conjunction refuses the removal for want of an issue that no longer exists,
+   * the tombstone is published and never delivered, and a cached client keeps
+   * its marks for a deleted issue forever. That is the exact failure the
+   * tombstone path was added to prevent, reintroduced by the gate.
+   *
+   * The previous evidence collected `MetadataChange` through
+   * `issueTestPlumbing`, which proves the PURGE and the EMISSION. It cannot
+   * prove RETRACTION, because nothing in it crosses the scoping boundary. These
+   * do: same real `Authority` over the same real policy as the rest of this file.
+   *
+   * Measured rather than presumed either way.
+   */
+  it('delivers the removal to the holder even though the issue is gone', async () => {
+    const { authority, grant, publishMarks, purge } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    // Precondition: the client HOLDS the mark. Without this the retraction
+    // assertion below is satisfied by a feed that never delivered anything.
+    expect(await bootstrapMarks(authority, reader)).toEqual([issueMarksRowId(reader, SHARED)])
+
+    const before = await authority.cursor()
+    await purge([reader])
+
+    const delivery = await authority.changesSince(before, humanPrincipal(reader))
+    expect(delivery?.kind).toBe('batch')
+    if (delivery?.kind !== 'batch') return
+    const marks = delivery.changes.filter((c) => c.entity === 'issueMarks')
+    // The retraction has to ARRIVE. A silently-dropped removal leaves the stale
+    // row painted forever, which is worse than never having published it.
+    expect(marks.map((c) => ({ id: c.entityId, op: c.op }))).toEqual([
+      { id: issueMarksRowId(reader, SHARED), op: 'remove' },
+    ])
+  })
+
+  it('delivers the OWNER’s removal too — the case with no grant edge to lean on', async () => {
+    // THE DISCRIMINATING CASE, and the one the grantee case above cannot reach.
+    // `mayReadIssueFromSnapshot` admits a reader either because they OWN the
+    // issue or because a grant edge admits them. A purge deletes the issue row
+    // but NOT its grants, so a grantee is still admitted by a surviving edge —
+    // which is why their retraction arrives, and why that passing proves less
+    // than it looks.
+    //
+    // The owner has no edge to lean on: their admission came from the row that
+    // was just deleted. If the conjunction refuses here, the owner's own client
+    // keeps its pin and read mark for an issue that is gone, forever, and the
+    // grantee case would have reported the tombstone working.
+    const { authority, publishMarks, purge } = await build()
+    await publishMarks(owner, 'T-owner')
+    expect(await bootstrapMarks(authority, owner)).toEqual([issueMarksRowId(owner, SHARED)])
+
+    const before = await authority.cursor()
+    await purge([owner])
+
+    const delivery = await authority.changesSince(before, humanPrincipal(owner))
+    expect(delivery?.kind).toBe('batch')
+    if (delivery?.kind !== 'batch') return
+    expect(
+      delivery.changes
+        .filter((c) => c.entity === 'issueMarks')
+        .map((c) => ({ id: c.entityId, op: c.op })),
+    ).toEqual([{ id: issueMarksRowId(owner, SHARED), op: 'remove' }])
+  })
+
+  it('leaves a SECOND issue’s marks alone, and tells a stranger nothing', async () => {
+    // Two controls in one: a purge that retracted everything would pass the case
+    // above, and a removal delivered to someone who never held the row would
+    // disclose that the issue had existed.
+    const { authority, grant, publishMarks, purge } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    await grant(reader, KEPT)
+    await publishMarks(reader, 'T-kept', KEPT)
+
+    const before = await authority.cursor()
+    await purge([reader])
+
+    const delivery = await authority.changesSince(before, humanPrincipal(reader))
+    if (delivery?.kind !== 'batch') return
+    const removed = delivery.changes
+      .filter((c) => c.entity === 'issueMarks' && c.op === 'remove')
+      .map((c) => c.entityId)
+    expect(removed).not.toContain(issueMarksRowId(reader, KEPT))
+
+    const stranger = await authority.changesSince(before, humanPrincipal(strangerUser))
+    if (stranger?.kind !== 'batch') return
+    expect(stranger.changes.filter((c) => c.entity === 'issueMarks')).toEqual([])
   })
 })

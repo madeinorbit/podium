@@ -223,14 +223,31 @@ describe('user-match AND issue-read', () => {
     })
   })
 
-  it('refuses a row whose issue is gone', async () => {
-    // Deleted or purged. The row is still correctly the owner's, and it still
-    // names an issue id — which is the thing that must not be disclosed once
-    // the issue is unreadable. Cleanup retracts these; this gate is what holds
-    // until it does, and the two are not substitutes.
+  it('DELIVERS a row whose issue is gone, to its own user and nobody else', async () => {
+    // REVERSED (PDM-408). This case used to assert a refusal, and the premise was
+    // wrong — PDM-139's source review is what exposed it, and the owner-retraction
+    // case in `issue-marks.feed.test.ts` is what proved it on the serving path.
+    //
+    // DELETED IS NOT REVOKED. Revoked means the issue still EXISTS and this
+    // person may no longer read it, so delivering their row keeps telling them it
+    // is there — refused, above, unchanged. Deleted means the row names an id
+    // that resolves to nothing, and the only principal it can ever reach is the
+    // person whose key it is, who put the mark there themselves. Nothing is
+    // disclosed to anyone.
+    //
+    // AND REFUSING IT WAS ACTIVELY HARMFUL. A purge's tombstone is scoped at
+    // DELIVERY time, by which point the issue is already deleted, so the refusal
+    // ate the retraction: the holder's client kept a pin and a read mark for an
+    // issue that no longer exists, permanently. The gate would have eaten exactly
+    // the correction that exists to prevent that.
     const { policy } = await fixture()
 
     expect(await recipients(policy, marksRef(owner, GHOST))).toEqual({
+      snapshot: owner,
+      delta: owner,
+    })
+    // Still nobody else's: "deleted" relaxes WHICH issues, never WHOSE row.
+    expect(await recipients(policy, marksRef(stranger, SHARED))).toEqual({
       snapshot: null,
       delta: null,
     })
