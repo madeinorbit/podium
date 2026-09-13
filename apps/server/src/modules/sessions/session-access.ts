@@ -35,7 +35,7 @@
 import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
-import { checkIssueAccess, type IssueAccessIndex, mayReadOwned } from '../../issue-authz'
+import { checkIssueAccess, type IssueAccessIndex, mayReadPrivate } from '../../issue-authz'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -185,15 +185,26 @@ export async function mayReadPrivateSession(
  * ABSENT OWNER IS NOT VISIBLE. `sessionOwner` answers `undefined` for a row with
  * a null owner column, and that is a refusal rather than a fallthrough — the
  * `undefined === undefined` hole `mayReadOwned` exists to have closed.
+ *
+ * OWNER-ONLY, AND ASKED OF THE PRIVATE PREDICATE (B2/PDM-251). This called
+ * `mayReadOwned` and handed it `target.grants`, which is the TASK rule: it
+ * admits anyone the grant list names. A session is owner-only under every scope
+ * (ADR 9 Amendment 1 D7; architecture section 10). The stored edges are still
+ * passed — as `legacyGrants`, evidence at a type that admits no `UserId` to
+ * `includes` — so they are carried and refused rather than silently dropped.
  */
-export async function mayReadSessionOwned(
+export async function mayReadSessionPrivate(
   userId: UserId | undefined,
   sessionId: SessionId,
   ownerOf: (sessionId: SessionId) => Promise<{ owner: UserId; grants: string[] } | undefined>,
 ): Promise<boolean> {
   const target = await ownerOf(sessionId)
   if (target === undefined) return false
-  return mayReadOwned(userId, { id: sessionId, owner: target.owner, grants: target.grants })
+  return mayReadPrivate(userId, {
+    id: sessionId,
+    owner: target.owner,
+    legacyGrants: target.grants,
+  })
 }
 
 export interface SessionAccessDeps {

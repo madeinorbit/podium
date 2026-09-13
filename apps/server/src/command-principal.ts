@@ -343,6 +343,33 @@ export interface AsyncDelegationIndex {
   onBehalfOfFor?(sessionId: SessionId): UserId | undefined | Promise<UserId | undefined>
 }
 
+/**
+ * RECONCILE THE CAPABILITY'S ATTRIBUTION WITH THE CHAIN-ROOT HUMAN (B2/PDM-251).
+ *
+ * `onBehalfOf` is resolved from the live delegation index and only FALLS BACK to
+ * `capability.onBehalfOf`. So the resolved human and the capability's own copy
+ * could disagree, and the capability was returned unreconciled — carrying the
+ * leaf's value, or none at all, while the principal carried the root's.
+ *
+ * That was invisible while every authorization decision about a person read the
+ * SCOPE (`scope.userId`). It stopped being invisible when sessions became
+ * `private` targets: `authorize`'s private arm reads `cap.onBehalfOf`, so an
+ * agent whose human came from the delegation index would have been refused its
+ * own delegator's session — D16.2's "exactly ONE human, at the ROOT of the
+ * chain" decided against a stale or absent copy of that fact.
+ *
+ * Reconciled HERE because this is where the root human is established, and
+ * fixing it at the consumers would be the same rule spelled once per consumer —
+ * which is how `SOLE_USER_ID` and `INSTANCE_OWNER` came to disagree (see
+ * `rename-target-path.ts`). It NARROWS nothing and WIDENS nothing: the value
+ * written is the one `onBehalfOfUser(principal)` already returns for this
+ * principal, so the two halves of the attribution pair now agree by construction
+ * rather than by every caller remembering to prefer one of them.
+ */
+function withResolvedHuman(capability: Capability, onBehalfOf: UserId): Capability {
+  return capability.onBehalfOf === onBehalfOf ? capability : { ...capability, onBehalfOf }
+}
+
 /** Resolve a principal where the live delegation index reads durable async state. */
 export async function resolvePrincipalAsync(
   capability: Capability,
@@ -368,7 +395,13 @@ export async function resolvePrincipalAsync(
   if (onBehalfOf === undefined) {
     throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
   }
-  return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
+  return {
+    kind: 'agent',
+    agentSessionId: actorSessionId,
+    onBehalfOf,
+    capability: withResolvedHuman(capability, onBehalfOf),
+    chain,
+  }
 }
 
 export function resolvePrincipal(
@@ -397,7 +430,13 @@ export function resolvePrincipal(
   if (onBehalfOf === undefined) {
     throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
   }
-  return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
+  return {
+    kind: 'agent',
+    agentSessionId: actorSessionId,
+    onBehalfOf,
+    capability: withResolvedHuman(capability, onBehalfOf),
+    chain,
+  }
 }
 
 /** A system principal. Constructed in-process only — it has no transport row. */

@@ -170,25 +170,44 @@ interface Registration {
 // ---------------------------------------------------------------------------
 
 /**
- * A session as an OWNED entity. Owner and grants are read from the STORE, never
- * from the payload (ADR 3 D7), and re-read on every apply so a revoked grant bites
- * on an outbox drain (ADR 3 D8).
+ * A session as a PRIVATE resource — OWNER-ONLY under every scope (B2/PDM-251).
  *
- * Until POD-1075 there is no `owner` column, so today every existing session is
- * owned by the instance's first admin. That is a TRANSITIONAL read, not a
- * fallback: an
- * unknown session resolves to `undefined` (⇒ denied ⇒ silent no-op), which is what
- * makes today's not-found behaviour and tomorrow's invisible-session behaviour the
- * same code path.
+ * The owner is read from the STORE, never from the payload (ADR 3 D7), and
+ * re-read on every apply so a change of authority bites on an outbox drain
+ * (ADR 3 D8). An unknown session resolves to `undefined` (⇒ denied ⇒ silent
+ * no-op), which is what makes not-found and invisible-session the same code path.
+ *
+ * ── WHY THIS IS NO LONGER `kind: 'owned'` ────────────────────────────────────
+ *
+ * It used to build the OWNER-OR-GRANT shape, which is the TASK rule: under an
+ * `owned` scope `authorize` reads the grant list, so a member granted on the
+ * shared TASK a session runs under could rename and drive that session. ADR 9
+ * Amendment 1 D7 and architecture section 10 say the opposite — cross-user
+ * session grants are INEFFECTIVE, and D13 bounds what a member may learn of
+ * another's session on a shared task to owner, title and live/idle state, which
+ * is a narrower PROJECTION and not admission to the resource.
+ *
+ * B1 (PDM-133) had already made `sessionOwner` return an empty grant list, so
+ * nothing was admitted through here in practice. That was a CONVENTION held in
+ * one function, one edit from being undone and invisible to the compiler. The
+ * `private` member makes it a PROPERTY: its grant evidence is typed
+ * `LegacyGrant[]`, so `legacyGrants.includes(someUserId)` does not compile, and
+ * restoring the bypass is a deliberate cast at a named type rather than a
+ * plausible-looking one-line edit. Same argument as PDM-276's compile error over
+ * a guard.
+ *
+ * Nothing is passed for `legacyGrants` because `sessionOwner` no longer reads the
+ * edge table at all (B1 requirement 4). That is an absence of evidence rather
+ * than an assertion that no rows exist.
  */
-const ownedSession: TargetResolver = async (input, _principal, deps) => {
+const privateSession: TargetResolver = async (input, _principal, deps) => {
   // Same decode edge as `sessionIdOf` below; kept inline because the empty-string
   // case returns EARLY here rather than being handed on.
   const sessionId = typeof input.sessionId === 'string' ? asSessionId(input.sessionId) : ''
   if (!sessionId) return undefined
   const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
-  return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
+  return { kind: 'private', id: sessionId, owner: owner.owner }
 }
 
 /** A per-user row: always the CALLER's own. The payload cannot name a user, so
@@ -243,7 +262,7 @@ const issueIdOrNull = (v: unknown): IssueId | null => (typeof v === 'string' ? a
 
 const REGISTRATIONS: Record<string, Registration> = {
   'sessions.rename': {
-    target: ownedSession,
+    target: privateSession,
     handler: (input, principal, deps) => {
       const name = str(input.name)
       // §3.1.3 A3: "a human set this name" is decided from the ON-BEHALF-OF human
@@ -260,25 +279,25 @@ const REGISTRATIONS: Record<string, Registration> = {
     },
   },
   'sessions.setArchived': {
-    target: ownedSession,
+    target: privateSession,
     handler: (input, _principal, deps) => {
       return deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
     },
   },
   'sessions.setWorkState': {
-    target: ownedSession,
+    target: privateSession,
     handler: (input, _principal, deps) => {
       return deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
     },
   },
   'sessions.setIssueId': {
-    target: ownedSession,
+    target: privateSession,
     handler: (input, _principal, deps) => {
       return deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
     },
   },
   'sessions.dismissOffer': {
-    target: ownedSession,
+    target: privateSession,
     handler: async (input, _principal, deps) => {
       // The stale-stamp case returns false and writes nothing — see the contract:
       // a dismissal names ONE offer, so a click aimed at a replaced offer must not
@@ -338,7 +357,7 @@ const REGISTRATIONS: Record<string, Registration> = {
     },
   },
   'sessions.setDraft': {
-    target: ownedSession,
+    target: privateSession,
     handler: async (input, principal, deps) => {
       const edit = input.edit as { kind: 'replace'; text: string }
       // The op-stream RESERVATION's one enforced rule (see the contract): a stale

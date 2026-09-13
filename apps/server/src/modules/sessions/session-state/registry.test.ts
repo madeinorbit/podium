@@ -68,9 +68,25 @@ async function fixture() {
    * instrument. Either way the capability under test must be the one the policy
    * is about, and for a per-user row that is a `self` scope naming its user.
    */
+  /**
+   * `onBehalfOf` IS ON THE CAPABILITY AS WELL AS THE PRINCIPAL (B2/PDM-251), and
+   * that is what every transport actually mints — `userCommandPrincipal` sets
+   * `actorUser` and `onBehalfOf` on the capability, and `resolvePrincipal`
+   * reconciles an agent's to the chain-root human. This fixture carried it only
+   * on the principal, which was indistinguishable from the real shape while
+   * personal targets were decided by `scope.userId`; a `private` target is
+   * decided by `cap.onBehalfOf`, so the under-specified capability would refuse
+   * the session's own owner and the tests would fail for a reason that exists
+   * nowhere in the product.
+   */
   const asUser = (userId: string, scope: 'owned' | 'self'): SessionStatePrincipal => ({
     userId: asUserId(userId),
-    capability: { role: 'worker', scope: { kind: scope, userId: asUserId(userId) } },
+    capability: {
+      role: 'worker',
+      scope: { kind: scope, userId: asUserId(userId) },
+      actorUser: asUserId(userId),
+      onBehalfOf: asUserId(userId),
+    },
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
@@ -317,7 +333,11 @@ describe('per-user writes are SELF-SCOPED', () => {
 // AC: owner-or-grant on the shared session writes; denial == not-found
 // ---------------------------------------------------------------------------
 
-describe('owner-or-grant policy on the shared session writes', () => {
+// The writes below are the SHARED session commands. They are no longer
+// owner-or-GRANT: a session is a private resource and these are owner-only
+// (B2/PDM-251). The describe is renamed rather than left, because a block called
+// "owner-or-grant" is where someone looks to confirm that grants work.
+describe('owner-only policy on the shared session writes', () => {
   const SHARED = [
     'sessions.rename',
     'sessions.setArchived',
@@ -342,15 +362,13 @@ describe('owner-or-grant policy on the shared session writes', () => {
   }
 
   it.each(SHARED)('%s: the OWNER is allowed', async (name) => {
-    const { sessionState, session } = await fixture()
+    const { sessionState, session, asUser } = await fixture()
     const { sessionId } = await session()
     // Sessions are owned by firstAdminMemberId() until POD-1075 (SessionLifecycle.sessionOwner).
-    const owner: SessionStatePrincipal = {
-      userId: firstAdminMemberId(),
-      capability: { role: 'worker', scope: { kind: 'owned', userId: firstAdminMemberId() } },
-      onBehalfOf: firstAdminMemberId(),
-      humanDirect: true,
-    }
+    // Built through `asUser` rather than spelled inline: the inline literal omitted
+    // the capability's own `onBehalfOf`, which no transport omits, and a `private`
+    // target is decided by that field (B2/PDM-251).
+    const owner = asUser(firstAdminMemberId(), 'owned')
 
     expect((await sessionState.execute(name, inputFor(name, sessionId), owner)).outcome).toBe('applied')
   })
@@ -407,49 +425,71 @@ describe('owner-or-grant policy on the shared session writes', () => {
 // AC: offline-drain re-authorization (ADR 3 D8, §3.1.3 A1)
 // ---------------------------------------------------------------------------
 
-describe('a queued write drained AFTER the grant was revoked is rejected at apply time', () => {
+describe('a queued write drained AFTER the principal lost the session is rejected at apply time', () => {
   /**
    * The scenario D8 was designed for, and the one §3.1.3 A1 makes non-theoretical:
    * the session-state writes are offline-eligible, so a rename can sit in the client
    * Outbox for hours. When it drains, the principal's rights must be resolved
    * AGAIN — not read from a capability frozen when the write was authored.
    *
-   * Modelled by moving the stored grant between two applies of the SAME envelope
-   * call, because that is exactly what a drain is: the same envelope, later.
+   * Modelled by moving the stored AUTHORITY between two applies of the SAME
+   * envelope call, because that is exactly what a drain is: the same envelope,
+   * later.
+   *
+   * ── WHAT MOVES HERE CHANGED, AND WHY (B2/PDM-251) ──────────────────────────
+   *
+   * The lever used to be a GRANT: the session was owned by the first admin, BOB
+   * was in its grant list, and `revoke()` emptied the list. That made the
+   * positive half — "applies while granted" — depend on a grant admitting a
+   * second person to a SESSION, which is exactly what PDM-251 removed. A session
+   * is a private resource, owner-only under every scope (ADR 9 Amendment 1 D7;
+   * architecture section 10), so no grant list can produce that `applied` any
+   * more and the fixture could no longer say YES.
+   *
+   * THE SUBJECT OF THESE TESTS IS NOT THE GRANT. It is apply-time
+   * RE-AUTHORIZATION: that rights are re-resolved live on the drain rather than
+   * frozen at authoring, and that the dedup cache cannot launder a write the
+   * principal may no longer make. That property is preserved exactly, with
+   * OWNERSHIP as the thing that moves — which is a stronger lever anyway,
+   * because it is the only thing that now decides a session at all.
+   *
+   * The override keeps the read LIVE, which is the property under test. A
+   * snapshot would make these tests pass trivially.
    */
-  async function grantableFixture() {
+  async function ownershipFixture() {
     const base = await fixture()
-    let grants: string[] = [BOB]
-    // Override the owner lookup so the grant list is a LIVE read, which is the
-    // property under test. A snapshot would make this test pass trivially.
+    let owner: string | null = BOB
     const sessions = base.reg.modules.sessions as unknown as {
       sessionOwner: (id: string) => { owner: string | null; grants: string[] } | undefined
     }
     const realOwner = sessions.sessionOwner.bind(sessions)
     sessions.sessionOwner = (id: string) => {
       const found = realOwner(id)
-      return found ? { owner: firstAdminMemberId(), grants } : undefined
+      // `grants` stays EMPTY on purpose: it is what B1 made it, and pinning it
+      // here means a future edit that starts admitting grantees again cannot
+      // make these tests pass by that route.
+      return found ? { owner, grants: [] } : undefined
     }
-    return { ...base, revoke: () => (grants = []) }
+    return { ...base, revoke: () => (owner = firstAdminMemberId()) }
   }
 
-  it('the SAME queued rename applies while granted and is rejected after revocation', async () => {
-    const { sessionState, asUser, session, revoke, reg } = await grantableFixture()
+  it('the SAME queued rename applies while owned and is rejected after authority moves', async () => {
+    const { sessionState, asUser, session, revoke, reg } = await ownershipFixture()
     const { sessionId } = await session()
-    const grantee = asUser(BOB, 'owned')
+    const holder = asUser(BOB, 'owned')
 
-    // Drain #1, still granted: applied. This is the arm that proves the fixture
+    // Drain #1, still the owner: applied. This is the arm that proves the fixture
     // can say YES — without it, the rejection below would prove nothing.
     const queued = { sessionId, name: 'from the outbox', mutationId: 'm-offline-1' }
-    expect((await sessionState.execute('sessions.rename', queued, grantee)).outcome).toBe('applied')
+    expect((await sessionState.execute('sessions.rename', queued, holder)).outcome).toBe('applied')
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.name).toBe('from the outbox')
 
     revoke()
 
-    // Drain #2 — a DIFFERENT queued write, authored before the revocation, draining
+    // Drain #2 — a DIFFERENT queued write, authored before authority moved, draining
     // after it. Rejected at apply time.
     const laterQueued = { sessionId, name: 'authored before revocation', mutationId: 'm-offline-2' }
-    expect((await sessionState.execute('sessions.rename', laterQueued, grantee)).outcome).toBe('denied')
+    expect((await sessionState.execute('sessions.rename', laterQueued, holder)).outcome).toBe('denied')
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.name).toBe('from the outbox')
   })
 
@@ -457,18 +497,64 @@ describe('a queued write drained AFTER the grant was revoked is rejected at appl
     // The order-of-operations assertion. If idempotency ran before authorization,
     // this replay would return the cached result and read as a success — the dedup
     // cache would have laundered a write the principal may no longer make.
-    const { sessionState, asUser, session, revoke } = await grantableFixture()
+    const { sessionState, asUser, session, revoke } = await ownershipFixture()
     const { sessionId } = await session()
-    const grantee = asUser(BOB, 'owned')
+    const holder = asUser(BOB, 'owned')
     const write = { sessionId, name: 'first apply', mutationId: 'm-replay' }
 
-    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('applied')
-    // Replay while STILL granted: served from the cache, as idempotency requires.
-    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('replayed')
+    expect((await sessionState.execute('sessions.rename', write, holder)).outcome).toBe('applied')
+    // Replay while STILL the owner: served from the cache, as idempotency requires.
+    expect((await sessionState.execute('sessions.rename', write, holder)).outcome).toBe('replayed')
 
     revoke()
 
-    expect((await sessionState.execute('sessions.rename', write, grantee)).outcome).toBe('denied')
+    expect((await sessionState.execute('sessions.rename', write, holder)).outcome).toBe('denied')
+  })
+
+  /**
+   * THE NEGATIVE THE OLD FIXTURE COULD NOT STATE (B2/PDM-251), and the one this
+   * issue exists for: a live grant edge naming BOB does not admit him to a
+   * session somebody else owns, on the SAME envelope the two tests above drive.
+   *
+   * It is asserted here rather than only at the model, because the model answers
+   * about a target and this answers about the PRODUCER — `registry.ts` used to
+   * build `kind: 'owned'` from `sessionOwner`, and a repoint that missed this
+   * file would leave the model correct and the command still reachable.
+   */
+  it('a GRANT on the session does not admit a second person to it', async () => {
+    const base = await fixture()
+    const sessions = base.reg.modules.sessions as unknown as {
+      sessionOwner: (id: string) => { owner: string | null; grants: string[] } | undefined
+    }
+    const realOwner = sessions.sessionOwner.bind(sessions)
+    // A grant list that DOES name BOB — the shape the old fixture relied on.
+    sessions.sessionOwner = (id: string) => {
+      const found = realOwner(id)
+      return found ? { owner: firstAdminMemberId(), grants: [BOB] } : undefined
+    }
+    const { sessionId } = await base.session()
+
+    expect(
+      (
+        await base.sessionState.execute(
+          'sessions.rename',
+          { sessionId, name: 'bob was here', mutationId: 'm-grant-1' },
+          base.asUser(BOB, 'owned'),
+        )
+      ).outcome,
+    ).toBe('denied')
+    // COUNTERFACTUAL: the OWNER drives the identical envelope, so the denial
+    // above is the grant being refused and not a broken fixture or a rename that
+    // cannot work at all.
+    expect(
+      (
+        await base.sessionState.execute(
+          'sessions.rename',
+          { sessionId, name: 'the owner renames it', mutationId: 'm-grant-2' },
+          base.asUser(firstAdminMemberId(), 'owned'),
+        )
+      ).outcome,
+    ).toBe('applied')
   })
 })
 

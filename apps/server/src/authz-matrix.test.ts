@@ -57,6 +57,7 @@ import {
 import {
   asMachineId,
   asIssueId,
+  asLegacyGrant,
   asSessionId,
   asUserId,
   authorize,
@@ -476,6 +477,22 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     scope: { kind: 'owned', userId: user },
   })
 
+  /**
+   * ── THESE TWO MODEL THE `owned` SHAPE, WHICH IS THE TASK RULE (B2/PDM-251) ──
+   *
+   * The names are kept because the argued prose throughout this describe refers
+   * to them, but read them as "an owner-or-grant entity" rather than as what the
+   * product now builds for a session. Since B2 the SERVER builds sessions as
+   * `kind: 'private'` (`session-state/registry.ts#privateSession`,
+   * `rename-target-path.ts#privateTarget`), and the `owned` shape is reached only
+   * by TASKS — `modules/issues/access-index.ts` and `modules/issues/service/reads.ts`.
+   *
+   * Everything below therefore still asserts exactly what it says about the
+   * `owned` arm, which B2 deliberately did NOT change: narrowing it would move
+   * task exposure, which the charter gives to C4/PDM-144. The PRIVATE legs — the
+   * ones that decide a real session today — are asserted in their own describe
+   * beneath this one, and the grantee case is where the two rules differ.
+   */
   const someoneElsesSession = { kind: 'owned', id: 's1', owner: OTHER } as const
   const mySession = { kind: 'owned', id: 's2', owner: OWNER } as const
 
@@ -620,6 +637,132 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
         transport.tag,
       ).toBe('forbidden')
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// D7 / D13 — A SESSION IS PRIVATE, ON EVERY TRANSPORT (B2/PDM-251)
+// ---------------------------------------------------------------------------
+
+/**
+ * The describe above matrixes the `owned` shape because that is what the two
+ * session producers used to build. They now build `private`, so this is the
+ * matrix that actually covers a session read, and it exists because the
+ * difference between the two rules is invisible until a GRANT is present:
+ * `owned` admits a grantee, `private` does not, and every other case agrees.
+ *
+ * ADR 9 Amendment 1 D7 (a member may not view or drive another member's
+ * session), architecture section 10 (cross-user session grants are INEFFECTIVE),
+ * and D13 (a member learns owner, title and live/idle state of another's session
+ * on a shared task — a projection, not admission to the resource).
+ */
+describe('D7 — a private session is owner-only on every transport, grant or no grant', () => {
+  /** The capability a transport mints FOR a given person: both halves of the
+   *  attribution pair move together, which is what `userCommandPrincipal` and
+   *  `resolvePrincipal` actually produce. Overriding `scope` alone would leave
+   *  `onBehalfOf` naming somebody else and decide these cases by accident. */
+  const asPerson = (transport: Transport, user: UserId): Capability => ({
+    ...transport.capabilityFor(AGENT_OF_OWNER),
+    scope: { kind: 'owned', userId: user },
+    onBehalfOf: user,
+  })
+
+  const READ_LEGS = TRANSPORTS.filter((t) => t.tag !== 'outbox-apply')
+
+  const theirPrivateSession = { kind: 'private', id: 'ps1', owner: OTHER } as const
+  const myPrivateSession = { kind: 'private', id: 'ps2', owner: OWNER } as const
+
+  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
+    '%s — the OWNER reads their own private session',
+    (_tag, transport) => {
+      // The can-say-YES arm. Without it every refusal below would also be
+      // produced by a capability that reaches nothing at all.
+      expect(authorize(asPerson(transport, OWNER), 'read', myPrivateSession)).toBe('allow')
+    },
+  )
+
+  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
+    '%s — a second person does not read it',
+    (_tag, transport) => {
+      expect(authorize(asPerson(transport, OWNER), 'read', theirPrivateSession)).toBe('forbidden')
+    },
+  )
+
+  /**
+   * THE ASSERTION THIS ISSUE EXISTS FOR, and the one place the private rule and
+   * the `owned` rule give different answers. The sibling describe's
+   * 'a GRANTEE reads what was shared with them' is the SAME question against the
+   * `owned` shape and still answers `allow` — correctly, because that shape
+   * carries TASKS. Put beside each other, the pair is the whole of PDM-251: the
+   * bug was that a session was being asked the task question.
+   */
+  it.each(READ_LEGS.map((t) => [t.tag, t] as const))(
+    '%s — and a GRANTEE does not either, which is where this differs from a task',
+    (_tag, transport) => {
+      const shared = {
+        kind: 'private',
+        id: 'ps3',
+        owner: OTHER,
+        legacyGrants: [asLegacyGrant(GRANTEE)],
+      } as const
+      expect(authorize(asPerson(transport, GRANTEE), 'read', shared)).toBe('forbidden')
+      // The SAME facts in the `owned` shape are an allow — so the refusal above
+      // is the private rule talking, not an unreachable capability or a fixture
+      // that names nobody.
+      expect(
+        authorize(asPerson(transport, GRANTEE), 'read', {
+          kind: 'owned',
+          id: 'ps3',
+          owner: OTHER,
+          grants: [GRANTEE],
+        }),
+      ).toBe('allow')
+    },
+  )
+
+  /**
+   * THE OWNERSHIP CONJUNCT, ISOLATED — and this test exists because the grantee
+   * case above does NOT isolate it.
+   *
+   * `privateTargetDecision` is a CONJUNCTION (A5.7/PDM-259): ownership must hold
+   * AND the scope must reach. Under an `owned` scope naming the grantee, the
+   * scope conjunct already refuses a session owned by somebody else, so the
+   * grantee assertions above would still pass if the OWNERSHIP half were broken
+   * — proved by deliberate break, which is how this test came to be written.
+   * An assertion whose expected value is also what the half-broken code produces
+   * cannot fail (false-green catalogue 19).
+   *
+   * An `all` scope reaches every private resource its owner holds, so the scope
+   * conjunct says ALLOW here and ownership is the only thing left refusing. That
+   * makes this the witness for the grant clause A5.1/PDM-245 removed — "an admin
+   * named by a grant edge still reached another member's session" — and it is
+   * the assertion that reddens if the clause comes back.
+   */
+  it('an ADMIN does not read another member’s private session, GRANT EDGE OR NOT (D7)', () => {
+    const admin: Capability = { role: 'admin', scope: { kind: 'all' }, onBehalfOf: GRANTEE }
+    expect(authorize(admin, 'read', theirPrivateSession)).toBe('forbidden')
+    expect(authorize(admin, 'write', theirPrivateSession)).toBe('forbidden')
+
+    // The A5.1 case: an unconstrained scope PLUS an edge naming this very admin.
+    // Only ownership refuses this, so it is the one assertion here that fails if
+    // the grant clause is restored.
+    const withEdge = {
+      kind: 'private',
+      id: 'ps6',
+      owner: OTHER,
+      legacyGrants: [asLegacyGrant(GRANTEE)],
+    } as const
+    expect(authorize(admin, 'read', withEdge)).toBe('forbidden')
+    expect(authorize(admin, 'write', withEdge)).toBe('forbidden')
+
+    // Same capability, its OWN private session: the refusal is ownership, not the
+    // admin capability failing to reach anything.
+    expect(authorize(admin, 'read', { kind: 'private', id: 'ps4', owner: GRANTEE })).toBe('allow')
+  })
+
+  it('an UNOWNED private session is refused rather than ambient (§3.1.1)', () => {
+    const unowned = { kind: 'private', id: 'ps5', owner: null } as const
+    expect(authorize(asPerson(TRANSPORTS[0] as Transport, OWNER), 'read', unowned)).toBe('forbidden')
   })
 })
 

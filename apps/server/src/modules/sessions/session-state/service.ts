@@ -48,6 +48,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { IssueRow } from '../../../store/types'
+import { mayReadPrivate } from '../../../issue-authz'
 import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
@@ -363,12 +364,25 @@ export class SessionStateService {
     // [PDM-291]. Same shape as `memory/visibility.ts`'s `reader.kind ===
     // 'system'`, and the same reason: an internal read has no owner to compare.
     if (isInternalSessionRead(reader)) return true
-    // OWNER OR GRANTEE, AND NOTHING ELSE. There is deliberately no role or
-    // scope arm: ADR 9 Amendment 1 D7 (an admin may not view another member's
-    // session) is a rule the model's `mayReadOwned` already cannot break, and
-    // this is the second copy of it. A narrow agent scope never widened the
-    // on-behalf-of human's visibility; a wide one no longer widens it either.
-    return target.owner === reader.userId || target.grants.includes(reader.userId)
+    // OWNER, AND NOTHING ELSE — asked of the MODEL rather than spelled here
+    // (B2/PDM-251). There is deliberately no role or scope arm: ADR 9 Amendment
+    // 1 D7 (an admin may not view another member's session) is a rule the model
+    // cannot break. A narrow agent scope never widened the on-behalf-of human's
+    // visibility; a wide one does not either.
+    //
+    // This was `target.owner === reader.userId || target.grants.includes(...)`,
+    // hand-rolled — the owner-or-GRANT rule, which is the TASK predicate, and
+    // the "second spelling of an ownership rule" that `mayReadOwned`'s own
+    // header says `authz-single-home` fails the build over. It admitted nobody
+    // in practice only because `sessionOwner` happens to return an empty list,
+    // which is a convention in another function rather than a property here.
+    // `mayReadPrivate` takes the edges as `legacyGrants`, whose type admits no
+    // `UserId` to `includes`, so the bypass cannot be re-spelled by accident.
+    return mayReadPrivate(reader.userId, {
+      id: sessionId,
+      owner: target.owner,
+      legacyGrants: target.grants,
+    })
   }
 
   /** One reader-scoped set computation. Principals are already admitted by the
@@ -384,18 +398,24 @@ export class SessionStateService {
     if (candidates.length === 0) return visible
     const ids = [...new Set(candidates)]
     await this.primeOwnerMemo(memo, ids)
-    // THE SAME RULE AS `canReadSession`, spelled a second time over a batch
-    // rather than calling it per id — the two are copies, and PDM-291 changed
-    // both. Keep them in step.
+    // THE SAME RULE AS `canReadSession`, over a batch rather than per id — the
+    // two are copies, and PDM-291 changed both. Keep them in step. B2/PDM-251
+    // moved the decision itself into the model on both sides, so what is
+    // duplicated now is the LOOP, not the policy.
     // `undefined` IS the internal read, and it is not a missing user id: the
     // arm below admits on it, where an absent id would have to refuse.
-    const userId = isInternalSessionRead(reader) ? undefined : reader.userId
+    const internal = isInternalSessionRead(reader)
     for (const sessionId of ids) {
       const target = await this.ports.sessionOwner({ sessionId, memo })
       if (!target) continue
-      if (userId === undefined || target.owner === userId || target.grants.includes(userId)) {
-        visible.add(sessionId)
-      }
+      const visibleToReader =
+        internal ||
+        mayReadPrivate(reader.userId, {
+          id: sessionId,
+          owner: target.owner,
+          legacyGrants: target.grants,
+        })
+      if (visibleToReader) visible.add(sessionId)
     }
     return visible
   }

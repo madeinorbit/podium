@@ -8,6 +8,7 @@
  */
 
 import {
+  asLegacyGrant,
   asUserId,
   authorize,
   type Capability,
@@ -134,6 +135,20 @@ export async function checkIssueAccess(
  * `viewer` is the narrowest role that admits `read`, so the decision here is
  * governed entirely by ownership and grants — the role gate contributes nothing
  * it could accidentally widen.
+ *
+ * ── THIS IS THE TASK PREDICATE, AND ONLY THE TASK PREDICATE (B2/PDM-251) ─────
+ *
+ * `owner-or-grant` is the OWNED-ENTITY rule: it admits a second person, which is
+ * what a shared task is for and what C4 (PDM-144) will replace in one reviewed
+ * change. It is therefore the WRONG question to ask about a SESSION, a run, an
+ * automation or a machine — those are owner-only under every scope (ADR 9
+ * Amendment 1 D7; architecture section 10, which requires cross-user session
+ * grants to be INEFFECTIVE). Ask {@link mayReadPrivate} instead.
+ *
+ * The two are kept apart by the TYPE rather than by this paragraph: a private
+ * target carries `legacyGrants` at the {@link asLegacyGrant} brand, so the
+ * expression that was the defect — `grants.includes(userId)` — does not compile
+ * against one. See `@podium/model`'s `authz/axes.ts`.
  */
 export function mayReadOwned(
   userId: UserId | undefined,
@@ -146,6 +161,43 @@ export function mayReadOwned(
       id: entity.id,
       owner: entity.owner ?? null,
       grants: entity.grants,
+    }) === 'allow'
+  )
+}
+
+/**
+ * OWNER-ONLY READ OF A PRIVATE RESOURCE, decided by the model (B2/PDM-251).
+ *
+ * The counterpart to {@link mayReadOwned} for the resources that are NOT
+ * owner-or-grant: a session, a run, an automation, a machine. `authorize`
+ * answers a `private` target from ownership alone, above the scope switch, so
+ * there is no arm here that a grant, a role or an `--outside-scope` flag can
+ * widen — an admin, a grantee and a stranger get the identical answer.
+ *
+ * WHY THE GRANT ROWS ARE CARRIED RATHER THAN DROPPED. The `grants` edge table is
+ * real and populated for issue-backed resources, and a reader that silently
+ * discarded its rows would be making a second, unstated policy out of an
+ * omission. They are passed as `legacyGrants` — EVIDENCE at a type that admits no
+ * `UserId` to `includes` — so they are carried, shown, and refused. Callers with
+ * nothing to hand over pass nothing; that is an absence of evidence, not an
+ * assertion that no edges exist.
+ *
+ * `viewer` is again the narrowest role admitting `read`, so ownership decides
+ * alone. `undefined` for the reader fails closed: a call with no human behind it
+ * reaches nobody's private resource, rather than comparing two absent ids as
+ * equal (the `undefined === undefined` hole POD-335 closed for owned entities).
+ */
+export function mayReadPrivate(
+  userId: UserId | undefined,
+  entity: { id: string; owner: string | null | undefined; legacyGrants?: readonly string[] },
+): boolean {
+  if (userId === undefined) return false
+  return (
+    authorize({ role: 'viewer', scope: { kind: 'owned', userId: asUserId(userId) }, onBehalfOf: asUserId(userId) }, 'read', {
+      kind: 'private',
+      id: entity.id,
+      owner: entity.owner ?? null,
+      ...(entity.legacyGrants ? { legacyGrants: entity.legacyGrants.map(asLegacyGrant) } : {}),
     }) === 'allow'
   )
 }

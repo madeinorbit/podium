@@ -22,7 +22,7 @@
 import { asUserId, SessionIdField, type SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { mayReadSessionOwned } from './session-access'
+import { mayReadSessionPrivate } from './session-access'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 
@@ -40,7 +40,7 @@ const q = defineQuery<FamilyState>()
 // needed the same answer; keeping the rule private here would have meant
 // spelling it twice, which is what `authz-single-home` fails the build over.
 async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
-  return await mayReadSessionOwned(
+  return await mayReadSessionPrivate(
     state.caller.userId,
     sessionId,
     async (id) => await state.modules.sessions.sessionOwner(id as never),

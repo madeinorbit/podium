@@ -377,10 +377,24 @@ function privateScopeReach(scope: IssueScope, action: IssueAction, owner: string
  * OWNER-ONLY, WITH NO GRANT CLAUSE, and that is a census result rather than a
  * preference. No TASK reaches an `owned` target under any of these three scopes:
  * the server's `checkIssueAccess` builds an `owned` target only when the scope
- * IS `owned`, and `mayReadOwned` always mints an `owned` SCOPE — so the live
- * producers here are `session-state/registry.ts` and `rename-target-path.ts`,
- * and both build SESSIONS. The owner-or-grant TASK rule lives under the `owned`
- * scope arm below, untouched, where the same shape really does carry issues.
+ * IS `owned`, and `mayReadOwned` always mints an `owned` SCOPE. The owner-or-grant
+ * TASK rule lives under the `owned` scope arm below, untouched, where the same
+ * shape really does carry issues.
+ *
+ * THE `owned` HALF OF THIS FUNCTION NOW HAS NO LIVE PRODUCER (B2/PDM-251). The
+ * two files this paragraph used to name — `session-state/registry.ts` and
+ * `rename-target-path.ts` — built SESSIONS in the `owned` shape, and that was
+ * the whole reason an `owned` target could arrive under a person-less scope.
+ * Both now build `private`, which is decided above the scope switch. So the
+ * remaining live traffic through here is the `per-user-row` arm, which
+ * `registry.ts#ownPerUserRow` still produces under every scope.
+ *
+ * The `owned` arm is KEPT rather than deleted, and this is not tidiness: it is
+ * the correct answer for the shape, the shape is still constructible, and a
+ * function that refuses is the right thing to meet if a future producer builds
+ * one. What has gone is the traffic, not the rule — recorded here because an
+ * unwitnessed rule that nobody says is unwitnessed is how a green stops meaning
+ * anything (false-green catalogue 20).
  *
  * A per-user row is owner-only by construction and not merely by policy: ADR 9
  * D3 rule 4 makes the per-user class NON-GRANTABLE, so there is no grant list to
@@ -470,10 +484,14 @@ function personalTargetDecision(
  *  the `ownerUserId` COLUMN rather than from an instance's first admin. The two
  *  files the old parenthesis named as the only producers of the `owned` shape are
  *  no longer that census either — `presence-registry.ts` does not exist (it is
- *  `sessions/session-state/registry.ts`), and the current live producers of owned
- *  and per-user TARGETS are that file and `sessions/rename-target-path.ts`. A
- *  comment about what cannot be reached is load-bearing exactly as long as it is
- *  true, which is why it is restated rather than deleted.
+ *  `sessions/session-state/registry.ts`). A comment about what cannot be reached
+ *  is load-bearing exactly as long as it is true, which is why it is restated
+ *  rather than deleted — and restated AGAIN here, because B2/PDM-251 moved both
+ *  of those files onto the `private` member. The live producers of an `owned`
+ *  TARGET are now the TASK sites only (`modules/issues/access-index.ts`,
+ *  `modules/issues/service/reads.ts`, and `issue-authz.ts#mayReadOwned`), and
+ *  every one of them is reached under an `owned` SCOPE. `per-user-row` targets
+ *  still come from `sessions/session-state/registry.ts#ownPerUserRow`.
  *
  *  ALSO REJECTED, BY THE ADR AND NOT BY THIS FILE: keeping reads scope-free and
  *  filtering rows at the projection layer. That means the authority computed a
@@ -529,6 +547,10 @@ export function authorize(
       // member's private rows. Nobody recorded that decision; it is what
       // "admin implies scope all" meant once scope-all also meant "sees all".
       //
+      // (Both files now build `kind: 'private'` — B2/PDM-251 — so they are
+      // decided above this switch rather than in it. The arm below is kept for
+      // the shape, not for their traffic; see `personalTargetDecision`.)
+      //
       // A private target is therefore decided by OWNERSHIP even here, against
       // `cap.onBehalfOf` — the branded human this call is made FOR, stamped from
       // the authenticated transport and never from a payload. An admin keeps
@@ -561,12 +583,18 @@ export function authorize(
       // Under an `all` scope this arm is unreachable by any TASK, which is what
       // makes removing the clause safe: `checkIssueAccess` returns before it
       // builds a target when the scope is `all`, and `mayReadOwned` always mints
-      // an `owned` SCOPE, so the only live producers of an `owned` target under
-      // an unconstrained capability are `session-state/registry.ts` and
-      // `rename-target-path.ts` — both SESSIONS. This arm is a private-resource
-      // path wearing the task target's name, and it is decided as private until
-      // those producers are repointed at the `private` member above, which is the
-      // later integration sweep's to do.
+      // an `owned` SCOPE.
+      //
+      // THAT SWEEP HAS HAPPENED (B2/PDM-251). This paragraph used to end "it is
+      // decided as private until those producers are repointed at the `private`
+      // member above, which is the later integration sweep's to do". They are
+      // repointed: `session-state/registry.ts#privateSession` and
+      // `rename-target-path.ts#privateTarget` build `kind: 'private'`, as do the
+      // server's session READ paths (`sessions/session-access.ts`,
+      // `memory/visibility.ts`, `session-state/service.ts`). So this arm no
+      // longer has a private-resource path wearing the task target's name
+      // running through it — it is the task shape only, and empty of live
+      // traffic under this scope.
       //
       // The `owned` SCOPE's arm below is NOT changed with it. There the same
       // shape does still carry issues, and narrowing it would move task exposure
