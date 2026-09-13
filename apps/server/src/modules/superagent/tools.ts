@@ -221,7 +221,13 @@ export async function buildSuperagentTools(
           } else {
             // Not started yet — issues.start owns the whole flow (worktree, branch,
             // agent spawn with the description as first prompt and caller provenance).
-            const started = await issues.start(issue.id, agentKind, { spawnedBy })
+            // The thread's human owns the session this start spawns, not the
+            // issue's owner (POD-3902) — same rule the direct-cwd spawn below
+            // already obeyed by passing `ownerUserId` to `createSession`.
+            const started = await issues.start(issue.id, agentKind, {
+              spawnedBy,
+              ...(ownerUserId ? { ownerUserId } : {}),
+            })
             const spawned = (await sessions
               .listSessionsForIssue(started.worktreePath ?? null, issue.id))
               .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')

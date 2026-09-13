@@ -24,7 +24,7 @@
  */
 
 import { asSessionId } from '@podium/model'
-import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
+import type { SessionId, SessionMeta, IssueId, MutationId, UserId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
@@ -313,6 +313,30 @@ export class IssueCommandCtx {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
     }
     return { actor: principal.user, onBehalfOf: principal.user }
+  }
+
+  /**
+   * THE HUMAN THIS COMMAND SPAWNS A SESSION FOR (POD-3902).
+   *
+   * `spawnProvenance()` above answers "which actor started this" — a session id
+   * or a tag. This answers the other half, "which person is accountable for the
+   * run", and the two differ exactly when an agent starts work on someone else's
+   * task: the actor is the agent's session, the human is the one who delegated
+   * it. `IssueWorkflow.start`/`addSession` used to answer it from the ISSUE row
+   * instead, which is the defect this exists to close; the reasoning is written
+   * out at the spawn in `service/workflow.ts`.
+   *
+   * NULL IS AN ANSWER, NOT A GAP, and it is why this does not throw the way
+   * `readerUser()` does. A system principal deliberately has no human behind it
+   * (`onBehalfOfUser`, ADR 3 Amendment 1 D17.5), and an absent principal is the
+   * non-production dispatcher `requirePrincipal()` describes. Both mean the same
+   * thing here — nobody delegated this — and recording that is strictly better
+   * than substituting a person, which is precisely what the row fallback did.
+   * The same shape as `attention.ts`'s owner stamp for an attach-created issue.
+   */
+  spawnOwner(): UserId | undefined {
+    const principal = this.caller.principal
+    return (principal ? onBehalfOfUser(principal) : null) ?? undefined
   }
 
   spawnProvenance(): string {

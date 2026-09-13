@@ -128,15 +128,29 @@ export function sessionOwnerVisibility(
  *    person, so dropping this arm would stop a parent reading the child it
  *    created — a control the accepted architecture keeps.
  *
- *    THE PRODUCER THIS USED TO NAME IS FIXED, AND THE ARM STILL STANDS. POD-3901
- *    changed `messages/handlers/spawn-agent.ts` to stamp the SPAWNING HUMAN, so
- *    `podium agent spawn` no longer produces a cross-owner child at all. Two
- *    producers still do, which is why removing this arm now would be a
- *    regression rather than a cleanup: `issues/service/workflow.ts` stamps the
- *    ISSUE row's owner on both the `start` and `addSession` spawns (neither has
- *    a caller principal in scope to stamp instead — filed), and the
- *    `firstAdminMemberId()` fallbacks in `sessions/repository.ts` and
- *    `sessions/session-revival.ts` are still open (PDM-276, PDM-273).
+ *    EVERY SPAWN PRODUCER IS NOW FIXED, AND THE ARM STILL STANDS — for a
+ *    different reason than it used to, which is the part worth reading. POD-3901
+ *    changed `messages/handlers/spawn-agent.ts` and POD-3902 changed both
+ *    `issues/service/workflow.ts` spawns (`start`, `addSession`) to stamp the
+ *    INITIATING HUMAN, and `capabilityForSession` mints an agent's `onBehalfOf`
+ *    from its own session's owner — so a spawn now always writes the parent
+ *    session's own human, and for every child MINTED TODAY the owner arm above
+ *    already answers yes. That much of the old justification is spent.
+ *
+ *    WHAT KEEPS IT LOAD-BEARING IS THE READ, NOT THE SPAWN. `sessionOwner`
+ *    returns `undefined` for a row whose `ownerUserId` column is null, and
+ *    `sessionOwnerVisibility` reads that as not-visible — so a child with no
+ *    durable owner is unreadable by the parent that created it, whoever they
+ *    are. Rows like that are not hypothetical while the two `firstAdminMemberId()`
+ *    sites are open (PDM-276 in `sessions/repository.ts`, PDM-273 in
+ *    `sessions/session-revival.ts`): both exist precisely because an unowned row
+ *    is reachable, and the first substitutes the earliest-enrolled account for
+ *    it — a different person from the parent's human on any multi-human instance.
+ *
+ *    So: do not remove this arm on the strength of the spawn fix alone. The
+ *    thing to re-check is PDM-276/PDM-273. When an unowned session row is no
+ *    longer reachable, this arm has nothing left to cover and should go with
+ *    them; the SELF arm above is independent of all of it and stays regardless.
  *
  * Provenance, not a claim: `spawnedBy` is stamped by the server at spawn and is
  * never read from agent input, which is what makes the parent arm safe to state

@@ -877,7 +877,13 @@ describe('issue spawn provenance', () => {
     }
   })
 
-  it('passes the exact initiating session through start and add-session commands', async () => {
+  /**
+   * BOTH HALVES OF THE SPAWN IDENTITY, pinned by exact-object match. `spawnedBy`
+   * is the ACTOR — which session asked — and `ownerUserId` is the HUMAN the run
+   * belongs to (POD-3902). They are separate questions and this seam is where
+   * both are derived from the caller, so a regression in either shows up here.
+   */
+  it('passes the exact initiating session and human through start and add-session commands', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -897,15 +903,22 @@ describe('issue spawn provenance', () => {
       await registry.issueCommands.dispatch(caller, 'issues', 'start', { id: issue.id })
       expect(start).toHaveBeenCalledWith(issue.id, undefined, {
         spawnedBy: 'session:parent-session',
+        ownerUserId: firstAdminMemberId(),
       })
       const add = vi.spyOn(registry.issues, 'addSession').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'addSession', { id: issue.id })
-      expect(add).toHaveBeenCalledWith(issue.id, undefined, { spawnedBy: 'session:parent-session' })
+      expect(add).toHaveBeenCalledWith(issue.id, undefined, {
+        spawnedBy: 'session:parent-session',
+        ownerUserId: firstAdminMemberId(),
+      })
       const shell = vi.spyOn(registry.issues, 'addShell').mockResolvedValue(issue)
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
         id: issue.id,
       })
-      expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user' })
+      expect(shell).toHaveBeenCalledWith(issue.id, {
+        spawnedBy: 'user',
+        ownerUserId: firstAdminMemberId(),
+      })
     } finally {
       await registry.dispose()
     }

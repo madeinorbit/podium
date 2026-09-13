@@ -12,6 +12,7 @@ import {
   type SessionId,
   type SessionMeta,
   spawnedByTag,
+  type UserId,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
@@ -258,6 +259,9 @@ export class IssueGitWorkflowModule {
        *  and PERSISTS onto the issue, so every later spawn on it agrees. */
       model?: string
       effort?: string
+      /** THE HUMAN WHO RAN THIS START — the session's owner. See the spawn below
+       *  for why the issue row is not an answer to that question (POD-3902). */
+      ownerUserId?: UserId
     },
   ): Promise<
     IssueWire &
@@ -536,7 +540,32 @@ export class IssueGitWorkflowModule {
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
-      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+      /**
+       * THE SESSION BELONGS TO THE HUMAN WHO STARTED IT, NEVER TO THE TASK
+       * (POD-3902; the same rule POD-3901 restored on `messages/handlers/
+       * spawn-agent.ts`, and PDM-133 on the reader side in `session-start.ts`).
+       *
+       * This read `row.ownerUserId` — the ISSUE's owner — so `podium issue start`
+       * on Alice's task stamped ALICE whoever ran it. That is the durable field
+       * every owner-keyed gate downstream consults, and the three that matter
+       * have no spawnedBy/parent arm to soften it: `session-control-policy`'s
+       * `mayWatch`/`mayDrive`, `memory/visibility` and `sessions/queries` all
+       * answered about the wrong person for a run someone else started.
+       *
+       * NOT THE SAME QUESTION AS THE ISSUE'S OWN OWNER, and the distinction is
+       * the fix. An issue is shared work — sharing it shares the work done on it
+       * (contract `ownership`, ADR 9 D5 A4 / §3 O4). A session is not the work:
+       * it is a private run, bound by D7/D13 to the person who started it, and a
+       * task changing hands must not move the runs already on it.
+       *
+       * NO FALLBACK TO THE ROW when the caller names no human — the row is the
+       * wrong answer, not a worse one, so an unattributable spawn records
+       * "representable none" instead (ADR 3 Amendment 1 D17.5 / D21.2). Every
+       * production caller does name one: all four `issues.*` commands derive it
+       * from the caller's principal (`IssueCommandCtx.spawnOwner`) and the
+       * superagent tool passes its thread's owner.
+       */
+      ...(opts?.ownerUserId ? { ownerUserId: opts.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return {
@@ -561,7 +590,11 @@ export class IssueGitWorkflowModule {
 
   async createAndMaybeStart(
     input: CreateIssueInput,
-    opts?: { spawnedBy?: string },
+    /** `ownerUserId` is the human who ran the create, and it owns the SESSION
+     *  `startNow` spawns. It coincides with `input.ownerUserId` on today's only
+     *  caller and is still passed separately, because the issue's owner and the
+     *  session's owner are different questions (POD-3902). */
+    opts?: { spawnedBy?: string; ownerUserId?: UserId },
   ): Promise<IssueWire> {
     const created = await this.crud().create(input)
     return input.startNow
@@ -1384,7 +1417,10 @@ export class IssueGitWorkflowModule {
   async addSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    /** `ownerUserId` is the human who ran the add — the session's owner. See
+     *  {@link IssueWorkflow.start}'s spawn for why the issue row is not that
+     *  person (POD-3902). */
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; ownerUserId?: UserId },
   ): Promise<IssueWire | Promise<IssueWire>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1406,7 +1442,7 @@ export class IssueGitWorkflowModule {
   private async spawnAddedSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; ownerUserId?: UserId },
   ): Promise<IssueWire> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1449,13 +1485,18 @@ export class IssueGitWorkflowModule {
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
-      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+      // The initiating human, never the task's owner — the rule, and why there is
+      // no fallback to the row, are written out at the `start` spawn (POD-3902).
+      ...(opts?.ownerUserId ? { ownerUserId: opts.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return await this.store.toWire(row)
   }
 
-  async addShell(id: string, opts?: { spawnedBy?: string }): Promise<IssueWire | Promise<IssueWire>> {
+  async addShell(
+    id: string,
+    opts?: { spawnedBy?: string; ownerUserId?: UserId },
+  ): Promise<IssueWire | Promise<IssueWire>> {
     return await this.addSession(id, 'shell', opts)
   }
 

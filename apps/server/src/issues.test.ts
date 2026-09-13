@@ -1507,7 +1507,12 @@ describe('IssueService.start', () => {
       model: 'auto',
       effort: 'auto',
       initialPrompt: 'do the thing',
-      ownerUserId: firstAdminMemberId(),
+      // NO `ownerUserId` — and the exact-object match is what asserts its
+      // ABSENCE. `start` used to stamp the ISSUE's owner here; it now stamps the
+      // human who ran the start and nobody else, so a direct service call that
+      // names no initiator records "representable none" (POD-3902). The two-human
+      // coverage of the field lives in
+      // `modules/issues/service/multi-user.test.ts`.
       spawnedBy: `issue:${created.id}`,
       machineId: store.hostMachineId,
     })
@@ -2125,7 +2130,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      ownerUserId: firstAdminMemberId(),
+      // Absent by exact match: no initiating human was named (POD-3902).
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
@@ -2181,7 +2186,7 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
-      ownerUserId: firstAdminMemberId(),
+      // Absent by exact match: no initiating human was named (POD-3902).
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
@@ -2409,7 +2414,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      ownerUserId: firstAdminMemberId(),
+      // Absent by exact match: no initiating human was named (POD-3902).
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })

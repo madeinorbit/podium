@@ -564,7 +564,11 @@ const defs = {
             ...(isAgentTopLevel ? { stage: 'proposed' as const, startNow: false } : {}),
             ...(underProposed ? { startNow: false } : {}),
           },
-          { spawnedBy: ctx.spawnProvenance() },
+          // The SESSION `startNow` spawns belongs to the person who ran the
+          // create, which is the same human the issue's own owner comes from
+          // above — passed separately because they are different questions
+          // (POD-3902).
+          { spawnedBy: ctx.spawnProvenance(), ownerUserId: attribution.onBehalfOf },
         )
         if (audience === 'agent' && !await ctx.hasHumanAudienceAncestor(created)) {
           return {
@@ -592,9 +596,13 @@ const defs = {
           await assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
+      // Whoever ran this start owns the session it spawns, never the task's owner
+      // (POD-3902) — the reasoning is at the spawn in `service/workflow.ts`.
+      const owner = ctx.spawnOwner()
       return await ctx.withMutation(input.mutationId, async () =>
         await ctx.gitWorkflow.start(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
+          ...(owner ? { ownerUserId: owner } : {}),
           // Explicit per-launch choice (POD-1545); persists onto the issue profile.
           ...(input.defaultModel ? { model: input.defaultModel } : {}),
           ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
@@ -796,17 +804,27 @@ const defs = {
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
+    handler: async (ctx, input) => {
+      // The initiating human owns the added session, not the task (POD-3902).
+      const owner = ctx.spawnOwner()
+      return await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
+        ...(owner ? { ownerUserId: owner } : {}),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      }),
+      })
+    },
   }),
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+    handler: async (ctx, input) => {
+      // The initiating human owns the added shell, not the task (POD-3902).
+      const owner = ctx.spawnOwner()
+      return await ctx.gitWorkflow.addShell(input.id, {
+        spawnedBy: ctx.spawnProvenance(),
+        ...(owner ? { ownerUserId: owner } : {}),
+      })
+    },
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',

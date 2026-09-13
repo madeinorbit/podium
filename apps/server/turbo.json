@@ -467,6 +467,7 @@
         "src/modules/issues/service/mail-pending.test.ts",
         "src/modules/issues/service/mail-pending.ts",
         "src/modules/issues/service/mail.ts",
+        "src/modules/issues/service/multi-user.test.ts",
         "src/modules/issues/service/not-found.ts",
         "src/modules/issues/service/reads.ts",
         "src/modules/issues/service/test-plumbing.ts",

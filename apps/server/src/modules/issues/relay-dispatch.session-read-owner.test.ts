@@ -59,11 +59,16 @@ const BOB = asUserId('u_bob')
 const ALICES = asSessionId('s_alice')
 /** Bob's session. A member of the SAME task, with write on it. */
 const BOBS = asSessionId('s_bob')
-/** Spawned by Bob's session and owned by ALICE. POD-3901 fixed `spawn-agent.ts`
- *  to stamp the spawning human, so `podium agent spawn` no longer produces this
- *  row — but `issues/service/workflow.ts` still stamps the ISSUE row's owner on
- *  both its spawns, so a cross-owner child is still reachable and the parent arm
- *  under test is still load-bearing. Bob must be able to read it. */
+/** Spawned by Bob's session and owned by ALICE. NO SPAWN PRODUCER MINTS THIS ROW
+ *  ANY MORE — POD-3901 fixed `spawn-agent.ts` and POD-3902 fixed both
+ *  `issues/service/workflow.ts` spawns, so every child now carries its parent's
+ *  own human. The row is kept, and so is the parent arm it exercises, because
+ *  the arm's remaining job is on the READ side: `sessionOwner` answers
+ *  `undefined` for a row with a null owner, which is unreachable-by-owner for
+ *  the parent that created it, and unowned rows stay reachable while PDM-276 and
+ *  PDM-273 are open. This fixture is that case in its starkest form — a child
+ *  the owner arm cannot admit — and Bob must still be able to read it. See
+ *  `mayReadPrivateSession`'s header for the full argument. */
 const CHILD = asSessionId('s_child')
 
 const ISSUE = {
