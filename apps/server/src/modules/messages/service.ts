@@ -334,7 +334,7 @@ export interface MessageDeliveryDeps {
    * compiles, and a wiring that forgets to return its promise is now an error.
    */
   mirrorIssueMail?(row: IssueMessageRow): Promise<void>
-  /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
+  /** Legacy mirror read-marking (store.issues.markIssueMessagesDelivered): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table.
    *  `Promise<void>` for the reason {@link MessageDeliveryDeps.mirrorIssueMail} gives. */

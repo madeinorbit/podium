@@ -2111,12 +2111,7 @@ export class SessionRegistry {
       mirrorMarkIssueMailRead: async (issueId, ids) =>
         await funnel.run({
           write: async () =>
-            await this.store.issues.markIssueMessagesRead(
-              (await firstAdminMemberId(this.store)),
-              issueId,
-              ids,
-              new Date().toISOString(),
-            ),
+            await this.store.issues.markIssueMessagesDelivered(issueId, ids),
         }),
       transact: async (fn) => await this.store.transact(fn),
       // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake

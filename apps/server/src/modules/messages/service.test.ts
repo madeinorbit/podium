@@ -294,11 +294,11 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       ? async (issueId, ids) => {
           await store.transact(
             async () =>
-              await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, 'tr'),
+              await store.issues.markIssueMessagesDelivered(issueId, ids),
           )
         }
       : async (issueId, ids) => {
-          await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, 'tr')
+          await store.issues.markIssueMessagesDelivered(issueId, ids)
         },
     ...(opts?.spawnOnWake ? { spawnOnWake: opts.spawnOnWake } : {}),
     notifyOperator: async (i) => {
@@ -2952,6 +2952,7 @@ describe('readInbox (podium mail inbox)', () => {
     expect((await store.messages.getMessage(r.message.id))!.deliveredTo).toBe('s1')
     // legacy mirror row consumed too (no more stop-hook nag on either surface)
     expect(await store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
+    expect(await store.issues.listIssueMessageReadAt(firstAdminMemberId())).toEqual({})
     // a NON-consuming peek never marks
     const r2 = await svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },

@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { SessionRegistry } from '../../relay'
+import { openTestStore } from '../../test-support/open-test-store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { IssueCommandDispatcher } from './dispatcher'
@@ -1050,7 +1051,8 @@ describe('issue spawn provenance', () => {
  */
 describe('issue mail read state is per reading session [POD-1379]', () => {
   it('a peer read leaves the other agent on the issue still pending, and no self-nag', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const issue = await registry.issues.create({ repoPath: '/r', title: 'Shared', startNow: false })
       // REAL SESSIONS, not the bare ids main used. `authorizeAtApply` re-resolves
@@ -1104,6 +1106,7 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
       })) as Array<{ body: string; wasUnread: boolean }>
       expect(inboxB).toMatchObject([{ body: 'handing this to you', wasUnread: true }])
       expect((await pending(sB)).unread).toBe(0)
+      expect(await store.issues.listIssueMessageReadAt(firstAdminMemberId())).toEqual({})
     } finally {
       await registry.dispose()
     }

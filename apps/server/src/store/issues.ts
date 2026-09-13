@@ -1311,24 +1311,11 @@ export class IssuesRepository {
     return r?.n ?? 0
   }
 
-  /**
-   * Mark the given messages read FOR ONE USER.
-   *
-   * TWO WRITES, TWO CLASSES, and keeping them apart is the point (POD-1076).
-   * `status` is the mail's DELIVERY state — a shared fact about the message, so
-   * it stays on the message row and still only flips `unread` (idempotent; never
-   * regresses a `claimed` message back to `read`). `read_at` is a fact about a
-   * READER, so it lands in `issue_message_user_state` keyed `(user_id, id)`, and
-   * it is written for EVERY named message rather than only the unread ones: my
-   * having read a message somebody else already claimed is still true.
+  /** Advance only the legacy mailbox's shared delivery status.
+   * Session read receipts own reader state. This mirror must not manufacture a
+   * human read marker; it remains only for the legacy pending fallback.
    */
-  async markIssueMessagesRead(
-    userId: UserId,
-    issueId: IssueId,
-    ids: string[],
-    readAt: string,
-  ): Promise<void> {
-    requireUserId(userId)
+  async markIssueMessagesDelivered(issueId: IssueId, ids: string[]): Promise<void> {
     for (const id of ids) {
       // Only `unread` flips, so a `claimed` message never regresses to `read`.
       await this.db
@@ -1342,19 +1329,10 @@ export class IssuesRepository {
           ),
         )
         .run()
-      // Written for EVERY named message, not only the unread ones.
-      await this.db
-        .insert(issueMessageUserState)
-        .values({ userId, issueMessageId: id, readAt })
-        .onConflictDoUpdate({
-          target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
-          set: { readAt },
-        })
-        .run()
     }
   }
 
-  /** One user's tracker-mail read markers, `issueMessageId → readAt`. */
+  /** One user's historical tracker-mail read markers, `issueMessageId → readAt`. */
   async listIssueMessageReadAt(userId: UserId): Promise<Record<string, string | null>> {
     requireUserId(userId)
     const rows = await this.db

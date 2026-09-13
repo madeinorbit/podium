@@ -444,12 +444,7 @@ describe('issue mail store (agent mail #103)', () => {
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
     expect(await store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
-    await store.issues.markIssueMessagesRead(
-      firstAdminMemberId(),
-      asIssueId('iss_a'),
-      ['msg_a'],
-      'tr',
-    )
+    await store.issues.markIssueMessagesDelivered(asIssueId('iss_a'), ['msg_a'])
     expect(await store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(1)
     expect(
       (await store.issues.listIssueMessages(asIssueId('iss_a'), { status: 'unread' })).map(
@@ -474,38 +469,20 @@ describe('issue mail store (agent mail #103)', () => {
     const store = await openTestStore(':memory:')
     await seedIssues(store, 'iss_a')
     await store.issues.addIssueMessage(msg('msg_a'))
-    await store.issues.markIssueMessagesRead(
-      firstAdminMemberId(),
-      asIssueId('iss_a'),
-      ['msg_a'],
-      't1',
-    )
-    await store.issues.markIssueMessagesRead(
-      firstAdminMemberId(),
-      asIssueId('iss_a'),
-      ['msg_a'],
-      't2',
-    )
-    // TWO CLASSES, TWO BEHAVIOURS (POD-1076). `status` is the mail's SHARED
-    // delivery state and is idempotent — the second call is a no-op on it. The
-    // per-user `read_at` is a fact about THIS reader and DOES advance, because
-    // "when did I last look at this" is not a once-only event.
+    await store.issues.markIssueMessagesDelivered(asIssueId('iss_other'), ['msg_a'])
+    expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('unread')
+    await store.issues.markIssueMessagesDelivered(asIssueId('iss_a'), ['msg_a'])
+    await store.issues.markIssueMessagesDelivered(asIssueId('iss_a'), ['msg_a'])
     expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('read')
-    expect((await store.issues.listIssueMessageReadAt(firstAdminMemberId())).msg_a).toBe('t2')
-    // …and another reader has no marker for the same message.
+    // Legacy delivery must not invent a read by the first administrator or anyone else.
+    expect(await store.issues.listIssueMessageReadAt(firstAdminMemberId())).toEqual({})
     expect(await store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
 
     await store.issues.claimIssueMessage('msg_a', 'x', 'tc')
-    await store.issues.markIssueMessagesRead(
-      firstAdminMemberId(),
-      asIssueId('iss_a'),
-      ['msg_a'],
-      't3',
-    )
+    await store.issues.markIssueMessagesDelivered(asIssueId('iss_a'), ['msg_a'])
     // Never regresses a claimed message back to 'read'…
     expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('claimed')
-    // …but MY having read it after the claim is still true and is recorded.
-    expect((await store.issues.listIssueMessageReadAt(firstAdminMemberId())).msg_a).toBe('t3')
+    expect(await store.issues.listIssueMessageReadAt(firstAdminMemberId())).toEqual({})
   })
 
   it('deleteIssueChildRows removes the issue mailbox', async () => {

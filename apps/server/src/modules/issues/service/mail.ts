@@ -133,14 +133,9 @@ export class IssueCommentsMailModule {
         write: async () => {
           const at = this.store.now()
           if (unreadIds.length) {
-            // PER-USER read markers (POD-1076): `status` is the mail's shared
-            // delivery state, `read_at` is a fact about THIS reader.
-            await this.store.deps.store.issues.markIssueMessagesRead(
-              (await this.store.broadcastViewer()),
-              id,
-              unreadIds,
-              at,
-            )
+            // Consume the legacy shared status without inventing a human reader.
+            // Session receipts below own read state; the mirror only stops retries.
+            await this.store.deps.store.issues.markIssueMessagesDelivered(id, unreadIds)
             // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
             // the pull advances the shared delivery ledger on BOTH tables so the
             // sweep stops pushing what the issue has now read.

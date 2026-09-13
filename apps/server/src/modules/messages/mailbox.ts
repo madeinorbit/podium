@@ -87,7 +87,7 @@ export interface MessageMailboxDeps {
    *  The full-list port it used to carry alongside this was never called. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   now(): string
-  /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
+  /** Legacy mirror read-marking (store.issues.markIssueMessagesDelivered): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
   /** `Promise<void>`, not `void | Promise<void>` [POD-3820]: the mirror is a

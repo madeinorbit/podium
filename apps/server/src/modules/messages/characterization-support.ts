@@ -358,7 +358,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // the read-consumption semantics both run through them.
     mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
     mirrorMarkIssueMailRead: async (issueId, ids) =>
-      await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, now()),
+      await store.issues.markIssueMessagesDelivered(issueId, ids),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
