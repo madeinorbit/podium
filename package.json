@@ -129,6 +129,8 @@
     "audit:telegram-binding": "bun scripts/audit-telegram-binding.ts --probe && bun scripts/audit-telegram-binding.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
     "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
+    "//lint:lane-coverage": "The lane-coverage instrument's own probe (PDM-343). The CLAIM half of check-lane-coverage.ts cannot run in CI, because CI does not know which lanes a receipt says its failing-name diff was taken over -- that is a fact about a handoff, not about the tree. What CI can hold is that the instrument still fires, in both directions, so it does not rot in the gap it was built to close. Sub-second: it judges in-memory fixtures and starts no vitest.",
+    "lint:lane-coverage": "bun scripts/check-lane-coverage.ts --probe",
     "fixtures:wire:update": "bun --conditions=@podium/source scripts/update-wire-fixtures.ts",
     "inventory:ids": "bun scripts/id-inventory-sweep.ts",
     "format": "biome format --write .",

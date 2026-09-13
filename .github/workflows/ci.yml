@@ -204,6 +204,18 @@ jobs:
       # place (the old block still called @podium/protocol a leaf).
       - name: ARCHITECTURE.md layer diagram is not stale
         run: bun run docs:layers:check
+      # [PDM-343] Every failing-name diff in the multi-user epic was taken over
+      # the five apps/server shards. Those shards list 512 test files; the root
+      # integration config lists 78; the intersection is EMPTY. Three regressions
+      # lived in that gap for a whole phase, and the diffs that missed them were
+      # clean about what they measured. `check-lane-coverage.ts` answers the
+      # question those diffs never asked -- which of the files this change
+      # touches is no claimed lane even looking at -- but the answer depends on
+      # what a receipt CLAIMED, which CI cannot see. So this step holds the other
+      # half: that the instrument still fires in both directions. An instrument
+      # that runs in no lane is the exact disease it was written for.
+      - name: lane-coverage instrument still fires
+        run: bun run lint:lane-coverage
 
   # [POD-758] Own blocking job — never fold into the continue-on-error lint
   # bundle above. A raw NUL makes the file binary: real grep is loud, but
