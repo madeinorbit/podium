@@ -1,4 +1,4 @@
-import { firstAdminMemberId, asSessionId, asUserId, type SessionId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -45,7 +45,42 @@ describe('approval broker relay arm (#410)', () => {
     sA = (await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })).sessionId
     daemonInbox = []
     registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
+    await pair(machineId, firstAdminMemberId())
   })
+
+  /**
+   * PAIR THE MACHINE, BECAUSE `attachDaemon` DOES NOT (PDM-404).
+   *
+   * `attachDaemon` registers a frame SINK under a machine id. It writes no
+   * `machines` row, and the row is what authorization reads: `mayDispatchTo`
+   * resolves the requester's verbs through `ownershipSnapshotFromMachines`, and
+   * `machineVerbsFor` documents that no row means no verbs, with no arm
+   * underneath it. So every `approvals.request` on this transport was refused at
+   * enqueue by B5's check (PDM-137) with `cannot request an approval on m1: that
+   * machine is not yours to run on` — BEFORE any assertion in this file about
+   * forged identity or another human could run. That is what made five of these
+   * six tests red, and it is a defect in the FIXTURE, not in the gate: in
+   * production a relay frame cannot arrive from a machine with no row, because
+   * `ensureHostMachine` writes this host's at boot and pairing writes every
+   * remote's. The fixture attached the transport half and skipped the other.
+   *
+   * OWNED BY A NAMED HUMAN, never left `null`: an unowned machine is usable by
+   * NOBODY (D19.4b), so a fixture that omitted the owner would reproduce the
+   * same red by a second route and read as if the gate were broken.
+   */
+  const pair = async (machine: string, owner: UserId): Promise<void> => {
+    await registry.sessionStore.machines.upsertMachine({
+      id: machine,
+      name: machine,
+      hostname: machine,
+      tokenHash: `${machine}-token`,
+      ownerUserId: owner,
+    })
+    // Written straight to the store, behind the service, whose machine cache is
+    // already warm by the time a test writes here — so the row would otherwise be
+    // invisible to every read that resolves ownership.
+    registry.modules.machines.invalidateMachineCache()
+  }
 
   afterEach(async () => {
     for (const r of registries.splice(0)) await r.dispose()
@@ -54,13 +89,14 @@ describe('approval broker relay arm (#410)', () => {
   /** A relay frame from an arbitrary session — the daemon's `/agent/<sessionId>`
    *  path is what the gate reads, so this is the only thing that distinguishes
    *  one agent caller from another on this transport. */
-  const relayFrom = async (
+  const relayVia = async (
+    machine: string,
     sessionId: SessionId,
     proc: string,
     input: unknown,
   ): Promise<RelayResult> => {
     const before = daemonInbox.length
-    registry.gateway.routeDaemonFrame(machineId, {
+    registry.gateway.routeDaemonFrame(machine, {
       type: 'agentRelayRequest',
       requestId: `ir${before}`,
       sessionId,
@@ -82,6 +118,12 @@ describe('approval broker relay arm (#410)', () => {
     if (!reply) throw new Error('no relay reply')
     return reply
   }
+
+  /** The ordinary case: a frame from the machine this fixture paired above. The
+   *  gate takes the machine from the CONNECTION, so this argument is the only
+   *  thing that can vary it — agent input cannot (see the forged test below). */
+  const relayFrom = (sessionId: SessionId, proc: string, input: unknown): Promise<RelayResult> =>
+    relayVia(machineId, sessionId, proc, input)
 
   const relay = (proc: string, input: unknown): Promise<RelayResult> =>
     relayFrom(asSessionId(sA), proc, input)
@@ -193,6 +235,60 @@ describe('approval broker relay arm (#410)', () => {
     expect(r.error).toMatch(/not permitted/)
   })
 
+  /**
+   * THE OTHER DIRECTION OF THE FIXTURE REPAIR (PDM-404), and the reason that
+   * repair is not a weakening.
+   *
+   * Pairing this fixture's machine is what let the five tests around it reach
+   * their assertions — so the obvious worry about that change is that it greened
+   * them by removing an authorization check from the path. It did not: the check
+   * is B5's enqueue gate (PDM-137) and it is still the thing deciding, as this
+   * test shows over the SAME transport, with the SAME session, differing only in
+   * which machine the frame arrives from. `pair` grants use to the machine's
+   * OWNER, not to everybody.
+   *
+   * ENQUEUE, NOT DISPATCH. B5 asks this question twice and they are different
+   * questions; only the enqueue half is reachable from this transport, because
+   * the dispatch half runs inside an operator's `approve`. What this pins is that
+   * the operator's pending queue never fills with rows that could not run.
+   *
+   * The admin arm is deliberately not a hole here: `machineVerbsFor` gives an
+   * admin `see` on an UNOWNED machine so it can be assigned an owner, and this
+   * machine is owned — by somebody else — so the requester cannot even see it and
+   * is refused before the verb is considered.
+   */
+  it("a request on another human's machine is refused at enqueue, over the same transport", async () => {
+    const owner = asUserId('mem_3ZZZZZZZZZZZZZZZZZZZZZZZZZZ')
+    await registry.sessionStore.users.create(
+      {
+        id: owner,
+        displayName: 'Machine owner',
+        role: 'member',
+        createdAt: '2026-09-13T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
+    const theirs = 'm2'
+    registry.gateway.attachDaemon(theirs, (msg) => daemonInbox.push(msg))
+    await pair(theirs, owner)
+
+    const r = await relayVia(theirs, asSessionId(sA), 'request', { op: { kind: 'update' } })
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe(
+      `cannot request an approval on ${theirs}: that machine is not yours to run on`,
+    )
+    // Refused means NOT FILED, not "filed and hidden": the operator's queue is
+    // what this gate exists to keep clean.
+    expect(await registry.modules.approvals.listPending(firstAdminMemberId())).toHaveLength(0)
+
+    // And the refusal is about the MACHINE, not about this session having lost
+    // the ability to file at all — the same caller, same proc, same op, on its
+    // own machine, still succeeds.
+    const mine = await relay('request', { op: { kind: 'update' } })
+    expect(mine.ok).toBe(true)
+  })
+
   it('a forged sessionId/machineId in the input is overwritten by the relay context', async () => {
     const r = await relay('request', {
       op: { kind: 'stop' },
@@ -259,8 +355,27 @@ describe('approval broker relay arm (#410)', () => {
     expect(refused.error).toBe(`unknown approval request: ${id}`)
 
     // Not "the id stopped working": the session that filed it still reads it,
-    // over the same transport, in the same test. This is the `actorSessionId`
-    // half — drop it from the arm and this refuses.
+    // over the same transport, in the same test.
+    //
+    // WHAT THIS PINS, AND WHAT IT DOES NOT (PDM-404). It used to say "this is the
+    // `actorSessionId` half — drop it from the arm and this refuses", and that is
+    // FALSE; deleting `sessionId: capability.actorSessionId` from the arm leaves
+    // every assertion in this file green. `mayRead` admits on EITHER arm, and at
+    // this layer the `onBehalfOf` arm subsumes the session one: the row's session
+    // is owned by the caller's own human, so `mayDecide` says yes without the
+    // session id ever being consulted. The isolating case — a row whose session
+    // has NO resolvable owner — cannot be built here at all, because
+    // `session-start.ts` refuses to create such a session ("a session must belong
+    // to a human") and `upsertSession` refuses to persist one. It is constructible
+    // only against a fake `sessionOwner`, which is where it IS pinned:
+    // `modules/approvals/service.test.ts`'s "the requesting agent reads the
+    // request it filed, even with no resolvable owner", in the store shard.
+    //
+    // What this line is therefore worth, which is not nothing: the arm passes a
+    // caller the service ACCEPTS. An arm that passed an empty reader would refuse
+    // everybody, and the refusal above would then be indistinguishable from a
+    // transport that had simply stopped working for everyone. The `onBehalfOf`
+    // half is the one this file discriminates — see the sibling read below.
     const mine = await relay('get', { id })
     expect(mine.ok).toBe(true)
     expect(mine.result).toMatchObject({ id, status: 'pending' })
@@ -269,6 +384,8 @@ describe('approval broker relay arm (#410)', () => {
     // session of the SAME human. It is not the row's session, so only the
     // capability's human can admit it — pass just `actorSessionId` from the arm
     // and this one refuses while every other assertion here still passes.
+    // VERIFIED BY DELIBERATE BREAK (PDM-404): dropping `user: capability.onBehalfOf`
+    // reddens THIS assertion and only this one, across the whole file.
     const sC = (
       await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), cwd: wtA, agentKind: 'shell' })
     ).sessionId
