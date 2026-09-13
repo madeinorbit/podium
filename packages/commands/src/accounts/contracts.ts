@@ -275,14 +275,20 @@ export const accountsLoginContract = {
       'THE DIVERGENCE INSIDE ONE FAMILY IS DELIBERATE — do not harmonize it. PDM-280 gave MANAGED ' +
       "CREDENTIALS an owner column; a native login writes the HOST'S CLI credential store, which " +
       'is still shared by every agent on that machine, so the property the two credential writes ' +
-      'lost is one this command never had. Its sentence above is still literally true. Two further ' +
-      "reasons a hand edit here would be wrong rather than merely early: `relay.ts`'s " +
-      "`authorizerFor` hard-codes its own `role !== 'admin'` refusal OUTSIDE this contract, so " +
-      'lowering the floor would change nothing a caller can observe and would leave this policy ' +
-      'declaring what the server does not implement; and `NativeLoginService.startInScope` reuses ' +
-      'an in-flight attempt by HARNESS alone, returning its session and machine BEFORE the ' +
-      'machine-use recheck, so a lower floor widens that disclosure from admin-to-admin to ' +
-      'anyone-to-admin. Both are filed; this floor moves when they are closed, not before.',
+      'lost is one this command never had. Its sentence above is still literally true. One further ' +
+      "reason a hand edit here would still be wrong rather than merely early: `relay.ts`'s " +
+      "`authorizerFor` hard-codes its own `role !== 'admin'` refusal OUTSIDE this contract " +
+      '(PDM-309), so lowering the floor would change nothing a caller can observe and would ' +
+      'leave this policy declaring what the server does not implement. THE SECOND REASON IS ' +
+      'CLOSED, and is recorded rather than deleted because the floor it justified has not moved ' +
+      'yet: `NativeLoginService.startInScope` reused an in-flight attempt by HARNESS alone, ' +
+      'returning its session and machine BEFORE the machine-use recheck. PDM-281 keyed reuse by ' +
+      "harness AND owner, so a stranger's attempt is unreachable rather than returned and no " +
+      'reused path skips that recheck. Note what that defect was and was not, because only half ' +
+      "of it was ever this floor's business: its DISCLOSURE half was bounded here, " +
+      'admin-to-admin, and a lower floor would have widened it to anyone-to-admin; its ' +
+      'machine-grant BYPASS half this floor never gated at all, and was live between two admins ' +
+      'until PDM-281 closed it. This floor moves when PDM-309 closes, not before.',
   },
   exposure: SERVED_ON,
   delivery: {
@@ -306,7 +312,9 @@ export const accountsLoginContract = {
     note: 'A selected machine is caller supplied; machine-use errors distinguish access from reachability.',
   },
   conflict: 'cmd',
-  conflictRule: 'One active login attempt per harness is reused until it settles.',
+  conflictRule:
+    'One active login attempt per harness PER HUMAN is reused until it settles; a second human ' +
+    'is refused on a host that already has one in flight.',
 } as const satisfies CommandContract<typeof accountsLoginInput>
 
 export const ACCOUNT_CONTRACTS = {
