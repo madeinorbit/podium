@@ -358,8 +358,25 @@ export interface SessionInboxDeps {
   contractDelivery?(session: Session): boolean
   /** Cancel a daemon-owned queued row before deleting its durable intent. */
   contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
+  /**
+   * TWO IDENTITIES, AND THEY ARE NOT THE SAME ONE (POD-2291).
+   *
+   * `rowId` is THIS queue row, and it is what a later `runtimeQueueDrain` /
+   * delivery-outcome frame is matched against ({@link deliveryOutcome} finds the
+   * row by `entry.id === event.rowId`), so it must always be the physical row's
+   * own id.
+   *
+   * `turnId` is the DRIVER-FACING delivery identity the protocol calls "stable
+   * delivery identity, distinct from the one-shot RPC correlation id" — the id a
+   * driver reports a lost turn under, and the id a re-send after a bind or
+   * reconnect must repeat so an at-least-once write stays idempotent. For a row
+   * that came from a mail message that is the LEDGER MESSAGE id, which is what
+   * survives the physical row being re-created; the row id is the fallback for a
+   * queued keystroke send that has no ledger row behind it.
+   */
   contractDeliver?(input: {
     sessionId: SessionId
+    rowId: string
     turnId: string
     text: string
     origin: ObservationInputOrigin
@@ -1369,9 +1386,42 @@ export class SessionInbox {
         binding.ids.add(row.id)
         // Awaiting this RPC would put subsequent rows behind a slow transport reply.
         // Receipts acknowledge custody only; the event stream owns settlement.
-        void this.deps.contractDeliver({ sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).catch((error) => {
-          log.warn('contract queue forwarding failed', { sessionId, err: error })
-        })
+        void this.deps.contractDeliver({ sessionId, rowId: row.id, turnId: row.sourceMessageId ?? row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).then(
+          (receipt) => {
+            /**
+             * A REFUSAL IS NOT CUSTODY — AND STILL NOT SETTLEMENT (POD-2291).
+             *
+             * Settlement stays where POD-2411 put it: the driver's own
+             * `delivery` event, never this reply. But `binding.ids` is a claim
+             * that the driver HAS this row, and a `refused` receipt is the
+             * driver saying it does not. Leaving the id marked forwarded on a
+             * refusal strands the row until a fresh bind rebuilds the binding —
+             * the row stays visibly queued and nothing re-offers it, which is a
+             * silent stall rather than a loss, but a stall the sender is never
+             * told about.
+             *
+             * `busy` / `needs_user` are an ordinary race: a turn opened, or an
+             * ask arrived, between the readiness check and the send. So re-offer
+             * the row at the next boundary. Any other refusal un-marks it and
+             * stops here — the row is still queued, and the next bind, reconnect
+             * or enqueue re-drains it, which is what the other outcomes rely on
+             * too.
+             */
+            if (receipt.outcome !== 'refused') return
+            binding.ids.delete(row.id)
+            if (receipt.refusal.reason !== 'busy' && receipt.refusal.reason !== 'needs_user') return
+            setTimeout(() => {
+              const retryable = this.deps.getSession(sessionId)
+              if (!retryable || this.disposed) return
+              void this.forwardContractRows(retryable, false).catch((error) => {
+                log.warn('contract queue re-offer failed', { sessionId, err: error })
+              })
+            }, READY_POLL_MS).unref?.()
+          },
+          (error) => {
+            log.warn('contract queue forwarding failed', { sessionId, err: error })
+          },
+        )
       }
       if (current()) {
         const remaining = await this.deps.queue.list(sessionId)

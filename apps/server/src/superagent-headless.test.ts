@@ -76,6 +76,45 @@ async function harness() {
       )
     }
   })
+  // THE SUPERAGENT'S BACKEND IS STATED HERE, NOT INHERITED (POD-1313).
+  //
+  // The inventory report below declares EVERY built-in harness installed and
+  // logged in, which is exactly the input `SuperagentDefaultSeeder` seeds from:
+  // it fires on that report, and for a person who has not chosen it writes
+  // PREFERENCE ROWS naming the first of `SUPERAGENT_HARNESS_PRIORITY` — today
+  // `codex`, at `gpt-5.6-luna`/`max`. Those rows then layer OVER the settings
+  // blob (POD-1213), so every blob write in this file would go dark and every
+  // `claude-code` assertion below would read the seeded pick instead.
+  //
+  // `superagentBackendIsUnset` is the seeder's own guard and it reads
+  // `accountId`, which is `''` until somebody sets it (`DEFAULT_ACCOUNT` is
+  // applied at RESOLVE time, not stored). So naming the backend here is enough
+  // to make the seed a documented no-op — "an existing choice, even one
+  // identical to ours, is never restated" — and it is written BEFORE the report
+  // so the un-awaited seed cannot race in ahead of it.
+  //
+  // This file is about what a thread DOES with a harness (freeze, switch,
+  // resume, one-writer lock), not about which harness Podium picks for someone
+  // who has never picked; that question is covered by
+  // modules/settings/superagent-default.test.ts and
+  // packages/runtime/src/harness-defaults.test.ts. `claude-code` precisely
+  // BECAUSE the seeder would never pick it: every `toBe('claude-code')` below
+  // therefore witnesses that the turn read this setting, which it could not do
+  // while the expected value doubled as the ambient default.
+  {
+    const current = await registry.sessionStore.settings.getSettings()
+    await registry.sessionStore.settings.setSettings({
+      ...current,
+      roles: {
+        ...current.roles,
+        superagent: {
+          ...current.roles.superagent,
+          accountId: nativeAccountId('claude-code'),
+          harness: 'claude-code',
+        },
+      },
+    })
+  }
   registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'inventoryReport',
     machineId: registry.sessionStore.hostMachineId,

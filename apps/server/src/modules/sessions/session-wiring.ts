@@ -511,8 +511,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     contractDeliver: (input) =>
       bag.runtimeGateway.send({
         sessionId: input.sessionId,
+        // NOT THE SAME VALUE — see `contractDeliver` in ./inbox.ts. `rowId`
+        // settles the physical queue row; `turnId` is the driver's stable
+        // delivery identity, which for a mail row is the ledger message id.
         turnId: input.turnId,
-        rowId: input.turnId,
+        rowId: input.rowId,
         text: input.text,
         origin: input.origin,
         delivery: 'when-ready',

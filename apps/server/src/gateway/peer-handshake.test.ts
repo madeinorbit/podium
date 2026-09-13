@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asSessionId, asUserId, type MachineId } from '@podium/model'
 import {
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -564,18 +564,39 @@ describe('handshake order at the real gateway', () => {
 })
 
 describe('recovery-only daemon handshake verification', () => {
-  it('accepts an existing unrevoked token without touching or invalidating its row', async () => {
+  /**
+   * THE CACHE IS WITNESSED BY ITS CONTENT, NOT BY `invalidateMachineCache`.
+   *
+   * Both tests in this pair used to spy on `MachinesService.invalidateMachineCache`
+   * — one asserting it was called, its twin asserting it was not. That method is
+   * no longer on the handshake path at all: every repository writer now arrives
+   * through the mandatory commit funnel, and the `store.machines.committed`
+   * subscription patches the cached row IN PLACE (`applyMachineWrite`, "No
+   * ordinary writer needs invalidation"). `invalidateMachineCache` survives as an
+   * explicit schema-level repair with no production caller.
+   *
+   * So the positive half had been failing and the negative half had gone
+   * VACUOUS — asserting that something nothing can call was not called. Reading
+   * the service's own cached view instead asserts the property the invalidation
+   * existed to deliver, and it is a real assertion in both directions: the
+   * helper primes the cache before the handshake, so a write that failed to
+   * reach it would be read back stale rather than re-queried from SQL.
+   */
+  const cachedHostname = async (world: { machines: MachinesService; machineId: MachineId }) =>
+    (await world.machines.listMachines()).find((m) => m.id === world.machineId)?.hostname
+
+  it('accepts an existing unrevoked token without touching its row or moving the cached view', async () => {
     const world = await enrollmentHandshakeWorld()
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
+      expect(await cachedHostname(world)).toBe('stored.local') // primes the cache
       expect(await receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
         kind: 'established',
         machineId: world.machineId,
         name: 'Durable machine',
       })
       expect(touch).not.toHaveBeenCalled()
-      expect(invalidate).not.toHaveBeenCalled()
+      expect(await cachedHostname(world)).toBe('stored.local')
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('stored.local')
     } finally {
       await world.store.close()
@@ -655,16 +676,18 @@ describe('recovery-only daemon handshake verification', () => {
     }
   })
 
-  it('keeps ordinary handshake touch and cache invalidation', async () => {
+  it('keeps ordinary handshake touch, and the service cache follows the write', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
     try {
+      expect(await cachedHostname(world)).toBe('stored.local') // primes the cache
       expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind).toBe(
         'established',
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
-      expect(invalidate).toHaveBeenCalledOnce()
+      // The SERVICE's view, not the store's row — this is the half a lost
+      // in-place patch would break while the row below stayed correct.
+      expect(await cachedHostname(world)).toBe('observed.local')
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('observed.local')
     } finally {
       await world.store.close()

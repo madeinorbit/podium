@@ -144,10 +144,38 @@ describe('startServer with the hub role disabled (node shape)', () => {
    * `machines.rename`'s to `core`. Neither direction is silent.
    */
   it('core fleet writes are NOT gated: repos.add/remove keep working with the hub role off', async () => {
-    expect(await trpc.repos.add.mutate({ path: '/abs/node-repo' })).toContain('/abs/node-repo')
-    expect(await trpc.repos.remove.mutate({ path: '/abs/node-repo' })).not.toContain(
-      '/abs/node-repo',
-    )
+    // A DAEMON, FOR THE SAME REASON THE FIXTURE WRITES config.json BEFORE BOOT.
+    //
+    // `repos.add` acquired a machine-capability precondition (POD-2700): a
+    // machine that runs only the Podium server is rejected with `no-daemon` —
+    // "machine 'x' runs no Podium daemon and cannot host repositories". That
+    // refusal is downstream of the role boundary and has nothing to say about
+    // it, so without a daemon this test stopped measuring the gate and started
+    // measuring the precondition. Satisfying it keeps the assertion below about
+    // the ONE thing this test exists to prove: that the hub gate discriminates,
+    // and lets a `serverRole: 'core'` contract through on a hub-less server.
+    //
+    // It does not weaken the test in the other direction either: a `repos.add`
+    // wrongly marked `hub` would 404 here with a daemon attached exactly as it
+    // would without one.
+    const dialer = createHandshakeDialer({
+      peerRole: 'machine',
+      credential: { kind: 'daemonSecret', secret: handle.bootstrapToken },
+      claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
+    })
+    const attachment = await handle.localDaemonLink.attach({
+      hello: dialer.hello(),
+      deliver: vi.fn(),
+    })
+    if (!attachment.established) throw new Error('local daemon handshake failed')
+    try {
+      expect(await trpc.repos.add.mutate({ path: '/abs/node-repo' })).toContain('/abs/node-repo')
+      expect(await trpc.repos.remove.mutate({ path: '/abs/node-repo' })).not.toContain(
+        '/abs/node-repo',
+      )
+    } finally {
+      attachment.close()
+    }
   })
 
   /**

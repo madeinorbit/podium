@@ -306,7 +306,17 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       expect(obsA.wire).toMatchObject({
         stage: 'done',
         closedReason: 'done',
-        assignee: 'agent:test',
+        // THE ACCOUNTABLE HUMAN, NOT THE CLAIMANT (A2, ADR 9 Amendment 1 D2).
+        //
+        // This read `'agent:test'` while `claim()` was `update(id, { assignee,
+        // stage })` — one update carrying two facts, the second of which was a
+        // reassignment. `claim()` now has no assignee to write at all, because
+        // the common caller is an agent and "an agent saying 'I am working on
+        // this' silently moved the accountable human" is the defect that removed
+        // it. So the assignee stays whoever `create` attributed the issue to,
+        // and the `agent:test` in this lifecycle is now only the COMMENT author
+        // asserted a few lines below.
+        assignee: firstAdminMemberId(),
       })
       expect((obsA.events as { kind: string }[]).map((e) => e.kind)).toEqual([
         'issue.boot_reconciled',

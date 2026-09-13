@@ -2018,7 +2018,7 @@ export class MessageDeliveryService {
         },
         m.id,
       )
-      if (r.ok) await this.recordPush(m, session.sessionId)
+      if (r.ok) await this.recordInlinePush(m, session.sessionId, r.queued === true)
       recorded.add(m.id)
     }
     if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
@@ -2035,7 +2035,7 @@ export class MessageDeliveryService {
         },
         m.id,
       )
-      if (r.ok) await this.recordPush(m, session.sessionId)
+      if (r.ok) await this.recordInlinePush(m, session.sessionId, r.queued === true)
       recorded.add(m.id)
     } else if (pointerRows.length > 0) {
       // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
@@ -2064,6 +2064,39 @@ export class MessageDeliveryService {
       if (r.ok) for (const m of pointerRows) await this.markInjected(m, session.sessionId)
       recorded.add(pointerRows[0]!.id)
     }
+  }
+
+  /**
+   * AN ACCEPTED PUSH IS NOT ALWAYS A PUSH THAT WENT OUT.
+   *
+   * `sendText` answers `{ok: true, queued: true}` when it diverts a send into
+   * the READINESS queue — a live session whose composer is not yet confirmed
+   * mounted, where bytes would be accepted by the pty and dropped by the app
+   * (POD-2116/POD-2823). {@link recordPush}'s precondition is that the body
+   * reached the transcript, which is exactly what has NOT happened then, and
+   * `injectAndMark` has always honoured the distinction one branch away
+   * (`via !== 'queue' && r.queued === true` → record injection, report
+   * `queued`). {@link deliverBatch} read only `r.ok`.
+   *
+   * THE CONSEQUENCE WAS SILENT LOSS, not a mislabelled row. `markDelivered`
+   * moves the ledger row off `queued`, and `QueuedMessageApply.authorize`
+   * refuses any row that is not `queued` — "message is delivered". So the
+   * physical queue row this same push had just created was REFUSED at the drain
+   * and dropped without being typed, by the guard that exists to stop messages
+   * being lost. The operator's message was reported delivered and the agent
+   * never saw it.
+   *
+   * Recording injection instead keeps the row `queued` (POD-834: `injected_at` +
+   * `delivered_to`, status untouched), which is both the honest state — accepted,
+   * not yet witnessed — and the state the drain is allowed to act on.
+   */
+  private async recordInlinePush(
+    message: MessageRow,
+    sessionId: SessionId,
+    heldForReadiness: boolean,
+  ): Promise<void> {
+    if (heldForReadiness) await this.markInjected(message, sessionId)
+    else await this.recordPush(message, sessionId)
   }
 
   /** Record an INLINE push whose body (and id) went into the transcript: an

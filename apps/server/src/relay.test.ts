@@ -4584,6 +4584,32 @@ describe('hibernation', () => {
           at: '2026-08-23T00:00:02.000Z',
         },
       })
+      // THE ACK IS CUSTODY; THE DRIVER'S `delivery` EVENT IS SETTLEMENT
+      // (POD-2411). The physical row leaves the queue and the ledger row reaches
+      // `delivered` on the durable event, not on the RPC reply — see the same
+      // note in the POD-2291 case above. Matched by `rowId`, which is the
+      // PHYSICAL row; `turnId` filtered above is the ledger message id, and the
+      // two being different values is the point.
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-settlement',
+        sessionId,
+        event: {
+          t: 'delivery',
+          rowId: request!.rowId!,
+          outcome: 'delivered',
+          at: '2026-08-23T00:00:03.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 4 } },
+          observerGeneration: initialGeneration,
+          // turnEpoch 0, the epoch every other event in this test carries. A
+          // delivery does not START a turn, so the gate refuses it as a
+          // `turn-epoch-jump` if it claims a new one — row delivery is a
+          // lifecycle independent of the last turn, which is exactly why
+          // `decide` exempts `t: 'delivery'` from the closed-epoch rule.
+          turnEpoch: 0,
+        },
+      })
       await vi.waitFor(async () =>
         expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(0),
       )
@@ -6831,7 +6857,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       })
       expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
 
-      // The driver acks the turn → the ledger row is honestly delivered.
+      // The driver acks the turn — CUSTODY, which is not yet settlement.
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         type: 'runtimeSendResult',
         requestId: request!.requestId,
@@ -6842,6 +6868,45 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
           deliveredAs: 'when-ready',
           provenBy: 'protocol-ack',
           at: '2026-01-01T00:00:00.000Z',
+        },
+      })
+
+      /**
+       * THE ACK IS CUSTODY; THE EVENT STREAM IS SETTLEMENT (POD-2411).
+       *
+       * This test used to expect the ledger row to reach `delivered` on the RPC
+       * reply alone, because the forwarding path then reconciled the receipt
+       * inline. It no longer does — `forwardContractRows` dispatches and moves
+       * on ("Receipts acknowledge custody only; the event stream owns
+       * settlement"), so that the durable event row, the restart head and the
+       * session's recency all commit through the session ledger BEFORE any
+       * effect fans out. An RPC reply is not a durable row and cannot carry that
+       * guarantee, which is the whole reason settlement moved.
+       *
+       * So the driver's own `delivery` event is what a real driver sends and
+       * what this now drives. NOTHING IS RELAXED — the row still has to reach
+       * `delivered`, and a forwarding path that lost the settlement entirely
+       * would still fail here. What changed is which frame is asked to do it.
+       *
+       * It is also the assertion that keeps `rowId` and `turnId` DISTINCT
+       * honest: settlement matches the physical queue row by `rowId`, while the
+       * `turnId` asserted above is the ledger message id the driver reports a
+       * lost turn under. Passing one value for both — which is what collapsed
+       * them — would make this line pass against the wrong row.
+       */
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'codex-first-prompt-settlement',
+        sessionId,
+        event: {
+          t: 'delivery',
+          rowId: request!.rowId!,
+          outcome: 'delivered',
+          at: '2026-01-01T00:00:00.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'codex-first-prompt', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
         },
       })
       await vi.waitFor(async () =>
