@@ -72,7 +72,6 @@ const agentFor = (
 /** A machine table a test can mutate between two applies. */
 function ownershipTable(
   rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>,
-  delegated?: Map<string, string[]>,
 ): MachineOwnershipIndex {
   return {
     rowFor: (machineId): MachineOwnershipRow | undefined => {
@@ -84,10 +83,6 @@ function ownershipTable(
         grants: row.grants,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
-    },
-    delegatedMachines: (sessionId) => {
-      const allowed = delegated?.get(sessionId)
-      return allowed === undefined ? undefined : new Set(allowed)
     },
   }
 }
@@ -463,60 +458,27 @@ describe('delegation, resolved live at every apply', () => {
     ).toBe("unknown machine 'box'")
   })
 
-  it('a sub-agent cannot spawn on a machine its PARENT could not use', async () => {
-    const o = await makeOracle({
-      machineId: asMachineId('a'),
-      offlineMachines: [
-        { id: asMachineId('a'), name: 'A' },
-        { id: asMachineId('b'), name: 'B' },
-      ],
-    })
-    // 'b' needs a live daemon, or every spawn on it refuses as OFFLINE and the
-    // `use` denial below would be indistinguishable from unreachability — the
-    // exact conflation D18.5 exists to prevent, arriving in the test that is
-    // supposed to prove it.
-    o.reg.gateway.attachDaemon('b', () => {})
-    const ownership = ownershipTable(
-      new Map([
-        ['a', { owner: firstAdminMemberId(), grants: [] as MachineGrant[], name: 'A' }],
-        ['b', { owner: firstAdminMemberId(), grants: [] as MachineGrant[], name: 'B' }],
-      ]),
-      // The parent's delegation is narrowed to machine 'a'; the HUMAN may still
-      // use 'b', which is what makes this a chain test and not a repeat of the
-      // human gate.
-      new Map([['parent', ['a']]]),
-    )
-    const child = agentFor('child', firstAdminMemberId(), [asSessionId('parent')])
-
-    // The human may spawn on 'b'...
-    await expect(
-      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId()), { ownership }), 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'b',
-      }),
-    ).resolves.toMatchObject({ sessionId: expect.any(String) })
-
-    // ...the child, delegating through that parent, may not.
-    expect(
-      await messageOf(async () =>
-        dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
-          agentKind: 'shell',
-          cwd: '/p',
-          machineId: 'b',
-        }),
-      ),
-    ).toBe("you do not have access to run agents on machine 'B'")
-
-    // Counterfactual: the narrowing denies 'b' specifically, not everything.
-    await expect(
-      dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'a',
-      }),
-    ).resolves.toMatchObject({ sessionId: expect.any(String) })
-  })
+  /*
+   * REMOVED WITH THE MECHANISM IT TESTED (PDM-426): "a sub-agent cannot spawn on
+   * a machine its PARENT could not use".
+   *
+   * It narrowed a parent's delegation to machine 'a' through the `ownershipTable`
+   * fixture's `delegatedMachines` member and asserted the child was refused 'b'
+   * while the human was allowed it. The assertions were sound and the refusal was
+   * real — but the member was supplied ONLY by fixtures. No production
+   * constructor set it, so the branch the test drove could not be entered by any
+   * real request, and the per-link narrowing has now been deleted rather than
+   * wired: in the model as inspected nothing supplies the member and nothing stores
+   * what it would read, so wiring would have meant introducing a second
+   * policy-and-storage mechanism rather than connecting an existing one. See the
+   * header of `machine-access.ts:machineVerbsFor` for the full argument, including
+   * what ADR 9 D6 M6 does and does NOT settle.
+   *
+   * The property that DOES bind — an agent, its sub-agent and the human at the
+   * root of the chain resolve to one verb set, through the constructor production
+   * actually calls — is pinned in `authz-matrix.test.ts` under D6 M6. The human
+   * gate itself ("visible but not usable") is still covered above.
+   */
 })
 
 describe('invisible fails exactly like nonexistent', () => {

@@ -61,7 +61,6 @@ const agent = (
 /** A MUTABLE ownership table, so a test can revoke a grant between two applies. */
 function ownershipTable(
   rows: Map<string, { owner: UserId | null; grants: MachineGrant[]; name?: string }>,
-  delegated?: Map<string, string[]>,
 ): MachineOwnershipIndex {
   return {
     rowFor: (machineId): MachineOwnershipRow | undefined => {
@@ -73,10 +72,6 @@ function ownershipTable(
         grants: row.grants,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
-    },
-    delegatedMachines: (sessionId) => {
-      const allowed = delegated?.get(sessionId)
-      return allowed === undefined ? undefined : new Set(allowed)
     },
   }
 }
@@ -279,24 +274,28 @@ describe('agent delegation resolves LIVE, with no reaper', () => {
     ).toBe('absent')
   })
 
-  it('a sub-agent cannot reach past a machine its PARENT could not use', () => {
-    const ownership = ownershipTable(
-      new Map([
-        ['a', { owner: OWNER, grants: [] }],
-        ['b', { owner: OWNER, grants: [] }],
-      ]),
-      // The PARENT's delegation is narrowed to machine 'a'. The human may still
-      // use 'b' — which is what makes this a CHAIN test rather than a second run
-      // of the human gate above.
-      new Map([['parent', ['a']]]),
-    )
-    const child = agent(asSessionId('child'), OWNER, [asSessionId('parent')])
-
-    expect(checkMachineUse(user(OWNER), asMachineId('b'), ownership)).toBeUndefined()
-    expect(checkMachineUse(child, asMachineId('b'), ownership)).toBe('unauthorized')
-    // Counterfactual: the narrowing denies 'b' specifically, not everything.
-    expect(checkMachineUse(child, asMachineId('a'), ownership)).toBeUndefined()
-  })
+  /*
+   * REMOVED WITH THE MECHANISM IT TESTED (PDM-426): "a sub-agent cannot reach
+   * past a machine its PARENT could not use".
+   *
+   * It narrowed the parent's delegation to 'a' through this file's
+   * `ownershipTable` fixture and asserted the child was refused 'b' while the
+   * human kept it. Sound assertions over a branch NO REAL REQUEST COULD ENTER:
+   * the narrowing was read from `MachineOwnershipIndex.delegatedMachines`, which
+   * no production constructor ever set. The member has been deleted rather than
+   * wired because, in the model as inspected, nothing supplies the member and
+   * nothing stores what it would read — so wiring it would have meant introducing a
+   * second policy-and-storage mechanism rather than connecting an existing one. The
+   * full argument, including what ADR 9 D6 M6 does and does NOT settle, is at
+   * `machine-access.ts:machineVerbsFor`.
+   *
+   * What replaces it, in `authz-matrix.test.ts` under D6 M6: an agent, its
+   * sub-agent and the human at the root of the chain resolve to ONE verb set,
+   * built through `ownershipSnapshotFromMachines`. That covers the
+   * CONSTRUCTOR-TO-POLICY SEAM — which is what this file's fixture-only test never
+   * did — and not a whole production request path; see that test's own header for
+   * the bound. The test directly above keeps the human ceiling itself.
+   */
 })
 
 describe('the principal itself', () => {

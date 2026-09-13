@@ -66,7 +66,7 @@
  * this principal is concerned there is nothing at all.
  */
 
-import type { MachineId, MachineUseDecision, SessionId, UserId } from '@podium/model'
+import type { MachineId, MachineUseDecision, UserId } from '@podium/model'
 import type { MachineGrant, MachineVerb, ResolvedMachine } from '@podium/protocol'
 import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
@@ -97,15 +97,6 @@ export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'g
 export interface MachineOwnershipIndex {
   /** `undefined` = no such machine row exists at all. */
   rowFor(machineId: MachineId): MachineOwnershipRow | undefined
-  /**
-   * A per-delegation narrowing: which machine ids THIS agent session may use,
-   * when its delegation restricts them. `undefined` = no narrowing declared,
-   * which is NOT the empty set — the empty set denies everything.
-   *
-   * D16.2/D16.3: a sub-agent delegates from its parent and never widens, so
-   * every link's narrowing applies to the leaf.
-   */
-  delegatedMachines?(agentSessionId: SessionId): ReadonlySet<string> | undefined
 }
 
 /**
@@ -310,20 +301,57 @@ export function machineVerbsFor(
     }
     return new Set()
   }
-  const held = verbsFromRow(row, onBehalfOfUser(principal))
-  if (principal.kind !== 'agent') return held
-  // The human's CURRENT rights are the ceiling; the agent's own delegation may
-  // only narrow, never widen. Every link from the leaf to the root is applied,
-  // so a child can never reach past its parent.
-  for (const link of [principal.agentSessionId, ...principal.chain]) {
-    const allowed = ownership.delegatedMachines?.(link)
-    if (allowed !== undefined && !allowed.has(machineId)) {
-      // Narrowed away: what the agent may SEE survives (fleet health and "your
-      // session ran there" attribution are not execution); use/manage do not.
-      return new Set([...held].filter((verb) => verb === 'see'))
-    }
-  }
-  return held
+  // AN AGENT HOLDS EXACTLY WHAT ITS HUMAN CURRENTLY HOLDS, and that is the WHOLE
+  // machine boundary for a delegated principal — ADR 9 D6 M6: *"an agent can only
+  // spawn on machines its human may `use`, and a sub-agent cannot reach past its
+  // parent … with no additional mechanism"*. `onBehalfOfUser` resolves the ONE
+  // human at the root of the chain (D5 A1), so a sub-agent and its parent read the
+  // same row through the same person and neither can exceed the other. There is no
+  // per-link step here because there is nothing for one to read.
+  //
+  // THERE USED TO BE ONE, AND IT NEVER BOUND (PDM-426). `MachineOwnershipIndex`
+  // declared an optional `delegatedMachines(agentSessionId)` and this function
+  // walked every link of the chain dropping `use`/`manage` when a link no longer
+  // listed the machine. Not one of the three constructors below supplied it, and
+  // neither did any of the ~14 production sites that build an index through them,
+  // so the optional call was `undefined` on every real request and the loop body
+  // never ran. Exactly three tests ever populated it — in this module's own
+  // suite, in `authz-matrix.test.ts` and in `modules/sessions/command-plane.test.ts`
+  // — every one of them from a hand-built index. A rule proven only by fixtures
+  // that bring their own supplier cannot fail for a missing supplier, which is
+  // why it read green for as long as it existed.
+  //
+  // DELETED RATHER THAN WIRED, and the reason is the STATE OF THIS BUILD rather
+  // than a prohibition. In the delegation, storage and constructor model as
+  // inspected here, no operand is supplied to this seam from anywhere:
+  // `AgentDelegation` carries `scope` in the `IssueScope` vocabulary and no machine
+  // field; no column in `migrations/schema.ts` stores a per-session set of machines;
+  // and the constructors below take a machines-service slice, so they cannot reach a
+  // per-session fact. Wiring it would therefore have meant INTRODUCING a second
+  // policy-and-storage mechanism, not connecting an existing one — so the seam is
+  // removed instead.
+  //
+  // WHAT THE ADR DOES AND DOES NOT SETTLE, because the strong version of this
+  // paragraph was wrong and a reviewer bounded it. D6 M6 derives the compute
+  // boundary from the human's current rights intersected with the delegation's
+  // scope, and its rejected-alternatives table turns down a "separate fleet ACL
+  // subsystem" by name. That is a real argument against the mechanism this seam
+  // would have needed. It is NOT a proof that every possible per-link narrowing
+  // inside the principal model is forbidden, and it is not cited here as one.
+  // Likewise `delegation.ts` states that a second declared operand is an ADR 9 D5
+  // amendment rather than an edit to a constant: that is a cited DESIGN RULE, not
+  // an impossibility and not parser-enforced — its
+  // `DELEGATION_DECLARED_OPERAND_KEYS` pin CORROBORATES the rule and does not
+  // enforce it for this case, since `findCapabilitySnapshotKeys` matches
+  // authority-shaped spellings only
+  // (`/capabilit|effectiveright|rights?|permission|privileg|entitlement|grant|scope|role|acl/i`)
+  // and a plainly-named `machines` key would pass it untouched.
+  //
+  // So if a per-delegation machine narrowing is wanted, the route is the amendment
+  // plus storage plus a supplier the constructors can reach — not a re-wire of this
+  // hook. A declared rule that nothing supplies is worse than no rule, because it
+  // reads as enforcement to everyone who reviews this file.
+  return verbsFromRow(row, onBehalfOfUser(principal))
 }
 
 /** Can this principal know the machine exists at all? */

@@ -93,6 +93,7 @@ import {
   type MachineOwnershipRow,
   machineAccessMessage,
   machineVerbsFor,
+  ownershipSnapshotFromMachines,
 } from './machine-access'
 import { OPERATOR } from './test-support/capabilities'
 
@@ -390,17 +391,75 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     expect(machineVerbsFor(subAfter, asMachineId('m1'), machines).has('use')).toBe(false)
   })
 
-  it('a sub-agent cannot exceed its parent — the narrowing applies at every link', () => {
+  /**
+   * D6 M6, THROUGH THE CONSTRUCTOR PRODUCTION ACTUALLY USES (PDM-426).
+   *
+   * What stood here was a narrowing test: it handed `machineVerbsFor` an index
+   * carrying a `delegatedMachines` member, narrowed the PARENT away from `m1`,
+   * and asserted the child lost `use`. The rule it proved was real and the
+   * assertions passed — but NOTHING IN PRODUCTION EVER SUPPLIED THAT MEMBER.
+   * None of the three exported constructors set it and none of the ~14 sites
+   * that build an index through them could, so the branch it exercised was
+   * unreachable outside this file. A test that brings its own supplier cannot
+   * fail for a missing supplier, which is why nobody noticed for as long as it
+   * stood. The member is gone; this is what replaces it.
+   *
+   * The property is M6's own sentence — *"an agent can only spawn on machines
+   * its human may `use`, and a sub-agent cannot reach past its parent … with no
+   * additional mechanism"* — and the point of the test is the LAST CLAUSE. It says
+   * YES first (both principals really do hold `use`, so the equality is not two
+   * empty sets agreeing), then pins leaf == parent == human across the chain.
+   *
+   * WHAT THIS REACHES, STATED EXACTLY, because the obvious stronger claim is not
+   * earned. `ownershipSnapshotFromMachines` is real constructor code, but it is fed
+   * a FIXTURE `ownershipRows` here. So what this exercises is the
+   * CONSTRUCTOR-TO-POLICY SEAM — index construction through `machineVerbsFor` — and
+   * NOT a complete production request or store path. It catches a narrowing
+   * introduced in that seam and carried into a verb set. It does not establish that
+   * a narrowing introduced ANYWHERE would redden, and it is not evidence about the
+   * transports or the store above it.
+   *
+   * Note in particular what the companion break does and does not show. The break
+   * that was actually RUN restored the hook AND added a supplier production never
+   * had, and that is what reddened this test — so it is a valid detector of a
+   * CONSTRUCTED narrowing on this fixture, not a detector of the old unwired hook
+   * coming back. The unwired restoration was NOT run: that it would stay green is
+   * read off the three lines of the removed loop, where an absent supplier makes
+   * `delegatedMachines?.(link)` `undefined` and the branch unreachable. Reasoned
+   * from the source, not measured — said that way round on purpose, so nobody
+   * inherits it as a result.
+   */
+  it('an agent and its sub-agent hold EXACTLY the root human’s verbs — no per-link narrowing exists (D6 M6)', async () => {
     const world = delegationWorld()
-    const machines = machineWorld({
-      owner: OWNER,
-      // The PARENT is narrowed away from m1; the child declares no narrowing.
-      delegated: new Map([[AGENT_OF_OWNER, new Set<string>()]]),
+    const machines = await ownershipSnapshotFromMachines({
+      ownershipRows: () => [{ id: asMachineId('m1'), name: 'workshop', ownerUserId: OWNER }],
     })
+    const verbs = (principal: CommandPrincipal): string[] =>
+      [...machineVerbsFor(principal, asMachineId('m1'), machines)].sort()
+    const owner: CommandPrincipal = {
+      kind: 'user',
+      user: OWNER,
+      capability: { role: 'worker', scope: { kind: 'owned', userId: OWNER } },
+    }
+
+    const agent = resolvePrincipal(agentCapability(AGENT_OF_OWNER), world.index)
     const sub = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
-    expect(machineVerbsFor(sub, asMachineId('m1'), machines).has('use')).toBe(false)
-    // `see` survives a narrowing — fleet health is not execution (D18.1).
-    expect(machineVerbsFor(sub, asMachineId('m1'), machines).has('see')).toBe(true)
+
+    // SOFT, ALL FOUR, deliberately: a hard assert reports only the first failure,
+    // and the diagnosis this test owes its next reader is WHICH half moved. A
+    // narrowing applied at the parent reddens the two `use` expectations and the
+    // human comparison while leaf==parent stays green; one applied only at the
+    // leaf reddens leaf==parent instead. Collapsing them to the first failure
+    // throws that away.
+    //
+    // YES FIRST — the fixture can say yes, so nothing below is two empty sets
+    // agreeing with each other.
+    expect.soft(verbs(agent)).toContain('use')
+    expect.soft(verbs(sub)).toContain('use')
+    // THE PIN: the leaf, its parent and the human at the root of the chain all
+    // resolve to one set. Nothing between them may subtract.
+    expect.soft(verbs(sub)).toEqual(verbs(agent))
+    expect.soft(verbs(agent)).toEqual(verbs(owner))
   })
 
   it('the human is a CEILING: an agent of a non-owner cannot reach the owner’s machine', () => {
@@ -935,7 +994,6 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
 function machineWorld(opts: {
   owner: UserId | null
   grants?: { grantee: string; verb: string }[]
-  delegated?: Map<SessionId, ReadonlySet<string>>
 }): MachineOwnershipIndex {
   const grants = opts.grants ?? []
   const row = (): MachineOwnershipRow => ({
@@ -949,9 +1007,6 @@ function machineWorld(opts: {
   })
   return {
     rowFor: (machineId) => (machineId === 'm1' ? row() : undefined),
-    ...(opts.delegated
-      ? { delegatedMachines: (id: string) => opts.delegated?.get(id as SessionId) }
-      : {}),
   }
 }
 
