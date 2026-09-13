@@ -564,21 +564,49 @@ const unwrap = (node: ts.Expression | undefined): ts.Expression | undefined => {
   return cur
 }
 
-/** The object literal initialising `export const <name>`, if that is what it is. */
-function objectLiteralFor(
-  source: ts.SourceFile,
-  name: string,
-): ts.ObjectLiteralExpression | undefined {
-  let out: ts.ObjectLiteralExpression | undefined
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-      const init = unwrap(node.initializer)
-      if (init && ts.isObjectLiteralExpression(init)) out = init
+/**
+ * MODULE-LEVEL declarations of `name`, in source order.
+ *
+ * PDM-139 round 3: the previous version walked EVERY `VariableDeclaration` in
+ * the file and kept the last one whose identifier matched, while its own doc
+ * said `export const`. A helper-local `const MAIL_COMMANDS = {…}` inside some
+ * function would therefore REPLACE the module table in this audit and not
+ * replace it at runtime — the audit would answer for a declaration nobody
+ * serves. Identifier spelling is not lexical binding, so the walk is restricted
+ * to statements the MODULE itself declares, structurally: a `VariableStatement`
+ * whose parent is the `SourceFile`.
+ *
+ * Returns every match rather than one, so the caller can report AMBIGUITY
+ * instead of silently preferring the first or the last.
+ */
+function moduleLevelDeclarations(source: ts.SourceFile, name: string): ts.VariableDeclaration[] {
+  const out: ts.VariableDeclaration[] = []
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const decl of statement.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === name) out.push(decl)
     }
-    ts.forEachChild(node, visit)
   }
-  visit(source)
   return out
+}
+
+/** What a module-level object-literal lookup produced. */
+type LiteralLookup =
+  | { readonly kind: 'found'; readonly literal: ts.ObjectLiteralExpression }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'ambiguous'; readonly count: number }
+  | { readonly kind: 'not-an-object'; readonly what: string }
+
+/** The object literal initialising a MODULE-LEVEL `const <name>`. */
+function objectLiteralFor(source: ts.SourceFile, name: string): LiteralLookup {
+  const decls = moduleLevelDeclarations(source, name)
+  if (decls.length === 0) return { kind: 'absent' }
+  if (decls.length > 1) return { kind: 'ambiguous', count: decls.length }
+  const init = unwrap(decls[0]?.initializer)
+  if (!init || !ts.isObjectLiteralExpression(init)) {
+    return { kind: 'not-an-object', what: init ? ts.SyntaxKind[init.kind] : 'no initializer' }
+  }
+  return { kind: 'found', literal: init }
 }
 
 /** A property's key when it is a plain or quoted name; undefined when computed. */
@@ -587,6 +615,58 @@ const staticName = (prop: ts.ObjectLiteralElementLike): string | undefined => {
   if (!n) return undefined
   if (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isNumericLiteral(n)) return n.text
   return undefined
+}
+
+/** What the EFFECTIVE value of one property of an object literal turned out to be. */
+type FinalProperty =
+  | { readonly kind: 'resolved'; readonly prop: ts.PropertyAssignment }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'uncertain'; readonly why: string }
+
+/**
+ * THE LAST WRITE WINS, AND A SPREAD IS A WRITE THIS FILE CANNOT READ.
+ *
+ * PDM-139 round 3: the previous version took the FIRST own property with the
+ * name and ignored everything after it. `{ contract: mailSendContract,
+ * ...OVERRIDE }` and `{ exposure: ['trpc'], ...OVERRIDE }` are both legal, and
+ * at runtime the spread can replace the value that was read. The audit would
+ * then report a contract or a transport set that the object does not actually
+ * have — a FALSE RESOLUTION, which is worse than an admitted gap because it
+ * looks like an answer.
+ *
+ * So the effective value is established only when nothing that could overwrite
+ * it appears LATER in the literal. A spread or a computed key BEFORE the final
+ * explicit property is harmless — the explicit one wins — and that case stays
+ * resolvable rather than being refused for tidiness.
+ */
+function finalProperty(obj: ts.ObjectLiteralExpression, name: string): FinalProperty {
+  const props = obj.properties
+  let lastExplicit = -1
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i]
+    if (p && ts.isPropertyAssignment(p) && staticName(p) === name) lastExplicit = i
+  }
+  // Anything after the last explicit write (or anywhere at all, when there is
+  // none) that could contribute this key without naming it.
+  const opaqueAfter = props.findIndex((p, i) => {
+    if (i <= lastExplicit) return false
+    if (ts.isSpreadAssignment(p)) return true
+    return ts.isPropertyAssignment(p) && staticName(p) === undefined
+  })
+  if (opaqueAfter !== -1) {
+    const p = props[opaqueAfter] as ts.ObjectLiteralElementLike
+    const text = p.getText().split('\n')[0]
+    return {
+      kind: 'uncertain',
+      why:
+        `\`${text}\` appears after ${
+          lastExplicit === -1 ? 'no explicit' : `the last explicit \`${name}\``
+        } property and could supply or overwrite \`${name}\` at runtime, which reading this file ` +
+        'alone cannot settle',
+    }
+  }
+  if (lastExplicit === -1) return { kind: 'absent' }
+  return { kind: 'resolved', prop: props[lastExplicit] as ts.PropertyAssignment }
 }
 
 /** A declaration that is PRESENT but which this file cannot resolve alone, and
@@ -626,9 +706,20 @@ export function mailRegistryJoin(registrySource: string): RegistryJoin {
   const join = new Map<string, string>()
   const unparsed: string[] = []
   const table = objectLiteralFor(parse(registrySource, 'registry.ts'), 'MAIL_COMMANDS')
-  if (!table) return { join, unparsed, found: false }
+  if (table.kind === 'absent') return { join, unparsed, found: false }
+  if (table.kind !== 'found') {
+    // AMBIGUOUS or NOT-AN-OBJECT is not "no table" — it is a table this reader
+    // must not guess at. Reporting it as absent would hand the caller the
+    // empty-comparison finding, which points at the wrong thing.
+    unparsed.push(
+      table.kind === 'ambiguous'
+        ? `\`MAIL_COMMANDS\` is declared ${table.count} times at module level — this reader will not pick one`
+        : `\`MAIL_COMMANDS\` is not an object literal (${table.what})`,
+    )
+    return { join, unparsed, found: true }
+  }
 
-  for (const prop of table.properties) {
+  for (const prop of table.literal.properties) {
     if (ts.isSpreadAssignment(prop)) {
       unparsed.push(`spread \`...${prop.expression.getText()}\``)
       continue
@@ -655,18 +746,22 @@ export function mailRegistryJoin(registrySource: string): RegistryJoin {
       )
       continue
     }
-    // THE ENTRY'S OWN `contract` PROPERTY. Not any textual `contract:` inside
-    // it: a nested object mentioning one would otherwise resolve the entry to
-    // the wrong const, and a doc comment quoting one would resolve it to a const
-    // that is not there at all.
-    const own = value.properties.find(
-      (p) => ts.isPropertyAssignment(p) && staticName(p) === 'contract',
-    ) as ts.PropertyAssignment | undefined
-    const contract = own && unwrap(own.initializer)
+    // THE ENTRY'S OWN, EFFECTIVE `contract` PROPERTY. Not any textual
+    // `contract:` inside it — a nested object mentioning one would resolve the
+    // entry to the wrong const — and not merely the FIRST one, because a later
+    // spread can overwrite it at runtime.
+    const own = finalProperty(value, 'contract')
+    if (own.kind === 'uncertain') {
+      unparsed.push(`\`${key}\`: ${own.why}`)
+      continue
+    }
+    if (own.kind === 'absent') {
+      unparsed.push(`\`${key}\`, whose own \`contract\` property is absent`)
+      continue
+    }
+    const contract = unwrap(own.prop.initializer)
     if (!contract || !ts.isIdentifier(contract)) {
-      unparsed.push(
-        `\`${key}\`, whose own \`contract\` property is ${own ? 'not a plain identifier' : 'absent'}`,
-      )
+      unparsed.push(`\`${key}\`, whose own \`contract\` property is not a plain identifier`)
       continue
     }
     join.set(key, contract.text)
@@ -693,42 +788,55 @@ export function mailRegistryJoin(registrySource: string): RegistryJoin {
 export function mailExposureByConst(contractsSource: string): Map<string, string[] | Unresolved> {
   const out = new Map<string, string[] | Unresolved>()
   const source = parse(contractsSource, 'contracts.ts')
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      const init = unwrap(node.initializer)
-      if (init && ts.isObjectLiteralExpression(init)) {
-        const own = init.properties.find(
-          (p) => ts.isPropertyAssignment(p) && staticName(p) === 'exposure',
-        ) as ts.PropertyAssignment | undefined
-        if (own) {
-          const value = unwrap(own.initializer)
-          if (!value || !ts.isArrayLiteralExpression(value)) {
-            // A named cell (`exposure: SERVED_EVERYWHERE`) — the ISSUES family's
-            // spelling — or anything else that is not an inline array.
-            out.set(node.name.text, {
-              reason: `its \`exposure\` is not an inline array literal (${
-                value ? ts.SyntaxKind[value.kind] : 'no initializer'
-              }), so it cannot be resolved by reading this file alone`,
-            })
-          } else if (value.elements.every((e) => ts.isStringLiteral(e))) {
-            out.set(
-              node.name.text,
-              value.elements.map((e) => (e as ts.StringLiteral).text),
-            )
-          } else {
-            const odd = value.elements.find((e) => !ts.isStringLiteral(e))
-            out.set(node.name.text, {
-              reason:
-                `its \`exposure\` array contains \`${odd?.getText() ?? '?'}\`, which is not a ` +
-                'string literal. Treating the raw token as a tag would hide a `trpc` or `mcp` it carries',
-            })
-          }
-        }
-      }
+  // MODULE-LEVEL DECLARATIONS ONLY, for the reason in `moduleLevelDeclarations`:
+  // a helper-local `const mailSendContract = {…}` must not answer for the
+  // exported one. Names are collected from the module's own statements and each
+  // is then resolved through the same ambiguity-aware lookup.
+  const names = new Set<string>()
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const decl of statement.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name)) names.add(decl.name.text)
     }
-    ts.forEachChild(node, visit)
   }
-  visit(source)
+  for (const name of names) {
+    const lookup = objectLiteralFor(source, name)
+    if (lookup.kind === 'ambiguous') {
+      out.set(name, {
+        reason: `it is declared ${lookup.count} times at module level, so which object carries its \`exposure\` cannot be read here`,
+      })
+      continue
+    }
+    if (lookup.kind !== 'found') continue
+    const own = finalProperty(lookup.literal, 'exposure')
+    if (own.kind === 'absent') continue
+    if (own.kind === 'uncertain') {
+      out.set(name, { reason: own.why })
+      continue
+    }
+    const value = unwrap(own.prop.initializer)
+    if (!value || !ts.isArrayLiteralExpression(value)) {
+      // A named cell (`exposure: SERVED_EVERYWHERE`) — the ISSUES family's
+      // spelling — or anything else that is not an inline array.
+      out.set(name, {
+        reason: `its \`exposure\` is not an inline array literal (${
+          value ? ts.SyntaxKind[value.kind] : 'no initializer'
+        }), so it cannot be resolved by reading this file alone`,
+      })
+    } else if (value.elements.every((e) => ts.isStringLiteral(e))) {
+      out.set(
+        name,
+        value.elements.map((e) => (e as ts.StringLiteral).text),
+      )
+    } else {
+      const odd = value.elements.find((e) => !ts.isStringLiteral(e))
+      out.set(name, {
+        reason:
+          `its \`exposure\` array contains \`${odd?.getText() ?? '?'}\`, which is not a ` +
+          'string literal. Treating the raw token as a tag would hide a `trpc` or `mcp` it carries',
+      })
+    }
+  }
   return out
 }
 
@@ -817,6 +925,19 @@ export function exposureMatchesReach(
   const exposure = mailExposureByConst(contractsSource)
 
   if (!found || join.size === 0) {
+    // A REPORTED REASON BEATS THE GENERIC MESSAGE. When the table was found but
+    // nothing in it resolved — it is declared twice, or it is not an object —
+    // `unparsed` already says why, and replacing that with "no table could be
+    // read" would point the reader at the wrong problem.
+    if (unparsed.length > 0) {
+      return unparsed.map((rawKey) => ({
+        check: 'exposure-matches-reach',
+        where: where.registry,
+        detail:
+          `the \`MAIL_COMMANDS\` entry spelled ${rawKey} could not be resolved to a key and a ` +
+          'contract, and nothing else in the table resolved either — so there is no join to compare',
+      }))
+    }
     return [
       {
         check: 'exposure-matches-reach',
@@ -1671,10 +1792,159 @@ function probe(): Finding[] {
     ),
   )
 
+  // -- SCOPE AND OVERRIDE (PDM-139 round 3). Identifier spelling is not lexical
+  //    binding, and the FIRST matching property is not the effective one. -----
+
+  // A HELPER-LOCAL `MAIL_COMMANDS` MUST NOT ANSWER FOR THE MODULE TABLE. The
+  // nested one is a different binding at runtime; the previous walk took the
+  // LAST same-named declaration anywhere in the file, so this fixture would have
+  // been audited against a one-entry table nobody serves. `ask` is declared and
+  // mounted, so if the nested table won, `ask`/`inbox` would go missing.
+  expectSilent(
+    'exposure-matches-reach/nested-registry-shadow',
+    exposureMatchesReach(
+      [
+        REG_OK,
+        '',
+        'function helper() {',
+        '  const MAIL_COMMANDS = {',
+        '    send: { contract: mailSendContract, handler: sendHandler },',
+        '  } as const',
+        '  return MAIL_COMMANDS',
+        '}',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // THE POSITIVE CONTROL for that probe: if the reader were simply ignoring
+  // nested declarations by ignoring EVERYTHING, the fixture above would pass
+  // vacuously. A module-level table with a MISSING entry must still be caught.
+  expectOnly(
+    'exposure-matches-reach/top-level-still-read',
+    exposureMatchesReach(
+      [
+        'export const MAIL_COMMANDS = {',
+        '  send: { contract: mailSendContract, handler: sendHandler },',
+        '  ask: { contract: mailAskContract, handler: askHandler },',
+        '} as const satisfies Record<string, MailCommand>',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /CALLS `mailMutation`\/`mailQuery` for mail `inbox`/,
+  )
+  // A HELPER-LOCAL CONTRACT MUST NOT ANSWER FOR THE EXPORTED ONE either. The
+  // nested `mailInboxConsumeContract` declares only `relay`; if it won, `inbox`
+  // would drop out of the trpc set and the router mounting it would be reported.
+  expectSilent(
+    'exposure-matches-reach/nested-contract-shadow',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK,
+        '',
+        'function helper() {',
+        '  const mailInboxConsumeContract = {',
+        "    name: 'mail.inboxConsume',",
+        "    exposure: ['relay'],",
+        '  }',
+        '  return mailInboxConsumeContract',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // TWO MODULE-LEVEL DECLARATIONS OF THE TABLE is ambiguity, not a pick.
+  expectOnly(
+    'exposure-matches-reach/ambiguous-registry',
+    exposureMatchesReach(
+      [REG_OK, '', 'export const MAIL_COMMANDS = {} as const'].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /declared 2 times at module level/,
+  )
+
+  // A LATER SPREAD CAN OVERWRITE `contract` AT RUNTIME, so the entry is not
+  // statically established and must be reported rather than resolved.
+  expectOnly(
+    'exposure-matches-reach/contract-overridden-later',
+    exposureMatchesReach(
+      regWith('  smuggled: { contract: mailSendContract, ...OVERRIDE },'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /could supply or overwrite `contract` at runtime/,
+  )
+  // …and a COMPUTED KEY after it is the same hazard wearing different clothes.
+  expectOnly(
+    'exposure-matches-reach/contract-computed-override',
+    exposureMatchesReach(
+      regWith('  smuggled: { contract: mailSendContract, [K]: v },'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /could supply or overwrite `contract` at runtime/,
+  )
+  // THE SUPPORTED POSITIVE: a spread BEFORE the final explicit property is
+  // harmless, because the explicit one wins. Refusing this too would be tidiness
+  // rather than correctness, and would make the check unusable on real code.
+  expectSilent(
+    'exposure-matches-reach/spread-before-explicit-contract',
+    exposureMatchesReach(
+      [
+        'export const MAIL_COMMANDS = {',
+        '  send: { ...BASE, contract: mailSendContract, handler: sendHandler },',
+        '  inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },',
+        '  ask: { contract: mailAskContract, handler: askHandler },',
+        '} as const satisfies Record<string, MailCommand>',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // THE SAME OVERRIDE HAZARD ON `exposure`. `{ exposure: ['trpc'], ...OVERRIDE }`
+  // has an effective transport set this file cannot read, so the declaration is
+  // UNRESOLVED — and the proc is then excluded from the comparison rather than
+  // being reported as undeclared.
+  expectOnly(
+    'exposure-matches-reach/exposure-overridden-later',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '  ...OVERRIDE,',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /could supply or overwrite `exposure` at runtime/,
+  )
+
   return failures
 }
 
-const PROBE_COUNT = 40
+const PROBE_COUNT = 48
 
 function main(): void {
   const argv = process.argv.slice(2)
