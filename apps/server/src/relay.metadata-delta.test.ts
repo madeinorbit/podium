@@ -1,5 +1,5 @@
-import { firstAdminMemberId } from '@podium/model'
-import type { IssueWire, SessionMeta, SharedIssueWire } from '@podium/model'
+import { ISSUE_PRIVATE_EXECUTION_KEYS, firstAdminMemberId } from '@podium/model'
+import type { IssueExecutionProjection, IssueWire, SessionMeta, SharedIssueWire } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -55,6 +55,27 @@ describe('SessionRegistry metadata deltas', () => {
    *  flush deterministically before reading a delta client's inbox. */
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
+  /** FLUSH, THEN READ — and why a bare `length` read is not safe here [PDM-405].
+   *
+   *  One issue write declares THREE rows in its own commit span (`issue`,
+   *  `issueProjection`, and B4's owner-scoped `issueExecution` sidecar), and an
+   *  event the write appends publishes a FOURTH on a LATER span, through
+   *  `IssueEventFeedPublisher`. So a create's rows reach a client in two
+   *  batches, and any read that stops on a COUNT can latch on the first batch
+   *  and report a prefix as though it were the whole contract. Polling the
+   *  sorted ENTITY LIST instead fails on a short read AND on a long one, which
+   *  is the property the count never had. */
+  const entitiesAfter = (
+    registry: SessionRegistry,
+    inbox: ServerMessage[],
+    from: number,
+  ): string[] => {
+    flush(registry)
+    return deltas(inbox.slice(from))
+      .map((change) => change.entity)
+      .sort()
+  }
+
   it('sends canonical per-entity deltas regardless of the retired metadataDelta cap', async () => {
     const registry = await makeLegacyRegistry()
     const legacy = await client(registry)
@@ -65,8 +86,22 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.create({ repoPath: '/r', title: 'first', startNow: false })
     flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(3)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(3)
+    // FOUR ROWS ON A CREATE, ACROSS TWO BATCHES — and the count is the half of
+    // this test that went stale [PDM-405]. The write's own commit span declares
+    // `issue`, `issueProjection` and the owner-scoped `issueExecution` sidecar
+    // [B4, PDM-136]; the `issue.created` event the create appends publishes
+    // `issueEvent` on a SECOND span, through `IssueEventFeedPublisher`.
+    //
+    // This test used to poll for THREE rows, which was the whole contract before
+    // the sidecar existed. After B4 the three it waited for were the commit
+    // span's three, the poll latched the instant they landed, and the read that
+    // followed ran BEFORE the event batch — so `issueEvent` looked as if it had
+    // been displaced by `issueExecution` when in truth nothing had happened to
+    // it at all. Polling the sorted entity list is what removes the barrier: it
+    // fails on a missing row and on an extra one alike.
+    const expected = ['issue', 'issueEvent', 'issueExecution', 'issueProjection']
+    await expect.poll(() => entitiesAfter(registry, legacy.inbox, legacyBefore)).toEqual(expected)
+    await expect.poll(() => entitiesAfter(registry, delta.inbox, deltaBefore)).toEqual(expected)
 
     // Wire v2 is canonical; the retired cap no longer selects a second entity path.
     const legacyNew = legacy.inbox.slice(legacyBefore)
@@ -77,18 +112,15 @@ describe('SessionRegistry metadata deltas', () => {
     const deltaNew = delta.inbox.slice(deltaBefore)
     expect(deltaNew.some((m) => m.type === 'issuesChanged')).toBe(false)
     const changes = deltas(deltaNew)
-    // `issueEvent` rides along because creating an issue APPENDS an event, and
-    // that event is a feed row now (POD-1772) rather than something the pane
-    // re-asks for on a timer. The `issues.update` case below is unchanged on
-    // purpose: its kind is not one the feed carries.
-    expect(changes.map((change) => change.entity).sort()).toEqual([
-      'issue',
-      'issueEvent',
-      'issueProjection',
-    ])
     const residue = changes.find((change) => change.entity === 'issue')
     expect(residue).toMatchObject({ entity: 'issue', op: 'upsert' })
     expect((residue?.value as IssueWire).title).toBe('first')
+    // The event row is the create's own, not some unrelated feed traffic that
+    // happened to arrive inside the window — a list assertion alone would accept
+    // either, and then this test would still pass with `issue.created` dropped
+    // from the feed vocabulary.
+    const event = changes.find((change) => change.entity === 'issueEvent')
+    expect(event?.value).toMatchObject({ kind: 'issue.created', subject: residue?.id })
   })
 
   it('a single-issue update touches one canonical row and never rebuilds the bystander (#22)', async () => {
@@ -101,36 +133,85 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
 
+    // ---- LEG A: a write that moves NO private execution key -----------------
+    //
+    // TWO rows, and the SIDECAR'S ABSENCE IS THE CONTRACT, not a lost update
+    // [PDM-405]. `notes` is a shared field; it moves none of
+    // `ISSUE_PRIVATE_EXECUTION_KEYS`, so `toExecutionWire` of the new projection
+    // is byte-identical to the row the ledger already holds and the ledger drops
+    // no-op upserts (`Ledger.commit`). The producer declared the sidecar on this
+    // write exactly as it does on every write — the ledger is what decided there
+    // was nothing to say.
+    //
+    // This test used to name `issueExecution` here, which is the half of it that
+    // went stale, and the stale half was the ENTITY LIST rather than the count:
+    // two was always the right number for a notes edit. Leg B below is what
+    // keeps this leg honest, because "two rows, no sidecar" is also what a
+    // producer that had stopped emitting the sidecar ENTIRELY would look like.
     await registry.issues.update(w.id, { notes: 'self-contained edit' })
     flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(2)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(2)
+    const unchangedHalf = ['issue', 'issueProjection']
+    await expect
+      .poll(() => entitiesAfter(registry, legacy.inbox, legacyBefore))
+      .toEqual(unchangedHalf)
+    await expect
+      .poll(() => entitiesAfter(registry, delta.inbox, deltaBefore))
+      .toEqual(unchangedHalf)
 
-    // Both wire-v2 peers receive exactly the changed issue rows. There is no
-    // full-list translation on the production path and the bystander is untouched.
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
     const legacyChanges = deltas(legacyNew)
-    // THREE kinds per issue write since B4 (PDM-136): the two shared payloads
-    // and the owner-scoped `issueExecution` sidecar carrying the private
-    // execution keys the shared two no longer have.
-    expect(legacyChanges.map((change) => change.entity).sort()).toEqual([
-      'issue',
-      'issueExecution',
-      'issueProjection',
-    ])
     expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
     // The cap-advertising peer observes the same canonical rows.
     const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes.map((change) => change.entity).sort()).toEqual([
-      'issue',
-      'issueExecution',
-      'issueProjection',
-    ])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issue')
     expect((residue as { value: SharedIssueWire }).value.notes).toBe('self-contained edit')
+
+    // ---- LEG B: the counterfactual — a write that DOES move one -------------
+    //
+    // The same update seam, one private key changed, and now the sidecar rides.
+    // Without this leg, leg A's two-row assertion would pass just as happily
+    // against a build whose sidecar producer had been deleted, and the whole
+    // "private half" guarantee would rest on a test that cannot tell carriage
+    // from silence.
+    const legacyMoved = legacy.inbox.length
+    const deltaMoved = delta.inbox.length
+    await registry.issues.update(w.id, { worktreePath: '/wt/solo' })
+    flush(registry)
+
+    const movedHalf = ['issue', 'issueExecution', 'issueProjection']
+    await expect.poll(() => entitiesAfter(registry, legacy.inbox, legacyMoved)).toEqual(movedHalf)
+    await expect.poll(() => entitiesAfter(registry, delta.inbox, deltaMoved)).toEqual(movedHalf)
+
+    // Still one issue's rows: moving a private key does not rebuild the
+    // bystander either (#22 holds for both halves, not just the shared one).
+    const movedChanges = deltas(delta.inbox.slice(deltaMoved))
+    expect(movedChanges.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
+
+    // OWNER-SIDE CARRIAGE: the moved key reaches the owner ON THE SIDECAR.
+    const sidecar = movedChanges.find((change) => change.entity === 'issueExecution')
+    const execution = sidecar?.value as IssueExecutionProjection
+    expect(execution.issueId).toBe(w.id)
+    expect(execution.worktreePath).toBe('/wt/solo')
+
+    // AND IT IS THE PRIVATE HALF, NOT A SECOND COPY OF THE PROJECTION. The
+    // permitted set is the MODEL's own key list rather than a retyped one, so a
+    // fifth private key added to `ISSUE_PRIVATE_EXECUTION_KEYS` arrives here
+    // with no edit. A sidecar that started carrying a SHARED field (`notes`,
+    // `title`) — which would make the split pointless while every other
+    // assertion above still passed — fails here, and the diff NAMES the key it
+    // should not be carrying rather than reporting a bare false.
+    //
+    // SUBSET, not equality: a private key whose value is absent (this issue has
+    // no `coordinatorSessionId` and no `startedBySession`) does not survive the
+    // wire as a key, so an equality assertion would be pinning which of the four
+    // happen to be set on this fixture rather than the omission property. The
+    // other direction — that the sidecar is not empty — is the `worktreePath`
+    // assertion immediately above.
+    const permitted = new Set<string>(['issueId', ...ISSUE_PRIVATE_EXECUTION_KEYS])
+    expect(Object.keys(execution).filter((key) => !permitted.has(key))).toEqual([])
   })
 
   it('streams session upserts through the same seam', async () => {
