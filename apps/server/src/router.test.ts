@@ -166,11 +166,9 @@ describe('appRouter', () => {
     try {
       mkdirSync(join(base, 'iss_1', 'abc123'), { recursive: true })
       writeFileSync(join(base, 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
-      const stubRpc = {
-        readAsset: async () => ({ ok: false, error: 'unused' }),
-        listDir: async () => ({ ok: false, path: '', entries: [], error: 'unused' }),
-      }
-      registry.modules.issueArtifacts = new IssueArtifactStore(base, stubRpc)
+      // No daemon stub any more (PDM-135): the store holds no RPC handle at all,
+      // and this test never snapshots — it reads bytes already on disk.
+      registry.modules.issueArtifacts = new IssueArtifactStore(base)
       // No daemon round-trip, no root allowlist: the bytes come from the store.
       const r = await call.files.read({
         issueId: 'iss_1',

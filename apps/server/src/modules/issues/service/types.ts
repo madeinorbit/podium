@@ -24,6 +24,7 @@ import type { LinearIssue } from '../../../linear'
 import type { SessionFacts } from '../../sessions/facts'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
+import type { ArtifactSnapshotInput } from '../artifact-store'
 import type { PublishSpec } from '../publish'
 
 /**
@@ -348,13 +349,13 @@ export interface IssueDeps {
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
-    snapshot(o: {
-      issueId: IssueId
-      root: string
-      machineId?: MachineId
-      sourcePath: string
-      extraPaths?: string[]
-    }): Promise<{
+    /** PDM-135: the input type is the STORE'S, imported, not restated. It was a
+     *  structural twin of `ArtifactSnapshotInput` — a second copy of the same
+     *  assumption, free to drift one key at a time, and it did: adding the
+     *  required `source` to the store left this declaration still describing a
+     *  snapshot that needs no authorization, which the compiler caught here and
+     *  no test could. One definition now, so the next key cannot diverge. */
+    snapshot(o: ArtifactSnapshotInput): Promise<{
       artifactId: ArtifactId
       entry: string
       files: { path: string; size: number }[]
