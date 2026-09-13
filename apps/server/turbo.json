@@ -877,6 +877,7 @@
         "src/modules/cost/service.ts",
         "src/modules/daemon-request.test.ts",
         "src/modules/daemon-request.ts",
+        "src/modules/derived-family.membership.test.ts",
         "src/modules/derived-family.role-floor.test.ts",
         "src/modules/derived-family.runtime.test.ts",
         "src/modules/derived-family.ts",

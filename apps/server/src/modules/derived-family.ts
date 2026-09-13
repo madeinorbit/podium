@@ -24,7 +24,12 @@
  *  - membership is checked in BOTH directions against the object that will
  *    actually be served, so an EMPTY surface fails rather than passes
  *    (`modules/settings/trpc.ts`, POD-732's "an empty router satisfies every
- *    absence claim perfectly")
+ *    absence claim perfectly"). READ THE NOTE ON
+ *    `assertSurfaceMatchesDeclarations` BEFORE RELYING ON THIS LINE: until
+ *    PDM-361 the check here could not fire at all, and even repaired it bounds
+ *    what this file assembles rather than catching a contract that stopped
+ *    declaring tRPC. That one is caught by the compiler and by
+ *    `derived-family.runtime.test.ts`, and the note says so in those words.
  *  - output types are read off the JOINED HANDLER so `AppRouter` inference
  *    survives the derivation (`modules/workflows/trpc.ts`)
  *  - a query is served because its table entry names the transport, and queries
@@ -491,56 +496,121 @@ export interface DerivedFamily<
 // ---------------------------------------------------------------------------
 
 /**
+ * THE ONE SPELLING OF "SERVED OVER TRPC".
+ *
+ * Named rather than inlined at the three sites that need it — the two build
+ * loops and the declaration census below — so a future edit cannot change the
+ * rule in one place and not the others.
+ *
+ * IT IS NOT WHAT FIXED PDM-361, and saying so was a claim that had to be
+ * corrected in review. Sharing a helper does not make a tautology falsifiable:
+ * the old check was vacuous because BOTH SIDES DERIVED PRESENCE FROM THE SAME
+ * DECLARATION — the loop assigned on the declaration and the check re-asked the
+ * declaration — and that is equally true whether the predicate is inlined twice
+ * or called twice. What makes the check able to disagree is comparing the built
+ * object's OWN KEYS against the declared set, which is a different question
+ * rather than the same one asked politely.
+ */
+const servesOverTrpc = (exposure: readonly TransportTag[]): boolean => exposure.includes('trpc')
+
+/**
+ * Every name the TABLES say must be served over tRPC, mapped to the table that
+ * says so. Computed from the tables alone — it never reads `built` — so it is an
+ * independent source of truth for the comparison below rather than a restatement
+ * of how `built` was filled.
+ */
+function trpcDeclarations(
+  commands: Record<string, AnyDerivedCommand>,
+  queries: Record<string, AnyDerivedQuery>,
+): Map<string, 'contract' | 'query table'> {
+  const declared = new Map<string, 'contract' | 'query table'>()
+  for (const [name, command] of Object.entries(commands)) {
+    if (servesOverTrpc(command.contract.exposure)) declared.set(name, 'contract')
+  }
+  for (const [name, query] of Object.entries(queries)) {
+    if (servesOverTrpc(query.exposure)) declared.set(name, 'query table')
+  }
+  return declared
+}
+
+/**
  * The both-directions membership check, run at MODULE LOAD against the object
  * that will actually be SERVED.
  *
- * The second direction is the one that matters and it is not symmetry for its own
- * sake. Without it an EMPTY surface satisfies every claim this builder makes —
- * POD-732's "an empty router satisfies every absence claim perfectly". The first
- * loop reads `built`, so an empty object FAILS it rather than passing it.
+ * ---------------------------------------------------------------------------
+ * WHAT THIS SAID BEFORE PDM-361, AND WHY IT WAS FALSE
+ * ---------------------------------------------------------------------------
+ *
+ * The old body asked, per name, `built[name] !== undefined` and compared it to
+ * `command.contract.exposure.includes('trpc')` — the IDENTICAL expression the
+ * build loop had just used to decide whether to assign `built[name]`. So
+ * `declared === present` held for every name BY CONSTRUCTION and neither `throw`
+ * was reachable. The header over it claimed the opposite, and
+ * `operations/registry.ts` cited it by name as the reason a contract/procedure
+ * mismatch "fails at MODULE LOAD"; both were wrong. Measured rather than argued:
+ * with `readPosition.advance` planted as `exposure: ['mcp']` the server assembled
+ * without a murmur and the only red anywhere was a test assertion in
+ * `derived-family.runtime.test.ts` — "expected [] to deeply equal [ 'advance' ]".
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IT ASKS NOW, AND EXACTLY WHAT THAT BUYS — NOT ONE SENTENCE MORE
+ * ---------------------------------------------------------------------------
+ *
+ * It compares two SETS OF NAMES: `trpcDeclarations(...)`, computed from the
+ * tables alone, against `Object.keys(built)` — the built object's OWN keys, read
+ * back off the object rather than re-predicted per name. Both arms are therefore
+ * reachable for any surface that disagrees with its tables, which is what makes
+ * the function testable at all: hand it a `built` that serves a name no table
+ * declares and it throws, by name. `derived-family.membership.test.ts` does
+ * exactly that, in both directions.
+ *
+ * AND THE BOUNDARY, because overclaiming here is the defect being repaired.
+ * While the two loops below are the only writers of `built`, the two sets still
+ * agree by construction — so what the membership arms buy TODAY is a guard
+ * against the NEXT edit to this file (a spread, a post-loop mutation, a second
+ * assignment path, a key deleted by a wrapper), not a live catcher of a
+ * contract/procedure mismatch. What catches THAT is, in order:
+ *
+ *   compile time  — `satisfies Record<…ProcedureName, …Command>` in each
+ *                   family's registry, which is why a contract that stops
+ *                   declaring tRPC is a type error before it is anything else
+ *   running object — `derived-family.runtime.test.ts`, comparing the RUNNING
+ *                   `appRouter` against each family's own table
+ *
+ * The second is the one that sees a plant, and it only sees a family somebody
+ * remembered to list. `derivedSurfaceCensus()` below narrows that, and the
+ * narrowing is worth stating exactly: the builder records every family it
+ * derives, and the runtime suite compares its list against the recorded families
+ * THAT DECLARE AT LEAST ONE TRPC COMMAND. Query-only families are recorded but
+ * deliberately outside that equality, because `FAMILIES` is the list of families
+ * with derived WRITES and that is what its assertions are about. So a derived
+ * WRITE can no longer fall out of the running-object check unnoticed; a
+ * query-only family's reads still rely on the named cases in that suite.
+ *
+ * THE NON-EMPTY FLOOR is the one arm here that fires on a live mismatch. A
+ * family built through this file that would serve NOTHING is POD-732's "an empty
+ * router satisfies every absence claim perfectly" arriving as a surface, and it
+ * is always a mistake — a family with no served names is not spread into
+ * `router.ts` at all. The old header claimed the membership loops delivered this
+ * ("an empty object FAILS it rather than passing it"); they did not — an empty
+ * `built` passed whenever no table declared tRPC — so it is now stated as its own
+ * check rather than inferred from one.
  *
  * At load and not at call time, deliberately: a procedure that refuses everything
  * at runtime is the "green gate that stopped looking" failure mode, and it looks
  * identical to a procedure nobody happened to call.
  */
-function assertSurfaceMatchesDeclarations(
+export function assertSurfaceMatchesDeclarations(
   family: string,
   commands: Record<string, AnyDerivedCommand>,
   queries: Record<string, AnyDerivedQuery>,
   built: Record<string, unknown>,
 ): void {
-  for (const [name, command] of Object.entries(commands)) {
-    const declared = command.contract.exposure.includes('trpc')
-    const present = built[name] !== undefined
-    if (declared && !present) {
-      throw new Error(
-        `${family}.${name}: the contract declares trpc exposure but the derived router would not serve it`,
-      )
-    }
-    if (!declared && present) {
-      throw new Error(
-        `${family}.${name}: the derived router serves it, but its contract does not declare trpc exposure`,
-      )
-    }
-  }
-  for (const [name, query] of Object.entries(queries)) {
-    const declared = query.exposure.includes('trpc')
-    const present = built[name] !== undefined
-    if (declared && !present) {
-      throw new Error(
-        `${family}.${name}: the query table declares trpc exposure but the derived router would not serve it`,
-      )
-    }
-    if (!declared && present) {
-      throw new Error(
-        `${family}.${name}: the derived router serves it, but its query table entry does not declare trpc exposure`,
-      )
-    }
-  }
-  // A NAME CANNOT BE BOTH, and this is checked rather than assumed. tRPC would
-  // silently keep whichever spread landed last, so a write shadowed by a read of
-  // the same name would serve as a QUERY — which is precisely how a mutation
-  // hides from an audit that checks procedure type.
+  // A NAME CANNOT BE BOTH, and this is checked rather than assumed. It runs
+  // FIRST because a collision makes every later question about that name
+  // ambiguous: tRPC would silently keep whichever spread landed last, so a write
+  // shadowed by a read of the same name would serve as a QUERY — which is
+  // precisely how a mutation hides from an audit that checks procedure type.
   for (const name of Object.keys(commands)) {
     if (Object.hasOwn(queries, name)) {
       throw new Error(
@@ -548,6 +618,97 @@ function assertSurfaceMatchesDeclarations(
       )
     }
   }
+
+  const declared = trpcDeclarations(commands, queries)
+  const served = new Set(Object.keys(built))
+
+  // DECLARED BUT NOT SERVED — a name the tables promise that the object does not
+  // carry, however it came to be missing.
+  for (const [name, source] of declared) {
+    if (!served.has(name)) {
+      throw new Error(
+        `${family}.${name}: the ${source} declares trpc exposure but the derived router would not serve it`,
+      )
+    }
+  }
+
+  // SERVED BUT NOT DECLARED — the direction that catches a procedure arriving by
+  // any route other than a table entry that asked for it.
+  for (const name of served) {
+    if (declared.has(name)) continue
+    if (Object.hasOwn(commands, name)) {
+      throw new Error(
+        `${family}.${name}: the derived router serves it, but its contract does not declare trpc exposure`,
+      )
+    }
+    if (Object.hasOwn(queries, name)) {
+      throw new Error(
+        `${family}.${name}: the derived router serves it, but its query table entry does not declare trpc exposure`,
+      )
+    }
+    throw new Error(
+      `${family}.${name}: the derived router serves it, but neither the contract table nor the query table declares it at all`,
+    )
+  }
+
+  if (served.size === 0) {
+    throw new Error(
+      `${family}: the derived router would serve NOTHING — ${Object.keys(commands).length} command(s) and ${Object.keys(queries).length} query(s) declared, none of them on trpc. An empty surface satisfies every absence claim perfectly, so it fails here rather than assembling`,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The census of what was actually derived
+// ---------------------------------------------------------------------------
+
+/** One family's derived tRPC surface, recorded BY THE BUILDER as it builds it —
+ *  so it is an observation of the derivation, never a second list beside it. */
+export interface DerivedSurface {
+  readonly family: string
+  /** Names whose CONTRACT declares tRPC. Empty for a `queryProcedures` family. */
+  readonly commands: readonly string[]
+  /** Names whose QUERY TABLE ENTRY declares tRPC. */
+  readonly queries: readonly string[]
+}
+
+const derivedSurfaces = new Map<string, DerivedSurface>()
+
+/**
+ * EVERY FAMILY THIS BUILDER HAS DERIVED in the current process.
+ *
+ * It exists because of the hole PDM-361 found beside the vacuous check: the
+ * instrument that does the real work — `derived-family.runtime.test.ts`, which
+ * compares the RUNNING `appRouter` against each family's table — is driven by a
+ * HAND-WRITTEN list of families, and a family derived without being added to
+ * that list has no live exposure check at all. That is the same class of hole
+ * PDM-297 and PDM-308 were filed to close, one level up: an instrument reporting
+ * green about a surface it cannot see.
+ *
+ * A caller gets whatever has been IMPORTED, which is exactly right for the one
+ * caller that matters: the runtime suite imports `appRouter`, which imports every
+ * family, so the census is complete there. A test importing one module sees one
+ * family, and that is a true answer to a narrower question rather than a
+ * misleading answer to this one.
+ */
+export const derivedSurfaceCensus = (): readonly DerivedSurface[] => [...derivedSurfaces.values()]
+
+/** Merged rather than overwritten: two call sites may contribute to one router
+ *  key (a family's writes and a separately-declared read table both spread into
+ *  the same `t.router({...})`), and a census that kept only the last would report
+ *  the second as the whole surface. */
+function recordDerivedSurface(surface: DerivedSurface): void {
+  const prior = derivedSurfaces.get(surface.family)
+  derivedSurfaces.set(
+    surface.family,
+    prior
+      ? {
+          family: surface.family,
+          commands: [...new Set([...prior.commands, ...surface.commands])],
+          queries: [...new Set([...prior.queries, ...surface.queries])],
+        }
+      : surface,
+  )
 }
 
 /**
@@ -685,7 +846,10 @@ export function derivedFamilyProcedures<
   const built: Record<string, unknown> = {}
 
   for (const [name, command] of Object.entries(spec.commands)) {
-    if (!command.contract.exposure.includes('trpc')) continue
+    // THE ONE PREDICATE, shared with `trpcDeclarations` — see `servesOverTrpc`.
+    // Shared so the rule cannot be changed here and not there; the sharing is
+    // NOT what makes the membership check below able to refuse (PDM-361).
+    if (!servesOverTrpc(command.contract.exposure)) continue
     const qualifiedName = `${spec.family}.${name}`
     // AT MODULE LOAD, like the membership check below: a contract whose refusal
     // this gate cannot spell safely must stop the server assembling, not serve
@@ -716,13 +880,26 @@ export function derivedFamilyProcedures<
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
-    if (!query.exposure.includes('trpc')) continue
+    if (!servesOverTrpc(query.exposure)) continue
     built[name] = t.procedure
       .input(query.input)
       .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
   }
 
   assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)
+  // Recorded AFTER the assertion, so the census only ever describes a surface
+  // that passed it — and recorded from the tables rather than from `built`, so
+  // `derived-family.runtime.test.ts` is comparing the router against what was
+  // DECLARED, not against what this file happened to assemble.
+  recordDerivedSurface({
+    family: spec.family,
+    commands: Object.entries(spec.commands)
+      .filter(([, command]) => servesOverTrpc(command.contract.exposure))
+      .map(([name]) => name),
+    queries: Object.entries(spec.queries)
+      .filter(([, query]) => servesOverTrpc(query.exposure))
+      .map(([name]) => name),
+  })
   return built as FamilyProcedures<C, Q>
 }
 
@@ -736,6 +913,13 @@ export function derivedFamilyProcedures<
  * every derived family — same state bundle, same both-directions membership
  * check — rather than a second, laxer one, because a query-only shortcut is
  * exactly where a mutation would eventually be added without anyone noticing.
+ *
+ * THAT IS A CLAIM ABOUT THIS CODE PATH AND NOT ABOUT TEST COVERAGE (PDM-361).
+ * A query-only family gets the same load-time check as any other; it does NOT
+ * get the running-object comparison, because `derived-family.runtime.test.ts`
+ * is driven by families with derived WRITES and the census equality excludes
+ * these by construction. Their reads are covered only by the named cases in
+ * that suite's `serves the declared reads as queries`.
  *
  * The empty commands table is written out rather than defaulted, so "this family
  * has no writes" is a statement rather than an omission.

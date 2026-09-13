@@ -32,6 +32,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
+import { derivedSurfaceCensus } from './derived-family'
 import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
 import { APPROVAL_QUERIES } from './approvals/queries'
 import { APPROVAL_COMMANDS_TRPC } from './approvals/registry'
@@ -142,6 +143,43 @@ describe('the derived families, against the RUNNING appRouter', () => {
     expect(FAMILIES).toHaveLength(16)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
     expect(total).toBe(38)
+  })
+
+  /**
+   * THE LIST CANNOT SILENTLY STOP COVERING A FAMILY (PDM-361).
+   *
+   * Everything above is driven by `FAMILIES`, which is written out by hand. That
+   * makes the pin above answer "did a family drop OUT of the list", and leaves
+   * the other direction unasked: a seventeenth family derived on the same
+   * builder, spread into `router.ts`, and never added here would have no live
+   * exposure check ON ITS WRITES — the tables would be joined to the procedures
+   * and nothing would ever compare them to the router. That is the same class of
+   * hole PDM-297 and PDM-308 were filed to close, one level up: an instrument
+   * reporting green about a surface it cannot see.
+   *
+   * So the list is compared against a census the BUILDER keeps as it builds.
+   * `derivedSurfaceCensus()` is an observation of the derivation, not a second
+   * list beside it — a family appears there because `derivedFamilyProcedures`
+   * ran for it, and `appRouter` is imported at the top of this file, so every
+   * family the server assembles has been derived by the time this runs.
+   *
+   * EQUALITY, not containment, and in the direction that can fail both ways: a
+   * derived family missing from `FAMILIES` fails, and a `FAMILIES` entry that is
+   * no longer derived at all fails too. Query-only families (`queryProcedures`)
+   * are excluded by having no commands — `FAMILIES` is exactly the families with
+   * derived WRITES, which is what its assertions are about. So this case closes
+   * the hole for WRITES and not for reads: a query-only family's reads are
+   * covered only by the named cases in `serves the declared reads as queries`,
+   * and a query-only family added without a case there is still unchecked. That
+   * is a smaller hole, deliberately left, and not one this case should be read
+   * as having shut.
+   */
+  it('lists every family the builder actually derived a write for', () => {
+    const derivedWithWrites = derivedSurfaceCensus()
+      .filter((surface) => surface.commands.length > 0)
+      .map((surface) => surface.family)
+      .sort()
+    expect(derivedWithWrites).toEqual(FAMILIES.map((f) => f.router).toSorted())
   })
 
   it.each(

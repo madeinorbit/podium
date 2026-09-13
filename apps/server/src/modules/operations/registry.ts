@@ -27,11 +27,31 @@
  * `classification-totality.test.ts`, which fires on the empty-array SHAPE and
  * never consults a router, so the procedure kept serving either way.
  *
- * With this table in place the same plant fails at MODULE LOAD, by name, out of
- * `assertSurfaceMatchesDeclarations` — "operations.cancel: the derived router
- * serves it, but its contract does not declare trpc exposure" — because the
- * family now goes through the one builder that checks membership in both
- * directions against the object it will actually serve.
+ * WHAT CATCHES THE PLANT NOW, STATED AS MEASURED (corrected by PDM-361).
+ *
+ * This paragraph used to say the same plant "fails at MODULE LOAD, by name, out
+ * of `assertSurfaceMatchesDeclarations`", and quoted the message it would throw.
+ * That was wrong, and it was wrong in the way this header spends its first half
+ * warning about: it was reasoned from the shape of the join rather than measured
+ * against it. The function's two membership arms could not fire at all — they
+ * re-derived `exposure.includes('trpc')` and compared it to a `built[name]` the
+ * build loop had assigned on that identical expression — so nothing about
+ * joining this family onto the builder ever made a module load throw.
+ *
+ * Re-measured at the repair, with `exposure: ['mcp']` planted on
+ * `operations.cancel`: the server assembles WITHOUT a throw, and the red is
+ * `derived-family.runtime.test.ts` failing by name —
+ * "expected [ 'action', 'settleAsk' ] to deeply equal [ 'action', 'cancel',
+ * 'settleAsk' ]" — because that suite compares the RUNNING `appRouter` against
+ * `OPERATION_COMMANDS_TRPC`. That is the join doing its job and it is the whole
+ * of what it buys: the declaration is load-bearing where before it was inert,
+ * enforced by the compiler's `satisfies` below and by a running-object
+ * assertion, at TEST time rather than at load time.
+ *
+ * PDM-361 repaired the membership check so its arms are reachable, and added the
+ * census that stops a family with derived WRITES slipping out of the runtime
+ * suite's list — but neither makes a load-time throw out of a plant like this
+ * one, and this header no longer claims one.
  *
  * ---------------------------------------------------------------------------
  * WHY THE READS ARE NOT CONTRACTS
