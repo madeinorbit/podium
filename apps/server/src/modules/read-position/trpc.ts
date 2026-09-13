@@ -1,62 +1,37 @@
 /**
- * Feed-cursor tRPC surface (POD-1380) — `readPosition.get` · `readPosition.advance`.
+ * THE FEED-CURSOR SURFACE (POD-1380), DERIVED (PDM-308).
  *
- * Writes run the contract-derived LIVE gate ({@link readPositionAuthzFailure})
- * before any store touch, then the handler — the same order `modules/layout`
- * uses, for the same POD-402 review gap.
+ * Two procedures — `get`, `advance` — hand-written here until this issue, and
+ * joined to their contract for `.name` and `.input` but never for `.exposure`.
+ * This family is the sharper half of the defect: it has no contracts test
+ * anywhere, so nothing restated its declared transports either, and
+ * `readPosition.advance` could declare any transport set at all — `['mcp']`,
+ * or nothing — while this router kept serving it on tRPC and every lane stayed
+ * green. See `./registry` and `../layout/registry.ts` for the measurement.
  *
- * The read is gated identically to the write. A read position is per-user state,
- * so "who may see it" and "who may move it" are the same question, and the
- * snapshot returned is always the ACTOR's — there is no argument by which a
- * caller could ask for someone else's.
- *
- * State is reached ONLY through {@link familyState} → `modules.readPosition` (the
- * POD-314 seam); no `sessionStore` / `mods(ctx)` longhand here.
+ * `./authz` stays and still runs, for the reason `../layout/trpc.ts` gives: the
+ * contract declares `roleFloor: 'member'`, which the builder does not gate, and
+ * this family's own gate refuses an absent role at that floor. It is pre-bound
+ * as a port — see `../per-user-actor-gate.ts`.
  */
 
-import { readPositionAdvanceContract, readPositionAdvanceInput } from '@podium/commands'
-import { TRPCError } from '@trpc/server'
-import type { Context } from '../../trpc'
-import { t } from '../../trpc'
-import { familyState } from '../derived-family'
-import { readPositionActor, readPositionAuthzDeps, readPositionAuthzFailure } from './authz'
+import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import {
+  READ_POSITION_COMMANDS_TRPC,
+  READ_POSITION_QUERIES,
+  selectReadPositionState,
+} from './registry'
 
-function nowIso(): string {
-  return new Date().toISOString()
-}
+export type ReadPositionProcedures = FamilyProcedures<
+  typeof READ_POSITION_COMMANDS_TRPC,
+  typeof READ_POSITION_QUERIES
+>
 
-async function authorize(ctx: Context, name: string): Promise<{ actor: NonNullable<ReturnType<typeof readPositionActor>> }> {
-  const deps = await readPositionAuthzDeps(ctx)
-  const refusal = readPositionAuthzFailure(name, deps)
-  if (refusal) throw refusal
-  const actor = readPositionActor(deps)
-  if (actor === null) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `${name} writes on behalf of a user, and this principal has none`,
-    })
-  }
-  return { actor }
-}
-
-/** Feed-cursor procedures for the root router under the `readPosition` namespace. */
-export function readPositionFamilyProcedures() {
-  return {
-    /** Bootstrap snapshot for the calling principal (tRPC read path). */
-    get: t.procedure.query(async ({ ctx }) => {
-      const { actor } = await authorize(ctx, readPositionAdvanceContract.name)
-      return await familyState(ctx).modules.readPosition.getSnapshot(actor)
-    }),
-
-    advance: t.procedure.input(readPositionAdvanceInput).mutation(async ({ ctx, input }) => {
-      const { actor } = await authorize(ctx, readPositionAdvanceContract.name)
-      const parsed = readPositionAdvanceContract.input.parse(input)
-      return await familyState(ctx).modules.readPosition.advance(
-        actor,
-        parsed.streamId,
-        { lastEventId: parsed.lastEventId, seenAt: parsed.seenAt ?? null },
-        nowIso(),
-      )
-    }),
-  }
-}
+/** THE DERIVED PROCEDURES, spread into `router.ts`'s `readPosition` router. */
+export const readPositionFamilyProcedures = (): ReadPositionProcedures =>
+  derivedFamilyProcedures({
+    family: 'readPosition',
+    service: (state) => selectReadPositionState(state.modules, state.readPositionActors),
+    commands: READ_POSITION_COMMANDS_TRPC,
+    queries: READ_POSITION_QUERIES,
+  })

@@ -116,6 +116,33 @@
  * question — may this caller `manage` the machine an operation targets, and then
  * act — and it needed no rule that was not already written above.
  *
+ * PDM-308 adds `layoutActors` and `readPositionActors`, the third position's
+ * THIRD and FOURTH members, and they are worth a paragraph because they are the
+ * first members that answer a question about the CALLER rather than the TARGET —
+ * and that turns out not to need a new rule either.
+ *
+ * `layout` and `read-position` join their contracts here for `exposure` (PDM-308
+ * is that join; before it, nothing compared either family's declared transports
+ * with what `router.ts` served). What they could NOT hand to this file is their
+ * authorization, and the reason is precise rather than a preference. All three of
+ * their contracts declare `roleFloor: 'member'`, and the PDM-294 gate above
+ * deliberately does not consult the `member` floor — `role-floor.ts`, point 1:
+ * treating an absent role as satisfying no floor is right, but applying it to
+ * `member` would newly refuse every principal with no account row across 149
+ * contracts. These two families have applied exactly that stricter rule to their
+ * OWN member floor since POD-402 review gap 1, and two tests pin it. Folding
+ * their gate into the builder's floor, the way PDM-297 folded `operations`'
+ * hard-coded `admin`, would therefore have DELETED a refusal while every
+ * instrument stayed green.
+ *
+ * So the gate stays theirs and arrives pre-bound: a handler asks `requireActor`
+ * whose row it may write and receives a `UserId` or the family's own refusal. It
+ * cannot read a role out of that, cannot see a capability, and cannot phrase a
+ * different question — which is this position's rule, unchanged. That a
+ * CALLER-shaped question fits it without amendment is the same evidence
+ * `operationTargets` was: a position that keeps admitting members on its stated
+ * terms is an invariant, not an exception with a nice name.
+ *
  * It is the same shape for the same reason. `operations.cancel`, `settleAsk` and
  * `action` all declare `roleFloor: 'admin'`, which the gate above now enforces,
  * and a floor still says nothing about the TARGET: the target machine is read
@@ -157,6 +184,13 @@ import {
   type OperationTargetGate,
   operationTargetGate,
 } from './operations/operation-target-gate'
+import { type PerUserActorGate, perUserActorGate } from './per-user-actor-gate'
+import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './layout/authz'
+import {
+  readPositionActor,
+  readPositionAuthzDeps,
+  readPositionAuthzFailure,
+} from './read-position/authz'
 
 /**
  * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
@@ -304,6 +338,16 @@ export interface FamilyState {
    * implementation.
    */
   readonly operationTargets: OperationTargetGate
+  /**
+   * WHOSE LAYOUT ROW THIS WRITE BELONGS TO — the ANSWER, and the family's own
+   * live account check already applied (PDM-308). Selected by `layout` alone.
+   * See the third position in "THE DECISIONS THIS FILE DOES TAKE", and
+   * `./per-user-actor-gate.ts` for why this did not fold into the floor gate.
+   */
+  readonly layoutActors: PerUserActorGate
+  /** As `layoutActors`, for the feed-cursor family. Selected by
+   *  `read-position` alone (PDM-308). */
+  readonly readPositionActors: PerUserActorGate
   readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
@@ -552,6 +596,22 @@ export const familyState = (ctx: Context): FamilyState => ({
     mods(ctx),
     async () => (await roleFloorDeps(ctx)).principal,
     ctx.principal,
+  ),
+  // THE GATE IS BOUND HERE AND THE PRINCIPAL IS READ NOWHERE DOWNSTREAM, the
+  // same construction as the two target gates above: the deps resolver closes
+  // over this request's ctx, and what reaches the family is a question it may
+  // ask. Both families keep their OWN failure function, so the refusal a caller
+  // sees is still the one `layout/authz.ts` and `read-position/authz.ts` decide
+  // and their tests pin.
+  layoutActors: perUserActorGate(
+    async () => await layoutAuthzDeps(ctx),
+    layoutAuthzFailure,
+    layoutActor,
+  ),
+  readPositionActors: perUserActorGate(
+    async () => await readPositionAuthzDeps(ctx),
+    readPositionAuthzFailure,
+    readPositionActor,
   ),
   ...(ctx.principal?.kind === 'user'
     ? {
