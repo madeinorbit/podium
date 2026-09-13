@@ -5,6 +5,7 @@ import { firstAdminMemberId, MemberId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 /**
  * OPEN MODE IS A POLICY ON A MEMBER (A2, spec §8 "Open mode as a policy").
@@ -49,7 +50,11 @@ describe('open mode acts as the earliest admin member', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
   })
 
   afterAll(async () => {

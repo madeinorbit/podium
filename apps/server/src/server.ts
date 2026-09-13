@@ -527,6 +527,26 @@ function tlsFromEnv(
 
 export async function startServer(
   opts: {
+    /**
+     * WHICH DATABASE THIS SERVER OPENS. Required, with no default [PDM-346].
+     *
+     * Starting a server means opening a database, taking a backup of it and
+     * applying any outstanding migrations to it. That is destructive and
+     * irreversible, so it is not something a caller gets to select by saying
+     * nothing: this option has no default and `startServer()` does not compile.
+     * A caller that means the instance this machine is configured for writes
+     * `defaultDbPath()` and says so at the call site; the answer is then visible
+     * where the server is started rather than inside a process-global read four
+     * frames down.
+     *
+     * NOTE WHAT THIS OPTION DOES NOT DECIDE. Five other pieces of this server's
+     * durable state — the update signing key, the enrollment ledger, the
+     * server-transfer boot journal, the writability check and the transcript lake
+     * — are still resolved from `stateDir()` below. They cannot disagree with each
+     * other, but they CAN now disagree with this path if a caller points it
+     * somewhere else. Passing `defaultDbPath()` keeps all six in one tree.
+     */
+    dbPath: string
     port?: number
     host?: string
     role?: Partial<ServerRoleConfig>
@@ -559,7 +579,7 @@ export async function startServer(
      * every server process hosts a janitor. Production callers must not set it.
      */
     janitorWorkerForTests?: import('./janitor-host').StartJanitorWorkerFn
-  } = {},
+  },
 ): Promise<ServerHandle> {
   const config = loadConfig()
   // Fail invalid deployment overrides before allocating server resources.
@@ -613,7 +633,11 @@ export async function startServer(
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
-  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
+  // THE DATABASE THIS BOOT OPENS, named by whoever started the server. Passing
+  // `undefined` here — which is what this line used to do — selected
+  // `defaultDbPath()` inside the store, so every caller of `startServer` opened,
+  // backed up and migrated the live instance without ever mentioning it (PDM-346).
+  const store = await SessionStore.open(opts.dbPath, asMachineId(hostMachineId), {
     queryOnly: recoveryOnly,
   })
   const activeServerMove = (await store.operations.active()).find(

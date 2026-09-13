@@ -51,6 +51,7 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 import { seedOpencodeLogin } from './opencode-login'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local
 // 9923, runtime-contract 9924).
@@ -152,7 +153,7 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
     // carries the measurement, including the part of the report it disproved.
     seedOpencodeLogin(tmp)
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),

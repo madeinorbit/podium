@@ -20,6 +20,7 @@
 import { bootProcess } from '@podium/runtime/boot'
 import { resolvePort } from '@podium/runtime/config'
 import { startServer } from '../apps/server/src/server'
+import { defaultDbPath } from '../apps/server/src/store'
 
 await bootProcess({
   name: 'server',
@@ -29,7 +30,7 @@ await bootProcess({
   // well under a second. Don't rely on the kernel's 4s default — that race used
   // to time out on nearly every stop. The kernel default stays 4s for the daemon.
   closeTimeoutMs: 1000,
-  start: () => startServer({ port: resolvePort() }),
+  start: () => startServer({ dbPath: defaultDbPath(), port: resolvePort() }),
   readyMessage: (server) =>
     `podium server up: relay on http://localhost:${server.port} (daemon connects separately)`,
 })

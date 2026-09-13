@@ -8,6 +8,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
+import { defaultDbPath } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { JanitorWorkerClient } from '../packages/janitor/src/worker-client'
 
@@ -98,6 +99,7 @@ describe('server-owned janitor worker', () => {
       await seed.close()
 
       server = await startServer({
+        dbPath: defaultDbPath(),
         port: 0,
         janitorWorkerForTests: async (options) => {
           worker = new JanitorWorkerClient(

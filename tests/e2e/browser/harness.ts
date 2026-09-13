@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
 import { type ServerHandle, startServer } from '../../../apps/server/src/server'
+import { defaultDbPath } from '../../../apps/server/src/store'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -18,7 +19,7 @@ export interface Relay {
 }
 
 export async function startRelay(): Promise<Relay> {
-  const server: ServerHandle = await startServer()
+  const server: ServerHandle = await startServer({ dbPath: defaultDbPath() })
   const daemon: DaemonHandle = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
     bootstrapToken: server.bootstrapToken,

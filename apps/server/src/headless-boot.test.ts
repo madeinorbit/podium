@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 /**
  * THE CLAIM THIS CHANGE MAKES, END TO END (PDM-26).
@@ -68,7 +69,11 @@ describe('a headless boot from the environment alone', () => {
     process.env.PODIUM_ALLOWED_ORIGINS = 'https://app.meetpodium.com'
     process.env.PODIUM_UPDATE_SCOPE = 'fleet-only'
     process.env.PODIUM_TRANSCRIPT_LAKE = 'off'
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
   })
 
   afterAll(async () => {
@@ -119,7 +124,11 @@ describe('a headless instance whose UI lives somewhere else', () => {
     // binary always has, instead of whether a bundle is served from it.
     process.env.PODIUM_WEB_DIR = join(stateDir, 'no-web')
     process.env.PODIUM_MOBILE_WEB_DIR = join(stateDir, 'no-mobile-web')
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
   })
 
   afterAll(async () => {

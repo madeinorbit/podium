@@ -54,6 +54,7 @@ import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local 9923).
 const ISOLATION_PORT = 9924
@@ -94,7 +95,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
     process.env.PODIUM_RUNTIME_CONTRACT = '1'
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),
@@ -258,7 +259,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
     delete process.env.PODIUM_RUNTIME_CONTRACT
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),
@@ -333,7 +334,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
     delete process.env.PODIUM_RUNTIME_CONTRACT
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),

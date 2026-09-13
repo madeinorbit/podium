@@ -26,7 +26,14 @@ process.env.PODIUM_STATE_DIR = benchState
 process.env.PODIUM_NO_SCOPE = '1'
 
 const { startServer } = await import('../apps/server/src/server')
-const server = await startServer({ port: Number(process.env.PORT ?? 8877) })
+// Both imports are dynamic and both happen AFTER PODIUM_STATE_DIR is set above:
+// `defaultDbPath()` reads that variable, so the bench opens the copied state dir's
+// database and naming it here is what keeps this file's refusals above meaningful.
+const { defaultDbPath } = await import('../apps/server/src/store')
+const server = await startServer({
+  dbPath: defaultDbPath(),
+  port: Number(process.env.PORT ?? 8877),
+})
 console.log(`switch-bench server on http://localhost:${server.port} state=${benchState}`)
 await new Promise(() => {})
 

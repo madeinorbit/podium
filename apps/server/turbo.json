@@ -1991,6 +1991,7 @@
         "src/repo-registry.machines.test.ts",
         "src/repo-registry.test.ts",
         "src/repo-registry.ts",
+        "src/required-db-path.test.ts",
         "src/response-compression.ts",
         "src/roles.ts",
         "src/root-allowlist.ts",

@@ -59,6 +59,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { MachineId } from '@podium/model'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { defaultDbPath } from '../apps/server/src/store'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -231,6 +232,7 @@ class Coordinator {
     process.env.PODIUM_STATE_DIR = stateDir
     try {
       const handle = await startServer({
+        dbPath: defaultDbPath(),
         janitorWorkerForTests: noJanitorWorkerForTests,
         port: 0,
       })

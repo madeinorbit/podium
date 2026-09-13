@@ -52,6 +52,7 @@ import WebSocket from 'ws'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedResyncRequired'])
 
@@ -68,7 +69,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-feed-v2-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ port: 0 })
+    server = await startServer({ dbPath: defaultDbPath(), port: 0 })
     baseUrl = `http://127.0.0.1:${server.port}`
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${baseUrl}/trpc` })] })
     factory = new IDBFactory() as unknown as IdbFactoryLike

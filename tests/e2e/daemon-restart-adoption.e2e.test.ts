@@ -77,6 +77,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { startServer } from '../../apps/server/src/server'
 import { startDaemonProcess } from './daemon-restart-harness'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { defaultDbPath } from '../../apps/server/src/store'
 
 // Own isolated state dir / port (relay 9921, multi-machine 9922, split-local
 // 9923, runtime-contract 9924, opencode-server 9925).
@@ -236,7 +237,7 @@ describe('e2e harness: a daemon in its own process', () => {
   it('starts, reports its pid, survives its parent asking questions, and stops', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-daemon-process-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     try {
       const daemon = await startDaemonProcess({
         dir: join(tmp, 'harness'),
@@ -286,7 +287,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-daemon-restart-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
 
-    const srv = await startServer()
+    const srv = await startServer({ dbPath: defaultDbPath() })
     const daemonOptions = {
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: readOrCreateDaemonSecret(stateDir()),

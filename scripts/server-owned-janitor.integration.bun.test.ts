@@ -30,6 +30,7 @@ import { describe, expect, it } from 'bun:test'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
+import { defaultDbPath } from '../apps/server/src/store'
 
 interface JanitorComponent {
   state?: string
@@ -112,7 +113,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
 
       // No `janitorWorkerForTests`, no injection, no env: exactly what a plain
       // `podium server` — or any other composition root — constructs.
-      server = await startServer({ port: 0 })
+      server = await startServer({ dbPath: defaultDbPath(), port: 0 })
       const port = server.port
 
       const running = await waitFor(async () => {

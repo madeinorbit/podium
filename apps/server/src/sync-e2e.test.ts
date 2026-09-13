@@ -13,6 +13,7 @@ import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
 // server, real WS upgrades through wsServer's hello parse, and sync.changesSince
@@ -28,7 +29,11 @@ describe('metadata oplog e2e (live server)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-sync-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    server = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {

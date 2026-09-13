@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { noJanitorWorkerForTests } from './janitor-host'
+import { SessionRegistry } from './relay'
 import { isAddressInUseError, PortInUseError, startServer } from './server'
+import { defaultDbPath, SessionStore } from './store'
 
 // Regression for issue #8: on a box where the systemd podium-server already holds
 // :18787, running the `podium` CLI tried to bind the same port. @hono/node-server's
@@ -34,11 +34,16 @@ describe('startServer port-in-use handling', () => {
 
   it('rejects with a typed PortInUseError (never a swallowed throw) when the port is taken', async () => {
     useFreshStateDir('held')
-    held = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    held = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     const { port } = held
 
     useFreshStateDir('second')
     const outcome = await startServer({
+      dbPath: defaultDbPath(),
       janitorWorkerForTests: noJanitorWorkerForTests,
       port,
     }).then(
@@ -57,7 +62,11 @@ describe('startServer port-in-use handling', () => {
 
   it('awaits registry persistence and store close before rejecting a failed listen', async () => {
     useFreshStateDir('held-awaited')
-    held = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    held = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     const order: string[] = []
     const dispose = SessionRegistry.prototype.dispose
     const close = SessionStore.prototype.close
@@ -79,7 +88,11 @@ describe('startServer port-in-use handling', () => {
     try {
       useFreshStateDir('failed-awaited')
       await expect(
-        startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: held.port }),
+        startServer({
+          dbPath: defaultDbPath(),
+          janitorWorkerForTests: noJanitorWorkerForTests,
+          port: held.port,
+        }),
       ).rejects.toBeInstanceOf(PortInUseError)
       expect(order).toEqual(['dispose started', 'dispose finished', 'store closed'])
     } finally {

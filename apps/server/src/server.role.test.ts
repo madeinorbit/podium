@@ -10,6 +10,7 @@ import { noJanitorWorkerForTests } from './janitor-host'
 import { resolveServerRole } from './roles'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 // Role composition (docs/offline-sync-architecture.md §4, issue #157): one
 // server binary, hub surfaces activated by role. These tests boot a REAL
@@ -63,6 +64,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     )
     process.env.PODIUM_STATE_DIR = stateDir
     handle = await startServer({
+      dbPath: defaultDbPath(),
       janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       role: { hub: false },
@@ -249,7 +251,7 @@ describe('startServer default role keeps hub surfaces on', () => {
       }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({ dbPath: defaultDbPath(), janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {

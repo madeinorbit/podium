@@ -33,12 +33,21 @@ export {
 } from '../apps/cli/src/cli'
 
 async function loadHost(): Promise<HostModules> {
-  const [server, daemon] = await Promise.all([
+  const [server, store, daemon] = await Promise.all([
     import('../apps/server/src/server'),
+    import('../apps/server/src/store'),
     import('../apps/daemon/src/daemon'),
   ])
   return {
-    startServer: server.startServer,
+    /**
+     * WHERE THE CLI'S DATABASE IS NAMED [PDM-346]. `startServer` takes a required
+     * `dbPath` and apps/cli must not import apps/server, so the answer is given
+     * HERE — this file is the composition root the CLI seam is injected from, and
+     * this is the one place in the `podium` binary that decides which database a
+     * server boot opens. `HostModules.startServer` stays narrowed to `{ port }`
+     * because the CLI has no business choosing.
+     */
+    startServer: (opts) => server.startServer({ ...opts, dbPath: store.defaultDbPath() }),
     isAddressInUseError: server.isAddressInUseError,
     startDaemon: daemon.startDaemon as HostModules['startDaemon'],
   }
