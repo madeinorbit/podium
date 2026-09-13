@@ -189,6 +189,7 @@ export {
   type CommandOutput,
   type CommandRedaction,
   type CommandScope,
+  COMMAND_TRANSPORTS,
   type CommandTransport,
   type ConflictClass,
   commandExposure,

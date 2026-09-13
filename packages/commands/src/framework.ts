@@ -60,8 +60,33 @@ export type CommandScope = 'issue' | 'repo' | 'global'
  * default-closed rule has exactly one implementation.
  */
 
-/** A transport a command may be served on. Exposure is OPT-IN per transport. */
-export type CommandTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
+/**
+ * EVERY transport a command may be served on, as a RUNTIME list — and the SOURCE
+ * OF TRUTH for {@link CommandTransport}, which is derived from it below.
+ *
+ * THE DERIVATION RUNS THIS WAY ROUND ON PURPOSE (PDM-423). A TypeScript union is
+ * erased, so a test that wants to prove something about EVERY transport has no
+ * way to enumerate one and must hand-write the members — which is exactly what
+ * `session-state-commands.test.ts`' default-closed case did. A hand-written copy
+ * silently stops covering a member the day the union gains one: the proof shrinks
+ * and nothing reddens. Deriving the type FROM the value means the list and the
+ * union cannot disagree BY CONSTRUCTION, so no consistency test is owed between
+ * them — which is strictly better than checking two hand-maintained copies
+ * against each other.
+ *
+ * `'outbox'` is a member because the client Outbox SERVES these commands: the
+ * queue is a dispatch surface that replays a queued write, and ADR 3 D3's rule is
+ * that a transport serves a command because the contract NAMES it. Before
+ * PDM-423 the presence class could not name it — the union had no such member —
+ * so eleven definitions the Outbox really does carry were unable to say so. Note
+ * this does NOT reconcile {@link CommandTransport} with the contract vocabulary's
+ * `TransportTag`: `ws` and `peer` still diverge, deliberately and out of scope.
+ */
+export const COMMAND_TRANSPORTS = ['trpc', 'relay', 'cli', 'mcp', 'ws', 'outbox'] as const
+
+/** A transport a command may be served on. Exposure is OPT-IN per transport.
+ *  DERIVED from {@link COMMAND_TRANSPORTS} — see the note there. */
+export type CommandTransport = (typeof COMMAND_TRANSPORTS)[number]
 
 /**
  * Whose authority a write answers to — the policy's *scope* half, distinct from

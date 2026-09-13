@@ -24,10 +24,45 @@
  * ADR 3 D4 rule 3 makes structural: a kind the client queues whose contract is
  * `online-only` or `online-sensitive` is a secret or a live-daemon operation
  * that must never have entered the queue at all.
+ *
+ * ---------------------------------------------------------------------------
+ * PDM-423 — THE DEFINITION SIDE, AND WHY IT IS TWO CHECKS AND NOT ONE
+ * ---------------------------------------------------------------------------
+ *
+ * Eleven queued kinds carry a presence-class `CommandDef` instead of a full
+ * contract. They used to be listed as UNGUARDED and skipped entirely — not
+ * because anyone judged them safe, but because the only resolver here looked for
+ * a full contract and they resolved to nothing. Eleven rows of a table whose
+ * whole purpose is to stop drift were outside the guard.
+ *
+ * They are now resolved and checked, and the two things checked are kept APART:
+ *
+ *   ENROLMENT   the definition declares `outbox` — the Outbox serves this command
+ *   ELIGIBILITY the definition declares `offline: 'eligible'` — ADR 3 D4 rule 3
+ *
+ * `contract.ts`'s D3 rule 2 makes `outbox` exposure IMPLY an offline-eligible
+ * delivery class, and says nothing in the other direction. So eligibility is
+ * PERMISSION to be queued and enrolment is BEING queued; a definition that is
+ * eligible has not thereby declared that anything serves it. Reading the one-way
+ * constraint as an equivalence is the error PDM-423 was filed on and then made
+ * itself before the review caught it. Two cases, so neither can hold the other up.
+ *
+ * The queued-side enumeration is EXHAUSTIVE and reports what it could not resolve
+ * as a GROWING list rather than asserting a fixed roster of skipped kinds — see
+ * the first case below for why that distinction is the difference between a guard
+ * and a guard-shaped thing that passes when its resolver breaks.
  */
 
-import type { CommandContract } from '@podium/commands'
-import { ISSUE_CONTRACTS, LAYOUT_CONTRACTS, SETTINGS_CONTRACTS } from '@podium/commands'
+import type { CommandContract, CommandDef } from '@podium/commands'
+import {
+  commandExposure,
+  ISSUE_CONTRACTS,
+  LAYOUT_CONTRACTS,
+  SESSION_STATE_COMMAND_TABLES,
+  SETTINGS_CONTRACTS,
+  sessionCommandPlane,
+  sessionRenameContract,
+} from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { OUTBOX_COMMANDS } from './wiring'
 
@@ -60,25 +95,82 @@ const lookup = (name: string): CommandContract | undefined => {
 }
 
 /**
- * Queued kinds whose contract this guard CANNOT check yet, with the reason.
+ * THE DEFINITION SIDE (PDM-423).
  *
- * `sessions.*` and `snoozes.*` are the presence class (POD-380): they are
- * `CommandDef`s today, not full `CommandContract`s, so they carry no
- * `policy.confirmation` to compare against. `sessions.resumeAndSend` is
- * command-plane (POD-381) and lives in a registry this module does not reach.
+ * Eleven queued kinds carry a presence-class `CommandDef` rather than a full
+ * `CommandContract`. Until PDM-423 they were listed as UNGUARDED and skipped
+ * wholesale, because the only resolver here looked for a full contract. They are
+ * now resolved and checked against what a definition CAN express.
  *
- * The three `issues.*` kinds are NOT here: they have full contracts and are
- * really compared, which is what stops this list from being a way to opt out.
+ * TWO RESOLVERS ARE REQUIRED, NOT ONE, and the reason is a real hazard rather
+ * than a detail: `sessionStateCommands` and `sessionCommandPlane` are BOTH
+ * `defineCommands('sessions', …)`, so they share the `sessions.` namespace.
+ * `sessionStateCommand()` walks only `SESSION_STATE_COMMAND_TABLES` and CANNOT
+ * resolve `sessions.resumeAndSend`; the plane's own table is a separate source.
+ * Rather than consult them in some order and let the first win, this builds one
+ * index and REFUSES a name that arrives twice (see `AMBIGUOUS` below) — an
+ * arbitrary precedence between two tables that share a namespace is exactly the
+ * kind of silent decision this file exists to prevent.
  *
- * The list is asserted EXACTLY, so a presence command gaining a full contract
- * reddens this test and the row moves under the guard instead of staying
- * quietly unchecked.
+ * A CORRECTION CARRIED HERE: the note this block replaces said
+ * `sessions.resumeAndSend` "lives in a registry this module does not reach". It
+ * is reachable — `@podium/commands`' index re-exports the command plane with
+ * `export *`, and the import above resolves. It was skipped because a walk
+ * looking for full CONTRACTS cannot recognise a `defineCommands` result, whose
+ * shape is `{ namespace, defs }` and carries no `name` or `exposure` of its own.
+ * A shape miss, not an import-graph limit.
  */
-const UNGUARDED = [
+type DefTable = { readonly namespace: string; readonly defs: Record<string, CommandDef> }
+
+const DEF_TABLES: readonly DefTable[] = [
+  ...(SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[]),
+  sessionCommandPlane as unknown as DefTable,
+]
+
+const defsByName = new Map<string, CommandDef>()
+/** Dotted names offered by more than one table. Asserted EMPTY — see the note above. */
+const AMBIGUOUS: string[] = []
+/** Table entries this index could not interpret. RETAINED AND REPORTED rather than
+ *  filtered away: a walk that silently skips what it does not recognise makes every
+ *  claim built on it a claim about the shapes it happened to like. */
+const UNSUPPORTED_SHAPES: string[] = []
+for (const table of DEF_TABLES) {
+  if (typeof table?.namespace !== 'string' || typeof table?.defs !== 'object') {
+    UNSUPPORTED_SHAPES.push(`table ${String(table?.namespace ?? '?')}`)
+    continue
+  }
+  for (const [key, def] of Object.entries(table.defs)) {
+    const name = `${table.namespace}.${key}`
+    if (typeof def !== 'object' || def === null || !('action' in def)) {
+      UNSUPPORTED_SHAPES.push(name)
+      continue
+    }
+    if (defsByName.has(name)) AMBIGUOUS.push(name)
+    else defsByName.set(name, def)
+  }
+}
+
+/**
+ * The eleven queued kinds backed by a DEFINITION at this pin, asserted EXACTLY.
+ *
+ * TEN of them are the kinds that were previously UNGUARDED. The eleventh is
+ * `rename`, which was on that list for a different reason: `sessionRenameContract`
+ * is a full contract and always was, exported standalone rather than inside a
+ * `*_CONTRACTS` registry, so the registry-shaped resolver below cannot see it. It
+ * is therefore definition-backed HERE while being contract-backed in fact — which
+ * is why the cross-vocabulary check further down is written to be independent of
+ * which resolver wins.
+ *
+ * INTEGRATION NOTE: PDM-416 (unlanded at the time of writing) widens the contract
+ * walk to reach standalone exports. When it lands, `rename` resolves as a CONTRACT
+ * and must move from this list to the contract-backed population. That collision is
+ * deliberate — this list is asserted exactly so the move is visible and decided,
+ * not silent.
+ */
+const DEFINITION_BACKED = [
   'dismissOffer',
   'pinSet',
   'rename',
-  'tabSetOrder',
   'resumeAndSend',
   'sessionMarkRead',
   'sessionMarkUnread',
@@ -86,30 +178,150 @@ const UNGUARDED = [
   'setWorkState',
   'snoozeClear',
   'snoozeSet',
+  'tabSetOrder',
 ].sort()
 
 describe('the client outbox contract table matches the contracts', () => {
   const entries = Object.entries(OUTBOX_COMMANDS)
+  const queuedNames = new Set(entries.map(([, command]) => command.name))
+  const resolveDef = (name: string): CommandDef | undefined => defsByName.get(name)
 
-  it('names contracts that exist — a kind pointing at nothing would replay under a guess', () => {
-    // Reported as a LIST rather than per-entry so a rename shows every casualty
-    // at once instead of one per re-run.
-    const unguarded = entries
-      .filter(([, c]) => lookup(c.name) === undefined)
+  const contractBacked = entries.filter(([, c]) => lookup(c.name) !== undefined)
+  const definitionBacked = entries.filter(
+    ([, c]) => lookup(c.name) === undefined && resolveDef(c.name) !== undefined,
+  )
+
+  // -------------------------------------------------------------------------
+  // EXHAUSTIVE QUEUED-SIDE ENUMERATION — the anti-vacuity spine of this file.
+  // -------------------------------------------------------------------------
+
+  it('every queued kind resolves to a contract or a definition — an unresolved kind would replay under a guess', () => {
+    // REPORTED AS A GROWING LIST, not as an empty allow-list. The old shape asserted
+    // an UNGUARDED roster equal to a fixed set, which a resolver returning nothing
+    // for everything would still satisfy once that roster covered every kind. Here a
+    // broken resolver makes THIS list grow, so the failure mode is loud by
+    // construction rather than by remembering to add a floor.
+    const unresolved = entries
+      .filter(([, c]) => lookup(c.name) === undefined && resolveDef(c.name) === undefined)
       .map(([kind]) => kind)
       .sort()
-    expect(unguarded).toEqual(UNGUARDED)
+    expect(unresolved).toEqual([])
   })
 
-  it.each(
-    entries.filter(([, c]) => lookup(c.name) !== undefined),
-  )('%s: confirmation rule and offline class match the contract', (_kind, command) => {
-    const contract = lookup(command.name)
-    if (!contract) throw new Error(`no contract for ${command.name}`)
-    // `toBe`, not a shape check: the whole point is that the copied VALUE is
-    // the contract's value.
-    expect(command.confirmation).toBe(contract.policy.confirmation)
-    // D4 rule 3: only an offline-eligible contract may be in this table at all.
-    expect(contract.delivery.class).toBe('offline-eligible')
+  it('the definition index is unambiguous and interpreted every entry it was given', () => {
+    // Two tables share the `sessions.` namespace. If a key ever appears in both,
+    // REFUSE rather than pick one: a silent precedence would decide which
+    // definition governs a queued kind without anyone choosing it.
+    expect(AMBIGUOUS).toEqual([])
+    expect(UNSUPPORTED_SHAPES).toEqual([])
+    // …and the ambiguity detector has a live subject, or it proves nothing: the two
+    // tables really do share a namespace, and stay disjoint only by their keys.
+    const planeNamespace = (sessionCommandPlane as unknown as DefTable).namespace
+    const stateNamespaces = (
+      SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[]
+    ).map((t) => t.namespace)
+    expect(stateNamespaces).toContain(planeNamespace)
+  })
+
+  it('the definition-backed population is exactly the eleven presence kinds', () => {
+    expect(definitionBacked.map(([kind]) => kind).sort()).toEqual(DEFINITION_BACKED)
+    // The contract-backed population is non-empty, or the contract cases below are
+    // vacuous for a reason no assertion in them would report.
+    expect(contractBacked.length).toBeGreaterThan(0)
+  })
+
+  // -------------------------------------------------------------------------
+  // CONTRACT-BACKED KINDS
+  // -------------------------------------------------------------------------
+
+  it.each(contractBacked)(
+    '%s: confirmation rule and offline class match the contract',
+    (_kind, command) => {
+      const contract = lookup(command.name)
+      if (!contract) throw new Error(`no contract for ${command.name}`)
+      // `toBe`, not a shape check: the whole point is that the copied VALUE is
+      // the contract's value.
+      expect(command.confirmation).toBe(contract.policy.confirmation)
+      // D4 rule 3: only an offline-eligible contract may be in this table at all.
+      expect(contract.delivery.class).toBe('offline-eligible')
+    },
+  )
+
+  // -------------------------------------------------------------------------
+  // DEFINITION-BACKED KINDS — enrolment and eligibility, SEPARATELY.
+  // -------------------------------------------------------------------------
+  //
+  // Two cases, never one. `contract.ts`'s D3 rule 2 constrains `outbox` exposure to
+  // imply an offline-eligible delivery class and NOT the converse, so eligibility is
+  // PERMISSION and enrolment is enrolment. A definition that is eligible has not
+  // thereby said the Outbox serves it, and a check on one is not evidence about the
+  // other. Collapsing them into a single case would let either hold the other up.
+
+  it.each(definitionBacked)(
+    '%s: the definition DECLARES outbox enrolment — being queued is being served',
+    (_kind, command) => {
+      const def = resolveDef(command.name)
+      if (!def) throw new Error(`no definition for ${command.name}`)
+      expect(commandExposure(def)).toContain('outbox')
+    },
+  )
+
+  it.each(definitionBacked)(
+    '%s: the definition declares offline ELIGIBILITY — D4 rule 3, a separate fact',
+    (_kind, command) => {
+      const def = resolveDef(command.name)
+      if (!def) throw new Error(`no definition for ${command.name}`)
+      expect(def.offline).toBe('eligible')
+    },
+  )
+
+  it('the two definition checks DISCRIMINATE — a definition that is neither enrolled nor eligible', () => {
+    // Without this arm both cases above pass against a table where every definition
+    // says `outbox` and `eligible`, which is indistinguishable from a gate stuck at
+    // true. `setIssueId` and `setDraft` are the live negative controls: real
+    // definitions, in a table this file walks, that are direct-only and NOT queued.
+    for (const name of ['sessions.setIssueId', 'sessions.setDraft']) {
+      const def = resolveDef(name)
+      expect(def, `${name} must be reachable for this control to mean anything`).toBeDefined()
+      expect(queuedNames.has(name), `${name} must not be queued`).toBe(false)
+      expect(def?.offline, `${name} eligibility`).toBe('direct-only')
+      expect(commandExposure(def as CommandDef), `${name} enrolment`).not.toContain('outbox')
+    }
+    // And the default-closed reading itself, on a definition declaring nothing.
+    expect(commandExposure({ input: sessionRenameContract.input, action: 'write' })).toEqual([])
+  })
+
+  // -------------------------------------------------------------------------
+  // REVERSE DIRECTION, and the CROSS-VOCABULARY agreement.
+  // -------------------------------------------------------------------------
+
+  it('no definition declares `outbox` that this table does not queue', () => {
+    const declaredNotQueued = [...defsByName.entries()]
+      .filter(([, def]) => commandExposure(def).includes('outbox'))
+      .map(([name]) => name)
+      .filter((name) => !queuedNames.has(name))
+      .sort()
+    expect(declaredNotQueued).toEqual([])
+    // BOUND, stated where it applies: this direction sees the definitions reachable
+    // from `@podium/commands`. `issueRegistry` and `lockRegistry` are declared in
+    // `apps/server` and are NOT reachable from client-core, so a definition there
+    // declaring `outbox` would be invisible here. Neither is queued today.
+  })
+
+  it('`sessions.rename` — definition and full contract AGREE on outbox enrolment', () => {
+    // The one command holding BOTH vocabularies, and before PDM-423 they DISAGREED:
+    // the definition said ['trpc'] while the contract said ['trpc','outbox'], about
+    // the same command, with nothing comparing them. The definition was not wrong —
+    // it was unable to agree.
+    //
+    // Written against BOTH sources by name rather than through the resolver above,
+    // deliberately: which resolver wins for `rename` changes when PDM-416 lands, and
+    // this comparison must not change with it.
+    const def = (SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[])
+      .map((table) => table.defs.rename)
+      .find((candidate) => candidate !== undefined)
+    expect(def, 'rename definition must be reachable').toBeDefined()
+    expect(commandExposure(def as CommandDef)).toContain('outbox')
+    expect(sessionRenameContract.exposure).toContain('outbox')
   })
 })

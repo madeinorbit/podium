@@ -8,7 +8,7 @@
 import { asSessionId, OP_STREAM_MEMBERS, PinKind, WorkState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { type CommandDef, commandExposure, isExposedOn } from '../framework'
+import { COMMAND_TRANSPORTS, type CommandDef, commandExposure, isExposedOn } from '../framework'
 import {
   pinCommands,
   SESSION_STATE_COMMAND_TABLES,
@@ -78,8 +78,16 @@ describe('exposure is DEFAULT-CLOSED, and that is the only default', () => {
     const unclassified: CommandDef = { input: z.object({}), action: 'write' }
 
     expect(commandExposure(unclassified)).toEqual([])
-    for (const transport of ['trpc', 'relay', 'cli', 'mcp', 'ws'] as const) {
-      expect(isExposedOn(unclassified, transport)).toBe(false)
+    // DERIVED, not hand-written (PDM-423). This loop used to list the five
+    // transports literally, and a hand-written copy of a union's members stops
+    // covering a sixth the day one is added — the default-closed proof shrinks by
+    // one transport and NOTHING reddens. `COMMAND_TRANSPORTS` is the value the
+    // union is derived from, so this cannot fall behind it.
+    expect(COMMAND_TRANSPORTS).toContain('outbox')
+    for (const transport of COMMAND_TRANSPORTS) {
+      expect(isExposedOn(unclassified, transport), `${transport} must be default-closed`).toBe(
+        false,
+      )
     }
   })
 

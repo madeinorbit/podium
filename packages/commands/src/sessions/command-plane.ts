@@ -153,6 +153,19 @@ const OPERATOR: CommandDef['exposure'] = ['trpc', 'mcp']
 /** Plus the daemon agent relay, for what agents may do to a peer session. */
 const AGENT: CommandDef['exposure'] = ['trpc', 'mcp', 'relay', 'cli']
 
+/**
+ * {@link AGENT} PLUS the client Outbox (PDM-423).
+ *
+ * A SEPARATE CONSTANT rather than an `'outbox'` added to `AGENT`, and that is the
+ * whole point of it: `AGENT` is shared by `sendText` and `continue` as well, and
+ * NEITHER is queued — `resumeAndSend` is the one member of this class the client
+ * Outbox carries, which is also why it is the one member declaring
+ * `offline: 'eligible'`. Widening the shared cell would declare a transport that
+ * does not serve two commands, which is the decoration ADR 3 D3 exists to
+ * prevent, in the opposite direction from the omission this fixes.
+ */
+const AGENT_QUEUED: CommandDef['exposure'] = [...AGENT, 'outbox']
+
 const PLACEMENT_DECISION =
   'Placement fails closed (§3.1.4 M5): an explicit machineId is gated BEFORE prepareSessionTarget, which may clone a repo onto the target — a side effect a denied principal must never cause. The IMPLICIT pick is gated too, by threading the principal’s use decision into MachinesService so agentCapabilityRejection refuses a denied machine in the same branch as an offline one. Unauthorized stays distinguishable from unreachable inside the see set (D18.5); outside it the machine is absent and reads exactly like a never-paired id.'
 
@@ -343,8 +356,9 @@ const resumeAndSend: CommandDef = {
   action: 'write',
   policy: executes,
   visibility: PERSONAL,
-  exposure: AGENT,
-  // See the file header: the ONE offline-eligible member of this class.
+  exposure: AGENT_QUEUED,
+  // See the file header: the ONE offline-eligible member of this class — and,
+  // consistently, the one member the client Outbox queues (PDM-423).
   offline: 'eligible',
   redaction: { fields: [] },
   conflict: 'cmd',
