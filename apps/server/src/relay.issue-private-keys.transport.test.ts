@@ -10,6 +10,7 @@ import { asCapabilityRef, type Principal } from '@podium/protocol'
 import type { ServerMessage } from '@podium/protocol'
 import { encode } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
+import { issueRowToProjection } from './modules/issues/projection'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { fixtureInventory } from './test-support/daemon-inventory'
@@ -608,3 +609,132 @@ describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
     expect(rows.flatMap((c) => privateKeysOn((c as { value?: unknown }).value))).toEqual([])
   })
 })
+
+/**
+ * **THE ACTUAL-PRODUCER PRESERVATION CHECK** [PDM-447].
+ *
+ * `shared-payload-mask.test.ts` compares key sets on a HAND-BUILT fixture. Even
+ * the corrected version of that file is a claim about a payload I wrote, and the
+ * reviewer's remaining item is the one it cannot answer: what does a REAL
+ * producer emit, and does masking lose any of it?
+ *
+ * So this reconciles the two directly. It calls the real producer on a real
+ * stored row, masks nothing itself, and compares that payload's key set against
+ * what a real client actually received over the feed. Every supported key must
+ * survive, and exactly the four private ones must not.
+ */
+describe('what a real producer emits, reconciled with what the client receives [PDM-447]', () => {
+  it('the shared rows lose EXACTLY the four private keys and no supported field', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+
+    // Populated deliberately wide, so the comparison has optional fields to lose.
+    // A minimal issue would make "nothing was lost" a claim about a payload with
+    // little in it — the fixture-sized-for-convenience shape.
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'reconciliation subject',
+      description: 'a shared description',
+      brief: 'a shared brief',
+      startNow: false,
+      startedBySession: STARTED_BY,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'claude-opus-5',
+      defaultEffort: 'high',
+      priority: 2,
+      type: 'task',
+    })
+    await registry.issues.update(issue.id, { ...PLANTED, notes: 'shared notes', branch: 'issue/x' })
+
+    const owner = await readyClient(registry, OWNER)
+    owner.length = 0
+    await registry.issues.update(issue.id, { activityNotes: 'one more shared field' })
+    registry.modules.funnel.flushDeltas()
+    await expect.poll(() => rowsFor(owner, issue.id).length).toBeGreaterThan(0)
+
+    // THE ACTUAL PRODUCER, called on the real stored row — not a fixture.
+    const row = await store.issues.getIssue(issue.id)
+    expect.soft(row).toBeDefined()
+    if (!row) return
+    const produced = issueRowToProjection(row, await store.issues.getIssueLabels(issue.id)) as Record<
+      string,
+      unknown
+    >
+    const producedKeys = Object.keys(produced)
+
+    // NON-VACUITY, and it is the assertion that makes the rest mean anything: the
+    // producer must really be emitting the private keys AND a broad set of shared
+    // ones, or "nothing was lost" is a claim about an almost-empty object.
+    expect.soft(ISSUE_PRIVATE_EXECUTION_KEYS.filter((k) => k in produced).sort()).toEqual(
+      [...ISSUE_PRIVATE_EXECUTION_KEYS].sort(),
+    )
+    expect.soft(producedKeys.length).toBeGreaterThan(15)
+
+    const received = rowsFor(owner, issue.id).find((r) => r.entity === 'issueProjection')
+    expect.soft(received).toBeDefined()
+    const receivedKeys = Object.keys((received?.value ?? {}) as object)
+
+    // THE RECONCILIATION. Nothing the producer emits may go missing except the
+    // four, and the four must go. Stated as a set difference in BOTH directions so
+    // a loss and a leak are distinguishable in the diagnostic rather than summed.
+    const lost = producedKeys.filter(
+      (k) =>
+        !receivedKeys.includes(k) && !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
+    )
+    const leaked = receivedKeys.filter((k) =>
+      (ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
+    )
+    expect.soft(lost).toEqual([])
+    expect(leaked).toEqual([])
+  })
+
+  it('the legacy issue wire loses EXACTLY the four as well', async () => {
+    // The `issue` kind's producer is NOT a schema parse — it is a hand-built
+    // literal in `IssueService.toWire` — so its preservation is a separate
+    // question from `issueProjection`'s and is reconciled separately here rather
+    // than assumed to follow.
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'legacy reconciliation subject',
+      description: 'a shared description',
+      brief: 'a shared brief',
+      startNow: false,
+      startedBySession: STARTED_BY,
+    })
+    await registry.issues.update(issue.id, { ...PLANTED, notes: 'shared notes' })
+
+    const owner = await readyClient(registry, OWNER)
+    owner.length = 0
+    await registry.issues.update(issue.id, { activityNotes: 'one more shared field' })
+    registry.modules.funnel.flushDeltas()
+    await expect.poll(() => rowsFor(owner, issue.id).length).toBeGreaterThan(0)
+
+    const row = await store.issues.getIssue(issue.id)
+    if (!row) return
+    const produced = (await registry.issues.toWire(row)) as unknown as Record<string, unknown>
+    const producedKeys = Object.keys(produced)
+    expect.soft(ISSUE_PRIVATE_EXECUTION_KEYS.filter((k) => k in produced).length).toBeGreaterThan(0)
+
+    const received = rowsFor(owner, issue.id).find((r) => r.entity === 'issue')
+    expect.soft(received).toBeDefined()
+    const receivedKeys = Object.keys((received?.value ?? {}) as object)
+
+    const lost = producedKeys.filter(
+      (k) =>
+        !receivedKeys.includes(k) && !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
+    )
+    const leaked = receivedKeys.filter((k) =>
+      (ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
+    )
+    expect.soft(lost).toEqual([])
+    expect(leaked).toEqual([])
+  })
+})
+

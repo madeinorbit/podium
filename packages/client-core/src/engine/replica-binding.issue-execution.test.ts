@@ -105,7 +105,14 @@ describe('the owner reassembles the private half through the real binding [PDM-4
       record: { entity: 'issueExecution', entityId: 'iss_owned', value: moved, provenance: { seq: 1 } },
     } as never)
 
-    const latest = publications.at(-1)?.snapshot ?? binding.snapshot()
+    // THE PUBLICATION IS MANDATORY, NOT CONDITIONAL [PDM-448]. The first version
+    // of this test read `publications.at(-1)?.snapshot ?? binding.snapshot()` and
+    // guarded its changed-set assertion with `if (publications.length > 0)` — so a
+    // binding that published NOTHING passed the whole test. A subscriber only
+    // re-reads what a publication NAMES, so "no publication" is the defect, not a
+    // permitted alternative, and both the fallback and the guard are gone.
+    expect(publications.length).toBeGreaterThan(0)
+    const latest = publications.at(-1)!.snapshot
     const owned = joined(latest, 'iss_owned')
     expect.soft(owned?.worktreePath).toBe('/wt/moved')
     // A stale join would still read the original — this is the assertion that
@@ -118,33 +125,51 @@ describe('the owner reassembles the private half through the real binding [PDM-4
     // A SIDECAR CHANGE IS AN ISSUE CHANGE to a subscriber keyed on 'issues'. If
     // the publication named only 'issueExecutions', a Store republishing what the
     // changed set names would never re-read the joined rows.
-    if (publications.length > 0) {
-      expect.soft([...(publications.at(-1)?.changed ?? [])]).toContain('issues')
-    }
+    expect.soft([...publications.at(-1)!.changed]).toContain('issues')
+
+    // UNRELATED-ROW CONTROL on the update path: the bystander must not have
+    // acquired the moved value, or the join is spreading rather than keying.
+    expect.soft(Object.hasOwn(joined(latest, 'iss_other') ?? {}, 'worktreePath')).toBe(false)
     stop()
   })
 
   it('REMOVING the sidecar takes the private keys off the joined row', async () => {
     // The stranding question, asked at the consumer: if the sidecar goes away,
     // does the owner's row keep serving the old private values?
-    const { cache, replica, binding } = bound([['iss_owned', {}]], [['iss_owned', PRIVATE]])
+    // TWO issues, each with its OWN sidecar — the unrelated-row control this case
+    // was missing [PDM-448]. Removing one sidecar must leave the other's values
+    // intact; a single-issue fixture cannot tell a targeted eviction from one that
+    // drops every sidecar.
+    const OTHER_PRIVATE = { ...PRIVATE, worktreePath: '/wt/other', machineId: 'm_other' }
+    const { cache, replica, binding } = bound(
+      [['iss_owned', {}], ['iss_other', {}]],
+      [['iss_owned', PRIVATE], ['iss_other', OTHER_PRIVATE]],
+    )
     const publications: ReplicaPublication[] = []
     const stop = binding.start({ publish: (publication) => publications.push(publication) })
     await Promise.resolve()
     publications.length = 0
-    // NON-VACUITY: they were there before the removal.
+    // NON-VACUITY: BOTH were there before the removal.
     expect.soft(joined(binding.snapshot(), 'iss_owned')?.worktreePath).toBe(PRIVATE.worktreePath)
+    expect.soft(joined(binding.snapshot(), 'iss_other')?.worktreePath).toBe(OTHER_PRIVATE.worktreePath)
 
     // Eviction, through the kernel's own event rather than a rebuilt list.
     cache.drop('issueExecution', 'iss_owned')
     replica.onKernelEvent({ type: 'evicted', entity: 'issueExecution', entityId: 'iss_owned' })
 
-    const owned = joined(publications.at(-1)?.snapshot ?? binding.snapshot(), 'iss_owned')
+    expect(publications.length).toBeGreaterThan(0)
+    const afterRemoval = publications.at(-1)!.snapshot
+    const owned = joined(afterRemoval, 'iss_owned')
     expect.soft(owned).toBeDefined()
     expect.soft(owned?.title).toBe('iss_owned') // the shared half survives
     for (const key of Object.keys(PRIVATE)) {
       expect.soft(Object.hasOwn(owned ?? {}, key)).toBe(false)
     }
+    // THE CONTROL: the unrelated issue keeps its OWN sidecar values, so the
+    // eviction was targeted rather than a blanket drop.
+    const survivor = joined(afterRemoval, 'iss_other')
+    expect.soft(survivor?.worktreePath).toBe(OTHER_PRIVATE.worktreePath)
+    expect.soft(survivor?.machineId).toBe(OTHER_PRIVATE.machineId)
     stop()
   })
 
