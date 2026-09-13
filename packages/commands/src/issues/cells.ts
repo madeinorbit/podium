@@ -58,6 +58,36 @@ export const SERVED_EVERYWHERE: readonly TransportTag[] = ['trpc', 'relay', 'cli
  *  commands no CLI verb and no MCP tool reaches. */
 export const SERVED_ON_WIRE: readonly TransportTag[] = ['trpc', 'relay']
 
+/**
+ * THE FIFTH ARM: the client Outbox (PDM-416).
+ *
+ * `outbox` is a transport in exactly ADR 3 D3's sense — a surface that dispatches
+ * the command — and the client queues twelve issue commands on it. The tag was
+ * missing from all twelve, and NOT because anyone decided they were direct-only:
+ * every one of them already declares `delivery.class: 'offline-eligible'`, which is
+ * the contract author saying in the neighbouring field that queuing is intended.
+ * The exposure half was simply never written down, and nothing compared the two, so
+ * for twelve commands the Outbox served a transport its contract did not name —
+ * the same defect `audit-issue-commands.ts` already refuses for `cli`/`mcp`.
+ *
+ * WHY A SEPARATE CONSTANT rather than adding `outbox` to {@link SERVED_EVERYWHERE}:
+ * only these twelve are queued. The other fifty-six issue commands share
+ * SERVED_EVERYWHERE and are NOT in the client's `OUTBOX_COMMANDS` table, so widening
+ * the shared cell would declare a transport that does not serve them — which is the
+ * decoration ADR 3 D3 exists to prevent, in the opposite direction.
+ *
+ * `outbox-contract-table.test.ts` in `@podium/client-core` compares these
+ * declarations against the kinds the client actually queues, in BOTH directions.
+ * It lives there and not here because that comparison needs `OUTBOX_COMMANDS`, and
+ * client-core depends on this package rather than the other way round.
+ */
+export const SERVED_EVERYWHERE_QUEUED: readonly TransportTag[] = [...SERVED_EVERYWHERE, 'outbox']
+
+/** {@link SERVED_ON_WIRE} plus the client Outbox — the per-user list-state commands
+ *  (`markRead`, `markUnread`, `setTucked`) that no CLI verb reaches but the Outbox
+ *  does queue. See {@link SERVED_EVERYWHERE_QUEUED}. */
+export const SERVED_ON_WIRE_QUEUED: readonly TransportTag[] = [...SERVED_ON_WIRE, 'outbox']
+
 // ---------------------------------------------------------------------------
 // ADR 9 D3/D4 — visibility, read off ADR 1's matrix and not chosen here
 // ---------------------------------------------------------------------------

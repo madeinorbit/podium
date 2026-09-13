@@ -24,6 +24,38 @@
  * ADR 3 D4 rule 3 makes structural: a kind the client queues whose contract is
  * `online-only` or `online-sensitive` is a secret or a live-daemon operation
  * that must never have entered the queue at all.
+ *
+ * ---------------------------------------------------------------------------
+ * AND, SINCE PDM-416, THE EXPOSURE TAG — IN BOTH DIRECTIONS
+ * ---------------------------------------------------------------------------
+ *
+ * `delivery.class` says a command MAY be queued. `exposure` says it IS — ADR 3 D3's
+ * whole content is that a transport serves a command because the contract NAMES it,
+ * and `outbox` is a transport tag exactly like `cli` and `mcp`. Nothing compared the
+ * tag to this table, and the two had come apart on TWELVE commands: `issues.close`,
+ * `issues.update`, `issues.archive`, `issues.delete`, `issues.restore`,
+ * `issues.defer`, `issues.undefer`, `issues.setLabels`, `issues.setPlacement`,
+ * `issues.markRead`, `issues.markUnread` and `issues.setTucked` were all queued here
+ * while their contracts named only `trpc`/`relay`(/`cli`/`mcp`). Every one of them
+ * already declared `delivery.class: 'offline-eligible'`, so this was a FORGOTTEN
+ * DECLARATION rather than a disagreement about intent — but "the neighbouring field
+ * implies it" is precisely the reasoning D3 exists to refuse.
+ *
+ * The equivalent comparison for `cli`/`mcp` has existed since POD-1314, in
+ * `scripts/audit-issue-commands.ts`, and it checks BOTH directions. This one does
+ * too, and for the same reason that file gives: the two failures are different bugs.
+ * A queued kind whose contract omits `outbox` is a transport served without a
+ * declaration — default-closed defeated. A contract declaring `outbox` that this
+ * table never queues is a declaration that opens nothing — the field decaying into
+ * decoration. Checking one direction would have left the other free to rot, and
+ * before PDM-416 neither was checked at all.
+ *
+ * WHAT THIS CANNOT SEE, said out loud: the eleven kinds in {@link UNGUARDED}. They
+ * are presence-class `CommandDef`s, whose `CommandTransport` union does not even
+ * CONTAIN `'outbox'` — the mismatch is not merely undeclared there, it is
+ * unspellable. That is a gap in the vocabulary, not in this guard, and the exact
+ * assertion of the UNGUARDED list below is what stops it being forgotten: a
+ * presence command gaining a full contract reddens this file and joins the check.
  */
 
 import type { CommandContract } from '@podium/commands'
@@ -103,7 +135,7 @@ describe('the client outbox contract table matches the contracts', () => {
 
   it.each(
     entries.filter(([, c]) => lookup(c.name) !== undefined),
-  )('%s: confirmation rule and offline class match the contract', (_kind, command) => {
+  )('%s: confirmation rule, offline class and outbox exposure match the contract', (_kind, command) => {
     const contract = lookup(command.name)
     if (!contract) throw new Error(`no contract for ${command.name}`)
     // `toBe`, not a shape check: the whole point is that the copied VALUE is
@@ -111,5 +143,24 @@ describe('the client outbox contract table matches the contracts', () => {
     expect(command.confirmation).toBe(contract.policy.confirmation)
     // D4 rule 3: only an offline-eligible contract may be in this table at all.
     expect(contract.delivery.class).toBe('offline-eligible')
+    // D3: and being queued here IS being served on the `outbox` transport, so the
+    // contract has to say so. `delivery.class` above is permission, not declaration.
+    expect(contract.exposure).toContain('outbox')
+  })
+
+  /**
+   * THE OTHER DIRECTION, as one assertion over LISTS rather than per-entry, so a
+   * cell edit that moves several contracts at once shows every casualty in one run
+   * instead of one per re-run — the same reporting shape the `names contracts that
+   * exist` case above uses.
+   */
+  it('no contract declares `outbox` that this table does not queue', () => {
+    const queued = new Set(entries.map(([, command]) => command.name))
+    const declaredElsewhere = [...byName.values()]
+      .filter((contract) => contract.policy !== undefined && contract.exposure.includes('outbox'))
+      .map((contract) => contract.name)
+      .filter((name) => !queued.has(name))
+      .sort()
+    expect(declaredElsewhere).toEqual([])
   })
 })

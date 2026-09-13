@@ -252,6 +252,20 @@ export function nameListRestated(source: string, file: string): Finding[] {
  * table names, which is branch-insensitive — a runtime recorder only sees the procs
  * the branches it happens to take actually call, and that is the runtime half's known
  * weakness, covered here.
+ *
+ * THE DECLARED SIDE IS RESOLVED TO A TAG SET, NOT MATCHED BY CONSTANT NAME (PDM-416).
+ * It used to ask `exposure === 'SERVED_EVERYWHERE'`, which made the check a test of
+ * WHICH CELL a contract cited rather than of WHAT IT DECLARES. The two came apart the
+ * moment a second cell carried the same `cli`/`mcp` tags: adding
+ * `SERVED_EVERYWHERE_QUEUED` — literally `[...SERVED_EVERYWHERE, 'outbox']` — made
+ * nine contracts that plainly declare `cli` and `mcp` read as declaring NOTHING, and
+ * this audit reported nine reached-but-undeclared findings that were all false.
+ *
+ * It failed CLOSED, which is why the rename was caught rather than smuggled, but a
+ * check that answers a question about a NAME cannot be trusted to answer the question
+ * about TAGS it claims to ask. So cells are parsed into tag sets and spreads between
+ * them are followed; a contract is `declared` when its resolved set contains `cli` and
+ * `mcp`, whatever cell it got them from and however many cells there are.
  */
 export function exposureMismatch(
   contractsSource: string,
@@ -260,20 +274,47 @@ export function exposureMismatch(
 ): Finding[] {
   const findings: Finding[] = []
 
-  // Which cell means "on the CLI and MCP" — read, never assumed, so renaming the
-  // constant cannot silently empty this check.
-  const cell = /export const SERVED_EVERYWHERE[^=]*=\s*\[([^\]]*)\]/.exec(cellsSource)
-  if (!cell || !(cell[1] as string).includes("'cli'") || !(cell[1] as string).includes("'mcp'")) {
+  // EVERY exposure cell, resolved to the tags it actually carries. Read, never
+  // assumed, so neither renaming a cell nor adding one can silently empty this check.
+  const cellTags = new Map<string, Set<string>>()
+  const cellSpreads = new Map<string, string[]>()
+  for (const m of cellsSource.matchAll(
+    /export const (\w+): readonly TransportTag\[\] = \[([^\]]*)\]/g,
+  )) {
+    const body = m[2] as string
+    cellTags.set(m[1] as string, new Set([...body.matchAll(/'(\w+)'/g)].map((t) => t[1] as string)))
+    cellSpreads.set(m[1] as string, [...body.matchAll(/\.\.\.(\w+)/g)].map((t) => t[1] as string))
+  }
+  /** A cell's tags including everything it spreads in. Cycle-guarded: a cell that
+   *  spreads itself must not hang the audit, it must resolve to what it states. */
+  const tagsOf = (cellName: string, seen = new Set<string>()): Set<string> => {
+    if (seen.has(cellName)) return new Set()
+    seen.add(cellName)
+    const own = cellTags.get(cellName)
+    if (!own) return new Set()
+    const all = new Set(own)
+    for (const parent of cellSpreads.get(cellName) ?? []) {
+      for (const tag of tagsOf(parent, seen)) all.add(tag)
+    }
+    return all
+  }
+  /** The cells that mean "on the CLI and MCP". More than one is normal. */
+  const cliMcpCells = [...cellTags.keys()].filter((name) => {
+    const tags = tagsOf(name)
+    return tags.has('cli') && tags.has('mcp')
+  })
+  if (cliMcpCells.length === 0) {
     return [
       {
         check: 'exposure-matches-reach',
         where: CELLS,
         detail:
-          'SERVED_EVERYWHERE is missing or no longer names both `cli` and `mcp` — the exposure ' +
-          'comparison below would be comparing against nothing',
+          'no exposure cell names both `cli` and `mcp` — the exposure comparison below ' +
+          'would be comparing against nothing',
       },
     ]
   }
+  const cliMcp = new Set(cliMcpCells)
 
   // Read one DECLARATION AT A TIME. A single lazy `name … exposure` regex over the
   // whole file cannot do this: a contract that inherits its exposure by spreading a
@@ -317,7 +358,7 @@ export function exposureMismatch(
       })
       continue
     }
-    if (exposure === 'SERVED_EVERYWHERE') declared.add(block.name)
+    if (cliMcp.has(exposure)) declared.add(block.name)
   }
   const reached = new Set(
     [...cliSource.matchAll(/\.issues\.(\w+)\b/g)].map((m) => m[1] as string),
@@ -522,6 +563,32 @@ function probe(): Finding[] {
       'client.issues.shown.query()\nclient.issues.spread.query()\nclient.issues.after.query()\n',
     ),
   )
+  // PDM-416: a contract declaring `cli`/`mcp` through a DIFFERENT cell — one that
+  // spreads the canonical one and adds a tag — must read as DECLARED. Keying on the
+  // cell's NAME made nine such contracts read as declaring nothing and produced nine
+  // false reached-but-undeclared findings; this fixture is that regression, pinned.
+  const QUEUED_CELLS = [
+    CELLS_OK,
+    "export const SERVED_EVERYWHERE_QUEUED: readonly TransportTag[] = [...SERVED_EVERYWHERE, 'outbox']",
+  ].join('\n')
+  const queuedFixture = [
+    'export const queuedContract = {',
+    "  name: 'issues.queued',",
+    '  exposure: SERVED_EVERYWHERE_QUEUED,',
+    '} as const',
+  ].join('\n')
+  mustNotFire(
+    'exposure-matches-reach',
+    exposureMismatch(queuedFixture, QUEUED_CELLS, 'client.issues.queued.query()\n'),
+  )
+  // And the direction that must STILL fire through the second cell: declared there,
+  // reached by nobody. Without this the fixture above could pass by the check going
+  // blind to the new cell altogether rather than by resolving it.
+  expect(
+    'exposure-matches-reach/unreached-via-spread-cell',
+    exposureMismatch(queuedFixture, QUEUED_CELLS, 'client.issues.other.query()\n'),
+  )
+
   // An exposure that can be resolved from NEITHER a field nor a spread is a finding,
   // not a silent drop.
   expect(

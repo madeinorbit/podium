@@ -173,12 +173,65 @@ describe('transport exposure', () => {
     ).toBe(false)
   })
 
-  it('nothing is exposed on `outbox`, and the two exposure cells are distinct', () => {
-    // ADR 3 D3: a transport is served because a contract NAMES it. The write class
-    // is offline-eligible, which PERMITS the outbox tag; permission is not wiring,
-    // and no client outbox path exists for issues.
+  /**
+   * THE TWELVE THE CLIENT QUEUES — and a correction to what this case used to say.
+   *
+   * It asserted that NOTHING is exposed on `outbox`, on the stated grounds that
+   * "permission is not wiring, and no client outbox path exists for issues". The
+   * first half is right and still is. The second half WAS true when it was written
+   * and had since become false: POD-781 gave the client engine twelve issue kinds
+   * (`OutboxKinds` in `@podium/client-core`, each documented there as a deliberate
+   * separate kind), so a client outbox path for issues does exist, and twelve
+   * contracts were being served on a transport they did not name — ADR 3 D3 backwards.
+   *
+   * WHY NOTHING CAUGHT IT, which is the transferable part: the claim was about the
+   * CLIENT, asserted from a package that cannot import the client. `@podium/commands`
+   * is L1 and client-core depends on IT, so no assertion here can see `OUTBOX_COMMANDS`
+   * — this case could only ever restate a belief about another package and go stale
+   * silently when that package moved.
+   *
+   * So the DERIVED comparison lives where the join is possible, in
+   * `packages/client-core/src/engine/outbox-contract-table.test.ts`, which reads
+   * `OUTBOX_COMMANDS` and these contracts together and checks BOTH directions. The
+   * list below is a deliberate RESTATEMENT of its result, kept honest by it rather
+   * than by anyone remembering: if the engine queues a thirteenth issue kind, or
+   * stops queuing one of these, that file reddens on the derived populations. What
+   * this case adds is the local partition — that the outbox tag is confined to these
+   * twelve and has not spread across the surface — and the `peer` claim, which is
+   * genuinely local because no peer transport exists anywhere yet.
+   */
+  const QUEUED_ON_OUTBOX = [
+    'archive',
+    'close',
+    'defer',
+    'delete',
+    'markRead',
+    'markUnread',
+    'restore',
+    'setLabels',
+    'setPlacement',
+    'setTucked',
+    'undefer',
+    'update',
+  ]
+
+  it('the outbox tag is confined to the twelve kinds the client queues', () => {
+    const onOutbox = ISSUE_COMMAND_NAMES.filter((n) =>
+      ISSUE_CONTRACTS[n].exposure.includes('outbox'),
+    ).sort()
+    expect(onOutbox).toEqual(QUEUED_ON_OUTBOX)
+    // Permission is still not wiring: every one of them must ALSO be offline-eligible,
+    // which is the D3 rule 2 implication the contract validator enforces the other way.
+    for (const key of QUEUED_ON_OUTBOX) {
+      expect(ISSUE_CONTRACTS[key as keyof typeof ISSUE_CONTRACTS].delivery.class, key).toBe(
+        'offline-eligible',
+      )
+    }
+  })
+
+  it('nothing is exposed on `peer`, and the two exposure cells are distinct', () => {
+    // No peer transport exists anywhere yet, so this one IS a local claim.
     for (const key of ISSUE_COMMAND_NAMES) {
-      expect(ISSUE_CONTRACTS[key].exposure, key).not.toContain('outbox')
       expect(ISSUE_CONTRACTS[key].exposure, key).not.toContain('peer')
     }
     expect(SERVED_EVERYWHERE).not.toEqual(SERVED_ON_WIRE)
