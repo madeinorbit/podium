@@ -430,23 +430,34 @@ export function legacyIdempotencyWrapper(files: Array<[string, string]>): Findin
  * `status`, `ledger`, `dismiss`, `inboxConsume`, `awaitAgent`, `spawnAgent`. The
  * MCP surface is the superagent tool belt (`modules/superagent/tools.ts`),
  * registered at `POST /mcp` in `server.ts`; its tools call SERVICE METHODS rather
- * than dispatching a mail proc by name, and no superagent module references
- * `MessageGate.dispatch`, which is the door a mail command is entered through.
- * Across the static call sites inspected, nothing asked `isMailProcExposedOn`
- * about `'mcp'`. The tags gated nothing, and they were removed from
+ * than dispatching a mail proc by name.
+ *
+ * THE FINDING, AT ITS ACTUAL STRENGTH: across the static call sites inspected, NO
+ * `mcp`-TAGGED ENTRY TO A MAIL COMMAND WAS IDENTIFIED. Every
+ * `MessageGate.dispatch` reference found passes `'trpc'` or `'relay'` (or takes
+ * the `'relay'` default), and no superagent module spells `messageGate`. That is
+ * a static-reference search and not a complete entry population: an alias, a
+ * property access or a dynamic lookup would evade it, and such readers are
+ * UNRULED-OUT. The tags were then removed from
  * `packages/commands/src/mail/contracts.ts` rather than made true.
  *
  * WHAT THE LIST DOES NOW. It is the default-closed guard on the other direction:
- * any mail contract that declares `mcp` without an entry here is a finding, so a
- * tag cannot come back unreviewed. Making one true again means routing the belt
- * through the gate with a real capability — the belt sends as
- * `{ kind: 'superagent' }` and has none — which is a design decision about the
- * belt's identity model, not an exposure edit.
+ * a mail contract declaring `mcp` with no entry here is REPORTED — **when this
+ * audit is run**. That is a prompt, not a guarantee, and two things bound it: the
+ * audit is wired into no CI job and no aggregate task (PDM-434), and editing the
+ * declaration and this list together satisfies the check without any review
+ * having happened. Making a tag true again means routing the belt through the
+ * gate with a real capability — the belt sends as `{ kind: 'superagent' }` and
+ * has none — which is a design decision about the belt's identity model, not an
+ * exposure edit.
  *
- * WHAT THIS LIST IS NOT EVIDENCE OF. It is a record of a SOURCE READ, and an
- * empty list does not certify runtime behaviour: nothing here was executed. Nor
- * is this audit run automatically — see PDM-434 — so it catches an unreviewed
- * re-add only when someone invokes it.
+ * WHAT THIS LIST IS NOT EVIDENCE OF. It records a SOURCE READ; it does not
+ * certify runtime behaviour. To be exact about what did and did not run: NO MCP
+ * SERVER AND NO WAKE PATH WAS EXECUTED, and no test lane was run. This audit
+ * itself executes (that is what `--probe` and the gate are), and PDM-422 did
+ * execute one consumer probe against `isMailProcExposedOn`, which is what
+ * established the corrective effect at that seam. Behaviour of consumers outside
+ * the ones inspected was not established.
  *
  * ---------------------------------------------------------------------------
  * WHAT REMAINS UNADJUDICATED

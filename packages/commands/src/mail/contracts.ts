@@ -36,11 +36,22 @@
  * Nine of these carried `mcp` until PDM-422 read the MCP surface against them.
  * That surface is the superagent tool belt (`modules/superagent/tools.ts`),
  * registered at `POST /mcp`; its tools call SERVICE METHODS rather than
- * dispatching a mail proc by name, and no belt module references
- * `MessageGate.dispatch` — the door every mail command enters through. In the
- * static call sites inspected there, nothing asked `isMailProcExposedOn` about
- * `'mcp'`, so the tag gated nothing and described a command surface that was not
- * served.
+ * dispatching a mail proc by name.
+ *
+ * WHAT WAS ESTABLISHED, at the strength the evidence carries: across the static
+ * call sites inspected, NO `mcp`-TAGGED ENTRY TO A MAIL COMMAND WAS IDENTIFIED —
+ * every `MessageGate.dispatch` reference found passes `'trpc'` or `'relay'` (or
+ * takes the `'relay'` default), and no superagent module spells `messageGate`.
+ * That is a static-reference search, not a proof of a complete entry population:
+ * an alias, a property access or a dynamic lookup would evade it, and such
+ * readers are UNRULED-OUT rather than excluded.
+ *
+ * WHAT THE REMOVAL DID, which is narrower and is measured: `isMailProcExposedOn`
+ * is the one runtime reader of this field, and a probe of that seam showed `mcp`
+ * refused for all nine afterwards with `trpc`/`cli`/`relay` retained — the same
+ * probe failing on exactly those nine assertions against the pre-change file.
+ * That is a statement about THAT consumer. Behaviour of any consumer outside the
+ * ones inspected was not established.
  *
  * The tags were removed rather than made true, because making them true means
  * routing the belt through the gate with a real capability — the belt sends as
@@ -48,8 +59,10 @@
  * belt's identity model and not an exposure edit. `modules/automations/trpc.ts`
  * refuses the mirror of that for its own family in as many words.
  *
- * `scripts/audit-mail-commands.ts` holds the record and reddens if an `mcp` tag
- * reappears here without a reviewed entry beside it.
+ * `scripts/audit-mail-commands.ts` REPORTS an `mcp` tag here that has no matching
+ * entry in its recorded list — WHEN IT IS RUN. It is not wired into CI (PDM-434),
+ * and editing the declaration and the list together would satisfy it without any
+ * review, so treat it as a prompt rather than a guarantee.
  *
  * The corollary, and the reason `applyTimeReauthorization` is a required field:
  * because the accepted row is drained later, a send whose principal LOST access
