@@ -40,12 +40,24 @@
  *
  * POD-1079 REPLACED THE DEFAULT WITH A COLUMN. {@link ownershipFromMachines} now
  * reads `machines.owner_user_id` and the `grants` edge table, live, and no call
- * site changed — the seam POD-1075 left is exactly the seam that was filled. The
- * qualifier that survives is about the TRANSPORT, not this module: there is
- * still one shared password, so every connection resolves to one `UserId`
- * ({@link deviceGradeSoleOwner}, and `audit:machine-grants` holds its call sites
- * to an allowlist). This gate can refuse a second person; today's login cannot
- * produce one.
+ * site changed — the seam POD-1075 left is exactly the seam that was filled.
+ *
+ * THE QUALIFIER THAT USED TO STAND HERE IS RETRACTED. It read: *there is still
+ * one shared password, so every connection resolves to one `UserId`* ... *this
+ * gate can refuse a second person; today's login cannot produce one.* The login
+ * CAN produce one. `auth-route.ts` resolves a login identifier to a member and
+ * verifies THAT member's own `user_credentials` row before minting a session,
+ * and POD-1554 removed the instance password from `auth-store.ts` altogether.
+ * The two sentences mattered because they said this gate's second-person path
+ * was unreachable, which is how a reader would justify not exercising it. It is
+ * reachable, and it should be exercised.
+ *
+ * WHAT IS STILL TRUE is narrower and belongs to the call sites, not to the
+ * transport: {@link deviceGradeSoleOwner} still resolves the earliest admin at
+ * the sites that cannot name a principal, and `audit:machine-grants` holds those
+ * sites to a declared allowlist. That placeholder and its remaining call sites
+ * are the subject of their own issue; this module's gate does not depend on it.
+ * Corrected under the PDM-139 phase B review disposition.
  *
  * ---------------------------------------------------------------------------
  * ABSENT vs UNAUTHORIZED vs UNREACHABLE

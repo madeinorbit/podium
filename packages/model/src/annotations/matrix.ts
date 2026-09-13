@@ -3179,7 +3179,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     sites: [
       '`user_credentials`',
       'POD-1075',
-      'packages/runtime/src/auth-store.ts (one password per instance today)',
+      'packages/runtime/src/auth-store.ts (the scrypt KDF only; the per-instance password left in POD-1554)',
     ],
     home: 'server',
     idMinting: 'n/a',

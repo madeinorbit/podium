@@ -961,11 +961,20 @@ export class SessionRegistry {
      * seed sees exactly the machines the spawn path would consider.
      */
     const superagentDefaults = new SuperagentDefaultSeeder({
-      // An install that has never created an account row still has a person: this
-      // build authenticates one shared password as firstAdminMemberId(), and that
-      // is the very install this seed exists for. Falling back to it here rather
-      // than inside the seeder keeps the "who is this for" question at the
-      // composition root, where POD-315 will replace it with real principals.
+      // An install that has never created an account row still has a person, and
+      // that is the very install this seed exists for. The fallback fires ONLY on
+      // an empty `users.list()`; it is a SEED AUDIENCE, not an authorization
+      // answer, which is why picking the earliest admin is tolerable here and
+      // would not be at a read. Falling back here rather than inside the seeder
+      // keeps the "who is this for" question at the composition root.
+      //
+      // (This comment previously justified the fallback by saying this build
+      // authenticates one shared password as `firstAdminMemberId()`. That premise
+      // is retracted: `auth-route.ts` resolves a login identifier to a member and
+      // verifies THAT member's own `user_credentials` row, and POD-1554 removed
+      // the instance password from `auth-store.ts`. The fallback survives on the
+      // empty-list reason above, not on the authenticator. Corrected under the
+      // PDM-139 phase B review disposition.)
       users: async () => {
         const rows = (await this.store.users.list()).map((row) => asUserId(row.id))
         return rows.length > 0 ? rows : [(await firstAdminMemberId(this.store))]
@@ -1723,10 +1732,19 @@ export class SessionRegistry {
         // preferences, which no longer live on the instance blob — an unresolved
         // read would see the model's defaults instead of the operator's choices.
         // `firstAdminMemberId()` is spelled out rather than defaulted, the shape
-        // `IssueService.broadcastViewer` uses: this build's transport cannot name
-        // a person (one shared password), so the sole account is the only true
-        // answer, and POD-315/POD-1077 replace the argument rather than finding a
-        // hidden read.
+        // `IssueService.broadcastViewer` uses, so the substitution is VISIBLE at
+        // the composition root instead of hidden in a store default.
+        //
+        // IT IS NOW A GAP, NOT A CONSEQUENCE. This comment previously said the
+        // transport cannot name a person (one shared password) and that the sole
+        // account was therefore the only true answer. The transport CAN name a
+        // person: `auth-route.ts` verifies the resolved member's own credential
+        // and persists that identity on the session. What is left is a caller
+        // that passes no `ownerUserId` — a server-initiated notification with no
+        // viewer in hand — and for those this reads the earliest admin's
+        // preferences rather than the recipient's. Correcting that is a change to
+        // the CALLERS, not to this line. Corrected under the PDM-139 phase B
+        // review disposition.
         getSettings: async (ownerUserId?: import('@podium/model').UserId) =>
           await this.store.settings.getSettingsFor(ownerUserId ?? await firstAdminMemberId(this.store)),
         // POD-419: out of the server-only keyed store, read at the moment of use.

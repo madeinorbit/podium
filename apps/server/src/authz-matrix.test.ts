@@ -472,12 +472,20 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
 
 describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp and relay', () => {
   /**
-   * The transports cannot yet mint a person-scoped capability (one password,
-   * one account), so the matrix drives the policy layer with the capability each
-   * transport WILL supply once login lands: same role, scope narrowed from the
-   * ambient shape to the caller's own identity. That substitution is the only
-   * part of this describe that is not the shipped path, and it is named here
-   * rather than hidden in a helper.
+   * This describe drives the policy layer with a capability it narrows itself:
+   * same role, scope narrowed from the ambient shape to the caller's own
+   * identity. That substitution is the only part of this describe that is not
+   * the shipped path, and it is named here rather than hidden in a helper.
+   *
+   * WHY THE SUBSTITUTION IS STILL HERE is a statement about THIS FILE, not about
+   * the product. The claim this replaces — that the transports cannot yet mint a
+   * person-scoped capability because there is one password and one account — is
+   * retracted: per-member password login exists (`auth-route.ts` verifies the
+   * resolved member's own credential). What remains true is that this file is a
+   * POLICY test: it performs no HTTP login and no transport request, so it must
+   * construct the capability it evaluates. Transport acceptance is somebody
+   * else's suite either way. Corrected under the PDM-139 phase B review
+   * disposition; see this file's header.
    */
   const personScoped = (transport: Transport, user: UserId): Capability => ({
     ...transport.capabilityFor(AGENT_OF_OWNER),
@@ -554,15 +562,24 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     // THE ASSERTION WAS WRONG AGAINST ITS OWN PREMISE. The acceptance criterion
     // is "with ONE ADMIN OWNING EVERYTHING, the full authz matrix reproduces
     // today's behaviour", and a session owned by a second person is precisely the
-    // input that premise excludes. The product says so twice in its own words:
-    // `modules/sessions/session-state/registry.ts` — *"Until POD-1075 there is no
-    // `owner` column, so today every existing session is owned by the instance's
-    // first admin"* — and this file's own header, *"`auth-store.ts` is still one
-    // password per instance, so every authenticated caller resolves to
-    // `firstAdminMemberId()`"*. Owner and reader are the same person on a shipped
-    // instance, so A3 denied nothing an operator can reach. What the old line
-    // actually pinned was the ADMIN-TO-PRIVATE-RESOURCE BYPASS, as though it were
-    // a shipped capability worth preserving.
+    // input that premise excludes. AT THE TIME A3 WAS WRITTEN the product said so
+    // in its own words — `modules/sessions/session-state/registry.ts`, *"Until
+    // POD-1075 there is no `owner` column, so today every existing session is
+    // owned by the instance's first admin"*. Owner and reader were the same person
+    // on a shipped instance, so A3 denied nothing an operator could reach. What
+    // the old line actually pinned was the ADMIN-TO-PRIVATE-RESOURCE BYPASS, as
+    // though it were a shipped capability worth preserving.
+    //
+    // THE SECOND CITATION THAT USED TO STAND HERE IS GONE. This paragraph also
+    // quoted *this file's own header* as *"`auth-store.ts` is still one password
+    // per instance, so every authenticated caller resolves to
+    // `firstAdminMemberId()`"*. That header was replaced — see the top of this
+    // file — because the claim stopped being true when per-member credentials
+    // landed, so the quotation pointed at text that no longer exists. The
+    // reasoning above does not depend on it: it is an argument about what A3's
+    // acceptance criterion EXCLUDED when A3 was written, which the registry
+    // citation carries on its own. Corrected under the PDM-139 phase B review
+    // disposition.
     //
     // NOR DOES THIS CONCEDE THE EXPOSURE ORDER, which is the clause pointing the
     // other way (execution charter: *"through phases A and B ... the issue
