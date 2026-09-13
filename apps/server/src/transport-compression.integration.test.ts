@@ -18,6 +18,7 @@ const LARGE_TEXT = 'transport-compression-proof/'.repeat(4_000)
 const priorStateDir = process.env.PODIUM_STATE_DIR
 const priorWebDir = process.env.PODIUM_WEB_DIR
 const priorMobileWebDir = process.env.PODIUM_MOBILE_WEB_DIR
+const priorMode = process.env.PODIUM_MODE
 
 interface RawHttpResponse {
   status: number
@@ -272,6 +273,11 @@ describe('transport compression on real Bun wires', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-transport-compression-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    // /mobile/* withholds the operator shell until dataPlane is available
+    // (302 /setup/mobile). /files/* sits behind readinessBoundary (503
+    // server_not_ready). Without a mode this fixture is unconfigured, so the
+    // gzip assertions never see the bytes they name.
+    process.env.PODIUM_MODE = 'all-in-one'
     const webDir = join(stateDir, 'web')
     const mobileDir = join(stateDir, 'mobile')
     const artifactDir = join(stateDir, 'artifacts', 'proof-issue', 'proof-artifact')
@@ -325,29 +331,40 @@ describe('transport compression on real Bun wires', () => {
     else process.env.PODIUM_WEB_DIR = priorWebDir
     if (priorMobileWebDir === undefined) delete process.env.PODIUM_MOBILE_WEB_DIR
     else process.env.PODIUM_MOBILE_WEB_DIR = priorMobileWebDir
+    if (priorMode === undefined) delete process.env.PODIUM_MODE
+    else process.env.PODIUM_MODE = priorMode
     rmSync(stateDir, { recursive: true, force: true })
   })
 
-  it('serves encoded desktop/mobile shells and file text while preserving binary identity', async () => {
+  it('serves encoded desktop and mobile shells', async () => {
     const desktop = await rawHttp(server.port, '/')
+    expect(desktop.status).toBe(200)
     expect(desktop.headers.get('content-encoding')).toBe('gzip')
     const desktopDecoded = gunzipSync(desktop.body)
     expect(desktopDecoded.toString()).toContain('desktop-wire-proof')
 
     const mobile = await rawHttp(server.port, '/mobile/')
+    expect(mobile.status).toBe(200)
     expect(mobile.headers.get('content-encoding')).toBe('gzip')
     const mobileDecoded = gunzipSync(mobile.body)
     expect(mobileDecoded.toString()).toContain('mobile-wire-proof')
+    console.info(
+      `[transport-wire] static desktop=${desktop.body.length}/${desktopDecoded.length} mobile=${mobile.body.length}/${mobileDecoded.length}`,
+    )
+  })
 
+  it('serves gzip for artifact text while preserving binary identity', async () => {
     const text = await rawHttp(server.port, '/files/artifact/proof-issue/proof-artifact/proof.txt')
+    expect(text.status).toBe(200)
     expect(text.headers.get('content-encoding')).toBe('gzip')
     expect(gunzipSync(text.body).toString()).toBe(LARGE_TEXT)
 
     const image = await rawHttp(server.port, '/files/artifact/proof-issue/proof-artifact/proof.png')
+    expect(image.status).toBe(200)
     expect(image.headers.get('content-encoding')).toBeUndefined()
     expect(image.body).toHaveLength(64 * 1024)
     console.info(
-      `[transport-wire] static desktop=${desktop.body.length}/${desktopDecoded.length} mobile=${mobile.body.length}/${mobileDecoded.length} artifact-text=${text.body.length}/${Buffer.byteLength(LARGE_TEXT)} artifact-png=${image.body.length}/${image.body.length}`,
+      `[transport-wire] artifact-text=${text.body.length}/${Buffer.byteLength(LARGE_TEXT)} artifact-png=${image.body.length}/${image.body.length}`,
     )
   })
 
