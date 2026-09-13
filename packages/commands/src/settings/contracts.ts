@@ -311,8 +311,9 @@ const SECRET_DELIVERY: DeliveryPolicy = {
     'obligation ADR 3 D8 / Amendment 1 D16 places on this family is the LIVE check at the moment of ' +
     'the write: the admin floor is resolved against the principal’s CURRENT rights, never a ' +
     'capability minted at spawn, and an agent’s scope is intersected with its human’s (ADR 9 D5 A1). ' +
-    'The caller is told which of the two refused it. Nothing enforces the floor today — that is ' +
-    'POD-1079’s, the same recorded gap `machines.pairingCode` carries.',
+    'The caller is told which of the two refused it. The floor IS enforced: the server’s derived ' +
+    'command builder reads `contract.policy.roleFloor` and refuses below it (PDM-294), resolving ' +
+    'the principal and looking up the account role live on every call.',
 }
 
 /**
@@ -562,8 +563,10 @@ export const settingsUpdateInstanceContract = {
       'reversible by writing it again — with the deliberate note that `hibernation.enabled` and ' +
       '`gitWorkflow.mergeStyle` have instance-wide behavioural blast radius; the ADMIN FLOOR is the ' +
       'gate that answers that, not a per-call confirmation prompt an agent would click through. ' +
-      'Nothing enforces the floor today (single operator principal); POD-1079 owns it, and this ' +
-      'contract is what it will read.',
+      'The floor IS enforced: the server’s derived command builder reads ' +
+      '`contract.policy.roleFloor` and refuses below it (PDM-294), against the account role of the ' +
+      'member the request authenticated as. (This line previously read “Nothing enforces the ' +
+      'floor today (single operator principal)” — corrected by PDM-421.)',
   },
   exposure: SERVED_ON,
   delivery: INSTANCE_PREFERENCE_DELIVERY,
@@ -614,7 +617,9 @@ export const settingsSetSecretContract = {
       '`classificationErrors`, and it carries NO `machineVerb`, exactly as `machines.pairingCode` ' +
       'does: there is no compute this places work on. `confirmation: "confirm"` because a replace is ' +
       'DESTRUCTIVE — `conflict: "cmd"`, online replace only, and the previous material is ' +
-      'unrecoverable the moment it is overwritten. Nothing enforces the floor today; POD-1079 owns it.',
+      'unrecoverable the moment it is overwritten. The floor IS enforced: the server’s derived ' +
+      'command builder reads `contract.policy.roleFloor` and refuses below it (PDM-294), against ' +
+      'the principal’s current account role.',
   },
   exposure: SERVED_ON,
   delivery: SECRET_DELIVERY,
