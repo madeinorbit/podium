@@ -4017,20 +4017,20 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.onWorktreesChanged).toHaveBeenCalledWith('/r', (await h.svc.get(w.id))?.machineId)
   })
 
-  it('refuses an UNMERGED branch (is-ancestor false) before any destructive op', async () => {
+  it('refuses an UNLANDED branch before any destructive op', async () => {
     const h = await harness()
     const w = await prepared(h)
     const calls = scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
-      isMergedInto: { ok: false, output: '' },
+      isBranchLanded: { ok: false, output: '' },
     })
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
-    expect(r.output).toMatch(/not fully merged into 'main'/)
-    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isMergedInto'])
-    // ancestor check is read-only against the repo ROOT ref db
+    expect(r.output).toMatch(/cannot confirm branch .* landed in 'main'/)
+    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isBranchLanded'])
+    // the landed check is read-only against the repo ROOT ref db
     expect(calls[2]).toEqual({
-      op: 'isMergedInto',
+      op: 'isBranchLanded',
       cwd: '/r',
       args: { branch: BR, parentBranch: 'main' },
     })
@@ -4048,7 +4048,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/uncommitted changes/)
     expect(r.output).toContain('M src/a.ts')
-    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isMergedInto'])
+    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isBranchLanded'])
     expect((await h.store.issues.getIssue(w.id))?.worktreePath).toBe(WT)
   })
 
@@ -4061,9 +4061,9 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(calls).toEqual([
       { op: 'status', cwd: WT },
       { op: 'worktreeList', cwd: '/r' },
-      { op: 'isMergedInto', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+      { op: 'isBranchLanded', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
       { op: 'worktreeRemove', cwd: '/r', args: { path: WT } },
-      { op: 'branchDelete', cwd: '/r', args: { branch: BR } },
+      { op: 'branchDelete', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
     ])
     // never touches the root checkout state: no rebase/merge/checkout-style ops at all
     expect(calls.every((c) => !['rebase', 'mergeFfOnly', 'worktreeAdd'].includes(c.op))).toBe(true)
@@ -4110,7 +4110,7 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(calls.map((c) => c.op)).toEqual([
       'status',
       'worktreeList',
-      'isMergedInto',
+      'isBranchLanded',
       'worktreeRemove',
       'branchDelete',
     ])
@@ -4191,8 +4191,8 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     expect(r2.output).toContain(`deleted branch ${BR}`)
     // worktree-less path: NO status/worktreeRemove — just ancestry + delete
     expect(calls2).toEqual([
-      { op: 'isMergedInto', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
-      { op: 'branchDelete', cwd: '/r', args: { branch: BR } },
+      { op: 'isBranchLanded', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+      { op: 'branchDelete', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
     ])
     expect((await h.store.issues.getIssue(w.id))?.branch).toBeNull()
     const comments = await h.store.issues.listIssueComments(w.id)
@@ -4217,15 +4217,82 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     expect((await h.store.issues.getIssue(w.id))?.branch).toBe(BR)
   })
 
+  /**
+   * PDM-392 — the guard's question, not the guard's correctness.
+   *
+   * `cleanup` asked `merge-base --is-ancestor`, which answers "is this COMMIT
+   * in that history". An integration model that cherry-picks each leaf onto the
+   * integration branch and re-gates it there changes the commit while keeping
+   * the work, so that question answers "not merged" for every leaf that ever
+   * landed — and cleanup could never finish for any of them.
+   */
+  it('cleans up a branch that landed by CHERRY-PICK, which ancestry can never see', async () => {
+    const h = await harness()
+    const w = await prepared(h)
+    const calls = scriptRepoOp(h.deps, {
+      status: { ok: true, output: CLEAN_STATUS },
+      isBranchLanded: {
+        ok: true,
+        output: 'all 3 commit(s) are present in the parent branch by patch-id equivalence',
+      },
+    })
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
+    expect(r.ok).toBe(true)
+    expect(calls).toEqual([
+      { op: 'status', cwd: WT },
+      { op: 'worktreeList', cwd: '/r' },
+      { op: 'isBranchLanded', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+      { op: 'worktreeRemove', cwd: '/r', args: { path: WT } },
+      // The parent rides along: git's own -d refuses a cherry-picked branch for
+      // the same wrong reason, and the daemon needs the parent to answer the
+      // content question before it may escalate.
+      { op: 'branchDelete', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+    ])
+    expect((await h.store.issues.getIssue(w.id))?.worktreePath).toBeNull()
+    expect((await h.store.issues.getIssue(w.id))?.branch).toBeNull()
+  })
+
+  it("surfaces the predicate's own reason when it cannot tell, and touches nothing", async () => {
+    const h = await harness()
+    const w = await prepared(h)
+    const reason =
+      "cannot determine whether the work landed: 'issue/1-x' carries 1 merge commit(s) since 'main'"
+    const calls = scriptRepoOp(h.deps, {
+      status: { ok: true, output: CLEAN_STATUS },
+      isBranchLanded: { ok: false, output: reason },
+    })
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
+    expect(r.ok).toBe(false)
+    // Verbatim: "I cannot tell" and "your work is not there" are different
+    // sentences and the operator has to be able to tell them apart.
+    expect(r.output).toContain(reason)
+    expect(calls.map((c) => c.op)).toEqual(['status', 'worktreeList', 'isBranchLanded'])
+    expect((await h.store.issues.getIssue(w.id))?.worktreePath).toBe(WT)
+    expect((await h.store.issues.getIssue(w.id))?.branch).toBe(BR)
+  })
+
+  it('names the parent on the worktree-less retry path too', async () => {
+    const h = await harness()
+    const w = await prepared(h)
+    await h.svc.update(w.id, { worktreePath: null })
+    const calls = scriptRepoOp(h.deps, {})
+    const r = await h.svc.cleanup(w.id, AS_OPERATOR)
+    expect(r.ok).toBe(true)
+    expect(calls).toEqual([
+      { op: 'isBranchLanded', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+      { op: 'branchDelete', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+    ])
+  })
+
   it('retry path still refuses an unmerged branch', async () => {
     const h = await harness()
     const w = await prepared(h)
     await h.svc.update(w.id, { worktreePath: null }) // simulate branch-only state directly
-    const calls = scriptRepoOp(h.deps, { isMergedInto: { ok: false, output: '' } })
+    const calls = scriptRepoOp(h.deps, { isBranchLanded: { ok: false, output: '' } })
     const r = await h.svc.cleanup(w.id, AS_OPERATOR)
     expect(r.ok).toBe(false)
-    expect(r.output).toMatch(/not fully merged into 'main'/)
-    expect(calls.map((c) => c.op)).toEqual(['isMergedInto'])
+    expect(r.output).toMatch(/cannot confirm branch .* landed in 'main'/)
+    expect(calls.map((c) => c.op)).toEqual(['isBranchLanded'])
     expect((await h.store.issues.getIssue(w.id))?.branch).toBe(BR)
   })
 

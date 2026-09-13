@@ -197,6 +197,16 @@ export const RepoOp = z.enum([
   'worktreeRemove',
   'branchDelete',
   'isMergedInto',
+  // isBranchLanded [PDM-392]: "is this WORK in that history", where isMergedInto
+  // asks "is this COMMIT in that history". Under an integration model that
+  // cherry-picks each leaf onto the integration branch the commit changes while
+  // the work does not, so ancestry answers "not merged" for every landed leaf,
+  // forever. The daemon runs the ancestry argv FIRST and only falls back to a
+  // patch-id comparison when it says no — and answers ok:false for anything it
+  // cannot judge, because the caller deletes a branch on a yes. isMergedInto
+  // keeps its exact meaning: relay's SHA-level isAncestor and the git-state
+  // probe want ancestry, not content.
+  'isBranchLanded',
   // branchReflog: full reflog shas of a branch, oldest last — its creation
   // point. Lets the git-state probe tell "merged" (branch moved, then landed)
   // apart from "fresh branch still at its start point" [POD-156].

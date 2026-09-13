@@ -12,6 +12,7 @@ import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
 import { buildHarnessExec } from '../harness-exec.js'
 import { scanQuotaHistory } from '../quota-history-scan'
+import { branchLandedVerdict, deleteBranchIfLanded } from '../branch-landed'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
 import { removeWorktreeWithSubmodules } from '../worktree-remove'
@@ -74,6 +75,47 @@ async function runRepoOp(
       requestId: msg.requestId,
       ok: removal.ok,
       output: removal.output,
+    })
+    return
+  }
+  /**
+   * THE TWO OPS THAT ASK ABOUT CONTENT, NOT ANCESTRY (PDM-392).
+   *
+   * Same reason as worktreeRemove above: neither is a single argv. Each runs the
+   * op table's own command first and only escalates when it refuses, so the
+   * shipped behaviour is the fast path and the new question is asked only where
+   * the old one was a dead end.
+   *
+   * `branchDelete` escalates to `-D`, and that is why the decision lives HERE
+   * rather than in the op table: the server can ask for a delete and name the
+   * parent, but it has no way to ask for a FORCED delete. Only this function,
+   * holding the content verdict, can issue one.
+   */
+  if (msg.op === 'isBranchLanded') {
+    const verdict = await branchLandedVerdict({
+      repoPath: msg.cwd,
+      branch: args.branch ?? '',
+      parentBranch: args.parentBranch ?? '',
+    })
+    ctx.send({
+      type: 'repoOpResult',
+      requestId: msg.requestId,
+      ok: verdict.verdict === 'landed',
+      output: verdict.output,
+    })
+    return
+  }
+  if (msg.op === 'branchDelete') {
+    const deleted = await deleteBranchIfLanded({
+      repoPath: msg.cwd,
+      branch: args.branch ?? '',
+      ...(args.parentBranch ? { parentBranch: args.parentBranch } : {}),
+    })
+    ctx.send({
+      type: 'repoOpResult',
+      requestId: msg.requestId,
+      ok: deleted.ok,
+      output: deleted.output,
     })
     return
   }

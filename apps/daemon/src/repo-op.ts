@@ -310,6 +310,16 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!branch || !parentBranch) return { error: 'missing args' }
       return { bin: 'git', argv: ['merge-base', '--is-ancestor', '--', branch, parentBranch] }
     }
+    case 'isBranchLanded': {
+      // The ANCESTRY argv, deliberately identical to isMergedInto's: this is the
+      // cheap exact answer and it is still right whenever it says yes. The
+      // daemon runs this first and escalates to a content comparison only on
+      // exit 1 — see branch-landed.ts. An op is a fixed argv; "run it, ask a
+      // question, retry differently" is not one, so it does not live here.
+      const { branch, parentBranch } = args
+      if (!branch || !parentBranch) return { error: 'missing args' }
+      return { bin: 'git', argv: ['merge-base', '--is-ancestor', '--', branch, parentBranch] }
+    }
     case 'branchReflog': {
       // Reflog shas for a branch, oldest last (last line = creation point).
       // refs/heads/ prefix neutralizes a leading-dash branch name; trailing

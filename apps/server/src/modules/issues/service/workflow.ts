@@ -1211,20 +1211,21 @@ export class IssueGitWorkflowModule {
       return await refuse('nothing to clean up: no worktree/branch recorded on this issue')
     }
     if (!at.worktreePath && at.branch) {
-      // Retry path after a partial cleanup: re-verify ancestry, then delete.
+      // Retry path after a partial cleanup: re-verify, then delete.
       const branch = at.branch
-      const merged = await this.store.d.repoOp(
-        'isMergedInto',
+      const landed = await this.store.d.repoOp(
+        'isBranchLanded',
         repoPath,
         { branch, parentBranch },
         machineId,
       )
-      if (!merged.ok) {
-        return await refuse(
-          `refusing cleanup: branch '${branch}' is not fully merged into '${parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
-        )
-      }
-      const bd = await this.store.d.repoOp('branchDelete', repoPath, { branch }, machineId)
+      if (!landed.ok) return await refuse(this.notLandedRefusal(branch, parentBranch, landed.output))
+      const bd = await this.store.d.repoOp(
+        'branchDelete',
+        repoPath,
+        { branch, parentBranch },
+        machineId,
+      )
       if (!bd.ok) return await refuse(this.branchDeleteRefusal(branch, parentBranch, bd.output))
       const row = await this.store.draftOrThrow(id)
       row.branch = null
@@ -1279,21 +1280,17 @@ export class IssueGitWorkflowModule {
     if (!authority.ok) return await refuse(`refusing cleanup: ${authority.output}`)
     const branch = authority.branch
 
-    // (d) branch must be fully merged into the parent branch. Read-only ancestry
-    //     check against the repo ROOT's ref database — exit 1 (not an ancestor)
-    //     and any error both refuse.
+    // (d) the parent branch must already contain this branch's WORK. Read-only
+    //     check against the repo ROOT's ref database; anything but a confirmed
+    //     landing refuses, including "cannot tell" [PDM-392].
     if (branch) {
-      const merged = await this.store.d.repoOp(
-        'isMergedInto',
+      const landed = await this.store.d.repoOp(
+        'isBranchLanded',
         repoPath,
         { branch, parentBranch },
         machineId,
       )
-      if (!merged.ok) {
-        return await refuse(
-          `refusing cleanup: branch '${branch}' is not fully merged into '${parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
-        )
-      }
+      if (!landed.ok) return await refuse(this.notLandedRefusal(branch, parentBranch, landed.output))
     }
     // (e) worktree must be clean (porcelain lines beyond the `## branch` header = dirty).
     const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
@@ -1331,8 +1328,15 @@ export class IssueGitWorkflowModule {
         issue,
       }
     }
-    // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
-    const bd = await this.store.d.repoOp('branchDelete', repoPath, { branch }, machineId)
+    // Delete the branch. The op is still `git branch -d` — the daemon escalates
+    // to -D only when it can show the content landed, and it needs the parent
+    // branch named to ask that [PDM-392].
+    const bd = await this.store.d.repoOp(
+      'branchDelete',
+      repoPath,
+      { branch, parentBranch },
+      machineId,
+    )
     if (!bd.ok) {
       const why = this.branchDeleteRefusal(branch, parentBranch, bd.output)
       const issue = await this.commentsMail().addComment(
@@ -1372,6 +1376,21 @@ export class IssueGitWorkflowModule {
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     return await this.integration.integrate(id, principal)
+  }
+
+  /**
+   * Explain a refusal from the landed check [PDM-392].
+   *
+   * "I cannot tell" and "your work is not in there" both stop a cleanup, and a
+   * human needs to tell them apart: the first is a shape the predicate declines
+   * to judge (a merge commit, unrelated histories, a comparison past its bound)
+   * and the second is a finding. So the frame says only what cleanup concluded
+   * and the predicate's own sentence is passed through verbatim rather than
+   * restated as "not fully merged", which was true of ancestry and is not true
+   * of this.
+   */
+  private notLandedRefusal(branch: string, parentBranch: string, why: string): string {
+    return `refusing cleanup: cannot confirm branch '${branch}' landed in '${parentBranch}'${why ? `: ${why}` : ''}`
   }
 
   /** Explain a `git branch -d` refusal. We deliberately keep -d (never -D): for a
