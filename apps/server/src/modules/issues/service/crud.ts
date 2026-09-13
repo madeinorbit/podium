@@ -29,6 +29,7 @@ import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
+import type { ArtifactSourceGate } from '../artifact-store'
 import type { IssueStore } from './core'
 import type { SessionFacts } from '../../sessions/facts'
 import { IssueNotFound } from './not-found'
@@ -433,12 +434,29 @@ export class IssueCrudModule {
       terminalEvidence?: boolean
       sourceRoot?: string
     },
-    opts?: { actorSessionId?: SessionId },
+    opts: {
+      actorSessionId?: SessionId
+      /**
+       * THIS CALLER'S AUTHORIZED PULL DOORS, required (PDM-135).
+       *
+       * `artifact-add` is the one panel op that reads bytes off a MACHINE, and
+       * its authorization used to stop at `issues.panelApply`'s contract —
+       * `action: 'write'`, `resource: 'issue'`. That answers "may you edit this
+       * task", never "may you read files on the machine this task's worktree is
+       * on", and those are different questions the moment a task has more than
+       * one member: the containment check below confines the path to the issue
+       * worktree, and confinement to somebody else's checkout is not a refusal.
+       *
+       * So the source doors arrive from the caller and the refusal is theirs.
+       * Required, not optional: see {@link ArtifactSnapshotInput.source}.
+       */
+      source: ArtifactSourceGate
+    },
   ): Promise<IssueWire> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
     const terminalEvidence = input.terminalEvidence === true
-    const session = opts?.actorSessionId
+    const session = opts.actorSessionId
       ? await this.store.deps.sessionById(opts.actorSessionId)
       : undefined
 
@@ -532,6 +550,7 @@ export class IssueCrudModule {
       ...(machineId ? { machineId } : {}),
       sourcePath,
       ...(extraPaths?.length ? { extraPaths } : {}),
+      source: opts.source,
     })
     if (terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
       await store.remove(row.id, snap.artifactId).catch(() => {})

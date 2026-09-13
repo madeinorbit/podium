@@ -29,6 +29,7 @@ import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
+import type { ArtifactSourceGate } from './artifact-store'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import type {
@@ -95,6 +96,21 @@ export interface IssueCommandDeps {
     worktreePath: string | null,
     issueId: IssueId,
   ): Promise<SessionMeta[]>
+  /**
+   * THIS CALLER'S AUTHORIZED FILE DOORS (PDM-135), for the one command that
+   * reads bytes off a machine: `panelApply`'s `artifact-add`.
+   *
+   * REQUIRED, unlike the four optional ports below it, and the difference is the
+   * point. Those are features a bare dispatcher may simply not have; this is an
+   * authorization door, and a dispatcher that could be built without one would
+   * be a dispatcher that performs the unauthorized read — which is precisely the
+   * shape this issue removed from the artifact store. There are four
+   * construction sites and all four name it.
+   *
+   * It returns the `FileAccessGate` `Pick` the snapshotter needs and nothing
+   * wider, so a handler cannot reach the rest of the file seam through it.
+   */
+  fileGate(caller: IssueCaller): ArtifactSourceGate
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
@@ -182,6 +198,13 @@ export class IssueCommandCtx {
   }
   get shipping(): IssueCommandDeps['shipping'] {
     return this.deps.shipping
+  }
+  /** This caller's authorized pull doors, bound to THIS call's caller (PDM-135).
+   *  A getter rather than a stored field for the reason every other gate in the
+   *  tree is built per request: the identity it closes over must be the one that
+   *  arrived, never the one a previous request left behind. */
+  get fileGate(): ArtifactSourceGate {
+    return this.deps.fileGate(this.caller)
   }
   get access(): IssueCommandAccess {
     return commandAccess(this.deps.issues)

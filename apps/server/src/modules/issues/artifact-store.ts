@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { type ArtifactId, asArtifactId, type IssueId, type MachineId } from '@podium/model'
+import type { FileAccessGate } from '../files/file-access-gate'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 /**
@@ -84,6 +85,16 @@ export interface ArtifactSnapshotInput {
   machineId?: MachineId
   sourcePath: string
   extraPaths?: string[]
+  /**
+   * THIS CALLER'S AUTHORIZED PULL DOORS — required, so that a call site which
+   * has no caller to authorize cannot compile (PDM-135).
+   *
+   * Required rather than optional-with-a-fallback on PDM-276's argument: an
+   * optional gate is a guard one edit away from being omitted, and "every caller
+   * happens to pass one" is a convention rather than a property. There is no
+   * ambient handle to fall back TO — see {@link ArtifactSourceGate}.
+   */
+  source: ArtifactSourceGate
 }
 
 export interface ArtifactUploadInput {
@@ -92,29 +103,39 @@ export interface ArtifactUploadInput {
   dataBase64: string
 }
 
-/** The two daemon RPCs the snapshotter rides (DaemonRpcService, structurally). */
-export interface ArtifactRpc {
-  readAsset(input: {
-    machineId?: MachineId
-    root: string
-    path: string
-    offset?: number
-    length?: number
-  }): Promise<{
-    ok: boolean
-    dataBase64?: string
-    contentType?: string
-    tooLarge?: boolean
-    size?: number
-    error?: string
-  }>
-  listDir(input: { machineId?: MachineId; root: string; path?: string }): Promise<{
-    ok: boolean
-    path: string
-    entries: { name: string; isDir: boolean }[]
-    error?: string
-  }>
-}
+/**
+ * THE TWO AUTHORIZED DOORS THE SNAPSHOTTER PULLS THROUGH (PDM-135).
+ *
+ * It used to be `ArtifactRpc` — a structural `Pick` of `DaemonRpcService`'s
+ * `readAsset`/`listDir`, handed to the constructor at server boot and shared by
+ * every caller. Those two methods take a `machineId` and a `root` and ask
+ * NOTHING about who is calling, so `artifact-add` pulled bytes off whichever
+ * machine the issue row named with no check that the caller may read files on
+ * it. `files.read`, `files.list` and `GET /files/asset` reach the identical
+ * daemon ops and all three ask, through `FileAccessGate`'s `requireRoot`.
+ *
+ * THE REPAIR IS PDM-272'S, APPLIED A SECOND TIME AND FOR THE SAME REASON. That
+ * issue made `FileState = { files: FileAccessGate }` and nothing else, so a file
+ * handler cannot reach the daemon except through a door that has already asked.
+ * The artifact store held the other copy of that handle. So the constructor no
+ * longer takes one at all, and the pull doors arrive PER CALL, bound to the
+ * caller that asked for them — a store with no ambient daemon handle cannot
+ * perform an unauthorized read, rather than being trusted not to.
+ *
+ * IT IS A `Pick` OF THE GATE AND NOT A RESTATEMENT OF ITS TWO SIGNATURES. A
+ * hand-written twin here would be a second copy of the same assumption, free to
+ * drift one parameter at a time, and a change to the gate's predicate would stop
+ * reaching this door silently. Because it is a `Pick`, `requireRoot` binds this
+ * door and `files.read`'s door as ONE rule: break it and both redden.
+ *
+ * `readRootAsset` is the authorized `readAsset` and `listRoot` the authorized
+ * `listDir` — same daemon ops, same argument values, with normalization, the
+ * root allowlist and `checkMachineUse` in front. Adopting them cost no behaviour
+ * change beyond the refusal itself: `isAllowedRoot` already admits a worktree
+ * nested under a registered repo root (`root-allowlist.test.ts` pins exactly
+ * that case), which is what every issue worktree is.
+ */
+export type ArtifactSourceGate = Pick<FileAccessGate, 'readRootAsset' | 'listRoot'>
 
 const ID_RE = /^(?!\.+$)[A-Za-z0-9._-]+$/
 
@@ -127,7 +148,6 @@ function pickEntry(relPaths: string[]): string {
 export class IssueArtifactStore {
   constructor(
     private readonly baseDir: string,
-    private readonly rpc: ArtifactRpc,
     private readonly writeFence?: PortableStateWriteFence,
   ) {}
 
@@ -205,9 +225,15 @@ export class IssueArtifactStore {
     try {
       // Resolve the pull plan: [absolute source path, relpath inside the bundle].
       let plan: Array<{ src: string; rel: string; sourcePath: string }>
-      const listed = await this.rpc.listDir({ ...machine, root: o.root, path: abs(o.sourcePath) })
+      // THE FIRST TOUCH OF THE SOURCE MACHINE IS AN AUTHORIZED ONE, and it is a
+      // probe rather than a read: `listRoot` REFUSES (throws) when this caller
+      // may not use the machine, and answers `ok: false` when the path is simply
+      // not a directory. So the refusal lands here, before the bundle plan is
+      // built and before a single byte is pulled — which is what "source
+      // authorization precedes copy" has to mean to be worth anything.
+      const listed = await o.source.listRoot(o.root, abs(o.sourcePath), o.machineId)
       if (listed.ok) {
-        plan = (await this.walkDir(o.root, o.machineId, listed.path)).map((file) => ({
+        plan = (await this.walkDir(o.source, o.root, o.machineId, listed.path)).map((file) => ({
           ...file,
           sourcePath: join(o.sourcePath, file.rel),
         }))
@@ -226,7 +252,7 @@ export class IssueArtifactStore {
       let bundleBytes = 0
       const files: ArtifactManifestFile[] = []
       for (const { src, rel } of plan) {
-        const size = await this.pullFile({ ...machine, root: o.root }, src, join(dir, rel))
+        const size = await this.pullFile(o.source, { ...machine, root: o.root }, src, join(dir, rel))
         bundleBytes += size
         if (bundleBytes > ARTIFACT_BUNDLE_CAP_BYTES) {
           throw new Error(
@@ -249,17 +275,17 @@ export class IssueArtifactStore {
 
   /** Recursive sandboxed walk rooted at `dirAbs`; relpaths are relative to it. */
   private async walkDir(
+    source: ArtifactSourceGate,
     root: string,
     machineId: MachineId | undefined,
     dirAbs: string,
   ): Promise<Array<{ src: string; rel: string }>> {
-    const machine = machineId ? { machineId } : {}
     const out: Array<{ src: string; rel: string }> = []
     const pending: string[] = ['']
     while (pending.length) {
       const relDir = pending.shift() as string
       const absDir = relDir ? join(dirAbs, relDir) : dirAbs
-      const r = await this.rpc.listDir({ ...machine, root, path: absDir })
+      const r = await source.listRoot(root, absDir, machineId)
       if (!r.ok) throw new Error(r.error ?? `cannot list ${absDir}`)
       for (const e of r.entries) {
         const rel = relDir ? `${relDir}/${e.name}` : e.name
@@ -275,6 +301,7 @@ export class IssueArtifactStore {
 
   /** Chunked daemon pull of one file → durable local write. Returns byte size. */
   private async pullFile(
+    source: ArtifactSourceGate,
     target: { machineId?: MachineId; root: string },
     srcAbs: string,
     destAbs: string,
@@ -284,9 +311,7 @@ export class IssueArtifactStore {
     let offset = 0
     let total: number | undefined
     do {
-      const r = await this.rpc.readAsset({
-        ...target,
-        path: srcAbs,
+      const r = await source.readRootAsset(target.root, srcAbs, target.machineId, {
         offset,
         length: PULL_CHUNK_BYTES,
       })

@@ -93,6 +93,7 @@ import {
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
+import { TRPCError } from '@trpc/server'
 import { onBehalfOfUser, userCommandPrincipal } from './command-principal'
 import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
@@ -871,6 +872,39 @@ export async function startServer(
     machineCount: () => telemetryMachineCount,
   })
   const repos = new RepoRegistry(registry, store)
+  // PDM-135: `artifact-add` pulls bytes off a machine, so it needs the same
+  // authorized doors `files.read` uses. The gate needs `repos`, which is built
+  // over the relay, so the relay cannot build one itself — the composition root
+  // installs it here, one call, per-caller from then on. Until this line runs
+  // the relay refuses every artifact source read.
+  registry.installFileGate((caller) => {
+    const principal = caller.principal
+    if (principal === undefined) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'reading artifact source files needs an authenticated principal',
+      })
+    }
+    // `onBehalfOfUser`, never a `kind === 'user'` ternary — the same rule and the
+    // same reason `fileGateFor` below spells out at length.
+    const userId = onBehalfOfUser(principal)
+    if (userId === null) {
+      throw new TRPCError({
+        code: 'UNAUTHORIZED',
+        message: 'the system principal holds no capability to read files with',
+      })
+    }
+    return fileAccessGate(
+      registry.modules,
+      repos,
+      {
+        userId,
+        capability: caller.capability,
+        ...(caller.overrideScope ? { overrideScope: true } : {}),
+      },
+      principal,
+    )
+  })
   // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
   // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
   const repoDiscovery = new MachineRepoDiscovery({

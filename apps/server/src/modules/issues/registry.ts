@@ -458,9 +458,17 @@ const defs = {
             ...(input.terminalEvidence ? { terminalEvidence: true } : {}),
             ...(input.sourceRoot ? { sourceRoot: input.sourceRoot } : {}),
           },
-          ctx.caller.capability.actorSessionId
-            ? { actorSessionId: ctx.caller.capability.actorSessionId }
-            : undefined,
+          {
+            // The source doors are bound to THIS caller before the op runs, so
+            // `artifact-add`'s machine read is refused for a member who may edit
+            // the task but may not read files on the machine its worktree is on
+            // (PDM-135). `issues.panelApply`'s contract answers the first
+            // question; it has never answered the second.
+            source: ctx.fileGate,
+            ...(ctx.caller.capability.actorSessionId
+              ? { actorSessionId: ctx.caller.capability.actorSessionId }
+              : {}),
+          },
         )
       }
       if (input.op === 'artifact-remove') {

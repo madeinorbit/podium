@@ -6,32 +6,43 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_FILE_CAP_BYTES,
   ARTIFACT_FILE_COUNT_CAP,
-  type ArtifactRpc,
+  type ArtifactSourceGate,
   IssueArtifactStore,
 } from './artifact-store'
 
-/** Fake daemon: a flat map of absolute path → bytes, plus dir listings. */
-function fakeRpc(
+/**
+ * Fake AUTHORIZED doors: a flat map of absolute path → bytes, plus dir listings.
+ *
+ * Was `fakeRpc`, a fake of the raw daemon handle the store used to hold. PDM-135
+ * removed that handle — the store now pulls through `ArtifactSourceGate`, a
+ * `Pick` of the caller's `FileAccessGate` — so the fake stands in for the doors
+ * rather than the daemon. The bodies are unchanged: this file measures the
+ * store's own behaviour (chunking, bundling, caps, traversal), never the
+ * authorization, which is decided above it and is measured in
+ * `artifact-add.source-authz.test.ts`.
+ */
+function fakeSource(
   files: Record<string, Buffer>,
   dirs: Record<string, { name: string; isDir: boolean }[]> = {},
-): ArtifactRpc {
+): ArtifactSourceGate {
   return {
-    async readAsset(input) {
-      const buf = files[input.path]
-      if (!buf) return { ok: false, error: 'not found' }
-      const offset = input.offset ?? 0
-      const length = input.length ?? buf.length
+    async readRootAsset(_root, path, _machineId, range) {
+      const buf = files[path]
+      if (!buf) return { ok: false, path, error: 'not found' }
+      const offset = range?.offset ?? 0
+      const length = range?.length ?? buf.length
       return {
         ok: true,
+        path,
         dataBase64: buf.subarray(offset, offset + length).toString('base64'),
         size: buf.length,
       }
     },
-    async listDir(input) {
-      const path = input.path ?? input.root
-      const entries = dirs[path]
-      if (!entries) return { ok: false, path, entries: [], error: 'not a directory' }
-      return { ok: true, path, entries }
+    async listRoot(root, path) {
+      const at = path ?? root
+      const entries = dirs[at]
+      if (!entries) return { ok: false, path: at, entries: [], error: 'not a directory' }
+      return { ok: true, path: at, entries }
     },
   }
 }
@@ -44,8 +55,10 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   afterEach(() => rmSync(base, { recursive: true, force: true }))
 
   it('snapshots a single file at its basename and reads it back', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({ '/wt/shots/a.png': Buffer.from('PNG') }))
+    const source = fakeSource({ '/wt/shots/a.png': Buffer.from('PNG') })
+    const store = new IssueArtifactStore(base)
     const snap = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'shots/a.png',
@@ -65,7 +78,8 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   })
 
   it('stores browser bytes directly without a daemon source file', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const source = fakeSource({})
+    const store = new IssueArtifactStore(base)
     const snap = await store.upload({
       issueId: asIssueId('iss_1'),
       filename: 'mock.png',
@@ -79,7 +93,8 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   })
 
   it('rejects a direct-upload filename that could escape its artifact directory', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const source = fakeSource({})
+    const store = new IssueArtifactStore(base)
     await expect(
       store.upload({ issueId: asIssueId('iss_1'), filename: '../mock.png', dataBase64: 'UE5H' }),
     ).rejects.toThrow(/plain filename/)
@@ -89,14 +104,15 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   it('pulls large files chunk by chunk (multiple ranged round-trips)', async () => {
     const big = Buffer.alloc(9 * 1024 * 1024, 7) // > 4MB chunk → 3 pulls
     const calls: Array<number | undefined> = []
-    const rpc = fakeRpc({ '/wt/big.bin': big })
-    const inner = rpc.readAsset.bind(rpc)
-    rpc.readAsset = async (i) => {
-      calls.push(i.offset)
-      return await inner(i)
+    const source = fakeSource({ '/wt/big.bin': big })
+    const inner = source.readRootAsset.bind(source)
+    source.readRootAsset = async (root, path, machineId, range) => {
+      calls.push(range?.offset)
+      return await inner(root, path, machineId, range)
     }
-    const store = new IssueArtifactStore(base, rpc)
+    const store = new IssueArtifactStore(base)
     const snap = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'big.bin',
@@ -108,9 +124,7 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   })
 
   it('snapshots a directory as a bundle, preserving relpaths; entry = the HTML file', async () => {
-    const store = new IssueArtifactStore(
-      base,
-      fakeRpc(
+    const source = fakeSource(
         {
           '/wt/report/index.html': Buffer.from('<html>'),
           '/wt/report/img/x.png': Buffer.from('X'),
@@ -122,9 +136,10 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
           ],
           '/wt/report/img': [{ name: 'x.png', isDir: false }],
         },
-      ),
     )
+    const store = new IssueArtifactStore(base)
     const snap = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'report',
@@ -137,24 +152,26 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   })
 
   it('errors the op naming the file when a pull fails — nothing left on disk', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const source = fakeSource({})
+    const store = new IssueArtifactStore(base)
     await expect(
-      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'gone.png' }),
+      store.snapshot({ source, issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'gone.png' }),
     ).rejects.toThrow(/gone\.png/)
     expect(existsSync(join(base, 'iss_1'))).toBe(false)
   })
 
   it('enforces the per-file cap', async () => {
-    const rpc = fakeRpc({ '/wt/huge.bin': Buffer.from('x') })
+    const source = fakeSource({ '/wt/huge.bin': Buffer.from('x') })
     // Lie about the size so the test does not allocate 100MB.
-    rpc.readAsset = async () => ({
+    source.readRootAsset = async (_root, path) => ({
       ok: true,
+      path,
       dataBase64: Buffer.from('x').toString('base64'),
       size: ARTIFACT_FILE_CAP_BYTES + 1,
     })
-    const store = new IssueArtifactStore(base, rpc)
+    const store = new IssueArtifactStore(base)
     await expect(
-      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'huge.bin' }),
+      store.snapshot({ source, issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'huge.bin' }),
     ).rejects.toThrow(/per-file cap/)
   })
 
@@ -163,15 +180,18 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
       name: `f${i}.txt`,
       isDir: false,
     }))
-    const store = new IssueArtifactStore(base, fakeRpc({}, { '/wt/d': entries }))
+    const source = fakeSource({}, { '/wt/d': entries })
+    const store = new IssueArtifactStore(base)
     await expect(
-      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'd' }),
+      store.snapshot({ source, issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'd' }),
     ).rejects.toThrow(/exceeds 200 files/)
   })
 
   it('read() guards path traversal and bad ids', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({ '/wt/a.txt': Buffer.from('A') }))
+    const source = fakeSource({ '/wt/a.txt': Buffer.from('A') })
+    const store = new IssueArtifactStore(base)
     const snap = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'a.txt',
@@ -186,13 +206,16 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   })
 
   it('remove() deletes one snapshot dir; removeIssue() deletes them all', async () => {
-    const store = new IssueArtifactStore(base, fakeRpc({ '/wt/a.txt': Buffer.from('A') }))
+    const source = fakeSource({ '/wt/a.txt': Buffer.from('A') })
+    const store = new IssueArtifactStore(base)
     const s1 = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'a.txt',
     })
     const s2 = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'a.txt',
@@ -209,8 +232,10 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
 
   it('the stored copy survives source deletion (snapshot, not live-read)', async () => {
     const files = { '/wt/a.txt': Buffer.from('kept') }
-    const store = new IssueArtifactStore(base, fakeRpc(files))
+    const source = fakeSource(files)
+    const store = new IssueArtifactStore(base)
     const snap = await store.snapshot({
+      source,
       issueId: asIssueId('iss_1'),
       root: '/wt',
       sourcePath: 'a.txt',

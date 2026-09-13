@@ -84,6 +84,17 @@ async function harness() {
   }
   const svc = await IssueService.create(deps)
   const dispatcher = new IssueCommandDispatcher({
+    // PDM-135: this file does not exercise `artifact-add`, and a gate that
+    // SERVED would make an unauthorized pull look authorized here. Refusing is
+    // the honest stub.
+    fileGate: () => ({
+      readRootAsset: async () => {
+        throw new Error('artifact source reads are not exercised in this file')
+      },
+      listRoot: async () => {
+        throw new Error('artifact source reads are not exercised in this file')
+      },
+    }),
     issues: svc,
     shipping: {} as never,
     arbitration: { run: (_input, operation) => operation() },

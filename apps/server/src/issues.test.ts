@@ -4988,6 +4988,25 @@ describe('IssueService panelApply (agent-published human panel)', () => {
   })
 })
 
+/**
+ * THE CALLER'S AUTHORIZED PULL DOORS, for the tests in this file (PDM-135).
+ *
+ * These tests mock `artifacts.snapshot` outright, so nothing here ever reaches a
+ * daemon and the doors are never called. They are spelled as REFUSING rather
+ * than as `{} as never` on purpose: if a future edit stops mocking the store,
+ * the fixture must not quietly become a fixture that performs an unauthorized
+ * pull — it must fail. The authorization behaviour itself is measured in
+ * `artifact-add.source-authz.test.ts`, over the real gate.
+ */
+const ARTIFACT_SOURCE = {
+  readRootAsset: async () => {
+    throw new Error('the artifact store is mocked in this file; no source read should happen')
+  },
+  listRoot: async () => {
+    throw new Error('the artifact store is mocked in this file; no source read should happen')
+  },
+}
+
 describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc9])', () => {
   async function artifactHarness() {
     const sessions = [sess('/wt')]
@@ -5031,12 +5050,14 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, snapshot, store } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    const wire = await svc.panelArtifactAdd(w.id, { path: 'shots/a.png', title: 'Shot' })
+    const wire = await svc.panelArtifactAdd(w.id, { path: 'shots/a.png', title: 'Shot' }, { source: ARTIFACT_SOURCE })
     expect(snapshot).toHaveBeenCalledWith({
       issueId: w.id,
       root: '/wt/issue-1',
       sourcePath: 'shots/a.png',
       machineId: store.hostMachineId,
+      // PDM-135: the store is handed THIS caller's doors, not an ambient handle.
+      source: ARTIFACT_SOURCE,
     })
     const a = wire.panel?.artifacts[0]
     expect(a).toMatchObject({
@@ -5052,9 +5073,9 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, remove } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await svc.panelArtifactAdd(w.id, { path: 'a.png' })
-    await svc.panelArtifactAdd(w.id, { path: 'b.png' })
-    const wire = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'v2' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { source: ARTIFACT_SOURCE })
+    await svc.panelArtifactAdd(w.id, { path: 'b.png' }, { source: ARTIFACT_SOURCE })
+    const wire = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'v2' }, { source: ARTIFACT_SOURCE })
     expect(wire.panel?.artifacts.map((x) => x.path)).toEqual(['a.png', 'b.png']) // position stable
     expect(wire.panel?.artifacts[0]?.artifactId).toBe('art3')
     expect(remove).toHaveBeenCalledWith(w.id, 'art1')
@@ -5064,10 +5085,10 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v1' })
-    const kept = await svc.panelArtifactAdd(w.id, { path: 'a.png' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v1' }, { source: ARTIFACT_SOURCE })
+    const kept = await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { source: ARTIFACT_SOURCE })
     expect(kept.panel?.artifacts[0]?.title).toBe('Mock v1')
-    const renamed = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v2' })
+    const renamed = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v2' }, { source: ARTIFACT_SOURCE })
     expect(renamed.panel?.artifacts[0]?.title).toBe('Mock v2')
   })
 
@@ -5076,7 +5097,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     snapshot.mockRejectedValueOnce(new Error('cannot read /wt/gone.png: not found'))
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
+    await expect(svc.panelArtifactAdd(w.id, { path: 'gone.png' }, { source: ARTIFACT_SOURCE })).rejects.toThrow(/gone\.png/)
     expect((await svc.get(w.id))?.panel?.artifacts ?? []).toEqual([])
   })
 
@@ -5084,7 +5105,11 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, snapshot } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await expect(
-      svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
+      svc.panelArtifactAdd(
+        w.id,
+        { path: 'a.png' },
+        { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
+      ),
     ).rejects.toThrow(/no owning worktree/)
     expect(snapshot).not.toHaveBeenCalled()
   })
@@ -5093,10 +5118,10 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, snapshot } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
+    await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' }, { source: ARTIFACT_SOURCE })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
-    await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
+    await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' }, { source: ARTIFACT_SOURCE })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
     expect(snapshot).not.toHaveBeenCalled()
@@ -5118,13 +5143,14 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         terminalEvidence: true,
         sourceRoot: '/home/mgw/review-2602',
       },
-      { actorSessionId: asSessionId('/wt') },
+      { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
     )
     expect(snapshot).toHaveBeenCalledWith({
       issueId: w.id,
       root: '/home/mgw/review-2602',
       machineId: asMachineId('machine-under-test'),
       sourcePath: 'artifacts/POD-2602/resume-before.png',
+      source: ARTIFACT_SOURCE,
     })
     expect(wire.panel?.artifacts[0]).toMatchObject({
       path: 'artifacts/POD-2602/resume-before.png',
@@ -5145,7 +5171,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       svc.panelArtifactAdd(
         w.id,
         { path: 'artifacts/stty-size.txt', terminalEvidence: true, sourceRoot: '/review' },
-        { actorSessionId: asSessionId('/wt') },
+        { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
       ),
     ).rejects.toThrow(
       /raster image files only.*raw terminal text and scrollback.*--terminal-evidence/,
@@ -5167,7 +5193,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       svc.panelArtifactAdd(
         w.id,
         { path: 'screenshots.png', terminalEvidence: true, sourceRoot: '/review' },
-        { actorSessionId: asSessionId('/wt') },
+        { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
       ),
     ).rejects.toThrow(/raster image files only.*raw terminal text and scrollback/)
     expect(remove).toHaveBeenCalledWith(w.id, 'art-dir')
@@ -5183,7 +5209,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
-        { actorSessionId: asSessionId('/wt') },
+        { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
       ),
     ).rejects.toThrow(/belonging to issue/)
 
@@ -5192,7 +5218,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
-        { actorSessionId: asSessionId('/wt') },
+        { actorSessionId: asSessionId('/wt'), source: ARTIFACT_SOURCE },
       ),
     ).rejects.toThrow(/same machine/)
     expect(snapshot).not.toHaveBeenCalled()
@@ -5202,7 +5228,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, repoOp } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    const added = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' })
+    const added = await svc.panelArtifactAdd(w.id, { path: 'evidence/review.md' }, { source: ARTIFACT_SOURCE })
     expect(added.panel?.artifacts[0]).toMatchObject({ path: 'evidence/review.md' })
     expect(added.panel?.artifacts[0]?.tracking).toBeUndefined()
     // No lsFiles probe: whether the source file is committed is not our business.
@@ -5222,7 +5248,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, remove } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await svc.panelArtifactAdd(w.id, { path: 'a.png' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { source: ARTIFACT_SOURCE })
     const wire = await svc.panelArtifactRemove(w.id, 1)
     expect(wire.panel?.artifacts).toEqual([])
     expect(remove).toHaveBeenCalledWith(w.id, 'art1')
@@ -5277,7 +5303,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
 
   it('answers the entry file by 1-based index, with its content type, size and URL', async () => {
     const { svc, issue, stored } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'docs/plan.md', title: 'Plan' })
+    await svc.panelArtifactAdd(issue.id, { path: 'docs/plan.md', title: 'Plan' }, { source: ARTIFACT_SOURCE })
     stored.set('art1/plan.md', text('# the plan'))
     const got = await svc.panelArtifactRead(issue.id, { index: 1 })
     expect(Buffer.from(got.dataBase64, 'base64').toString('utf8')).toBe('# the plan')
@@ -5294,8 +5320,8 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
 
   it('selects the same entry by its source path', async () => {
     const { svc, issue, stored } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
-    await svc.panelArtifactAdd(issue.id, { path: 'docs/b.md' })
+    await svc.panelArtifactAdd(issue.id, { path: 'a.md' }, { source: ARTIFACT_SOURCE })
+    await svc.panelArtifactAdd(issue.id, { path: 'docs/b.md' }, { source: ARTIFACT_SOURCE })
     stored.set('art2/b.md', text('second'))
     const got = await svc.panelArtifactRead(issue.id, { path: 'docs/b.md' })
     expect(got.index).toBe(2)
@@ -5305,7 +5331,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   /** The point of the permanent store: the read must not depend on the source. */
   it('still answers after the issue loses its worktree (nothing is pulled from the source)', async () => {
     const { svc, issue, stored, snapshot } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'plan.md' })
+    await svc.panelArtifactAdd(issue.id, { path: 'plan.md' }, { source: ARTIFACT_SOURCE })
     stored.set('art1/plan.md', text('durable'))
     await svc.update(issue.id, { worktreePath: null })
     snapshot.mockClear()
@@ -5316,7 +5342,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
 
   it('reads one member of a bundle with `file`, and names the bundle when it is missing', async () => {
     const { svc, issue, stored } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'index.html', extraPaths: ['app.css'] })
+    await svc.panelArtifactAdd(issue.id, { path: 'index.html', extraPaths: ['app.css'] }, { source: ARTIFACT_SOURCE })
     stored.set('art1/app.css', text('body{}', 'text/css; charset=utf-8'))
     const got = await svc.panelArtifactRead(issue.id, { index: 1, file: 'app.css' })
     expect(got.file).toBe('app.css')
@@ -5336,7 +5362,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
 
   it('refuses an index or path that names no artifact, and an unselected read', async () => {
     const { svc, issue, stored } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
+    await svc.panelArtifactAdd(issue.id, { path: 'a.md' }, { source: ARTIFACT_SOURCE })
     stored.set('art1/a.md', text('a'))
     await expect(svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
       /no artifact 2 \(issue has 1\)/,
@@ -5364,20 +5390,30 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-roundtrip-'))
     try {
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe])
-      const rpc = {
-        // The daemon's file surface, stubbed to answer for one source file.
-        readAsset: async (i: { path: string }) =>
-          i.path === '/wt/issue-1/shots/a.png'
-            ? { ok: true, dataBase64: png.toString('base64'), size: png.length }
-            : { ok: false, error: `no such file ${i.path}` },
-        listDir: async () => ({ ok: false, path: '', entries: [], error: 'not a directory' }),
+      // THE CALLER'S PULL DOORS, serving one source file (PDM-135). This is the
+      // one test in the file that performs a REAL pull, so it is the one that
+      // needs doors which answer rather than the refusing `ARTIFACT_SOURCE`
+      // above. It stands in for an AUTHORIZED caller — whether a given caller
+      // gets these doors at all is decided by the gate, and measured over the
+      // real gate in `modules/issues/artifact-add.source-authz.test.ts`.
+      const source = {
+        readRootAsset: async (_root: string, path: string) =>
+          path === '/wt/issue-1/shots/a.png'
+            ? { ok: true, path, dataBase64: png.toString('base64'), size: png.length }
+            : { ok: false, path, error: `no such file ${path}` },
+        listRoot: async (_root: string, path?: string) => ({
+          ok: false,
+          path: path ?? '',
+          entries: [],
+          error: 'not a directory',
+        }),
       }
       const h = await harness([sess('/wt')])
-      h.deps.artifacts = new IssueArtifactStore(base, rpc)
+      h.deps.artifacts = new IssueArtifactStore(base)
       const svc = await IssueService.create(h.deps)
       const issue = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
       await svc.update(issue.id, { worktreePath: '/wt/issue-1' })
-      await svc.panelArtifactAdd(issue.id, { path: 'shots/a.png', title: 'Shot' })
+      await svc.panelArtifactAdd(issue.id, { path: 'shots/a.png', title: 'Shot' }, { source })
 
       const got = await svc.panelArtifactRead(issue.id, { index: 1 })
       expect(Buffer.from(got.dataBase64, 'base64').equals(png)).toBe(true)
@@ -5392,7 +5428,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   /** Past the cap the answer is the streaming URL, not a truncated body. */
   it('refuses a file over the command-read cap and names the URL that streams it', async () => {
     const { svc, issue, stored } = await readHarness()
-    await svc.panelArtifactAdd(issue.id, { path: 'big.mp4' })
+    await svc.panelArtifactAdd(issue.id, { path: 'big.mp4' }, { source: ARTIFACT_SOURCE })
     stored.set('art1/big.mp4', {
       bytes: Buffer.alloc(ARTIFACT_READ_CAP_BYTES + 1),
       contentType: 'video/mp4',

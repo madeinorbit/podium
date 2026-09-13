@@ -93,7 +93,9 @@ import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
+import { TRPCError } from '@trpc/server'
+import { IssueArtifactStore, type ArtifactSourceGate } from './modules/issues/artifact-store'
+import type { IssueCaller } from './modules/issues/command-ctx'
 import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
@@ -442,6 +444,20 @@ export class SessionRegistry {
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * The composition root's per-caller file-gate factory (PDM-135), installed by
+   * {@link installFileGate}. `undefined` until then, and every read through it
+   * refuses while it is — see the `fileGate` dep below for why absence must deny
+   * rather than fall back.
+   */
+  private fileGateFactory?: (caller: IssueCaller) => ArtifactSourceGate
+  /**
+   * Install the per-caller file-access gate (PDM-135). Called once by the
+   * composition root, after the `RepoRegistry` this relay cannot build exists.
+   */
+  installFileGate(factory: (caller: IssueCaller) => ArtifactSourceGate): void {
+    this.fileGateFactory = factory
+  }
   /**
    * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
    * `routeDaemonFrame` live here, not on the sessions service: a daemon
@@ -1751,14 +1767,13 @@ export class SessionRegistry {
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(
-      join(stateDir(), 'artifacts'),
-      {
-        readAsset: async (i) => await rpc.readAsset(i),
-        listDir: async (i) => await rpc.listDir(i),
-      },
-      portableStateFence,
-    )
+    // NO DAEMON HANDLE (PDM-135). It used to be constructed with a bare
+    // `{readAsset, listDir}` adapter over `rpc` — an unauthorized door held for
+    // the life of the process and shared by every caller, which is what let
+    // `artifact-add` pull bytes off a machine the caller was never checked
+    // against. The pull doors now arrive per call, already bound to the caller,
+    // through `IssueCommandDeps.fileGate` below.
+    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), portableStateFence)
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
@@ -2609,6 +2624,27 @@ export class SessionRegistry {
       // The narrow issue read [POD-1639] — `issues.get` embeds its members.
       listSessionsForIssue: async (worktreePath, issueId) =>
         await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // THE CALLER'S OWN FILE DOORS (PDM-135), built per call and never cached.
+      //
+      // LATE-BOUND, and not by preference: `fileAccessGate` needs a
+      // `RepoRegistry`, which `server.ts` constructs OVER this relay
+      // (`new RepoRegistry(registry, store)`), so it cannot exist in here. Same
+      // shape as `stopClosedIssue` above — the composition root installs it once
+      // it has both halves, through {@link installFileGate}.
+      //
+      // ABSENT DENIES. A relay whose root never installed one performs no
+      // machine read at all, which is the fail-closed answer: the alternative
+      // would be a default that reads without asking, i.e. the defect this issue
+      // removed, reintroduced as a fallback.
+      fileGate: (caller) => {
+        if (this.fileGateFactory === undefined) {
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'no file-access gate is installed; artifact source reads are refused',
+          })
+        }
+        return this.fileGateFactory(caller)
+      },
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) => inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].

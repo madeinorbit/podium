@@ -481,6 +481,17 @@ describe('Shipping command boundary', () => {
       completedAt: '2026-08-13T10:00:00.000Z',
     }))
     const dispatcher = new IssueCommandDispatcher({
+      // PDM-135: this file does not exercise `artifact-add`, and a gate that
+      // SERVED would make an unauthorized pull look authorized here. Refusing is
+      // the honest stub.
+      fileGate: () => ({
+        readRootAsset: async () => {
+          throw new Error('artifact source reads are not exercised in this file')
+        },
+        listRoot: async () => {
+          throw new Error('artifact source reads are not exercised in this file')
+        },
+      }),
       issues: registry.issues,
       shipping: {
         enqueueCurrent: enqueueCurrent as never,
