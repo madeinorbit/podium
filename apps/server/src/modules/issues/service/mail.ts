@@ -102,7 +102,7 @@ export class IssueCommentsMailModule {
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   async mailInbox(
     issueId: IssueId,
-    opts?: { markRead?: boolean; sessionId?: SessionId },
+    opts?: { markRead?: boolean; sessionId?: SessionId; limit?: number },
   ): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
     const id = await this.store.resolveRef(issueId)
     await this.store.rowOrThrow(id)
@@ -111,7 +111,14 @@ export class IssueCommentsMailModule {
     // consume unread status or it silently suppresses stop-hook/prime delivery.
     const markRead = opts?.markRead !== false
     const reader = opts?.sessionId
-    const messages = await this.store.deps.store.issues.listIssueMessages(id)
+    // The PAGE, newest-kept when capped [PDM-407]. Everything below — the read
+    // marks, the per-reader receipts — is then scoped to what this read actually
+    // put in front of the reader, which is the honest thing for it to consume:
+    // mail that stayed off the page stays unread.
+    const messages = await this.store.deps.store.issues.listIssueMessages(
+      id,
+      opts?.limit !== undefined ? { limit: opts.limit } : {},
+    )
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
     // Per-reader unread [POD-1379]: what THIS session has not yet been shown,
     // whatever a peer on the same shared issue mailbox already did to the row.

@@ -41,7 +41,7 @@
  */
 
 import { IssueIdField, SessionIdField } from '@podium/model'
-import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
+import { MAIL_INBOX_MAX_LIMIT, MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
 import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type {
@@ -147,7 +147,13 @@ export const mailReplyInput = z.object({
   kind: z.enum(['ack', 'message']).optional(),
 })
 
-export const mailInboxInput = z.object({ issue: z.string().optional() }).optional()
+export const mailInboxInput = z
+  .object({
+    issue: z.string().optional(),
+    // The page size the caller will quote back in its truncation notice [PDM-407].
+    limit: z.number().int().min(1).max(MAIL_INBOX_MAX_LIMIT).optional(),
+  })
+  .optional()
 
 export const mailLedgerInput = z.object({
   issueId: IssueIdField.optional(),

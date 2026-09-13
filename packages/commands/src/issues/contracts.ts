@@ -71,6 +71,7 @@ import {
   SORT_KEY_MAX_LEN,
   UserIdField,
 } from '@podium/model'
+import { MAIL_INBOX_MAX_LIMIT } from '@podium/protocol'
 import { z } from 'zod'
 import type { CommandContract, ConflictDeclaration, MutatingCommandContract } from '../contract'
 import {
@@ -622,7 +623,13 @@ export const duplicateInput = z.object({ id: IssueIdField, canonicalId: z.string
 
 export const mailSendInput = z.object({ id: IssueIdField, body: z.string().min(1) })
 
-export const mailInboxInput = z.object({ id: IssueIdField.optional() }).optional()
+export const mailInboxInput = z
+  .object({
+    id: IssueIdField.optional(),
+    // The page size the caller will quote back in its truncation notice [PDM-407].
+    limit: z.number().int().min(1).max(MAIL_INBOX_MAX_LIMIT).optional(),
+  })
+  .optional()
 
 export const mailClaimInput = z.object({ messageId: z.string() })
 

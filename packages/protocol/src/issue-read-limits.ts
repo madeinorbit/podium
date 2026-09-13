@@ -17,3 +17,32 @@
 export const ISSUE_TREE_DEFAULT_MAX_DEPTH = 3
 export const ISSUE_TREE_DEFAULT_MAX_NODES = 100
 export const ISSUE_EVENTS_DEFAULT_LIMIT = 200
+
+/**
+ * The page `podium mail inbox` and `podium issue mail inbox` ask for, and the
+ * ceiling `--limit` may raise it to [PDM-407].
+ *
+ * A MAILBOX CAP HAS A DIRECTION, and picking the wrong one is what made a busy
+ * mailbox unreadable: capped with the ascending scan the delivery path wants,
+ * both listings returned the OLDEST page, so the unread count climbed while
+ * every row the reader could see was one it had already read. The newest page is
+ * the one a reader is asking for.
+ */
+export const MAIL_INBOX_DEFAULT_LIMIT = 50
+export const MAIL_INBOX_MAX_LIMIT = 500
+
+/**
+ * The banner a FULL mailbox page carries — at the TOP as well as the bottom.
+ *
+ * Both ends on purpose. A long listing is cut by whatever displays it (a
+ * terminal, an agent's tool-output cap), and a footer is the first thing such a
+ * cut removes — so a footer alone would be missing in exactly the case it exists
+ * to report. Shared between the two inbox CLIs so the number in the notice is
+ * always the number the caller actually sent.
+ */
+export function mailInboxTruncationNotice(limit: number, command: string): string[] {
+  return [
+    `TRUNCATED: showing the newest ${limit}; older messages are not listed.`,
+    `  Widen with: ${command} --limit <n> (max ${MAIL_INBOX_MAX_LIMIT}).`,
+  ]
+}

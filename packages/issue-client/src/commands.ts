@@ -22,6 +22,9 @@ import {
   ISSUE_EVENTS_DEFAULT_LIMIT,
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
+  MAIL_INBOX_DEFAULT_LIMIT,
+  MAIL_INBOX_MAX_LIMIT,
+  mailInboxTruncationNotice,
   selfRefNudge,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
@@ -1132,11 +1135,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     // · mail claim <msgId> · mail pending [<id>].
     name: 'mail',
     summary:
-      'Agent mail addressed to an issue: mail send <id> --body "…" · mail inbox [<id>] · mail claim <msgId> · mail pending [<id>].',
+      'Agent mail addressed to an issue: mail send <id> --body "…" · mail inbox [<id>] [--limit n] · mail claim <msgId> · mail pending [<id>].',
     args: z.strictObject({
       sub: z.enum(['send', 'inbox', 'claim', 'pending']),
       ref: idArg.optional(),
       body: z.string().optional(),
+      limit: z.coerce.number().int().min(1).max(MAIL_INBOX_MAX_LIMIT).optional(),
     }),
     positionals: ['sub', 'ref'],
     async run(c, a) {
@@ -1160,7 +1164,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           return { text: mailSendOutcomeText(ref, m.id, m.disposition), data: m }
         }
         case 'inbox': {
-          const msgs = (await c.issues.mailInbox.mutate(ref ? { id: ref } : {})) as {
+          // Sent even when unset, like `events` below (POD-1342): a FULL page is
+          // how truncation is detected, so the CLI has to know the cap the server
+          // applied rather than let it choose silently [PDM-407].
+          const limit = (a.limit as number | undefined) ?? MAIL_INBOX_DEFAULT_LIMIT
+          const msgs = (await c.issues.mailInbox.mutate({
+            ...(ref ? { id: ref } : {}),
+            limit,
+          })) as {
             id: string
             fromAuthor: string
             body: string
@@ -1168,17 +1179,20 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             status: string
             wasUnread: boolean
           }[]
-          return {
-            text: msgs.length
-              ? msgs
-                  .map(
-                    (m) =>
-                      `${m.wasUnread ? '*' : ' '} ${m.id} ${m.fromAuthor} ${m.createdAt}${m.status === 'claimed' ? ' [claimed]' : ''}\n  ${m.body}`,
-                  )
-                  .join('\n')
-              : '(no mail)',
-            data: msgs,
+          if (!msgs.length) return { text: '(no mail)', data: msgs }
+          const lines = msgs.map(
+            (m) =>
+              `${m.wasUnread ? '*' : ' '} ${m.id} ${m.fromAuthor} ${m.createdAt}${m.status === 'claimed' ? ' [claimed]' : ''}\n  ${m.body}`,
+          )
+          if (msgs.length >= limit) {
+            const notice = mailInboxTruncationNotice(
+              limit,
+              `podium issue mail inbox${ref ? ` ${ref}` : ''}`,
+            )
+            lines.push('', ...notice)
+            lines.unshift(...notice, '')
           }
+          return { text: lines.join('\n'), data: msgs }
         }
         case 'claim': {
           if (!ref) throw new Error('mail claim needs a message id: mail claim <msgId>')

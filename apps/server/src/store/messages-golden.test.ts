@@ -728,3 +728,45 @@ describe('recordRead', () => {
     expect(stamp.read_at).toBe('t1')
   })
 })
+
+// ---------------------------------------------------------------------------
+// WHICH END THE CAP DROPS (PDM-407)
+// ---------------------------------------------------------------------------
+
+describe('listMessagesFor — the cap drops the OLDEST', () => {
+  /** `n` rows in one issue box, created in order, ids and stamps both sortable. */
+  const seed = async (n: number): Promise<string[]> => {
+    const ids: string[] = []
+    for (let i = 0; i < n; i++) {
+      const id = `m${String(i).padStart(3, '0')}`
+      ids.push(id)
+      await add({ id, createdAt: `t${String(i).padStart(3, '0')}` })
+    }
+    return ids
+  }
+
+  it('returns the NEWEST page when the box is longer than the limit, still oldest-first', async () => {
+    const ids = await seed(60)
+    const page = (await messages.listMessagesFor({ kind: 'issue', id: TARGET }, { limit: 50 })).map(
+      (m) => m.id,
+    )
+    // BOTH ENDS, because a cap on the wrong end still returns 50 rows in
+    // ascending order and satisfies any assertion that only counts or only
+    // checks the front. The newest must be IN and the oldest must be OUT.
+    expect(page).toHaveLength(50)
+    expect(page).toEqual(ids.slice(-50))
+    expect(page.at(-1)).toBe('m059')
+    expect(page).not.toContain('m000')
+  })
+
+  it('leaves a box shorter than the limit whole, and oldest-first', async () => {
+    // The admission that pairs with the truncation above: without it, a
+    // repository that reversed every page would still pass the first test.
+    const ids = await seed(3)
+    expect(
+      (await messages.listMessagesFor({ kind: 'issue', id: TARGET }, { limit: 50 })).map(
+        (m) => m.id,
+      ),
+    ).toEqual(ids)
+  })
+})

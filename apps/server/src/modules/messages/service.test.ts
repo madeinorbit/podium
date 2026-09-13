@@ -2961,6 +2961,41 @@ describe('readInbox (podium mail inbox)', () => {
     expect((await store.messages.getMessage(r2.message.id))!.status).toBe('queued')
   })
 
+  it('THE ACCEPTANCE CHECK: past the cap, the NEWEST message is readable [PDM-407]', async () => {
+    // `podium mail inbox` is the OTHER transport — its own procedure and its own
+    // store method — and it failed the same way for the same reason: the page was
+    // taken off the ascending scan, so a long mailbox returned only rows its
+    // reader had already seen while the unread count went on climbing.
+    const { svc, store } = await harness([]) // no live member → sends stay queued
+    for (let i = 0; i < 60; i++) {
+      await svc.send(
+        { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+        { to: { kind: 'issue', id: ISSUE.id }, body: `m${i}` },
+      )
+    }
+    // "Newest" is LAST IN (created_at, id), read from the store because this
+    // harness shares one clock across the sends: the tie breaks on id, so send
+    // order is not row order. This read is also non-consuming, unlike readInbox.
+    const whole = (
+      await store.messages.listMessagesFor({ kind: 'issue', id: ISSUE.id }, { limit: 500 })
+    ).map((m) => m.id)
+    expect(whole).toHaveLength(60)
+
+    const page = await svc.readInbox([{ kind: 'issue', id: ISSUE.id }], {
+      consume: asSessionId('s1'),
+      limit: 50,
+    })
+    expect(page.map((m) => m.id)).toEqual(whole.slice(-50))
+    // READABLE and OBTAINABLE: the newest row is on the page, and its id came out
+    // of the listing rather than having to be known in advance.
+    expect(page.map((m) => m.id)).toContain(whole.at(-1)!)
+    // Both directions: the ten the cap dropped are the OLDEST ten.
+    expect(page.map((m) => m.id)).not.toContain(whole[0]!)
+    // And reading a PAGE consumes only the page — the ten it never showed are
+    // still pending for this reader, so the nag and the listing agree.
+    expect(await store.messages.countPendingForSession(ISSUE.id, asSessionId('s1'))).toBe(10)
+  })
+
   it("a peer's consuming read leaves the other members of the issue still pending [POD-1379]", async () => {
     const { svc, store } = await harness([]) // no live member → the issue send stays queued
     const r = await svc.send(

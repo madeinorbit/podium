@@ -40,10 +40,10 @@ export async function inboxConsumeHandler(
         scope.rootId !== undefined &&
         (await deps.issues.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
-    const rows = await svc.readInbox(
-      [{ kind: 'issue', id }],
-      consume !== undefined ? { consume } : {},
-    )
+    const rows = await svc.readInbox([{ kind: 'issue', id }], {
+      ...(consume !== undefined ? { consume } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    })
     return await Promise.all(
       (inScope ? rows : rows.filter((m) => access.mayView(caller.capability, m))).map(
         async (m) => await access.wire(m),
@@ -53,8 +53,11 @@ export async function inboxConsumeHandler(
   const principals = access.callerPrincipals(caller.capability)
   if (principals.length === 0) throw new Error('no mailbox bound to this caller')
   return await Promise.all(
-    (await svc.readInbox(principals, { consume: caller.capability.actorSessionId ?? null })).map(
-      async (m) => await access.wire(m),
-    ),
+    (
+      await svc.readInbox(principals, {
+        consume: caller.capability.actorSessionId ?? null,
+        ...(input?.limit !== undefined ? { limit: input.limit } : {}),
+      })
+    ).map(async (m) => await access.wire(m)),
   )
 }

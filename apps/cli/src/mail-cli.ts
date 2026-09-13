@@ -14,8 +14,13 @@
  * dual-write mirror rows with the SAME ids).
  */
 
-import type { ThreadId } from '@podium/model'
 import { makeRelayIssueClient } from '@podium/issue-client'
+import type { ThreadId } from '@podium/model'
+import {
+  MAIL_INBOX_DEFAULT_LIMIT,
+  MAIL_INBOX_MAX_LIMIT,
+  mailInboxTruncationNotice,
+} from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   declareFlags,
@@ -63,7 +68,7 @@ const MAIL_FLAGS = flagTable(MESSAGING_GLOBAL_FLAGS, {
     // [POD-835] arms a reply request; takes no value.
     booleans: ['expect-response'],
   },
-  inbox: { known: ['issue'] },
+  inbox: { known: ['issue', 'limit'] },
   show: {},
   status: {},
   dismiss: {},
@@ -79,6 +84,16 @@ export function parseExpiresIn(raw: string): number {
   const ms = n * mult
   if (ms <= 0) throw new MailCliError(`invalid --expires-in '${raw}': must be positive`)
   return ms
+}
+
+/** `--limit` for an inbox page: a positive integer, capped at the server's ceiling. */
+export function parseInboxLimit(raw: string | boolean | undefined): number {
+  if (raw === undefined) return MAIL_INBOX_DEFAULT_LIMIT
+  const n = typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN
+  if (!Number.isInteger(n) || n < 1) {
+    throw new MailCliError(`invalid --limit '${String(raw)}' (use a positive whole number)`)
+  }
+  return Math.min(n, MAIL_INBOX_MAX_LIMIT)
 }
 
 /**
@@ -118,8 +133,9 @@ function helpText(): string {
     '      `podium mail status <id>`); pass --expect-response only when you want a',
     '      reply back (a question does this implicitly). No reply is owed otherwise.',
     '      --expires-in <duration> sets an absolute TTL (e.g. 2m, 30s, 1h, or seconds).',
-    '  inbox [--issue <ref>]',
+    `  inbox [--issue <ref>] [--limit <n>]`,
     '      Read your mailbox (marks messages received). --issue peeks at another box.',
+    `      Returns the NEWEST ${MAIL_INBOX_DEFAULT_LIMIT} by default; --limit raises it to ${MAIL_INBOX_MAX_LIMIT}.`,
     '  show <id>',
     '      One message in full (sender/recipient/thread/ledger).',
     '  status <id>',
@@ -309,10 +325,22 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       return done(`sent ${r.id} (${note})`, r)
     }
     case 'inbox': {
-      const rows = (await client.messages.inbox.mutate(
-        typeof args.issue === 'string' ? { issue: args.issue } : {},
-      )) as MessageWire[]
-      return done(rows.length ? rows.map(renderRow).join('\n') : '(no messages)', rows)
+      const limit = parseInboxLimit(args.limit)
+      // Sent even when unset, like `podium issue events` (POD-1342): a FULL page
+      // is how truncation is detected, so a CLI that lets the server choose
+      // silently cannot tell a capped page from a whole mailbox.
+      const rows = (await client.messages.inbox.mutate({
+        ...(typeof args.issue === 'string' ? { issue: args.issue } : {}),
+        limit,
+      })) as MessageWire[]
+      if (!rows.length) return done('(no messages)', rows)
+      const lines = rows.map(renderRow)
+      if (rows.length >= limit) {
+        const notice = mailInboxTruncationNotice(limit, 'podium mail inbox')
+        lines.push('', ...notice)
+        lines.unshift(...notice, '')
+      }
+      return done(lines.join('\n'), rows)
     }
     case 'show': {
       const id = positionals[0]

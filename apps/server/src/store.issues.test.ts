@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId,  } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -264,8 +264,7 @@ describe('per-user issue state (POD-1076)', () => {
       readAt: '2026-07-09T00:00:00.000Z',
     })
     expect(
-      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))
-        ?.pinnedAt,
+      (await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_read')))?.pinnedAt,
     ).toBe('2026-07-08T00:00:00.000Z')
 
     // ANOTHER user's slice is empty for the SAME issue.
@@ -300,7 +299,8 @@ describe('per-user issue state (POD-1076)', () => {
     ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
-    await expect(store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
+    await expect(
+      store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
     ).rejects.toThrow(/no user id/)
     await store.close()
   })
@@ -456,6 +456,34 @@ describe('issue mail store (agent mail #103)', () => {
         (m) => m.id,
       ),
     ).toEqual(['msg_b'])
+  })
+
+  it('a capped list keeps the NEWEST; an uncapped one stays whole [PDM-407]', async () => {
+    const store = await openTestStore(':memory:')
+    await seedIssues(store, 'iss_a')
+    const ids: string[] = []
+    for (let i = 0; i < 60; i++) {
+      const id = `msg_${String(i).padStart(3, '0')}`
+      ids.push(id)
+      await store.issues.addIssueMessage(
+        msg(id, asIssueId('iss_a'), `t${String(i).padStart(3, '0')}`),
+      )
+    }
+    const page = (await store.issues.listIssueMessages(asIssueId('iss_a'), { limit: 50 })).map(
+      (m) => m.id,
+    )
+    // BOTH ENDS. A cap on the wrong end also returns 50 rows in ascending order,
+    // so an assertion that only counts, or only checks the front, passes on the
+    // exact bug this is here to catch.
+    expect(page).toEqual(ids.slice(-50))
+    expect(page).not.toContain('msg_000')
+
+    // NO LIMIT MEANS NO CAP, and that is load-bearing rather than tidy: the
+    // `mail pending` count reads this same method, so a default page size here
+    // would cap the count as well as the list — and a count that agrees with a
+    // truncated list by being truncated itself is the failure the cap is meant
+    // to fix, wearing the fix's clothes.
+    expect((await store.issues.listIssueMessages(asIssueId('iss_a'))).map((m) => m.id)).toEqual(ids)
   })
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', async () => {

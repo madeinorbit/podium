@@ -5551,6 +5551,43 @@ describe('IssueService agent mail (#103)', () => {
     expect(second[0]).toMatchObject({ wasUnread: false, status: 'read' })
   })
 
+  it('THE ACCEPTANCE CHECK: past the cap, the NEWEST message is readable [PDM-407]', async () => {
+    // The coordinator's own wording: with 60+ messages in a box, can the newest
+    // one be READ, and can an unread id be OBTAINED without already knowing it?
+    // Both were NO — the listing came back oldest-first and its tail was the part
+    // that got cut — so `mail show <id>` was reachable only for an id you had
+    // already been given some other way.
+    const { svc, store } = await harness()
+    const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    for (let i = 0; i < 60; i++) await svc.sendMail(a.id, 'operator', `m${i}`)
+
+    // "Newest" means LAST IN (created_at, id) — the order the mailbox is kept in
+    // — and it is read from the store rather than assumed to be the last send,
+    // because this harness has a FIXED clock: all sixty rows carry the same
+    // created_at, so the tie breaks on id and send order is not row order.
+    // Reading it here is also non-consuming, which `svc.mailInbox` is not.
+    const whole = (await store.issues.listIssueMessages(a.id)).map((m) => m.id)
+    expect(whole).toHaveLength(60)
+    const newest = whole.at(-1)!
+
+    const page = await svc.mailInbox(a.id, { limit: 50 })
+    expect(page).toHaveLength(50)
+    // READABLE, and OBTAINABLE: the newest row is on the page the reader gets,
+    // and its id came out of that listing — so `mail show` can now reach it
+    // without the reader having been told the id by some other channel.
+    expect(page.map((m) => m.id)).toContain(newest)
+    expect(page.at(-1)!.id).toBe(newest)
+    // The other direction, without which a page of 50 arbitrary rows would pass:
+    // what the cap dropped is the OLDEST ten, exactly.
+    expect(page.map((m) => m.id)).toEqual(whole.slice(-50))
+
+    // THE COUNT IS NOT TRUNCATED TO MATCH. `mail pending` reads the box whole, so
+    // it still reports the ten this page did not show. A count that agreed with a
+    // capped list by being capped itself would be the original defect wearing the
+    // fix's clothes — the reader would be told there is nothing more.
+    expect(await svc.mailPending(a.id)).toMatchObject({ unread: 10 })
+  })
+
   it('mailClaim: first wins, second reports claimed=false with the winning message', async () => {
     const { svc } = await harness()
     const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })

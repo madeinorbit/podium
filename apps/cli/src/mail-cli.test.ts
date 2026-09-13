@@ -1,3 +1,4 @@
+import { MAIL_INBOX_DEFAULT_LIMIT } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type MailClient, parseMailArgs, runMailCli } from './mail-cli'
 
@@ -236,7 +237,44 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toContain('msg_1 issue:#212 -> issue:#228')
     expect(out).toContain('hello')
     await runMailCli(['inbox', '--issue', '#228'], c)
-    expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({ issue: '#228' })
+    expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({
+      issue: '#228',
+      limit: MAIL_INBOX_DEFAULT_LIMIT,
+    })
+  })
+
+  it('sends the cap explicitly, so it can quote the one the server used [PDM-407]', async () => {
+    const c = client()
+    await runMailCli(['inbox'], c)
+    // Sent even when unset. A full page is how truncation is detected, so a CLI
+    // that lets the server pick silently cannot tell a full page from a whole box.
+    expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({ limit: MAIL_INBOX_DEFAULT_LIMIT })
+    await runMailCli(['inbox', '--limit', '3'], c)
+    expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({ limit: 3 })
+    await expect(runMailCli(['inbox', '--limit', 'lots'], c)).rejects.toThrow(/--limit/)
+  })
+
+  it('marks a FULL page truncated at both ends, and says the page is the newest [PDM-407]', async () => {
+    const full = Array.from({ length: 3 }, (_, i) => ({ ...WIRE, id: `msg_${i}` }))
+    const out = await runMailCli(['inbox', '--limit', '3'], client({ inbox: full }))
+    const lines = out.split('\n')
+    // AT THE TOP as well as the bottom. This listing is cut by whatever reads it
+    // — a terminal, an agent's tool-output cap — exactly when it is long, and a
+    // footer is the first thing such a cut removes. That is the failure being
+    // fixed here, so the notice must survive it.
+    expect(lines[0]).toMatch(/TRUNCATED/)
+    expect(lines.at(-1)).toMatch(/--limit/)
+    expect(out.match(/TRUNCATED/g)).toHaveLength(2)
+    // And it must say WHICH end was kept, or a reader cannot tell whether the
+    // mail it is missing is older or newer than what it can see.
+    expect(out).toMatch(/newest/)
+  })
+
+  it('leaves a page shorter than the cap unmarked [PDM-407]', async () => {
+    // The admission that pairs with the notice above: without it, a CLI that
+    // printed the banner unconditionally would satisfy the truncation test.
+    const out = await runMailCli(['inbox', '--limit', '3'], client())
+    expect(out).not.toMatch(/TRUNCATED/)
   })
 
   it('show needs an id and renders thread metadata', async () => {

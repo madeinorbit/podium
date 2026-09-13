@@ -1285,20 +1285,45 @@ export class IssuesRepository {
     return r ? await this.mapIssueMessage(r) : null
   }
 
+  /**
+   * An issue's mailbox, oldest first.
+   *
+   * UNBOUNDED BY DEFAULT, AND DELIBERATELY [PDM-407]. `mail pending` counts
+   * through this same method, so a default page size here would cap the unread
+   * COUNT as well as the list — and a count that agrees with a truncated list
+   * only by being truncated itself is the original defect wearing the fix's
+   * clothes. Only the inbox LISTING passes a limit.
+   *
+   * WHICH END A LIMIT DROPS. The capped scan runs newest-first and the page is
+   * reversed for presentation, so it yields the NEWEST `limit` rows in the
+   * unchanged ascending order. Capping with the ascending scan would keep the
+   * OLDEST, which is what left a busy mailbox showing only mail its reader had
+   * already seen while the unread count climbed.
+   */
   async listIssueMessages(
     issueId: IssueId,
-    opts?: { status?: IssueMessageRow['status'] },
+    opts?: { status?: IssueMessageRow['status']; limit?: number },
   ): Promise<IssueMessageRow[]> {
-    const rows = await this.db
-      .select()
-      .from(issueMessages)
-      .where(
-        opts?.status
-          ? and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, opts.status))
-          : eq(issueMessages.issueId, issueId),
-      )
-      .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
-      .all()
+    const where = opts?.status
+      ? and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, opts.status))
+      : eq(issueMessages.issueId, issueId)
+    const rows =
+      opts?.limit === undefined
+        ? await this.db
+            .select()
+            .from(issueMessages)
+            .where(where)
+            .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+            .all()
+        : (
+            await this.db
+              .select()
+              .from(issueMessages)
+              .where(where)
+              .orderBy(desc(issueMessages.createdAt), desc(issueMessages.id))
+              .limit(Math.max(1, opts.limit))
+              .all()
+          ).reverse()
     return await Promise.all(rows.map(async (r) => await this.mapIssueMessage(r)))
   }
 

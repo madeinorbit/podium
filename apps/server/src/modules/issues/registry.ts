@@ -1222,6 +1222,9 @@ const defs = {
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
           : {}),
+        // Client-supplied, unlike the reader identity above: a page size is a
+        // rendering choice, not an authority claim [PDM-407].
+        ...(input?.limit !== undefined ? { limit: input.limit } : {}),
       })
     },
   }),

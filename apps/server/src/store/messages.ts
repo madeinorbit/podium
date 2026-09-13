@@ -257,7 +257,20 @@ export class MessagesRepository {
     return r ? mapMessage(r) : null
   }
 
-  /** All messages addressed to a principal, oldest first. */
+  /**
+   * All messages addressed to a principal, oldest first.
+   *
+   * WHICH END THE CAP DROPS [PDM-407]. The scan runs NEWEST-first and the page is
+   * reversed for presentation, so a box longer than the limit yields its newest
+   * `limit` rows. Under `DELIVERY_ORDER` — ascending, the order the delivery
+   * scans want — the same LIMIT kept the OLDEST rows, and that is what made a
+   * busy mailbox unreadable: the unread count climbed while every row the inbox
+   * named was one the reader had already seen. The presentation order is
+   * unchanged, so a box shorter than the limit reads exactly as before.
+   *
+   * `(created_at, id)` is a total order (`id` is the primary key), so the
+   * reversed descending page is the ascending page, not merely one of several.
+   */
   async listMessagesFor(
     to: MessagePrincipalRef,
     opts?: { status?: MessageStatus; limit?: number },
@@ -268,11 +281,13 @@ export class MessagesRepository {
       .select()
       .from(messagesTable)
       .where(and(...where))
-      .orderBy(...DELIVERY_ORDER)
+      .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
       .limit(boundedLimit(opts?.limit, 200, 500))
       .all())
+      .reverse()
       .map(mapMessage)
   }
+
 
   /** Exact, unbounded safety projection of work still pending for one session. */
   async pendingForSessionProof(sessionId: SessionId, now: string): Promise<MessageRow[]> {
