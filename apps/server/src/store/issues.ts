@@ -1487,6 +1487,47 @@ export class IssuesRepository {
   }
 
   /**
+   * EVERY per-user marker row on the instance, for every person and every issue.
+   *
+   * The one read of this table that is not about a single person, and it exists
+   * for the reconcile that repairs a fleet on FIRST UPGRADE (PDM-408): rows
+   * written before the `issueMarks` entity existed have no change-log entry, so
+   * nothing would ever serve them and a member's pins and read marks would
+   * silently do nothing until they marked something again — worst for exactly
+   * the people who have used the product longest.
+   *
+   * Unbounded by design and safe because the table is not: a row exists only
+   * where somebody has actually marked something, never per (member × issue).
+   */
+  async listAllIssueUserState(): Promise<
+    { userId: UserId; issueId: string; state: StoredIssueUserState }[]
+  > {
+    const rows = await this.db
+      .select({
+        userId: issueUserState.userId,
+        issueId: issueUserState.issueId,
+        readAt: issueUserState.readAt,
+        tuckedAt: issueUserState.tuckedAt,
+        pinnedAt: issueUserState.pinnedAt,
+        startedAt: issueUserState.startedAt,
+        assignmentDismissedAt: issueUserState.assignmentDismissedAt,
+      })
+      .from(issueUserState)
+      .all()
+    return rows.map((r) => ({
+      userId: r.userId as UserId,
+      issueId: r.issueId,
+      state: {
+        readAt: r.readAt,
+        tuckedAt: r.tuckedAt,
+        pinnedAt: r.pinnedAt,
+        startedAt: r.startedAt,
+        assignmentDismissedAt: r.assignmentDismissedAt,
+      },
+    }))
+  }
+
+  /**
    * Every user who holds markers for this issue.
    *
    * The per-user table is normally read one person at a time — that is the whole

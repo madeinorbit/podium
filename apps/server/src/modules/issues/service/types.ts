@@ -67,9 +67,18 @@ export interface IssueLedger {
    *  kinds the replica joins the projection against [POD-822] — the dependency
    *  edges and the repo prefixes the projection cannot carry (see model's
    *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
-   *  emitted only under the same flag. */
+   *  emitted only under the same flag.
+   *
+   *  'issueMarks' is the PER-USER half [PDM-408] and it is the odd one here, so
+   *  it is named rather than folded into the sentence above. The others
+   *  reconcile on every full-truth publish; this one reconciles ONCE AT BOOT,
+   *  because its rows are written by ordinary marking and the only thing a
+   *  full-truth pass buys is the FIRST UPGRADE, where rows predate the entity
+   *  and have no change-log entry at all. Its full truth is every row for every
+   *  person — a per-user kind reconciled against one person's rows would be
+   *  diffed as a mass REMOVE of everybody else's. */
   reconcile(
-    entity: 'issue' | 'issueProjection' | 'issueExecution' | 'issueDep' | 'repo',
+    entity: 'issue' | 'issueProjection' | 'issueExecution' | 'issueDep' | 'repo' | 'issueMarks',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */

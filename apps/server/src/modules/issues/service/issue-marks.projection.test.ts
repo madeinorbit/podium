@@ -57,7 +57,16 @@ let svc: IssueService
 /** Every change row the service published, in order. */
 let published: MetadataChange[]
 
-async function build(): Promise<IssueService> {
+type Plumbing = ReturnType<typeof issueTestPlumbing>
+
+/**
+ * A RESTART, not a second instance. `plumbing` carries the ledger and its
+ * change log, so passing the SAME one models a process restarting over a
+ * DURABLE log — which is what production does. Building fresh plumbing would
+ * give the second boot an empty log and make any reconcile look like a
+ * re-publish, which is a property of the fixture and not of the code.
+ */
+async function build(plumbing?: Plumbing): Promise<IssueService> {
   const deps: IssueDeps = {
     store,
     ...sessionReadPorts(() => []),
@@ -75,7 +84,7 @@ async function build(): Promise<IssueService> {
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing((change) => published.push(change)),
+    ...(plumbing ?? issueTestPlumbing((change) => published.push(change))),
     now: () => NOW,
   }
   return await IssueService.create(deps)
@@ -278,6 +287,68 @@ describe('purging an issue retracts its marks', () => {
     published = []
 
     await svc.purgeEmptyDraft(w.id)
+
+    expect(published.filter((c) => c.entity === 'issueMarks')).toEqual([])
+  })
+})
+
+describe('marks that predate the entity, on first upgrade', () => {
+  /**
+   * THE UPGRADE CASE, and it is more user-visible than its size suggests.
+   *
+   * `publishIssueMarks` is reached only from a WRITE. A row written before this
+   * entity existed therefore has NO change-log entry, so nothing serves it: on
+   * the first upgrade a member's existing pins, folds and read marks silently do
+   * nothing until they mark that issue AGAIN — worst for exactly the people who
+   * have used the product longest.
+   *
+   * And it is INVISIBLE, which is why it needs a witness rather than a glance:
+   * an unmarked board and a board whose marks never arrived look identical. Same
+   * failure mode as the neutral wire values, one layer down.
+   *
+   * The fixture writes STRAIGHT TO THE STORE, deliberately — going through the
+   * service would publish as it wrote and there would be nothing to repair. That
+   * is exactly the state a database carried across an upgrade is in.
+   */
+  const markedBeforeTheEntityExisted = async (user: UserId, issueId: string, readAt: string) =>
+    await store.issues.setIssueUserState(user, issueId as never, { readAt })
+
+  it('publishes every pre-existing row at boot, for every person', async () => {
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await markedBeforeTheEntityExisted(ada, w.id, '2020-01-01T00:00:00.000Z')
+    await markedBeforeTheEntityExisted(BEN, w.id, '2021-01-01T00:00:00.000Z')
+    published = []
+
+    // A cold service over the same store — the upgrade.
+    await build()
+
+    const byId = new Map(
+      published
+        .filter((c) => c.entity === 'issueMarks' && c.op === 'upsert')
+        .map((c) => [c.id, (c as { value: IssueMarksWire }).value]),
+    )
+    // BOTH people, each with THEIR OWN value. One row, or one person's, would
+    // pass a weaker assertion and is the shape this whole port keeps producing.
+    expect(byId.get(issueMarksRowId(ada, w.id))?.readAt).toBe('2020-01-01T00:00:00.000Z')
+    expect(byId.get(issueMarksRowId(BEN, w.id))?.readAt).toBe('2021-01-01T00:00:00.000Z')
+  })
+
+  it('writes nothing on a second boot — a reconcile, not a re-publish', async () => {
+    // The control, and the reason this is a reconcile rather than a capture
+    // loop: booting an already-published instance must be silent, or every
+    // restart would churn a row for every mark on the instance.
+    //
+    // ONE ledger across both boots — see {@link build}. With fresh plumbing the
+    // second boot reads an empty log and republishes everything, which says
+    // nothing about the code.
+    const shared = issueTestPlumbing((change) => published.push(change))
+    const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await markedBeforeTheEntityExisted(ada, w.id, '2020-01-01T00:00:00.000Z')
+    await build(shared) // first upgrade over this log: publishes
+    expect(published.filter((c) => c.entity === 'issueMarks')).not.toEqual([])
+    published = []
+
+    await build(shared) // restart over the SAME log: agrees, writes nothing
 
     expect(published.filter((c) => c.entity === 'issueMarks')).toEqual([])
   })

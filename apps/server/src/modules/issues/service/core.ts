@@ -581,7 +581,45 @@ export class IssueStore {
    *  surfaces load logs immediately. */
   async init(): Promise<this> {
     await this.hydrate()
+    await this.reconcileIssueMarks()
     return this
+  }
+
+  /**
+   * **EVERY EXISTING MARK, PUBLISHED ONCE AT BOOT** (PDM-408).
+   *
+   * `publishIssueMarks` is reached only from a WRITE — mark read, tuck, pin, or
+   * the reopen sweep. So a row written before this entity existed has no
+   * change-log entry, and nothing would ever serve it: on the first upgrade
+   * every member's existing pins, folds and read marks would silently do
+   * nothing until they marked that issue AGAIN. Worst for exactly the people who
+   * have used the product longest, and invisible — an unmarked board and a board
+   * whose marks never arrived look identical, which is the same failure mode the
+   * neutral wire values have and the reason both need a witness.
+   *
+   * A RECONCILE RATHER THAN A CAPTURE LOOP, because reconcile is the operation
+   * that means "this is the whole truth for this kind": it diffs against what the
+   * log already holds, so a boot after a boot writes nothing, and a row deleted
+   * out from under the log (a purge that raced a restart) is retracted rather
+   * than left. That is also why {@link IssuesRepository.listAllIssueUserState}
+   * must return EVERY row for EVERY person — a partial list would be diffed as a
+   * mass REMOVE and would durably delete the marks of whoever was missing.
+   *
+   * In {@link init} and not {@link hydrate}: `reload()` shares `hydrate`, and a
+   * reconcile on every reload is a durable write on a read path.
+   */
+  private async reconcileIssueMarks(): Promise<void> {
+    const rows = await this.deps.store.issues.listAllIssueUserState()
+    await this.deps.ledger.reconcile(
+      'issueMarks',
+      rows.map(({ userId, issueId, state }) => ({
+        id: issueMarksRowId(userId, issueId),
+        // The SAME shape `publishIssueMarks` writes, through the same helper —
+        // two spellings of one row is how a boot reconcile ends up rewriting
+        // every row it just agreed with.
+        value: { userId, issueId, ...issueOverlayOf(state) },
+      })),
+    )
   }
 
   /**
