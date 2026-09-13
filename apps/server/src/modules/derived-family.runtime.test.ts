@@ -47,6 +47,7 @@ import {
 import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
+import { OPERATION_COMMANDS_TRPC, OPERATION_QUERIES } from './operations/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
 
 /** A tRPC v11 procedure record carries its verb on `_def.type`. Read
@@ -77,6 +78,12 @@ const FAMILIES = [
   // Client log ingestion (chunk 3 of the logging strategy) — derived on the
   // same builder, so it is pinned by the same non-vacuity floor below.
   { router: 'logs', table: LOGS_COMMANDS_TRPC },
+  // The operation surface (PDM-297). It is in this list for the reason the list
+  // exists: until it was joined, its three contracts declared a transport and a
+  // floor that NOTHING compared against what the router served, so every
+  // instrument the epic has for exposure reported green about a surface it could
+  // not see. Being here is what makes that comparison exist.
+  { router: 'operations', table: OPERATION_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -86,19 +93,34 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Thirty-one
-   * is the current contract-table count — dev/mw's thirty plus
-   * `interactions.answer` (POD-2020) — so a
-   * family dropping out of the derivation fails HERE rather than silently
-   * reducing the coverage of everything after it.
+   * that quietly shrank would report green by running fewer cases, so the count
+   * is pinned before the cases run: a family dropping out of the derivation
+   * fails HERE rather than silently reducing the coverage of everything after
+   * it.
    *
    * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
    * pre-existing drift, repaired separately in POD-3168.
+   *
+   * 30 -> 31: `interactions.answer` (POD-2020).
+   *
+   * 31 -> 35 IS TWO SEPARATE MOVEMENTS AND THEY ARE WORTH KEEPING APART, because
+   * one of them is a repair and only the other is this issue's:
+   *
+   *   +1  `auth.setEmail`, added by "Member email sign-in and profile"
+   *       (aafde95f1) WITHOUT moving this pin. This suite was therefore already
+   *       failing at the epic head before PDM-297 touched anything — the pin was
+   *       doing its job and nobody had answered it. It is repaired here rather
+   *       than left red, because a standing red is how the next real answer gets
+   *       read as noise.
+   *   +3  `operations.cancel`, `settleAsk` and `action` (PDM-297) — the join
+   *       that put the operation family on this builder at all.
+   *
+   * 13 -> 14 families is the same join: `operations` is the fourteenth.
    */
-  it('governs thirteen families and thirty-one derived writes', () => {
-    expect(FAMILIES).toHaveLength(13)
+  it('governs fourteen families and thirty-five derived writes', () => {
+    expect(FAMILIES).toHaveLength(14)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(31)
+    expect(total).toBe(35)
   })
 
   it.each(
@@ -138,6 +160,16 @@ describe('the derived families, against the RUNNING appRouter', () => {
     const served = routerRecord('approvals')
     for (const key of Object.keys(APPROVAL_QUERIES)) {
       expect(verbOf(served[key]), `approvals.${key} verb`).toBe('query')
+    }
+    // `operations` for the same claim (PDM-297). Its two reads are the half of
+    // that family the contract tables cannot speak for — `active` and `history`
+    // are `DerivedQuery` entries, not contracts, because a `visibility` class
+    // describes what a command WRITES — so if they were not asserted here,
+    // nothing would notice them vanishing.
+    const operations = routerRecord('operations')
+    expect(Object.keys(OPERATION_QUERIES)).toHaveLength(2)
+    for (const key of Object.keys(OPERATION_QUERIES)) {
+      expect(verbOf(operations[key]), `operations.${key} verb`).toBe('query')
     }
   })
 

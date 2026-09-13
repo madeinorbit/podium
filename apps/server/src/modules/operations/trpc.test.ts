@@ -340,8 +340,14 @@ describe('operations.cancel is behind the floor its contract declares', () => {
 
   it('refuses a member, naming the grade', async () => {
     const { member, id } = await liveOperation()
+    // THE SUBJECT OF THIS MESSAGE CHANGED WITH THE JOIN (PDM-297), and the rule
+    // did not. The floor used to be a hard-coded comparison in `trpc.ts` that
+    // spelled its own subject ("operation recovery"); it is now the floor the
+    // contract declares, refused by the derived builder, which names the command
+    // it refused. Both resolve the account grade through `roleFloorDeps` and
+    // decide with `adminFloorRefusal` — the same decision, said more precisely.
     await expect(member.operations.cancel({ id })).rejects.toThrow(
-      /operation recovery requires an admin account/,
+      /operations\.cancel requires an admin account/,
     )
   })
 
@@ -445,8 +451,15 @@ describe("an agent does not inherit its human's admin grade (PDM-299)", () => {
         : proc === 'settleAsk'
           ? agent.operations.settleAsk({ id, actionId: 'anything' })
           : agent.operations.action({ id, actionId: 'anything' })
+    // NAMED PER COMMAND since the join (PDM-297): the builder's refusal carries
+    // `family.command`, so this asserts that THIS procedure refused rather than
+    // that SOME operations procedure did. The old shared subject could not tell
+    // the three apart, so a gate that refused `cancel` three times would have
+    // satisfied all three cases.
     await expect(call).rejects.toThrow(
-      /operation recovery requires an admin account — and an agent does not inherit its human's admin grade/,
+      new RegExp(
+        `operations\\.${proc} requires an admin account — and an agent does not inherit its human's admin grade`,
+      ),
     )
   })
 
