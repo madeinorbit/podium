@@ -14,7 +14,16 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
+      # FULL HISTORY, for the ambient-principal ratchet below (POD-3904). It
+      # compares its own baseline against the value on the commit this branch
+      # started from, because a baseline living in the file the gate reads can
+      # be raised to match a regression in the same diff — which is how a +5
+      # rise passed at b12b5bae6. A shallow clone has no merge base, so the
+      # comparison would be unavailable; the step passes `--require-base` so
+      # that is a failure rather than a quiet skip.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.14'
@@ -54,8 +63,13 @@ jobs:
       #
       # The script self-probes before it measures, so a green here also means
       # the instrument demonstrated it can still say no.
+      #
+      # And the baseline is itself compared against the merge base: POD-3903
+      # showed that `checkDrift` cannot tell a fix from a raise, because both
+      # make the file self-consistent. `--require-base` means a clone that
+      # cannot answer that question fails instead of passing.
       - name: ambient-principal ratchet (multi-user)
-        run: bun run audit:ambient-principals
+        run: bun run audit:ambient-principals -- --require-base
 
       # BLOCKING, and deliberately its own step rather than folded into the
       # `bun run lint` bundle above: that one is continue-on-error while biome's
