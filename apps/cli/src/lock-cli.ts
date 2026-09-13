@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import {
   asQueuedGrant,
   type IssueTrpc,
@@ -38,7 +39,10 @@ import { makeOperatorIssueClient } from './operator-client'
  *  - `--wait --timeout <dur>` is the bounded form, honoured exactly as asked
  *    (no silent clamp);
  *  - both endings, plus SIGINT/SIGTERM, LEAVE the queue before returning, and
- *    say which happened. The waiter row is keyed to the owning agent SESSION,
+ *    say which happened;
+ *  - a TRANSPORT failure mid-wait is not an ending once a place is held
+ *    (PDM-389): it is narrated and retried, so `--timeout` still means what it
+ *    said and the place is never abandoned in silence. The waiter row is keyed to the owning agent SESSION,
  *    not to this process, so the server's dead-waiter pruning does NOT cover
  *    an interrupted CLI: the session outlives it and `advanceQueue` would hand
  *    the lease to a command that is no longer running. Only an uncatchable
@@ -285,6 +289,54 @@ export function mergeLockArgv(argv: string[]): string[] {
   ]
 }
 
+/** Run a read-only git query, or null if git cannot answer (not a repo, no git). */
+function defaultRunGit(args: string[], at: string): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd: at,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Paths to offer `repos.inferFromPath`, in order, when `--repo-path` is omitted.
+ *
+ * A DETACHED SCRATCH WORKTREE IS NOT A REGISTERED CHECKOUT (PDM-389 case 5), so
+ * inference from the cwd answered null and the zod shape then failed every lock
+ * verb with `repoPath: Required` — `podium lock: invalid args for cancel:
+ * repoPath: Required`, with the lane dead before a single test ran.
+ *
+ * That is not a nuisance, it is the epic's attribution standard. Separating "my
+ * change broke this" from "this was already broken" means running the lane at
+ * the branch point too, and the base run MUST happen in a scratch worktree
+ * because checking a base out in the live tree moves it under lanes that are
+ * still running. `scripts/test-heavy.ts` takes the lease, the lease could not
+ * resolve a repo, so the baseline half of a name diff was structurally
+ * unavailable for every heavy lane.
+ *
+ * A linked worktree still knows where it came from: `git worktree list`'s FIRST
+ * entry is always the MAIN checkout, which is the path the tracker has a row
+ * for. The cwd is still tried first, so a registered checkout costs exactly the
+ * one call it always did; the main checkout is consulted only when that came
+ * back empty. Git failing for any reason yields no extra candidate rather than
+ * an error — this step is best-effort, and `--repo-path` stays the explicit
+ * answer for a tree git cannot place either.
+ */
+export function repoInferenceCandidates(
+  cwd: string,
+  runGit: (args: string[], at: string) => string | null = defaultRunGit,
+): string[] {
+  const listed = runGit(['worktree', 'list', '--porcelain'], cwd)
+  const first = listed?.split('\n', 1)[0] ?? ''
+  const main = first.startsWith('worktree ') ? first.slice('worktree '.length).trim() : ''
+  // A main checkout lists itself: no second candidate, and no second round trip.
+  return main !== '' && main !== cwd ? [cwd, main] : [cwd]
+}
+
 export interface LockCliOutcome {
   text: string
   exitCode: number
@@ -350,6 +402,8 @@ export async function runLockCli(
      * the whole interrupt lifecycle, so nothing here has to touch `process`.
      */
     signal?: AbortSignal
+    /** Injected in tests: the read-only git query behind repoInferenceCandidates. */
+    runGit?: (args: string[], at: string) => string | null
   },
 ): Promise<LockCliOutcome> {
   const group = opts?.group ?? 'lock'
@@ -361,15 +415,25 @@ export async function runLockCli(
     const key = cmd.positionals?.[i]
     if (key != null && args[key] == null && positionals[i] != null) args[key] = positionals[i]
   }
-  // Fill in --repoPath from the cwd when omitted (same best-effort inference as
-  // issue-cli: a mock client without `repos` just leaves args unchanged).
+  // Fill in --repoPath when omitted (same best-effort inference as issue-cli: a
+  // mock client without `repos` just leaves args unchanged). The cwd first, then
+  // the main checkout a linked worktree belongs to — see repoInferenceCandidates.
   if (args.repoPath == null) {
-    try {
-      const r = (await client.repos.inferFromPath.query({ path: process.cwd() })) as {
-        repoPath: string | null
+    for (const path of repoInferenceCandidates(process.cwd(), opts?.runGit)) {
+      try {
+        const r = (await client.repos.inferFromPath.query({ path })) as {
+          repoPath: string | null
+        }
+        if (r.repoPath) {
+          args.repoPath = r.repoPath
+          break
+        }
+      } catch {
+        // The client itself cannot answer (no `repos`, transport down). Both
+        // candidates go through that same client, so a second is pointless.
+        break
       }
-      if (r.repoPath) args.repoPath = r.repoPath
-    } catch {}
+    }
   }
   // The dispatcher's own flags never reach the (strict) command schema.
   const { json: _json, help: _help, outsideScope: _outsideScope, ...forSchema } = args
@@ -448,36 +512,71 @@ export async function runLockCli(
     let wasQueued = false
     let lastPosition: number | null = null
     let narratedAt = started
+    let lastRes: { text: string; data?: unknown } | undefined
     for (;;) {
       // Once a round has come back queued, the lock is held by someone else, so
       // any later grant is this waiter's queue place being advanced onto —
       // never a hold the caller already had. The server reports that as a
       // same-session renew; asQueuedGrant restores the caller's view of it.
-      const raw = await runCommandOnce(cmd, client, validated)
-      const res = wasQueued ? asQueuedGrant(raw) : raw
-      const data = res.data as { granted?: boolean; position?: number } | undefined
-      if (data?.granted === true) return { text: res.text, exitCode: 0, data: res.data }
-      wasQueued = true
-      const position = typeof data?.position === 'number' ? data.position : null
-      const waited = (): string => fmtDuration(Math.round((now() - started) / 1000))
-      if (!opened) {
-        const bound =
-          timeoutS != null ? `waiting up to ${fmtDuration(timeoutS)}` : 'waiting until granted'
-        progress(`${bound} — ${res.text}`)
-        opened = true
-        narratedAt = now()
-      } else if (position != null && position !== lastPosition) {
-        progress(`'${name}': now position ${position} (was ${lastPosition})`)
-        narratedAt = now()
-      } else if (now() - narratedAt >= WAIT_HEARTBEAT_MS) {
+      let res: { text: string; data?: unknown }
+      let errored = false
+      try {
+        const raw = await runCommandOnce(cmd, client, validated)
+        res = wasQueued ? asQueuedGrant(raw) : raw
+      } catch (err) {
+        // THE THIRD ENDING (PDM-389 case 2). This loop's contract is that
+        // whoever stops waiting says so — but it was written for two endings,
+        // the deadline and the signal, and a transport failure is a third. A
+        // relay hiccup mid-wait threw straight out of runLockCli, so the
+        // process died WITHOUT leaving the queue and said only `agent relay
+        // timed out`: the queue place survived, unmentioned, and the caller was
+        // left to guess. One agent's waiter died at 6m45s of a FIFTY-MINUTE
+        // --timeout and read that as "start over", which is the opposite of
+        // what its own queue row needed.
+        //
+        // So a round that fails once the caller HOLDS A PLACE is not an ending
+        // at all: it is narrated and retried on the ordinary cadence, and
+        // --timeout keeps meaning what it said. Before the first queued round
+        // there is no place to protect and nothing to be honest about, so a
+        // transport failure there still fails fast — `--wait` against a dead
+        // server must not spin to a deadline.
+        if (!wasQueued) throw err
+        errored = true
+        const msg = err instanceof Error ? err.message : String(err)
+        res = lastRes ?? { text: msg }
         progress(
-          position != null
-            ? `'${name}': still queued at position ${position} after ${waited()}`
-            : `'${name}': still waiting after ${waited()}`,
+          `'${name}': ${msg} — still queued (the place is yours until this wait ends); retrying`,
         )
         narratedAt = now()
       }
-      lastPosition = position
+      const data = errored
+        ? undefined
+        : (res.data as { granted?: boolean; position?: number } | undefined)
+      if (data?.granted === true) return { text: res.text, exitCode: 0, data: res.data }
+      if (!errored) {
+        lastRes = res
+        wasQueued = true
+        const position = typeof data?.position === 'number' ? data.position : null
+        const waited = (): string => fmtDuration(Math.round((now() - started) / 1000))
+        if (!opened) {
+          const bound =
+            timeoutS != null ? `waiting up to ${fmtDuration(timeoutS)}` : 'waiting until granted'
+          progress(`${bound} — ${res.text}`)
+          opened = true
+          narratedAt = now()
+        } else if (position != null && position !== lastPosition) {
+          progress(`'${name}': now position ${position} (was ${lastPosition})`)
+          narratedAt = now()
+        } else if (now() - narratedAt >= WAIT_HEARTBEAT_MS) {
+          progress(
+            position != null
+              ? `'${name}': still queued at position ${position} after ${waited()}`
+              : `'${name}': still waiting after ${waited()}`,
+          )
+          narratedAt = now()
+        }
+        lastPosition = position
+      }
 
       // Both ways of stopping give the place back the same way. Only ever
       // reached with a NOT-granted round in hand: a grant returns above, and

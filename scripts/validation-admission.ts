@@ -23,6 +23,8 @@ export type ValidationProcessOptions = {
 type AcquireResponse = {
   data?: { granted?: unknown; alreadyHeld?: unknown; lock?: { name?: unknown } }
   text?: unknown
+  /** `--json` reports a failure as {ok:false,error} — on STDOUT, like the rest. */
+  error?: unknown
 }
 type RunControl = {
   activeProcess?: ReturnType<typeof Bun.spawn>
@@ -292,6 +294,24 @@ async function runProcess(command: string[], options: ValidationProcessOptions):
   return spawnProcess(command, options).exited
 }
 
+/**
+ * Print the reason `podium lock acquire --json` gave for refusing the lease.
+ * Falls back to the raw stdout, so an unparseable answer is still shown rather
+ * than silently swallowed.
+ */
+export function reportAcquireFailure(
+  name: string,
+  stdout: string,
+  log: (line: string) => void = console.error,
+): void {
+  let parsed: AcquireResponse | undefined
+  try {
+    parsed = JSON.parse(stdout) as AcquireResponse
+  } catch {}
+  const detail = typeof parsed?.error === 'string' ? parsed.error : stdout.trim()
+  log(`validation refused: could not acquire '${name}'${detail ? ` — ${detail}` : ''}`)
+}
+
 async function cancelWaiter(name: string, options: ValidationProcessOptions): Promise<void> {
   try {
     await runProcess(['podium', 'lock', 'cancel', name], options)
@@ -323,6 +343,14 @@ async function acquireLease(
   const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()])
   if (control.activeProcess === proc) control.activeProcess = undefined
   if (exitCode !== 0) {
+    // SAY WHICH VERB FAILED (PDM-389). acquire runs with --json, so its error
+    // leaves on STDOUT — which this early return read and then dropped. The only
+    // thing that reached the operator was the follow-up cancelWaiter's stderr,
+    // and that names the WRONG VERB: a scratch worktree's `repoPath: Required`
+    // surfaced as `podium lock: invalid args for cancel`, with the acquire that
+    // actually failed never mentioned at all. That is most of why case 5 read as
+    // a mystery rather than as a missing repo.
+    reportAcquireFailure(name, stdout)
     await cancelWaiter(name, options)
     return { exitCode: control.interruptedExitCode ?? exitCode, acquired: false, owned: false }
   }
