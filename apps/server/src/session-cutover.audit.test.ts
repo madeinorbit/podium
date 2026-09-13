@@ -149,9 +149,15 @@ function ownershipTable(
 
 /**
  * The context the router builds, with the principal, the ownership table and the
- * visibility answer substituted — the three things the transport cannot yet produce
- * (one password, no accounts, no owner columns). Everything else is the real
- * composition root over a real registry.
+ * visibility answer substituted so each case can name the exact shape it is
+ * about. Everything else is the real composition root over a real registry.
+ *
+ * THE PARENTHESIS THIS REPLACES IS RETRACTED. It called those three "the things
+ * the transport cannot yet produce (one password, no accounts, no owner
+ * columns)". Accounts exist, machines carry an owner column (POD-1079), and
+ * `auth-route.ts` verifies the resolved member's own credential — so the
+ * substitution is a choice of subject, not a limit of the transport. Corrected
+ * under the PDM-139 phase B review disposition.
  */
 async function ctxFor(
   o: Oracle,

@@ -7,13 +7,23 @@
  * broader agent scope cannot) — plus the four regressions that would silently
  * re-collapse the axes.
  *
- * WHAT IS DELIBERATELY NOT ASSERTED HERE: anything about two live humans on one
- * transport. `auth-store.ts` is still one password per instance, so the
- * transports cannot yet tell two people apart. These tables drive the POLICY
- * layer with the facts the transports WILL supply, which is the only way an
- * ownership rule can be tested before login lands — and exactly the ordering ADR
- * 3 Amendment 1's rejected-alternatives table demands, since the opposite order
- * leaves every ownership check dead code until the flip.
+ * WHAT IS DELIBERATELY NOT ASSERTED HERE: anything that requires an HTTP login
+ * or a transport request. These tables drive the POLICY layer directly with
+ * IdentityFacts, so they establish what the rules decide — not that a transport
+ * propagates a principal correctly. Transport acceptance is a separate suite.
+ *
+ * THE REASON THIS HEADER USED TO GIVE IS RETRACTED. It read: *`auth-store.ts` is
+ * still one password per instance, so the transports cannot yet tell two people
+ * apart.* They can. `apps/server/src/auth-route.ts` resolves a login identifier
+ * to a member and verifies THAT member's own `user_credentials` row before
+ * minting a session, and POD-1554 removed the per-instance password from
+ * `auth-store.ts` — its own header now says so. The ordering argument survives
+ * on its own terms (ADR 3 Amendment 1's rejected-alternatives table: policy
+ * first, or every ownership check is dead code until the flip); what does not
+ * survive is the claim that a second human is unreachable. Corrected under the
+ * PDM-139 phase B review disposition, which is the same defect shape PDM-394 was
+ * filed for: a policy-only substitution justified by an authenticator that has
+ * changed underneath it.
  */
 
 import { describe, expect, it } from 'vitest'

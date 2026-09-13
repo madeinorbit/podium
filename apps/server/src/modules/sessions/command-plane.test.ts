@@ -2,14 +2,23 @@
  * The command plane's ACCEPTANCE properties (POD-381), driven through the real
  * services rather than through mocks: every fixture below is a live
  * `SessionRegistry` from POD-379's oracle harness, and only the PRINCIPAL and
- * the ownership table are synthetic — because those are the two things the
- * transport cannot yet produce (there is one password and no accounts).
+ * the ownership table are synthetic — because constructing them directly is what
+ * lets one test name the exact principal and ownership shape it is about.
  *
- * Why not drive these through `appRouter` like the oracle does: the tRPC caller
- * resolves to the instance's one account by construction, so a second human is
- * unreachable from that seam. Building the context directly is what makes the
- * multi-user answer testable BEFORE POD-1075 lands accounts — and it is the same
- * context the router builds, from the same composition root.
+ * Why not drive these through `appRouter`: that would make every case an
+ * end-to-end transport test, and the properties here are about the COMMAND
+ * PLANE's decisions. Building the context directly keeps the subject narrow, and
+ * it is the same context the router builds, from the same composition root.
+ *
+ * THE REASON THIS HEADER USED TO GIVE IS RETRACTED. It said the transport cannot
+ * produce these — *there is one password and no accounts* — and that *the tRPC
+ * caller resolves to the instance's one account by construction, so a second
+ * human is unreachable from that seam.* Accounts exist and a second human is
+ * reachable: `auth-route.ts` verifies the resolved member's own credential and
+ * persists that identity on the session. The substitution is now a CHOICE OF
+ * SUBJECT, not a limit of the transport — which also means a transport-level
+ * version of these properties is now WRITEABLE and is not written. Corrected
+ * under the PDM-139 phase B review disposition.
  */
 
 import type { MachineId } from '@podium/model'
