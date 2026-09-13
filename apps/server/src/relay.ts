@@ -3751,6 +3751,10 @@ export class SessionRegistry {
     clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
+    // Before the machines service, which owns the sink it registered on
+    // (PDM-414): a broker still subscribed would settle rows against the
+    // store this shutdown is closing.
+    this.modules.approvals.dispose()
     this.modules.machines.dispose()
     this.modules.issueSessionLifecycle.dispose()
     this.issueAutoArchive.dispose()

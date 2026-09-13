@@ -818,6 +818,48 @@ describe('an exec frame the queue refused', () => {
     expect(w.resultText).toMatch(/access configuration changed/i)
   })
 
+  it('absorbs a settlement failure instead of leaking a rejected promise', async () => {
+    // THE SINK IS SYNCHRONOUS AND THE SETTLEMENT IS NOT (PDM-414). MachinesService
+    // wraps each sink call in try/catch so a listener cannot break the flush, but
+    // that catch returns before this promise settles and cannot see its rejection.
+    // Voided without a catch, a store failure becomes an unhandled rejection: the
+    // discard silently does not settle, nothing fails and nothing logs.
+    let sink: ((d: { kind: 'control' | 'input'; message?: ControlMessage }) => void) | undefined
+    const svc = new ApprovalService({
+      store: {
+        get: async () => {
+          throw new Error('the store is unavailable')
+        },
+      },
+      onDeliveryDiscarded: (registered: (d: { kind: 'control' | 'input'; message?: ControlMessage }) => void) => {
+        sink = registered
+        return () => {}
+      },
+      now: () => '2026-07-13T00:00:00.000Z',
+      toMachine: () => {},
+      clients: () => [],
+      sessionOwner: async () => OWNER,
+      mayDispatchTo: async () => true,
+      sessionIssueId: () => asIssueId('iss_1'),
+      issueInfo: () => null,
+      machineName: async () => 'ludovico',
+      logEvent: () => {},
+      notifyIssue: async () => {},
+    } as unknown as ConstructorParameters<typeof ApprovalService>[0])
+
+    expect(sink).toBeTypeOf('function')
+    // The synchronous half must not throw into the flush...
+    expect(() =>
+      sink?.({
+        kind: 'control',
+        message: { type: 'approvalExecRequest', requestId: 'r1', op: { kind: 'update' } } as ControlMessage,
+      }),
+    ).not.toThrow()
+    // ...and the asynchronous half must RESOLVE rather than reject, which is what
+    // keeps a failed settlement out of the unhandled-rejection channel.
+    await expect(svc.settleDiscarded('r1')).resolves.toBeUndefined()
+  })
+
   it('does nothing for an unknown request id', async () => {
     const { svc, broadcasts } = harness()
     const before = broadcasts.length

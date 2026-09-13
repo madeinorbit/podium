@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { describeError } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId, type UserId } from '@podium/model'
 import { ApprovalOp, type ApprovalWire, describeApprovalOp, type LiveServerMessage } from '@podium/protocol'
 import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
@@ -23,6 +23,8 @@ import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
  * single settle. `approvalExecResult` is the daemon reporting an outcome the
  * store already knows it is waiting for, not a reply resolving a promise.
  */
+
+const log = createLogger('server:approvals')
 
 export interface ApprovalServiceDeps {
   store: ApprovalsRepository
@@ -111,8 +113,20 @@ export interface ApprovalServiceDeps {
    * REQUIRED, and required is the point (PDM-414). This service registers
    * itself in its constructor, so the queue-discard -> settlement path is part
    * of CONSTRUCTING the broker rather than a line in a composition root that can
-   * be deleted without any test noticing. An optional dep would have left the
-   * production wiring exactly as unwitnessed as it was.
+   * be deleted without any test noticing.
+   *
+   * WHAT THAT DOES AND DOES NOT GUARANTEE, precisely, because the difference is
+   * easy to overstate:
+   *   COMPILE TIME — a root that OMITS this dep does not typecheck. That is the
+   *     whole of the static guarantee.
+   *   RUNTIME — a root that passes a dep which registers nothing (`() => () =>
+   *     {}`, as this module's own fixtures do) compiles and silently wires
+   *     nothing. No type can distinguish a real subscription from a no-op one.
+   *   WITNESSED — `discard-wiring.test.ts` binds a REAL `MachinesService` to a
+   *     REAL `ApprovalService`, so it proves the constructor registration works
+   *     against the real queue. It does NOT prove that `relay.ts` passes a real
+   *     dep rather than a no-op; that single line is covered by review, not by
+   *     a test.
    */
   onDeliveryDiscarded(
     sink: (delivery: { kind: 'control' | 'input'; message?: ControlMessage }) => void,
@@ -221,11 +235,39 @@ export class ApprovalService {
     // composition root can forget to connect the two halves.
     this.unsubscribeDiscarded = deps.onDeliveryDiscarded((delivery) => {
       if (delivery.message?.type !== 'approvalExecRequest') return
-      void this.onExecDiscarded(delivery.message.requestId)
+      // THE SINK IS SYNCHRONOUS AND THIS IS NOT. `MachinesService` wraps each
+      // sink call in try/catch so a listener cannot break the flush — but that
+      // catch returns before this promise settles and CANNOT see its rejection.
+      // Without a catch here a store failure becomes an unhandled rejection,
+      // which on this runtime is process-level noise at best and a crash at
+      // worst, for an error path whose correct behaviour is: report it and leave
+      // the row alone. The stall sweep is the backstop for a row left executing.
+      this.settleDiscarded(delivery.message.requestId)
     })
   }
 
-  /** Drop the refused-dispatch subscription. */
+  /**
+   * Settle a refused dispatch from a SYNCHRONOUS caller, absorbing failure.
+   *
+   * Exposed (not private) so a test can await the same path the sink drives
+   * rather than racing it with a timer, which is what makes the rejection
+   * behaviour pinnable instead of merely unobserved.
+   */
+  settleDiscarded(requestId: string): Promise<void> {
+    return this.onExecDiscarded(requestId).catch((err) => {
+      log.warn('settling a refused approval dispatch failed', { requestId, err: describeError(err) })
+    })
+  }
+
+  /**
+   * Drop the refused-dispatch subscription.
+   *
+   * WIRED, not decorative: `RelayServer.dispose` calls it alongside
+   * `modules.machines.dispose()`. Both ends matter — the machines service is
+   * what holds the sink, so a broker that outlived its disposal would keep
+   * settling rows against a store the shutdown is closing (the POD-1390 /
+   * POD-2772 hazard this block exists for).
+   */
   dispose(): void {
     this.unsubscribeDiscarded()
   }

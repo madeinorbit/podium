@@ -1534,10 +1534,17 @@ describe('MachinesService parked frames and a machine that changes hands', () =>
     // have a frame parked for it and then be handed over, with that handover as
     // the FIRST write this service ever observes.
     //
-    // THE DISCRIMINATING PART IS THAT NOTHING ATTACHES FIRST. The other handover
-    // tests attach a daemon before parking, and `attach` records the durable
-    // daemon component — a committed write that SEEDS the owner map. Attaching
-    // first is what made the earlier revision look safe when it was not.
+    // WHAT THIS ONE DISCRIMINATES, stated precisely: NOTHING ATTACHES FIRST. The
+    // other handover tests attach a daemon before parking, and `attach` records
+    // the durable daemon component — a committed write that would seed the owner
+    // map as a side effect of the setup. Attaching first is what made the
+    // earlier revision look safe when it was not.
+    //
+    // The map IS seeded here, from PERSISTENCE: `storedService` awaits
+    // `ownersSeeded`. That is the point — the baseline must come from the
+    // startup read rather than from a write the test happened to perform. The
+    // PRE-SEED window is covered separately, below, because production callers
+    // do NOT await the seed.
     const { svc, store } = await storedService()
     const input: DaemonPtyInputBatch = {
       sessionId: asSessionId('s1'),
@@ -1562,6 +1569,123 @@ describe('MachinesService parked frames and a machine that changes hands', () =>
 
     expect(daemon).toEqual([])
     expect(received).toEqual([])
+  })
+
+  /**
+   * A service whose startup owner-seed is HELD OPEN, so a test can act in the
+   * window production actually lives in.
+   *
+   * WHY THIS EXISTS. `storedService` awaits `ownersSeeded`, so every witness
+   * built on it runs in a world where seeding has already finished — and NO
+   * PRODUCTION CALLER AWAITS IT. A guard that only holds after the seed settles
+   * would be a guard that passes because the test setup created the condition it
+   * needs, which is the exact shape of the defect PDM-413 was filed for.
+   */
+  async function deferredSeedService(): Promise<{
+    svc: MachinesService
+    store: SessionStore
+    settleSeed: (rows: unknown[]) => void
+    failSeed: (err: unknown) => void
+  }> {
+    const store = await SessionStore.open(':memory:')
+    await store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi.local',
+      tokenHash: 'token-hash',
+      ownerUserId: firstAdminMemberId(),
+    })
+    let settleSeed!: (rows: unknown[]) => void
+    let failSeed!: (err: unknown) => void
+    const gate = new Promise<unknown[]>((resolve, reject) => {
+      settleSeed = resolve
+      failSeed = reject
+    })
+    // Prototype-chained overrides: every other repository method, and crucially
+    // the SAME `committed` stream real writes publish on, still resolve through
+    // to the real store.
+    const machinesRepo = Object.create(store.machines) as typeof store.machines
+    Object.defineProperty(machinesRepo, 'listMachines', { value: () => gate })
+    const storeProxy = Object.create(store) as SessionStore
+    Object.defineProperty(storeProxy, 'machines', { value: machinesRepo })
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store: storeProxy,
+      hostMachineId: store.hostMachineId,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    } satisfies MachinesDeps)
+    return { svc, store, settleSeed, failSeed }
+  }
+
+  test('PRE-SEED: a handover arriving before the startup read resolves still refuses', async () => {
+    // The window every production caller is in. Nothing has seeded, so there is
+    // no baseline to compare the handover against — and the conservative branch
+    // must refuse a NON-EMPTY queue rather than trust it.
+    const { svc, store, settleSeed } = await deferredSeedService()
+    const input: DaemonPtyInputBatch = {
+      sessionId: asSessionId('s1'),
+      inputOrigin: 'human',
+      bytes: Uint8Array.of(0x6c, 0x73, 0x0d),
+    }
+
+    svc.toMachine(MACHINE, approvalExec)
+    svc.toPtyInput(MACHINE, input)
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    const control: ControlMessage[] = []
+    const received: DaemonPtyInputBatch[] = []
+    await svc.attach(MACHINE, { send: (m) => control.push(m), sendInput: (b) => received.push(b) })
+    svc.flushQueued(MACHINE)
+
+    expect(control).toEqual([])
+    expect(received).toEqual([])
+    settleSeed([])
+    await svc.ownersSeeded
+  })
+
+  test('FAILED SEED: a startup read that throws leaves the queue refusing, not trusting', async () => {
+    // `seedCommittedOwners` swallows its error so boot survives. That must fail
+    // CLOSED: every machine stays unseeded, so the conservative branch governs.
+    const { svc, store, failSeed } = await deferredSeedService()
+
+    failSeed(new Error('the store is unavailable'))
+    await svc.ownersSeeded
+
+    svc.toMachine(MACHINE, approvalExec)
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([])
+  })
+
+  test('a LATE seed never overwrites an owner already learned from a committed write', async () => {
+    // The startup read is older than anything the write stream delivered while it
+    // was in flight. If a late seed clobbered the newer value, the baseline would
+    // regress to a stale owner and the NEXT write would read as a change that did
+    // not happen — refusing traffic forever on a machine nobody touched.
+    const { svc, store, settleSeed } = await deferredSeedService()
+
+    // A committed write lands FIRST, while the seed is still open.
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+    // ...then the stale startup read resolves, still claiming the old owner.
+    settleSeed([{ id: MACHINE, ownerUserId: firstAdminMemberId() }])
+    await svc.ownersSeeded
+
+    // Park, then re-commit the owner the write stream already reported. If the
+    // stale seed had won, this would look like bob <- alice, i.e. a change.
+    svc.toMachine(MACHINE, approvalExec)
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send)
+    svc.flushQueued(MACHINE)
+
+    expect(daemon.got).toEqual([approvalExec])
   })
 
   test('an unchanged machine still flushes its parked frames in order', async () => {
