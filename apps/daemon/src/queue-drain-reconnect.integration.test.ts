@@ -154,7 +154,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       await settled()
 
       const { sessionId } = await registry.modules.sessions.createSession({
-        ownerUserId: firstAdminMemberId(),
+        ownerUserId: await firstAdminMemberId(registry.sessionStore),
         agentKind: 'claude-code',
         cwd: '/repo',
       })
