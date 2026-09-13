@@ -103,6 +103,96 @@ describe('the gate reports POD-385’s finding when it is restored', () => {
 })
 
 // ---------------------------------------------------------------------------
+// The four tables the multi-user epic added, pinned INDEPENDENTLY of the sweep
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THESE FOUR NEED A TEST OF THEIR OWN, when `auditRepo()` above already
+ * asserts the whole inventory is exhaustive.
+ *
+ * Because that assertion is RED, and was red before this epic started: the sweep
+ * reports findings inherited from long before these tables existed, so a fifth
+ * one changes a number nobody reads. That is not a hypothetical — it is how
+ * these four landed. `member_invites`, `issue_participants`, `managed_credentials`
+ * and `ownership_migration_dispositions` were added undeclared, the gate went
+ * from 68 findings to 72, and nothing anywhere said so. A guard that only fires
+ * by making a red test redder is not a guard.
+ *
+ * So this block asserts the same obligation for exactly the four, and it PASSES
+ * today. Delete one of their entries and this goes red on its own, with the
+ * table named, while the sweep above carries on reporting its inherited 68.
+ *
+ * IF ONE OF THESE TABLES IS LEGITIMATELY DROPPED, delete it from this list in the
+ * same commit that drops it. The list is the four this epic added, not a floor —
+ * `drizzle-table-stale` is what catches a declaration outliving its table.
+ */
+describe('the tables the multi-user epic added are each classified', () => {
+  const EPIC_TABLES = [
+    'member_invites',
+    'issue_participants',
+    'managed_credentials',
+    'ownership_migration_dispositions',
+  ] as const
+
+  const schemas = (): { file: string; source: string }[] =>
+    readSources([
+      'apps/server/src/migrations/schema.ts',
+      'packages/sync/src/adapters/sqlite/schema.ts',
+    ])
+
+  for (const table of EPIC_TABLES) {
+    it(`${table} is declared, once, and says what classifies it`, () => {
+      const entries = DURABLE_STORES.filter((s) => s.store === table)
+      expect(entries.length, `${table} must have exactly one entry`).toBe(1)
+      const entry = entries[0] as DurableStore
+      if (entry.row === null) {
+        // The `null` arm is a REASON, and the gate checks it for length because
+        // an empty one is a shrug. Asserted here too so the arm cannot be taken
+        // by accident on a table that ought to name a row.
+        expect((entry.notEntityState ?? '').length).toBeGreaterThanOrEqual(60)
+      } else {
+        // MEMBERSHIP, not resolution. `visibilityClassOf` would answer `personal`
+        // for a row id that does not exist, which is the POD-731 hole; only the
+        // index can tell a real row from a plausible string.
+        expect(
+          OWNERSHIP_MATRIX_INDEX.has(entry.row),
+          `${table} names a row that is not on the matrix: ${entry.row}`,
+        ).toBe(true)
+      }
+    })
+
+    it(`${table} is what makes the gate quiet about ${table}`, () => {
+      // The discriminating half. Without it the test above passes on an entry
+      // that happens to sit in the array while something else is what silenced
+      // the check — and then removing the entry would change nothing.
+      const withoutIt = DURABLE_STORES.filter((s) => s.store !== table)
+      expect(withoutIt.length).toBe(DURABLE_STORES.length - 1)
+      const reported = (inventory: readonly DurableStore[]): string[] =>
+        checkDrizzleTables(schemas(), inventory)
+          .filter((f) => f.check === 'drizzle-table-undeclared')
+          .map((f) => f.where)
+      expect(reported(withoutIt).join('\n')).toContain(table)
+      expect(reported(DURABLE_STORES).join('\n')).not.toContain(table)
+    })
+  }
+
+  it('a typo in any of their row ids is still caught', () => {
+    // The four are only safe while the row they name is real. A test that asserts
+    // membership and never plants a miss cannot tell a live index from an empty
+    // one, so plant the miss and its counterfactual for each named row.
+    for (const table of EPIC_TABLES) {
+      const entry = DURABLE_STORES.find((s) => s.store === table) as DurableStore
+      if (entry.row === null) continue
+      expect(
+        checkMatrixMembership([{ ...entry, row: `${entry.row}x` }]).map((f) => f.check),
+        `a bad row id under ${table} must be reported`,
+      ).toContain('store-names-a-row-that-does-not-exist')
+      expect(checkMatrixMembership([entry])).toEqual([])
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The scanner's own blind spots, pinned
 // ---------------------------------------------------------------------------
 

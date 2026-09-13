@@ -157,6 +157,25 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'issues', kind: 'drizzle-table', row: 'issue-core' },
   { store: 'issue_deps', kind: 'drizzle-table', row: 'issue-graph' },
   { store: 'issue_labels', kind: 'drizzle-table', row: 'issue-core' },
+  // A2 (PDM-107 phase A). `task-participation` was added to the matrix in the
+  // same commit as the table (68e8d23e0) and names `issue_participants` in its
+  // own `sites`, so this entry records a membership the row already claims.
+  //
+  // DELIBERATELY NOT `grant-edge`, which is the neighbouring row and the one a
+  // reader reaches for. A grant is an authorization INPUT that
+  // `GrantEdgeVisibilityPolicy` reads live on the fan-out path; a participation
+  // row is a DESCRIPTION that grants nothing, which is why it has no verb, no
+  // scope and no expiry. Classifying it as a grant is how participation would
+  // quietly become a second authorization vocabulary — the exact thing the
+  // table's own header and the row's `grants` cell both exist to refuse.
+  { store: 'issue_participants', kind: 'drizzle-table', row: 'task-participation' },
+  {
+    store: 'ownership_migration_dispositions',
+    kind: 'drizzle-table',
+    row: null,
+    notEntityState:
+      'EVIDENCE ABOUT A SCHEMA CHANGE, not state the product owns. One row is one ambiguous `issues.assignee` that the A2 migration had to adjudicate when it retired the column; it is keyed `(migration, entity_kind, entity_id)`, written once by the migration that produced it, and append-only by CHECK constraint. Nothing in the product reads it, no wire projection carries it, and it has no lifecycle after the upgrade that wrote it. The argument the other way is worth stating because it is nearly good: the row names three people (`prior_owner`, `resolved_owner`, `retired_assignee`), and a table full of `UserId`s looks like a class with an owner. It is not one. Those ids are the SUBJECT of a finding about a column that no longer exists, the way a migration ledger entry names the table it altered — and an owner would carry exactly the wrong lifecycle, because this table deliberately has NO foreign key so the evidence survives the task being deleted, which is precisely when someone goes looking for it. An owned row is one that transfers, cascades, or dies with its owner, and all three would destroy the only surviving copy of the value that was retired. It is also deliberately not `settings-audit-trail`, a different thing wearing the same append-only shape: that trail is written by the settings COMMAND path, ordered by an autoincrement id, and redacted through each contract’s own metadata — none of those three mechanisms exists here.',
+  },
   { store: 'issue_comments', kind: 'drizzle-table', row: 'issue-comments' },
   { store: 'issue_messages', kind: 'drizzle-table', row: 'issue-messages' },
   { store: 'issue_user_state', kind: 'drizzle-table', row: 'issue-message-read-at' },
@@ -251,6 +270,22 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // directions rather than inheriting either.
   { store: 'user_preferences', kind: 'drizzle-table', row: 'preferences-personal-keys' },
   { store: 'accounts', kind: 'drizzle-table', row: 'managed-credentials' },
+  // PDM-280. THE SAME CLASS AS `accounts` ABOVE, which is why it names the same
+  // row: this is the replacement table and every reader moved to it in one
+  // commit. The key became `(owner_user_id, id)` so a credential belongs to a
+  // PERSON rather than to the instance, and that changes who is ACCOUNTABLE for
+  // a key, not what a key is — it is still `secret-value` at rest, its values
+  // still never replicate, and `manage` is still admin-grade. Two stores on one
+  // row is ordinary here (the three session-observation tables share theirs);
+  // what would be wrong is a second ROW, because then the retired table and its
+  // replacement would give two answers for the one release in which both exist.
+  // `accounts` goes at PDM-296 and this entry outlives it.
+  //
+  // WHAT THIS ENTRY DOES NOT DO is re-cell the matrix row, and that is a gap
+  // rather than a decision: `managed-credentials` still lists only
+  // `accounts.credential` under `sites`, so a reader arriving from the matrix
+  // lands on the table PDM-296 deletes. Recorded as a finding, not fixed here.
+  { store: 'managed_credentials', kind: 'drizzle-table', row: 'managed-credentials' },
   { store: 'execution_profiles', kind: 'drizzle-table', row: 'workflow-execution-profiles' },
   {
     store: '<stateDir>/config.json',
@@ -373,6 +408,39 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   { store: 'users', kind: 'drizzle-table', row: 'user-account' },
   { store: 'user_credentials', kind: 'drizzle-table', row: 'account-credential' },
+  // AN INVITE IS CREDENTIAL MATERIAL, and the schema says so in the one line
+  // above the table: only the token’s HASH is persisted, and there is no sync
+  // projection. The plaintext token is returned exactly once, by
+  // `MemberInvites.create`, and is never stored; `tokenHash` is stripped from
+  // every projection the service builds, so the secret VALUE reaches nobody
+  // and only the surrounding metadata is ever shown.
+  //
+  // `account-credential` RATHER THAN `user-account`, and the choice is
+  // default-closed rather than convenient. An invite is the pending half of
+  // account lifecycle, and `user-account` is where that lifecycle is named —
+  // its `grants` cell says invite/disable/remove is admin-grade — so that row
+  // is the obvious reach. It is also the wrong one: it is `personal` and
+  // replicates server-to-clients, and a row whose `member_id` may be NULL is
+  // nobody’s profile. Filing a bearer token under the class of the thing it
+  // lets someone BECOME would widen a secret by one hop. Every cell of
+  // `account-credential` holds instead: `secret-value` at rest; `none`
+  // replication; `cmd` conflict, because create/revoke/claim are commands and
+  // there is no field for two writers to race on; `hard-delete` tombstone —
+  // `deleteInvite` removes the row, `complete` consumes it, and `removeMember`
+  // deletes a member’s invites outright; `never-enqueue` offline; and
+  // `secret-admin-grade` grants, since `create`, `list` and `revoke` each test
+  // `roleOf(actor) === 'admin'` before doing anything. The claim path
+  // (`inspect`, `complete`) is authenticated by PRESENTING the secret rather
+  // than by a role, which is the behaviour of a credential and not of a
+  // profile — it is the strongest evidence for this cell, not an exception to it.
+  //
+  // WHAT THIS ENTRY DOES NOT SETTLE: whether ADR 1 should carry a row of its
+  // own for a pending invite. `account-credential`’s `sites` names
+  // `user_credentials` and the instance password, not this table, and an invite
+  // carries a role and an expiry no other credential does. The store is
+  // classified conservatively here so that it is not INVISIBLE; the ADR
+  // question is recorded as a finding rather than answered by a declaration.
+  { store: 'member_invites', kind: 'drizzle-table', row: 'account-credential' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   {
