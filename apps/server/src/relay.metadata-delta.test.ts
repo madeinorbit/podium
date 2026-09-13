@@ -143,11 +143,17 @@ describe('SessionRegistry metadata deltas', () => {
     // write exactly as it does on every write — the ledger is what decided there
     // was nothing to say.
     //
-    // This test used to name `issueExecution` here, which is the half of it that
-    // went stale, and the stale half was the ENTITY LIST rather than the count:
-    // two was always the right number for a notes edit. Leg B below is what
-    // keeps this leg honest, because "two rows, no sidecar" is also what a
-    // producer that had stopped emitting the sidecar ENTIRELY would look like.
+    // AND THE `issueExecution` THIS LIST NAMED WAS NEVER TRUE HERE. B4
+    // (303531aff) added it to both of this test's kind lists and left the
+    // `toBe(2)` poll two lines above them untouched — a list of three beside a
+    // count of two, in one test, which is the tell that the edit was not re-run.
+    // So the stale half was the ENTITY LIST and not the count: two was always
+    // the right number for a notes edit, before B4 and after it. (The other
+    // failing assertion, on the create path, B4 never touched at all.)
+    //
+    // Leg B below is what keeps this leg honest, because "two rows, no sidecar"
+    // is also what a producer that had stopped emitting the sidecar ENTIRELY
+    // would look like.
     await registry.issues.update(w.id, { notes: 'self-contained edit' })
     flush(registry)
 
