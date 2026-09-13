@@ -30,6 +30,25 @@
  * forces `online-sensitive` delivery through `classificationErrors`, so the thing
  * that matters most — a credential is never queued, never replayed — is enforced
  * by the type rather than promised in a comment.
+ *
+ * ---------------------------------------------------------------------------
+ * THE FAMILY NO LONGER SHARES ONE FLOOR, AND THAT IS THE DESIGN (PDM-302)
+ * ---------------------------------------------------------------------------
+ *
+ * `connect` and `disconnect` are `member`. `login` is `admin`. A reader meeting
+ * that split will reasonably suspect a half-finished edit, so: it is not.
+ *
+ * The two credential writes were graded `admin` because the managed credential
+ * was an INSTANCE-WIDE SINGLETON — one row every agent on the box billed
+ * against. PDM-280 keyed it `(owner_user_id, id)`, and both handlers now write
+ * and delete inside the CALLER'S OWN credentials. The floor was standing in for
+ * an isolation the schema did not have; the schema has it, so the floor came
+ * down to the grade a per-entity write actually deserves.
+ *
+ * `login` never had that property to lose. It drives the host's native CLI
+ * credential store, which is shared by every agent on that machine no matter who
+ * typed it, and it is bounded per-person by `machineVerb: 'use'` instead. Each
+ * contract's own `rationale` carries the long form.
  */
 
 import { AccountIdField, HarnessAgent, MachineIdField } from '@podium/model'
@@ -122,16 +141,23 @@ export const accountsConnectContract = {
   input: accountsConnectInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'none',
     rationale:
       'Stores credential material Podium will INJECT INTO SPAWNED AGENT PROCESSES, so `resource: ' +
-      'secret` — which also forces `online-sensitive` through the lint — and `manage`/`admin`, ' +
-      'because whoever writes this decides which account every agent on this instance bills and ' +
-      'acts as. That is strictly stronger than any per-entity write, which is why it is not graded ' +
-      '`write` despite being a single row insert. No confirmation: connecting is additive and ' +
-      'reversible by `disconnect`, and the destructive direction carries the gate.',
+      'secret` — which also forces `online-sensitive` through the lint. THE FLOOR WAS `admin` AND ' +
+      'IS NOW `member` (PDM-302); the reason is recorded here because a weakened floor invites the ' +
+      'next reader to restore it. The old rationale justified `admin` like this: "whoever writes ' +
+      'this decides which account EVERY AGENT ON THIS INSTANCE bills and acts as. That is strictly ' +
+      'stronger than any per-entity write." That sentence was TRUE of an instance-wide singleton, ' +
+      'and PDM-280 removed exactly the property it named — the row is keyed `(owner_user_id, id)` ' +
+      'and the handler writes through `accounts.upsert(callerUserId, …)`, so connecting a key now ' +
+      'decides what MY agents bill. It HAS BECOME the per-entity write the old rationale contrasted ' +
+      'itself against, which is why `member` is the grade that matches rather than a concession. ' +
+      'WHAT KEEPS THIS SAFE IS THE KEYING, NOT THE FLOOR: revert the row to an instance singleton ' +
+      'and this must go back to `admin` in the same commit. No confirmation: connecting is additive ' +
+      'and reversible by `disconnect`, and the destructive direction carries the gate.',
   },
   exposure: SERVED_ON,
   delivery: ACCOUNT_DELIVERY,
@@ -154,8 +180,10 @@ export const accountsConnectContract = {
     note:
       'Mints a managed credential row owned by the human the write was made on behalf of, NOT by the ' +
       'agent that may have typed it (ADR 9 D5 A4). `inheritanceOnCreate: on-behalf-of-human` rather ' +
-      'than `parent` because there is no parent to inherit from: a credential is instance-scoped, ' +
-      'and the only meaningful owner is the person accountable for it.',
+      'than `parent` because there is no parent entity to inherit from, and the only meaningful ' +
+      'owner is the person accountable for it. Since PDM-280 that declaration is STORED rather ' +
+      'than aspirational — the row carries `owner_user_id` — which is the fact PDM-302 lowered ' +
+      'the floor on.',
   },
   attribution: ACCOUNT_ATTRIBUTION,
   errorConsistency: {
@@ -179,11 +207,16 @@ export const accountsDisconnectContract = {
   input: accountsDisconnectInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'Removes a stored credential. Same grade and resource as `connect`; what differs is ' +
+      'Removes a stored credential. Same grade and resource as `connect` — INCLUDING the `member` ' +
+      'floor PDM-302 dropped it to, and for the same reason read from the other end: the handler ' +
+      'deletes through `accounts.remove(callerUserId, id)`, so the only row this command can reach ' +
+      "is the caller's own. A member disconnecting `managed:anthropic` removes THEIR slot and " +
+      "leaves every other person's intact; that isolation is the property the floor used to stand " +
+      'in for, and it is now structural. What differs from `connect` is ' +
       '`confirmation: "confirm"`, because this is the destructive direction and ADR 1’s row is ' +
       '`hard-delete` — the value is GONE, no tombstone, no recovery, and every agent spawning ' +
       'against it starts failing. ADR 3 D2 puts destructive writes behind a confirmation. Worth ' +
@@ -215,7 +248,10 @@ export const accountsDisconnectContract = {
       'principal may not see fails exactly as one that does not exist — and the id space is ' +
       'guessable (`managed:<provider>`), which makes the oracle a real one rather than theoretical. ' +
       'M5’s carve-out does not apply, since no machine is nameable, so there is nothing to keep ' +
-      'distinguishable.',
+      'distinguishable. PDM-280 made that answer STRUCTURAL rather than a second error path: ' +
+      "another person's row is not in this caller's namespace, so removing it does exactly what " +
+      'removing a row that never existed does — nothing, silently. That is what let PDM-302 drop ' +
+      'the floor here without opening an oracle.',
   } satisfies ErrorConsistency,
   conflict: 'cmd',
   conflictRule: 'Idempotent revocation; disconnecting an already-disconnected account is a no-op',
@@ -233,7 +269,20 @@ export const accountsLoginContract = {
     confirmation: 'none',
     machineVerb: 'use',
     rationale:
-      'Starts an interactive provider CLI on owned compute. It is admin-only and machine-use gated because it changes the native account available to every agent on that host.',
+      'Starts an interactive provider CLI on owned compute. It is admin-only and machine-use gated ' +
+      'because it changes the native account available to every agent on that host. ' +
+      'ITS FLOOR DID NOT MOVE WHEN `connect` AND `disconnect` DROPPED TO `member` (PDM-302), AND ' +
+      'THE DIVERGENCE INSIDE ONE FAMILY IS DELIBERATE — do not harmonize it. PDM-280 gave MANAGED ' +
+      "CREDENTIALS an owner column; a native login writes the HOST'S CLI credential store, which " +
+      'is still shared by every agent on that machine, so the property the two credential writes ' +
+      'lost is one this command never had. Its sentence above is still literally true. Two further ' +
+      "reasons a hand edit here would be wrong rather than merely early: `relay.ts`'s " +
+      "`authorizerFor` hard-codes its own `role !== 'admin'` refusal OUTSIDE this contract, so " +
+      'lowering the floor would change nothing a caller can observe and would leave this policy ' +
+      'declaring what the server does not implement; and `NativeLoginService.startInScope` reuses ' +
+      'an in-flight attempt by HARNESS alone, returning its session and machine BEFORE the ' +
+      'machine-use recheck, so a lower floor widens that disclosure from admin-to-admin to ' +
+      'anyone-to-admin. Both are filed; this floor moves when they are closed, not before.',
   },
   exposure: SERVED_ON,
   delivery: {

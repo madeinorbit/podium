@@ -62,7 +62,11 @@ type Caller = ReturnType<typeof appRouter.createCaller>
  * the way catalogue entry 14 describes. The grade the gate reads is the one in
  * the users table, which is the only place it is written.
  */
-async function harness(): Promise<{ admin: Caller; member: Caller }> {
+async function harness(): Promise<{
+  admin: Caller
+  member: Caller
+  accounts: SessionRegistry['sessionStore']['accounts']
+}> {
   const registry = await SessionRegistry.create(undefined, undefined, {
     instanceId: 'role-floor-test',
   })
@@ -92,7 +96,11 @@ async function harness(): Promise<{ admin: Caller; member: Caller }> {
     } as Parameters<typeof appRouter.createCaller>[0])
   }
 
-  return { admin: await mint(ADMIN, 'admin'), member: await mint(MEMBER, 'member') }
+  return {
+    admin: await mint(ADMIN, 'admin'),
+    member: await mint(MEMBER, 'member'),
+    accounts: registry.sessionStore.accounts,
+  }
 }
 
 afterEach(async () => {
@@ -104,26 +112,77 @@ afterEach(async () => {
 const refusalFor = (qualified: string): RegExp =>
   new RegExp(`${qualified.replace('.', '\\.')} requires an admin account`)
 
-describe('accounts — the credential every agent on the instance bills against', () => {
-  it('refuses a member BY NAME and serves the same call to an admin', async () => {
-    const { admin, member } = await harness()
-    const input = { id: asAccountId('managed:anthropic') }
+/**
+ * ACCOUNTS NOW WITNESSES THE OPPOSITE OF WHAT IT DID, AND THAT IS THE POINT.
+ *
+ * Under PDM-294 these two cases asserted that a member is REFUSED `connect` and
+ * `disconnect`. PDM-280 keyed managed credentials `(owner_user_id, id)` and
+ * PDM-302 dropped both floors to `member`, so a member must now succeed — the
+ * human-facing defect was a member told to set their key in Settings by a
+ * server that would refuse them.
+ *
+ * A "member can now do it" test on its own would pass against a gate that had
+ * been deleted outright, which is why the second case is here: THE FLOOR CAME
+ * DOWN, THE ISOLATION DID NOT. The member's write must land in the member's
+ * row and leave the admin's untouched, read back off the store rather than
+ * inferred from a resolved promise. That assertion is the one that fails if the
+ * per-person keying is ever reverted, and it is what makes dropping the floor
+ * safe rather than merely convenient.
+ *
+ * The BUILDER is still witnessed either way: `perf` and `logs` below carry the
+ * admin arm independently, so accounts leaving the admin-floor set costs this
+ * file none of its coverage of the gate itself.
+ */
+describe('accounts — a credential that belongs to one person', () => {
+  const KEY = { provider: 'anthropic', kind: 'api-key', credential: 'sk-not-a-real-key' }
+  const connectAs = async (caller: Caller, credential: string): Promise<unknown> =>
+    await caller.accounts.connect({ ...KEY, credential } as Parameters<
+      typeof caller.accounts.connect
+    >[0])
 
-    await expect(member.accounts.disconnect(input)).rejects.toThrow(
-      refusalFor('accounts.disconnect'),
-    )
-    await expect(admin.accounts.disconnect(input)).resolves.toEqual({ ok: true })
+  it('lets a member connect their OWN key, which the admin floor used to refuse', async () => {
+    const { member, accounts } = await harness()
+
+    await expect(connectAs(member, 'sk-member-key')).resolves.toEqual({ id: 'managed:anthropic' })
+
+    // Landed in the member's credentials, named. A resolved promise alone would
+    // also be produced by a handler that wrote nothing.
+    const stored = await accounts.get(MEMBER, 'managed:anthropic')
+    expect(stored?.provider).toBe('anthropic')
   })
 
-  it('refuses a member to CONNECT a credential, which is the write that costs money', async () => {
-    const { member } = await harness()
+  it('still cannot reach anyone else — the floor came down, the isolation did not', async () => {
+    const { admin, member, accounts } = await harness()
+
+    await connectAs(admin, 'sk-admin-key')
+    await connectAs(member, 'sk-member-key')
+
+    // Two people, one slot NAME, two rows. If the row were an instance
+    // singleton again the second connect would have overwritten the first.
+    expect((await accounts.get(ADMIN, 'managed:anthropic'))?.credential).toBe('sk-admin-key')
+    expect((await accounts.get(MEMBER, 'managed:anthropic'))?.credential).toBe('sk-member-key')
+
+    // `disconnect` takes a caller-supplied id and the id space is guessable, so
+    // this is the reachable attack if keying were reverted: the member asks to
+    // remove the slot by name. It resolves — the contract's errorConsistency
+    // says an unreachable row fails as a nonexistent one, silently — and the
+    // admin's row must survive it.
     await expect(
-      member.accounts.connect({
-        provider: 'anthropic',
-        kind: 'api-key',
-        credential: 'sk-not-a-real-key',
-      } as Parameters<typeof member.accounts.connect>[0]),
-    ).rejects.toThrow(refusalFor('accounts.connect'))
+      member.accounts.disconnect({ id: asAccountId('managed:anthropic') }),
+    ).resolves.toEqual({ ok: true })
+
+    expect((await accounts.get(ADMIN, 'managed:anthropic'))?.credential).toBe('sk-admin-key')
+    expect(await accounts.get(MEMBER, 'managed:anthropic')).toBeUndefined()
+  })
+
+  it('accounts.login KEPT its admin floor, so the family split is witnessed here too', async () => {
+    const { member } = await harness()
+    // A VALID harness, deliberately: an invalid one is rejected by the input
+    // schema before the gate is reached, and would assert nothing about the
+    // floor. `refusalFor` matches the floor's own wording, not any refusal.
+    await expect(member.accounts.login({ harness: 'claude-code' })).rejects.toThrow(
+      refusalFor('accounts.login'),
+    )
   })
 })
 

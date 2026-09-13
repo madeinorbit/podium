@@ -1,6 +1,7 @@
 /**
  * THE ROLE-FLOOR DECISION (PDM-294) — what eighteen contracts declared and
- * nothing read.
+ * nothing read, and (PDM-302) what happens to this suite when one of them
+ * legitimately moves.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS SUITE HAS TO BE ABLE TO SAY
@@ -28,7 +29,7 @@
  * is `derived-family.role-floor.test.ts`, over a real store and the real router.
  */
 
-import { ACCOUNT_CONTRACTS, type AnyCommandContract } from '@podium/commands'
+import { ACCOUNT_CONTRACTS, type AnyCommandContract, SETUP_CONTRACTS } from '@podium/commands'
 import { asSessionId, asUserId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../command-principal'
@@ -131,19 +132,24 @@ describe('the table these cases run over is the shipped one', () => {
    * NON-VACUITY, pinned before any `it.each` uses the list. A list that silently
    * shrank would report a clean pass about nothing (catalogue entry 9).
    *
-   * EIGHTEEN, and the eighteenth is worth naming because the pin caught it. The
-   * census counted eighteen admin-floor contracts that nothing enforced, of
-   * which SEVENTEEN are served through this builder — `operations.cancel` is the
-   * other, and operations hand-writes its procedures and joins them to no
-   * contract table. But the builder's own admin-floor set is also eighteen, and
-   * it is a DIFFERENT eighteen: it includes `setup.activate`, which was already
-   * enforced inside `InstanceService.requireAdmin()`. The two counts coincide by
-   * accident, which is exactly the kind of agreement a written-out list is for.
+   * SIXTEEN SINCE PDM-302, and the arithmetic is worth keeping because the pin is
+   * what makes a floor change loud. It was EIGHTEEN under PDM-294, and that
+   * eighteen was already a coincidence worth distrusting: the census counted
+   * eighteen admin-floor contracts that nothing enforced, of which SEVENTEEN are
+   * served through this builder (`operations.cancel` is the other, and operations
+   * hand-writes its procedures and joins them to no contract table), while the
+   * builder's own admin-floor set was a DIFFERENT eighteen that included
+   * `setup.activate` — already enforced inside `InstanceService.requireAdmin()`.
+   * Two counts agreeing by accident is exactly what a written-out list is for.
+   *
+   * PDM-302 dropped `accounts.connect` and `accounts.disconnect` to `member`
+   * once PDM-280 keyed managed credentials per person, so they leave this list
+   * and join MEMBER_FLOOR below. `accounts.login` STAYS — it writes the host's
+   * shared native CLI store, not a per-person row — so the family is split on
+   * purpose and this list is where that split is asserted rather than described.
    */
   it('carries every admin-floor contract the derived families declare', () => {
     expect(ADMIN_FLOOR.map((c) => c.qualified).sort()).toEqual([
-      'accounts.connect',
-      'accounts.disconnect',
       'accounts.login',
       'auth.setLoginRequired',
       'cloud.createAgent',
@@ -165,6 +171,47 @@ describe('the table these cases run over is the shipped one', () => {
 
   it('also carries member-floor contracts, so the member arm is not vacuous', () => {
     expect(MEMBER_FLOOR.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * THE ACCOUNTS FAMILY IS SPLIT ON PURPOSE (PDM-302).
+ *
+ * The derived lists above already redden if a grade moves, but they say it as
+ * an arithmetic difference in an eighteen-line array. These three say it by
+ * name, because the risk this change carries is not a wrong list — it is a
+ * later reader meeting a weakened floor on a credential write and restoring it.
+ *
+ * The reason lives in the contracts' own rationales. In one line: PDM-280 keyed
+ * managed credentials `(owner_user_id, id)`, so `connect` and `disconnect`
+ * became per-entity writes; `login` drives the host's SHARED native CLI store
+ * and did not.
+ */
+describe('the accounts credential writes are member-floor and login is not', () => {
+  it.each([
+    ['connect', ACCOUNT_CONTRACTS.connect],
+    ['disconnect', ACCOUNT_CONTRACTS.disconnect],
+  ] as const)('accounts.%s is member-floor, so this gate does not consult it', (name, contract) => {
+    expect(contract.policy.roleFloor).toBe('member')
+    expect(roleFloorIsGated(contract as AnyCommandContract)).toBe(false)
+    // Both grades and no grade at all are served identically — the gate is not
+    // merely lenient to members, it is out of the way. A member with no account
+    // row is the case an instance in open mode actually produces.
+    for (const role of ['member', 'admin', undefined] as (UserRole | undefined)[]) {
+      expect(
+        roleFloorFailure(`accounts.${name}`, contract as AnyCommandContract, { principal: human, role }),
+      ).toBeUndefined()
+    }
+  })
+
+  it('accounts.login did NOT move, and a harmonizing edit must fail here', () => {
+    expect(ACCOUNT_CONTRACTS.login.policy.roleFloor).toBe('admin')
+    expect(
+      roleFloorFailure('accounts.login', ACCOUNT_CONTRACTS.login as AnyCommandContract, {
+        principal: human,
+        role: 'member',
+      })?.code,
+    ).toBe('FORBIDDEN')
   })
 })
 
@@ -250,10 +297,22 @@ describe('the system principal', () => {
    * Amendment 1 D21.2). It has no account, so it satisfies no floor by the role
    * rule — the carve-out is explicit rather than reached by inventing a grade
    * for it, which is the service account ADR 9 D8 S5 rejects.
+   *
+   * THE SUBJECT MUST BE AN ADMIN-FLOOR CONTRACT, AND IT IS PINNED BELOW RATHER
+   * THAN TRUSTED. This case used to run on `accounts.disconnect`. PDM-302
+   * dropped that contract to `member`, and at a `member` floor `roleFloorFailure`
+   * returns `undefined` from the `case 'member'` branch — so the assertion would
+   * have gone on PASSING while witnessing nothing about the carve-out it exists
+   * to prove. That is false-green catalogue entry 14, arriving silently: the
+   * three other places pinning that value all reddened, and this one would not
+   * have. `setup.complete` is the subject now, and the `expect` on its floor is
+   * what stops the same thing happening the next time a grade moves.
    */
   it('passes an admin floor despite having no role', () => {
+    // NON-VACUITY. Without this line the case below is satisfied by any floor.
+    expect(SETUP_CONTRACTS.complete.policy.roleFloor).toBe('admin')
     expect(
-      roleFloorFailure('accounts.disconnect', ACCOUNT_CONTRACTS.disconnect as AnyCommandContract, {
+      roleFloorFailure('setup.complete', SETUP_CONTRACTS.complete as AnyCommandContract, {
         principal: systemPrincipal('pdm-294-test'),
         role: undefined,
       }),
@@ -267,20 +326,32 @@ describe('this gate can say NO — and can say YES', () => {
    * is not a guard. These two prove the suite above would notice a gate that
    * permitted everything AND one that refused everything, without editing the
    * gate to find out.
+   *
+   * BOTH RAN ON `accounts.connect` AND BOTH HAD TO MOVE WITH PDM-302, though
+   * only one of them would have said so. At a `member` floor the refusal arm
+   * below fails loudly — `roleFloorFailure` answers `undefined`, which is what
+   * `permissive()` answers, so `.not.toBe` fails. The SERVED arm does not: it
+   * asserts `undefined`, and a `member`-floor contract returns `undefined`
+   * whoever asks, so it would have kept passing without exercising the admin
+   * path at all. The epic's brief recorded this pair as loud; half of it was
+   * silent, the same shape as the system-principal case above. `setup.complete`
+   * is the subject for both, with its floor pinned so the next move is loud.
    */
   it('a gate that permitted everything would fail the refusal arm', () => {
+    expect(SETUP_CONTRACTS.complete.policy.roleFloor).toBe('admin')
     const permissive = (): undefined => undefined
     expect(permissive()).toBeUndefined()
     // The refusal arm asserts `FORBIDDEN`; a permissive gate answers undefined.
-    expect(roleFloorFailure('accounts.connect', ACCOUNT_CONTRACTS.connect as AnyCommandContract, {
+    expect(roleFloorFailure('setup.complete', SETUP_CONTRACTS.complete as AnyCommandContract, {
       principal: human,
       role: 'member',
     })).not.toBe(permissive())
   })
 
   it('a gate that refused everything would fail the served arm', () => {
+    expect(SETUP_CONTRACTS.complete.policy.roleFloor).toBe('admin')
     expect(
-      roleFloorFailure('accounts.connect', ACCOUNT_CONTRACTS.connect as AnyCommandContract, {
+      roleFloorFailure('setup.complete', SETUP_CONTRACTS.complete as AnyCommandContract, {
         principal: human,
         role: 'admin',
       }),
@@ -302,12 +373,21 @@ describe('a read behind an admin floor on a secret resource refuses to assemble'
    * failure rather than a branch in the gate: a branch nothing witnesses is the
    * shape PDM-134 was pulled up for.
    */
+  // `setup.complete` rather than `accounts.disconnect`, which carried this
+  // fixture until PDM-302 dropped it to `member`: the guard only fires on
+  // `admin` + `read` + `secret`, so a member-floor base would have made the two
+  // `toThrow` assertions below fail. LOUD, unlike the two witnesses above, but
+  // it is the fourth place in this file that pinned the accounts floor and the
+  // brief listed three. Both properties it needs are pinned on the next line.
+  const secretBase = SETUP_CONTRACTS.complete as AnyCommandContract
   const secretRead = {
-    ...(ACCOUNT_CONTRACTS.disconnect as AnyCommandContract),
-    policy: { ...(ACCOUNT_CONTRACTS.disconnect as AnyCommandContract).policy, action: 'read' as const },
+    ...secretBase,
+    policy: { ...secretBase.policy, action: 'read' as const },
   } as AnyCommandContract
 
   it('throws, naming the command and the rule', () => {
+    expect(secretBase.policy.roleFloor).toBe('admin')
+    expect(secretBase.policy.resource).toBe('secret')
     expect(() => assertNoSecretReadFloor('accounts.probe', secretRead)).toThrow(/accounts\.probe/)
     expect(() => assertNoSecretReadFloor('accounts.probe', secretRead)).toThrow(/existence oracle/)
   })
