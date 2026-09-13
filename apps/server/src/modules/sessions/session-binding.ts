@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { MachineId, SessionId, UserId } from '@podium/model'
+import type { MachineId, SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -10,10 +10,7 @@ const log = createLogger('server:sessions')
 
 type ResumeObservation = Extract<DaemonMessage, { type: 'sessionResumeRef' }>
 
-interface SessionOwnership {
-  owner: UserId
-  grants: string[]
-}
+import type { SessionOwnership } from './session-ownership'
 
 export interface SessionBindingReceiptsDeps {
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>

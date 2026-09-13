@@ -129,11 +129,11 @@ describe('oracle: two-user SessionService fixture', () => {
     const f = await twoUserOracle()
     expect(await f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
       owner: ALICE,
-      grants: [],
+      legacyGrants: [],
     })
     expect(await f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
       owner: BOB,
-      grants: [],
+      legacyGrants: [],
     })
     const narrowBob: SessionStatePrincipal = {
       ...sessionStatePrincipal(f.agents.bob),

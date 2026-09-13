@@ -272,7 +272,7 @@ describe('one projection pass', () => {
       // READER owns. Before PDM-133 this answered `reader` — the attached issue
       // outranking the row. It answers the row now.
       expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass))
-        .toEqual({ owner: asUserId('other'), grants: [] })
+        .toEqual({ owner: asUserId('other'), legacyGrants: [] })
       expect(statementCount()).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       process.stdout.write('registered non-live ownership: 0 physical statements\n')

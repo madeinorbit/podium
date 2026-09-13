@@ -276,7 +276,7 @@ describe('cloud router', () => {
       })
       expect(await made.registry.modules.sessions.sessionOwner(sessionId)).toEqual({
         owner: ownerUserId,
-        grants: [],
+        legacyGrants: [],
       })
       return { ...made, cloud, sessionId }
     }

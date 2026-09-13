@@ -37,6 +37,7 @@ import {
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
+  type LegacyGrant,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
@@ -136,7 +137,7 @@ function harness() {
       issueForCwd: () => null,
     } as unknown as IssueService,
     sessionsSvc: {
-      sessionOwner: async () => ({ owner: OPERATOR_USER, grants: [] as string[] }),
+      sessionOwner: async () => ({ owner: OPERATOR_USER, legacyGrants: [] as LegacyGrant[] }),
     } as unknown as SessionLifecycle,
     principalForCapability: (capability: Capability) =>
       resolvePrincipalAsync(capability, { parentSessionOf: async () => undefined }),

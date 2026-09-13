@@ -23,6 +23,7 @@ import {
   asMachineId,
   asMutationId,
   asSessionId,
+  asLegacyGrant,
   asUserId,
   firstAdminMemberId,
   spawnedByParentSessionId,
@@ -1370,15 +1371,32 @@ export class SessionRegistry {
             onBehalfOf: session.ownerUserId,
           }
     }
+    /**
+     * THE SITE A MODEL-ANCHORED CENSUS CANNOT SEE (PDM-355).
+     *
+     * This helper reads `store.grants.listForResource('session', …)` DIRECTLY.
+     * It never touches `sessionOwner`, so typing that function's return — which
+     * is what makes every other hand-rolled `.includes` on this surface fail the
+     * build — does not reach here at all, and a census derived from the
+     * authorization model's callers could not see it either. That is exactly how
+     * B1's "session grants are inactive history" failed to reach this feed
+     * ceiling, and how a live edge on a SESSION resource went on admitting a
+     * second person to it until B2/PDM-251.
+     *
+     * So the brand is applied HERE, at this second source, rather than inherited
+     * from the first: `legacyGrants` is `readonly LegacyGrant[]`, and
+     * `owner?.legacyGrants.includes(userId)` — the expression that WAS the leak —
+     * no longer compiles.
+     */
     const liveSessionOwnership = async (sessionId: SessionId) => {
       const session = liveSessions.get(sessionId)
       if (!session) return undefined
       return {
         owner: session.ownerUserId,
-        grants: (await this.store.grants
+        legacyGrants: (await this.store.grants
           .listForResource('session', sessionId))
           .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-          .map((edge) => edge.grantee),
+          .map((edge) => asLegacyGrant(edge.grantee)),
       }
     }
     const mail = principalMailPolicy({
@@ -1430,7 +1448,7 @@ export class SessionRegistry {
                 return mayReadPrivate(userId, {
                   id: ref.id,
                   owner: owner.owner,
-                  legacyGrants: owner.grants,
+                  legacyGrants: owner.legacyGrants,
                 })
               }
               return false

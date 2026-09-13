@@ -156,9 +156,9 @@ describe('per-pass ownership memo [POD-1653]', () => {
     // real `u_shared` read grant — this used to read
     // `{ owner: 'u_issue_owner', grants: ['u_shared'] }`. Neither reaches the
     // answer now, and s1 matching the issue-less s4/s5 shape is the assertion.
-    expect(unprimed[0]).toEqual({ owner: 'u_fallback', grants: [] })
-    expect(unprimed[2]).toEqual({ owner: 'u_fallback', grants: [] })
-    expect(unprimed[3]).toEqual({ owner: 'u_four', grants: [] })
+    expect(unprimed[0]).toEqual({ owner: 'u_fallback', legacyGrants: [] })
+    expect(unprimed[2]).toEqual({ owner: 'u_fallback', legacyGrants: [] })
+    expect(unprimed[3]).toEqual({ owner: 'u_four', legacyGrants: [] })
     // NON-VACUITY: the fixture really does carry an issue owner and a read grant
     // that differ from the answer, so the three lines above are not agreeing
     // with an empty world. Read back out of the SAME store the assertions ran

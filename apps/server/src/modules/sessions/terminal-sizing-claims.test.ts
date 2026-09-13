@@ -272,7 +272,7 @@ describe('C5: viewState deletes the viewport when a session leaves visible-and-n
       pushPriorities: vi.fn(),
       setDraft: vi.fn(),
       editDraft: vi.fn(),
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
+      sessionOwner: async () => ({ owner: OWNER, legacyGrants: [] }),
       machineUseFor: async () => 'granted' as const,
     } as never)
   }

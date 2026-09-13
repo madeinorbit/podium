@@ -96,7 +96,7 @@ describe('SessionStart: the initiating human outranks the attached issue', () =>
     // owner on every read, so a correct row could still be reported as Alice's.
     expect(await reg.modules.sessions.sessionOwner(sessionId)).toEqual({
       owner: starter,
-      grants: [],
+      legacyGrants: [],
     })
   })
 
@@ -128,7 +128,7 @@ describe('SessionStart: the initiating human outranks the attached issue', () =>
     // comparison against an unchanged world.
     expect(await reg.modules.sessions.sessionOwner(sessionId)).toEqual({
       owner: starter,
-      grants: [],
+      legacyGrants: [],
     })
     const row = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row?.ownerUserId).toBe(starter)

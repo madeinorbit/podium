@@ -92,6 +92,7 @@ import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
+import type { SessionOwnership } from './session-ownership'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -169,7 +170,7 @@ export interface SessionStartPorts {
     issueId?: IssueId
     workflowRevisionId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<SessionOwnership | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{

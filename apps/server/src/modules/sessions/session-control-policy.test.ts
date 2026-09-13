@@ -53,7 +53,7 @@ const ctx = (
   contextFromOwnership(
     {
       owner: partial.owner ?? OWNER,
-      grants: partial.watchGrantees ?? [],
+      legacyGrants: partial.watchGrantees ?? [],
     },
     partial.machineUse,
     partial.driveGrantees,

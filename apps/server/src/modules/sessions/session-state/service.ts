@@ -49,6 +49,7 @@ import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { IssueRow } from '../../../store/types'
 import { mayReadPrivate } from '../../../issue-authz'
+import type { NullableSessionOwnership } from '../session-ownership'
 import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
@@ -186,7 +187,7 @@ export interface SessionStatePorts {
     sessionId: SessionId
     /** Per-pass read-through memo for full-list callers [POD-1618]. */
     memo?: SessionOwnerMemo
-  }) => Promise<{ owner: UserId | null; grants: readonly string[] } | undefined>
+  }) => Promise<NullableSessionOwnership | undefined>
   /** Fill a pass's grant memo in one read per resource kind [POD-1653].
    *  Optional: a fixture that omits it is slow, never wrong, because every key
    *  it would have primed is still computed on demand by `sessionOwner`. */
@@ -381,7 +382,7 @@ export class SessionStateService {
     return mayReadPrivate(reader.userId, {
       id: sessionId,
       owner: target.owner,
-      legacyGrants: target.grants,
+      legacyGrants: target.legacyGrants,
     })
   }
 
@@ -413,7 +414,7 @@ export class SessionStateService {
         mayReadPrivate(reader.userId, {
           id: sessionId,
           owner: target.owner,
-          legacyGrants: target.grants,
+          legacyGrants: target.legacyGrants,
         })
       if (visibleToReader) visible.add(sessionId)
     }

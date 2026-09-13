@@ -48,6 +48,8 @@ import {
   type MachineId,
   type SessionId,
   type UserId,
+  type LegacyGrant,
+  asLegacyGrant,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
@@ -90,7 +92,7 @@ const capabilityFor = (userId: UserId): Capability =>
 
 
 function harness(opts?: {
-  owners?: Record<string, { owner: UserId; grants: UserId[] }>
+  owners?: Record<string, { owner: UserId; legacyGrants: LegacyGrant[] }>
   /** Machines this fixture's ownership index reports, and who may use them. */
   machineOwner?: UserId
   /** Grant edges on the machine, so the see/use split can be exercised. */
@@ -99,7 +101,7 @@ function harness(opts?: {
 }) {
   const rpcCalls: string[] = []
   const artifactReads: string[] = []
-  const owners = opts?.owners ?? { [TARGET]: { owner: OWNER, grants: [] } }
+  const owners = opts?.owners ?? { [TARGET]: { owner: OWNER, legacyGrants: [] } }
   const machineOwner = opts?.machineOwner ?? OWNER
   const machineGrants = opts?.machineGrants ?? []
   const roots = opts?.roots ?? [ROOT]
@@ -205,7 +207,7 @@ describe('files.read — the session-addressed arm', () => {
    *  the owner still reads the same file under the same fixture, so the refusal
    *  cannot be a harness that stopped answering. */
   it('refuses a grantee — a task grant does not open the session’s files (PDM-251)', async () => {
-    const h = harness({ owners: { [TARGET]: { owner: OWNER, grants: [GRANTEE] } } })
+    const h = harness({ owners: { [TARGET]: { owner: OWNER, legacyGrants: [asLegacyGrant(GRANTEE)] } } })
     expect(
       await codeOf(readFile(h.fileStateFor(GRANTEE), { sessionId: TARGET, path: '/wt/a/x.ts' })),
     ).toBe('NOT_FOUND')
