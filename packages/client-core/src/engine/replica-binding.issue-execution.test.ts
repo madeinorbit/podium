@@ -1,28 +1,44 @@
-import type { EntityRecord } from '@podium/sync/replica'
+import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { describe, expect, it } from 'vitest'
+import type { FeedServerFrame } from '../socket-transport'
+import { FeedAuthorityClient } from '../replica/feed/authority-client'
+import { PushedBootstrapSource } from '../replica/feed/bootstrap-source'
+import { FeedSink } from '../replica/feed/sink'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
 import { memoryStorage } from '../replica/replica'
 import { createReplicaBinding, type ReplicaPublication } from './replica-binding'
 
 /**
- * **THE OWNER'S REASSEMBLY, THROUGH THE ACTUAL CONSUMER** [PDM-448, for PDM-415].
+ * **THE OWNER'S REASSEMBLY, THROUGH THE REAL INGESTION PATH** [PDM-448, for PDM-415].
  *
  * PDM-415's server-side witness calls `joinIssueExecution` directly over real
- * serving output. That is the production JOIN FUNCTION, but not the production
- * consumer that calls it, and the reviewer was right to separate the two. The
- * consumer is `createReplicaBinding`'s `joinExecutions`, and it cannot be reached
- * from an `apps/server` test at all: the `declared-deps` boundary rule refuses
- * `apps/server` depending on `@podium/client-core` (stated in
- * `apps/server/src/modules/interactions/synthesis.ts:204`). So the coverage lives
- * here, beside the consumer.
+ * serving output. That is the production join FUNCTION but not the production
+ * consumer, and it cannot be driven from `apps/server` at all: the `declared-deps`
+ * boundary refuses `apps/server` depending on `@podium/client-core`
+ * (`modules/interactions/synthesis.ts:204`). So the coverage lives here.
  *
- * WHAT THIS IS AND IS NOT. This is CONSUMER-SEAM evidence: real replica, real
- * binding, rows delivered through `applySnapshot` — the actual ingestion seam,
- * not a manufactured cache mutation. It is NOT end-to-end: no server produces
- * these rows here. The end-to-end claim would need a package depending on both
- * sides, and nothing in this repair creates one. Said plainly so the pair of
- * witnesses is not read as one.
+ * WHAT THIS EXERCISES, AS OF THIS COMMIT. Rows arrive as WIRE FRAMES and go in at
+ * `FeedSink.frame()` — the real consumer entry point. A `feedBootstrap` is OFFERED
+ * to a real `PushedBootstrapSource`, walked by a real `@podium/sync` `Replica`, and
+ * installed inside that walk's transaction; subsequent `feedDelta` frames are
+ * applied on top. The kernel facade receives the replica's events and
+ * `createReplicaBinding` reads the joined rows. Nothing is hand-placed in a cache.
+ *
+ * TWO FACTS THAT MAKE A CORRECT FIXTURE LOOK BROKEN, learned by getting them wrong:
+ * a COLD replica CANNOT apply deltas — with no cursor it must be served a world
+ * first (the ADR 2 D7 ladder), and pushing deltas at it yields silently absent rows.
+ * And a bootstrap is NOT applied by `sink.frame()`: its arm calls
+ * `bootstraps.offer(...)`, so the install is ASYNCHRONOUS and must be awaited with
+ * `replica.settled()`. An earlier version of this file placed rows with `cache.put`
+ * for exactly these reasons and could not catch a frame-TRANSLATION defect; this one
+ * can, and the unrepaired witness below names what it reports when translation is
+ * wrong.
+ *
+ * STILL NOT END-TO-END: the frames are CONSTRUCTED here rather than produced by a
+ * running server, because no package depends on both sides and this repair creates
+ * none. Said plainly so this and the server-side witness are not summed into a claim
+ * neither makes.
  */
 
 const issueRow = (id: string, extra: Record<string, unknown> = {}) =>
@@ -38,36 +54,112 @@ const PRIVATE = {
   startedBySession: 'ses_started',
 }
 
+/** Wire frames, in the shapes the server actually sends. */
+type Change = { entity: string; entityId: string; op: 'upsert' | 'remove'; value?: unknown }
+
+const bootstrapFrame = (changes: Change[], seq: number): FeedServerFrame =>
+  ({
+    type: 'feedBootstrap',
+    feedId: 'feed_1',
+    epoch: 'epoch_1',
+    fromSeq: 0,
+    seq,
+    minAvailableSeq: 0,
+    changes: changes.map((c, i) => ({ ...c, seq: i + 1 })),
+    last: true,
+  }) as FeedServerFrame
+
+const deltaFrame = (changes: Change[], fromSeq: number): FeedServerFrame =>
+  ({
+    type: 'feedDelta',
+    feedId: 'feed_1',
+    epoch: 'epoch_1',
+    fromSeq,
+    seq: fromSeq + changes.length,
+    minAvailableSeq: 0,
+    changes: changes.map((c, i) => ({ ...c, seq: fromSeq + i + 1 })),
+  }) as FeedServerFrame
+
+interface Harness {
+  readonly binding: ReturnType<typeof createReplicaBinding>
+  readonly replica: Replica
+  /** Apply a delta frame the way the socket does, and wait for it to land. */
+  push(changes: Change[]): Promise<void>
+}
+
 /**
- * A kernel replica + binding over a cache, driven the way PRODUCTION drives it:
- * the kernel installs into the cache and then emits an event. That event is the
- * real notification seam, not a poke at the binding — `replica-binding.test.ts`
- * uses the same one, and driving `applySnapshot` on a legacy replica instead
- * reads only the snapshot captured at construction (my first attempt did exactly
- * that and could not see an update at all).
+ * The real ingestion path, assembled in the order the shipped composition roots
+ * use: the facade first, because the kernel Replica needs its `onKernelEvent`.
+ * A PROPER BOOTSTRAP runs before anything else, which is the ordering the ladder
+ * requires and the reviewer specified.
  */
-function bound(issues: [string, Record<string, unknown>][], executions: [string, Record<string, unknown>][]) {
-  const cache = new BindingCache()
-  for (const [id, extra] of issues) cache.put('issue', id, issueRow(id, extra))
-  for (const [id, extra] of executions) cache.put('issueExecution', id, executionRow(id, extra))
-  const replica = createKernelReplica({
-    cache,
+async function ingest(world: Change[]): Promise<Harness> {
+  const store = new InMemoryReplicaStore()
+  const facade = createKernelReplica({
+    cache: store.cache as unknown as KernelCacheRead,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
-  return { cache, replica, binding: createReplicaBinding({ replica }) }
+  let sink: FeedSink
+  let seq = world.length
+  const bootstraps = new PushedBootstrapSource({
+    requestFreshWorld: () => sink.frame(bootstrapFrame(world, world.length)),
+  })
+  const replica = new Replica({
+    store: store.cache,
+    authority: new FeedAuthorityClient({
+      // Never expected to fire: the ladder is driven by the pushed world here.
+      // Throwing rather than returning an empty reply means a heal we did not
+      // intend shows up as a failure instead of as silently missing rows.
+      fetchChangesSince: async () => {
+        throw new Error('unexpected heal: this fixture drives the pushed-world path only')
+      },
+      bootstraps,
+    }),
+    onEvent: (event: unknown) => facade.onKernelEvent(event as never),
+    batchEvents: (emitAll: () => void) => facade.batch(emitAll),
+  } as never)
+  sink = new FeedSink({ replica, bootstraps } as never)
+
+  // THE PROPER BOOTSTRAP: connect, let the replica ask for a world, push it, and
+  // AWAIT THE WALK. Without the await the install has not happened and every row
+  // reads absent — which is what the earlier attempt hit.
+  sink.connected(true)
+  bootstraps.expectWorld()
+  sink.frame(bootstrapFrame(world, world.length))
+  await replica.settled()
+
+  return {
+    binding: createReplicaBinding({ replica: facade }),
+    replica,
+    push: async (changes) => {
+      sink.frame(deltaFrame(changes, seq))
+      seq += changes.length
+      await replica.settled()
+    },
+  }
 }
+
+/** A world of issues and their sidecars, delivered as a bootstrap. */
+const worldOf = (
+  issues: [string, Record<string, unknown>][],
+  executions: [string, Record<string, unknown>][],
+): Change[] => [
+  ...issues.map(([id, extra]) => ({ entity: 'issue', entityId: id, op: 'upsert' as const, value: issueRow(id, extra) })),
+  ...executions.map(([id, extra]) => ({
+    entity: 'issueExecution',
+    entityId: id,
+    op: 'upsert' as const,
+    value: executionRow(id, extra),
+  })),
+]
 
 const joined = (snapshot: { issues: readonly unknown[] }, id: string) =>
   snapshot.issues.find((row) => (row as { id: string }).id === id) as Record<string, unknown> | undefined
 
-describe('the owner reassembles the private half through the real binding [PDM-448]', () => {
-  it('joins the sidecar onto the shared row, and leaves an unrelated issue alone', async () => {
-    // THE UNRELATED-ROW CONTROL. A binding that spread every sidecar over every
-    // issue, or that rebuilt the whole list, would pass a single-issue assertion
-    // and fail this one.
-    const { binding } = bound(
-      [['iss_owned', {}], ['iss_other', {}]],
-      [['iss_owned', PRIVATE]],
+describe('the owner reassembles the private half through the real ingestion path [PDM-448]', () => {
+  it('a bootstrap delivers the sidecar joined onto its own issue, and no other', async () => {
+    const { binding } = await ingest(
+      worldOf([['iss_owned', {}], ['iss_other', {}]], [['iss_owned', PRIVATE]]),
     )
     const snapshot = binding.snapshot()
 
@@ -76,9 +168,10 @@ describe('the owner reassembles the private half through the real binding [PDM-4
     expect.soft(owned?.machineId).toBe(PRIVATE.machineId)
     expect.soft(owned?.coordinatorSessionId).toBe(PRIVATE.coordinatorSessionId)
     expect.soft(owned?.startedBySession).toBe(PRIVATE.startedBySession)
-    // The shared half is untouched by the join.
     expect.soft(owned?.title).toBe('iss_owned')
 
+    // UNRELATED-ROW CONTROL: a join that spread every sidecar over every issue,
+    // or rebuilt the whole list, would pass the assertions above and fail here.
     const other = joined(snapshot, 'iss_other')
     expect.soft(other).toBeDefined()
     for (const key of Object.keys(PRIVATE)) {
@@ -86,129 +179,121 @@ describe('the owner reassembles the private half through the real binding [PDM-4
     }
   })
 
-  it('an UPDATE to the sidecar moves the joined values', async () => {
-    const { cache, replica, binding } = bound(
-      [['iss_owned', {}], ['iss_other', {}]],
-      [['iss_owned', PRIVATE]],
-    )
+  it('an UPDATE delta moves the joined values, and publishes the change as an issue change', async () => {
+    const h = await ingest(worldOf([['iss_owned', {}], ['iss_other', {}]], [['iss_owned', PRIVATE]]))
     const publications: ReplicaPublication[] = []
-    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    const stop = h.binding.start({ publish: (publication) => publications.push(publication) })
     await Promise.resolve()
     publications.length = 0
 
-    // The kernel has already swapped the cache when the event fires — the same
-    // ordering `replica-binding.test.ts` documents.
-    const moved = executionRow('iss_owned', { ...PRIVATE, worktreePath: '/wt/moved' })
-    cache.put('issueExecution', 'iss_owned', moved)
-    replica.onKernelEvent({
-      type: 'upserted',
-      record: { entity: 'issueExecution', entityId: 'iss_owned', value: moved, provenance: { seq: 1 } },
-    } as never)
+    await h.push([
+      {
+        entity: 'issueExecution',
+        entityId: 'iss_owned',
+        op: 'upsert',
+        value: executionRow('iss_owned', { ...PRIVATE, worktreePath: '/wt/moved' }),
+      },
+    ])
 
-    // THE PUBLICATION IS MANDATORY, NOT CONDITIONAL [PDM-448]. The first version
-    // of this test read `publications.at(-1)?.snapshot ?? binding.snapshot()` and
-    // guarded its changed-set assertion with `if (publications.length > 0)` — so a
-    // binding that published NOTHING passed the whole test. A subscriber only
-    // re-reads what a publication NAMES, so "no publication" is the defect, not a
-    // permitted alternative, and both the fallback and the guard are gone.
+    // THE PUBLICATION IS MANDATORY, NOT CONDITIONAL [PDM-448]. An earlier version
+    // read `publications.at(-1)?.snapshot ?? binding.snapshot()` and guarded its
+    // changed-set assertion with `if (publications.length > 0)`, so a binding that
+    // published NOTHING passed the whole test. A subscriber re-reads exactly what a
+    // publication NAMES; no publication is the defect, not an alternative.
     expect(publications.length).toBeGreaterThan(0)
     const latest = publications.at(-1)!.snapshot
+
     const owned = joined(latest, 'iss_owned')
     expect.soft(owned?.worktreePath).toBe('/wt/moved')
-    // A stale join would still read the original — this is the assertion that
-    // separates "re-derived" from "computed once at construction".
+    // A join computed once at construction would still read the original.
     expect.soft(owned?.worktreePath).not.toBe(PRIVATE.worktreePath)
-    // The other private keys are unchanged, so the update moved one field rather
-    // than replacing the joined object with a partial one.
+    // One field moved rather than the joined object being replaced by a partial.
     expect.soft(owned?.machineId).toBe(PRIVATE.machineId)
 
-    // A SIDECAR CHANGE IS AN ISSUE CHANGE to a subscriber keyed on 'issues'. If
-    // the publication named only 'issueExecutions', a Store republishing what the
-    // changed set names would never re-read the joined rows.
+    // A SIDECAR CHANGE IS AN ISSUE CHANGE to a subscriber keyed on 'issues'.
     expect.soft([...publications.at(-1)!.changed]).toContain('issues')
-
-    // UNRELATED-ROW CONTROL on the update path: the bystander must not have
-    // acquired the moved value, or the join is spreading rather than keying.
+    // UNRELATED-ROW CONTROL on the update path too.
     expect.soft(Object.hasOwn(joined(latest, 'iss_other') ?? {}, 'worktreePath')).toBe(false)
     stop()
   })
 
-  it('REMOVING the sidecar takes the private keys off the joined row', async () => {
-    // The stranding question, asked at the consumer: if the sidecar goes away,
-    // does the owner's row keep serving the old private values?
-    // TWO issues, each with its OWN sidecar — the unrelated-row control this case
-    // was missing [PDM-448]. Removing one sidecar must leave the other's values
-    // intact; a single-issue fixture cannot tell a targeted eviction from one that
-    // drops every sidecar.
+  it('an EVICTION delta takes the private keys off its own row and leaves the other intact', async () => {
+    // TWO issues, each with its OWN sidecar: a single-issue fixture cannot tell a
+    // targeted eviction from one that drops every sidecar.
     const OTHER_PRIVATE = { ...PRIVATE, worktreePath: '/wt/other', machineId: 'm_other' }
-    const { cache, replica, binding } = bound(
-      [['iss_owned', {}], ['iss_other', {}]],
-      [['iss_owned', PRIVATE], ['iss_other', OTHER_PRIVATE]],
+    const h = await ingest(
+      worldOf(
+        [['iss_owned', {}], ['iss_other', {}]],
+        [['iss_owned', PRIVATE], ['iss_other', OTHER_PRIVATE]],
+      ),
     )
     const publications: ReplicaPublication[] = []
-    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    const stop = h.binding.start({ publish: (publication) => publications.push(publication) })
     await Promise.resolve()
     publications.length = 0
-    // NON-VACUITY: BOTH were there before the removal.
-    expect.soft(joined(binding.snapshot(), 'iss_owned')?.worktreePath).toBe(PRIVATE.worktreePath)
-    expect.soft(joined(binding.snapshot(), 'iss_other')?.worktreePath).toBe(OTHER_PRIVATE.worktreePath)
 
-    // Eviction, through the kernel's own event rather than a rebuilt list.
-    cache.drop('issueExecution', 'iss_owned')
-    replica.onKernelEvent({ type: 'evicted', entity: 'issueExecution', entityId: 'iss_owned' })
+    // NON-VACUITY: both were joined before the eviction.
+    expect.soft(joined(h.binding.snapshot(), 'iss_owned')?.worktreePath).toBe(PRIVATE.worktreePath)
+    expect.soft(joined(h.binding.snapshot(), 'iss_other')?.worktreePath).toBe(OTHER_PRIVATE.worktreePath)
+
+    await h.push([{ entity: 'issueExecution', entityId: 'iss_owned', op: 'remove' }])
 
     expect(publications.length).toBeGreaterThan(0)
-    const afterRemoval = publications.at(-1)!.snapshot
-    const owned = joined(afterRemoval, 'iss_owned')
-    expect.soft(owned).toBeDefined()
+    const after = publications.at(-1)!.snapshot
+
+    const owned = joined(after, 'iss_owned')
     expect.soft(owned?.title).toBe('iss_owned') // the shared half survives
     for (const key of Object.keys(PRIVATE)) {
       expect.soft(Object.hasOwn(owned ?? {}, key)).toBe(false)
     }
-    // THE CONTROL: the unrelated issue keeps its OWN sidecar values, so the
-    // eviction was targeted rather than a blanket drop.
-    const survivor = joined(afterRemoval, 'iss_other')
+    // THE CONTROL: the unrelated issue keeps its own sidecar values.
+    const survivor = joined(after, 'iss_other')
     expect.soft(survivor?.worktreePath).toBe(OTHER_PRIVATE.worktreePath)
     expect.soft(survivor?.machineId).toBe(OTHER_PRIVATE.machineId)
     stop()
   })
 
   it('an issue with no sidecar at all is a complete, renderable row', async () => {
-    // The NON-OWNER's normal state after the PDM-415 mask: shared row, no
-    // sidecar. It must not be an error and must not acquire the keys.
-    const { binding } = bound([['iss_shared', {}]], [])
+    // The NON-OWNER's normal state after the PDM-415 mask: shared row, no sidecar.
+    // It must not be an error and must not acquire the keys.
+    const { binding } = await ingest(worldOf([['iss_shared', {}]], []))
     const row = joined(binding.snapshot(), 'iss_shared')
     expect.soft(row?.title).toBe('iss_shared')
     for (const key of Object.keys(PRIVATE)) {
       expect.soft(Object.hasOwn(row ?? {}, key)).toBe(false)
     }
   })
-})
 
-class BindingCache implements KernelCacheRead {
-  records: EntityRecord[] = []
-  cursor: { seq: number } | null = null
-  readCursor(): { seq: number } | null {
-    return this.cursor
-  }
-  readEntities(): readonly EntityRecord[] {
-    return this.records
-  }
-  read(entity: string, entityId: string): EntityRecord | undefined {
-    return this.records.find((record) => record.entity === entity && record.entityId === entityId)
-  }
-  durability(): 'durable' {
-    return 'durable'
-  }
-  put(entity: string, entityId: string, value: unknown): void {
-    this.records = [
-      ...this.records.filter((record) => record.entity !== entity || record.entityId !== entityId),
-      { entity, entityId, value, provenance: { seq: this.cursor?.seq ?? 0 } },
-    ]
-  }
-  drop(entity: string, entityId: string): void {
-    this.records = this.records.filter(
-      (record) => record.entity !== entity || record.entityId !== entityId,
-    )
-  }
-}
+  /**
+   * **THE UNREPAIRED WITNESS** [PDM-448].
+   *
+   * ITS OWN `it()` ON PURPOSE, and this is the point of it. Every assertion above
+   * lives downstream of a bootstrap; if ingestion is broken they do not FAIL so
+   * much as find nothing, and a soft assertion that never runs after an early
+   * throw is an ABSENCE — which never appears in a failing-name diff. This case
+   * asserts the ingestion PREMISE and nothing else, so a broken frame path
+   * reports as this named test failing rather than as four tests quietly
+   * measuring an empty world.
+   *
+   * WHAT IT REPORTS IF FRAME TRANSLATION IS WRONG, taken from the rendered output
+   * rather than restated: `AssertionError: expected +0 to be 2` (vitest prints the
+   * zero as `+0`). The world arrived and carried no rows. That is the sentence to
+   * look for.
+   *
+   * MEASURED, both directions, because a witness that reddens on everything
+   * distinguishes nothing:
+   *   - translation loses the bootstrap rows -> ALL FIVE cases fail and THIS ONE
+   *     names the cause with the line above.
+   *   - `joinExecutions` disabled, ingestion intact -> the three join cases fail
+   *     and THIS ONE STAYS GREEN, along with the no-sidecar case.
+   * So a red here means the frames did not land; a red above it with this one
+   * green means they landed and the join is wrong. That separation is why it has
+   * its own `it()` rather than a guard at the top of another.
+   */
+  it('INGESTION PREMISE: the bootstrap actually delivered a world', async () => {
+    const { binding } = await ingest(worldOf([['iss_a', {}], ['iss_b', {}]], [['iss_a', PRIVATE]]))
+    const snapshot = binding.snapshot()
+    expect(snapshot.issues.length).toBe(2)
+    expect(snapshot.issueExecutions.length).toBe(1)
+  })
+})
