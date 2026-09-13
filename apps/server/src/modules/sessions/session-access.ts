@@ -35,7 +35,7 @@
 import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
-import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
+import { checkIssueAccess, type IssueAccessIndex, mayReadOwned } from '../../issue-authz'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -168,6 +168,32 @@ export async function mayReadPrivateSession(
     }
   }
   return await sessionOwnerVisibility(ownerOf)(principal, session)
+}
+
+/**
+ * OWNER-OR-GRANT READ OF ONE SESSION — the single home for the question
+ * "may this human read this session's bytes" (PDM-272).
+ *
+ * It was `mayReadSession`, a private function in `modules/sessions/queries.ts`,
+ * consulted by `transcriptRead`, `read`, `recap` and `status`. PDM-272 needed
+ * the SAME question for `files.read`'s session-addressed arm — a second door
+ * onto the same session's files, which asked nothing at all — and a second
+ * spelling of an ownership rule is the precise thing `mayReadOwned`'s own header
+ * says `authz-single-home` fails the build over. So the rule moved HERE, beside
+ * the other session-access decisions, and both callers consult it.
+ *
+ * ABSENT OWNER IS NOT VISIBLE. `sessionOwner` answers `undefined` for a row with
+ * a null owner column, and that is a refusal rather than a fallthrough — the
+ * `undefined === undefined` hole `mayReadOwned` exists to have closed.
+ */
+export async function mayReadSessionOwned(
+  userId: UserId | undefined,
+  sessionId: SessionId,
+  ownerOf: (sessionId: SessionId) => Promise<{ owner: UserId; grants: string[] } | undefined>,
+): Promise<boolean> {
+  const target = await ownerOf(sessionId)
+  if (target === undefined) return false
+  return mayReadOwned(userId, { id: sessionId, owner: target.owner, grants: target.grants })
 }
 
 export interface SessionAccessDeps {

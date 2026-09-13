@@ -17,6 +17,17 @@
  * root allowlist, and `git` imports the same `assertAllowedRoot` the file family
  * declares rather than restating the check. Three procedures that each spelled
  * out `isAllowedRoot(...)` was the shape this replaces.
+ *
+ * AND THAT SHARED GATE IS NOT AUTHORIZATION — PDM-272, UNREPAIRED HERE. The
+ * allowlist asks whether a path is a known REPOSITORY; it cannot ask whether
+ * this caller may read what is inside it, and these five procedures run it on a
+ * caller-supplied `machineId` and then serve `git log`, `git status` and file
+ * diffs off that machine's checkout. PDM-272 repaired exactly that shape for
+ * `files.read/list/search`, which were the A3.2 read census's rows; these five
+ * were not, so they keep the shipped behaviour rather than being re-authorized
+ * in passing by a read issue. The predicate they need exists and is
+ * `files/file-access-gate.ts` — `requireSearchableRoot` is the method — and the
+ * finding is filed against this file by name.
  */
 
 import { createLogger } from '@podium/logger'
@@ -34,7 +45,7 @@ import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import { CostService } from './cost/service'
 import type { FamilyState } from './derived-family'
-import { assertAllowedRoot } from './files/registry'
+import { assertAllowedRoot } from './files/file-access-gate'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { specsInputs } from './specs/service'
@@ -47,14 +58,6 @@ const USAGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
-
-/** The file family's state shape, built from the bundle so `git` runs the
- *  IDENTICAL allowlist rather than a second copy of it. */
-const fileState = (s: FamilyState) => ({
-  rpc: s.modules.rpc,
-  artifacts: s.modules.issueArtifacts,
-  repos: s.repos,
-})
 
 // ---------------------------------------------------------------------------
 // search
@@ -116,7 +119,7 @@ const repoOp = (op: GitPanelOp) => {
       { machineId?: MachineId | undefined; root: string; path?: string; sha?: string }
     >,
     async (s, input) => {
-      await assertAllowedRoot(fileState(s), input.root)
+      await assertAllowedRoot(s.repos, input.root)
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string
