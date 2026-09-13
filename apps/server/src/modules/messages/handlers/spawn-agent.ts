@@ -181,9 +181,26 @@ export async function spawnAgentHandler(
   // persisted snapshot from the previous connection. The wait stays below the
   // relay deadline; on expiry SessionStart returns the honest probing refusal.
   if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
-  const sessionOwner = (await issues.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
   const spawned = await deps.spawnSession({
-    ownerUserId: sessionOwner,
+    // OWNERSHIP OF THE CHILD IS THE SPAWNING HUMAN, NEVER THE TASK'S OWNER
+    // (POD-3901). This read the ISSUE's owner and fell back to `callerOwner`
+    // only when the task had none, so Bob's agent working Alice's task spawned
+    // sessions owned by ALICE — which is the exact scenario
+    // `SessionAuthz#sessionOwner`'s header names as wrong ("Bob starts an agent
+    // on Alice's task. The row says Bob"). PDM-133 removed that lookup on the
+    // READER side; it survived here, on the producer, so the durable row every
+    // owner-keyed gate downstream consults was already stamped with the wrong
+    // person: `mayWatch`/`mayDrive`, `memory/visibility` and `sessions/queries`
+    // all answered about Alice for a run Bob started.
+    //
+    // NOT THE SAME QUESTION AS THE `--new` INHERITANCE ABOVE, and the difference
+    // is the reason one line changed and the other did not. An ISSUE created on
+    // a parent's behalf inherits that parent's owner because sharing an issue
+    // shares the work done on it (contract `ownership`, ADR 9 D5 A4 / §3 O4). A
+    // SESSION is not the work — it is a private run, bound by D7/D13 to the
+    // human who started it — and a task changing hands must not move the runs
+    // already on it.
+    ownerUserId: callerOwner,
     cwd,
     agentKind: harness,
     initialPrompt: input.prompt,

@@ -23,8 +23,8 @@
  * THE POSITIVE ARMS ARE NOT DECORATION. They are what says this file measures
  * ownership rather than blacklisting a caller: Alice reads her own session
  * through the same dispatch and gets the private payload, and Bob's session
- * reads the CHILD it spawned — a session `spawn-agent.ts` stamps with the
- * ISSUE's owner (Alice), not its parent's human — and still gets it. Take the
+ * reads the CHILD it spawned — a session whose durable owner is Alice, not its
+ * parent's human (see `CHILD` below) — and still gets it. Take the
  * ownership gate out and the refusals go green; take the self/parent arms out
  * and the positives go red.
  *
@@ -59,8 +59,11 @@ const BOB = asUserId('u_bob')
 const ALICES = asSessionId('s_alice')
 /** Bob's session. A member of the SAME task, with write on it. */
 const BOBS = asSessionId('s_bob')
-/** Spawned by Bob's session; owned by ALICE, because `spawn-agent.ts` stamps a
- *  new session with the ISSUE's owner. Bob must still be able to read it. */
+/** Spawned by Bob's session and owned by ALICE. POD-3901 fixed `spawn-agent.ts`
+ *  to stamp the spawning human, so `podium agent spawn` no longer produces this
+ *  row — but `issues/service/workflow.ts` still stamps the ISSUE row's owner on
+ *  both its spawns, so a cross-owner child is still reachable and the parent arm
+ *  under test is still load-bearing. Bob must be able to read it. */
 const CHILD = asSessionId('s_child')
 
 const ISSUE = {
@@ -232,9 +235,8 @@ describe('relay session reads are gated on the target owner', () => {
   it('lets a spawned session read ITSELF, whoever the task says owns it', async () => {
     // Not a redundant self-case. `principalForCapability` resolves the human at
     // the ROOT of the delegation chain (D16.2), which for this child is Bob;
-    // its own durable owner is Alice, because that is what `spawn-agent.ts`
-    // stamped. So the two disagree, and without the self arm a session could
-    // not read its own transcript.
+    // its own durable owner is Alice (see `CHILD`). So the two disagree, and
+    // without the self arm a session could not read its own transcript.
     const dispatch = harness()
     const read = (await dispatch(capabilityFor(CHILD, ALICE), false, 'sessions', 'read', {
       sessionId: CHILD,

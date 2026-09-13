@@ -12,7 +12,7 @@
  * succeeding under a ceiling that allows it.
  */
 
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
@@ -422,6 +422,84 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     expect(r.ok).toBe(true)
     expect(h.gateSpawns).toHaveLength(1)
     expect(h.gateSpawns[0]?.machineId).toBe('mac_alices_laptop')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A SPAWNED SESSION BELONGS TO THE HUMAN WHO STARTED IT (POD-3901)
+//
+// `spawn-agent.ts` resolved the child's `ownerUserId` through the TARGET ISSUE
+// (`issues.ownedTarget(...)?.owner ?? callerOwner`), so an agent working someone
+// else's task spawned children owned by that someone else. `SessionAuthz#session
+// Owner`'s header states the rule this contradicted by name: "Bob starts an agent
+// on Alice's task. The row says Bob." PDM-133 removed the issue-through-lookup on
+// the READER side; this is the same lookup surviving on the PRODUCER side, so the
+// durable row every owner-keyed gate downstream reads was already wrong.
+//
+// WHY THE TWO HUMANS ARE THE WHOLE TEST. A single-account fixture cannot see this
+// at all: the issue's owner and the delegating human are the same person, so the
+// assertion passes whichever field the handler reads (catalogue shape 14). Bob's
+// capability here is exactly what `capabilityForSession` mints for an agent on a
+// task — `worker` / `subtree` rooted at it — which holds WRITE on Alice's issue
+// and is therefore a legitimate spawn, not a denial case.
+// ---------------------------------------------------------------------------
+
+describe('a spawned session is owned by the human who started it, not by the task', () => {
+  const ALICE = asUserId('u_alice')
+  const BOB = asUserId('u_bob')
+
+  /** Alice's task, with Bob's agent holding write on it through its subtree scope. */
+  const alicesTask = async (h: Awaited<ReturnType<typeof mailHarness>>) => {
+    const issue = await h.createIssue({ title: 'Alice\u2019s task' })
+    await h.issues.update(issue.id, { ownerUserId: ALICE })
+    // Non-vacuity: if this update were silently ignored the issue would still be
+    // owned by the ambient first admin, and every assertion below would pass for
+    // the wrong reason. Read the owner back through the SAME port the handler
+    // consults rather than trusting the write.
+    expect((await h.issues.ownedTarget(issue.id, 'read'))?.owner).toBe(ALICE)
+    return issue
+  }
+
+  const agentFor = (human: typeof ALICE, issueId: string, sessionId: string): Capability => ({
+    role: 'worker',
+    scope: { kind: 'subtree', rootId: asIssueId(issueId) },
+    actorSessionId: asSessionId(sessionId),
+    onBehalfOf: human,
+  })
+
+  it('stamps BOB on the child when Bob\u2019s agent spawns onto Alice\u2019s task', async () => {
+    const h = await mailHarness()
+    const issue = await alicesTask(h)
+
+    const r = (await h.gate.dispatch(
+      agentFor(BOB, issue.id, 's_bob'),
+      undefined,
+      'spawnAgent',
+      { issue: issue.id, prompt: 'go' },
+    )) as { ok: boolean }
+
+    expect(r.ok).toBe(true)
+    expect(h.gateSpawns).toHaveLength(1)
+    // THE DEFECT: this read ALICE, because the handler resolved the owner through
+    // the issue. A session is not the work — it is someone's private run.
+    expect(h.gateSpawns[0]?.ownerUserId).toBe(BOB)
+  })
+
+  it('still stamps ALICE when it is ALICE\u2019s own agent \u2014 the instrument can say either name', async () => {
+    const h = await mailHarness()
+    const issue = await alicesTask(h)
+
+    await h.gate.dispatch(
+      agentFor(ALICE, issue.id, 's_alice'),
+      undefined,
+      'spawnAgent',
+      { issue: issue.id, prompt: 'go' },
+    )
+
+    // The counterfactual that keeps the assertion above from being "always BOB":
+    // the stamp follows the DELEGATING HUMAN, and on this arm that human owns the
+    // task, so the two answers coincide and the field still reads ALICE.
+    expect(h.gateSpawns[0]?.ownerUserId).toBe(ALICE)
   })
 })
 

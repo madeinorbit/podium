@@ -123,15 +123,20 @@ export function sessionOwnerVisibility(
  *    because a session's own durable owner and the human at the root of its
  *    delegation chain are not guaranteed to be the same person — see the next
  *    case for why.
- *  - THE PARENT OF A SPAWNED SESSION. `messages/handlers/spawn-agent.ts` stamps
- *    a new session's `ownerUserId` from the ISSUE's owner, not from the human
- *    who spawned it, so an agent working someone else's task spawns children
- *    owned by that someone else. Dropping this arm would stop a parent reading
- *    the child it created, which is a control the accepted architecture keeps.
- *    (That producer reading ownership through the issue is itself worth a look —
- *    `SessionAuthz#sessionOwner`'s header says authority is the durable row and
- *    not a lookup through the task — but it is a producer question, and this is
- *    the reader.)
+ *  - THE PARENT OF A SPAWNED SESSION. A child's durable owner and the human at
+ *    the root of its parent's delegation chain are not guaranteed to be the same
+ *    person, so dropping this arm would stop a parent reading the child it
+ *    created — a control the accepted architecture keeps.
+ *
+ *    THE PRODUCER THIS USED TO NAME IS FIXED, AND THE ARM STILL STANDS. POD-3901
+ *    changed `messages/handlers/spawn-agent.ts` to stamp the SPAWNING HUMAN, so
+ *    `podium agent spawn` no longer produces a cross-owner child at all. Two
+ *    producers still do, which is why removing this arm now would be a
+ *    regression rather than a cleanup: `issues/service/workflow.ts` stamps the
+ *    ISSUE row's owner on both the `start` and `addSession` spawns (neither has
+ *    a caller principal in scope to stamp instead — filed), and the
+ *    `firstAdminMemberId()` fallbacks in `sessions/repository.ts` and
+ *    `sessions/session-revival.ts` are still open (PDM-276, PDM-273).
  *
  * Provenance, not a claim: `spawnedBy` is stamped by the server at spawn and is
  * never read from agent input, which is what makes the parent arm safe to state
