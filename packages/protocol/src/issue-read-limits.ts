@@ -50,10 +50,14 @@ export const MAIL_INBOX_MAX_LIMIT = 500
  *   been consumed with no id shown and cannot be recovered. A notice counting how
  *   many were withheld does not give back their ids or their unread status.
  *
- *   CONDITIONAL — total output stays inside the budget for a SUPPORTED page:
- *   at most `MAIL_INBOX_MAX_LIMIT` rows with ids no longer than
- *   `MAIL_INBOX_MAX_ID_CHARS`. Beyond that the ids still all render and the budget
- *   is what gives, because consumption must never outrun the listing.
+ *   CONDITIONAL — total output stays inside `MAIL_INBOX_OUTPUT_BUDGET_BYTES` for
+ *   a SUPPORTED page, which is the whole domain spelled out: at most
+ *   `MAIL_INBOX_MAX_LIMIT` rows, each id within `MAIL_INBOX_MAX_ID_BYTES` (BYTES,
+ *   not characters — see the domain note below, and note that `correlationId` can
+ *   leave it), headers clipped to `MAIL_INBOX_MAX_HEADER_CHARS`, and a
+ *   `showCommand` within `MAIL_INBOX_MAX_SHOW_COMMAND_BYTES` since the notice
+ *   lines interpolate it. Outside that domain the ids still all render and the
+ *   BUDGET is what gives, because consumption must never outrun the listing.
  *
  * So newest-first protects the newest for a MEASURED consumer budget, not for
  * every unknown cut size — no renderer can promise the latter.
@@ -87,9 +91,16 @@ export const MAIL_INBOX_MAX_SHOW_COMMAND_BYTES = 64
 /**
  * Sized FROM the bound rather than picked round: the most degraded rendering of a
  * full page is one id per line, so the budget must hold
- * `MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_ID_CHARS + 1)` plus the notice lines.
- * `mail-inbox-render.test.ts` asserts that relationship so the constants cannot
+ * `MAIL_INBOX_MAX_LIMIT * (MAIL_INBOX_MAX_ID_BYTES + 1)` plus
+ * `MAIL_INBOX_NOTICE_ALLOWANCE_BYTES`, which in turn covers the head lines at a
+ * `showCommand` of up to `MAIL_INBOX_MAX_SHOW_COMMAND_BYTES`.
+ * `mail-inbox-render.test.ts` asserts both relationships so the constants cannot
  * drift apart, which is the failure this file would otherwise invite.
+ *
+ * Both formulas are in BYTES throughout. An earlier revision wrote this one over
+ * a CHARACTER constant, and renaming that constant did not redden anything —
+ * prose naming a deleted identifier compiles perfectly well, which is exactly how
+ * the two halves of this file came to disagree.
  */
 export const MAIL_INBOX_NOTICE_ALLOWANCE_BYTES = 512
 export const MAIL_INBOX_OUTPUT_BUDGET_BYTES = 40_960
