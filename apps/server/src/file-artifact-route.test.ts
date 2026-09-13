@@ -1,10 +1,23 @@
+/**
+ * THE ROUTE'S TRANSPORT BEHAVIOUR — ranges, headers, decoding, download names.
+ *
+ * THE DOOR THESE CASES PASS THROUGH IS A PERMISSIVE STUB, AND THAT IS THE
+ * POINT: none of them is about authorization, so none of them should be able to
+ * pass or fail because of it. The authorization is a separate claim with a
+ * separate file — `file-artifact-route.authz.test.ts` builds a REAL
+ * `fileAccessGate` and drives this route and `files.read` over one fixture.
+ * Proving the rule here against a stub would prove nothing about the rule
+ * (catalogue #20: a test that mocks the permission call covers nothing about
+ * the permission), and would quietly make this file the place a reader looks
+ * for a guarantee it does not offer.
+ */
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
-import { type ArtifactBundleReader, registerArtifactRoute } from './file-artifact-route'
+import { type ArtifactDoor, registerArtifactRoute } from './file-artifact-route'
 
-function appWith(reader: ArtifactBundleReader): Hono {
+function appWith(door: ArtifactDoor): Hono {
   const app = new Hono()
-  registerArtifactRoute(app, reader)
+  registerArtifactRoute(app, { doorFor: async () => door })
   return app
 }
 
@@ -12,7 +25,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
   it('serves stored bytes with content-type + immutable cache-control', async () => {
     const seen: string[][] = []
     const app = appWith({
-      read: async (issueId, artifactId, rel) => {
+      readArtifact: async (issueId, artifactId, rel) => {
         seen.push([issueId, artifactId, rel])
         return { bytes: Buffer.from('PNGDATA'), contentType: 'image/png', size: 7 }
       },
@@ -27,7 +40,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
   })
 
   it('404s a missing snapshot', async () => {
-    const app = appWith({ read: async () => null })
+    const app = appWith({ readArtifact: async () => null })
     const res = await app.request('/files/artifact/iss_1/dead/entry.html')
     expect(res.status).toBe(404)
   })
@@ -35,7 +48,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
   it('decodes encoded relpath segments', async () => {
     let got = ''
     const app = appWith({
-      read: async (_i, _a, rel) => {
+      readArtifact: async (_i, _a, rel) => {
         got = rel
         return { bytes: Buffer.from('x'), contentType: 'text/plain; charset=utf-8', size: 1 }
       },
@@ -49,7 +62,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
     const source = Buffer.from('0123456789')
     const reads: Array<{ offset: number; length: number } | undefined> = []
     const app = appWith({
-      read: async (_issueId, _artifactId, _rel, range) => {
+      readArtifact: async (_issueId, _artifactId, _rel, range) => {
         reads.push(range)
         const bytes = range ? source.subarray(range.offset, range.offset + range.length) : source
         return { bytes, contentType: 'video/mp4', size: source.length }
@@ -72,7 +85,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
     const source = Buffer.from('0123456789')
     const reads: Array<{ offset: number; length: number } | undefined> = []
     const app = appWith({
-      read: async (_issueId, _artifactId, _rel, range) => {
+      readArtifact: async (_issueId, _artifactId, _rel, range) => {
         reads.push(range)
         return {
           bytes: range ? source.subarray(range.offset, range.offset + range.length) : source,
@@ -93,7 +106,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
 
   it('returns the stored artifact size for an unsatisfiable range', async () => {
     const app = appWith({
-      read: async () => ({ bytes: Buffer.from('0'), contentType: 'video/mp4', size: 10 }),
+      readArtifact: async () => ({ bytes: Buffer.from('0'), contentType: 'video/mp4', size: 10 }),
     })
     const res = await app.request('/files/artifact/iss_1/abc/video.mp4', {
       headers: { range: 'bytes=10-' },
@@ -104,7 +117,7 @@ describe('GET /files/artifact/:issueId/:artifactId/* [spec:SP-0fc9]', () => {
 
   it('serves a snapshot file as a download named after its basename when asked', async () => {
     const app = appWith({
-      read: async () => ({
+      readArtifact: async () => ({
         bytes: Buffer.from('<h1>hi</h1>'),
         contentType: 'text/html; charset=utf-8',
         size: 11,

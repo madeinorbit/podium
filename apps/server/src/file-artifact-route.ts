@@ -1,14 +1,25 @@
 // apps/server/src/file-artifact-route.ts
 import { type ArtifactId, asArtifactId, asIssueId, type IssueId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 const MAX_RANGE_BYTES = 10 * 1024 * 1024
 
-/** The store face the route needs (IssueArtifactStore, structurally). */
-export interface ArtifactBundleReader {
-  read(
+/**
+ * THE ONE ARTIFACT DOOR — `FileAccessGate.readArtifact`, structurally (PDM-261).
+ *
+ * This is deliberately NOT the artifact store. The route used to be handed
+ * `IssueArtifactStore` itself, and a store cannot refuse: it answers for any
+ * issue id in the path because an issue id is all it is given. Taking the
+ * gate's own method instead means there is no second way to the bytes from
+ * here, so the authorization is not something this handler can forget to run —
+ * the same property `FileState = { files: FileAccessGate }` bought for the tRPC
+ * side, argued in `modules/files/file-access-gate.ts`.
+ */
+export interface ArtifactDoor {
+  readArtifact(
     issueId: IssueId,
     artifactId: ArtifactId,
     relPath: string,
@@ -16,16 +27,64 @@ export interface ArtifactBundleReader {
   ): Promise<{ bytes: Buffer; contentType: string; size: number } | null>
 }
 
+/** The door bound to ONE caller, resolved per request. */
+export interface ArtifactRouteAccess {
+  /**
+   * This request's artifact door, or `undefined` when no principal can be
+   * resolved from it — which the route answers 401, the same as any other
+   * unauthenticated read.
+   *
+   * A FUNCTION OF THE REQUEST, not a value captured at registration. A gate is
+   * bound to one caller by construction, so a route serving many callers cannot
+   * hold one: capturing a gate here would authorize every later request as
+   * whoever happened to arrive first.
+   */
+  doorFor(request: Request): Promise<ArtifactDoor | undefined>
+}
+
+/**
+ * HOW A REFUSAL FROM THE GATE BECOMES A RESPONSE.
+ *
+ * The gate throws `TRPCError` because it is shared with the tRPC reads, and its
+ * codes carry decisions this route must not flatten. In particular
+ * `checkIssueAccess` answers an owned-scope caller NOT_FOUND rather than
+ * FORBIDDEN precisely so the surface is not an existence oracle over other
+ * people's issues — mapping that to 403 would undo the distinction the
+ * predicate went to trouble to make.
+ *
+ * THE BODIES ARE THE ROUTE'S OWN WORDS, not the error's. `checkIssueAccess`
+ * names the issue it refused ("unknown issue iss_x"), which is fine inside an
+ * authenticated tRPC error payload and is a needless detail on a raw byte
+ * route. 404 here is spelled exactly as the missing-artifact 404 below it, so
+ * "you may not read this issue" and "there is no such file" are one answer.
+ */
+const REFUSALS: Record<string, { status: 401 | 403 | 404 | 412; body: string }> = {
+  UNAUTHORIZED: { status: 401, body: 'unauthorized' },
+  FORBIDDEN: { status: 403, body: 'forbidden' },
+  NOT_FOUND: { status: 404, body: 'not found' },
+  PRECONDITION_FAILED: { status: 412, body: 'issue is outside your scope' },
+}
+
 /**
  * Serve permanent-store artifact snapshots ([spec:SP-0fc9] #441):
  * GET /files/artifact/<issueId>/<artifactId>/<relpath...>. Path-style so a
  * bundle's HTML entry resolves relative src/href to sibling files. Server-local
- * read — no daemon round-trip, works with the owning machine offline. Auth
- * matches the rest of /files/* (clientAuthGuard in server.ts). Content is
+ * read — no daemon round-trip, works with the owning machine offline. Content is
  * immutable under a given artifactId (re-add mints a new id), hence the
  * immutable cache-control.
+ *
+ * AUTHORIZATION, AND WHY THE OLD COMMENT HERE WAS THE BUG (PDM-261). It used to
+ * read "Auth matches the rest of /files/* (clientAuthGuard in server.ts)". That
+ * is a true sentence about AUTHENTICATION and it was standing in for a sentence
+ * about authorization that nothing in this file had ever made true: the guard
+ * establishes that the caller is signed in and says nothing about whether these
+ * particular bytes are theirs, so any signed-in member could fetch any issue's
+ * artifacts by naming its id. The route now reads through `FileAccessGate`,
+ * which asks `checkIssueAccess` — the same ONE issue-access rule `files.read`
+ * runs over these same bytes on the tRPC side. `clientAuthGuard` still runs in
+ * front of it and is still worth having; it is simply not this question.
  */
-export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): void {
+export function registerArtifactRoute(app: Hono, access: ArtifactRouteAccess): void {
   app.get('/files/artifact/:issueId/:artifactId/*', async (c) => {
     const issueId = c.req.param('issueId')
     const artifactId = c.req.param('artifactId')
@@ -34,40 +93,47 @@ export function registerArtifactRoute(app: Hono, store: ArtifactBundleReader): v
     if (!rel) return c.text('bad request', 400)
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
+    const door = await access.doorFor(c.req.raw)
+    if (!door) return c.text('unauthorized', 401)
+    const read = async (range?: { offset: number; length: number }) =>
+      await door.readArtifact(asIssueId(issueId), asArtifactId(artifactId), rel, range)
     let range: ResolvedByteRange | null = null
-    let r: Awaited<ReturnType<ArtifactBundleReader['read']>>
-    if (requestedRange?.kind === 'suffix') {
-      const probe = await store.read(asIssueId(issueId), asArtifactId(artifactId), rel, {
-        offset: 0,
-        length: 1,
-      })
-      if (!probe) return c.text('not found', 404)
-      const resolved = resolveByteRange(requestedRange, probe.size, MAX_RANGE_BYTES)
-      if (resolved === 'unsatisfiable') {
-        return c.body(null, 416, { 'content-range': `bytes */${probe.size}` })
+    let r: Awaited<ReturnType<ArtifactDoor['readArtifact']>>
+    try {
+      if (requestedRange?.kind === 'suffix') {
+        const probe = await read({ offset: 0, length: 1 })
+        if (!probe) return c.text('not found', 404)
+        const resolved = resolveByteRange(requestedRange, probe.size, MAX_RANGE_BYTES)
+        if (resolved === 'unsatisfiable') {
+          return c.body(null, 416, { 'content-range': `bytes */${probe.size}` })
+        }
+        range = resolved
+        r = await read({ offset: range.offset, length: range.length })
+      } else if (requestedRange) {
+        const tentative = {
+          offset: requestedRange.start,
+          length:
+            requestedRange.end === undefined
+              ? MAX_RANGE_BYTES
+              : Math.min(requestedRange.end - requestedRange.start, MAX_RANGE_BYTES - 1) + 1,
+        }
+        r = await read(tentative)
+        if (!r) return c.text('not found', 404)
+        const resolved = resolveByteRange(requestedRange, r.size, MAX_RANGE_BYTES)
+        if (resolved === 'unsatisfiable') {
+          return c.body(null, 416, { 'content-range': `bytes */${r.size}` })
+        }
+        range = resolved
+      } else {
+        r = await read()
       }
-      range = resolved
-      r = await store.read(asIssueId(issueId), asArtifactId(artifactId), rel, {
-        offset: range.offset,
-        length: range.length,
-      })
-    } else if (requestedRange) {
-      const tentative = {
-        offset: requestedRange.start,
-        length:
-          requestedRange.end === undefined
-            ? MAX_RANGE_BYTES
-            : Math.min(requestedRange.end - requestedRange.start, MAX_RANGE_BYTES - 1) + 1,
-      }
-      r = await store.read(asIssueId(issueId), asArtifactId(artifactId), rel, tentative)
-      if (!r) return c.text('not found', 404)
-      const resolved = resolveByteRange(requestedRange, r.size, MAX_RANGE_BYTES)
-      if (resolved === 'unsatisfiable') {
-        return c.body(null, 416, { 'content-range': `bytes */${r.size}` })
-      }
-      range = resolved
-    } else {
-      r = await store.read(asIssueId(issueId), asArtifactId(artifactId), rel)
+    } catch (err) {
+      // Only a refusal the gate states is turned into a status. Anything else —
+      // a store failure, a bug — keeps propagating to the server's error
+      // handling rather than being laundered into a tidy 404 here.
+      const refusal = err instanceof TRPCError ? REFUSALS[err.code] : undefined
+      if (!refusal) throw err
+      return c.text(refusal.body, refusal.status)
     }
     if (!r) return c.text('not found', 404)
     if (range && r.bytes.length === 0) {

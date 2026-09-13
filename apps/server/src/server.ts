@@ -96,6 +96,7 @@ import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
+import { fileAccessGate } from './modules/files/file-access-gate'
 import { registerAssetRoute } from './file-asset-route'
 import {
   createDaemonAcceptor,
@@ -1632,8 +1633,49 @@ export async function startServer(
         machineId ?? (await registry.modules.machines.defaultMachine()),
       )) !== undefined,
   })
-  // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
-  registerArtifactRoute(app, registry.modules.issueArtifacts)
+  /**
+   * Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon
+   * hop, and behind the SAME issue-access rule `files.read` runs (PDM-261).
+   *
+   * WHAT USED TO BE HERE was `registry.modules.issueArtifacts` — the store
+   * itself. `clientAuthGuard` above establishes that the caller is signed in,
+   * which is the only question that was ever asked on this path, so any member
+   * could name any issue id and be served its attachments. The route now gets
+   * one caller's `FileAccessGate` instead of the store.
+   *
+   * THE PRINCIPAL IS RESOLVED PER REQUEST BY `requestPrincipal` — the same
+   * resolver the /trpc context factory uses a few lines below, deliberately and
+   * not merely conveniently. Two resolvers would be two answers to "who is
+   * calling", and this route and `files.read` serve the same bytes: they must
+   * not be able to disagree about the caller any more than about the rule.
+   *
+   * A gate is bound to ONE caller, so this cannot be hoisted out of the
+   * closure — `doorFor` takes the request and builds the gate for whoever sent
+   * it. `undefined` here means no principal could be resolved at all, which the
+   * route answers 401.
+   */
+  registerArtifactRoute(app, {
+    doorFor: async (request) => {
+      const principal = await requestPrincipal(
+        {
+          ...(request.headers.get('cookie') !== null
+            ? { cookieHeader: request.headers.get('cookie') as string }
+            : {}),
+          ...(request.headers.get('authorization') !== null
+            ? { authorizationHeader: request.headers.get('authorization') as string }
+            : {}),
+        },
+        request,
+      )
+      if (principal === undefined) return undefined
+      return fileAccessGate(
+        registry.modules,
+        repos,
+        { userId: principal.kind === 'user' ? principal.user : undefined, capability: principal.capability },
+        principal,
+      )
+    },
+  })
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win

@@ -70,6 +70,15 @@
  * predicate they were told to adopt if one served all five doors: it does, and
  * `readArtifact` and `readRoot` are the two methods they want. Neither issue
  * closing disposes of the other, and nothing here reaches across to edit them.
+ *
+ * PDM-261 HAS SINCE ADOPTED `readArtifact` and changed ONE thing about it: the
+ * method now forwards a byte `range`. `GET /files/artifact/…` serves `Range`
+ * requests and the method could not, so adopting it as written would have meant
+ * the route keeping a direct store read for ranged requests — an authorized
+ * door beside an unauthorized one, which is the shape this port exists to make
+ * impossible. The authorization is untouched: `checkIssueAccess` runs first and
+ * unchanged, and `file-artifact-route.authz.test.ts` drives the raw route and
+ * `files.read` over one fixture so a break in that single call reddens both.
  */
 
 import {
@@ -127,11 +136,23 @@ export interface FileAccessGate {
     sessionId: SessionId,
     path: string,
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>>
-  /** One file of ONE ISSUE'S ARTIFACT, if this caller may read that issue. */
+  /**
+   * One file of ONE ISSUE'S ARTIFACT, if this caller may read that issue.
+   *
+   * `range` IS HERE FOR THE RAW ROUTE (PDM-261), and it is a parameter rather
+   * than a second method on purpose. `GET /files/artifact/…` serves `Range`
+   * requests — a video artifact is seeked, not downloaded whole — so a gate
+   * that could only answer with the entire file would have left that route
+   * reading the store directly for exactly the requests where it matters most,
+   * which is the hole this port exists to make unreachable. The store's own
+   * `read` has taken this shape since the route was written; the gate now
+   * forwards it instead of narrowing it away.
+   */
   readArtifact(
     issueId: IssueId,
     artifactId: ArtifactId,
     path: string,
+    range?: { offset: number; length: number },
   ): Promise<{ bytes: Buffer; contentType: string; size: number } | null>
   /** One file under an allowed root, on a machine this caller may use. */
   readRoot(
@@ -261,7 +282,7 @@ export function fileAccessGate(
       return await modules.rpc.readFile({ sessionId, path })
     },
 
-    async readArtifact(issueId, artifactId, path) {
+    async readArtifact(issueId, artifactId, path, range) {
       await checkIssueAccess(
         {
           capability: caller.capability,
@@ -272,7 +293,7 @@ export function fileAccessGate(
         'read',
         issueId,
       )
-      return await modules.issueArtifacts.read(issueId, artifactId, path)
+      return await modules.issueArtifacts.read(issueId, artifactId, path, range)
     },
 
     async readRoot(root, path, machineId) {

@@ -1551,6 +1551,7 @@
         "src/features.ts",
         "src/feed-bootstrap-scaling.test.ts",
         "src/feed-visibility.ts",
+        "src/file-artifact-route.authz.test.ts",
         "src/file-artifact-route.ts",
         "src/file-asset-route.ts",
         "src/file-relay-policy.ts",
