@@ -22,7 +22,7 @@
 import { asUserId, SessionIdField, type SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { mayReadOwned } from '../../issue-authz'
+import { mayReadSessionOwned } from './session-access'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 
@@ -33,14 +33,18 @@ const q = defineQuery<FamilyState>()
 // a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
 // an absent owner and an absent caller, compared `undefined === undefined` and
 // answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
+//
+// THE RULE ITSELF NOW LIVES IN `session-access.ts` (PDM-272) and this is the
+// binding of it to `FamilyState`. It moved because `files.read`'s
+// session-addressed arm is a SECOND DOOR onto the same session's bytes and
+// needed the same answer; keeping the rule private here would have meant
+// spelling it twice, which is what `authz-single-home` fails the build over.
 async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
-  const target = await state.modules.sessions.sessionOwner(sessionId as never)
-  if (target === undefined) return false
-  return mayReadOwned(state.caller.userId, {
-    id: sessionId,
-    owner: target.owner,
-    grants: target.grants,
-  })
+  return await mayReadSessionOwned(
+    state.caller.userId,
+    sessionId,
+    async (id) => await state.modules.sessions.sessionOwner(id as never),
+  )
 }
 
 async function assertMayReadSession(state: FamilyState, sessionId: SessionId): Promise<void> {

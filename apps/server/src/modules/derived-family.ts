@@ -184,6 +184,7 @@ import {
   type OperationTargetGate,
   operationTargetGate,
 } from './operations/operation-target-gate'
+import { type FileAccessGate, fileAccessGate } from './files/file-access-gate'
 import { type PerUserActorGate, perUserActorGate } from './per-user-actor-gate'
 import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './layout/authz'
 import {
@@ -338,6 +339,19 @@ export interface FamilyState {
    * implementation.
    */
   readonly operationTargets: OperationTargetGate
+  /**
+   * MAY THIS CALLER READ THESE BYTES — the ANSWER, and every file door bound to
+   * it (PDM-272). Selected by `files` alone, and it is the WHOLE of that
+   * family's state: see `files/file-access-gate.ts` for why the port owns the
+   * RPC rather than sitting beside it.
+   *
+   * The third position's FIFTH member. It is the first whose family had NO
+   * identity available at all — `files` selected three services and no caller,
+   * so its three reads authorized on the path because the path was the only
+   * thing in the seam. That is the shape this position exists to make
+   * expressible, and it needed no new rule.
+   */
+  readonly fileTargets: FileAccessGate
   /**
    * WHOSE LAYOUT ROW THIS WRITE BELONGS TO — the ANSWER, and the family's own
    * live account check already applied (PDM-308). Selected by `layout` alone.
@@ -595,6 +609,21 @@ export const familyState = (ctx: Context): FamilyState => ({
   operationTargets: operationTargetGate(
     mods(ctx),
     async () => (await roleFloorDeps(ctx)).principal,
+    ctx.principal,
+  ),
+  // THE SAME CONSTRUCTION AS THE GATES ABOVE, and the same reason: this request's
+  // principal, capability and user id are read HERE, and what reaches the `files`
+  // family is a set of doors that have already asked. `callerUserId` is reused
+  // rather than respelled so the session rule this gate runs cannot come to
+  // disagree with the one `sessions`' own reads run over the same bytes.
+  fileTargets: fileAccessGate(
+    mods(ctx),
+    ctx.repos,
+    {
+      userId: callerUserId(ctx),
+      capability: ctx.capability,
+      ...(ctx.overrideScope ? { overrideScope: true } : {}),
+    },
     ctx.principal,
   ),
   // THE GATE IS BOUND HERE AND THE PRINCIPAL IS READ NOWHERE DOWNSTREAM, the

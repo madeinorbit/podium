@@ -474,12 +474,22 @@ describe('the ungoverned list is a finding list, not a waiver', () => {
     // in PROJECTION_POLICIES now and the totality test above keeps each in
     // exactly one list.
     //
-    // The three that remain are the `files.*` family, and they are one gap
-    // rather than three: the same `assertAllowedRoot`, which asks whether a path
-    // is a known repository and never who is asking.
+    // The `files.*` family was the last three, and PDM-272 fixed rather than
+    // found them: `files.read`'s session arm asked NOTHING, its artifact arm
+    // served any issue id named, and all three root-addressed arms ran
+    // `assertAllowedRoot` alone — a rule about paths standing in for a rule
+    // about people. They are in PROJECTION_POLICIES now and the totality test
+    // above keeps each in exactly one list.
+    //
+    // NONE REMAIN, and the empty expectation is deliberately NOT a weaker
+    // assertion than the list it replaces. `toEqual([])` fails the moment any
+    // future read is classified at this severity, which is exactly the signal
+    // this case exists to raise; and the totality test above independently
+    // refuses an entry that is in neither list, so an empty array here cannot
+    // be reached by quietly dropping a row.
     const disclosing = UNGOVERNED_PROJECTIONS.filter(
       (entry) => entry.severity === 'discloses-private-execution',
     ).map((entry) => entry.name)
-    expect(disclosing).toEqual(['files.read', 'files.list', 'files.search'])
+    expect(disclosing).toEqual([])
   })
 })

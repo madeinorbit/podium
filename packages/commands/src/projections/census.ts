@@ -180,6 +180,43 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
       'Asserts `mayReadSession` and answers NOT_FOUND rather than FORBIDDEN, so a refusal does not confirm the session exists. Transcript text is the most private thing a session holds.',
   }),
   p({
+    name: 'files.read',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'repo',
+    // The worked example again, and this read needs it more than most: THREE
+    // input shapes reaching three different resources. A row recording only
+    // `repo` would be true and would hide both of the arms that disclose a
+    // person — a session's working tree and an issue's artifact.
+    indirectResources: ['session', 'issue', 'machine'],
+    forbiddenFields: [],
+    rationale:
+      "THREE ARMS, THREE RULES, AND NONE OF THEM IS A PATH RULE — PDM-272, which had to FIX this rather than find it already governed. Before it, the `sessionId` arm matched neither branch of the handler and fell through to `state.rpc.readFile` with NO check of any kind, while `sessions.transcriptRead` asserted ownership one module away for the same session's bytes; the `artifactId` arm served `artifacts.read(issueId, …)` for any issue id the caller named; and the `root` arm ran `assertAllowedRoot` alone, which asks whether a path is a known REPOSITORY and never who is asking. The repair is structural rather than three guards: `FileState` named `rpc`, `artifacts` and `repos` and named no identity, so the handlers authorized on the only thing in their seam. It is now `{ files: FileAccessGate }` and nothing else, so there is no longer an unauthorized way to SPELL these reads — `modules/files/file-access-gate.ts`, the third position's fifth member in `derived-family.ts`. Each door asks the rule that already governs its resource: the session arm runs `mayReadSessionOwned`, which is `transcriptRead`'s own predicate moved to one home in `sessions/session-access.ts` so the two doors cannot drift; the artifact arm runs `checkIssueAccess(…, 'read', issueId)`, the one issue-access gate; the root arm keeps `assertAllowedRoot` for containment and then adds `checkMachineUse`, `machine-access.ts`'s own owned-compute predicate, against the machine it RESOLVES ONCE and then dispatches to. Refusals are observed, not argued, in `modules/files/queries.authz.test.ts` over the real gate — a stranger refused NOT_FOUND with the daemon never reached, an unowned session row refused rather than read as `undefined === undefined`, a foreign issue refused with the artifact store never touched, a see-but-not-use grant refused FORBIDDEN where an invisible machine refuses NOT_FOUND — and the file asserts the files and sessions doors REFUSE THE SAME STRANGER IDENTICALLY, which is the asymmetry that was the finding. Each rule was proved by deliberate break; breaking the shared session predicate reddens both families. STILL UNGOVERNED AND FILED, NOT FIXED HERE: the five `GIT_QUERIES` in `modules/misc-queries.ts` run the same `assertAllowedRoot` alone on a caller-named machine, and `files.write`'s session-addressed arm is unchecked in the same way this read's was — both are outside the A3.2 read census's rows and are filed against PDM-272 rather than re-authorized in passing by a read issue.",
+  }),
+  p({
+    name: 'files.list',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'repo',
+    indirectResources: ['machine'],
+    forbiddenFields: [],
+    rationale:
+      "A directory walk on a NAMED MACHINE, which is the owned-compute boundary. As `files.read`'s root arm and through the same gate: `assertAllowedRoot` for containment, then `checkMachineUse` against the machine resolved once and dispatched to. Witnessed by `modules/files/queries.authz.test.ts` — the walk is refused for a caller who cannot use the machine and the daemon is never reached — and proved by deliberate break.",
+  }),
+  p({
+    name: 'files.search',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'caller-only',
+    resource: 'repo',
+    indirectResources: ['machine'],
+    forbiddenFields: [],
+    rationale:
+      "A content search across a root on a NAMED MACHINE, and the one door here with a second failure mode worth recording: it serves a keystroke from a PROCESS-WIDE path index, so its loader does not run on a cache hit and a gate consulted only inside that loader would authorize the first caller and then serve the warm index to everyone. `requireSearchableRoot` therefore runs on EVERY call and the cache is keyed on the machine it resolves, not on the caller's optional `machineId` — which would file the default machine's index under `undefined` and serve it to a caller who named another machine. Otherwise as `files.list`. Witnessed by `modules/files/queries.authz.test.ts` and proved by deliberate break.",
+  }),
+  p({
     name: 'sessions.read',
     exposure: TRPC_RELAY,
     roleFloor: 'member',
@@ -916,25 +953,6 @@ export interface UngovernedProjection {
 }
 
 export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
-  {
-    name: 'files.read',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding:
-      "Three input shapes — by session, by issue artifact, and by raw `{ machineId, root, path }`. The first two name a resource whose ownership is knowable and is not consulted; the third places a filesystem read on a named machine, which is the owned-compute boundary. No reader scoping on any arm.",
-  },
-  {
-    name: 'files.list',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding: 'As `files.read`: a directory listing on a named machine with no reader scoping.',
-  },
-  {
-    name: 'files.search',
-    owner: 'B',
-    severity: 'discloses-private-execution',
-    finding: 'As `files.read`: content search across a root on a named machine, with no reader scoping.',
-  },
   {
     name: 'sync.changesSince',
     owner: 'C',

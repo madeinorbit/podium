@@ -2,9 +2,12 @@
  * THE DERIVED FILE SURFACE (POD-314) — `write` from the contract table, `read`
  * and `list` from the query table.
  *
- * The selector returns the three things this family reaches (see `registry.ts`),
- * so the widening past a single service is visible in the family rather than in
- * the builder.
+ * THE SELECTOR RETURNS ONE THING (PDM-272). It used to return the three the
+ * family reaches — the daemon RPC, the artifact store and the repo registry —
+ * and that visible widening was the defect rather than the safeguard: three
+ * capabilities and no identity, so the reads authorized on the path. It now
+ * takes the pre-bound `fileTargets` gate off the state bundle, which is where
+ * this request's principal was read and the only place it is read.
  */
 
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
@@ -17,11 +20,7 @@ export type FileProcedures = FamilyProcedures<typeof FILE_COMMANDS_TRPC, typeof 
 export const fileFamilyProcedures = (): FileProcedures =>
   derivedFamilyProcedures({
     family: 'files',
-    service: (state) => ({
-      rpc: state.modules.rpc,
-      artifacts: state.modules.issueArtifacts,
-      repos: state.repos,
-    }),
+    service: (state) => ({ files: state.fileTargets }),
     commands: FILE_COMMANDS_TRPC,
     queries: FILE_QUERIES,
   })

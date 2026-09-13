@@ -11,12 +11,22 @@
  * The socket is the only thing stubbed: `rpc.repoOp` runs the command locally
  * instead of asking a daemon to. Nothing about the command, the parsing or the
  * ranking is faked.
+ *
+ * THE GATE IS REAL TOO, SINCE PDM-272. `FileState` is now a single
+ * `FileAccessGate` and this fixture builds the shipped one, so these cases pass
+ * through the same authorization the product runs — the owner of the machine
+ * asks for their own repository and gets it. The refusal case at the bottom is
+ * still the ROOT ALLOWLIST's, unchanged; who may read a root is
+ * `queries.authz.test.ts`'s subject and is not restated here.
  */
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { asMachineId, asUserId, type Capability } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
+import type { CommandPrincipal } from '../../command-principal'
+import { fileAccessGate, type FileAccessModules } from './file-access-gate'
 import { FILE_QUERIES } from './queries'
 import type { FileState } from './registry'
 
@@ -36,20 +46,34 @@ const LS_FILES = [
   '-z',
 ]
 
-/** A file state whose daemon is this process: same argv, real git, real repo. */
-const stateFor = (allowedRoots: string[]): FileState =>
-  ({
-    repos: { list: () => allowedRoots },
-    rpc: {
-      repoOp: async (op: string) => {
-        if (op !== 'lsFiles') return { ok: false, output: `unexpected op ${op}` }
-        const { stdout } = await execFileAsync('git', ['-C', ROOT, ...LS_FILES], {
-          maxBuffer: 8 * 1024 * 1024,
-        })
-        return { ok: true, output: stdout }
+const MACHINE = asMachineId('m_local')
+const USER = asUserId('u_local')
+
+/** A file state whose daemon is this process: same argv, real git, real repo —
+ *  and, since PDM-272, the real gate in front of it, held by the machine's own
+ *  owner so the authorization these cases pass is the shipped one. */
+const stateFor = (allowedRoots: string[]): FileState => ({
+  files: fileAccessGate(
+    {
+      rpc: {
+        repoOp: async (op: string) => {
+          if (op !== 'lsFiles') return { ok: false, output: `unexpected op ${op}` }
+          const { stdout } = await execFileAsync('git', ['-C', ROOT, ...LS_FILES], {
+            maxBuffer: 8 * 1024 * 1024,
+          })
+          return { ok: true, output: stdout }
+        },
       },
-    },
-  }) as unknown as FileState
+      machines: {
+        defaultMachine: async () => MACHINE,
+        ownershipRows: async () => [{ id: MACHINE, ownerUserId: USER, name: 'local' }],
+      },
+    } as unknown as FileAccessModules,
+    { list: async () => allowedRoots } as never,
+    { userId: USER, capability: {} as Capability },
+    { kind: 'user', user: USER, capability: {} as Capability } as unknown as CommandPrincipal,
+  ),
+})
 
 const search = (state: FileState, query: string, limit = 8) =>
   FILE_QUERIES.search.run(state, { root: ROOT, query, limit })
