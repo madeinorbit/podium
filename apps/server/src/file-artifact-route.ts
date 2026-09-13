@@ -110,6 +110,11 @@ export function registerArtifactRoute(app: Hono, access: ArtifactRouteAccess): v
     if (!rel) return c.text('bad request', 400)
     const requestedRange = parseByteRange(c.req.header('range'))
     if (requestedRange === 'invalid') return c.body(null, 416)
+    // THE TWO SYNTAX REFUSALS ABOVE RUN BEFORE THE GATE, deliberately. Both
+    // answer identically for every issue id — existent, forbidden or invented —
+    // so neither tells a caller anything they did not already know, and running
+    // them first spares a credential resolution per malformed request. Every
+    // refusal that depends on WHICH issue was named is below this line.
     const door = await access.doorFor(c.req.raw)
     if (!door) return c.text('unauthorized', 401)
     const read = async (range?: { offset: number; length: number }) =>
