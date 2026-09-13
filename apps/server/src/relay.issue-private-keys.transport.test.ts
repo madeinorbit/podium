@@ -32,10 +32,14 @@ import { openTestStore } from './test-support/open-test-store'
  * three soft controls that must each hold for it to mean anything:
  *
  *   1. A STRANGER receives nothing for this issue, WHILE receiving rows for a
- *      second issue it does hold a grant on   -> the fixture scopes, and the
- *                                                empty result is the grant
- *                                                clause refusing rather than an
+ *      second issue it does hold a grant on   -> the fixture scopes per issue,
+ *                                                and the empty result is NOT an
  *                                                inert client.
+ *      BOUNDED [PDM-447]: that pair rules out an inert client and nothing more.
+ *      It shows filtering happens PER ISSUE; it does not identify WHICH
+ *      mechanism filtered, and several would produce the same two numbers. The
+ *      grant clause is the mechanism named in `feed-visibility.ts`, but this
+ *      test does not discriminate it from any other per-issue filter.
  *   2. The GRANTEE receives the two shared kinds       -> the grant admits, so
  *                                                         the key assertion is
  *                                                         not vacuous.
@@ -99,9 +103,18 @@ const rowsFor = (inbox: ServerMessage[], issueId: string): Seen[] =>
       }))
   })
 
-/** The private keys this payload carries WITH A NON-EMPTY VALUE, as
- *  `key=value`. A key present but null is not a disclosure and must not be
- *  counted as one; a key carrying the planted string is. */
+/**
+ * The private keys this payload carries WITH A NON-EMPTY VALUE, as `key=value`.
+ *
+ * THE RIGHT INSTRUMENT FOR PROVING THE DISCLOSURE, AND THE WRONG ONE FOR PROVING
+ * THE FIX [PDM-447]. A key present but null is not a disclosure and must not be
+ * counted as one, which is why the original finding measured values — run 1 of
+ * this file reported `machineId` "present" when nothing had ever set it. But the
+ * shared CONTRACT is ABSENCE, and this predicate ignores `null`: a mask that left
+ * `worktreePath: null` on the payload would pass it. So it is kept for the
+ * historical disclosure evidence and is NEVER the only assertion — every place
+ * it appears, {@link privateKeysOn} asserts own-property absence beside it.
+ */
 const privateValuesOn = (value: unknown): string[] => {
   if (typeof value !== 'object' || value === null) return []
   const record = value as Record<string, unknown>
@@ -129,6 +142,21 @@ async function registerMachine(
     JSON.stringify(fixtureInventory({ agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] })),
   )
 }
+
+/**
+ * The private keys this payload carries AS OWN PROPERTIES, whatever their value
+ * [PDM-447].
+ *
+ * `Object.hasOwn` rather than `in`, so a key inherited from a prototype is not
+ * counted as the payload carrying it, and rather than a truthiness test, so
+ * `null` and `undefined` COUNT. This is the one that pins the shared contract:
+ * `SharedIssueWire` / `SharedIssueProjection` omit these keys, so a conforming
+ * payload does not have them at all.
+ */
+const privateKeysOn = (value: unknown): string[] =>
+  typeof value === 'object' && value !== null
+    ? ISSUE_PRIVATE_EXECUTION_KEYS.filter((key) => Object.hasOwn(value, key))
+    : []
 
 async function grantRead(
   store: Awaited<ReturnType<typeof openTestStore>>,
@@ -244,11 +272,20 @@ describe('the shared issue rows a non-owner grant-holder receives [PDM-415]', ()
       .filter((r) => r.entity === 'issue' || r.entity === 'issueProjection')
       .flatMap((r) => privateValuesOn(r.value).map((kv) => `${r.entity} ${kv}`))
 
-    // The shared contract (`SharedIssueWire` / `SharedIssueProjection`, which
-    // `protocol/messages/feed.ts` already names on both arms) omits all four
-    // keys. A payload a non-owner receives must therefore carry none of them.
-    // Red here IS the disclosure.
-    expect(carried).toEqual([])
+    // THE HISTORICAL DISCLOSURE EVIDENCE. Values, not presence: this is the
+    // assertion that was red before the mask, carrying all sixteen planted
+    // values, and it is what makes the finding a disclosure rather than a shape
+    // complaint. Kept exactly as it was.
+    expect.soft(carried).toEqual([])
+
+    // THE CONTRACT ITSELF [PDM-447]. `SharedIssueWire` / `SharedIssueProjection`
+    // OMIT these keys, so a conforming payload does not have them at all. The
+    // assertion above ignores `null`, so a mask that nulled the fields instead of
+    // dropping them would satisfy it; this one does not.
+    const present = granteeRows
+      .filter((r) => r.entity === 'issue' || r.entity === 'issueProjection')
+      .flatMap((r) => privateKeysOn(r.value).map((k) => `${r.entity} ${k}`))
+    expect(present).toEqual([])
   })
 
   it('the values survive JSON encoding, so they cross the wire and not just the in-process seam', async () => {
@@ -287,7 +324,11 @@ describe('the shared issue rows a non-owner grant-holder receives [PDM-415]', ()
 
     // Non-vacuity: there must BE rows to inspect after the round trip.
     expect.soft(shared.length).toBeGreaterThan(0)
-    expect(shared.flatMap((c) => privateValuesOn((c as { value?: unknown }).value))).toEqual([])
+    expect.soft(shared.flatMap((c) => privateValuesOn((c as { value?: unknown }).value))).toEqual([])
+    // Own-property absence after the round trip too [PDM-447]. `JSON.stringify`
+    // DROPS an `undefined` value but KEEPS an explicit `null`, so these two
+    // assertions can come apart here in a way they cannot in memory.
+    expect(shared.flatMap((c) => privateKeysOn((c as { value?: unknown }).value))).toEqual([])
   })
 })
 
@@ -317,10 +358,30 @@ const allRowsFor = (inbox: ServerMessage[], issueId: string): Seen[] =>
  *
  * Removing the keys from the broadcast payload is only correct if the entitled
  * reader gets them back. The owner's client does that with `joinIssueExecution`,
- * already wired at five call sites in `client-core`. These witnesses EXECUTE
- * that join over the real delta stream rather than arguing from those call
- * sites, because five wired callers is a source reading and the reviewer asked
- * for an executed one.
+ * already wired at five call sites in `client-core`.
+ *
+ * WHAT THIS FILE'S OWNER WITNESS IS, EXACTLY [PDM-448]. It invokes
+ * `joinIssueExecution` — the production JOIN FUNCTION — over REAL SERVING OUTPUT
+ * taken from a real client's inbox. That makes it evidence about the SERVING
+ * SEAM: the server emits a shared row and a sidecar row that the production join
+ * can put back together. It is NOT evidence that the production CONSUMER does
+ * so, because the consumer is `createReplicaBinding`'s `joinExecutions` and this
+ * test does not run it. Calling this "owner-side client reassembly" without that
+ * distinction overstated it, and the reviewer was right to separate the two.
+ *
+ * WHY THE CONSUMER IS NOT EXERCISED HERE RATHER THAN JUST NOT EXERCISED: the
+ * `declared-deps` boundary rule refuses `apps/server` depending on
+ * `@podium/client-core` (`modules/interactions/synthesis.ts:204` says so), so the
+ * consumer is unreachable from this package by construction. It is covered
+ * instead beside itself, in
+ * `packages/client-core/src/engine/replica-binding.issue-execution.test.ts`,
+ * which drives the real binding over held owner rows, an update and a sidecar
+ * removal with an unrelated-row control.
+ *
+ * NEITHER FILE IS END-TO-END, AND THE PAIR SHOULD NOT BE READ AS ONE. Nothing
+ * here runs a server's output INTO that binding; that would need a package
+ * depending on both sides and this repair creates none. Serving seam here,
+ * consumer seam there, and the join between them is an argument.
  */
 describe("the owner's reassembly after masking [PDM-415]", () => {
   const reassemble = (rows: Seen[]) => {
@@ -331,7 +392,7 @@ describe("the owner's reassembly after masking [PDM-415]", () => {
     return shared === undefined ? undefined : joinIssueExecution(shared, sidecar)
   }
 
-  it('the owner re-gains all four values, and an update moves them', async () => {
+  it('the SERVING SEAM hands the owner all four values, and an update moves them', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -446,7 +507,8 @@ describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
     // NON-VACUITY FIRST: the bootstrap must actually carry the issue, or the
     // absence of keys below is the absence of the row.
     expect.soft(granteeBoot.length).toBeGreaterThan(0)
-    expect(granteeBoot.flatMap((r) => privateValuesOn(r.value))).toEqual([])
+    expect.soft(granteeBoot.flatMap((r) => privateValuesOn(r.value))).toEqual([])
+    expect(granteeBoot.flatMap((r) => privateKeysOn(r.value))).toEqual([])
 
     // AND THE OWNER IS NOT STRANDED ON THIS PATH EITHER: its bootstrap carries
     // the sidecar, so its join still yields the four values.
@@ -458,7 +520,7 @@ describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
     expect(allRowsFor(grantee, issue.id).filter((r) => r.entity === 'issueExecution')).toEqual([])
   })
 
-  it('the catch-up producer masks for a non-owner principal', async () => {
+  it('the SNAPSHOT producer masks for a non-owner principal', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -472,19 +534,77 @@ describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
     await registry.issues.update(issue.id, PLANTED)
     await grantRead(store, issue.id)
 
-    // `syncChangesSince` takes a PRINCIPAL, so this is the catch-up path read AS
-    // the grantee rather than as the device-grade default that scopes nothing.
+    // A NULL CURSOR RETURNS A SNAPSHOT, NOT A CATCH-UP DELTA [PDM-448]. This
+    // case was called "catch-up" and asserted `kind === 'snapshot'`, which is the
+    // snapshot producer read through `syncChangesSince` — worth having, and NOT
+    // the incremental path. Retained as snapshot evidence under its real name;
+    // the incremental case is the test below.
+    //
+    // `syncChangesSince` takes a PRINCIPAL, so this is read AS the grantee rather
+    // than as the device-grade default that scopes nothing.
     const boot = await registry.modules.sessions.syncChangesSince(null, principalFor(GRANTEE))
     expect.soft(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
 
+    // POSITIVE CONTROLS ON **BOTH** KINDS [PDM-448]. A positive `issues` count
+    // does not establish `issueProjections` presence, and the previous version
+    // asserted non-vacuity on one kind while drawing a conclusion about two.
     const mine = boot.issues.filter((i) => (i as { id?: string }).id === issue.id)
-    expect.soft(mine.length).toBeGreaterThan(0) // non-vacuity
-    expect(mine.flatMap((i) => privateValuesOn(i))).toEqual([])
-    expect(
-      (boot.issueProjections ?? [])
-        .filter((p) => (p as { id?: string }).id === issue.id)
-        .flatMap((p) => privateValuesOn(p)),
+    const mineProjections = (boot.issueProjections ?? []).filter(
+      (p) => (p as { id?: string }).id === issue.id,
+    )
+    expect.soft(mine.length).toBeGreaterThan(0)
+    expect.soft(mineProjections.length).toBeGreaterThan(0)
+
+    expect.soft([...mine, ...mineProjections].flatMap((r) => privateValuesOn(r))).toEqual([])
+    expect([...mine, ...mineProjections].flatMap((r) => privateKeysOn(r))).toEqual([])
+  })
+
+  it('the INCREMENTAL catch-up producer masks for a non-owner principal', async () => {
+    // THE PATH THE PREVIOUS CASE NEVER REACHED [PDM-448]: a NON-NULL cursor, so
+    // `funnel.changesSince` answers and the response is a `delta` rather than a
+    // snapshot. Asserted by its explicit response shape, because `kind` is the
+    // only thing that distinguishes which producer ran.
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    registries.push(registry)
+    await registerMachine(store)
+    const issue = await registry.issues.create({
+      repoPath: '/r',
+      title: 'solo',
+      startNow: false,
+      startedBySession: STARTED_BY,
+    })
+    await grantRead(store, issue.id)
+
+    // Take a cursor BEFORE the private keys move, so the write below is inside
+    // the window the delta has to describe.
+    const before = await registry.modules.sessions.syncChangesSince(null, principalFor(GRANTEE))
+    expect.soft(before.kind).toBe('snapshot')
+    await registry.issues.update(issue.id, PLANTED)
+
+    const caught = await registry.modules.sessions.syncChangesSince(
+      before.cursor,
+      principalFor(GRANTEE),
+    )
+    // EXPLICIT RESPONSE SHAPE. If this said `snapshot` the assertions below would
+    // be measuring the snapshot producer again under a different name.
+    expect.soft(caught.kind).toBe('delta')
+    if (caught.kind !== 'delta') return
+
+    const rows = caught.changes.filter(
+      (c) => c.id === issue.id && (c.entity === 'issue' || c.entity === 'issueProjection'),
+    )
+    // POSITIVE CONTROLS ON BOTH SHARED KINDS, separately — the delta must carry
+    // each of them, or an absence of keys below is an absence of the row.
+    expect.soft(rows.filter((c) => c.entity === 'issue').length).toBeGreaterThan(0)
+    expect.soft(rows.filter((c) => c.entity === 'issueProjection').length).toBeGreaterThan(0)
+    // The grantee must NOT be handed the owner-only sidecar on this path either.
+    expect.soft(
+      caught.changes.filter((c) => c.id === issue.id && c.entity === 'issueExecution'),
     ).toEqual([])
+
+    expect.soft(rows.flatMap((c) => privateValuesOn((c as { value?: unknown }).value))).toEqual([])
+    expect(rows.flatMap((c) => privateKeysOn((c as { value?: unknown }).value))).toEqual([])
   })
 })

@@ -33,9 +33,16 @@ import { createLogger } from '@podium/logger'
  *
  * Every one of them reaches the change log through `IssueService.deps.ledger`,
  * and that is `IssueAuthorityArbitration.ledger` (built at `relay.ts:1041`,
- * injected at `:1896` and `:1979`). Applying the mask there is TOTAL BY
- * CONSTRUCTION over every present and future issue producer, which is a property
- * rather than a promise to maintain a list.
+ * injected at `:1896` and `:1979`).
+ *
+ * THE BOUND ON "TOTAL BY CONSTRUCTION" [PDM-447]. The property is total over
+ * WRITES ROUTED THROUGH THIS WRAPPER, which is what was inspected. It is NOT a
+ * claim about every present and future producer, and I wrote it that way first.
+ * A producer that obtained the underlying `Ledger` directly rather than through
+ * `IssueService.deps.ledger`, or a future kind published by some other seam,
+ * lies outside it and this file would never know. What the inspection
+ * establishes is that the producers named above ALL route here today; what it
+ * cannot establish is that nothing will ever be added that does not.
  *
  * THERE ARE **THREE** DOORS, NOT TWO, AND I GOT THAT WRONG ONCE. The wrapper
  * exposes `commit`, `capture` and `reconcile`. My first attempt masked the two
@@ -61,11 +68,17 @@ import { createLogger } from '@podium/logger'
  * strips keys the schema does not declare. If a producer ever emitted a field
  * outside `IssueWire`/`IssueProjection`, this would silently drop it as well as
  * the private four. That is not a theoretical worry a comment can settle, so
- * `shared-payload-mask.test.ts` pins it directly: for a full fixture, the key
- * set after masking equals the key set before MINUS exactly the four. If that
- * witness ever reddens, the parse is over-stripping and the mask should become a
- * structural omission over `ISSUE_PRIVATE_EXECUTION_KEYS` — same list, weaker
- * derivation, and the trade would then be worth making.
+ * `shared-payload-mask.test.ts` measures it directly — and the first version of
+ * that test was VACUOUS for exactly this question [PDM-447]: its fixture was
+ * built with `IssueProjection.parse`, which had already stripped every
+ * undeclared key before the mask ever ran, so it could not have shown the
+ * effect it was written to pin. It now carries three tests instead: masking a
+ * producer-shaped payload loses exactly the four; masking a NOT-pre-parsed
+ * payload carrying an undeclared field DOES drop that field (the cost is real);
+ * and a reconciliation showing `issueRowToProjection` already ends in
+ * `IssueProjection.parse`, so the `issueProjection` producer cannot emit such a
+ * field. The `issue` kind's guarantee is weaker and is stated there rather than
+ * closed.
  *
  * ---------------------------------------------------------------------------
  * WHY A FAILED PARSE STRIPS RATHER THAN THROWS

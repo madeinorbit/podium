@@ -51,12 +51,15 @@ function fullProjection(): IssueProjection {
 }
 
 describe('the shared-payload mask [PDM-415]', () => {
-  it('removes EXACTLY the private keys and nothing else', async () => {
-    // THE COST OF USING A ZOD PARSE, PINNED RATHER THAN ARGUED. A zod object
-    // parse also strips keys the schema does not declare, so the mask could
-    // quietly drop a legitimate field as well as the private four and every
-    // transport test would still be green — the disclosure would be fixed and
-    // the owner's client would be missing data nobody looked for.
+  it('removes EXACTLY the private keys from a REAL producer payload', async () => {
+    // WHAT THIS DOES AND DOES NOT SHOW [PDM-447]. This fixture is
+    // `IssueProjection.parse`d, which is what the real producer emits — see the
+    // reconciliation test below — so it is the right fixture for "does masking
+    // lose any SUPPORTED field". It is the WRONG fixture for "can the parse drop
+    // an undeclared field", because the parse has already dropped any such field
+    // before the mask runs. The previous version of this test used only this
+    // fixture and claimed the second property; that claim was VACUOUS and the
+    // reviewer was right to strike it. The discriminating case is the next test.
     const full = fullProjection()
     const masked = maskSharedIssuePayload('issueProjection', full) as Record<string, unknown>
 
@@ -73,6 +76,57 @@ describe('the shared-payload mask [PDM-415]', () => {
     // And the values that survive are unchanged, not merely present.
     expect.soft(masked.title).toBe(full.title)
     expect.soft(masked.branch).toBe(full.branch)
+  })
+
+  it('DOES drop a field the shared schema does not declare — the cost, measured', async () => {
+    // THE DISCRIMINATING FIXTURE the previous test could not be [PDM-447]: built
+    // as a literal and NOT passed through `IssueProjection.parse`, so it still
+    // carries a key the schema has never heard of when the mask sees it.
+    //
+    // The result is the honest one and it is NOT what I would have preferred:
+    // the mask DROPS it. `toSharedWire` is a zod object parse and a zod object
+    // parse strips undeclared keys. So the over-stripping cost I claimed to have
+    // "pinned" is REAL at the level of this function, and the only thing standing
+    // between it and a lost field is what the producers actually emit — which is
+    // the next test, and is a separate claim with its own evidence.
+    const withExtra = { ...fullProjection(), extraProducerField: 'keep-me' } as Record<string, unknown>
+    const masked = maskSharedIssuePayload('issueProjection', withExtra) as Record<string, unknown>
+
+    // NON-VACUITY: the input really did carry it.
+    expect.soft(withExtra.extraProducerField).toBe('keep-me')
+    // THE MEASUREMENT, asserted as observed rather than as hoped.
+    expect(Object.hasOwn(masked, 'extraProducerField')).toBe(false)
+    // The private keys still come off, which is the property that must hold on
+    // every input regardless of what else the parse does.
+    expect(ISSUE_PRIVATE_EXECUTION_KEYS.filter((k) => Object.hasOwn(masked, k))).toEqual([])
+  })
+
+  it('reconciles the mask against what the producers can actually emit', async () => {
+    // THE RECONCILIATION the reviewer asked for [PDM-447]: the test above shows
+    // the mask can drop an undeclared key, so the question that decides whether
+    // that matters is whether a PRODUCER can emit one.
+    //
+    // `issueProjection`: it cannot. `issueRowToProjection` ends in `toWire`,
+    // which is `IssueProjection.parse(dropNullValues(issue))`
+    // (`packages/model/src/projections/issue-projection.ts:146-147`). The
+    // producer's output is therefore ALREADY parsed through the base schema that
+    // `SharedIssueProjection` omits from, so the mask's parse cannot remove a key
+    // the producer put there. Asserted rather than asserted-in-prose: masking a
+    // producer-shaped payload twice is identical to masking it once, which is
+    // what "already stripped" means operationally.
+    const producerShaped = fullProjection()
+    const once = maskSharedIssuePayload('issueProjection', producerShaped) as Record<string, unknown>
+    const twice = maskSharedIssuePayload('issueProjection', once) as Record<string, unknown>
+    expect(Object.keys(once).sort()).toEqual(Object.keys(twice).sort())
+
+    // AND THE RESIDUAL, STATED RATHER THAN CLOSED. The `issue` kind's producer
+    // (`IssueService.toWire`, service/core.ts:634) is a hand-built object literal
+    // typed as `IssueWire`, NOT an `IssueWire.parse`. TypeScript's excess-property
+    // check refuses an undeclared key written directly into that literal, but it
+    // does NOT refuse one arriving via a spread of a wider object. So for `issue`
+    // the guarantee is a COMPILE-TIME one with a known hole, not a runtime parse.
+    // I have not found a producer that spreads a wider object into it; I have not
+    // proved none exists, and this comment is the bound rather than a clearance.
   })
 
   it('leaves every other entity kind alone, by identity', async () => {
