@@ -6133,6 +6133,12 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
  *    the marks across the delete — getting them back. The second is the claim the
  *    retention contract actually rests on, so the ORIGINAL client's stream is now
  *    followed end to end and the fresh bootstrap is kept as a distinct seam.
+ *    (ROUND THREE: that last clause was FALSE for two rounds. Replacing the
+ *    fresh sink deleted the only cold-bootstrap case here and left this sentence
+ *    describing a test that did not exist — prose does not redden when its
+ *    subject is removed. The case is back, as its own `it`, and the two seams
+ *    are named apart: RETENTION across the lifecycle vs RECONSTRUCTION for
+ *    someone who was not there.)
  *  - `restoredMark.readAt` was asserted `toBeTruthy()`. A neutral row wearing the
  *    same id passes that. The original value is captured and compared EXACTLY.
  *  - I claimed a second principal could not attach, "because this build
@@ -6264,6 +6270,86 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     return store
   }
 
+  /**
+   * A REPLICA THAT IS HELD, not rebuilt [PDM-450, third round].
+   *
+   * `applyToRealReplica` above constructs a FRESH `Replica` on every call and
+   * replays the whole recorded stream into it. That is the right model for a
+   * per-principal SERVING question (what does a client that attaches now get?)
+   * and the WRONG one for a LIFECYCLE question. The reviewer asked for the
+   * ORIGINAL client's own replica, and a reconstruction is not that: a consumer
+   * rebuilt at each assertion never OCCUPIES the intermediate states, it only
+   * recomputes their endpoints.
+   *
+   * This keeps ONE `Replica` alive for the whole test and feeds it only the
+   * frames it has not seen yet — which is what a real client does.
+   *
+   * WHAT I AM **NOT** CLAIMING, having talked myself into it once while writing
+   * this and then checked. I first wrote that rebuilding "hides a whole class of
+   * defect — anything that breaks incrementally but heals on replay". THAT IS
+   * FALSE HERE. Replay applies the bootstrap and THEN the same deltas in the
+   * same order, so damage done by a delta persists in both models and the
+   * bootstrap cannot repair it afterwards; for deterministic application the two
+   * reach the same state from the same frames. The case for holding the replica
+   * is FIDELITY (it is the client the contract is about, and it is what a real
+   * client does) and cost (linear rather than quadratic re-application) — NOT
+   * greater sensitivity, which I have not demonstrated and do not assert.
+   */
+  const heldReplica = async (sent: ServerMessage[]) => {
+    const store = new InMemoryReplicaStore()
+    const authority: AuthorityReadPort = {
+      changesSince: async () =>
+        ({ kind: 'bootstrap-required', reason: 'fixture replays recorded frames' }) as never,
+      bootstrap: () =>
+        (async function* () {
+          for (const chunk of sent.filter((m) => m.type === 'feedBootstrap')) {
+            const f = chunk as unknown as {
+              feedId: string; epoch: string; seq: number; changes: unknown[]; last: boolean
+            }
+            yield {
+              feedId: f.feedId, epoch: f.epoch, snapshotSeq: f.seq,
+              changes: toReplicaChanges(f.changes), last: f.last,
+            } as never
+          }
+        })(),
+    }
+    const replica = new Replica({
+      store: store.cache, authority, unitOfWork: store.unitOfWork,
+    } as never)
+    replica.connect()
+    await replica.settled()
+    let consumed = 0
+    /** Apply frames that have arrived since the last pump. `max` feeds at most
+     *  that many, so a test can step the sequence ONE FRAME AT A TIME. Returns
+     *  how many it applied. */
+    const pump = async (max = Number.POSITIVE_INFINITY): Promise<number> => {
+      const deltas = sent.filter((m) => m.type === 'feedDelta')
+      let applied = 0
+      while (consumed < deltas.length && applied < max) {
+        const f = deltas[consumed] as unknown as {
+          feedId: string; epoch: string; fromSeq: number; seq: number
+          minAvailableSeq: number; changes: unknown[]
+        }
+        await replica.receive({
+          kind: 'delta', feedId: f.feedId, epoch: f.epoch, fromSeq: f.fromSeq,
+          seq: f.seq, minAvailableSeq: f.minAvailableSeq,
+          changes: toReplicaChanges(f.changes),
+        } as never)
+        await replica.settled()
+        consumed += 1
+        applied += 1
+      }
+      return applied
+    }
+    const pending = () => sent.filter((m) => m.type === 'feedDelta').length - consumed
+    // DELIBERATELY NOT PUMPED HERE: the replica is returned holding the BOOTSTRAP
+    // only, so a caller that wants to step the delta sequence still has every
+    // delta to step. Auto-pumping here made the stepping test vacuous — it read
+    // `expected 0 to be greater than 1`, because the constructor had already
+    // eaten the whole sequence it was about to walk.
+    return { store, pump, pending }
+  }
+
   /** Ids of one kind held in the REAL cache after the real consumer ran. */
   const heldIn = (store: InMemoryReplicaStore, entity: string): string[] =>
     store.cache
@@ -6287,42 +6373,51 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     await reg.modules.sessions.markSessionRead(me, survivor)
     await reg.modules.sessions.flushBroadcasts()
 
-    // ONE client, attached ONCE, its frames recorded across the whole lifecycle.
+    // ONE client, attached ONCE, AND ONE REPLICA HELD FOR THE WHOLE LIFECYCLE
+    // [PDM-450 round three]. This used to rebuild a replica from the recorded
+    // stream at every assertion, which replays the bootstrap each time and so
+    // could not see a defect in INCREMENTAL application that heals on replay.
     const c = sink()
     await attachCurrent(reg, c.send)
+    const held = await heldReplica(c.sent)
+    await held.pump() // any deltas already queued behind the bootstrap
     const markRow = sessionMarksRowId(me, doomed)
 
     // The value to compare EXACTLY against later, read from the real cache.
-    const atStart = await applyToRealReplica(c.sent)
-    const originalMark = (atStart.cache.read('sessionMarks', markRow)?.value as
+    const originalMark = (held.store.cache.read('sessionMarks', markRow)?.value as
       | { readAt: string | null }
       | undefined)?.readAt
     expect.soft(typeof originalMark).toBe('string')
-    expect.soft(heldIn(atStart, 'session')).toEqual(expect.arrayContaining([doomed, survivor]))
+    expect.soft(heldIn(held.store, 'session')).toEqual(expect.arrayContaining([doomed, survivor]))
 
     await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
     await reg.modules.sessions.flushBroadcasts()
     await expect
-      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .poll(async () => {
+        await held.pump()
+        return heldIn(held.store, 'session')
+      })
       .not.toContain(doomed)
 
-    // THE REAL CACHE, after the real consumer applied the real removal: the
-    // session is gone and THE MARK IS STILL HELD.
-    const afterDelete = await applyToRealReplica(c.sent)
-    expect.soft(heldIn(afterDelete, 'sessionMarks')).toContain(markRow)
-    expect.soft(heldIn(afterDelete, 'session')).not.toContain(doomed)
+    // THE SAME CACHE THE CLIENT HAS BEEN HOLDING ALL ALONG, after the real
+    // consumer applied the real removal into it: the session is gone and THE
+    // MARK IS STILL HELD.
+    expect.soft(heldIn(held.store, 'sessionMarks')).toContain(markRow)
+    expect.soft(heldIn(held.store, 'session')).not.toContain(doomed)
     // Kept session and its mark untouched — the scope control.
-    expect.soft(heldIn(afterDelete, 'session')).toContain(survivor)
-    expect.soft(heldIn(afterDelete, 'sessionMarks')).toContain(sessionMarksRowId(me, survivor))
+    expect.soft(heldIn(held.store, 'session')).toContain(survivor)
+    expect.soft(heldIn(held.store, 'sessionMarks')).toContain(sessionMarksRowId(me, survivor))
 
     await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
     await reg.modules.sessions.flushBroadcasts()
     await expect
-      .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
+      .poll(async () => {
+        await held.pump()
+        return heldIn(held.store, 'session')
+      })
       .toContain(doomed)
 
-    const afterRestore = await applyToRealReplica(c.sent)
-    const back = (afterRestore.cache.read('sessionMarks', markRow)?.value as
+    const back = (held.store.cache.read('sessionMarks', markRow)?.value as
       | { readAt: string | null }
       | undefined)?.readAt
     // EXACT equality, not truthiness: a neutral row wearing this id would pass
@@ -6374,21 +6469,89 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
       .poll(async () => heldIn(await applyToRealReplica(c.sent), 'session'))
       .toContain(doomed)
 
-    // PREFIX BY PREFIX: replay frames 1..n through a fresh real consumer for
-    // every n, and require the mark at each step.
-    const frames = c.sent.filter((m) => m.type === 'feedBootstrap' || m.type === 'feedDelta')
-    // THE NON-VACUITY GUARD. More than one frame means the delete and the restore
-    // are actually represented in the sequence, so the prefixes below cross the
-    // transition rather than re-reading one bootstrap N times.
-    expect(frames.length).toBeGreaterThan(1)
-    const missingAt: number[] = []
-    for (let n = 1; n <= frames.length; n += 1) {
-      const store = await applyToRealReplica(frames.slice(0, n))
-      if (!heldIn(store, 'sessionMarks').includes(markRow)) missingAt.push(n)
+    // ONE HELD CONSUMER, STEPPED ONE FRAME AT A TIME [PDM-450 round three].
+    // The previous version replayed prefixes into a FRESH replica per prefix.
+    // That answers "would a client that read frames 1..n hold the mark?" — a
+    // reconstruction of each checkpoint — where the claim is about THE client
+    // that was there. The distinction is fidelity, not sensitivity: see the
+    // `heldReplica` header for what I checked and withdrew.
+    const stepped = await heldReplica(c.sent)
+    const totalDeltas = stepped.pending()
+    // NON-VACUITY, and it earned its place: the first draft of this case fired
+    // delete and restore back to back, the client received ONE frame for the
+    // pair, this guard failed with `expected 1 to be greater than 1`, and the
+    // poll that followed was being satisfied by the BOOTSTRAP rather than by any
+    // restore delta. Awaiting each transition's frame above is what makes a
+    // SEQUENCE exist to analyse.
+    expect(totalDeltas).toBeGreaterThan(1)
+    const missingAfterFrame: number[] = []
+    // The mark must be held at the bootstrap, before any delta is applied.
+    if (!heldIn(stepped.store, 'sessionMarks').includes(markRow)) missingAfterFrame.push(0)
+    for (let n = 1; n <= totalDeltas; n += 1) {
+      expect.soft(await stepped.pump(1)).toBe(1)
+      if (!heldIn(stepped.store, 'sessionMarks').includes(markRow)) missingAfterFrame.push(n)
     }
-    // NOT VACUOUS: the loop ran over more than one prefix and the LAST prefix is
-    // the full sequence, which the case above already shows holds the mark.
-    expect.soft(missingAt).toEqual([])
+    expect.soft(missingAfterFrame).toEqual([])
+
+    // THE BOUND, because this is where I overclaimed twice already. The
+    // granularity of this observation is ONE FRAME: it shows the mark is present
+    // in the client's cache after every frame the server sent, bootstrap
+    // included. It does NOT exclude a transient WITHIN a single frame — a frame
+    // carrying a remove and a re-add of the same row would be applied as one
+    // unit and read as continuous here. I have not looked for such a frame and
+    // do not claim there is none.
+    await reg.dispose()
+  })
+
+  it('a client attaching AFTER the restore cold-bootstraps the mark too', async () => {
+    // THE DISTINCT SEAM, RESTORED [PDM-450 round three]. The file header has
+    // been claiming since round one that "the fresh bootstrap is kept as a
+    // distinct seam". IT WAS NOT — replacing the fresh sink with the original
+    // client removed the only cold-bootstrap case in this block and left the
+    // sentence behind describing a test that no longer existed. A comment does
+    // not redden when the thing it describes is deleted; only a reader catches
+    // that, and the reviewer did.
+    //
+    // The two seams answer different questions and BOTH matter: the original
+    // client's case is about RETENTION across the lifecycle (it held the mark
+    // and still has it), this one is about RECONSTRUCTION (someone who was not
+    // there is served it from durable state). A server that served the mark
+    // only from a live per-connection cache would pass the first and fail this.
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const me = firstAdminMemberId()
+    const issue = await reg.modules.issues.create({ repoPath: '/repo', title: 'Doomed', startNow: false })
+    const doomed = (await reg.modules.sessions.createSession({
+      ownerUserId: me, agentKind: 'shell', cwd: '/repo', issueId: issue.id,
+    })).sessionId
+    await reg.modules.sessions.markSessionRead(me, doomed)
+    await reg.modules.sessions.flushBroadcasts()
+    const markRow = sessionMarksRowId(me, doomed)
+
+    // Capture the value BEFORE the lifecycle, from a client that was present.
+    const before = sink()
+    await attachCurrent(reg, before.send)
+    const originalMark = ((await applyToRealReplica(before.sent)).cache.read('sessionMarks', markRow)
+      ?.value as { readAt: string | null } | undefined)?.readAt
+    expect.soft(typeof originalMark).toBe('string')
+
+    await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+    await reg.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+
+    // A COMPLETELY NEW CLIENT, which saw none of the above.
+    const cold = sink()
+    await attachCurrent(reg, cold.send)
+    const coldStore = await applyToRealReplica(cold.sent)
+    expect.soft(heldIn(coldStore, 'session')).toContain(doomed)
+    expect.soft(heldIn(coldStore, 'sessionMarks')).toContain(markRow)
+    // EXACT equality again: the same substitution a neutral row could make.
+    expect
+      .soft((coldStore.cache.read('sessionMarks', markRow)?.value as
+        | { readAt: string | null }
+        | undefined)?.readAt)
+      .toBe(originalMark)
     await reg.dispose()
   })
 
