@@ -11,6 +11,29 @@ import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/mod
 import { versionSupport } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
+/**
+ * EVERY PATH THIS BOUNDARY WILL UPGRADE, and the object `handleRequest` decides
+ * on (PDM-353).
+ *
+ * These three paths are served BEFORE the Hono app sees the request — the
+ * composition root calls `ws.handleRequest(...)` first and only falls through to
+ * `app.fetch` when it returns null. So they are reachable surface that the Hono
+ * route table cannot see, and a census derived from that table alone would
+ * report them as not existing rather than as unexamined.
+ *
+ * Declared here, and MATCHED AGAINST here, so the two cannot drift: a fourth
+ * upgrade path has to join this list to be routed at all, which is what puts it
+ * in `served-route-census.test.ts`'s population without anyone remembering to
+ * add it.
+ */
+export const WEBSOCKET_UPGRADE_PATHS = ['/client', '/daemon', '/machine'] as const
+
+export type WebSocketUpgradePath = (typeof WEBSOCKET_UPGRADE_PATHS)[number]
+
+function isUpgradePath(pathname: string): pathname is WebSocketUpgradePath {
+  return (WEBSOCKET_UPGRADE_PATHS as readonly string[]).includes(pathname)
+}
+
 export interface NativeServer<T> {
   readonly port: number
   upgrade(request: Request, options: { data: T }): boolean
@@ -460,7 +483,7 @@ export function attachWebSockets(
     async handleRequest(request, server) {
       const url = new URL(request.url)
       const pathname = url.pathname
-      if (pathname !== '/client' && pathname !== '/daemon' && pathname !== '/machine') return null
+      if (!isUpgradePath(pathname)) return null
 
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
       if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {

@@ -2005,6 +2005,8 @@
         "src/router.ts",
         "src/router.updates.test.ts",
         "src/search.test.ts",
+        "src/served-route-census.test.ts",
+        "src/served-route-census.ts",
         "src/server-issue-adapter.test.ts",
         "src/server-readiness.ts",
         "src/server-transfer-adoption.test.ts",

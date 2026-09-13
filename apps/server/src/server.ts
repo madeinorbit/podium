@@ -245,7 +245,33 @@ export interface ServerHandle {
    * root and the rings live in the process, not in the store.
    */
   loopAccounting?: LoopAccountingHandle
+  /**
+   * THE RAW HTTP ROUTE TABLE THIS PROCESS ACTUALLY SERVES, snapshotted from
+   * `app.routes` after every registration has run (PDM-353).
+   *
+   * The tRPC surface has `appRouter._def.procedures` — a module-level dispatch
+   * table `projection-census.test.ts` derives its population from, so a
+   * procedure nobody remembers still appears in the census. The Hono surface
+   * had no equivalent: these routes are registered by fourteen separate
+   * `register*(app, …)` calls inside this function, by a build-time plugin's
+   * own registration, and by the static-web mounts — so the only object that
+   * knows the whole table is `app` itself, and it exists only after a boot.
+   *
+   * This is a snapshot of descriptors, not the app: `{ method, path }` pairs
+   * with no handler, so a reader cannot dispatch through it or mutate the
+   * router. It exists so a census can be DERIVED rather than hand-kept; the
+   * hand-kept version of this list is what went stale twice in phase B.
+   */
+  httpRoutes: readonly HttpRouteDescriptor[]
   close(): Promise<void>
+}
+
+/** One entry of the served Hono route table. Handlers are deliberately absent. */
+export interface HttpRouteDescriptor {
+  /** Hono's verb for the entry. `ALL` is what `app.use(...)` middleware registers under. */
+  method: string
+  /** The registered path pattern, exactly as the router matches it. */
+  path: string
 }
 
 /**
@@ -2437,6 +2463,11 @@ export async function startServer(
         recoveryOnly,
         bootstrapToken,
         localDaemonLink,
+        // Read HERE rather than at any earlier point: every `register*(app, …)`
+        // call, the plugin registrations and the static-web mounts have all run
+        // by the time this promise resolves, so this is the whole table and not
+        // a prefix of it.
+        httpRoutes: app.routes.map((route) => ({ method: route.method, path: route.path })),
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist
         // state unconditionally, THEN force-close lingering http sockets —
