@@ -761,14 +761,20 @@ export class SessionRepository {
      * failure direction is what matters — this branch did not refuse, it
      * ASSIGNED.
      *
-     * WHAT IT ACCEPTS AND WHAT IT REFUSES, stated rather than left to `!`. It
-     * accepts a NON-EMPTY owner and refuses `undefined`, `null` AND the EMPTY
-     * STRING. That is deliberately WIDER than the term it replaces: `??` fires
-     * only on null and undefined, so `''` used to hydrate a session owned by the
-     * empty string. This spelling is `upsertSession`'s own guard
-     * (`if (!row.ownerUserId) throw`), so the read side and the write side now
-     * refuse exactly the same set — an owner that is not a person is refused at
-     * both ends rather than at one.
+     * WHAT IT ACTUALLY CHECKS, stated rather than left to `!`, AND IT IS ONLY
+     * TRUTHINESS (PDM-451). It refuses a MISSING OR EMPTY owner value —
+     * `undefined`, `null`, `''` — and accepts every other string. It does NOT
+     * resolve the id, does not verify the member exists or is enabled, and does
+     * not reject a nonempty string that names nobody. "The row carries an owner
+     * value" is the whole of the claim; whether that value is a person is a
+     * question this line does not ask and the authorization layer answers later.
+     *
+     * It is deliberately WIDER than the term it replaces: `??` fires only on
+     * null and undefined, so `''` used to hydrate a session owned by the empty
+     * string. The spelling is `upsertSession`'s own guard
+     * (`if (!row.ownerUserId) throw`), so read and write now apply the SAME
+     * falsy-value predicate — which is a statement about those two predicates
+     * and about nothing further.
      *
      * WHY IT IS A GUARD AND NOT A LIVE PATH — AND THE TWO HALVES HAVE DIFFERENT
      * WARRANTS, which is the part not to collapse (PDM-451).

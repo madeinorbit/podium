@@ -19,18 +19,34 @@
  * session's transcript and repo state.
  *
  * THE REFUSAL IS WIDER THAN THE TERM IT REPLACED, AND THAT IS DELIBERATE.
- * `!r.ownerUserId` refuses `undefined`, `null` AND the EMPTY STRING; `??` fired
- * only on the first two, so `''` used to hydrate a session owned by the empty
- * string. The spelling is `upsertSession`'s own guard, so the read side and the
- * write side now refuse the same set. Each class is tested below, because a
- * guard that rejects more than its stated warrant covers is a guard whose
- * warrant is wrong.
+ * `!r.ownerUserId` refuses a MISSING OR EMPTY owner value; `??` fired only on
+ * null and undefined, so `''` used to hydrate a session owned by the empty
+ * string. The spelling is `upsertSession`'s own guard, so read and write apply
+ * the same falsy-value predicate. Note what that is NOT: the guard tests
+ * TRUTHINESS only, so it does not resolve the id, does not verify the member
+ * exists, and does not reject a nonempty string that names nobody.
+ *
+ * EXACTLY WHICH INPUTS THIS FILE EXECUTES, since "each class is tested" would
+ * overstate it (PDM-451):
+ *
+ *  - ABSENT (`undefined`): `row()` omits the key, and that row goes through
+ *    `sessionFromStoredRow` in BOTH modes. Executed.
+ *  - EMPTY STRING: planted into a migrated database through raw SQL, read back
+ *    through the ordinary store read, and put through hydration. Executed.
+ *  - NULL: NOT executed, and it cannot be. `SessionRow.ownerUserId` is
+ *    `UserId | undefined` — `null` is not in the type — and the only thing that
+ *    could produce one is a NULL column, which `mapSession` reads off a NOT NULL
+ *    column. The last test asserts THE CONSTRAINT, which is a fact about the
+ *    table and NOT a hydration run: it says a null owner cannot arrive, not that
+ *    hydration was driven with one. `!r.ownerUserId` would refuse it if it ever
+ *    did, but no test in this file demonstrates that.
  *
  * THE TWO CLASSES HAVE DIFFERENT WARRANTS AND THIS FILE KEEPS THEM APART.
  *
- *  - NULL is excluded by the SCHEMA. `owner_user_id` arrived NOT NULL with a
- *    backfilling DEFAULT in `20260731195047_phase-3-policy-ownership`, and every
- *    `__new_sessions` rebuild since has carried NOT NULL.
+ *  - NULL is excluded by the SCHEMA — a constraint, asserted as one. `owner_user_id`
+ *    arrived NOT NULL with a backfilling DEFAULT in
+ *    `20260731195047_phase-3-policy-ownership`, and every `__new_sessions` rebuild
+ *    since has carried NOT NULL.
  *  - THE EMPTY STRING IS NOT EXCLUDED BY THE SCHEMA. `NOT NULL` permits `''`,
  *    and the test below inserts one into a migrated database and reads it back
  *    to SHOW that rather than arguing it. What excludes `''` is
@@ -292,8 +308,13 @@ describe('an ownerless session row is refused at hydration', () => {
   })
 
   it('the NULL half of the guard is the schema half: owner_user_id is NOT NULL', () => {
-    // The warrant for the null class, as a check rather than as prose, and
-    // bounded to what it covers: NOT NULL excludes NULL and says NOTHING about
+    // THIS ASSERTS A CONSTRAINT; IT DOES NOT RUN HYDRATION (PDM-451). It says a
+    // null owner cannot ARRIVE — not that `sessionFromStoredRow` was driven with
+    // one, which no test here does and which `SessionRow`'s type
+    // (`UserId | undefined`) does not admit without a cast. Read it as the
+    // warrant for the null class, not as coverage of it.
+    //
+    // Bounded to what it covers: NOT NULL excludes NULL and says NOTHING about
     // the empty string — which is why the empty-string test above exists and
     // does not lean on this one. A migration that relaxes the column reddens
     // HERE, by name, which is the "one schema change away" scenario the issue
