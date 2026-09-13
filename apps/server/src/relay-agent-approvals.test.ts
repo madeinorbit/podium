@@ -59,10 +59,16 @@ describe('approval broker relay arm (#410)', () => {
    * enqueue by B5's check (PDM-137) with `cannot request an approval on m1: that
    * machine is not yours to run on` — BEFORE any assertion in this file about
    * forged identity or another human could run. That is what made five of these
-   * six tests red, and it is a defect in the FIXTURE, not in the gate: in
-   * production a relay frame cannot arrive from a machine with no row, because
-   * `ensureHostMachine` writes this host's at boot and pairing writes every
-   * remote's. The fixture attached the transport half and skipped the other.
+   * six tests red, and it is a defect in the FIXTURE, not in the gate: the
+   * fixture registered a TRANSPORT without ever pairing the machine, and
+   * `ensureHostMachine` (this host, at boot) and pairing (every remote) are the
+   * writes it skipped.
+   *
+   * THAT EXPLAINS THIS FAILURE; IT DOES NOT PROVE A MISSING ROW IMPOSSIBLE. The
+   * claim bounded here is about the fixture's own composition, not about the
+   * production lifetime: whether deletion, restore or migration can ever leave a
+   * live transport attached to a machine with no row is a separate audit, and
+   * nothing in this file makes it.
    *
    * OWNED BY A NAMED HUMAN, never left `null`: an unowned machine is usable by
    * NOBODY (D19.4b), so a fixture that omitted the owner would reproduce the
@@ -310,13 +316,20 @@ describe('approval broker relay arm (#410)', () => {
    *
    * WHAT THIS TEST IS FOR, since it is not the discriminating one. Whether a
    * DIFFERENT HUMAN is told apart from the same one is decided in
-   * `modules/approvals/service.test.ts`, which runs in the store shard. What
-   * belongs HERE is the thing only the transport can show: that the capability's
-   * two identity halves actually reach the service across the real gate, rather
-   * than the arm passing an empty caller — which would refuse everybody, or,
-   * gated on the payload instead, admit anybody. Until PDM-289 renamed this file
-   * that half was proved only by the integration lane; it is now in the boundary
-   * shard, so it runs whenever the server suite does.
+   * `modules/approvals/service.test.ts`, which runs in the SERVICES shard — and
+   * that is SERVICE-LEVEL ISOLATION, proved separately from anything here.
+   *
+   * What belongs HERE is HUMAN-ATTRIBUTION PROPAGATION: that the caller's human
+   * reaches the service across the real gate, rather than the arm passing an
+   * empty caller — which would refuse everybody, or, gated on the payload
+   * instead, admit anybody. THE SESSION ARM IS REDUNDANT AT THIS LAYER and this
+   * file does not discriminate it (PDM-404) — see the `mine` read below for the
+   * measurement. Saying "both identity halves reach the service" overstates what
+   * these assertions can distinguish; only the `onBehalfOf` half is pinned here.
+   *
+   * Until PDM-289 renamed this file that half was proved only by the integration
+   * lane; it is now in the boundary shard, so it runs whenever the server suite
+   * does.
    *
    * THE SECOND SESSION HAS A REAL SECOND OWNER, not no owner. An unowned session
    * is refused too, by the other arm of the gate, so a fixture built that way
@@ -364,12 +377,18 @@ describe('approval broker relay arm (#410)', () => {
     // this layer the `onBehalfOf` arm subsumes the session one: the row's session
     // is owned by the caller's own human, so `mayDecide` says yes without the
     // session id ever being consulted. The isolating case — a row whose session
-    // has NO resolvable owner — cannot be built here at all, because
-    // `session-start.ts` refuses to create such a session ("a session must belong
-    // to a human") and `upsertSession` refuses to persist one. It is constructible
-    // only against a fake `sessionOwner`, which is where it IS pinned:
+    // has NO resolvable owner — is not reachable through the SESSION-CREATION
+    // APIS THIS FIXTURE USES: `session-start.ts` refuses to create such a session
+    // ("a session must belong to a human") and `upsertSession` refuses to persist
+    // one. THAT BOUNDS THE FIXTURE, NOT THE SYSTEM — those are two creation
+    // paths rejecting an omitted owner, which is not the same as no-owner states
+    // being impossible. Whether a durable row can BECOME unowned later (deletion,
+    // an unowned lifecycle path, a restore) is a separate audit, and this file
+    // does not make it.
+    //
+    // Where the arm IS pinned, against a fake `sessionOwner`:
     // `modules/approvals/service.test.ts`'s "the requesting agent reads the
-    // request it filed, even with no resolvable owner", in the store shard.
+    // request it filed, even with no resolvable owner", in the SERVICES shard.
     //
     // What this line is therefore worth, which is not nothing: the arm passes a
     // caller the service ACCEPTS. An arm that passed an empty reader would refuse
