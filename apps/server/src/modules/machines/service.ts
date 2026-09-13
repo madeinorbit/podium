@@ -403,6 +403,10 @@ export class MachinesService {
    * (this build has no role-mutation method at all), so the third subscription
    * below reads the ROW rather than counting writes: a row that says DISABLED
    * is a loss, and a signup or a password rotation on the same stream is not.
+   * An account loss cannot be attributed to one machine, so it moves a SEPARATE
+   * counter that is added into every machine's published epoch — NOT a walk over
+   * the machines that happen to have something parked. See
+   * {@link bumpAccountAuthorityEpoch} for the interaction that ruled that out.
    *
    * WHAT IT STILL CANNOT SEE, stated here because the guarantee is easy to
    * overread: a narrowed agent delegation and a change of a session's owner.
@@ -467,6 +471,12 @@ export class MachinesService {
    * compare against and therefore no pre-seed window to get wrong.
    */
   private readonly knownDisabledUsers = new Set<string>()
+  /**
+   * Losses of account authority, counted once for the whole instance and added
+   * into every machine's published epoch — see {@link bumpAccountAuthorityEpoch}
+   * for why this is a counter rather than a walk over the parked queues.
+   */
+  private accountAuthorityEpoch = 0
   /** Resolves once every persisted machine has an authority baseline — see
    *  {@link MachineService.seedCommittedOwners}. Never rejects. */
   readonly ownersSeeded: Promise<void>
@@ -531,7 +541,7 @@ export class MachinesService {
         const disabled = change.operation === 'delete' || raw.disabledAt !== null
         if (!disabled || this.knownDisabledUsers.has(raw.id)) continue
         this.knownDisabledUsers.add(raw.id)
-        this.bumpParkedAuthorityEpochs()
+        this.bumpAccountAuthorityEpoch()
       }
     }) ?? (() => {})
 
@@ -846,24 +856,50 @@ export class MachinesService {
    * current when they were parked; {@link MachineService.flushQueued} refuses
    * any whose value has moved. See {@link authorityEpochByMachine}.
    */
+  /** How many deliveries are parked for this machine — a read for tests that
+   *  need to ASSERT the queue state their case turns on rather than assume it. */
+  pendingCount(machineId: MachineId): number {
+    return this.pendingByMachine.get(machineId)?.length ?? 0
+  }
+
   authorityEpoch(machineId: string): number {
-    return this.authorityEpochByMachine.get(machineId) ?? 0
+    return (this.authorityEpochByMachine.get(machineId) ?? 0) + this.accountAuthorityEpoch
   }
 
   private bumpAuthorityEpoch(machineId: string): void {
-    this.authorityEpochByMachine.set(machineId, this.authorityEpoch(machineId) + 1)
+    // READS THE MAP, NOT {@link authorityEpoch}. The published value is the sum
+    // of the per-machine counter and the account counter; incrementing the sum
+    // back into the map would fold the account half in once per machine write
+    // and make the two counters drift apart for no reason.
+    this.authorityEpochByMachine.set(machineId, (this.authorityEpochByMachine.get(machineId) ?? 0) + 1)
   }
 
   /**
-   * Move the epoch of every machine that currently has something parked, for an
-   * authority change this service cannot attribute to one machine (PDM-409).
+   * Move EVERY machine's answer at once, for an authority change this service
+   * cannot attribute to one machine (PDM-409).
    *
-   * Iterating `pendingByMachine` rather than the fleet is what keeps the cost
-   * proportional to what is actually at stake: a machine with no queue has no
-   * reader for its epoch.
+   * WHY A COUNTER AND NOT AN ITERATION, and this is a correction rather than a
+   * preference. The first version walked `pendingByMachine`, justified by "a
+   * machine with nothing parked has no reader for its epoch". THE OTHER HALF OF
+   * THE SAME CHANGE FALSIFIED THAT: PDM-410 added a reader BEFORE the park — the
+   * decision-time read — so a machine with an empty queue has a reader after
+   * all. With nothing parked when the account was disabled, nothing was bumped,
+   * the approval carried its unchanged decision epoch, and the frame MATCHED at
+   * flush. Found by the phase B reviewer in source review; reproduced as two
+   * witnesses in `approvals/discard-wiring.test.ts` before this repair.
+   *
+   * A single counter folded into every machine's published epoch has no roster
+   * to enumerate and therefore no roster to be wrong about — which matters,
+   * because "which machines does this service know about" is exactly the kind of
+   * hand-maintained population the rest of this phase keeps finding holes in.
+   *
+   * AND IT COSTS NOTHING EXTRA. Bumping a machine with no queue discards no
+   * queue; the set of queues discarded is identical to the iterating version.
+   * The only behaviour it adds is invalidating an outstanding decision-time
+   * stamp, which is the whole repair.
    */
-  private bumpParkedAuthorityEpochs(): void {
-    for (const machineId of this.pendingByMachine.keys()) this.bumpAuthorityEpoch(machineId)
+  private bumpAccountAuthorityEpoch(): void {
+    this.accountAuthorityEpoch += 1
   }
 
   /** Record a committed owner, bumping only when it actually MOVED — see

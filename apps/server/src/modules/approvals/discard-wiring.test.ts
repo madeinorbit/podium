@@ -360,3 +360,209 @@ describe('an approval whose authority moved between its decision and its park', 
     expect((await statusOf(approvals, id)).status).toBe('failed')
   })
 })
+
+/**
+ * PDM-409 x PDM-410 — THE INTERACTION BETWEEN THE TWO FIXES.
+ *
+ * Found by the phase B reviewer in source review of 667ddbcb3, reproduced here
+ * before repair. Each fix is sound alone and together they left a hole:
+ *
+ *  - PDM-409 bumped the epoch of every machine with a PARKED QUEUE, justified by
+ *    "a machine with nothing parked has no reader for its epoch".
+ *  - PDM-410 then ADDED a reader BEFORE the park — the decision-time read.
+ *
+ * So the justification was falsified by the other half of the same diff. With an
+ * EMPTY queue at the moment the account is disabled, nothing is bumped; the
+ * approval carries the unchanged decision epoch, parks, and MATCHES at flush.
+ */
+describe('an account disabled while nothing is parked yet', () => {
+  async function wiredWithDecisionStamp() {
+    let duringDecision: (() => Promise<void>) | undefined
+    const store = await SessionStore.open(':memory:')
+    await store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'ludovico',
+      hostname: 'ludovico.local',
+      tokenHash: 'token-hash',
+      ownerUserId: OWNER,
+    })
+    const machines = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    } satisfies MachinesDeps)
+    await machines.ownersSeeded
+    const approvals = new ApprovalService({
+      store: store.approvals,
+      now: () => '2026-07-13T00:00:00.000Z',
+      toMachine: (machineId, msg, authorityEpochAtDecision) =>
+        machines.toMachine(machineId, msg, authorityEpochAtDecision),
+      authorityEpoch: (machineId) => machines.authorityEpoch(machineId),
+      hasDaemon: (machineId) => machines.hasDaemon(machineId),
+      onDeliveryDiscarded: (sink) => machines.onDeliveryDiscarded(sink),
+      clients: () => [],
+      sessionOwner: async () => OWNER,
+      // Stubbed true ON PURPOSE, and it is a faithful model rather than a
+      // convenience: the production `mayDispatchTo` re-reads `roleOf(owner)`,
+      // and in this race that read has already happened when the disable
+      // commits. A stub that answered false would make the frame never exist
+      // and prove nothing about the queue.
+      mayDispatchTo: async () => {
+        await duringDecision?.()
+        return true
+      },
+      sessionIssueId: () => asIssueId('iss_1'),
+      issueInfo: () => ({ seq: 409, title: 'Approval broker' }),
+      machineName: async () => 'ludovico',
+      logEvent: () => {},
+      notifyIssue: async () => {},
+    })
+    const setDuringDecision = (hook: () => Promise<void>) => {
+      duringDecision = hook
+    }
+    return { store, machines, approvals, setDuringDecision }
+  }
+
+  const ALICE = asUserId('alice')
+  const withAlice = async (store: SessionStore) =>
+    await store.users.create(
+      {
+        id: ALICE,
+        displayName: 'Alice',
+        email: 'alice@example.com',
+        role: 'member',
+        createdAt: '2026-07-13T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'password-hash',
+    )
+
+  const requested = async (approvals: ApprovalService) =>
+    (
+      await approvals.request({
+        op: { kind: 'channel', target: 'dev' },
+        sessionId: SESSION,
+        machineId: MACHINE,
+      })
+    ).id
+
+  it('is REFUSED at flush even though NOTHING was parked when the account was disabled', async () => {
+    const { store, machines, approvals, setDuringDecision } = await wiredWithDecisionStamp()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const id = await requested(approvals)
+
+    // THE PREMISE THIS TEST TURNS ON, asserted rather than assumed: the queue is
+    // EMPTY. A per-queue bump has nothing to iterate here.
+    expect(machines.pendingCount(MACHINE)).toBe(0)
+    const beforeDecision = machines.authorityEpoch(MACHINE)
+
+    setDuringDecision(async () => {
+      await store.users.disable(ALICE, '2026-07-13T00:00:01.000Z')
+    })
+    await approvals.approve(id, OWNER)
+
+    // The account loss must move this machine's answer even though it owned no
+    // queue at the time. Before the repair this stayed equal and the frame flushed.
+    expect(machines.authorityEpoch(MACHINE)).toBe(beforeDecision + 1)
+
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toEqual([])
+    // AND IT MUST SETTLE, not merely not happen: a silent drop leaves the row
+    // `executing` until the stall sweep blames the daemon's version.
+    expect((await statusOf(approvals, id)).status).toBe('failed')
+  })
+
+  it('the same shape via removeMember, which is the product’s actual button', async () => {
+    const { store, machines, approvals, setDuringDecision } = await wiredWithDecisionStamp()
+    await withAlice(store)
+    const admin = asUserId('admin-409x')
+    await store.users.create(
+      {
+        id: admin,
+        displayName: 'Admin',
+        email: 'admin409x@example.com',
+        role: 'admin',
+        createdAt: '2026-07-13T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'password-hash',
+    )
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const id = await requested(approvals)
+    expect(machines.pendingCount(MACHINE)).toBe(0)
+
+    setDuringDecision(async () => {
+      await store.users.removeMember(ALICE, admin)
+    })
+    await approvals.approve(id, OWNER)
+
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toEqual([])
+    expect((await statusOf(approvals, id)).status).toBe('failed')
+  })
+
+  it('UNCHANGED AUTHORITY over an empty queue still dispatches', async () => {
+    // THE POSITIVE THE REVIEWER ASKED FOR, and the one that stops the repair
+    // degrading into "refuse everything". Same empty-queue shape, nothing
+    // disabled: the frame is owed its delivery.
+    const { store, machines, approvals } = await wiredWithDecisionStamp()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const id = await requested(approvals)
+    expect(machines.pendingCount(MACHINE)).toBe(0)
+
+    await approvals.approve(id, OWNER)
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toHaveLength(1)
+    expect((await statusOf(approvals, id)).status).toBe('executing')
+  })
+
+  it('an UNRELATED account being created over an empty queue still dispatches', async () => {
+    // The other half of the positive: the account stream is busy with writes
+    // that are not losses, and a repair that bumped on any users write would
+    // stop every dispatch on the instance.
+    const { store, machines, approvals, setDuringDecision } = await wiredWithDecisionStamp()
+    await withAlice(store)
+    await store.machines.setMachineOwner(MACHINE, ALICE)
+    const id = await requested(approvals)
+
+    setDuringDecision(async () => {
+      await store.users.create(
+        {
+          id: asUserId('zed'),
+          displayName: 'Zed',
+          email: 'zed@example.com',
+          role: 'member',
+          createdAt: '2026-07-13T00:00:00.000Z',
+          disabledAt: null,
+        },
+        'password-hash',
+      )
+    })
+    await approvals.approve(id, OWNER)
+
+    const delivered: unknown[] = []
+    await machines.attach(MACHINE, (m) => delivered.push(m))
+    machines.flushQueued(MACHINE)
+    await settle()
+
+    expect(delivered).toHaveLength(1)
+    expect((await statusOf(approvals, id)).status).toBe('executing')
+  })
+})
