@@ -1,6 +1,6 @@
 import { makeFeedVisibility } from '../../feed-visibility'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { asIssueId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { IssueRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { IssueStore } from '../issues/service/core'
@@ -22,10 +22,10 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     title: 'X',
     description: '',
     stage: 'backlog',
-    ownerUserId: FIRST_ADMIN_USER_ID,
+    ownerUserId: firstAdminMemberId(),
     visibility: 'personal',
-    createdByActor: FIRST_ADMIN_USER_ID,
-    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    createdByActor: firstAdminMemberId(),
+    createdByOnBehalfOf: firstAdminMemberId(),
     worktreePath: null,
     branch: null,
     parentBranch: 'main',
@@ -202,7 +202,7 @@ it('preserves cwd ordering, archive ambiguity, and lightweight projections', asy
 it('disables the snapshot when boot quarantines a row', async () => {
   const { store } = await setup(false)
   const raw = (store as unknown as { db: { prepare(sql: string): { run(): void } } }).db
-  raw.prepare("INSERT INTO issues (id, repo_path, seq, title, stage, default_agent, created_at, updated_at) VALUES (NULL, '/r', 99, 'bad', 'backlog', 'claude-code', 't', 't')").run()
+  raw.prepare("INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage, default_agent, created_at, updated_at) VALUES (NULL, 'alice', 'alice', '/r', 99, 'bad', 'backlog', 'claude-code', 't', 't')").run()
   await new IssueStore({ store } as IssueDeps).init()
   const point = vi.spyOn(store.issues, 'getIssue')
   const cwd = vi.spyOn(store.issues, 'listIssueCwdRows')
