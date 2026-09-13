@@ -254,3 +254,69 @@ c1eb67a10 2026-08-11  ^ machines/service.ts   800 ->  850   <-- RAISED
 - **Sent no mail.** Standing instruction from the user on this work is to report
   to them directly rather than to other sessions; F1 is written up here for
   whoever picks it up instead.
+
+---
+
+## Addendum — two inbound claims, re-derived (2026-09-13, after the work landed)
+
+Three messages arrived after the deliverable stood. One was already satisfied;
+two change what a rebase of this branch costs. Each claim below was re-derived
+here rather than relayed.
+
+### A1 — "your worktree is cut from the wrong base" (issue:#107)
+**Already done, before any code was written.** The worktree was at `50aa8a50b`;
+it was fast-forwarded to `223218f5f` (`origin/issue/pdm-107-multi-user`, resolved
+with `git ls-remote`) as the first act of this issue. All work sits on top of
+POD-3904, POD-3906 and POD-3907. No action.
+
+### A2 — after PDM-325 lands, 36 of these keys will need a genesis record
+PDM-325 is adding `baseline-introduced-without-authorisation`: a key enforced but
+absent at the base commit will require a `BaselineAuthorisation { key, from: null,
+to, issue, reason }`. That is the same hole this receipt reports under "What is
+guarded today" — it is being closed, which is good, and it has a price here.
+
+Re-derived split, by `git show 89574f1c8:scripts/audit-god-objects.ts`:
+
+| keys | at base | cost after PDM-325 |
+|---|---|---|
+| `THRESHOLD` 600, `MIN_ARGUMENT` 180, `MAX_SURFACE_STATE` 2, `MAX_COUPLED_STATE` 12, `MAX_METHOD_LINES` 180 | present, **and every value identical to HEAD** | **free** — ordinary raise/lower path |
+| `GOD_OBJECT_BUDGET` (28) + `WEB_BUNDLE_BUDGET` (8) | absent — new export names | **36 genesis records** |
+
+**These cannot be written today.** `BaselineAuthorisation.from` is typed
+`readonly from: number` at `223218f5f`; `from: null` does not exist until PDM-325
+lands. So the 36 records are work for whoever rebases this branch past it, and
+they are the *intended* cost of registering a new key, not a defect in this work.
+Nothing here needs redesigning to accommodate them — same ledger, same shape.
+
+**Textual conflict risk: none expected.** PDM-325 states it touches only `probe()`
+in `audit-committed-floors.ts`, in the block between the last `expect(...)` call
+and the comment beginning "A lowering authorised at the WRONG `from`". This issue
+did not touch `probe()`. It did move `qualify` *above* `COMMITTED_BASELINES` in
+that file (it is now called from the census via `everyKeyIs`, so it can no longer
+be declared after it — a temporal-dead-zone error otherwise). That is a move, not
+an edit, and it is nowhere near their hunk.
+
+### A3 — `audit:committed-floors` runs in no CI workflow — **confirmed**
+Independently re-derived, not taken on report. `grep` over `.github/workflows/*.yml`
+at this head returns exactly five audit steps — `audit:rearch`,
+`audit:ambient-principals`, `audit:expand-only`, `audit:hidden-reads`,
+`audit:migration-drift` — and the string `committed-floors` appears nowhere under
+`.github/` at all. `audit-committed-floors.test.ts` never calls
+`auditCommittedBaselines` (0 references), so the comparison-against-git executes
+in CI by **no route**. `audit:god-objects` is likewise absent, which is POD-3907's
+finding standing unrepaired.
+
+**What this does and does not do to this issue's claims.** It does not change a
+single verdict reported above: every run here was executed locally and its exit
+code recorded. It does mean the sentence "the census now guards 50 numbers"
+describes a gate nobody runs on a pull request yet.
+
+One thing partly offsets it, and only partly: the two sibling tests added here
+call `checkBaseline` directly (2 and 4 call sites), and `@podium/scripts` tests do
+run in CI's unit-tests job — so the *refusal mechanism* for these ceilings gains a
+CI route it did not have. But those tests build a synthetic base out of the
+working tree, so they prove the machinery refuses a raise; they do not compare
+this branch against `origin/main`. Only `audit:committed-floors` does that, and it
+runs nowhere. **Wiring it into a workflow is not in this issue's scope and should
+not be inferred from this receipt; it is named here so nobody reads "50 numbers
+guarded" as "50 numbers guarded in CI".**
