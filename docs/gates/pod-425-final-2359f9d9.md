@@ -145,3 +145,20 @@ A passing successor needs all of the following in one named tree:
   multi-instance results.
 
 Only then may this gate unblock Phase 7 together with G5 and G6.
+
+
+## Closures recorded after this snapshot
+
+Appended 2026-09-14; newest entries last. The measurement above is unchanged. These are
+pointers to later evidence, not a re-certification of this rejected candidate or today’s tree.
+The [passing POD-425 report](./pod-425-final-71a9265e.md), committed at OSS
+`b9836a9a973eddd6cda170cd238cda0ac4ceca81` on 2026-08-03, witnesses the later result at
+`71a9265ea771ad3642bd6ba2789e6e44f27ee0e6`. Its command outputs below are **historical,
+not re-run in this documentation audit**. No single command re-derives the complete gate
+verdict or the mutation campaign; the report distinguishes fresh probes from byte-identity carry.
+
+- **2026-08-02** — row: `N5b` (system writers / write-scope survivor, originally POD-1429). Closed by **POD-1470**, OSS `910f4d3f625adc783490442de7c5b73c20b95e85`. Witnesses: `apps/server/src/composition/reactions.test.ts` and `reactions.runtime.test.ts`; the passing report records both independent production mutations refused and the restored tests green. No single census command replays this mutation; use the report’s N5b evidence and raw records, not a normal suite’s green as a mutation result.
+- **2026-08-03** — row: `God-object audit items zero`. Closed by **POD-1505**, OSS `71a9265ea771ad3642bd6ba2789e6e44f27ee0e6`, following POD-1467’s credential-lifecycle cut at `b9c6b79f4109db0ea08157d180c48d7df0a5d055`. Re-derive with `bun run audit:god-objects`; the later report records zero items, lifecycle 590 lines and machines 718 lines, plus a planted over-budget refusal. Current output was not measured here.
+- **2026-08-03** — row: `Module graph document(s) committed and current`. **POD-1507**, closed by the coordinator’s OSS `b83aea651ed9b78f0b4d8aedd2356920988d9813` regeneration (commit attributed to POD-279). Re-derive with `bun scripts/server-composition-graph.ts` and `bun scripts/server-construction-order.ts` without `--write`; the later report records exit 0 for both, 211 modules / 352 edges and 54 declarations. Current output was not measured here.
+- **2026-08-03** — row: `All Phase 4 children closed with evidence`. **POD-425**, closure receipt OSS `b9836a9a973eddd6cda170cd238cda0ac4ceca81`, certifies candidate `71a9265ea771ad3642bd6ba2789e6e44f27ee0e6`. No source census command derives tracker lifecycle; the later report witnesses its fresh recursive issue-tree check and names the closed children. That historical tracker observation was not re-run here.
+- **2026-08-03** — row: `Every multi-user gate condition fires on bad production code` (also condition 9, `System writers still system`). **POD-425**, closure receipt OSS `b9836a9a973eddd6cda170cd238cda0ac4ceca81`, records 31 mutants, zero survivors: 17 fresh replays and 14 carried by subject/guardrail byte identity. No single census command re-derives this campaign; the later report and its adjacent raw JSON records witness the closure, including the POD-1470 N5b repair above.

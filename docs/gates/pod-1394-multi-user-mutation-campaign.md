@@ -321,3 +321,16 @@ possible.
 - **POD-1408** — Ambient-principal census ratchet (no instrument produces the gating number).
 - **POD-1410** — Bug: session expiry gate untested (F1).
 - **POD-1412** — Bug: presence queue bound untested (F3).
+
+
+## Closures recorded after this snapshot
+
+Appended 2026-09-14; newest entries last. The measurement above is unchanged. These are
+pointers to later evidence, not a re-certification of this rejected candidate or today’s tree.
+The [passing POD-425 report](./pod-425-final-71a9265e.md), committed at OSS
+`b9836a9a973eddd6cda170cd238cda0ac4ceca81` on 2026-08-03, witnesses the later result at
+`71a9265ea771ad3642bd6ba2789e6e44f27ee0e6`. Its command outputs below are **historical,
+not re-run in this documentation audit**. No single command re-derives the complete gate
+verdict or the mutation campaign; the report distinguishes fresh probes from byte-identity carry.
+
+- **2026-08-02** — row: `N5b` (system writers / write-scope survivor, originally POD-1429). Closed by **POD-1470**, OSS `910f4d3f625adc783490442de7c5b73c20b95e85`. Witnesses: `apps/server/src/composition/reactions.test.ts` and `reactions.runtime.test.ts`; the passing report records both independent production mutations refused and the restored tests green. No single census command replays this mutation; use the report’s N5b evidence and raw records, not a normal suite’s green as a mutation result.

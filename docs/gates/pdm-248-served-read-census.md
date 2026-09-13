@@ -258,3 +258,52 @@ re-run — so each line says which instrument, and says so honestly when there i
   can see it. Reading the landed FILE is what settled it. A census is a claim about the tree, and
   branch ancestry is a claim about history; where an epic lands by cherry-pick they are not the
   same claim.
+
+
+### Pointer audit recorded 2026-09-14
+
+The original rows and previous log entries remain byte-for-byte unchanged. The pointers below
+were checked against OSS `879930b285cccc1aec07a8305581072ffae3a65e`; closure dates identify the
+landed change, while this heading dates the append. Corrections of a classification are labeled
+as such; they do not claim a new authorization fix.
+
+From the OSS root, `bun run --cwd apps/server test:boundary -- src/projection-census.test.ts
+src/served-route-census.test.ts` printed **2 files passed, 35 tests passed** (17 projection,
+18 raw-route), exit 0. The projection test checks population, classification and policy shape,
+not the truth of each authorization rationale. To print the current classification counts:
+
+```sh
+bun -e 'import { PROJECTION_POLICIES as p, UNGOVERNED_PROJECTIONS as u } from "./packages/commands/src/projections/census.ts"; console.log(JSON.stringify({governed:p.length,findings:u.length,remaining:u.map(x=>x.name)},null,2))'
+```
+
+That command printed **71 governed, 5 findings**: `cloud.capabilities`, `cloud.runtime`,
+`updates.fleet`, `operations.active`, `operations.history`. Those five are not closed here.
+Below, **projection re-run** refers to these commands and results; named behavioral tests
+are closure witnesses, inspected here but not re-executed by this documentation audit.
+
+- **2026-09-12** — row: `sessions.status`. **PDM-229**, OSS `4f9d30aae1b3b1353d754d357cdbdc27421b8b4f`. Ownership fix; witness: `apps/server/src/modules/sessions/queries.status-authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.list`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.get`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.bindings`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.profiles`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.runs`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.status`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `workflows.prime`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `machines.list`. **PDM-253**, OSS `b198df3d2aab56bf3d0bfb89decfcc5f1e608e08`. Classification corrected to record an existing rule; the per-row behavioral and deliberate-break evidence is in [PDM-253’s snapshot](./pdm-253-phase-b-read-rows.md), including its explicitly unwitnessed `workflows.prime` case. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `conversations.search`. **PDM-274**, OSS `b8085e26fba283eea6bdf0fa4cadc224750a0e3e`. Classification corrected to record existing reader scoping; witness: `apps/server/src/search.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `accounts.list`. **PDM-271 / PDM-280**, OSS `22b0896dfd4fb30d0a14d7f72f2627b7b8dced88`. Credential-arm closure recorded after PDM-271’s scoped-read classification at `59302213206753d35a754305d68171f84af49884`; witness: `apps/server/src/modules/accounts/list-scope.test.ts`. The legacy `server_secrets` exception remains as documented in the policy. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `files.read`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `files.list`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `files.search`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.changesSince`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.feedChangesSince`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.feedSlice`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
+
+The existing raw-route pointers above now resolve on this checked integration tree:
+PDM-261’s `9db408f600a5e7e270641a6b32cd0755bb3d9219` is present, and PDM-262’s full landed SHA
+is `049e8d9582484bc93cba9de10b8da0e85c807f3b` (both 2026-09-13). At the original hand-read
+snapshot there was **NO COMMAND RE-DERIVING THESE ROWS**; the PDM-261 witness remains
+`apps/server/src/file-artifact-route.authz.test.ts`. PDM-353 subsequently supplied the raw-route
+instrument, whose 18 passing tests in the run above classify both routes in `RAW_ROUTE_POLICIES`
+and assert `UNGOVERNED_RAW_ROUTES` is empty. This is a population/classification result, not a
+behavioral authorization proof, and it does not cover plugin `onRequest` interception.

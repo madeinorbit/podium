@@ -362,3 +362,37 @@ The first attempt ran the whole root `bun run typecheck` (26 packages). Three pa
 out of memory)** on a box under load average 23. That is a resource kill, not a type error, and
 it is not reported as a failure of this change. It was replaced with the two-package filtered run
 above, which is also the narrower lane this change justified in the first place.
+
+
+## Closures recorded after this snapshot
+
+Append-only, newest last. Each entry is a pointer, not a claim of correctness.
+
+
+### Pointer audit recorded 2026-09-14
+
+The original rows and previous log entries remain byte-for-byte unchanged. The pointers below
+were checked against OSS `879930b285cccc1aec07a8305581072ffae3a65e`; closure dates identify the
+landed change, while this heading dates the append. Corrections of a classification are labeled
+as such; they do not claim a new authorization fix.
+
+From the OSS root, `bun run --cwd apps/server test:boundary -- src/projection-census.test.ts
+src/served-route-census.test.ts` printed **2 files passed, 35 tests passed** (17 projection,
+18 raw-route), exit 0. The projection test checks population, classification and policy shape,
+not the truth of each authorization rationale. To print the current classification counts:
+
+```sh
+bun -e 'import { PROJECTION_POLICIES as p, UNGOVERNED_PROJECTIONS as u } from "./packages/commands/src/projections/census.ts"; console.log(JSON.stringify({governed:p.length,findings:u.length,remaining:u.map(x=>x.name)},null,2))'
+```
+
+That command printed **71 governed, 5 findings**: `cloud.capabilities`, `cloud.runtime`,
+`updates.fleet`, `operations.active`, `operations.history`. Those five are not closed here.
+Below, **projection re-run** refers to these commands and results; named behavioral tests
+are closure witnesses, inspected here but not re-executed by this documentation audit.
+
+- **2026-09-13** — row: `files.read`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `files.list`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `files.search`. **PDM-272**, OSS `1e20e0894990042634c486dd0ff901a741c73e94`. Read now goes through the caller’s `FileAccessGate`; witness: `apps/server/src/modules/files/queries.authz.test.ts`. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.changesSince`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.feedChangesSince`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
+- **2026-09-13** — row: `sync.feedSlice`. **PDM-254**, OSS `12182a64417fd928f42c9df0f0390e20a0ba5295`. Classification corrected: the claimed synthesized-principal fallback had already been removed. Closure commit records the scoped-feed/filter witnesses and explicitly lacks a witness for the handler’s own refusal; census green does not fill that gap. Projection re-run: governed (commands and current output above).
