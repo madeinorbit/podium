@@ -7,6 +7,7 @@
 import {
   agentIdentityFromSessionId,
   asSessionId,
+  asLegacyGrant,
   asUserId,
   firstAdminMemberId,
 } from '@podium/model'
@@ -23,6 +24,17 @@ import {
   type SessionControlContext,
 } from './session-control-policy'
 
+/**
+ * THE GRANTEE LISTS ARE BRANDED NOW, AND THESE TESTS DID NOT CHANGE (PDM-355).
+ *
+ * `SessionControlContext.watchGrantees`/`driveGrantees` are `readonly
+ * LegacyGrant[]`, so a bare `[ALICE]` — a `UserId` — no longer compiles. Ten
+ * lists in this file were rewritten to `[asLegacyGrant(ALICE)]` and NOTHING
+ * ELSE: every subject, every expectation and every `machineUse` is untouched,
+ * and the grant arm they exercise is PDM-270's open question, not this issue's
+ * to answer. The compiler asking for the cast here is the mechanism working —
+ * it is the only reason anyone has to look at these lines at all.
+ */
 const OWNER = asUserId('user:owner')
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
@@ -69,8 +81,8 @@ describe('session control policy — watch / drive', () => {
   it('session share without machine use cannot attach (no back door to execution)', () => {
     const shared = ctx({
       machineUse: 'denied',
-      watchGrantees: [ALICE],
-      driveGrantees: [ALICE],
+      watchGrantees: [asLegacyGrant(ALICE)],
+      driveGrantees: [asLegacyGrant(ALICE)],
     })
     // Alice is on the grant list but the machine refuses use.
     expect(mayWatch(ownerSubject(ALICE), shared)).toBe('unauthorized')
@@ -80,7 +92,7 @@ describe('session control policy — watch / drive', () => {
   it('read-only grantee may watch but not drive', () => {
     const c = ctx({
       machineUse: 'granted',
-      watchGrantees: [ALICE],
+      watchGrantees: [asLegacyGrant(ALICE)],
       driveGrantees: [], // write/manage not granted
     })
     expect(mayWatch(ownerSubject(ALICE), c)).toBe(true)
@@ -90,8 +102,8 @@ describe('session control policy — watch / drive', () => {
   it('write grantee may take control', () => {
     const c = ctx({
       machineUse: 'granted',
-      watchGrantees: [BOB],
-      driveGrantees: [BOB],
+      watchGrantees: [asLegacyGrant(BOB)],
+      driveGrantees: [asLegacyGrant(BOB)],
     })
     expect(mayDrive(ownerSubject(BOB), c)).toBe(true)
   })
@@ -126,7 +138,7 @@ describe('session control policy — watch / drive', () => {
     // The grade confers nothing; the grant confers exactly what it confers. A
     // watch-only grant must not drive, or the removed short circuit would have
     // grown back as "any grant is enough for an admin".
-    const watchOnly = ctx({ machineUse: 'granted', watchGrantees: [ADMIN], driveGrantees: [] })
+    const watchOnly = ctx({ machineUse: 'granted', watchGrantees: [asLegacyGrant(ADMIN)], driveGrantees: [] })
     expect(mayWatch(adminSubject(), watchOnly)).toBe(true)
     expect(mayDrive(adminSubject(), watchOnly)).toBe('unauthorized')
   })
@@ -134,8 +146,8 @@ describe('session control policy — watch / drive', () => {
   it('agent rights are the human ceiling — revoke human, agent loses drive at next apply', () => {
     const before = ctx({
       machineUse: 'granted',
-      watchGrantees: [OWNER],
-      driveGrantees: [OWNER],
+      watchGrantees: [asLegacyGrant(OWNER)],
+      driveGrantees: [asLegacyGrant(OWNER)],
     })
     expect(mayDrive(agentSubject(OWNER), before)).toBe(true)
 
@@ -151,7 +163,7 @@ describe('session control policy — watch / drive', () => {
   })
 
   it('absent machine use refuses like denied — attach fails closed', () => {
-    const c = ctx({ machineUse: 'absent', watchGrantees: [ALICE], driveGrantees: [ALICE] })
+    const c = ctx({ machineUse: 'absent', watchGrantees: [asLegacyGrant(ALICE)], driveGrantees: [asLegacyGrant(ALICE)] })
     expect(mayWatch(ownerSubject(ALICE), c)).toBe('unauthorized')
   })
 })
