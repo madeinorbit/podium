@@ -185,8 +185,9 @@ describe('flagsFromZodShape', () => {
 
   it('keeps the value beside a space-separated numeric flag, off the positionals', () => {
     // The defect this pins is silent in BOTH halves: the value is dropped AND it
-    // lands on the next positional, which on `mail inbox` is the issue ref — so
-    // `--limit 500` asked for issue 500 and showed the default page. PDM-427.
+    // lands on the next POSITIONAL. Measured on the issue registry at this pin:
+    // `todo --done 2 PDM-1` left `2` on the positionals, where the command maps
+    // the first positional to `id` — so it addressed issue 2. PDM-427.
     const parsed = parseFlags(['--count', '7'], flagsFromZodShape(schema), {
       usage: 'podium issue events',
     })

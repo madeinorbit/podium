@@ -410,8 +410,10 @@ describe('unknown flags on podium issue', () => {
  * `flagsFromZodShape` called a key value-LESS iff its schema accepted `true` and
  * rejected every probe in a list that held no numeric string. `z.coerce.number()`
  * coerces `true` to 1 (so it "accepts true") and rejects `a-value`/`true`/`false`
- * — so EVERY count, cursor and index flag in the registries was classified a
- * boolean, and `--limit 3` parsed as `limit: true` with `3` left on the floor.
+ * — so a count, cursor or index flag was classified a boolean WHENEVER its range
+ * admits 1, and `--limit 3` parsed as `limit: true` with `3` left on the floor.
+ * (A schema whose bounds exclude 1 rejects `true` too, so it was never affected;
+ * that is the boundary of the defect, not an untested corner.)
  *
  * Two harms, and the second is the worse one:
  *   - the value is dropped and a DEFAULT is substituted, silently;
@@ -471,15 +473,24 @@ describe('space-separated numeric flags (PDM-427)', () => {
   ]
 
   /**
-   * Every `<tool> <command> --<flag>` whose schema accepts the string "1".
+   * Every `<tool> <command> --<flag>` in the three registries above whose schema
+   * accepts the string "1".
+   *
+   * THE POPULATION IS EXACTLY THAT, and the assertion below must not be read
+   * wider. It is NOT every numeric flag (one whose range excludes 1 is absent),
+   * NOT every value-taking flag (a string flag that refuses "1" is absent), and
+   * NOT a proof about schemas nobody has written yet. It IS an exhaustive walk
+   * of the registries that feed `flagsFromZodShape`, over the population where
+   * the demonstrated `true`-coerces-to-1 defect can occur at all — which is why
+   * it covers the reported flags, pinned by name in the test above it.
    *
    * "1" and not "7": `--priority` is `min(0).max(4)`, so a 7 is refused by the
    * RANGE and the flag drops out of the population entirely — a probe sized for
-   * convenience that quietly excludes the flags with the tightest bounds. Every
+   * convenience that quietly excludes the flags with the tightest bounds. Any
    * value a coercing schema accepts for `true` it also accepts for "1", because
-   * `true` coerces to 1.
+   * `true` coerces to 1, so "1" is the widest probe this defect can have.
    */
-  function valueTakingFlags(): { row: string; valueLess: boolean }[] {
+  function flagsAcceptingOne(): { row: string; valueLess: boolean }[] {
     const out: { row: string; valueLess: boolean }[] = []
     for (const [tool, cmds] of REGISTRIES) {
       for (const cmd of cmds) {
@@ -499,7 +510,7 @@ describe('space-separated numeric flags (PDM-427)', () => {
   it('examines the flags this defect was reported on', () => {
     // Verify the instrument before trusting a green from it: a census that
     // silently covered nothing would pass the assertion below for free.
-    const rows = valueTakingFlags().map((f) => f.row)
+    const rows = flagsAcceptingOne().map((f) => f.row)
     expect(rows).toContain('issue events --since')
     expect(rows).toContain('issue events --limit')
     expect(rows).toContain('issue tree --maxNodes')
@@ -507,8 +518,8 @@ describe('space-separated numeric flags (PDM-427)', () => {
     expect(rows.length).toBeGreaterThan(20)
   })
 
-  it('classifies no value-taking flag as value-less, in any registry', () => {
-    expect(valueTakingFlags().filter((f) => f.valueLess)).toEqual([])
+  it('classifies no "1"-accepting flag as value-less, across the three derived registries', () => {
+    expect(flagsAcceptingOne().filter((f) => f.valueLess)).toEqual([])
   })
 })
 

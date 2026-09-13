@@ -251,10 +251,16 @@ const VALUE_PROBES = ['a-value', 'true', 'false'] as const
  * Derive a command's flag declaration from its zod input object.
  *
  * A key is a VALUE-LESS (boolean) flag iff its schema accepts `true` AS A
- * BOOLEAN and accepts NO string — a runtime probe rather than a walk over
- * `_def.typeName`, because the probe reads the same public surface every zod
- * version keeps and cannot be fooled by a wrapper (`.optional()`, `.default()`)
- * it has not been taught about.
+ * BOOLEAN and rejects all three {@link VALUE_PROBES} — a runtime probe rather
+ * than a walk over `_def.typeName`, because the probe reads the same public
+ * surface every zod version keeps and cannot be fooled by a wrapper
+ * (`.optional()`, `.default()`) it has not been taught about.
+ *
+ * SAY WHAT THIS IS. Three probe strings are a SAMPLE, not a proof that the field
+ * accepts no string at all: a schema admitting only some string this list does
+ * not contain would still be called value-less. The classifier is a bounded
+ * heuristic over the shapes the registries actually use, and the `true`-parses-
+ * back-as-a-boolean half below is the part that is range- and probe-independent.
  *
  * ALL THREE HALVES ARE LOAD-BEARING.
  *
