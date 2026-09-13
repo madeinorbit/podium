@@ -24,11 +24,23 @@
  * BEN'S HALF CANNOT CURRENTLY FAIL, AND THAT IS NOT A DEFECT IN IT. The service
  * hydrates `viewerState` once, for the broadcast viewer alone, so a second
  * member's pin is invisible to the mint whatever the mint's scope is — the
- * assertion would pass against the defect as well as against the repair. It is
- * written as a FORWARD GUARD for the state PDM-402 is bringing about, where the
- * overlay becomes per-principal and a re-introduced per-viewer scope would make
- * Ben's pin move a shared key. Do not count it as evidence for the repair; the
- * evidence is Ada's half and the deliberate break recorded in the receipt.
+ * assertion would pass against the defect as well as against the repair. Do not
+ * count it as evidence for the repair; the evidence is Ada's half and the
+ * deliberate break recorded in the receipt.
+ *
+ * WHAT IT ESTABLISHES IS A PRESENT FACT, NOT A FUTURE ONE: the key this service
+ * mints is independent of the stored pins it can see, for both people. An
+ * earlier version of this note called it "a forward guard for the state PDM-402
+ * is bringing about, where the overlay becomes per-principal". THAT WAS WRONG ON
+ * THE FACTS and is withdrawn — checked at PDM-402's branch tip rather than
+ * assumed: `core.ts` there still hydrates `viewerState` from
+ * `broadcastViewer()` and `issueOverlay` still reads that one map, so PDM-402
+ * leaves this overlay single-viewer. It is the WRITE half.
+ *
+ * So this assertion would only become capable of failing under BOTH a
+ * per-principal overlay AND a re-introduced per-viewer mint scope. Neither
+ * exists, and no issue is named here as bringing them about — naming one is how
+ * a comment ages into a promise nobody made.
  *
  * Ada is read out of the store rather than invented, for the reason
  * `issue-marks.viewer.test.ts` gives on PDM-402's branch: seeding a "first
@@ -190,8 +202,11 @@ describe('the mint scope does not consult per-user pins (PDM-429)', () => {
     // through ONE service that resolves ONE viewer; Ben never asks for anything.
     // An earlier title here said "two members ... mint the identical key", which
     // claimed the thing the construction cannot reach. The real second-principal
-    // witness needs a consumer that can create AS Ben, which does not exist at
-    // this pin; when PDM-402 lands one, that witness belongs here beside this.
+    // witness needs a consumer that can issue a CREATE as a second principal,
+    // which does not exist at this pin. No issue is named as the one that brings
+    // it — an earlier version named PDM-402, which is the write half and leaves
+    // this overlay single-viewer. If such a consumer arrives, the witness
+    // belongs here beside this one.
     //
     // Ada's pin goes through the service so the hydrated overlay sees it; Ben's
     // is written straight to the store because no service path can currently
