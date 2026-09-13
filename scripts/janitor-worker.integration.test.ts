@@ -184,10 +184,19 @@ describe('server-owned janitor worker', () => {
     }
   }, 20_000)
 
-  it('embeds and loads the janitor worker in a compiled Bun binary', () => {
+  it('embeds and loads the janitor worker in a compiled Bun binary', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-worker-compile-'))
     const binary = join(dir, 'janitor-worker-smoke')
+    const dbPath = join(dir, 'podium.db')
     try {
+      // The janitor resolves its owner from this database and refuses to start
+      // when it names no active admin member (PDM-125), so the smoke needs a
+      // real migrated one: against an empty file the binary reports a refusal
+      // about the fixture and says nothing about the embed under test. Seeded
+      // out here rather than inside the binary so the compiled module graph
+      // stays the janitor's own and never grows the server's migration chain.
+      const seed = await openTestStore(dbPath)
+      await seed.close()
       execFileSync(
         'bun',
         [
@@ -201,7 +210,11 @@ describe('server-owned janitor worker', () => {
         ],
         { cwd: repoRoot, stdio: 'pipe' },
       )
-      const output = execFileSync(binary, { encoding: 'utf8', timeout: 20_000 })
+      const output = execFileSync(binary, {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: { ...process.env, PODIUM_JANITOR_SMOKE_DB: dbPath },
+      })
       expect(output).toContain('SMOKE_OK')
       expect(output).not.toContain('ModuleNotFound')
     } finally {
