@@ -64,18 +64,12 @@
  * below (catalogue #4, the inert guard).
  */
 
-import {
-  asArtifactId,
-  asIssueId,
-  type Capability,
-  type UserId,
-  asUserId,
-} from '@podium/model'
+import { asArtifactId, asIssueId, asUserId, type Capability, type UserId } from '@podium/model'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from './command-principal'
 import { registerArtifactRoute } from './file-artifact-route'
-import { fileAccessGate, type FileAccessModules } from './modules/files/file-access-gate'
+import { type FileAccessModules, fileAccessGate } from './modules/files/file-access-gate'
 import { FILE_QUERIES } from './modules/files/queries'
 import type { FileState } from './modules/files/registry'
 
@@ -164,12 +158,11 @@ function harness() {
   const repos = { list: async () => [] } as never
 
   const gateFor = (userId: UserId, capability: Capability) =>
-    fileAccessGate(
-      modules,
-      repos,
-      { userId, capability },
-      { kind: 'user', user: userId, capability } as unknown as CommandPrincipal,
-    )
+    fileAccessGate(modules, repos, { userId, capability }, {
+      kind: 'user',
+      user: userId,
+      capability,
+    } as unknown as CommandPrincipal)
 
   /** The RAW HTTP door, bound to one caller — the shape `server.ts` wires. */
   const appFor = (userId: UserId, capability = workerCapability(userId)): Hono => {

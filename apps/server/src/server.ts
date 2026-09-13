@@ -1671,7 +1671,10 @@ export async function startServer(
       return fileAccessGate(
         registry.modules,
         repos,
-        { userId: principal.kind === 'user' ? principal.user : undefined, capability: principal.capability },
+        {
+          userId: principal.kind === 'user' ? principal.user : undefined,
+          capability: principal.capability,
+        },
         principal,
       )
     },
