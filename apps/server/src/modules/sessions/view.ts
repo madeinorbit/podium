@@ -268,8 +268,12 @@ export class SessionView {
     // moved down, 3 passed with it here). Removing the await entirely cannot
     // reopen that window; adding one back below can, so do not.
     // RESOLVED FIRST, BEFORE ANY OTHER READ IN THIS METHOD, and that position is
-    // load-bearing [PDM-291], more so than PDM-291 knew — see
-    // {@link internalOverlayUser} for the four probes that pin it. The answer is
+    // load-bearing [PDM-291] — and REMOVING it breaks something PDM-291 did not
+    // name, by a mechanism nobody has established yet: see
+    // {@link internalOverlayUser} for the observed contrast and PDM-437 for where
+    // the evidence stops. "The four probes that pin it" is how this line read
+    // before the phase reviewer pointed out that probes pin a contrast, not a
+    // cause. The answer is
     // deliberately NOT used for the overlay any more: a principal-less pass is
     // the BROADCAST, and one ledger value per session id reaches every
     // subscriber, so wiring any identity here shows one person's read marks and
@@ -376,28 +380,48 @@ export class SessionView {
    * `NO_SESSION_USER_STATE` and each person's real values ride the `sessionMarks`
    * sidecar. What a member is shown no longer comes from here.
    *
-   * SO WHY IS THE READ STILL HERE. Because removing it breaks worktree adoption,
-   * three subsystems away, and that is MEASURED rather than feared. PDM-291's
-   * comment below records that moving this read DOWN reopens an interleaving
-   * window; the stronger fact is that its PRESENCE is load-bearing at all. With
-   * the overlay already neutral:
+   * SO WHY IS THE READ STILL HERE. Because removing it breaks worktree adoption
+   * three subsystems away — `relay.test.ts`'s two adoption cases and
+   * `relay.machines.test.ts`'s remote one, where `branch` and `worktreePath` stay
+   * null and a poll times out, with nothing logged and nothing thrown.
    *
-   *   revert only the neutralisation (overlay back to the admin)   -> passes
-   *   keep it neutral, retain this read but discard its answer      -> passes
-   *   keep it neutral, `await Promise.resolve()` instead            -> FAILS 3/3
-   *   keep it neutral, hoist the machine-facts read to this line    -> FAILS 3/3
+   * WHAT IS OBSERVED. Outcomes, not causes. Overlay neutral in every row but the
+   * first; run at THIS tip and at the base commit `879930b28`:
    *
-   * So the dependency is on an awaited STORE round-trip at this position, not on
-   * the overlay value, not on a bare microtask, and not on any await. The same
-   * single change breaks `relay.test.ts`'s adoption cases AT THE BASE COMMIT with
-   * none of PDM-424 present, so this is a PRE-EXISTING latent ordering
-   * dependency that PDM-424 merely exposed. Filed as its own finding; do not
-   * "clean up" this read until that finding is closed.
+   *                          tip          base
+   *   await + admin value    passes       passes (unmodified base)
+   *   await + neutral        passes       passes 3/3
+   *   no await + neutral     FAILS 3/3    FAILS 2/2
+   *   microtask + neutral    FAILS 3/3    not run
+   *   in-memory + neutral    FAILS 3/3    not run
    *
-   * I WROTE THE OPPOSITE HERE FIRST — "removing the await entirely cannot reopen
-   * that window; adding one back below can" — and it was false. It is recorded
-   * rather than edited away because it is exactly the confident, specific,
-   * re-read-proof kind of wrong sentence this epic keeps producing.
+   * WHAT THAT SUPPORTS IS ATTRIBUTION, AND ONLY THAT: the same contrast appears
+   * at the base pin with PDM-424 absent, so whatever causes it is NOT introduced
+   * by this issue.
+   *
+   * WHAT IT DOES NOT SUPPORT is any sentence of the form "the dependency is X" —
+   * and an earlier version of this comment said exactly that ("the dependency is
+   * on an awaited STORE round-trip at this position"). THE PHASE REVIEWER STRUCK
+   * IT and was right: removing this read changes several things at once — an
+   * await, a duration, a scheduling point, a store touch, and whatever that touch
+   * warms or synchronises — and none of the probes separates them. The retained-
+   * read row was meant to isolate value from await and does not, because a
+   * retained read still touches the store; the `Promise.resolve()` row says a
+   * microtask is not enough, which is a fact about that substitution rather than
+   * about duration or scheduling.
+   *
+   * THE MECHANISM IS UNRESOLVED. PDM-437 holds the contrast, a three-command
+   * reproduction, and an explicit statement of where the evidence stops. DO NOT
+   * "clean up" this read until that issue is closed: its answer is unused and its
+   * removal is not.
+   *
+   * TWO SENTENCES OF MINE HAVE BEEN STRUCK HERE, both recorded rather than edited
+   * away because both are the confident, specific, survives-re-reading kind of
+   * wrong sentence this epic keeps producing:
+   *   1. "removing the await entirely cannot reopen that window; adding one back
+   *      below can" — false, and I measured it false myself;
+   *   2. the mechanism claim above, which I stated as a conclusion when I had a
+   *      contrast, and which the phase reviewer struck.
    *
    * `undefined` — no admin yet, i.e. before bootstrap — is unchanged and is now
    * inert either way.
