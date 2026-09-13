@@ -8,7 +8,11 @@
  *   bun run audit:god-objects --sizes  # the raw screen, no verdicts
  *   bun run audit:god-objects --probe  # prove every check can say YES
  *
- * The gate also runs as a TEST (`audit-god-objects.test.ts`) so CI executes it.
+ * NOTHING RUNS THIS GATE TODAY. `audit-god-objects.test.ts` was its route into
+ * CI and was deleted at c1eb67a10 (2026-08-11); `audit:god-objects` appears in
+ * no workflow under `.github/`. Unwatched, findings went 11 -> 92 in the month
+ * that followed (POD-3907). Exit codes if you wire it back in: 2 the instrument
+ * is broken, 1 findings, 0 clean.
  *
  * ---------------------------------------------------------------------------
  * WHAT THE CRITERION ACTUALLY SAYS, AND WHY THAT SHAPES THIS FILE
