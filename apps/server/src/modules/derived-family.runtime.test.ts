@@ -47,7 +47,12 @@ import {
 import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
+import { LAYOUT_COMMANDS_TRPC, LAYOUT_QUERIES } from './layout/registry'
 import { OPERATION_COMMANDS_TRPC, OPERATION_QUERIES } from './operations/registry'
+import {
+  READ_POSITION_COMMANDS_TRPC,
+  READ_POSITION_QUERIES,
+} from './read-position/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
 
 /** A tRPC v11 procedure record carries its verb on `_def.type`. Read
@@ -84,6 +89,16 @@ const FAMILIES = [
   // instrument the epic has for exposure reported green about a surface it could
   // not see. Being here is what makes that comparison exist.
   { router: 'operations', table: OPERATION_COMMANDS_TRPC },
+  // The two per-user write families (PDM-308), here for the reason `operations`
+  // is — and for a sharper version of it. Both DID import their contracts, and
+  // both have an `authz.ts` that reads `.policy` off them to enforce the declared
+  // floor live, so a reader saw the join and stopped asking. Neither ever read
+  // `.exposure`: the policy half was attached and the exposure half was not.
+  // Measured before it was repaired — `readPosition.advance` could declare
+  // `exposure: ['mcp']` while the router served it on tRPC and NOTHING reddened
+  // anywhere, in either package. Being here is what makes that comparison exist.
+  { router: 'layout', table: LAYOUT_COMMANDS_TRPC },
+  { router: 'readPosition', table: READ_POSITION_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -116,11 +131,17 @@ describe('the derived families, against the RUNNING appRouter', () => {
    *       that put the operation family on this builder at all.
    *
    * 13 -> 14 families is the same join: `operations` is the fourteenth.
+   *
+   * 35 -> 38 and 14 -> 16 is PDM-308, and it is ONE movement rather than two:
+   * `layout.set`, `layout.clear` and `readPosition.advance` (+3 writes), in the
+   * two families that join their contracts on this builder for the first time
+   * (+2 families). No repair is folded in here — the pin was answered at 35/14
+   * when this issue started, which was checked rather than assumed.
    */
-  it('governs fourteen families and thirty-five derived writes', () => {
-    expect(FAMILIES).toHaveLength(14)
+  it('governs sixteen families and thirty-eight derived writes', () => {
+    expect(FAMILIES).toHaveLength(16)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(35)
+    expect(total).toBe(38)
   })
 
   it.each(
@@ -170,6 +191,21 @@ describe('the derived families, against the RUNNING appRouter', () => {
     expect(Object.keys(OPERATION_QUERIES)).toHaveLength(2)
     for (const key of Object.keys(OPERATION_QUERIES)) {
       expect(verbOf(operations[key]), `operations.${key} verb`).toBe('query')
+    }
+    // `layout.get` and `readPosition.get` (PDM-308), for the same claim. Both
+    // are the ONLY read their family has, and both are gated on the WRITE
+    // contract's name because a per-user snapshot makes "who may see it" and
+    // "who may move it" one question — so a read that silently stopped being
+    // served would take that gate with it and nothing else would notice.
+    const layout = routerRecord('layout')
+    expect(Object.keys(LAYOUT_QUERIES)).toHaveLength(1)
+    for (const key of Object.keys(LAYOUT_QUERIES)) {
+      expect(verbOf(layout[key]), `layout.${key} verb`).toBe('query')
+    }
+    const readPosition = routerRecord('readPosition')
+    expect(Object.keys(READ_POSITION_QUERIES)).toHaveLength(1)
+    for (const key of Object.keys(READ_POSITION_QUERIES)) {
+      expect(verbOf(readPosition[key]), `readPosition.${key} verb`).toBe('query')
     }
   })
 
