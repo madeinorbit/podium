@@ -123,7 +123,7 @@ const lookup = (name: string): CommandContract | undefined => {
 type DefTable = { readonly namespace: string; readonly defs: Record<string, CommandDef> }
 
 const DEF_TABLES: readonly DefTable[] = [
-  ...(SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[]),
+  ...(SESSION_STATE_COMMAND_TABLES as unknown as readonly DefTable[]),
   sessionCommandPlane as unknown as DefTable,
 ]
 
@@ -218,7 +218,7 @@ describe('the client outbox contract table matches the contracts', () => {
     // tables really do share a namespace, and stay disjoint only by their keys.
     const planeNamespace = (sessionCommandPlane as unknown as DefTable).namespace
     const stateNamespaces = (
-      SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[]
+      SESSION_STATE_COMMAND_TABLES as unknown as readonly DefTable[]
     ).map((t) => t.namespace)
     expect(stateNamespaces).toContain(planeNamespace)
   })
@@ -317,7 +317,7 @@ describe('the client outbox contract table matches the contracts', () => {
     // Written against BOTH sources by name rather than through the resolver above,
     // deliberately: which resolver wins for `rename` changes when PDM-416 lands, and
     // this comparison must not change with it.
-    const def = (SESSION_STATE_COMMAND_TABLES as readonly unknown as readonly DefTable[])
+    const def = (SESSION_STATE_COMMAND_TABLES as unknown as readonly DefTable[])
       .map((table) => table.defs.rename)
       .find((candidate) => candidate !== undefined)
     expect(def, 'rename definition must be reachable').toBeDefined()
