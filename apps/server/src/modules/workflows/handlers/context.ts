@@ -56,7 +56,13 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
-import { attributionOf, onBehalfOfUser } from '../../../command-principal'
+import {
+  adminFloorMessage,
+  adminFloorRefusal,
+  attributionOf,
+  type CommandPrincipal,
+  onBehalfOfUser,
+} from '../../../command-principal'
 import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../service'
 
 // ---------------------------------------------------------------------------
@@ -203,6 +209,36 @@ export interface WorkflowPolicyPorts {
  * agent's rights are its human's CURRENT rights, so a revoked delegation must
  * be able to answer `null` at the next apply of a run that started an hour ago.
  */
+/**
+ * WHICH PRINCIPAL KIND IS CALLING — the half of ADR 9 D1 that
+ * {@link WorkflowPrincipal} does not carry (PDM-299).
+ *
+ * `WorkflowPrincipal` has an actor, an on-behalf-of and a grade, and for every
+ * question on this surface except one that is enough. The exception is the
+ * admin floor: under PDM-299's ruling an agent does not inherit its human's
+ * admin grade, so the floor needs to know whether the caller IS an agent, and
+ * `actor` alone cannot say it — a session id is the actor half of a delegation,
+ * not proof that the transport resolved one.
+ *
+ * THE TWO BRANCHES MIRROR {@link workflowPrincipal}'s OWN, deliberately, rather
+ * than inventing a second answer to "who is calling" (ADR 3 D7). Where the
+ * transport supplied a `CommandPrincipal` — which every shipped door does,
+ * `workflowCaller` over tRPC and `workflowCallerForCapability` over the relay —
+ * that principal decides, and nothing else is consulted. Where it did not, the
+ * actor half is the only identity in the room, and `workflowPrincipal` already
+ * falls back to it for the same reason. The fallback reads a session actor as
+ * an agent, which is the fail-closed direction.
+ *
+ * `WorkflowPrincipal` is NOT widened to carry this. It is an `@podium/commands`
+ * type consumed by `workflowDecision` and every read predicate on this surface;
+ * adding a kind there would invite the other fifteen decisions to start reading
+ * it, and the ruling is about the admin floor only.
+ */
+export function workflowPrincipalKind(caller: WorkflowCaller): CommandPrincipal['kind'] {
+  if (caller.principal) return caller.principal.kind
+  return caller.actor.kind === 'session' ? 'agent' : 'user'
+}
+
 export function workflowPrincipal(caller: WorkflowCaller): WorkflowPrincipal {
   if (caller.principal) {
     const attribution = attributionOf(caller.principal)
@@ -613,17 +649,41 @@ export class WorkflowAccess {
     )
   }
 
-  /** `profileSave` — the inverse-shaped guard, now the same decision as every
-   *  other write, taken against the account grade ADR 1 D6 requires for
-   *  anything that manages managed credentials. */
+  /**
+   * `profileSave` — the inverse-shaped guard, now the same decision as every
+   * other write, taken against the account grade ADR 1 D6 requires for anything
+   * that manages managed credentials.
+   *
+   * THE ADMIN FLOOR IS NO LONGER SPELLED HERE (PDM-299). It used to be
+   * `principal.role !== 'admin'`, and that read the grade `workflowPrincipal`
+   * derives from `protectedWrite` — which `relay.ts`'s
+   * `workflowCallerForCapability` sets from the delegating human's LIVE store
+   * role. So an admin's AGENT satisfied it, and `engine.test.ts` asserted that
+   * it did, by name.
+   *
+   * THIS IS THE ONE CONTRACT IN THE WHOLE SURFACE WHERE THAT WAS REACHABLE.
+   * `workflows.profileSave` is the only admin-floor contract declaring the
+   * `relay` transport (`SERVED_ON = ['trpc','relay']`), and `workflows` is the
+   * only admin-floor family with a `RELAY_ALLOWED` entry — so this line is where
+   * PDM-299's ruling actually costs something, and an admin's agent can no
+   * longer bind managed credentials to owned compute. Every other site the
+   * ruling touches was refusing or permitting nobody.
+   *
+   * The grade half is unchanged and still comes from the principal; only WHO may
+   * satisfy the floor moved, into {@link adminFloorRefusal}, which all five
+   * admin-floor sites now go through.
+   */
   assertProfileWrite(
     caller: WorkflowCaller,
     profileId: string | undefined,
     ownership: WorkflowOwnershipPort,
   ): void {
     const principal = this.principal(caller)
-    if (principal.role !== 'admin') {
-      throw new Error('only an administrator may change execution profiles')
+    const refusal = adminFloorRefusal(workflowPrincipalKind(caller), principal.role)
+    if (refusal !== undefined) {
+      throw new Error(
+        adminFloorMessage('only an administrator may change execution profiles', refusal),
+      )
     }
     if (
       profileId !== undefined &&

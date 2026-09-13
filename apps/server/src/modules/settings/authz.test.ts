@@ -117,18 +117,62 @@ describe('the floor is READ, per contract — both arms, for every command', () 
   }
 })
 
-describe('an agent is bounded by its human, not by its own capability', () => {
-  // Both principals below carry `role: 'admin'` on the CAPABILITY. The floor is
-  // compared against the ACCOUNT role of the human at the root of the chain
-  // (ADR 9 D1.4), so an admin-capability agent delegating from a member is
-  // refused. A gate that read the capability instead would pass this and be
-  // wrong in the one direction that matters.
-  it('an agent whose human is a member is refused an admin-floor command', () => {
+describe('an agent does not inherit its human\'s admin grade (PDM-299)', () => {
+  // The `agent` principal carries `role: 'admin'` on its CAPABILITY, and the
+  // floor is not compared against that — a gate reading the capability would
+  // pass both cases below and be wrong in the one direction that matters.
+  //
+  // WHAT CHANGED, and it is a reversal rather than a clarification. This block
+  // used to end "the same agent whose human is an admin is ALLOWED": the floor
+  // resolved through `onBehalfOf` to the delegating human's live store role, so
+  // an admin's agent could `settings.setSecret`. PDM-107's coordinator ruled
+  // that an agent does not inherit the admin grade at all. The reasoning is in
+  // `modules/role-floor.ts`'s header; the short form is that widening later is a
+  // deliberate act with an existing mechanism (ADR 9 D5 A2's `--outside-scope` →
+  // `confirm-required` path) and narrowing later is a regression.
+  //
+  // THE MEMBER'S-AGENT CASE IS NOT THE PROOF. It passes against a gate that has
+  // never heard of delegation, because a member is refused anyway. The admin's
+  // agent is the only fixture that fails on the unfixed line, which is why it
+  // asserts the REASON and not just the refusal.
+  it("an agent whose human is a member is refused an admin-floor command", () => {
     expect(settingsAuthzFailure('settings.setSecret', deps('member', agent))).toBeDefined()
   })
 
-  it('the same agent whose human is an admin is allowed', () => {
-    expect(settingsAuthzFailure('settings.setSecret', deps('admin', agent))).toBeUndefined()
+  it("the same agent whose human is an ADMIN is refused too — the discriminating case", () => {
+    const failure = settingsAuthzFailure('settings.setSecret', deps('admin', agent))
+    expect(failure?.code).toBe('FORBIDDEN')
+    expect(failure?.message).toBe(
+      "settings.setSecret requires an admin account — and an agent does not inherit its human's admin grade",
+    )
+  })
+
+  /**
+   * THE SECRET READ STILL REFUSES AS ABSENT FOR AN AGENT.
+   *
+   * §3.1.5's rule is about what a refusal DISCLOSES, and a new refusal reason is
+   * exactly where that gets lost: if the delegation refusal answered FORBIDDEN
+   * where the grade refusal answers NOT_FOUND, an agent would learn from the
+   * code alone that the instance has a secret surface. Both reasons must produce
+   * the same answer as an instance that has none.
+   */
+  it('the secret PRESENCE read refuses an admin\'s agent as ABSENT, not as forbidden', () => {
+    const failure = settingsAuthzFailure('settings.secretPresence', deps('admin', agent))
+    expect(failure?.code).toBe('NOT_FOUND')
+    expect(failure?.message).toBe(SECRET_SURFACE_ABSENT)
+    // The word that must not appear, for the same reason the member case says so.
+    expect(failure?.message).not.toContain('agent')
+  })
+
+  /**
+   * THE MEMBER FLOOR IS UNTOUCHED, and this is the counterfactual without which
+   * the block above is satisfiable by a gate that refuses every agent
+   * everything. A person's agent writing that person's own preferences is the
+   * ordinary case and PDM-299 does not touch it.
+   */
+  it('a member-floor settings command still serves an agent', () => {
+    expect(settingsAuthzFailure('settings.updatePersonal', deps('member', agent))).toBeUndefined()
+    expect(settingsAuthzFailure('settings.updatePersonal', deps('admin', agent))).toBeUndefined()
   })
 })
 

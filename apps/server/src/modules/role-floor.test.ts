@@ -55,14 +55,46 @@ const human: CommandPrincipal = {
   capability: { role: 'worker', scope: { kind: 'owned', userId: ALICE }, actorUser: ALICE, onBehalfOf: ALICE },
 }
 
-/** An AGENT delegating from a human — the arm whose rights are its human's, so a
- *  member's agent must be refused exactly where the member is (ADR 9 D5 A1/A2). */
+/**
+ * An AGENT delegating from a human.
+ *
+ * Its capability carries `role: 'worker'`, which is what BOTH shipped mints
+ * actually produce for a live agent session — `relay.ts`'s
+ * `capabilityForLiveSession` and `SessionAuthz.capabilityForSession`, six return
+ * statements between them and not one that can say `admin`. See
+ * `agent-capability-mint.test.ts`, which pins that.
+ *
+ * THE ROLE IS SUPPLIED SEPARATELY, as for {@link human}, and for this principal
+ * that is the whole point of the file: the `role` argument below is the
+ * DELEGATING HUMAN'S live account grade, so passing `'admin'` constructs the
+ * discriminating case — an ADMIN'S agent — which is the only fixture that can
+ * tell PDM-299's rule from the absence of one.
+ */
 const agent: CommandPrincipal = {
   kind: 'agent',
   agentSessionId: asSessionId('sess-1'),
   onBehalfOf: ALICE,
   capability: { role: 'worker', scope: { kind: 'owned', userId: ALICE }, actorUser: ALICE, onBehalfOf: ALICE },
   chain: [],
+}
+
+/**
+ * THE SAME AGENT WEARING AN ADMIN CAPABILITY — a principal no shipped mint can
+ * produce, constructed on purpose.
+ *
+ * Why a fixture for an impossible capability is not entry 14 but its cure: the
+ * gate must refuse an agent because a RULE refuses it, not because no transport
+ * happens to hand it the value the rule compares against. `operations`'
+ * pre-PDM-299 check was exactly that — `capability.role !== 'admin'` over a
+ * field hard-coded to `worker` — and it would have gone on passing every
+ * "an agent is refused" assertion with the rule deleted.
+ *
+ * So this principal separates the two. If the decision ever goes back to reading
+ * the capability, this fixture is PERMITTED and the assertion below fails.
+ */
+const agentWearingAdminCapability: CommandPrincipal = {
+  ...agent,
+  capability: { role: 'admin', scope: { kind: 'all' }, actorUser: ALICE, onBehalfOf: ALICE },
 }
 
 /**
@@ -147,10 +179,57 @@ describe('the floor is READ, per contract', () => {
     expect(roleFloorFailure(qualified, contract, { principal: human, role: 'admin' })).toBeUndefined()
   })
 
-  it.each(ADMIN_FLOOR)("$qualified refuses a MEMBER'S AGENT and serves an admin's", ({ qualified, contract }) => {
+  /**
+   * PDM-299: AN AGENT IS REFUSED AN ADMIN FLOOR WHOEVER IT ACTS FOR.
+   *
+   * This assertion used to read "refuses a MEMBER'S agent and serves an ADMIN'S"
+   * — the delegating human's live store role decided, so an admin's agent was
+   * permitted. PDM-107's coordinator ruled the other way and the argument is in
+   * `role-floor.ts`'s header: narrowing later is a regression, widening later is
+   * a deliberate act with a mechanism that already exists (ADR 9 D5 A2's
+   * `--outside-scope` → `confirm-required` path), so the closed answer is the
+   * one to take while almost no agent transport reaches these families.
+   *
+   * THE ADMIN'S AGENT IS THE DISCRIMINATING CASE and it is why both arms are
+   * here. "An agent is refused" with `role: 'member'` alone would pass against a
+   * gate that had never heard of delegation, because a member is refused anyway.
+   * Only the `'admin'` arm fails on the unfixed line.
+   */
+  it.each(ADMIN_FLOOR)("$qualified refuses an agent whoever it acts for", ({ qualified, contract }) => {
     expect(roleFloorFailure(qualified, contract, { principal: agent, role: 'member' })?.code).toBe('FORBIDDEN')
-    expect(roleFloorFailure(qualified, contract, { principal: agent, role: 'admin' })).toBeUndefined()
+
+    // THE ONE THAT FAILS ON THE UNFIXED LINE.
+    const adminsAgent = roleFloorFailure(qualified, contract, { principal: agent, role: 'admin' })
+    expect(adminsAgent?.code).toBe('FORBIDDEN')
+    // BY REASON, not merely by refusal. A refusal saying "requires an admin
+    // account" to an agent whose human IS an admin would send its operator to
+    // check an account that is already correct.
+    expect(adminsAgent?.message).toBe(
+      `${qualified} requires an admin account — and an agent does not inherit its human's admin grade`,
+    )
   })
+
+  /**
+   * THE CAPABILITY IS NOT WHAT DECIDES, and this is the arm that proves the
+   * refusal above is a rule rather than an artefact of the mint.
+   *
+   * See {@link agentWearingAdminCapability}. Against a gate that compared
+   * `capability.role` this principal is permitted; against PDM-299's rule it is
+   * refused identically to every other agent.
+   */
+  it.each(ADMIN_FLOOR)(
+    "$qualified refuses an agent even wearing an admin CAPABILITY — the rule refuses it, not the mint",
+    ({ qualified, contract }) => {
+      for (const role of ['admin', 'member'] as const) {
+        expect(
+          roleFloorFailure(qualified, contract, {
+            principal: agentWearingAdminCapability,
+            role,
+          })?.code,
+        ).toBe('FORBIDDEN')
+      }
+    },
+  )
 
   it.each(ADMIN_FLOOR)('$qualified refuses a principal with no account at all', ({ qualified, contract }) => {
     // `undefined` is not a role. An account that cannot act satisfies no floor —

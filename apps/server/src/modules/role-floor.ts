@@ -11,6 +11,11 @@
  * `operations`' `assertActionAuthorized`) hard-code `role === 'admin'` without
  * consulting a contract at all.
  *
+ * (PDM-299 has since made those two hand-written sites read {@link
+ * adminFloorRefusal} below, so all five agree about WHO may satisfy an admin
+ * floor. They still hard-code the FLOOR VALUE rather than reading a contract —
+ * `operations` joins no contract table, which is `PDM-297`.)
+ *
  * The other EIGHTEEN were documentation, and the most exposed of them is
  * `accounts.connect`, whose own rationale says *"whoever writes this decides
  * which account every agent on this instance bills and acts as"*. Any
@@ -60,8 +65,12 @@
  *    the Accounts hub for every member (PDM-271, re-confirmed by PDM-294).
  *    Whether reads gain a floor is a product decision with a UI half.
  *
- * 3. IT DOES NOT REACH `operations`. That family hand-writes its procedures and
- *    joins them to no contract table at all, so no builder governs it.
+ * 3. IT DOES NOT REACH `operations` AS A BUILDER. That family hand-writes its
+ *    procedures and joins them to no contract table at all, so nothing derived
+ *    governs it — `PDM-297` owns the join. What PDM-299 changed is narrower and
+ *    does not need the join: `assertActionAuthorized` now calls {@link
+ *    adminFloorRefusal} directly, so the family is outside the BUILDER and
+ *    inside the RULE.
  *
  * ---------------------------------------------------------------------------
  * THE REFUSAL MUST NOT BECOME AN EXISTENCE ORACLE
@@ -83,9 +92,37 @@
  */
 
 import type { AnyCommandContract } from '@podium/commands'
-import { isAdminGrade, spawnedByParentSessionId, type UserRole } from '@podium/model'
+import { spawnedByParentSessionId, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../command-principal'
+import {
+  type AdminFloorRefusal,
+  adminFloorMessage,
+  adminFloorRefusal,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../command-principal'
+
+/**
+ * THE ADMIN-FLOOR RULE, RE-EXPORTED FROM ITS HOME (PDM-299).
+ *
+ * PDM-107's ruling was "one exported decision in `role-floor.ts`", and this is
+ * that decision — but the FUNCTION lives in `command-principal.ts`, beside the
+ * `CommandPrincipal` union whose `kind` it switches on, and it is re-exported
+ * here so this file stays the place a reader looks for "what decides a floor".
+ *
+ * THE PLACEMENT IS NOT COSMETIC and the repository measured it. This module
+ * takes a tRPC `Context`, so it is transport-layer; `WorkflowAccess` — one of
+ * the five consumers — is a HANDLER, and importing this file from there pulled
+ * `../trpc` into the workflow service's module graph. `scripts/server-test-
+ * shards.ts` assigns shards by what a test actually CONSUMES, so the first
+ * version of this change silently moved three workflow suites from the `store`
+ * shard to `services`: same files, different config, which is exactly the
+ * "green from the wrong config" the false-green catalogue lists as entry 11.
+ * `command-principal.ts` has no transport dependency, every one of the five
+ * sites already imports it, and the shard manifest is unchanged.
+ */
+export { type AdminFloorRefusal, adminFloorMessage, adminFloorRefusal }
 import { type Context, mods } from '../trpc'
 
 /** Who is asking, and what grade their account carries. */
@@ -118,16 +155,14 @@ export function roleFloorFailure(
       // alike, and so a third floor value cannot be added without deciding.
       return undefined
     case 'admin': {
-      // A SYSTEM principal is constructed in-process and is unreachable from
-      // every transport (ADR 3 Amendment 1 D21.2). It has no account, so it
-      // satisfies no floor by the rule below — the carve-out is here rather
-      // than by inventing a role for it, because "the steward is an admin" is
-      // exactly the service account ADR 9 D8 S5 rejects.
-      if (deps.principal.kind === 'system') return undefined
-      if (deps.role !== undefined && isAdminGrade(deps.role)) return undefined
+      // THE ONE DECISION (PDM-299) — see {@link adminFloorRefusal}. This file
+      // used to spell the rule inline, which is how it came to disagree with
+      // `operations` and `workflows` about an agent.
+      const refusal = adminFloorRefusal(deps.principal.kind, deps.role)
+      if (refusal === undefined) return undefined
       return new TRPCError({
         code: 'FORBIDDEN',
-        message: `${qualifiedName} requires an admin account`,
+        message: adminFloorMessage(`${qualifiedName} requires an admin account`, refusal),
       })
     }
     default: {

@@ -1551,7 +1551,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(cleared.machineId).toBeNull()
     })
 
-    it('SINGLE-OPERATOR: profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', async () => {
+    it('SINGLE-OPERATOR: profileSave refuses EVERY session actor, protectedWrite or not (PDM-299)', async () => {
       // Every other guard on this surface returns EARLY for the operator; this
       // one refuses the SESSION. Both encode "there is exactly one human".
       expect(
@@ -1571,8 +1571,17 @@ describe('POD-730 workflow mutation characterization', () => {
         // class. readiness §3.1.4 M1 / ADR 1 D6 — a profile binds managed
         // credentials to owned compute, which is admin-grade to manage once there
         // is more than one human. Same refusal, decided against a real principal.
-      ).toBe('Error: only an administrator may change execution profiles | code=undefined')
-      // overrideScope does NOT lift it — only protectedWrite does.
+        //
+        // PDM-299 appended the delegation clause: this caller is an agent, and
+        // the rule short-circuits on that WITHOUT reading the grade, so a member's
+        // agent and an admin's agent are told exactly the same thing. Reporting
+        // the grade to one and the delegation to the other would make the refusal
+        // string an oracle for "is my human an admin".
+      ).toBe(
+        "Error: only an administrator may change execution profiles — and an agent does not inherit its human's admin grade | code=undefined",
+      )
+      // overrideScope does NOT lift it — and after PDM-299 neither does
+      // protectedWrite. D2's override confirms INTENT; it never confers a grade.
       expect(
         await thrown(() =>
           h.service.profileSave(
@@ -1586,19 +1595,45 @@ describe('POD-730 workflow mutation characterization', () => {
             overriding('s1'),
           ),
         ),
-      ).toBe('Error: only an administrator may change execution profiles | code=undefined')
+      ).toBe(
+        "Error: only an administrator may change execution profiles — and an agent does not inherit its human's admin grade | code=undefined",
+      )
+      /**
+       * THE ONE THAT REVERSED, AND IT IS THE ONLY USER-VISIBLE EFFECT OF PDM-299
+       * ANYWHERE IN THE PRODUCT.
+       *
+       * This assertion used to read `.name).toBe('Agent profile')` — an agent
+       * carrying `protectedWrite` SUCCEEDED. That was not a fixture artefact:
+       * `relay.ts`'s `workflowCallerForCapability` sets `protectedWrite` from
+       * `users.roleOf(onBehalfOf)`, the delegating human's LIVE store role, so an
+       * admin's agent really could write an execution profile over the relay.
+       *
+       * And `workflows.profileSave` is the ONLY admin-floor contract an agent
+       * can reach at all — the only one declaring the `relay` transport, in the
+       * only admin-floor family with a `RELAY_ALLOWED` entry. Every other site
+       * PDM-299 touches was permitting or refusing nobody, so this line is where
+       * the ruling costs something. It is recorded here rather than in a receipt
+       * because this is where someone will come looking when it breaks.
+       *
+       * THE REASON IS ASSERTED, not just the refusal: an agent whose human IS an
+       * admin must not be told to go and fix an account that is already correct.
+       */
       expect(
-        ((await h.service.profileSave(
-          {
-            name: 'Agent profile',
-            accountId: 'acct',
-            harness: 'codex',
-            model: 'auto',
-            effort: 'auto',
-          },
-          protectedAgent('s1'),
-        ))).name,
-      ).toBe('Agent profile')
+        await thrown(() =>
+          h.service.profileSave(
+            {
+              name: 'Agent profile',
+              accountId: 'acct',
+              harness: 'codex',
+              model: 'auto',
+              effort: 'auto',
+            },
+            protectedAgent('s1'),
+          ),
+        ),
+      ).toBe(
+        "Error: only an administrator may change execution profiles — and an agent does not inherit its human's admin grade | code=undefined",
+      )
       // POD-731: an operator WITHOUT protectedWrite is now REFUSED. The old
       // check was on `actor.kind === 'session'`, so "not an agent" was enough to
       // bind managed credentials to owned compute; the grade decides it now, and

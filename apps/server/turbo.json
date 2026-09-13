@@ -1183,6 +1183,7 @@
         "src/modules/server-transfer/upload-fence.test.ts",
         "src/modules/sessions/account-env.ts",
         "src/modules/sessions/activity-history.ts",
+        "src/modules/sessions/agent-capability-mint.test.ts",
         "src/modules/sessions/archive-park.test.ts",
         "src/modules/sessions/auto-archive-observed.test.ts",
         "src/modules/sessions/broadcast-issue-skip.test.ts",

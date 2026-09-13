@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName, isDeferredCapability } from '@podium/commands'
-import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -49,6 +49,28 @@ const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   user: id,
   capability: { role: 'admin', scope: { kind: 'all' } },
+})
+
+/**
+ * AN AGENT DELEGATING FROM `id` — the arm this file did not have (PDM-299).
+ *
+ * Until PDM-299 no consumer of `fleetAuthzFailure` or `fleetAuthzDeps` anywhere
+ * in the repository constructed a principal of kind `agent`, so the delegation
+ * half of this gate — `accountRoleOf` resolving through `onBehalfOfUser` — was a
+ * real rule that nothing witnessed (false-green catalogue entry 20). Deleting
+ * the resolution reddened nothing here. It does now.
+ *
+ * The capability deliberately says `role: 'admin'` so that a gate which read the
+ * capability instead of the account would be caught: it is the same trap
+ * `settings/authz.test.ts` sets, and the same one `operations` fell into from
+ * the other side by comparing a field no agent mint can populate.
+ */
+const agentOf = (id: UserId): CommandPrincipal => ({
+  kind: 'agent',
+  agentSessionId: asSessionId('sess-fleet-1'),
+  onBehalfOf: id,
+  capability: { role: 'admin', scope: { kind: 'all' } },
+  chain: [],
 })
 
 /** One machine, `laptop`, owned by OWNER — plus whatever grants a test sets. */
@@ -164,6 +186,84 @@ describe('the role floor is read from the contract', () => {
         { ...deps(systemPrincipal('boot-reconcile')), role: undefined },
       ),
     ).toBeUndefined()
+  })
+})
+
+/**
+ * THE DELEGATION ARM OF THE FLOOR (PDM-299) — the one this file never had.
+ *
+ * See {@link agentOf}: no test anywhere constructed an agent principal against
+ * this gate, so its `onBehalfOf` resolution was unwitnessed in the precise sense
+ * of catalogue entry 20 — real code, doing real work, that could be deleted
+ * without reddening anything.
+ *
+ * THE ADMIN-FLOOR SET IS DERIVED FROM THE CONTRACT TABLE, not listed here. A
+ * hand-kept list would silently stop covering a fourth admin-floor contract the
+ * day one is added, which is the shape entry 7 describes. The non-vacuity guard
+ * below is entry 9's: an `it.each` over an empty array is a clean pass about
+ * nothing.
+ */
+const ADMIN_FLOOR_FLEET = NAMES.filter((n) => FLEET_CONTRACTS[n].policy.roleFloor === 'admin')
+const MEMBER_FLOOR_FLEET = NAMES.filter((n) => FLEET_CONTRACTS[n].policy.roleFloor === 'member')
+
+describe("an agent does not inherit its human's admin grade (PDM-299)", () => {
+  it('the fleet table actually splits, so neither claim below is vacuous', () => {
+    expect(ADMIN_FLOOR_FLEET.length).toBeGreaterThan(0)
+    expect(MEMBER_FLOOR_FLEET.length).toBeGreaterThan(0)
+    // Named, so the derived list shrinking is a failure rather than a quieter
+    // suite. `machines.pairingCode` is NOT the family's only admin floor, though
+    // the comment above said so for two issues.
+    expect(ADMIN_FLOOR_FLEET).toEqual(
+      expect.arrayContaining(['machines.adopt', 'machines.moveServer', 'machines.pairingCode']),
+    )
+  })
+
+  it.each(ADMIN_FLOOR_FLEET)(
+    "%s refuses an agent whose human is an ADMIN — the discriminating case",
+    async (name) => {
+      // THE ARM THAT FAILS ON THE UNFIXED LINE. With the floor decided from the
+      // account role alone, this agent's human is an admin and it is PERMITTED.
+      const refusal = await fleetAuthzFailure(name, anyInput, deps(agentOf(OWNER), { role: 'admin' }))
+      expect(refusal?.code).toBe('FORBIDDEN')
+      expect(refusal?.message).toBe(
+        `${name} requires an admin account — and an agent does not inherit its human's admin grade`,
+      )
+    },
+  )
+
+  it.each(ADMIN_FLOOR_FLEET)("%s refuses a member's agent too", async (name) => {
+    // Passes against a gate that never heard of delegation — kept as the pair to
+    // the case above, not as evidence on its own.
+    expect((await fleetAuthzFailure(name, anyInput, deps(agentOf(OWNER), { role: 'member' })))?.code).toBe(
+      'FORBIDDEN',
+    )
+  })
+
+  /**
+   * THE COUNTERFACTUAL, without which every assertion above is satisfied by a
+   * gate that refuses agents outright.
+   *
+   * ADR 9 D6 M6: an agent reaches the machines its human may `use`, through the
+   * ordinary intersection and not through a second ACL. The nine member-floor
+   * contracts are member-floor precisely so the OWNER column stays reachable,
+   * and PDM-299 changes the GRADE axis only.
+   */
+  it("an owner's agent still clears the member floor and reaches its owner's machine", async () => {
+    expect(
+      await fleetAuthzFailure('machines.rename', anyInput, deps(agentOf(OWNER), { role: 'member' })),
+    ).toBeUndefined()
+  })
+
+  it("a colleague's agent is still refused that machine — the floor is not the row gate", async () => {
+    const refusal = await fleetAuthzFailure(
+      'machines.rename',
+      anyInput,
+      deps(agentOf(COLLEAGUE), { role: 'member' }),
+    )
+    // NOT_FOUND rather than FORBIDDEN: a machine this principal cannot see fails
+    // as nonexistent (D20 / readiness §3.1.2), which is the pre-existing rule and
+    // is deliberately unchanged by PDM-299.
+    expect(refusal?.code).toBe('NOT_FOUND')
   })
 })
 
