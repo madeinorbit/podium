@@ -1561,6 +1561,7 @@
         "src/issue-lifecycle-authz-transports.test.ts",
         "src/issue-lint.test.ts",
         "src/issue-lint.ts",
+        "src/issue-marks.feed.test.ts",
         "src/issue-marks.visibility.test.ts",
         "src/issue-mcp.ts",
         "src/issue-similarity.ts",

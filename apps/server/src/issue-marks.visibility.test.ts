@@ -38,8 +38,20 @@
  * perfect while delivering nothing. So every refusal below is paired with a
  * positive on the same fixture.
  *
- * Both the SNAPSHOT path (`forBootstrap`) and the DELTA path (`forBatch`) are
- * exercised, because two arms that disagree is how one of them gets missed.
+ * Both PREPARED ARMS — `forBootstrap` and `forBatch` — are exercised, because
+ * two arms that disagree is how one of them gets missed.
+ *
+ * WHAT THIS FILE DOES NOT PROVE, stated so the claim is not read wider than it
+ * is (PDM-139). These cases call `forBootstrap` / `forBatch` and then
+ * `keyedUserOf` DIRECTLY. That is the arm ANSWERING, not the feed SERVING: they
+ * do not go through `GrantEdgeVisibilityPolicy.decide`, and they are not
+ * bootstrap or delta delivery. A prepared hook can be perfectly correct and
+ * never consulted by a serving path.
+ *
+ * `issue-marks.feed.test.ts` is the other half — a real `Authority` over this
+ * same policy, asserting what a principal is actually served by
+ * `authority.bootstrap(...)` and `authority.changesSince(...)`. Keep both: this
+ * file localises WHICH arm is wrong, that one proves anything asks it at all.
  */
 
 import { asIssueId, asUserId, issueMarksRowId } from '@podium/model'
@@ -120,8 +132,9 @@ const marksRef = (user: string, issueId: string): EntityRef => ({
 })
 
 /**
- * WHO THE POLICY WOULD DELIVER THIS ROW TO, through the REAL prepared port —
- * the snapshot arm and the delta arm, which must agree.
+ * WHO THE ARM ANSWERS for this row, through the REAL prepared port — both arms,
+ * which must agree. NOT a delivery assertion; see the header, and see
+ * `issue-marks.feed.test.ts` for what is actually served.
  */
 const recipients = async (
   policy: Awaited<ReturnType<typeof fixture>>['policy'],
