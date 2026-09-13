@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
+import { instanceStateDir } from '@podium/runtime/instance'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   codexAppServerConfigArgs,
@@ -64,6 +65,19 @@ afterEach(() => {
     else process.env[key] = value
   }
   rmSync(isolatedHome, { recursive: true, force: true })
+})
+
+describe('isolated HOME', () => {
+  it('default-instance state dir is under the isolated HOME', () => {
+    // This case is specifically about PODIUM_STATE_DIR's absence: without it,
+    // instanceStateDir falls through to join(HOME, '.podium'). Safe because
+    // HOME is isolatedHome, a mkdtemp this file created, not the operator's.
+    // One assertion, own it(): a sibling expect in the socket-budget test
+    // would be skipped if an earlier path-length check failed first.
+    delete process.env.PODIUM_INSTANCE
+    delete process.env.PODIUM_STATE_DIR
+    expect(instanceStateDir()).toBe(join(isolatedHome, '.podium'))
+  })
 })
 
 describe('the Codex app-server socket path budget', () => {
