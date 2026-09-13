@@ -412,39 +412,46 @@ export function legacyIdempotencyWrapper(files: Array<[string, string]>): Findin
 // ---------------------------------------------------------------------------
 
 /**
- * THE NINE `mcp` DECLARATIONS NO INSTRUMENT CAN CONFIRM OR REFUTE — a FINDING
- * LIST, not a waiver, and the reason it exists is the whole of PDM-422.
+ * THE NINE `mcp` DECLARATIONS THIS INSTRUMENT CANNOT RESOLVE — a FINDING LIST,
+ * not a waiver, and the reason it exists is the whole of PDM-422.
  *
  * Nine mail contracts declare `mcp` in their `exposure`. The one MCP surface
  * this server serves is `POST /mcp`, registered in `server.ts` against
  * `superagent.mcpToolSpecs` / `superagent.callMcpTool` — the superagent's TOOL
  * BELT (`modules/superagent/tools.ts`), with the issue tools bridged into it.
  * The belt's own tools do not dispatch a proc NAME: `send_to_agent` and
- * `ask_agent` call `modules.messages.send(…)`, the SERVICE method, directly. So
- * there is no mechanical tool → contract-name mapping to compare a declaration
- * against, and this audit cannot say either "served" or "unserved" about these
- * nine without inventing one.
+ * `ask_agent` call `modules.messages.send(…)`, the SERVICE method, directly.
  *
- * WHAT IS MEASURED, so the next reader does not re-derive it: at this pin, no
- * call site in either repo passes the literal `'mcp'` as the `transport`
- * argument to any exposure check. `isMailProcExposedOn(proc, transport)` — the
- * one runtime reader of this family's `exposure`, called from `gate.ts` — is
- * reached only with `'trpc'` (the router) and `'relay'` (the relay dispatch and
- * the default). Every other occurrence of the tag is a declaration, a member of
- * a `TransportTag`-style union, a BAN-list entry (`AGENT_TRANSPORTS` in
- * `modules/automations/trpc.ts`), or a doc comment describing a plant.
+ * THE CLAIM, AT THE STRENGTH THE EVIDENCE SUPPORTS. **This instrument has no
+ * tool → contract-name mapping to compare these declarations against**, so it
+ * records them as UNRESOLVED. That is a fact about this instrument, not a proof
+ * that no instrument could ever resolve them: a reader of the belt's source
+ * could decide, tool by tool, what each one serves. An earlier draft of this
+ * comment said "no instrument can confirm or refute", which is stronger than
+ * anything measured here and is exactly the overclaim this file exists to refuse.
  *
- * So the honest statement about these nine is neither "decoration" nor "an open
- * door": the tag is UNCONSULTED on the transport it names, and the transport it
- * names reaches this family by a path that does not ask. Both halves are worth
- * a human deciding about, and neither is something this script may decide.
+ * WHAT WAS MEASURED, so the next reader does not re-derive it: at the pin this
+ * list was written, no call site in either repo passes the literal `'mcp'` as
+ * the `transport` argument to any exposure check. `isMailProcExposedOn(proc,
+ * transport)` — the one runtime reader of this family's `exposure`, called from
+ * `gate.ts` — is reached only with `'trpc'` (the router) and `'relay'` (the
+ * relay dispatch and the default). Every other occurrence of the tag is a
+ * declaration, a member of a `TransportTag`-style union, a BAN-list entry
+ * (`AGENT_TRANSPORTS` in `modules/automations/trpc.ts`), or a doc comment
+ * describing a plant.
  *
- * THE LIST IS ASSERTED IN BOTH DIRECTIONS below. A tenth contract growing an
- * `mcp` tag reddens this audit, and so does one of these nine losing it — the
- * second is the direction that matters, because a correct future repair should
- * arrive as a reviewed edit here rather than as a silently shrinking list.
+ * SO THE `mcp` ARM PINS AN UNRESOLVED DISPOSITION, AND NOTHING ELSE. It does not
+ * establish that these nine are served, nor that they are unserved. The tRPC
+ * comparison below is a real both-directions check and it says NOTHING about
+ * MCP; do not let its green stand in for this list. PDM-435 carries the
+ * separate, bounded finding about how the route census describes this door.
+ *
+ * THE LIST IS ASSERTED IN BOTH DIRECTIONS. A tenth contract growing an `mcp`
+ * tag reddens this audit, and so does one of these nine losing it — the second
+ * is the direction that matters, because a correct future repair should arrive
+ * as a reviewed edit here rather than as a silently shrinking list.
  */
-export const MCP_DECLARED_UNVERIFIED: readonly string[] = [
+export const MCP_DECLARED_UNRESOLVED: readonly string[] = [
   'awaitAgent',
   'dismiss',
   'inbox',
@@ -459,82 +466,163 @@ export const MCP_DECLARED_UNVERIFIED: readonly string[] = [
 /**
  * THE UNCENSUSED MCP SUB-TRANSPORT, NAMED RATHER THAN LEFT UNSTATED — the same
  * contract `served-route-census.ts` keeps with `UNCENSUSED_TRANSPORTS`.
- *
- * `served-route-census.ts` classifies `POST /mcp` as a `bridge` that "dispatches
- * into the superagent's tool belt, which bridges the ISSUE COMMAND REGISTRY".
- * That is true of the bridged half and says nothing about the belt's ~24 OWN
- * tools, which are hand-written in `modules/superagent/tools.ts`, reach services
- * directly, and belong to no command registry. Two of them reach this family.
  */
 export const UNCENSUSED_MCP_SUB_TRANSPORT = {
   name: 'superagent tool belt (modules/superagent/tools.ts)',
   why:
     "The MCP surface's population is the belt's own hand-written tool specs plus the bridged issue " +
-    'tools. A belt tool calls a SERVICE METHOD, not a named proc, so no tool → contract-name mapping ' +
-    'exists and no population of mail procs can be derived from it. A runtime recorder over the belt ' +
-    'is branch-sensitive and under-reports, which is why this audit reads source text and records the ' +
-    'hole instead of guessing at it.',
+    'tools. A belt tool calls a SERVICE METHOD, not a named proc, so THIS instrument can derive no ' +
+    'tool → contract-name mapping from it. A runtime recorder over the belt is branch-sensitive and ' +
+    'under-reports, which is why this audit reads source text and records the hole instead of ' +
+    'guessing at it. Deciding what each belt tool serves is a source-reading job, not a scan.',
 } as const
+
+/** What the registry parser made of `MAIL_COMMANDS`. */
+export interface RegistryJoin {
+  /** Registry key → contract const, for every entry this parser understood. */
+  readonly join: Map<string, string>
+  /**
+   * Entry spellings present in the table that this parser did NOT resolve.
+   *
+   * WITHOUT THIS FIELD THE TOTALITY CHECK IS A FLOOR THAT CANNOT SEE ITS OWN
+   * BLIND SPOT: it iterates the entries the parser recognised, so an entry
+   * written in a shape the regex misses is absent from `join`, absent from the
+   * declared set, and — if the router does not mount it either — absent from
+   * both sides of every comparison, with nothing reported. A count cannot notice
+   * a shape that never arrives, so the parser reports what it could not read.
+   */
+  readonly unparsed: readonly string[]
+  /** False when no `MAIL_COMMANDS` literal was found at all. */
+  readonly found: boolean
+}
 
 /**
  * Registry key → contract const, read out of `MAIL_COMMANDS`.
  *
- * The join is read rather than restated because the two sides spell a command
- * differently: the registry keys on the BARE wire name (`inbox`) and the
- * contract carries the dotted identity (`mail.inboxConsume`). A check that
- * mapped one to the other by string munging would be inventing the seam that
- * this table already is.
+ * The join is READ, not restated: the registry keys on the BARE wire name
+ * (`inbox`) and the contract carries the dotted identity (`mail.inboxConsume`),
+ * so string-munging one into the other would invent the seam this table already
+ * is.
+ *
+ * Entries are enumerated PERMISSIVELY (anything at the table's indentation that
+ * opens a brace) and then resolved STRUCTURALLY — a bare key, a single-quoted
+ * key or a double-quoted key all resolve. Anything else is reported through
+ * `unparsed` rather than silently skipped.
  */
-export function mailRegistryJoin(registrySource: string): Map<string, string> {
-  const out = new Map<string, string>()
+export function mailRegistryJoin(registrySource: string): RegistryJoin {
+  const join = new Map<string, string>()
+  const unparsed: string[] = []
   const block = /export const MAIL_COMMANDS = \{([\s\S]*?)\n\} as const/.exec(registrySource)
-  if (!block) return out
-  for (const m of (block[1] as string).matchAll(/^\s*(\w+):\s*\{[^}]*?contract:\s*(\w+)/gm)) {
-    out.set(m[1] as string, m[2] as string)
+  if (!block) return { join, unparsed, found: false }
+  const body = block[1] as string
+  // BRACE-MATCHED, not line-shaped. This table carries BOTH single-line entries
+  // (`send: { contract: x, handler: y },`) and multi-line ones
+  // (`pendingReminders: {\n  contract: …`). A regex anchored on a closing `},`
+  // at the table's indentation reads only the second kind — which the first
+  // draft of this parser did, and the discriminating probes caught it on the
+  // first run by reporting an EMPTY join for a table with three valid entries.
+  for (const entry of body.matchAll(/^\s{2}([^\s:]+):\s*\{/gm)) {
+    const rawKey = entry[1] as string
+    const open = body.indexOf('{', entry.index + entry[0].length - 1)
+    let depth = 0
+    let close = -1
+    for (let i = open; i < body.length; i++) {
+      if (body[i] === '{') depth++
+      else if (body[i] === '}') {
+        depth--
+        if (depth === 0) {
+          close = i
+          break
+        }
+      }
+    }
+    if (close === -1) {
+      unparsed.push(rawKey)
+      continue
+    }
+    const inner = body.slice(open + 1, close)
+    const key = /^(?:'([\w$]+)'|"([\w$]+)"|([\w$]+))$/.exec(rawKey)
+    const contract = /\bcontract:\s*(\w+)/.exec(inner)?.[1]
+    if (!key || contract === undefined) {
+      unparsed.push(rawKey)
+      continue
+    }
+    join.set((key[1] ?? key[2] ?? key[3]) as string, contract)
   }
-  return out
+  return { join, unparsed, found: true }
 }
 
 /**
- * Contract const → its declared transport tags.
+ * Contract const → its declared transport tags, or `null` when the declaration
+ * is PRESENT BUT UNRESOLVABLE.
  *
  * Reads the INLINE ARRAY form (`exposure: ['trpc', 'cli', 'mcp', 'relay']`),
  * which is how this family declares and which the issues-family instrument
  * cannot parse at all: `audit-issue-commands.ts` reads `exposure: (\w+),` — a
- * named CELL such as `SERVED_EVERYWHERE`. Pointing that regex at this file would
- * have resolved an exposure for nothing and compared two empty sets. One
- * declaration at a time, for the POD-1314 reason the issues instrument records.
+ * named CELL such as `SERVED_EVERYWHERE`.
+ *
+ * THE `null` ARM IS LOAD-BEARING. An array element that is not a string literal
+ * — a spread of a shared cell (`['trpc', ...AGENT_TAGS]`), an identifier, a
+ * conditional — cannot be resolved by reading this file alone. Splitting on
+ * commas and keeping the raw token would record a TAG NAMED `...AGENT_TAGS`:
+ * the declaration would look successfully parsed, and if the spread carried
+ * `trpc` or `mcp` the real tag would vanish from the comparison without a word.
+ * So an unresolvable element poisons the whole declaration, deliberately.
  */
-export function mailExposureByConst(contractsSource: string): Map<string, string[]> {
-  const out = new Map<string, string[]>()
+export function mailExposureByConst(contractsSource: string): Map<string, string[] | null> {
+  const out = new Map<string, string[] | null>()
   for (const m of contractsSource.matchAll(/export const (\w+)[^=]*=\s*\{([\s\S]*?)\n\}/g)) {
     const tags = /^\s*exposure: \[([^\]]*)\]/m.exec(m[2] as string)
     if (!tags) continue
+    const parts = (tags[1] as string)
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+    const literal = /^'([^']*)'$|^"([^"]*)"$/
+    if (parts.some((t) => !literal.test(t))) {
+      out.set(m[1] as string, null)
+      continue
+    }
     out.set(
       m[1] as string,
-      (tags[1] as string)
-        .split(',')
-        .map((t) => t.trim().replace(/^'|'$/g, ''))
-        .filter((t) => t.length > 0),
+      parts.map((t) => {
+        const q = literal.exec(t)
+        return (q?.[1] ?? q?.[2]) as string
+      }),
     )
   }
   return out
 }
 
 /**
- * Every mail proc the tRPC surface actually serves.
+ * Every mail proc name that `router.ts` SYNTACTICALLY builds a tRPC procedure
+ * for.
  *
  * THE REACH SOURCE IS EVERY `mailMutation(`/`mailQuery(` CALL IN `router.ts`,
- * AND NOT THE `messages:` ROUTER BLOCK — this is the negative control that makes
- * the check trustworthy rather than the obvious implementation. `mail.ask` is
- * served as `sessions.ask`, built by `mailMutation('ask')` inside the SESSIONS
- * router, because the question a session asks its operator is a session-surface
- * verb wearing a mail contract. A reach source scoped to the `messages:` block
- * would report `mail.ask` as "declares trpc but nothing reaches it" — a false
- * finding about a proc that is served, produced by an instrument that looked in
- * one router because one router was where it expected the family to live.
+ * AND NOT THE `messages:` ROUTER BLOCK — this is the control that makes the
+ * check trustworthy rather than the obvious implementation. `mail.ask` is served
+ * as `sessions.ask`, built by `mailMutation('ask')` inside the SESSIONS router.
+ * A reach source scoped to the `messages:` block would report `mail.ask` as
+ * "declares trpc but nothing reaches it" — a false finding about a proc that is
+ * served, produced by an instrument that looked in one router because one router
+ * was where it expected the family to live.
+ *
+ * WHAT THIS IS AND IS NOT — the bound matters, because "reach" overstates it.
+ * This is a SYNTACTIC CALL-SITE INVENTORY. It does not evaluate `router.ts` and
+ * cannot establish that a procedure is MOUNTED on the served router:
+ *
+ *   · a call inside a nested string literal is counted;
+ *   · a call in a helper that is defined and never mounted is counted;
+ *   · a procedure mounted by any means other than a literal
+ *     `mailMutation('<name>')` / `mailQuery('<name>')` call is NOT counted.
+ *
+ * Comments are stripped, so prose quoting a call does not count — that much is
+ * checked. The rest is a deliberate, recorded limitation: syntax alone does not
+ * prove mounting, and this function does not claim it does. The runtime half of
+ * that claim belongs to `modules/messages/cutover.test.ts`, which resolves real
+ * objects; see this file's header on why the two instruments need each other.
  */
-export function trpcReach(routerSource: string): Set<string> {
+export function trpcCallSites(routerSource: string): Set<string> {
   return new Set(
     [...stripComments(routerSource).matchAll(/mail(?:Mutation|Query)\(\s*'(\w+)'/g)].map(
       (m) => m[1] as string,
@@ -549,17 +637,24 @@ export function trpcReach(routerSource: string): Set<string> {
  * without a declaration defeats the default-closed rule, and a declaration
  * nothing reaches is the field decaying into decoration.
  *
- * ONLY `trpc` IS COMPARED, and the other three tags are accounted for rather
- * than quietly skipped, which is the distinction this whole audit turns on:
+ * ONE TRANSPORT IS COMPARED. The other three are accounted for SEPARATELY, and
+ * they are NOT one case:
  *
- *   · `trpc` — the reach is a static set of `mailMutation`/`mailQuery` calls in
- *     `router.ts`. Derivable from source text, so it is compared.
- *   · `relay` and `cli` — `relay-dispatch.ts` passes a RUNTIME proc string
- *     straight to `MessageGate.dispatch`, so any name can arrive and `exposure`
- *     IS the door rather than a claim about one. There is no second set to
- *     compare against; the declaration is the enforcement.
- *   · `mcp` — no tool → proc-name mapping exists at all. See
- *     {@link MCP_DECLARED_UNVERIFIED} and {@link UNCENSUSED_MCP_SUB_TRANSPORT}.
+ *   · `trpc` — compared, against the syntactic call-site inventory above, with
+ *     that function's mounting bound inherited.
+ *   · `relay` — `relay-dispatch.ts` passes a RUNTIME proc string straight to
+ *     `MessageGate.dispatch`, so any name can arrive and `exposure` IS the door
+ *     rather than a claim about one. There is no second set to compare against;
+ *     the declaration is the enforcement.
+ *   · `cli` — **UNVERIFIED, and NOT covered by the relay argument above.** The
+ *     CLI is a separate surface with its own static verb tables (`apps/cli/src/
+ *     mail-cli.ts` names six procs; `spawnAgent`/`awaitAgent` are `podium agent
+ *     …` elsewhere, and `ask` elsewhere again). A sound `cli` reach source is
+ *     multi-file and this instrument does not build one. That the CLI reaches
+ *     the gate THROUGH the relay says nothing about which verbs the CLI offers,
+ *     so relay admission does not establish CLI reach. Known gap, not cleared.
+ *   · `mcp` — this instrument derives no tool → proc-name mapping. See
+ *     {@link MCP_DECLARED_UNRESOLVED} and {@link UNCENSUSED_MCP_SUB_TRANSPORT}.
  */
 export function exposureMatchesReach(
   registrySource: string,
@@ -568,13 +663,13 @@ export function exposureMatchesReach(
   where: { registry: string; contracts: string; router: string },
   /** Taken as a PORT so `--probe` can plant its own reviewed list. Defaulting it
    *  here rather than at the call site keeps the gate reading the real record. */
-  recordedMcp: readonly string[] = MCP_DECLARED_UNVERIFIED,
+  recordedMcp: readonly string[] = MCP_DECLARED_UNRESOLVED,
 ): Finding[] {
   const findings: Finding[] = []
-  const join = mailRegistryJoin(registrySource)
+  const { join, unparsed, found } = mailRegistryJoin(registrySource)
   const exposure = mailExposureByConst(contractsSource)
 
-  if (join.size === 0) {
+  if (!found || join.size === 0) {
     return [
       {
         check: 'exposure-matches-reach',
@@ -586,30 +681,66 @@ export function exposureMatchesReach(
     ]
   }
 
-  // TOTALITY FIRST. A key whose exposure cannot be resolved would drop silently
-  // out of every set below and be reported as neither declared nor reached —
-  // the shape that let POD-1314 swallow a real declaration.
+  // THE SHAPES THE PARSER COULD NOT READ, reported before anything is compared.
+  for (const rawKey of unparsed) {
+    findings.push({
+      check: 'exposure-matches-reach',
+      where: where.registry,
+      detail:
+        `the \`MAIL_COMMANDS\` entry spelled \`${rawKey}\` could not be resolved to a key and a ` +
+        'contract. It is therefore in NEITHER compared set, and an entry missing from both sides is ' +
+        'invisible rather than wrong — teach this parser the shape, or change the entry',
+    })
+  }
+
+  // TOTALITY. A key whose exposure is absent or UNRESOLVABLE would drop silently
+  // out of every set below and be reported as neither declared nor reached.
+  //
+  // A KEY WHOSE DECLARATION COULD NOT BE READ IS REPORTED ONCE AND THEN LEFT OUT
+  // OF BOTH COMPARISONS. It is tempting to let it fall through: it simply would
+  // not be in `declaredTrpc`, and the router mounting it would then read as
+  // "served without a declaration". That finding would be FALSE. This instrument
+  // did not establish that the contract lacks `trpc` — it established that it
+  // could not read the contract, which is a fact about the parser and not about
+  // the code. Emitting the second claim would send someone to add a tag that may
+  // already be there. Unproved is not open, so it is excluded and said once.
+  const unresolved = new Set<string>()
   const declaredOn = (tag: string): Set<string> => {
     const out = new Set<string>()
     for (const [key, constName] of join) {
-      if (exposure.get(constName)?.includes(tag)) out.add(key)
+      if (unresolved.has(key)) continue
+      if (exposure.get(constName)?.includes(tag) === true) out.add(key)
     }
     return out
   }
   for (const [key, constName] of join) {
-    if (exposure.get(constName) === undefined) {
+    const tags = exposure.get(constName)
+    if (tags === undefined) {
+      unresolved.add(key)
       findings.push({
         check: 'exposure-matches-reach',
         where: where.contracts,
         detail:
-          `\`${key}\` joins \`${constName}\`, whose \`exposure\` cannot be read from ${where.contracts} ` +
-          '— an unreadable declaration silently leaves this comparison rather than failing it',
+          `\`${key}\` joins \`${constName}\`, whose \`exposure\` cannot be found in ` +
+          `${where.contracts} — an unreadable declaration silently leaves this comparison rather ` +
+          'than failing it',
+      })
+    } else if (tags === null) {
+      unresolved.add(key)
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.contracts,
+        detail:
+          `\`${key}\` joins \`${constName}\`, whose \`exposure\` array contains an element that is ` +
+          'not a string literal (a spread, an identifier, a conditional). Reading this file alone ' +
+          'cannot say which transports it names, and treating the raw token as a tag would hide a ' +
+          '`trpc` or `mcp` the spread carries',
       })
     }
   }
 
   const declaredTrpc = declaredOn('trpc')
-  const reached = trpcReach(routerSource)
+  const reached = trpcCallSites(routerSource)
   if (declaredTrpc.size === 0 || reached.size === 0) {
     findings.push({
       check: 'exposure-matches-reach',
@@ -622,6 +753,7 @@ export function exposureMatchesReach(
   }
 
   for (const proc of [...reached].sort()) {
+    if (unresolved.has(proc)) continue
     if (!declaredTrpc.has(proc)) {
       findings.push({
         check: 'exposure-matches-reach',
@@ -646,8 +778,8 @@ export function exposureMatchesReach(
     }
   }
 
-  // THE `mcp` ARM. Not a comparison against a served set — there is none to
-  // derive — but against the reviewed list, in both directions.
+  // THE `mcp` ARM. Not a comparison against a served set — this instrument
+  // derives none — but against the reviewed list, in both directions.
   const declaredMcp = declaredOn('mcp')
   const recorded = new Set(recordedMcp)
   for (const proc of [...declaredMcp].sort()) {
@@ -656,10 +788,10 @@ export function exposureMatchesReach(
         check: 'exposure-matches-reach',
         where: where.contracts,
         detail:
-          `mail \`${proc}\` newly declares the \`mcp\` transport. No instrument can confirm that ` +
-          `claim: the MCP surface is the ${UNCENSUSED_MCP_SUB_TRANSPORT.name}, whose tools call ` +
-          'service methods rather than named procs. Read it, decide whether the tag is true, and ' +
-          'record it in MCP_DECLARED_UNVERIFIED',
+          `mail \`${proc}\` newly declares the \`mcp\` transport. This instrument cannot resolve ` +
+          `that claim: the MCP surface is the ${UNCENSUSED_MCP_SUB_TRANSPORT.name}, whose tools ` +
+          'call service methods rather than named procs. Read it, decide whether the tag is true, ' +
+          'and record it in MCP_DECLARED_UNRESOLVED',
       })
     }
   }
@@ -669,7 +801,7 @@ export function exposureMatchesReach(
         check: 'exposure-matches-reach',
         where: where.contracts,
         detail:
-          `MCP_DECLARED_UNVERIFIED records mail \`${proc}\` as declaring \`mcp\` and it no longer ` +
+          `MCP_DECLARED_UNRESOLVED records mail \`${proc}\` as declaring \`mcp\` and it no longer ` +
           'does. If that is the repair, drop it from the list in the same commit — a list that ' +
           'shrinks on its own stops being a record of what was reviewed',
       })
@@ -760,6 +892,45 @@ function probe(): Finding[] {
         check: 'instrument',
         where: 'scripts/audit-mail-commands.ts',
         detail: `the ${name} check did NOT find its planted fixture — its zero is meaningless`,
+      })
+    }
+  }
+  /**
+   * THE DISCRIMINATING ASSERTION, and the reason it exists.
+   *
+   * `expect` above asserts only that SOMETHING was found. That is not
+   * attribution, and PDM-139's review caught it doing real damage: the
+   * `reached-undeclared` fixture left two sibling contracts unresolvable, so it
+   * produced two totality findings and an empty-side finding, the empty-side
+   * guard RETURNED BEFORE the reached-undeclared loop ever ran, and the probe
+   * was green while the comparison it names was never executed. Deleting that
+   * comparison entirely would not have reddened it.
+   *
+   * So a witness must name what it expects: at least one finding MATCHING the
+   * signature, and NO finding that does not. The second half is what makes it a
+   * witness rather than a net — a fixture that fires three unrelated checks is
+   * not evidence about the one in its name.
+   */
+  const expectOnly = (name: string, found: Finding[], signature: RegExp): void => {
+    const hit = found.filter((f) => signature.test(f.detail))
+    const stray = found.filter((f) => !signature.test(f.detail))
+    if (hit.length === 0) {
+      failures.push({
+        check: 'instrument',
+        where: 'scripts/audit-mail-commands.ts',
+        detail:
+          `the ${name} check found no finding matching ${signature} — it found ` +
+          `${found.length} other(s), so its non-zero length was not evidence about this check: ` +
+          `${found[0]?.detail ?? '<none>'}`,
+      })
+    }
+    if (stray.length > 0) {
+      failures.push({
+        check: 'instrument',
+        where: 'scripts/audit-mail-commands.ts',
+        detail:
+          `the ${name} fixture ALSO fired ${stray.length} unrelated finding(s), so it does not ` +
+          `isolate what it names: ${stray[0]?.detail}`,
       })
     }
   }
@@ -983,9 +1154,11 @@ function probe(): Finding[] {
   // 7 — exposure vs reach (PDM-422)
   // -------------------------------------------------------------------------
   //
-  // The fixtures below carry their OWN reviewed `mcp` list, so an `mcp` arm that
-  // fired on every fixture (the real list naming nine procs no fixture contains)
-  // could not hide a trpc regression behind nine spurious findings.
+  // EVERY WITNESS HERE USES `expectOnly`. A fixture that keeps the OTHER
+  // declarations resolvable and BOTH compared sets non-empty is what forces the
+  // named comparison to actually run — the first version of these probes did
+  // neither, fired three unrelated findings, and was green with the comparison
+  // it names unreachable behind an early return.
   const REG_OK = [
     'export const MAIL_COMMANDS = {',
     '  send: { contract: mailSendContract, handler: sendHandler },',
@@ -993,30 +1166,37 @@ function probe(): Finding[] {
     '  ask: { contract: mailAskContract, handler: askHandler },',
     '} as const satisfies Record<string, MailCommand>',
   ].join('\n')
-  const CON_OK = [
-    'export const mailSendContract: CommandContract<typeof i> = {',
-    "  name: 'mail.send',",
-    "  exposure: ['trpc', 'cli', 'mcp', 'relay'],",
-    '}',
-    '',
-    'export const mailInboxConsumeContract: CommandContract<typeof i> = {',
-    "  name: 'mail.inboxConsume',",
-    "  exposure: ['trpc', 'relay'],",
-    '}',
-    '',
-    'export const mailAskContract: CommandContract<typeof i> = {',
-    "  name: 'mail.ask',",
-    "  exposure: ['trpc', 'cli', 'relay'],",
-    '}',
-  ].join('\n')
+  /** Build a resolvable contract table. Every fixture keeps ALL THREE consts
+   *  present, so no totality finding can stand in for the one under test. */
+  const contracts = (send: string, inbox: string, ask: string): string =>
+    [
+      'export const mailSendContract: CommandContract<typeof i> = {',
+      "  name: 'mail.send',",
+      `  exposure: [${send}],`,
+      '}',
+      '',
+      'export const mailInboxConsumeContract: CommandContract<typeof i> = {',
+      "  name: 'mail.inboxConsume',",
+      `  exposure: [${inbox}],`,
+      '}',
+      '',
+      'export const mailAskContract: CommandContract<typeof i> = {',
+      "  name: 'mail.ask',",
+      `  exposure: [${ask}],`,
+      '}',
+    ].join('\n')
+  const CON_OK = contracts(
+    "'trpc', 'cli', 'mcp', 'relay'",
+    "'trpc', 'relay'",
+    "'trpc', 'cli', 'relay'",
+  )
   const WHERE = {
     registry: '<probe>/registry',
     contracts: '<probe>/contracts',
     router: '<probe>/router',
   }
-  // `ask` is deliberately built in ANOTHER router block here — this is the real
-  // shape of `sessions.ask`, and it is the fixture that fails a reach source
-  // scoped to the `messages:` literal.
+  // `ask` is deliberately built in ANOTHER router block — the real shape of
+  // `sessions.ask`, and the fixture that fails a `messages:`-scoped reach source.
   const ROUTER_OK = [
     '  sessions: t.router({',
     "    ask: mailMutation('ask'),",
@@ -1027,15 +1207,14 @@ function probe(): Finding[] {
     '  }),',
   ].join('\n')
 
-  // THE NEGATIVE CONTROL, and the reason this check is trustworthy: declared and
-  // reached AGREE here, across two routers, so the check can say NO.
+  // THE NEGATIVE CONTROL: declared and reached AGREE across two routers, every
+  // contract resolves, so the check can say NO.
   expectSilent(
     'exposure-matches-reach/clean',
     exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, ['send']),
   )
-  // …and the same fixture with `ask` served only from the sessions router must
-  // still be silent, which is the false finding a messages-block-scoped reach
-  // source would produce (`mail.ask` declares trpc and IS served).
+  // …and `ask` served ONLY from the sessions router must still be silent. This
+  // is the false finding a messages-block-scoped reach source would produce.
   expectSilent(
     'exposure-matches-reach/other-router',
     exposureMatchesReach(
@@ -1049,77 +1228,160 @@ function probe(): Finding[] {
       ['send'],
     ),
   )
-  // A comment MENTIONING a call must not count as reach — the router documents
-  // its own derivation by quoting `mailMutation('ask')` in prose.
-  expect(
+
+  // REACHED BUT NOT DECLARED. `send` loses `trpc` while the router still builds
+  // it; inbox and ask keep theirs, so declaredTrpc is NON-EMPTY and the loop
+  // runs. Exactly one finding, naming `send` and the router.
+  expectOnly(
+    'exposure-matches-reach/reached-undeclared',
+    exposureMatchesReach(
+      REG_OK,
+      contracts("'cli', 'mcp', 'relay'", "'trpc', 'relay'", "'trpc', 'cli', 'relay'"),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /builds a tRPC procedure for mail `send` but its contract does not declare/,
+  )
+  // DECLARED BUT NOT REACHED — the router drops `inbox`, everything else agrees.
+  expectOnly(
     'exposure-matches-reach/declared-unreached',
     exposureMatchesReach(
       REG_OK,
       CON_OK,
       [
-        "// the sessions family builds `ask` through mailMutation('ask')",
-        "  messages: t.router({ send: mailMutation('send'), inbox: mailQuery('inbox') }),",
+        "  sessions: t.router({ ask: mailMutation('ask') }),",
+        "  messages: t.router({ send: mailMutation('send') }),",
       ].join('\n'),
       WHERE,
       ['send'],
     ),
+    /mail `inbox` declares the `trpc` transport but no/,
   )
-  expect(
-    'exposure-matches-reach/reached-undeclared',
+  // A COMMENT quoting a call is not reach: same fixture, `inbox` mounted only in
+  // prose, must still report `inbox` as unreached and nothing else.
+  expectOnly(
+    'exposure-matches-reach/comment-is-not-reach',
     exposureMatchesReach(
       REG_OK,
+      CON_OK,
       [
-        'export const mailSendContract: CommandContract<typeof i> = {',
-        "  name: 'mail.send',",
-        "  exposure: ['relay'],",
-        '}',
+        "// the messages family builds it through mailMutation('inbox')",
+        "  sessions: t.router({ ask: mailMutation('ask') }),",
+        "  messages: t.router({ send: mailMutation('send') }),",
       ].join('\n'),
-      "  messages: t.router({ send: mailMutation('send') }),",
-      WHERE,
-      [],
-    ),
-  )
-  // A registry that lost its table reports, rather than comparing against nothing.
-  expect(
-    'exposure-matches-reach/no-registry',
-    exposureMatchesReach('const nothing = 1\n', CON_OK, ROUTER_OK, WHERE, ['send']),
-  )
-  // A key whose contract exposure cannot be READ leaves the comparison silently
-  // unless this fires — the POD-1314 shape, in this family's spelling.
-  expect(
-    'exposure-matches-reach/unreadable-exposure',
-    exposureMatchesReach(
-      REG_OK,
-      [
-        'export const mailSendContract: CommandContract<typeof i> = {',
-        "  name: 'mail.send',",
-        "  exposure: ['trpc'],",
-        '}',
-      ].join('\n'),
-      "  messages: t.router({ send: mailMutation('send') }),",
       WHERE,
       ['send'],
     ),
+    /mail `inbox` declares the `trpc` transport but no/,
   )
-  // The empty-side guard: an equality between empty sets is not evidence.
-  expect(
+
+  // THE EMPTY-SIDE GUARD, which must fire ONLY as itself.
+  expectOnly(
     'exposure-matches-reach/empty',
     exposureMatchesReach(REG_OK, CON_OK, 'nothing reaches anything\n', WHERE, ['send']),
+    /one side of the trpc comparison is EMPTY/,
   )
-  // BOTH DIRECTIONS OF THE `mcp` RECORD. A tenth contract growing the tag…
-  expect(
+  // A registry that lost its table reports rather than comparing against nothing.
+  expectOnly(
+    'exposure-matches-reach/no-registry',
+    exposureMatchesReach('const nothing = 1\n', CON_OK, ROUTER_OK, WHERE, ['send']),
+    /no `MAIL_COMMANDS` table could be read/,
+  )
+
+  // -- PARSER SHAPES (PDM-139 §2). Each keeps the other entries valid so the
+  //    empty guards stay green and the shape under test is what fires. --------
+
+  // A QUOTED REGISTRY KEY resolves structurally — it must NOT become an
+  // `unparsed` finding, and `inbox` must still be compared normally.
+  expectSilent(
+    'exposure-matches-reach/quoted-key',
+    exposureMatchesReach(
+      [
+        'export const MAIL_COMMANDS = {',
+        '  send: { contract: mailSendContract, handler: sendHandler },',
+        "  'inbox': { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },",
+        '  ask: { contract: mailAskContract, handler: askHandler },',
+        '} as const satisfies Record<string, MailCommand>',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // AN ENTRY SHAPE THE PARSER CANNOT RESOLVE must be REPORTED, not skipped. A
+  // computed key with no resolvable name is the shape: without the `unparsed`
+  // arm it would be absent from the join, absent from declared, absent from
+  // reached (the router does not mount it), and therefore invisible.
+  expectOnly(
+    'exposure-matches-reach/unparsed-entry',
+    exposureMatchesReach(
+      [
+        'export const MAIL_COMMANDS = {',
+        '  send: { contract: mailSendContract, handler: sendHandler },',
+        '  inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },',
+        '  ask: { contract: mailAskContract, handler: askHandler },',
+        '  [COMPUTED]: { contract: mailSmuggledContract, handler: smuggledHandler },',
+        '} as const satisfies Record<string, MailCommand>',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /could not be resolved to a key and a contract/,
+  )
+  // AN EXPOSURE ARRAY CARRYING A SPREAD is unresolvable, not "a tag called
+  // ...AGENT_TAGS". If the spread carried `trpc` or `mcp`, the naive parse would
+  // drop a real declaration out of the comparison in silence.
+  expectOnly(
+    'exposure-matches-reach/unresolved-spread',
+    exposureMatchesReach(
+      REG_OK,
+      contracts("'trpc', 'cli', 'mcp', 'relay'", "'trpc', ...AGENT_TAGS", "'trpc', 'cli', 'relay'"),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /contains an element that is not a string literal/,
+  )
+  // A contract whose `exposure` is a NAMED CELL rather than an inline array is
+  // also unresolvable here — this is the issues family's spelling, and reading
+  // it as absent would silently drop the entry from both sets.
+  expectOnly(
+    'exposure-matches-reach/exposure-absent',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        '  exposure: SERVED_EVERYWHERE,',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /whose `exposure` cannot be found in/,
+  )
+
+  // -- THE `mcp` RECORD, both directions, each isolated. ---------------------
+  expectOnly(
     'exposure-matches-reach/mcp-new',
     exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, []),
+    /newly declares the `mcp` transport/,
   )
-  // …and a recorded one losing it, which is the direction a silent repair takes.
-  expect(
+  expectOnly(
     'exposure-matches-reach/mcp-dropped',
     exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, ['send', 'dismiss']),
+    /records mail `dismiss` as declaring `mcp` and it no longer does/,
   )
   return failures
 }
 
-const PROBE_COUNT = 26
+const PROBE_COUNT = 30
 
 function main(): void {
   const argv = process.argv.slice(2)
@@ -1151,9 +1413,9 @@ function main(): void {
         '  · every mail contract DECLARES its visibility class\n' +
         '  · a command that can WAKE a session declares `machineVerb: use` (POD-1179)\n' +
         '  · the legacy `withMutation` wrapper stays deleted\n' +
-        '  · declared `trpc` exposure equals what router.ts reaches, both ways; and the `mcp`\n' +
-        '    declarations match MCP_DECLARED_UNVERIFIED, the reviewed record of the tags no\n' +
-        '    instrument can confirm (PDM-422)\n',
+        '  · declared `trpc` exposure equals the tRPC call sites in router.ts, both ways; the\n' +
+        '    `mcp` declarations match MCP_DECLARED_UNRESOLVED; `cli` is UNVERIFIED and `relay`\n' +
+        '    is enforced-by-declaration, neither compared (PDM-422)\n',
     )
     for (const f of findings) console.error(`  ${f.check}  ${f.where}\n      ${f.detail}`)
     process.exit(1)
@@ -1161,7 +1423,8 @@ function main(): void {
   console.log(
     'agent-mail surface audit OK — the derived surface is total, the deleted switch stayed deleted, ' +
       'authz has one door, every contract is classified, every wake path declares that it executes, ' +
-      'and declared exposure matches reach on every transport a reach can be derived for',
+      'and declared `trpc` exposure matches the router call sites both ways (cli UNVERIFIED, mcp ' +
+      'unresolved by this instrument — see MCP_DECLARED_UNRESOLVED)',
   )
 }
 
