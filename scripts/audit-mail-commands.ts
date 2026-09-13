@@ -640,33 +640,49 @@ type FinalProperty =
  * resolvable rather than being refused for tidiness.
  */
 function finalProperty(obj: ts.ObjectLiteralExpression, name: string): FinalProperty {
-  const props = obj.properties
-  let lastExplicit = -1
-  for (let i = 0; i < props.length; i++) {
-    const p = props[i]
-    if (p && ts.isPropertyAssignment(p) && staticName(p) === name) lastExplicit = i
+  // EVERY OWN PROPERTY KIND THAT COULD DEFINE THIS KEY — not just the two the
+  // previous version knew about. PDM-139 round 4: it considered only
+  // `PropertyAssignment` and `SpreadAssignment`, so
+  // `{ exposure: ['trpc'], [key]() { return [] } }` with `key === 'exposure'`
+  // returned the earlier array as effective. A method is not a
+  // PropertyAssignment, so it was invisible; shorthand (`{ exposure }`) and
+  // accessors (`get exposure() {}`) are the same hole in different clothes.
+  //
+  // An object literal element can define `name` in four ways, and only ONE of
+  // them is readable here:
+  //   · a spread — unknown keys, so it could define anything;
+  //   · a COMPUTED name — could evaluate to `name`;
+  //   · a static name equal to `name` on a non-assignment form (shorthand,
+  //     method, get/set accessor) — it definitely defines the key, and the
+  //     VALUE is not something this reader can resolve;
+  //   · a static `name:` PropertyAssignment — the one resolvable form.
+  const couldDefine = (prop: ts.ObjectLiteralElementLike): boolean =>
+    ts.isSpreadAssignment(prop) || staticName(prop) === undefined || staticName(prop) === name
+
+  // LAST WRITE WINS, so only the LAST element that could define the key matters.
+  // This is what preserves the earlier-opaque-then-final-explicit positive: a
+  // spread at index 0 is a candidate, but the explicit assignment after it is
+  // the last one, and the explicit one wins at runtime too.
+  let last = -1
+  for (let i = 0; i < obj.properties.length; i++) {
+    const p = obj.properties[i]
+    if (p && couldDefine(p)) last = i
   }
-  // Anything after the last explicit write (or anywhere at all, when there is
-  // none) that could contribute this key without naming it.
-  const opaqueAfter = props.findIndex((p, i) => {
-    if (i <= lastExplicit) return false
-    if (ts.isSpreadAssignment(p)) return true
-    return ts.isPropertyAssignment(p) && staticName(p) === undefined
-  })
-  if (opaqueAfter !== -1) {
-    const p = props[opaqueAfter] as ts.ObjectLiteralElementLike
-    const text = p.getText().split('\n')[0]
-    return {
-      kind: 'uncertain',
-      why:
-        `\`${text}\` appears after ${
-          lastExplicit === -1 ? 'no explicit' : `the last explicit \`${name}\``
-        } property and could supply or overwrite \`${name}\` at runtime, which reading this file ` +
-        'alone cannot settle',
-    }
+  if (last === -1) return { kind: 'absent' }
+  const winner = obj.properties[last] as ts.ObjectLiteralElementLike
+  if (ts.isPropertyAssignment(winner) && staticName(winner) === name) {
+    return { kind: 'resolved', prop: winner }
   }
-  if (lastExplicit === -1) return { kind: 'absent' }
-  return { kind: 'resolved', prop: props[lastExplicit] as ts.PropertyAssignment }
+  const text = winner.getText().split('\n')[0]
+  const why = ts.isSpreadAssignment(winner)
+    ? `\`${text}\` is the last element that could define \`${name}\`, and a spread's keys cannot be read here`
+    : staticName(winner) === undefined
+      ? `\`${text}\` has a computed name that could evaluate to \`${name}\`, and it is the last element that could define it`
+      : `\`${text}\` defines \`${name}\` in a form this reader cannot resolve (${ts.SyntaxKind[winner.kind]}), and it is the last element that could define it`
+  return {
+    kind: 'uncertain',
+    why: `${why} — so the effective \`${name}\` cannot be established by reading this file alone`,
+  }
 }
 
 /** A declaration that is PRESENT but which this file cannot resolve alone, and
@@ -1885,7 +1901,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /could supply or overwrite `contract` at runtime/,
+    /`\.\.\.OVERRIDE` is the last element that could define `contract`/,
   )
   // …and a COMPUTED KEY after it is the same hazard wearing different clothes.
   expectOnly(
@@ -1897,7 +1913,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /could supply or overwrite `contract` at runtime/,
+    /computed name that could evaluate to `contract`/,
   )
   // THE SUPPORTED POSITIVE: a spread BEFORE the final explicit property is
   // harmless, because the explicit one wins. Refusing this too would be tidiness
@@ -1938,13 +1954,141 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /could supply or overwrite `exposure` at runtime/,
+    /`\.\.\.OVERRIDE` is the last element that could define `exposure`/,
+  )
+
+  // -- EVERY ELEMENT KIND THAT CAN DEFINE A KEY (PDM-139 round 4) ------------
+  //
+  // The previous `finalProperty` knew only PropertyAssignment and spreads, so a
+  // later METHOD, ACCESSOR or SHORTHAND defining the same key was invisible and
+  // the earlier assignment was returned as effective. The first fixture below is
+  // the reviewer's own example.
+
+  // A COMPUTED METHOD after the array. `[key]() {}` is a MethodDeclaration, not a
+  // PropertyAssignment, and with key === 'exposure' it overwrites the array.
+  expectOnly(
+    'exposure-matches-reach/computed-method-override',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '  [key]() {',
+        '    return []',
+        '  },',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /computed name that could evaluate to `exposure`/,
+  )
+  // A GET ACCESSOR naming the key outright.
+  expectOnly(
+    'exposure-matches-reach/accessor-override',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '  get exposure() {',
+        "    return ['mcp']",
+        '  },',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /defines `exposure` in a form this reader cannot resolve \(GetAccessor\)/,
+  )
+  // A SHORTHAND naming the key — `{ exposure }` takes its value from a binding
+  // this file cannot follow.
+  expectOnly(
+    'exposure-matches-reach/shorthand-override',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '  exposure,',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /defines `exposure` in a form this reader cannot resolve \(ShorthandPropertyAssignment\)/,
+  )
+  // A METHOD named `contract` on a registry entry — the same hole on the other
+  // side of the join.
+  expectOnly(
+    'exposure-matches-reach/method-contract-override',
+    exposureMatchesReach(
+      regWith('  smuggled: { contract: mailSendContract, contract() { return other } },'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /defines `contract` in a form this reader cannot resolve \(MethodDeclaration\)/,
+  )
+  // THE POSITIVE THAT MUST SURVIVE ALL OF THAT: an opaque element EARLIER than
+  // the final explicit assignment is harmless, because the explicit one is still
+  // the last write. Refusing this would make the check unusable on real code.
+  expectSilent(
+    'exposure-matches-reach/opaque-before-final-explicit',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        '  get exposure() {',
+        "    return ['mcp']",
+        '  },',
+        '  ...BASE,',
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // …and an UNRELATED later method must not make the key uncertain, or every
+  // real contract (which carries `delivery`, `redaction`, …) would be refused.
+  expectSilent(
+    'exposure-matches-reach/unrelated-later-method',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        "  exposure: ['trpc', 'cli', 'relay'],",
+        '  describe() {',
+        "    return 'ask'",
+        '  },',
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
   )
 
   return failures
 }
 
-const PROBE_COUNT = 48
+const PROBE_COUNT = 54
 
 function main(): void {
   const argv = process.argv.slice(2)
