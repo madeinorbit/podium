@@ -1947,6 +1947,7 @@
         "src/raw-file-headers.ts",
         "src/readiness-boundary.ts",
         "src/readiness-route.ts",
+        "src/relay-agent-approvals.test.ts",
         "src/relay-agent-relay.test.ts",
         "src/relay.archive-cascade.test.ts",
         "src/relay.bind-storm.test.ts",
