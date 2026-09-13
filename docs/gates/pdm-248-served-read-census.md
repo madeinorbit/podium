@@ -242,6 +242,19 @@ re-run — so each line says which instrument, and says so honestly when there i
     Describing them as "authenticated by the pairing/enrollment ledger", as the row above does,
     hides that ordering.
 
-  What did NOT change: `GET /files/asset` is still the one raw route that reads stored rows with no
-  reader scoping, and the census lands asserting it as such. PDM-262 has a fix on
-  `issue/pdm-262-asset-route-gate`, which is not an ancestor of this pin.
+  **`GET /files/asset` — the last raw-HTTP FINDING row above — is closed**, by **PDM-262**, landed
+  on `issue/pdm-107-multi-user` at `049e8d958` ("A session id is not a credential"). The route's
+  seam is now a `Pick` of the same `FileAccessGate` `files.read` addresses, taken from the same
+  per-request `fileGateFor` the artifact route takes, so there is no `readAsset` in it to reach for
+  and no allowlist boolean to forget. **Re-derived by the command above**, which asserts it in
+  `RAW_ROUTE_POLICIES` and asserts `UNGOVERNED_RAW_ROUTES` is empty — so unlike the row it closes,
+  this line points at something that re-runs.
+
+  **A NOTE ON HOW THAT CLOSURE WAS NEARLY MISSED, because it is the more useful half.** PDM-353's
+  first measurement recorded `/files/asset` as ungoverned and cited, as evidence,
+  `git merge-base --is-ancestor origin/issue/pdm-262-asset-route-gate origin/issue/pdm-107-multi-user`
+  exiting non-zero. That command ran correctly and answered the wrong question: PDM-262 had been
+  **cherry-picked** onto the integration line, so it carries a different SHA and no ancestry check
+  can see it. Reading the landed FILE is what settled it. A census is a claim about the tree, and
+  branch ancestry is a claim about history; where an epic lands by cherry-pick they are not the
+  same claim.

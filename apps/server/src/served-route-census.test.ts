@@ -68,6 +68,7 @@ import {
   WEBSOCKET_PLANE_POLICIES,
 } from './served-route-census'
 import { startServer } from './server'
+import { defaultDbPath } from './store'
 
 /** Hono registers `app.use(...)` middleware under this verb. */
 const MIDDLEWARE_VERB = 'ALL'
@@ -102,7 +103,11 @@ describe('the raw route scan found the fleet', () => {
   const wsProbeBody: Record<string, string> = {}
 
   beforeAll(async () => {
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startServer({
+      dbPath: defaultDbPath(),
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+    })
     served = handle.httpRoutes
     // Ask each WebSocket path what it does with an ordinary request that carries
     // no credential. Done HERE, against the running server, because the claim
@@ -245,10 +250,20 @@ describe('every raw route this server serves is classified', () => {
   })
 
   it('keeps the ungoverned list a finding list, not a waiver', () => {
-    // It is non-empty today: `/files/asset` serves checkout bytes behind
-    // authentication only. When it genuinely reaches zero, THIS assertion is the
-    // thing that has to be deliberately removed — which is the point.
-    expect(UNGOVERNED_RAW_ROUTES.length).toBeGreaterThan(0)
+    // EMPTY TODAY, AND THAT IS A MEASUREMENT RATHER THAN A CLEAN BILL. The first
+    // run of this census, one pin earlier, carried `GET /files/asset` here: it
+    // served checkout bytes behind `clientAuthGuard`, which is authentication,
+    // with the `root` arm asking about PATHS and the `sessionId` arm asking
+    // nothing. PDM-262 landed while this file was being written and the row
+    // moved into `RAW_ROUTE_POLICIES`.
+    //
+    // `toEqual([])` rather than a length check, for `derived-family.ts`'s
+    // reason: it fails the moment any future raw route is recorded at this
+    // severity, which is exactly the signal to raise, and turning it back into a
+    // populated list is then a deliberate edit. And an empty list cannot be
+    // reached by quietly dropping a row — `classifies every served route` above
+    // refuses a route that is in neither list, independently of this one.
+    expect(UNGOVERNED_RAW_ROUTES.map(routeKey)).toEqual([])
     for (const entry of UNGOVERNED_RAW_ROUTES) {
       expect(['B', 'C', 'F']).toContain(entry.owner)
       expect(entry.finding.length).toBeGreaterThan(80)
@@ -265,12 +280,20 @@ describe('every raw route this server serves is classified', () => {
     }
   })
 
-  it('names exactly one route that reads stored rows without scoping them', () => {
+  it('counts the routes that reach rows about people, and scopes all five', () => {
     const reads = RAW_ROUTE_POLICIES.filter((policy) => policy.kind === 'reads-stored-rows')
-    // The interesting partition, stated as a number so it cannot drift unnoticed:
-    // five raw routes reach rows this instance stores about people, four of them
-    // scope the reader and one does not.
-    expect(reads).toHaveLength(4)
+    // The interesting partition, stated as a number so it cannot drift
+    // unnoticed: FIVE raw routes reach rows this instance stores about people,
+    // and at this pin every one of them scopes the reader. A sixth arriving is a
+    // door that has to be argued for, and it reddens here before anyone has to
+    // notice it in a diff.
+    expect(reads.map(routeKey).sort()).toEqual([
+      'GET /auth/client-sessions',
+      'GET /auth/members/list',
+      'GET /files/artifact/:issueId/:artifactId/*',
+      'GET /files/asset',
+      'POST /auth/members/inspect',
+    ])
     expect(reads.length + UNGOVERNED_RAW_ROUTES.length).toBe(5)
   })
 })
@@ -362,6 +385,7 @@ describe('the transports this census does not cover', () => {
 
   beforeAll(async () => {
     handle = await startServer({
+      dbPath: defaultDbPath(),
       janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       plugins: [probe],

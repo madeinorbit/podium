@@ -83,10 +83,15 @@
  * no `sync.*` entry remains in that list. A rebuilt instrument does not
  * re-verify the rows it carries, so this one carried none.
  *
- * `UNGOVERNED_RAW_ROUTES` is a FINDING LIST, not a waiver. The census is landed
- * with today's answers asserted as they actually are so that every later change
- * to this surface is visible; fixing what it found is separate work with its own
- * issues.
+ * `UNGOVERNED_RAW_ROUTES` is a FINDING LIST, not a waiver, and today it is
+ * EMPTY. It was not: the first measurement, one pin earlier, carried
+ * `GET /files/asset`, and PDM-262 landed the fix on the integration line while
+ * this instrument was being written. That is worth saying rather than quietly
+ * shipping the empty version — the ancestry check said the fix was NOT on the
+ * epic line and the ancestry check was answering the wrong question, because the
+ * commit had been cherry-picked and carried a different SHA. Reading the landed
+ * FILE is what settled it. See {@link UNGOVERNED_RAW_ROUTES} for what keeps an
+ * empty list from meaning less than a populated one.
  */
 
 /** One entry of a served route table: a verb and the pattern it is matched on. */
@@ -143,9 +148,9 @@ export interface UngovernedRawRoute extends RouteEntry {
 }
 
 /**
- * EVERY RAW HTTP ROUTE THIS SERVER SERVES, classified — 42 of the 43 unique
- * `METHOD path` keys the route table produces. The forty-third is in
- * {@link UNGOVERNED_RAW_ROUTES}.
+ * EVERY RAW HTTP ROUTE THIS SERVER SERVES, classified — all 43 unique
+ * `METHOD path` keys the route table produces, with {@link UNGOVERNED_RAW_ROUTES}
+ * empty beside it.
  */
 export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
   // -------------------------------------------------------------------------
@@ -177,6 +182,15 @@ export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
       "per-request `doorFor` builds one caller's FileAccessGate from `requestPrincipal`; `readArtifact` runs `checkIssueAccess`",
     rationale:
       "Closed by PDM-261, which landed on the epic line before this pin. The route no longer receives the store; it receives one caller's gate and runs the SAME issue-access rule `files.read` runs over these same bytes. Witnessed by file-artifact-route.authz.test.ts, which reddens when that single call is deleted.",
+  },
+  {
+    method: 'GET',
+    path: '/files/asset',
+    kind: 'reads-stored-rows',
+    guard:
+      "per-request `fileGateFor` builds one caller's `AssetGate`, 401 when no principal resolves; both arms then read through it (`readSessionAsset` / `readRootAsset`)",
+    rationale:
+      'Closed by PDM-262. THE ROUTE CAN NO LONGER SPELL AN UNAUTHORIZED READ: its seam is a `Pick` of the same `FileAccessGate` `files.read` addresses, so there is no `readAsset` to reach for and no allowlist boolean to forget. It takes the gate from the SAME `fileGateFor` the artifact route takes — one function binding two doors, which is why the two transports cannot come to disagree about who is calling.',
   },
   {
     method: 'POST',
@@ -502,24 +516,23 @@ export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
  * RAW HTTP ROUTES WITH NO READER SCOPING. A finding list with owners, not a
  * waiver — the same contract `UNGOVERNED_PROJECTIONS` carries on the tRPC side.
  *
- * WHOEVER LANDS PDM-262 HAS TWO EDITS TO MAKE HERE, and they are named so the
- * landing is not a surprise. Move `GET /files/asset` into
- * {@link RAW_ROUTE_POLICIES} with the guard it then actually runs, and delete
- * `keeps the ungoverned list a finding list, not a waiver`'s non-empty
- * assertion in the test — which is deliberately the thing that has to be
- * removed by hand, so a list emptied by deleting rows cannot look like a list
- * emptied by fixing routes. The totality assertions independently refuse a
- * route that ends up in neither list, so nothing can be lost in the move.
+ * IT IS EMPTY, AND THE EMPTY ARRAY IS NOT A WEAKER CLAIM THAN A LIST. The first
+ * measurement of this census, taken one pin earlier, carried exactly one row:
+ * `GET /files/asset`, which served checkout bytes behind `clientAuthGuard` —
+ * authentication — with the `root` arm asking a question about PATHS and the
+ * `sessionId` arm asking nothing at all. PDM-262 landed on the integration line
+ * while this instrument was being written, and it is in `RAW_ROUTE_POLICIES`
+ * above now.
+ *
+ * WHAT KEEPS THE EMPTINESS HONEST is not this array. `classifies every served
+ * read` above independently refuses a route that is in NEITHER list, so a row
+ * cannot be made to vanish by deleting it — it lands in the residue and the
+ * gate names it. What an emptied finding list would otherwise look like is a
+ * fixed surface, and that is the confusion the assertion in the test guards:
+ * `toEqual([])` fails the moment any future raw route is recorded here, which
+ * is exactly the signal to raise, and it is a DELIBERATE edit to change it back.
  */
-export const UNGOVERNED_RAW_ROUTES: readonly UngovernedRawRoute[] = [
-  {
-    method: 'GET',
-    path: '/files/asset',
-    owner: 'B',
-    finding:
-      "Serves checkout bytes with no reader scoping in either arm. The `/files/*` prefix applies cors, the readiness boundary and `clientAuthGuard` — AUTHENTICATION, which establishes that the caller is signed in and nothing about whose material this is. The `root` arm then prefix-matches `allowsRoot` against registered repo roots after collapsing `..`, which is a real rule about PATHS and not a rule about PEOPLE; the `sessionId` arm consults no session ownership at all and relies on the daemon's path sandbox. Same material and same gap as the artifact route PDM-261 closed, over the other file transport. PDM-262 has a fix on `issue/pdm-262-asset-route-gate` which is NOT an ancestor of this pin — verified, not assumed — so the route is ungoverned as this census measures it.",
-  },
-]
+export const UNGOVERNED_RAW_ROUTES: readonly UngovernedRawRoute[] = []
 
 /** A WebSocket upgrade path and what the UPGRADE itself asks. */
 export interface WebSocketPlanePolicy {
