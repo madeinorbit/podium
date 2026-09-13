@@ -199,8 +199,11 @@ const projectionOf = (
       (snapshot.issueExecutions ?? []).map((row) => [row.issueId as string, row]),
     )
     // …and this reader's own marks over the snapshot's neutral ones (PDM-408).
-    // Joined unconditionally, even when the list is empty, because the join is
-    // what FORCES neutral rather than trusting the producer — see joinIssueMarks.
+    // An absent marks row leaves the snapshot's issue row as the producer sent
+    // it, which is already neutral — `joinIssueMarks` does NOT force neutral, and
+    // an earlier version of this comment said it did. That claim was withdrawn
+    // when forcing neutral turned out to wipe the client's own optimistic
+    // overlay; the producer is guarded at the producer instead.
     const marksByIssue = new Map(
       (snapshot.issueMarks ?? []).map((row) => [row.issueId as string, row]),
     )

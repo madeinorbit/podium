@@ -1,7 +1,8 @@
+import { asUserId, issueMarksRowId } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { describe, expect, it } from 'vitest'
-import { createKernelReplica, createSideCache } from '../replica/kernel'
 import type { KernelCacheRead } from '../replica/kernel'
+import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { createReplica, memoryStorage } from '../replica/replica'
 import {
   createReplicaBinding,
@@ -211,6 +212,141 @@ describe('a marks-only delta re-derives the joined issue rows (PDM-419)', () => 
     const rows = publications[0]!.snapshot.issues
     expect(rows.find((row) => row.id === 'iss_1')?.readAt).toBe('2026-08-04T00:00:00.000Z')
     expect(rows.find((row) => row.id === 'iss_2')?.readAt ?? null).toBeNull()
+    stop()
+  })
+})
+
+describe('two simultaneously marked issues, through the kernel’s composite ids', () => {
+  /**
+   * PDM-139 asked for this shape specifically, and it is the one that
+   * discriminates TWO defects at once with a single fixture:
+   *
+   *  - the legacy `Replica.keyFor` collapse (marks rows misclassified as inserts
+   *    so an UPDATE is silently discarded), and
+   *  - PDM-419's own "changing and clearing" requirement, which a witness that
+   *    only ever ADDS a mark cannot reach.
+   *
+   * And it runs over the KERNEL replica rather than the legacy one, because the
+   * mapping the reviewer named lives there: the kernel stores and addresses rows
+   * by the ENVELOPE's `entityId` — the `(user, issue)` composite — while
+   * `rowKey` projects them under `issueId`. A removal arrives addressed by the
+   * composite, so it has to find a row indexed one way and drop it from a
+   * projection sorted the other. A single-row witness cannot tell a working
+   * mapping from one that drops the only row it has.
+   *
+   * Both issues are marked with DISTINCT values throughout, so "the other one is
+   * untouched" is a real assertion rather than a vacuous one.
+   */
+  const ME = 'mem_me'
+  const marksRow = (issueId: string, readAt: string | null, pinned: boolean) => ({
+    userId: ME,
+    issueId,
+    readAt,
+    tuckedAt: null,
+    pinned,
+  })
+
+  const seeded = () => {
+    const cache = new BindingCache()
+    cache.put('issue', 'iss_1', issue('iss_1'))
+    cache.put('issue', 'iss_2', issue('iss_2'))
+    // Addressed by the COMPOSITE id, exactly as the Authority logs them.
+    cache.put('issueMarks', issueMarksRowId(asUserId(ME), 'iss_1'), marksRow('iss_1', 'T1', true))
+    cache.put('issueMarks', issueMarksRowId(asUserId(ME), 'iss_2'), marksRow('iss_2', 'T2', false))
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    return { cache, replica }
+  }
+
+  const marksOn = (publication: ReplicaPublication, id: string) =>
+    publication.snapshot.issues.find((row) => row.id === id) as
+      | { readAt?: string | null; pinned?: boolean }
+      | undefined
+
+  it('carries BOTH issues’ distinct marks, then updates ONE and leaves the other', async () => {
+    const { cache, replica } = seeded()
+    const binding = createReplicaBinding({ replica })
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+
+    // Both distinct at the start — the precondition the update case needs.
+    const first = publications[publications.length - 1]!
+    expect(marksOn(first, 'iss_1')).toMatchObject({ readAt: 'T1', pinned: true })
+    expect(marksOn(first, 'iss_2')).toMatchObject({ readAt: 'T2', pinned: false })
+
+    publications.length = 0
+    // CHANGE iss_1's mark — clearing the read and dropping the pin, which is the
+    // "changing and clearing" half 419 is about. iss_2 is not touched.
+    cache.put('issueMarks', issueMarksRowId(asUserId(ME), 'iss_1'), marksRow('iss_1', null, false))
+    replica.onKernelEvent({
+      type: 'upserted',
+      record: {
+        entity: 'issueMarks',
+        entityId: issueMarksRowId(asUserId(ME), 'iss_1'),
+        value: marksRow('iss_1', null, false),
+        provenance: { seq: 1 },
+      },
+    } as never)
+    await Promise.resolve()
+
+    const afterUpdate = publications[publications.length - 1]!
+    expect(marksOn(afterUpdate, 'iss_1')).toMatchObject({ readAt: null, pinned: false })
+    // Under the key collapse this read `null`/`false` too, because the update
+    // had landed on whichever row the shared key resolved to.
+    expect(marksOn(afterUpdate, 'iss_2')).toMatchObject({ readAt: 'T2', pinned: false })
+    stop()
+  })
+
+  it('orders the two marks rows by their issue, not by arrival', () => {
+    // THE KERNEL'S OWN `rowKey` ARM, which the two cases above do NOT reach — I
+    // checked by planting, and they stayed green. The kernel indexes rows by the
+    // envelope's composite `entityId` and reads values off the payload, so a
+    // missing `rowKey` arm costs neither of them anything.
+    //
+    // What it DOES cost is the sort: `facade.keyOf` feeds the merge that keeps
+    // `rows()` stable, and a kind it cannot key puts every row under `undefined`
+    // — an unstable order, which is the single thing that sort exists to
+    // prevent. So the discriminating fixture is arrival order OPPOSITE to key
+    // order.
+    const cache = new BindingCache()
+    cache.put('issueMarks', issueMarksRowId(asUserId(ME), 'iss_2'), marksRow('iss_2', 'T2', false))
+    cache.put('issueMarks', issueMarksRowId(asUserId(ME), 'iss_1'), marksRow('iss_1', 'T1', true))
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+
+    expect(replica.rows('issueMarks').map((row) => row.issueId)).toEqual(['iss_1', 'iss_2'])
+  })
+
+  it('REMOVES one by its composite id and leaves the other marked', async () => {
+    const { cache, replica } = seeded()
+    const binding = createReplicaBinding({ replica })
+    const publications: ReplicaPublication[] = []
+    const stop = binding.start({ publish: (publication) => publications.push(publication) })
+    await Promise.resolve()
+    publications.length = 0
+
+    // The eviction arrives addressed by the (user, issue) COMPOSITE — the id the
+    // Authority logged — not by the `issueId` the projection is keyed under.
+    // That translation is the thing under test.
+    cache.drop('issueMarks', issueMarksRowId(asUserId(ME), 'iss_1'))
+    replica.onKernelEvent({
+      type: 'evicted',
+      entity: 'issueMarks',
+      entityId: issueMarksRowId(asUserId(ME), 'iss_1'),
+    })
+    await Promise.resolve()
+
+    const afterRemove = publications[publications.length - 1]!
+    // iss_1's mark is gone — the row falls back to the broadcast's neutral.
+    expect(marksOn(afterRemove, 'iss_1')?.readAt ?? null).toBeNull()
+    // …and iss_2 still holds its own, which is what a removal that took both
+    // rows (or the wrong one) would fail.
+    expect(marksOn(afterRemove, 'iss_2')).toMatchObject({ readAt: 'T2' })
     stop()
   })
 })
