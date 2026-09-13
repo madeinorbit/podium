@@ -58,8 +58,9 @@ import {
   ChangeSeqField,
   ConversationSummaryWire,
   IssueDepProjection,
-  IssueProjection,
-  IssueWire,
+  IssueExecutionProjection,
+  SharedIssueProjection,
+  SharedIssueWire,
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
@@ -88,9 +89,21 @@ const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
-  feedChangeArm(z.literal('issue'), IssueWire),
-  feedChangeArm(z.literal('issueProjection'), IssueProjection),
+  // THE TWO ISSUE ARMS CARRY THE **SHARED** SHAPES [B4, PDM-136]. `IssueWire`
+  // and `IssueProjection` both carry the four private execution keys
+  // (`worktreePath`, `machineId`, `coordinatorSessionId`, `startedBySession`),
+  // and this file is where a producer's payload is typed. Naming the wide shapes
+  // here would let a producer type-check a payload carrying a machine-local path
+  // to everyone who may read the task — which is precisely what happens the
+  // moment C4 (PDM-144) widens the read predicate, since `feed-visibility.ts`
+  // resolves BOTH kinds through one arm. The private half rides
+  // `issueExecution` below, whose audience is the issue's OWNER.
+  feedChangeArm(z.literal('issue'), SharedIssueWire),
+  feedChangeArm(z.literal('issueProjection'), SharedIssueProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
+  /** The owner-scoped private half of one issue [B4, PDM-136]. Keyed by the
+   *  issue's own id; the replica joins it exactly as it joins `issueDep`. */
+  feedChangeArm(z.literal('issueExecution'), IssueExecutionProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
   feedChangeArm(z.literal('conversation'), ConversationSummaryWire),

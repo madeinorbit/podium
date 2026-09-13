@@ -442,6 +442,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         issues: project('issues'),
         issueProjections: project('issueProjections'),
         issueDeps: project('issueDeps'),
+        issueExecutions: project('issueExecutions'),
         repos: project('repos'),
         issueEvents: project('issueEvents'),
         pendingInteractions: project('pendingInteractions'),

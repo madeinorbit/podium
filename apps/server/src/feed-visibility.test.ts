@@ -110,3 +110,100 @@ describe('feed visibility grant semantics', () => {
     expect(refs.map((ref) => state.mayRead(reader, ref))).toEqual([true, false, false])
   })
 })
+
+/** This block's OWN ref list. Deliberately not an entry appended to the shared
+ *  `refs` above: two tests there map over it POSITIONALLY and assert a
+ *  three-element result, so widening it would redden them for a reason that has
+ *  nothing to do with what they check. */
+const executionRefs: EntityRef[] = [
+  { entity: 'issue', entityId: 'shared' },
+  { entity: 'issueExecution', entityId: 'shared' },
+]
+
+describe("the issue's private execution half is owner-scoped [B4, PDM-136]", () => {
+  /**
+   * THE PROPERTY, AND WHY IT NEEDS A COUNTERFACTUAL RATHER THAN A POSITIVE.
+   *
+   * `issueExecution` carries `worktreePath`, `machineId`, `coordinatorSessionId`
+   * and `startedBySession`. It used to ride the `issue`/`issueProjection`
+   * payloads, whose predicate is owner-OR-GRANT and which C4 (PDM-144) replaces
+   * with the active-member class policy. The whole value of the split is that
+   * this kind does NOT move when that predicate does — so the load-bearing
+   * assertion is the one about a person who may read the issue and may not read
+   * its private half. A test that only checked the owner would pass just as
+   * happily against an arm that called `mayReadIssueFromSnapshot`, which is the
+   * exact defect the split exists to prevent (catalogue shape 4: a guard that
+   * cannot fail for the reason it exists).
+   *
+   * Both directions are asserted against ONE fixture and with `expect.soft`, so
+   * a failure reports which half broke rather than stopping at the first
+   * (catalogue: "hard assert hides the negative half").
+   */
+  it('admits the owner and refuses a read-grantee of the very same issue', async () => {
+    const { store, policy, grant } = await fixture()
+    await store.transact(async () => {
+      await grant('issue', reader, 'read')
+    })
+    const state = await policy.state.forBootstrap!(executionRefs)
+
+    const sharedIssue = { entity: 'issue', entityId: 'shared' } as const
+    const privateHalf = { entity: 'issueExecution', entityId: 'shared' } as const
+
+    // THE POSITIVE HALF: the grant works, and it works on the shared row. If
+    // this went false the negative below would be vacuous — a grantee refused
+    // the private half of a task they cannot read either proves nothing.
+    expect.soft(state.mayRead(reader, sharedIssue)).toBe(true)
+    // THE NEGATIVE HALF, and the point of the issue: the SAME grant, the SAME
+    // person, the SAME issue id — and the private half is refused.
+    expect.soft(state.mayRead(reader, privateHalf)).toBe(false)
+
+    // The owner keeps both. Absence would be its own regression: the owner's
+    // client reads `worktreePath` to key its workspace tabs.
+    expect.soft(state.mayRead(owner, sharedIssue)).toBe(true)
+    expect.soft(state.mayRead(owner, privateHalf)).toBe(true)
+
+    // And a stranger gets neither, which pins that the refusal above is the
+    // owner check answering and not a ref that fell off the prefetch.
+    expect.soft(state.mayRead(stranger, sharedIssue)).toBe(false)
+    expect.soft(state.mayRead(stranger, privateHalf)).toBe(false)
+  })
+
+  it('is not opened by a write or manage grant either', async () => {
+    // `issueGrantAdmits` accepts read, write AND manage for the shared row. The
+    // private half must refuse all three, or the split leaks through whichever
+    // verb nobody tested — the same shape as a census that stops at one caller.
+    const { store, policy, grant } = await fixture()
+    await store.transact(async () => {
+      await grant('issue', reader, 'write')
+      await grant('issue', revoked, 'manage')
+    })
+    const state = await policy.state.forBootstrap!(executionRefs)
+    const privateHalf = { entity: 'issueExecution', entityId: 'shared' } as const
+
+    expect.soft(state.mayRead(reader, { entity: 'issue', entityId: 'shared' })).toBe(true)
+    expect.soft(state.mayRead(revoked, { entity: 'issue', entityId: 'shared' })).toBe(true)
+    expect.soft(state.mayRead(reader, privateHalf)).toBe(false)
+    expect.soft(state.mayRead(revoked, privateHalf)).toBe(false)
+  })
+
+  it('is classified so the kernel scopes it at all', async () => {
+    // `classOf` returning null would take the kind OUT of the scoped decision
+    // entirely, and a row nothing classifies is not a row nothing delivers.
+    // Pinned beside the arm above because a class change is silent here.
+    const { policy } = await fixture()
+    expect(policy.state.classOf('issueExecution')).toBe('personal')
+  })
+
+  it('rides the issue anchor, so ownership changes move it [D14.3]', async () => {
+    // The sidecar must be a SUBJECT of the issue's visibility edge. Without it,
+    // a change that moves who owns an issue moves the shared half and leaves the
+    // private half sitting in the old owner's replica with nothing to evict it.
+    const { store, policy, grant } = await fixture()
+    await store.transact(async () => {
+      await grant('issue', reader, 'read')
+    })
+    const edge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' })
+    expect(edge).not.toBeNull()
+    expect(edge?.subjects).toContainEqual({ entity: 'issueExecution', entityId: 'shared' })
+  })
+})

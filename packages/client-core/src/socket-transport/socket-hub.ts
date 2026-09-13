@@ -19,7 +19,14 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import { asMachineId, interactionRowId, layoutRowId, readPositionRowId } from '@podium/model'
+import {
+  asMachineId,
+  type IssueExecutionProjection,
+  interactionRowId,
+  joinIssueExecution,
+  layoutRowId,
+  readPositionRowId,
+} from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -653,6 +660,15 @@ export class SocketHub {
    *  kinds, because the ledger stores one value per (kind, id). Empty unless the
    *  authority's flag is on. */
   private issueDepList: IssueDepProjection[] = []
+  /** The OWNER-SCOPED private half of each issue [B4, PDM-136].
+   *
+   *  Held separately and joined onto `issueList` at apply time rather than
+   *  folded into it on arrival, because the two halves are separate feed rows
+   *  with separate seqs and either may arrive first. A join done only on the
+   *  issue arm would leave an owner's `worktreePath` absent whenever the sidecar
+   *  row landed second — which is most of the time, since it is emitted after
+   *  the shared row in the same write. */
+  private issueExecutionList: IssueExecutionProjection[] = []
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
@@ -2269,7 +2285,20 @@ export class SocketHub {
           )
           break
         case 'issue':
-          this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
+          // The wire row is the SHARED shape [B4, PDM-136]; the private half is
+          // its own kind. Join what is already known here, and the re-join after
+          // the loop covers a sidecar row that arrives later in the same batch.
+          this.issueList = applyChange(
+            this.issueList,
+            c.op,
+            c.value === undefined
+              ? undefined
+              : (joinIssueExecution(
+                  c.value,
+                  this.issueExecutionList.find((x) => x.issueId === c.id),
+                ) as IssueWire),
+            (i) => i.id === c.id,
+          )
           break
         case 'issueProjection':
           this.issueProjectionList = applyChange(
@@ -2350,6 +2379,14 @@ export class SocketHub {
             (x) => layoutRowId(x.userId, x.key) === c.id,
           )
           break
+        case 'issueExecution':
+          this.issueExecutionList = applyChange(
+            this.issueExecutionList,
+            c.op,
+            c.value,
+            (x) => x.issueId === c.id,
+          )
+          break
         case 'userReadPosition':
           // Same demux for POD-1380's read positions, matched on readPositionRowId.
           this.userReadPositionList = applyChange(
@@ -2363,8 +2400,19 @@ export class SocketHub {
           c satisfies never
       }
     }
+    // A sidecar row that arrived in this batch re-joins the whole issue list
+    // before anything is emitted [B4, PDM-136]. Cheap, and it is what makes the
+    // join order-independent: neither half has to land first.
+    if (touched.has('issueExecution')) {
+      const executionByIssue = new Map(this.issueExecutionList.map((x) => [x.issueId as string, x]))
+      this.issueList = this.issueList.map(
+        (issue) => joinIssueExecution(issue, executionByIssue.get(issue.id)) as IssueWire,
+      )
+    }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
-    if (touched.has('issue')) this.emit('issues', this.issueList)
+    if (touched.has('issue') || touched.has('issueExecution')) {
+      this.emit('issues', this.issueList)
+    }
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)

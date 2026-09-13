@@ -4463,6 +4463,32 @@
       "encoded": "{\"id\":\"id\",\"eventId\":1,\"ts\":\"ts\",\"kind\":\"kind\",\"subject\":\"subject\",\"repoPath\":\"repoPath\",\"payload\":{\"unknownFixture\":\"payload\"}}"
     },
     {
+      "schema": "IssueExecutionProjection",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\"}"
+    },
+    {
+      "schema": "IssueExecutionProjection",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "worktreePath": "worktreePath",
+        "machineId": "machineId",
+        "coordinatorSessionId": "coordinatorSessionId",
+        "startedBySession": "startedBySession"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"worktreePath\":\"worktreePath\",\"machineId\":\"machineId\",\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\"}"
+    },
+    {
       "schema": "IssueGitState",
       "variant": "minimal",
       "wire": {
@@ -11501,6 +11527,782 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"workState\":\"planning\"}"
+    },
+    {
+      "schema": "SharedIssueProjection",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "seq": 1,
+        "title": "title",
+        "description": {
+          "value": "description.value"
+        },
+        "stage": "proposed",
+        "archived": true,
+        "priority": 1,
+        "type": "task",
+        "labels": [],
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": null
+        },
+        "owner": "owner",
+        "visibility": "personal",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {
+        "blockedByNotes": [],
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"seq\":1,\"title\":\"title\",\"description\":{\"value\":\"description.value\"},\"stage\":\"proposed\",\"archived\":true,\"priority\":1,\"type\":\"task\",\"labels\":[],\"blockedByNotes\":[],\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":false,\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":null},\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SharedIssueProjection",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 1,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 1,
+          "opsTail": [
+            {
+              "unknownFixture": "description.opsTail[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 1,
+          "opsTail": [
+            {
+              "unknownFixture": "notes.opsTail[0]"
+            }
+          ]
+        },
+        "stage": "proposed",
+        "suggestedStage": "proposed",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "user",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 1,
+        "type": "task",
+        "labels": ["labels[0]"],
+        "estimateMin": 1,
+        "color": "rose",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "user",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "sourceKind": "terminal-evidence",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 1
+                }
+              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
+              "tracking": "tracked",
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "human",
+        "audience": "human",
+        "isDraftVessel": true,
+        "createdBy": {
+          "actor": {
+            "kind": "user",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "revision": 1,
+        "assignmentRevision": 1,
+        "inputRevision": 1,
+        "owner": "owner",
+        "visibility": "personal",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":1,\"assignmentRevision\":1,\"inputRevision\":1,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SharedIssueProjection",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 2,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 2,
+          "opsTail": [
+            {
+              "unknownFixture": "description.opsTail[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 2,
+          "opsTail": [
+            {
+              "unknownFixture": "notes.opsTail[0]"
+            }
+          ]
+        },
+        "stage": "backlog",
+        "suggestedStage": "backlog",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "agent",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 2,
+        "type": "bug",
+        "labels": ["labels[0]"],
+        "estimateMin": 2,
+        "color": "pink",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "agent",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": false
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "sourceKind": "terminal-evidence",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 2
+                }
+              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
+              "tracking": "untracked",
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": false,
+        "createdBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "revision": 2,
+        "assignmentRevision": 2,
+        "inputRevision": 2,
+        "owner": "owner",
+        "visibility": "per-user-state",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":2,\"assignmentRevision\":2,\"inputRevision\":2,\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SharedIssueProjection",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 3,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 3,
+          "opsTail": [
+            {
+              "unknownFixture": "description.opsTail[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 3,
+          "opsTail": [
+            {
+              "unknownFixture": "notes.opsTail[0]"
+            }
+          ]
+        },
+        "stage": "planning",
+        "suggestedStage": "planning",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "machine",
+            "id": "lastLifecycleActor.actor.id"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 3,
+        "type": "feature",
+        "labels": ["labels[0]"],
+        "estimateMin": 3,
+        "color": "fuchsia",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": true,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "machine",
+              "id": "asked.attribution.actor.id"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "sourceKind": "terminal-evidence",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 3
+                }
+              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
+              "tracking": "unknown",
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": true,
+        "createdBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "createdBy.actor.id"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "revision": 3,
+        "assignmentRevision": 3,
+        "inputRevision": 3,
+        "owner": "owner",
+        "visibility": "owned-compute",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":3,\"assignmentRevision\":3,\"inputRevision\":3,\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SharedIssueProjection",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "repoId": "repoId",
+        "seq": 4,
+        "title": "title",
+        "brief": "brief",
+        "design": "design",
+        "acceptance": "acceptance",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "dependencyNote": "dependencyNote",
+        "suggestedReason": "suggestedReason",
+        "description": {
+          "value": "description.value",
+          "revision": 4,
+          "opsTail": [
+            {
+              "unknownFixture": "description.opsTail[0]"
+            }
+          ]
+        },
+        "notes": {
+          "value": "notes.value",
+          "revision": 4,
+          "opsTail": [
+            {
+              "unknownFixture": "notes.opsTail[0]"
+            }
+          ]
+        },
+        "stage": "in_progress",
+        "suggestedStage": "in_progress",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "deferUntil": "deferUntil",
+        "archived": false,
+        "deletedAt": "deletedAt",
+        "lastLifecycleActor": {
+          "actor": {
+            "kind": "system",
+            "job": "lastLifecycleActor.actor.job"
+          },
+          "onBehalfOf": "lastLifecycleActor.onBehalfOf"
+        },
+        "priority": 4,
+        "type": "chore",
+        "labels": ["labels[0]"],
+        "estimateMin": 4,
+        "color": "violet",
+        "sortKey": "sortKey",
+        "dueAt": "dueAt",
+        "parentId": "parentId",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "needsHuman": false,
+        "asked": {
+          "question": "asked.question",
+          "options": ["asked.options[0]"],
+          "at": "asked.at",
+          "by": "asked.by",
+          "attribution": {
+            "actor": {
+              "kind": "system",
+              "job": "asked.attribution.actor.job"
+            },
+            "onBehalfOf": "asked.attribution.onBehalfOf"
+          }
+        },
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": false
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "sourceKind": "terminal-evidence",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 4
+                }
+              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
+              "tracking": "unknown",
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "intentOrigin": "agent",
+        "audience": "agent",
+        "isDraftVessel": false,
+        "createdBy": {
+          "actor": {
+            "kind": "system",
+            "job": "createdBy.actor.job"
+          },
+          "onBehalfOf": "createdBy.onBehalfOf"
+        },
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "prUrl": "prUrl",
+        "revision": 4,
+        "assignmentRevision": 4,
+        "inputRevision": 4,
+        "owner": "owner",
+        "visibility": "deployment-substrate",
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":4,\"assignmentRevision\":4,\"inputRevision\":4,\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+    },
+    {
+      "schema": "SharedIssueWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "repoPath": "repoPath",
+        "seq": 1,
+        "title": "title",
+        "description": "description",
+        "stage": "proposed",
+        "branch": null,
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "priority": 1,
+        "type": "task",
+        "pinned": true,
+        "needsHuman": true,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "ready": true,
+        "blocked": true,
+        "deferred": true,
+        "childCount": 1,
+        "childDoneCount": 1,
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt",
+        "archived": true
+      },
+      "parseAdded": {
+        "blockedByNotes": [],
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false
+      },
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"stage\":\"proposed\",\"branch\":null,\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"blockedByNotes\":[],\"priority\":1,\"type\":\"task\",\"pinned\":true,\"needsHuman\":true,\"labels\":[],\"deps\":[],\"dependents\":[],\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"readAt\":null,\"origin\":\"human\",\"audience\":\"human\",\"draft\":false}"
+    },
+    {
+      "schema": "SharedIssueWire",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "repoPath": "repoPath",
+        "repoId": "repoId",
+        "prefix": "prefix",
+        "displayRef": "displayRef",
+        "seq": 1,
+        "title": "title",
+        "description": "description",
+        "brief": "brief",
+        "stage": "proposed",
+        "branch": "branch",
+        "parentBranch": "parentBranch",
+        "defaultAgent": "defaultAgent",
+        "defaultModel": "defaultModel",
+        "defaultEffort": "defaultEffort",
+        "linearId": "linearId",
+        "linearIdentifier": "linearIdentifier",
+        "linearUrl": "linearUrl",
+        "activityNotes": "activityNotes",
+        "notesUpdatedAt": "notesUpdatedAt",
+        "suggestedStage": "proposed",
+        "suggestedReason": "suggestedReason",
+        "blockedByNotes": ["blockedByNotes[0]"],
+        "dependencyNote": "dependencyNote",
+        "prUrl": "prUrl",
+        "priority": 1,
+        "type": "task",
+        "assignee": "assignee",
+        "parentId": "parentId",
+        "design": "design",
+        "acceptance": "acceptance",
+        "notes": "notes",
+        "dueAt": "dueAt",
+        "deferUntil": "deferUntil",
+        "closedReason": "closedReason",
+        "closedAt": "closedAt",
+        "tuckedAt": "tuckedAt",
+        "supersededBy": "supersededBy",
+        "duplicateOf": "duplicateOf",
+        "pinned": true,
+        "sortKey": "sortKey",
+        "color": "rose",
+        "estimateMin": 1,
+        "needsHuman": true,
+        "humanQuestion": "humanQuestion",
+        "humanQuestionOptions": ["humanQuestionOptions[0]"],
+        "humanQuestionAskedBy": "humanQuestionAskedBy",
+        "humanQuestionAskedAt": "humanQuestionAskedAt",
+        "panel": {
+          "todos": [
+            {
+              "text": "panel.todos[0].text",
+              "done": true
+            }
+          ],
+          "artifacts": [
+            {
+              "path": "panel.artifacts[0].path",
+              "title": "panel.artifacts[0].title",
+              "addedAt": "panel.artifacts[0].addedAt",
+              "sourceKind": "terminal-evidence",
+              "artifactId": "panel.artifacts[0].artifactId",
+              "entry": "panel.artifacts[0].entry",
+              "files": [
+                {
+                  "path": "panel.artifacts[0].files[0].path",
+                  "size": 1
+                }
+              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
+              "tracking": "tracked",
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
+            }
+          ],
+          "deferred": [
+            {
+              "text": "panel.deferred[0].text",
+              "addedAt": "panel.deferred[0].addedAt"
+            }
+          ]
+        },
+        "labels": ["labels[0]"],
+        "deps": [
+          {
+            "id": "deps[0].id",
+            "type": "deps[0].type"
+          }
+        ],
+        "dependents": [
+          {
+            "id": "dependents[0].id",
+            "type": "dependents[0].type"
+          }
+        ],
+        "comments": [
+          {
+            "id": "comments[0].id",
+            "author": "comments[0].author",
+            "body": "comments[0].body",
+            "createdAt": "comments[0].createdAt"
+          }
+        ],
+        "commentCount": 1,
+        "ready": true,
+        "blocked": true,
+        "deferred": true,
+        "childCount": 1,
+        "childDoneCount": 1,
+        "createdAt": "createdAt",
+        "updatedAt": "updatedAt",
+        "archived": true,
+        "deletedAt": "deletedAt",
+        "readAt": "readAt",
+        "origin": "human",
+        "audience": "human",
+        "draft": true,
+        "gitState": {
+          "updatedAt": "gitState.updatedAt",
+          "computing": true,
+          "branch": "gitState.branch",
+          "shared": true,
+          "ahead": 1,
+          "dirtyFiles": 1,
+          "dirtyOwn": 1,
+          "commits": ["gitState.commits[0]"],
+          "lastCommitAt": "gitState.lastCommitAt",
+          "unpushed": 1,
+          "merged": true,
+          "fallback": true
+        },
+        "viaHub": true,
+        "upstreamStale": true,
+        "pendingSync": true,
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"repoPath\":\"repoPath\",\"repoId\":\"repoId\",\"prefix\":\"prefix\",\"displayRef\":\"displayRef\",\"seq\":1,\"title\":\"title\",\"description\":\"description\",\"brief\":\"brief\",\"stage\":\"proposed\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"suggestedStage\":\"proposed\",\"suggestedReason\":\"suggestedReason\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"dependencyNote\":\"dependencyNote\",\"prUrl\":\"prUrl\",\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"parentId\":\"parentId\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"notes\":\"notes\",\"dueAt\":\"dueAt\",\"deferUntil\":\"deferUntil\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"tuckedAt\":\"tuckedAt\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"pinned\":true,\"sortKey\":\"sortKey\",\"color\":\"rose\",\"estimateMin\":1,\"needsHuman\":true,\"humanQuestion\":\"humanQuestion\",\"humanQuestionOptions\":[\"humanQuestionOptions[0]\"],\"humanQuestionAskedBy\":\"humanQuestionAskedBy\",\"humanQuestionAskedAt\":\"humanQuestionAskedAt\",\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"labels\":[\"labels[0]\"],\"deps\":[{\"id\":\"deps[0].id\",\"type\":\"deps[0].type\"}],\"dependents\":[{\"id\":\"dependents[0].id\",\"type\":\"dependents[0].type\"}],\"comments\":[{\"id\":\"comments[0].id\",\"author\":\"comments[0].author\",\"body\":\"comments[0].body\",\"createdAt\":\"comments[0].createdAt\"}],\"commentCount\":1,\"ready\":true,\"blocked\":true,\"deferred\":true,\"childCount\":1,\"childDoneCount\":1,\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"readAt\":\"readAt\",\"origin\":\"human\",\"audience\":\"human\",\"draft\":true,\"gitState\":{\"updatedAt\":\"gitState.updatedAt\",\"computing\":true,\"branch\":\"gitState.branch\",\"shared\":true,\"ahead\":1,\"dirtyFiles\":1,\"dirtyOwn\":1,\"commits\":[\"gitState.commits[0]\"],\"lastCommitAt\":\"gitState.lastCommitAt\",\"unpushed\":1,\"merged\":true,\"fallback\":true},\"viaHub\":true,\"upstreamStale\":true,\"pendingSync\":true,\"revision\":1}"
     },
     {
       "schema": "ShipAttempt",

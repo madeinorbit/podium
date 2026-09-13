@@ -60,6 +60,7 @@ import {
   type AutomationWire,
   type ConversationSummaryWire,
   type IssueDepProjection,
+  type IssueExecutionProjection,
   interactionRowId,
   type IssueEventWire,
   type IssueProjection,
@@ -458,6 +459,15 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // The owner-scoped execution sidecar [B4, PDM-136]. Keyed on `issueId`,
+      // which IS its identity — see `@podium/model`'s `issue-execution.ts` on
+      // why it is not spelled `id`.
+      issueExecutions: this.makeCollection<IssueExecutionProjection>(
+        'issueExecutions',
+        (e) => e.issueId,
+        guarded,
+        guardedEvents,
+      ),
       repos: this.makeCollection<RepoProjection>('repos', (r) => r.id, guarded, guardedEvents),
       issueEvents: this.makeCollection<IssueEventWire>(
         'issueEvents',
@@ -543,6 +553,7 @@ class TanstackReplica implements Replica {
       issues: [],
       issueProjections: [],
       issueDeps: [],
+      issueExecutions: [],
       repos: [],
       issueEvents: [],
       pendingInteractions: [],
@@ -592,6 +603,7 @@ class TanstackReplica implements Replica {
         issues: this.cols.issues.toArray as IssueWire[],
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
+        issueExecutions: this.cols.issueExecutions.toArray as IssueExecutionProjection[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
         pendingInteractions: this.cols.pendingInteractions

@@ -14,13 +14,41 @@
  * therefore produce no Store publication.
  */
 
+import { type IssueWire, joinIssueExecution } from '@podium/model'
 import type { Replica, ReplicaHydrateResult, ReplicaKind, ReplicaRows } from '../replica/contract'
+
+/**
+ * The owner-scoped private half, joined back onto the issue rows [B4, PDM-136].
+ *
+ * THE ENGINE IS THE SECOND JOIN SITE, and it is not optional. The kernel
+ * replica now holds SHARED issue rows — the four private execution keys arrive
+ * as their own owner-scoped kind — so every engine reader of `st.issues`
+ * (`state.ts`'s worktree selection, `viewmodels/session-ownership.ts`,
+ * `dock-panel.ts`, `slices/worklist/nav.ts`, and the ~30 surfaces behind them)
+ * would see an owner's own `worktreePath` as absent. That is the regression B3
+ * warned about: absence is not a free win, and it looks exactly like an issue
+ * that was never started.
+ *
+ * Returns the SAME ARRAY when there is nothing to join, which is the common case
+ * for a reader who owns nothing in view. `readChanged` compares by identity to
+ * decide what the Store republishes, so allocating a new array unconditionally
+ * would make every unrelated batch look like an issue change.
+ */
+function joinExecutions(
+  issues: readonly ReplicaRows['issues'][],
+  executions: readonly ReplicaRows['issueExecutions'][],
+): ReplicaRows['issues'][] {
+  if (executions.length === 0) return issues as ReplicaRows['issues'][]
+  const byIssue = new Map(executions.map((row) => [row.issueId as string, row]))
+  return issues.map((issue) => joinIssueExecution(issue, byIssue.get(issue.id)) as IssueWire)
+}
 
 export const REPLICA_BINDING_KINDS = [
   'sessions',
   'issues',
   'issueProjections',
   'issueDeps',
+  'issueExecutions',
   'repos',
   'issueEvents',
   'pendingInteractions',
@@ -75,6 +103,12 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
       const flush = (reason: ReplicaPublication['reason']): void => {
         if (stopped || generation !== mine || pending.size === 0) return
         const changed = new Set(pending)
+        // A sidecar change IS an issue change to every consumer [B4, PDM-136].
+        // `readChanged` re-derives the joined rows, but a subscriber keyed on
+        // 'issues' would never look at them: the Store republishes what the
+        // changed SET names, and naming only 'issueExecutions' would deliver the
+        // owner's worktree path into a snapshot nobody re-read.
+        if (changed.has('issueExecutions')) changed.add('issues')
         pending.clear()
         current = readChanged(replica, current, changed)
         subscriber.publish({ snapshot: current, changed, reason })
@@ -127,9 +161,10 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
 function readSnapshot(replica: Replica): ReplicaBindingSnapshot {
   return {
     sessions: replica.rows('sessions'),
-    issues: replica.rows('issues'),
+    issues: joinExecutions(replica.rows('issues'), replica.rows('issueExecutions')),
     issueProjections: replica.rows('issueProjections'),
     issueDeps: replica.rows('issueDeps'),
+    issueExecutions: replica.rows('issueExecutions'),
     repos: replica.rows('repos'),
     issueEvents: replica.rows('issueEvents'),
     pendingInteractions: replica.rows('pendingInteractions'),
@@ -151,6 +186,15 @@ function readChanged(
     // The indexed access is the same K on both sides; the mapped object retains
     // the correlation that TypeScript loses while iterating a union of keys.
     ;(next as Record<ReplicaKind, unknown>)[kind] = replica.rows(kind)
+  }
+  // `issues` DEPENDS ON `issueExecutions` [B4, PDM-136], so a batch that changed
+  // only the sidecar must still re-derive the joined issue rows — otherwise an
+  // owner's worktree path appears on the first frame that happens to touch an
+  // issue and never on the frame that actually delivered it. This is the one
+  // cross-kind dependency in this adapter and it is the reason the join lives
+  // here rather than in each reader.
+  if (changed.has('issues') || changed.has('issueExecutions')) {
+    next.issues = joinExecutions(replica.rows('issues'), replica.rows('issueExecutions'))
   }
   return next
 }

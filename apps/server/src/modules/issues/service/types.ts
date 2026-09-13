@@ -53,7 +53,14 @@ export interface IssueFunnel {
  *  so tests can fake it. */
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
+  /** 'issueExecution' is the OWNER-SCOPED half [B4, PDM-136]: the four private
+   *  execution keys the shared 'issue'/'issueProjection' payloads no longer
+   *  carry. It reconciles in the same pass as the other three and from the same
+   *  truth, so the shared half and the private half can never describe different
+   *  issues; what differs is only who is in its audience, and that is decided in
+   *  `feed-visibility.ts` by the issue's OWNER and by nothing else.
+   *
+   *  'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
    *  alongside 'issue', reconciled from the same truth in the same pass, never a
    *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
    *  cannot carry two payload shapes at once). 'issueDep' and 'repo' are the two
@@ -62,7 +69,7 @@ export interface IssueLedger {
    *  `issue/dep.ts`, `repo/fields.ts`). All three reconcile the same way and are
    *  emitted only under the same flag. */
   reconcile(
-    entity: 'issue' | 'issueProjection' | 'issueDep' | 'repo',
+    entity: 'issue' | 'issueProjection' | 'issueExecution' | 'issueDep' | 'repo',
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]>
   /** Append partial truth without diffing unrelated baseline rows (POD-210). */

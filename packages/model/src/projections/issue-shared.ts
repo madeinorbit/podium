@@ -56,6 +56,7 @@
  */
 
 import { z } from 'zod'
+import { IssueWire } from '../entities/issue'
 import { IssueProjection } from './issue-projection'
 
 /**
@@ -99,8 +100,17 @@ export const SHARED_ISSUE_KEYS = Object.keys(IssueProjection.shape).filter(
     !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(key),
 )
 
-/** The private keys as zod's `.omit()` takes them, derived from the one list. */
-const privateKeyMask = Object.fromEntries(
+/**
+ * The private keys as zod's `.omit()`/`.pick()` take them, derived from the one
+ * list.
+ *
+ * EXPORTED (B4, PDM-136) because the sidecar that carries the private half away
+ * — `./issue-execution.ts` — picks with exactly this mask. Two masks built from
+ * the same list would still be two places to edit; one mask means the shared
+ * payload loses a key and the sidecar gains it in the same edit, which is what
+ * makes the pair total by construction rather than by review.
+ */
+export const ISSUE_PRIVATE_KEY_MASK = Object.fromEntries(
   ISSUE_PRIVATE_EXECUTION_KEYS.map((key) => [key, true as const]),
 ) as { [K in IssuePrivateExecutionKey]: true }
 
@@ -113,7 +123,7 @@ const privateKeyMask = Object.fromEntries(
  * fixtures as the gate. This is that projection and `issue-shared.test.ts` is
  * that gate.
  */
-export const SharedIssueProjection = IssueProjection.omit(privateKeyMask)
+export const SharedIssueProjection = IssueProjection.omit(ISSUE_PRIVATE_KEY_MASK)
 export type SharedIssueProjection = z.infer<typeof SharedIssueProjection>
 
 /**
@@ -126,3 +136,34 @@ export type SharedIssueProjection = z.infer<typeof SharedIssueProjection>
  */
 export const toSharedWire = (projection: IssueProjection): SharedIssueProjection =>
   SharedIssueProjection.parse(projection)
+
+/**
+ * **The LEGACY issue wire as a reader who is not its owner may see it**, and the
+ * half of this split that PDM-387's brief did not name.
+ *
+ * THE BRIEF SAID `issueProjection`; THERE ARE TWO DOORS. `IssueWire` carries the
+ * same four keys (`entities/issue.ts`: `worktreePath` and `machineId` on
+ * `IssueWireCore`, `coordinatorSessionId` and `startedBySession` on
+ * `IssueWireTail`), it is a live broadcast arm in BOTH transports
+ * (`protocol/messages/feed.ts` `feedChangeArm(z.literal('issue'), IssueWire)`
+ * and `messages/sync.ts`'s matching metadata arm), it is reconciled on every
+ * issue write, and it is in the bootstrap snapshot tail. Decisively, the feed's
+ * read predicate does not distinguish the two kinds —
+ * `apps/server/src/feed-visibility.ts` resolves
+ * `ref.entity === 'issue' || ref.entity === 'issueProjection'` through ONE arm —
+ * so the predicate C4 (PDM-144) widens widens both at once. A sidecar paying for
+ * only one of them would close one door of two while every instrument read
+ * green, which is the shape the false-green catalogue calls a fix without a
+ * mechanism.
+ *
+ * Derived with the same mask as {@link SharedIssueProjection} rather than a
+ * second key list, for the same reason `ISSUE_PRIVATE_KEY_MASK` is exported: the
+ * two shared shapes and the sidecar are three views of ONE list.
+ */
+export const SharedIssueWire = IssueWire.omit(ISSUE_PRIVATE_KEY_MASK)
+export type SharedIssueWire = z.infer<typeof SharedIssueWire>
+
+/** Legacy R4 -> shared legacy R4. `.parse()`, never a structural delete, for the
+ *  reason {@link toSharedWire} gives. */
+export const toSharedIssueWire = (wire: IssueWire): SharedIssueWire =>
+  SharedIssueWire.parse(wire)

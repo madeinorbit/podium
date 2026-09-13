@@ -339,6 +339,10 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       }
       const projections = await store.allProjections()
       if (projections) await store.deps.ledger.reconcile('issueProjection', projections)
+      // The owner-scoped half catches up on the same boot pass [B4, PDM-136]; a
+      // baseline that aged out of retention re-stages both halves or neither.
+      const executions = await store.allExecutions()
+      if (executions) await store.deps.ledger.reconcile('issueExecution', executions)
       const depProjections = await store.allDepProjections()
       if (depProjections) await store.deps.ledger.reconcile('issueDep', depProjections)
       await store.publishRepos()

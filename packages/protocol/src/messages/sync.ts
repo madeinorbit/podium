@@ -9,9 +9,12 @@ import {
   GlobalChangeOpField,
   IssueDepProjection,
   IssueEventWire,
+  IssueExecutionProjection,
   IssueProjection,
   IssueWire,
   LayoutWire,
+  SharedIssueProjection,
+  SharedIssueWire,
   RepoProjection,
   SessionMeta,
   type SessionId,
@@ -35,8 +38,11 @@ import { PendingInteractionWire } from './runtime-interactions'
 export {
   IssueDepProjection,
   IssueEventWire,
+  IssueExecutionProjection,
   IssueProjection,
   RepoProjection,
+  SharedIssueProjection,
+  SharedIssueWire,
   ShipOrderProjection,
 }
 
@@ -131,7 +137,7 @@ const FeedIdShape = {
 
 export const MetadataChange = z.discriminatedUnion('entity', [
   metadataChangeArm(z.literal('session'), SessionMeta),
-  metadataChangeArm(z.literal('issue'), IssueWire),
+  metadataChangeArm(z.literal('issue'), SharedIssueWire),
   /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
    *  alongside 'issue', not a reshaping of it, and that is the whole transition
    *  strategy.
@@ -148,7 +154,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *
    *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
    *  which issue collection to render. */
-  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
+  metadataChangeArm(z.literal('issueProjection'), SharedIssueProjection),
   /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
    *  first-class entities, keyed by their own primary key (`issueDepId`).
    *
@@ -163,6 +169,26 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
    *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('issueDep'), IssueDepProjection),
+  /** The OWNER-SCOPED private half of one issue [B4, PDM-136] — `worktreePath`,
+   *  `machineId`, `coordinatorSessionId`, `startedBySession`, keyed by the
+   *  issue's own id.
+   *
+   *  These four used to ride `issue` and `issueProjection`, whose audience is
+   *  everyone who may READ the task. B3 (PDM-135) classified them and said in its
+   *  own header why it could not carry them away: the payload is
+   *  principal-independent by construction, so there is no seam in the kernel to
+   *  filter a field at. A row of its own with an audience of its own is that
+   *  seam. `feed-visibility.ts` decides this kind by the issue's OWNER and by
+   *  nothing else, so C4 (PDM-144) widening the issue read predicate does not
+   *  widen this.
+   *
+   *  Same additive contract as the kinds above: a build whose
+   *  `MetadataEntityKind` predates it drops these rows to
+   *  {@link UnknownMetadataChange}, ignores them and ADVANCES the cursor. That
+   *  degradation is the safe direction here and not merely tolerable — an older
+   *  client simply does not learn its own worktree path from the feed.
+   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('issueExecution'), IssueExecutionProjection),
   /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
    *  for `displayRef`.
    *
@@ -234,6 +260,7 @@ export const MetadataEntityKind = z.enum([
   'issue',
   'issueProjection',
   'issueDep',
+  'issueExecution',
   'repo',
   'shipOrder',
   'conversation',
@@ -343,8 +370,15 @@ const changesSinceSnapshotArm = () =>
   z.object({
     kind: z.literal('snapshot'),
     sessions: z.array(SessionMeta),
-    issues: z.array(IssueWire),
-    issueProjections: z.array(IssueProjection).optional(),
+    // THE SNAPSHOT SPLITS THE SAME WAY THE DELTA DOES [B4, PDM-136]. A bootstrap
+    // that carried the wide shapes would hand a new connection exactly what the
+    // delta arm refuses it, and `scopeBootstrap` has no field seam either — it
+    // pushes whole rows. `issueExecutions` is the owner-scoped half, and it is
+    // `.optional()` for the same reason the two kinds above it are: a peer that
+    // predates the split sends no such key.
+    issues: z.array(SharedIssueWire),
+    issueProjections: z.array(SharedIssueProjection).optional(),
+    issueExecutions: z.array(IssueExecutionProjection).optional(),
     issueDeps: z.array(IssueDepProjection).optional(),
     repos: z.array(RepoProjection).optional(),
     shipOrders: z.array(ShipOrderProjection).optional(),

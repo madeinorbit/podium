@@ -1,5 +1,5 @@
 import { firstAdminMemberId } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionMeta, SharedIssueWire } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -112,17 +112,25 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
     const legacyChanges = deltas(legacyNew)
+    // THREE kinds per issue write since B4 (PDM-136): the two shared payloads
+    // and the owner-scoped `issueExecution` sidecar carrying the private
+    // execution keys the shared two no longer have.
     expect(legacyChanges.map((change) => change.entity).sort()).toEqual([
       'issue',
+      'issueExecution',
       'issueProjection',
     ])
     expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
     // The cap-advertising peer observes the same canonical rows.
     const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    expect(changes.map((change) => change.entity).sort()).toEqual([
+      'issue',
+      'issueExecution',
+      'issueProjection',
+    ])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issue')
-    expect((residue as { value: IssueWire }).value.notes).toBe('self-contained edit')
+    expect((residue as { value: SharedIssueWire }).value.notes).toBe('self-contained edit')
   })
 
   it('streams session upserts through the same seam', async () => {
@@ -228,7 +236,7 @@ describe('SessionRegistry metadata deltas', () => {
     await expect.poll(() => deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issue').length).toBe(1)
     const seen = deltas(other.inbox.slice(before)).filter((c) => c.entity === 'issue')
     expect(seen).toHaveLength(1)
-    expect((seen[0] as { value: IssueWire }).value.tuckedAt).toBeTruthy()
+    expect((seen[0] as { value: SharedIssueWire }).value.tuckedAt).toBeTruthy()
 
     // And the client that was disconnected converges through catch-up rather
     // than painting the stale un-tucked row from its own storage.
@@ -236,7 +244,7 @@ describe('SessionRegistry metadata deltas', () => {
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const change = healed.changes.find((c) => c.entity === 'issue' && c.id === w.id)
-    expect((change as { value: IssueWire } | undefined)?.value.tuckedAt).toBeTruthy()
+    expect((change as { value: SharedIssueWire } | undefined)?.value.tuckedAt).toBeTruthy()
   })
 
   it('a pre-hello client receives no entity world until it announces an eviction-capable wire', async () => {

@@ -1,3 +1,4 @@
+import { type IssueWire, joinIssueExecution } from '@podium/model'
 import {
   type MetadataDeltaMessageLenient,
   parseChangesSinceResult,
@@ -190,7 +191,17 @@ const projectionOf = (
   snapshot: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
 ): LegacyMetadataProjection => ({
   sessions: snapshot.sessions,
-  issues: snapshot.issues,
+  // The snapshot's issues are the SHARED shape [B4, PDM-136]; the owner's
+  // private half arrives as its own list and is joined back on here, so a v1
+  // consumer downstream sees the row it has always seen.
+  issues: ((): IssueWire[] => {
+    const executionByIssue = new Map(
+      (snapshot.issueExecutions ?? []).map((row) => [row.issueId as string, row]),
+    )
+    return snapshot.issues.map(
+      (issue) => joinIssueExecution(issue, executionByIssue.get(issue.id)) as IssueWire,
+    )
+  })(),
   issueProjections: snapshot.issueProjections ?? [],
   issueDeps: snapshot.issueDeps ?? [],
   repos: snapshot.repos ?? [],

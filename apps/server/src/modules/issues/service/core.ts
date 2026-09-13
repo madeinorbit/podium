@@ -7,7 +7,9 @@ import {
   type IssueGitState,
   type IssueId,
   type IssuePanel,
+  type IssueExecutionProjection,
   type IssueProjection,
+  toExecutionWire,
   type IssueUserOverlay,
   type IssueWire,
   type MachineId,
@@ -35,6 +37,7 @@ import { countIssueWireBuild } from '../instrumentation'
 import {
   issueDepProjectionRows,
   issueDepToProjection,
+  issueExecutionRows,
   issueProjectionRows,
   issueRowToProjection,
   repoProjectionRows,
@@ -1030,14 +1033,23 @@ export class IssueStore {
    *  stay a single expression when the flag is off. */
   async projectionChanges(
     row: IssueRow,
-  ): Promise<{ entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[]> {
+  ): Promise<
+    (
+      | { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }
+      | { entity: 'issueExecution'; id: string; op: 'upsert'; value: IssueExecutionProjection }
+    )[]
+  > {
+    // ONE projection, TWO rows [B4, PDM-136]. Projected once and split, never
+    // projected twice: two calls to `issueRowToProjection` would be two mappings
+    // of one row, and the halves could disagree about an issue that changed
+    // between them.
+    const projection = issueRowToProjection(
+      row,
+      await this.deps.store.issues.getIssueLabels(row.id),
+    )
     return [
-      {
-        entity: 'issueProjection',
-        id: row.id,
-        op: 'upsert',
-        value: issueRowToProjection(row, await this.deps.store.issues.getIssueLabels(row.id)),
-      },
+      { entity: 'issueProjection', id: row.id, op: 'upsert', value: projection },
+      { entity: 'issueExecution', id: row.id, op: 'upsert', value: toExecutionWire(projection) },
     ]
   }
 
@@ -1053,6 +1065,15 @@ export class IssueStore {
   async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
     const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
+  }
+
+  /** Full LOCAL truth for the OWNER-SCOPED half [B4, PDM-136]. `undefined` = do
+   *  not reconcile this kind, on the same all-or-nothing terms as
+   *  {@link allProjections} — see {@link issueExecutionRows} on why a partial
+   *  list would silently delete an owner's own worktree path. */
+  async allExecutions(): Promise<{ id: string; value: IssueExecutionProjection }[] | undefined> {
+    const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
+    return issueExecutionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
   }
 
   // ---- The two kinds the replica JOINS against [POD-822] ----
@@ -1140,6 +1161,12 @@ export class IssueStore {
     await this.deps.ledger.reconcile('issue', spec.rows)
     const projections = await this.allProjections()
     if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
+    // The owner-scoped half rides the SAME pass [B4, PDM-136]. Reconciling it on
+    // a different pass would let the shared half and the private half be built
+    // from two reads of the store, and an issue that moved between them would
+    // reach the owner as two halves of two different issues.
+    const executions = await this.allExecutions()
+    if (executions) await this.deps.ledger.reconcile('issueExecution', executions)
     // The edges reconcile on the same full-truth passes [POD-822], for the same
     // reason the projections do: this path exists to catch what no write
     // declared, and a CASCADE delete (an issue removed takes its edges with it)

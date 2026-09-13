@@ -30,6 +30,9 @@ import {
   RepoProjection,
   SessionMeta,
   ShipOrderProjection,
+  IssueExecutionProjection,
+  SharedIssueProjection,
+  SharedIssueWire,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
@@ -57,8 +60,13 @@ const arms = FeedChange.options as unknown as Arm[]
  *  entity kind cannot arrive unchecked. */
 const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   session: SessionMeta,
-  issue: IssueWire,
-  issueProjection: IssueProjection,
+  // THE SHARED SHAPES [B4, PDM-136]. These two arms deliberately do NOT carry
+  // `IssueWire`/`IssueProjection` any more: those hold four private execution
+  // keys whose audience is the issue's owner, and the payload typed here is
+  // exactly what a producer is allowed to put on the wire.
+  issue: SharedIssueWire,
+  issueProjection: SharedIssueProjection,
+  issueExecution: IssueExecutionProjection,
   issueDep: IssueDepProjection,
   repo: RepoProjection,
   conversation: ConversationSummaryWire,
@@ -85,10 +93,10 @@ const delta = (over: Partial<z.input<typeof FeedDeltaMessage>> = {}) => ({
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all nine entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all ten entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(9)
+    expect(arms).toHaveLength(10)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 

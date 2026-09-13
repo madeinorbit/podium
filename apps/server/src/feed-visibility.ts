@@ -230,6 +230,34 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     )
   }
 
+  /**
+   * **MAY THIS PERSON SEE THE PRIVATE EXECUTION HALF OF THIS ISSUE** — the
+   * OWNER, and nobody else [B4, PDM-136].
+   *
+   * THE ABSENCE OF A GRANT TERM IS THE ENTIRE POINT OF THIS FUNCTION, and it is
+   * why it is written out here rather than expressed as
+   * `mayReadIssueFromSnapshot` with an argument. The four keys it governs —
+   * `worktreePath`, `machineId`, `coordinatorSessionId`, `startedBySession` —
+   * were moved off the shared issue payloads precisely so that C4 (PDM-144),
+   * which replaces the issue READ predicate with the active-member class policy,
+   * cannot widen them. Route this through the read predicate and the sidecar
+   * widens on exactly the commit the shared payload does, and the split has
+   * bought nothing while every test still passes.
+   *
+   * So: no grant term, no audience term, no call into the read predicate. An
+   * issue GRANT deliberately does not carry the private half — ADR 9 Am.1 D13
+   * limits what a shared task exposes to owner, title and live/idle state, and
+   * an absolute path on one human's machine is none of those.
+   */
+  const mayReadIssueExecutionFromSnapshot = (
+    userId: string,
+    issueId: string,
+    snapshot: BootstrapVisibilityPrefetch,
+  ): boolean => {
+    if (!snapshot.issueIds.has(issueId)) return false
+    return snapshot.issues.get(issueId)?.ownerUserId === userId
+  }
+
   const mayReadIssueFromSnapshot = (
     userId: string,
     issueId: string,
@@ -272,6 +300,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'session' ||
           entity === 'issue' ||
           entity === 'issueProjection' ||
+          // The owner-scoped private half of an issue [B4, PDM-136]. `personal`
+          // and not a class of its own for the same reason `issueEvent` is not:
+          // the class says how the row is DECIDED (owner or grant edge), and the
+          // narrowing that matters here is in `mayRead`'s arm, which resolves
+          // the owner and consults no grant at all.
+          entity === 'issueExecution' ||
           entity === 'issueDep' ||
           // A curated issue event (POD-1772). `personal` and NOT a class of its
           // own: it is readable by exactly the audience of the issue it is about,
@@ -295,6 +329,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
+        // Checked BEFORE the issue arm, and deliberately not folded into it:
+        // the two kinds are keyed by the same id and a reader skimming one arm
+        // covering three kinds would not see that one of them is owner-only.
+        if (ref.entity === 'issueExecution') {
+          return mayReadIssueExecutionFromSnapshot(userId, ref.entityId, prefetch)
+        }
         if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
@@ -403,7 +443,16 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
     for (const ref of refs) {
-      if (ref.entity === 'issue' || ref.entity === 'issueProjection') {
+      if (
+        ref.entity === 'issue' ||
+        ref.entity === 'issueProjection' ||
+        // The owner-scoped sidecar is keyed BY the issue id and its owner check
+        // reads the same row [B4, PDM-136]. Prefetch it here or
+        // `mayReadIssueExecutionFromSnapshot` denies every owner for want of a
+        // row rather than for want of a right — a fail-closed denial that would
+        // look exactly like the policy working.
+        ref.entity === 'issueExecution'
+      ) {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
@@ -616,6 +665,12 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const subjects = [
         { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
+        // The owner-scoped half rides the issue's anchor [B4, PDM-136]. It must:
+        // `anchorFor` re-decides per subject, so a reader who is not the owner
+        // gets an `evict` for a row they never held and the OWNER gets the
+        // upsert. Leaving it off the anchor would mean an ownership change
+        // moved the shared half and left the private half where it was.
+        { entity: 'issueExecution' as const, entityId: ref.entityId },
         ...issueSessions.map((session) => ({
           entity: 'session' as const,
           entityId: session.id,

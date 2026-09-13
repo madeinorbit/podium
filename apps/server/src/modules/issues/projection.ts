@@ -8,12 +8,14 @@ import {
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
+  type IssueExecutionProjection,
   type IssueProjection,
   issueDepId,
   issueDepToWire,
   Repo,
   type RepoProjection,
   repoToWire,
+  toExecutionWire,
   toWire,
   type IssueId,
   type RepoId,
@@ -195,6 +197,52 @@ export function issueProjectionRows(
     } catch (err) {
       log.warn(
         'an issue could not be projected — skipping the whole issueProjection publish so reconcile cannot mistake a partial list for a delete',
+        { err, issueId: row.id },
+      )
+      return undefined
+    }
+  }
+  return out
+}
+
+// ---- The OWNER-SCOPED half the replica joins by issue id [B4, PDM-136] ----
+//
+// `issueExecutionRows` is the sidecar `issue-execution.ts` describes: the four
+// private execution keys, carried on a row whose audience is the issue's OWNER
+// rather than everyone who may read the task. It is built from the SAME
+// `issueRowToProjection` output the shared rows are built from, so the two
+// halves cannot describe different issues — deriving the private half from the
+// store row a second time would be a second mapping, and ADR 4 D3.4 rejects a
+// second mapper per hop precisely because it guarantees drift.
+
+/**
+ * Full-truth `issueExecution` reconcile rows.
+ *
+ * All-or-nothing on failure for the reason {@link issueProjectionRows} gives at
+ * length, and here the failure mode is sharper than usual: `Ledger.reconcile`
+ * diffs FULL truth, so an issue missing from a partial list is diffed as a
+ * REMOVE and the OWNER's client durably loses its own worktree path. The task
+ * would still render — every reader of these keys handles absence, because
+ * absence is what an unstarted issue looks like — so the damage would be silent
+ * and would look exactly like the issue having no worktree. `undefined` leaves
+ * the baseline alone and the next publish heals it.
+ *
+ * A row with NO private half still gets a row. This is deliberate and it is the
+ * remove path: an issue whose worktree was torn down must reach the owner as a
+ * row with the keys absent, not as no row at all, because no row means
+ * "unchanged" to a replica that already holds the old one.
+ */
+export function issueExecutionRows(
+  rows: Iterable<IssueRow>,
+  labelsOf: (id: string) => string[],
+): { id: IssueId; value: IssueExecutionProjection }[] | undefined {
+  const out: { id: IssueId; value: IssueExecutionProjection }[] = []
+  for (const row of rows) {
+    try {
+      out.push({ id: row.id, value: toExecutionWire(issueRowToProjection(row, labelsOf(row.id))) })
+    } catch (err) {
+      log.warn(
+        'an issue could not be projected — skipping the whole issueExecution publish so reconcile cannot mistake a partial list for a delete',
         { err, issueId: row.id },
       )
       return undefined

@@ -33,6 +33,9 @@ const ENTITY_TO_KIND = {
   // says it cannot.
   issueProjection: 'issueProjections',
   issueDep: 'issueDeps',
+  /** B4's owner-scoped execution sidecar. Same rule again: `issueExecution` is
+   *  `MetadataEntityKind`'s literal, not a guess. */
+  issueExecution: 'issueExecutions',
   repo: 'repos',
   /** POD-1772's curated issue events. Same rule as the three kinds above: the
    *  entity spelling is `MetadataEntityKind`'s literal, not a guess. */
@@ -87,5 +90,11 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
     const layout = row as ReplicaRows['userLayouts']
     return layoutRowId(layout.userId, layout.key)
   }
+  // The sidecar's identity IS its issue's, and it spells that `issueId` rather
+  // than `id` so nobody mistakes it for an entity with a life of its own
+  // (`@podium/model`'s `issue-execution.ts`). An arm here rather than a rename
+  // there: a row whose key fell through to `.id` would key on `undefined`, and
+  // every issue's private half would collide on one row.
+  if (kind === 'issueExecutions') return (row as ReplicaRows['issueExecutions']).issueId
   return (row as ReplicaRows['issues']).id
 }

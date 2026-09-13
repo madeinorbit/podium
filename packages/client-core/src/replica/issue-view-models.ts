@@ -6,7 +6,14 @@
  * React into a platform-neutral slice, and it must not restate unread
  * derivation (POD-843).
  */
-import type { IssueId, IssueProjection, IssueWire, SessionId } from '@podium/model'
+import {
+  type IssueExecutionProjection,
+  type IssueId,
+  type IssueProjection,
+  type IssueWire,
+  joinIssueExecution,
+  type SessionId,
+} from '@podium/model'
 import {
   buildIssueTree,
   deriveIssueRollups,
@@ -143,6 +150,19 @@ export function buildIssueViewModel(
   snapshot: IssueViewsSnapshot,
   projection: IssueProjection,
   legacy: IssueWire | undefined,
+  /**
+   * THE OWNER-SCOPED PRIVATE HALF [B4, PDM-136], or `undefined` for an issue
+   * this principal does not own.
+   *
+   * `undefined` is the ORDINARY case and must never be treated as missing data.
+   * The four keys it carries left the broadcast payloads because a machine-local
+   * path is not something a shared task exposes (ADR 9 Am.1 D13); a non-owner
+   * therefore renders a complete task whose worktree path is simply unset, which
+   * is byte-for-byte the state an unstarted issue has always presented. That is
+   * why no reader downstream of this function needed changing: they all already
+   * handle absence, because absence was always reachable.
+   */
+  execution?: IssueExecutionProjection,
 ): IssueViewModel | undefined {
   const view = snapshot.views.get(projection.id)
   if (!view) return undefined
@@ -170,7 +190,11 @@ export function buildIssueViewModel(
   const readAt = legacy.readAt ?? null
   return {
     ...legacySupplement,
-    ...projectionOnLegacySpelling(projection),
+    // The private half goes on FIRST, under the projection's legacy spelling,
+    // so the `?? null` normalisation below still decides the final value of
+    // `worktreePath` — otherwise an owner's path would arrive as `undefined`
+    // where every reader downstream expects `string | null`.
+    ...projectionOnLegacySpelling(joinIssueExecution(projection, execution)),
     ...derived,
     readAt,
     ...deriveIssueRollups(
@@ -189,11 +213,21 @@ export function buildIssueViewModels(
   snapshot: IssueViewsSnapshot,
   projectionRows: readonly IssueProjection[],
   legacyRows: readonly IssueWire[],
+  executionRows: readonly IssueExecutionProjection[] = [],
 ): Map<string, IssueViewModel> {
   const models = new Map<string, IssueViewModel>()
   const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
+  // Indexed once per pass rather than scanned per issue: this builder is the
+  // O(world) path POD-1053 split `buildIssueViewModel` out of, and a linear find
+  // inside it would put the shape back.
+  const executionByIssue = new Map(executionRows.map((row) => [row.issueId as string, row]))
   for (const projection of projectionRows) {
-    const model = buildIssueViewModel(snapshot, projection, legacyById.get(projection.id))
+    const model = buildIssueViewModel(
+      snapshot,
+      projection,
+      legacyById.get(projection.id),
+      executionByIssue.get(projection.id),
+    )
     if (model) models.set(projection.id, model)
   }
   return models
@@ -203,6 +237,12 @@ export function issueViewModelsFromReplica(
   replica: Replica,
   projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
   legacyRows: readonly IssueWire[] = replica.rows('issues'),
+  executionRows: readonly IssueExecutionProjection[] = replica.rows('issueExecutions'),
 ): Map<string, IssueViewModel> {
-  return buildIssueViewModels(deriveIssueViewsSnapshot(replica), projectionRows, legacyRows)
+  return buildIssueViewModels(
+    deriveIssueViewsSnapshot(replica),
+    projectionRows,
+    legacyRows,
+    executionRows,
+  )
 }

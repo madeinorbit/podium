@@ -61,6 +61,7 @@ import type {
   AutomationWire,
   ConversationSummaryWire,
   IssueDepProjection,
+  IssueExecutionProjection,
   IssueEventWire,
   IssueProjection,
   IssueWire,
@@ -104,6 +105,17 @@ export interface ReplicaRows {
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
   issueDeps: IssueDepProjection
+  /** The OWNER-SCOPED private half of an issue [B4, PDM-136] — `worktreePath`,
+   *  `machineId`, `coordinatorSessionId`, `startedBySession`, keyed by issue id.
+   *
+   *  This collection is EMPTY for every issue this principal does not own, and
+   *  that is the mechanism rather than a quirk: the server's `mayRead` arm for
+   *  this kind resolves the issue's owner and consults no grant, so a task
+   *  shared with you arrives complete and its private half simply never does.
+   *  The views join it back on by issue id — see `joinIssueExecution` in
+   *  `@podium/model` — which is why every existing reader of those four keys
+   *  keeps working for the owner without knowing this kind exists. */
+  issueExecutions: IssueExecutionProjection
   /** Logical repos [POD-822] — `(id, prefix)`. The views join `issue.repoId →
    *  repo.prefix` for `displayRef`; a prefix change moves every `POD-13` in the
    *  repo without rewriting an issue (D7.2). */
@@ -154,6 +166,7 @@ export interface ReplicaHydrateResult {
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
   issueProjections: IssueProjection[]
   issueDeps: IssueDepProjection[]
+  issueExecutions: IssueExecutionProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
   pendingInteractions: PendingInteractionWire[]
