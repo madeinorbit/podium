@@ -168,3 +168,42 @@ authenticated by the pairing/enrollment ledger, not human-facing read surfaces. 
   (`/files/artifact/*`, `/files/asset`) are recorded with owner B, beside the `files.*` entries they
   duplicate over a different transport, and a gate over the Hono route table is work phase B can
   take with them.
+
+---
+
+## Closures recorded after this snapshot
+
+Append-only, newest last. **The rows above are not edited.** Each was true at this document's
+pin (`b7248a5a2aff5a8484eddb5d483a0c5e93853b1b`) and stays true about that moment; a row rewritten
+to say "fixed" would turn a dated measurement into a status board nobody re-derives. Ruled by the
+PDM-107 coordinator on 2026-09-13.
+
+Each line is a **pointer, not a claim of correctness**. What proves a row closed is the instrument
+re-run — so each line says which instrument, and says so honestly when there is none.
+
+- **2026-09-13** — row: `GET /files/artifact/:issueId/:artifactId/*` (HTTP reads that return
+  stored rows). Closed by **PDM-261** at OSS `9db408f600a5e7e270641a6b32cd0755bb3d9219` on
+  `issue/pdm-261-artifact-route-authz`, branched from `issue/pdm-107-multi-user` at
+  `6ab16399971aaf76713f33e4e2043bb383947911`. **Not yet landed on the integration ref** at the time
+  of writing — the coordinator lands it.
+  The route no longer receives `registry.modules.issueArtifacts`; it receives one caller's
+  `FileAccessGate` and reads through `readArtifact`, which runs `checkIssueAccess` — the same rule
+  `files.read` runs over these same bytes.
+
+  **NO COMMAND RE-DERIVES THIS ROW, and that is the honest answer rather than a missing one.**
+  `projection-census.test.ts` governs the tRPC surface only and says so at its own line 64: *"The
+  raw HTTP, WebSocket and file-route families are OUTSIDE this census."* This section of the
+  document was hand-read at the pin — *"Each row below was read at this pin"* — so there is no
+  instrument to re-run, which is the same gap "What this document does not claim" names when it
+  says a gate over the Hono route table is work phase B can take.
+
+  What witnesses the closure instead is a test, not an audit:
+  `apps/server/src/file-artifact-route.authz.test.ts` drives this route and `files.read` over one
+  constructed `fileAccessGate`. Deleting the single `checkIssueAccess` call inside `readArtifact`
+  reddens four cases there and one in `modules/files/queries.authz.test.ts` at once — which is what
+  shows the two transports run one rule rather than two lookalikes. Run it with:
+
+      bun run --cwd apps/server test:boundary -- src/file-artifact-route.authz.test.ts
+
+  A closure line is worth exactly as much as the thing it points at; this one points at a test that
+  fails when the rule is removed.
