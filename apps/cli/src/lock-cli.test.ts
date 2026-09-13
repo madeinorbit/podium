@@ -6,6 +6,7 @@ import {
   fmtDuration,
   mergeLockArgv,
   parseLockArgs,
+  repoInferenceCandidates,
   runLockCli,
   sleepUnlessAborted,
 } from './lock-cli'
@@ -812,5 +813,177 @@ describe('merge-lock passes a value through whatever it holds', () => {
       name: 'merge:main',
       note: '--urgent',
     })
+  })
+})
+
+/**
+ * PDM-389 case 5: a detached scratch worktree is not a registered checkout, so
+ * inference from the cwd answers null and every lock verb died on
+ * `repoPath: Required` — taking `scripts/test-heavy.ts` with it, and with it the
+ * baseline half of every heavy-lane name diff.
+ */
+describe('repo inference reaches the main checkout from a linked worktree', () => {
+  const porcelain = (main: string) =>
+    `worktree ${main}\nHEAD 89574f1c86a138a1242753397cb0635f385ed0f3\nbranch refs/heads/main\n`
+
+  it('offers the main checkout as a second candidate from a linked worktree', () => {
+    const runGit = vi.fn(() => porcelain('/repos/podium'))
+    expect(repoInferenceCandidates('/scratch/base', runGit)).toEqual([
+      '/scratch/base',
+      '/repos/podium',
+    ])
+  })
+
+  it('offers only the cwd from the main checkout itself — no second round trip', () => {
+    const runGit = vi.fn(() => porcelain('/repos/podium'))
+    expect(repoInferenceCandidates('/repos/podium', runGit)).toEqual(['/repos/podium'])
+  })
+
+  it('offers only the cwd when git cannot answer at all', () => {
+    expect(repoInferenceCandidates('/not/a/repo', () => null)).toEqual(['/not/a/repo'])
+  })
+
+  it('resolves repoPath from the main checkout when the cwd is unregistered', async () => {
+    // The exact case-5 shape: the tracker has a row for the main checkout and
+    // none for the scratch worktree the command is actually running in.
+    const asked: string[] = []
+    const infer = async ({ path }: { path: string }) => {
+      asked.push(path)
+      return { repoPath: path === '/repos/podium' ? '/repos/podium' : null }
+    }
+    const acquiredWith: Record<string, unknown>[] = []
+    const mutate = async (a: Record<string, unknown>) => {
+      acquiredWith.push(a)
+      return grantedWire('test:heavy')
+    }
+    const client = {
+      lock: { acquire: { mutate } },
+      repos: { inferFromPath: { query: infer } },
+    } as never
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue('/scratch/base')
+    try {
+      const out = await runLockCli(['acquire', 'test:heavy'], client, {
+        runGit: () => porcelain('/repos/podium'),
+      })
+      expect(out.exitCode).toBe(0)
+    } finally {
+      cwd.mockRestore()
+    }
+    // Both candidates were tried, in order, and the command ran with the
+    // resolved repo rather than failing zod with `repoPath: Required`.
+    expect(asked).toEqual(['/scratch/base', '/repos/podium'])
+    expect(acquiredWith[0]).toMatchObject({ repoPath: '/repos/podium' })
+  })
+
+  it('still fails when neither the cwd nor the main checkout is registered', async () => {
+    // The counterfactual: the fallback must not invent a repo. --repo-path stays
+    // the explicit answer for a tree the tracker genuinely does not know.
+    const client = {
+      lock: { acquire: { mutate: vi.fn() } },
+      repos: { inferFromPath: { query: async () => ({ repoPath: null }) } },
+    } as never
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue('/scratch/base')
+    try {
+      await expect(
+        runLockCli(['acquire', 'test:heavy'], client, { runGit: () => porcelain('/repos/podium') }),
+      ).rejects.toThrow(/repoPath/)
+    } finally {
+      cwd.mockRestore()
+    }
+  })
+})
+
+/**
+ * PDM-389 case 2: a transport failure mid-wait used to throw straight out of the
+ * loop, so the process died without leaving the queue and said only `agent relay
+ * timed out`. One waiter died at 6m45s of a fifty-minute --timeout.
+ */
+describe('--wait survives a transport failure once a place is held', () => {
+  it('retries a relayed error instead of dying, and honours the full --timeout', async () => {
+    let nowMs = 0
+    let rounds = 0
+    const mutate = vi.fn(async () => {
+      rounds += 1
+      // Queued once — the place exists — then the relay goes away for good.
+      if (rounds === 1) return queuedWire('test:heavy', 1)
+      throw new Error('agent relay timed out')
+    })
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    const lines: string[] = []
+    const out = await runLockCli(
+      ['acquire', 'test:heavy', '--repoPath', '/r', '--wait', '--timeout', '50m'],
+      client,
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms
+        },
+        onProgress: (l) => lines.push(l),
+      },
+    )
+    // It waited the whole deadline rather than dying on the first relay error...
+    expect(nowMs).toBeGreaterThanOrEqual(3_000_000)
+    expect(rounds).toBeGreaterThan(2)
+    // ...said out loud that the place was still its own...
+    expect(lines.some((l) => l.includes('agent relay timed out'))).toBe(true)
+    expect(lines.some((l) => l.includes('the place is yours'))).toBe(true)
+    // ...and left the queue on the way out, with the timeout's own exit code.
+    expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
+    expect(cancel).toHaveBeenCalled()
+    expect(out.text).toContain('left the queue')
+  })
+
+  it('still fails fast when the very first round cannot reach the server', async () => {
+    // The counterfactual for the rule above: with no queue place yet there is
+    // nothing to protect, so `--wait` against a dead server must not spin to the
+    // deadline. Break this and the test above passes for the wrong reason.
+    let nowMs = 0
+    const mutate = vi.fn(async () => {
+      throw new Error('agent relay timed out')
+    })
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: vi.fn() } } } as never
+    await expect(
+      runLockCli(
+        ['acquire', 'test:heavy', '--repoPath', '/r', '--wait', '--timeout', '50m'],
+        client,
+        {
+          now: () => nowMs,
+          sleep: async (ms) => {
+            nowMs += ms
+          },
+        },
+      ),
+    ).rejects.toThrow('agent relay timed out')
+    expect(mutate).toHaveBeenCalledTimes(1)
+    expect(nowMs).toBe(0)
+  })
+
+  it('takes a grant that lands on a round after a transport error', async () => {
+    // The relay recovering must still be seen as this waiter's own place being
+    // advanced onto — not swallowed by the retry path.
+    let nowMs = 0
+    let rounds = 0
+    const mutate = vi.fn(async () => {
+      rounds += 1
+      if (rounds === 1) return queuedWire('test:heavy', 1)
+      if (rounds === 2) throw new Error('agent relay timed out')
+      return grantedWire('test:heavy')
+    })
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
+    const out = await runLockCli(
+      ['acquire', 'test:heavy', '--repoPath', '/r', '--wait', '--timeout', '50m'],
+      client,
+      {
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms
+        },
+      },
+    )
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("acquired 'test:heavy'")
+    expect(cancel).not.toHaveBeenCalled()
   })
 })

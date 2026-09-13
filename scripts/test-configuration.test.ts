@@ -52,6 +52,7 @@ import {
   resolveLaneAgainst,
   vitestCommand,
 } from './test-lean'
+import { reportAcquireFailure } from './validation-admission'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
 
@@ -1661,5 +1662,43 @@ describe('test lane configuration', () => {
     const lean = vitestCommand(['run'])
     expect(lean.slice(0, 2)).toEqual(['bun', '--bun'])
     expect(lean[2]).toMatch(/node_modules\/vitest\/vitest\.mjs$/)
+  })
+})
+
+/**
+ * PDM-389 case 5: the lease failure the operator actually saw named CANCEL,
+ * because acquire runs with --json (its error goes to stdout) and the early
+ * return dropped it, leaving only the follow-up cancelWaiter's stderr.
+ */
+describe('a refused lease says which verb refused it, and why', () => {
+  it("reports acquire's own --json error, not the follow-up cancel's", () => {
+    const lines: string[] = []
+    reportAcquireFailure(
+      'test:heavy',
+      JSON.stringify({
+        command: 'acquire',
+        ok: false,
+        error: 'invalid args for acquire: repoPath: Required',
+      }),
+      (l) => lines.push(l),
+    )
+    expect(lines).toHaveLength(1)
+    // The verb that failed, named, with the reason attached.
+    expect(lines[0]).toContain("could not acquire 'test:heavy'")
+    expect(lines[0]).toContain('repoPath: Required')
+    // And NOT the wrong verb, which is the whole defect.
+    expect(lines[0]).not.toContain('cancel')
+  })
+
+  it('falls back to the raw stdout when the answer is not JSON', () => {
+    const lines: string[] = []
+    reportAcquireFailure('test:heavy', '  something unparseable  ', (l) => lines.push(l))
+    expect(lines[0]).toContain('something unparseable')
+  })
+
+  it('still says the lease was refused when there is no detail at all', () => {
+    const lines: string[] = []
+    reportAcquireFailure('test:heavy', '', (l) => lines.push(l))
+    expect(lines[0]).toBe("validation refused: could not acquire 'test:heavy'")
   })
 })
