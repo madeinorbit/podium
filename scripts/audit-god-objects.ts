@@ -418,21 +418,12 @@ export interface LedgerEntry {
   readonly file: string
   readonly kind: ExceptionKind
   /**
-   * Physical lines past which this review is VOID and must be redone. Set by
-   * hand when the argument is made. There is no flag that rewrites it.
-   *
-   * DELIBERATELY LOOSE — roughly 15–25% above the reviewed size, not the
-   * reviewed size itself. This is NOT a ratchet, and the difference matters:
-   * a bound pinned to today's number would fire on every ordinary additive
-   * change a neighbouring issue makes, and a gate that must be re-baselined on
-   * every merge teaches everyone to re-baseline it without reading it — at
-   * which point the number is noise and the argument beside it stops being
-   * read too. The `kind` predicate is what catches a module CHANGING SHAPE
-   * (growing state, growing a class, growing a long method); this only catches
-   * growth so large that the reviewer's mental model of the file is simply
-   * gone. Two different failures, two different mechanisms.
+   * The budget is NOT a field here. It lives in {@link GOD_OBJECT_BUDGET},
+   * keyed by `file`, so that a number which can be edited upward to silence
+   * this audit has a stable name for `audit-committed-floors.ts` to compare
+   * against history — POD-3905. `checkLedgerBudgets` fails if an entry here
+   * has no budget there, or a budget there has no entry here.
    */
-  readonly budget: number
   /** The issue or document where the argument was reviewed. */
   readonly review: string
   /** The argument. Prose, required, and checked for length — a shrug is not one. */
@@ -492,6 +483,91 @@ const MAX_COUPLED_STATE = 12
 const MAX_METHOD_LINES = 180
 
 /**
+ * THE REVIEWED BUDGETS — one per ledger entry, keyed by the module they answer
+ * for. Physical lines past which that review is VOID and must be redone.
+ *
+ * WHY THESE LIVE HERE AND NOT IN THE ENTRY (POD-3905). They used to be a
+ * `budget:` field inside each `GOD_OBJECT_LEDGER` element, which put them
+ * somewhere nothing could compare against history: `constantsIn()` reads a
+ * NAMED declaration, an array element has no name, and an array INDEX is not a
+ * stable key — inserting one entry renumbers every budget after it. A record
+ * keyed by the file path survives reordering, so `audit-committed-floors.ts`
+ * can read each number out of the commit this branch started from and refuse a
+ * rise that nobody argued for.
+ *
+ * THAT THIS WAS NOT A HYPOTHETICAL IS IN THIS FILE'S OWN HISTORY. Replaying the
+ * ledger across the seventeen commits that have touched this file: four budgets
+ * were raised, none was ever lowered, and three of the four were raised in
+ * commits whose own subject line says what the raise was for —
+ *
+ *     00a343f96  "fix(scripts): restore package-gate guardrail audits on main"
+ *                machines/rpc.ts      1000 -> 1200
+ *     cdfb02424  "fix(scripts): clear the two red audits on main"
+ *                store/issues.ts      1000 -> 1100
+ *                server.ts             800 ->  900
+ *     c1eb67a10  "Restore all verification lanes"
+ *                machines/service.ts   800 ->  850
+ *
+ * — raising the number until the audit went quiet, which is the exact move the
+ * budget exists to make expensive. None of the four carries a re-review; the
+ * `review:` field beside each still names the ORIGINAL POD-1385 sitting.
+ *
+ * AND THE PRESSURE IS LIVE, NOT HISTORICAL. Twenty of these twenty-eight are
+ * already exceeded on this branch, several by more than double. A budget that
+ * is currently red is precisely where the temptation to edit a digit sits, so
+ * "the numbers are stale, guarding them is premature" has it backwards: the
+ * stale number is the debt marker, and this record is what makes erasing one
+ * cost a sentence naming the old value, the new value, an issue and a reason.
+ *
+ * DELIBERATELY LOOSE, unchanged from when they lived in the entries: roughly
+ * 15-25% above the reviewed size, not the reviewed size itself. This is NOT a
+ * ratchet on the MODULE — a bound pinned to today's line count would fire on
+ * every ordinary additive change a neighbouring issue makes, and a gate that
+ * must be re-baselined on every merge teaches everyone to re-baseline it
+ * without reading it. The `kind` predicate is what catches a module CHANGING
+ * SHAPE; this only catches growth so large that the reviewer's mental model of
+ * the file is simply gone. What POD-3905 added is a ratchet on the NUMBER, one
+ * level up, which is a different question from the one the budget asks.
+ *
+ * Key order follows `GOD_OBJECT_LEDGER` so the two read side by side;
+ * `checkLedgerBudgets` below fails if the two key sets ever drift apart.
+ */
+export const GOD_OBJECT_BUDGET: Readonly<Record<string, number>> = {
+  // -- Declarations: no behaviour to distribute -------------------------------
+  'apps/server/src/store/types.ts': 750,
+  'apps/server/src/migrations/schema.ts': 1600,
+  'apps/server/src/composition/reactions.ts': 800,
+  'apps/server/src/modules/superagent/tools.ts': 1100,
+  'apps/server/src/modules/issues/registry.ts': 1400,
+  // -- The composition root ---------------------------------------------------
+  'apps/server/src/relay.ts': 2300,
+  // -- Surfaces: many operations, nothing shared to entangle through ----------
+  'apps/server/src/modules/machines/rpc.ts': 1200,
+  'apps/server/src/store/issues.ts': 1100,
+  'apps/server/src/store/messages.ts': 750,
+  'apps/server/src/store/sessions.ts': 900,
+  'apps/server/src/store/workflows.ts': 750,
+  'apps/server/src/modules/issues/service/crud.ts': 950,
+  'apps/server/src/modules/issues/service/reads.ts': 850,
+  'apps/server/src/modules/workflows/service.ts': 850,
+  'apps/server/src/modules/automations/service.ts': 800,
+  'apps/server/src/server.ts': 900,
+  'apps/server/src/modules/settings/service.ts': 850,
+  'apps/server/src/modules/sessions/command-plane.ts': 800,
+  'apps/server/src/modules/operations/engine.ts': 800,
+  // -- Owners: coupled state that a split would have to share ----------------
+  'apps/server/src/modules/issues/service/core.ts': 1050,
+  'apps/server/src/modules/machines/service.ts': 850,
+  'apps/server/src/modules/issues/service/workflow.ts': 1300,
+  'apps/server/src/steward.ts': 1200,
+  'apps/server/src/modules/superagent/service.ts': 1350,
+  'apps/server/src/modules/sessions/session-state/service.ts': 800,
+  'apps/server/src/modules/messaging/service.ts': 950,
+  'apps/server/src/modules/sessions/session.ts': 850,
+  'apps/server/src/modules/messages/service.ts': 2100,
+}
+
+/**
  * THE LEDGER. One entry per production module over the threshold.
  *
  * A module over the line and absent from this list is an audit item. Adding an
@@ -504,7 +580,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/store/types.ts',
     kind: 'type-declarations',
-    budget: 750,
     review: 'POD-1385',
     argument:
       'Row and domain types shared by the per-aggregate repositories and re-exported from `../store`. It has no runtime existence whatsoever — every export is a `type` or an `interface`, so the compiled module is empty. Splitting it would distribute a vocabulary across files without changing a single edge in the module graph, and would break the one import path (`../store`) that every repository already reads it by.',
@@ -512,7 +587,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/migrations/schema.ts',
     kind: 'declaration-table',
-    budget: 1600,
     review: 'POD-1385 / [spec:SP-4428]',
     table: 'sessions',
     argument:
@@ -521,7 +595,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/composition/reactions.ts',
     kind: 'declaration-table',
-    budget: 800,
     review: 'POD-1385 / POD-355',
     table: 'REACTIONS',
     argument:
@@ -530,7 +603,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/superagent/tools.ts',
     kind: 'declaration-table',
-    budget: 1100,
     review: 'POD-1385',
     table: 'buildSuperagentTools',
     argument:
@@ -539,7 +611,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/issues/registry.ts',
     kind: 'declaration-table',
-    budget: 1400,
     review: 'POD-1398',
     table: 'issueRegistry',
     argument:
@@ -556,7 +627,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     // not to ratchet onto whatever the tree last measured — re-pinning it to
     // 1704 would fire on the next additive arm a neighbouring issue lands and
     // teach everyone to re-baseline it without reading the argument beside it.
-    budget: 2300,
     review: 'POD-1385 / POD-321 / POD-734 / POD-418',
     argument:
       'The server composition root: `SessionRegistry` names and constructs every runtime module once, in dependency order, inside one constructor. Its size is the size of the system rather than an accretion of responsibility — it decides nothing, it only wires. Splitting it into SUB-ROOTS is the specific move that would defeat the guarantee: `scripts/server-construction-order.ts` proves the order is topological by walking THIS constructor, and edges moved into a sub-root would leave its view. The committed record reports 55 declarations, 0 forward dependencies, 0 deferred service closures and 0 non-null late bindings, and this entry is void the moment any of those stops being zero. POD-418 re-reviewed it after it reached 2501 lines and found that what had accreted was not more wiring but TWO SECOND JOBS, both of which decide things about services that are already built and neither of which participates in the construction order at all. The feed VISIBILITY POLICY — bootstrap read tracing, the bulk prefetch, the grant checks behind `mayRead`, and the generation-keyed read cache, with two pieces of protected state of its own — moved to `feed-visibility.ts` behind `VisibilityStatePort` and `VisibilityAnchorPort`, the ports the sync kernel already declares; the root still names `GrantEdgeVisibilityPolicy` and `Ledger`, because those are services. The AGENT-RELAY DISPATCH ARM — router/proc routing, the hand-rolled validation for the two inputs with no contract, the scope gates `relay-gate.ts` deliberately leaves to it, and the issue-prime tail with its `sessionTitlePrime` helper — moved to `modules/issues/relay-dispatch.ts` behind `AgentRelayGateDeps.dispatch`, the port whose own doc comment already called it "the dispatch arm in the composition root". Each left a one-line delegate. Neither cut was cosmetic: the visibility block also declared a local `issues` that shadowed the `issues` service, which made the construction-order generator report a false forward dependency and THROW, so the record this entry cites had been stale and unregenerable while still reading green to the zero-grep above. It regenerates and passes now.',
@@ -571,7 +641,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     // same independent calls, still zero owned state; budget is ~80 lines of
     // headroom above the measured 1120 so a neighbouring additive RPC does not
     // force an immediate re-review.
-    budget: 1200,
     review: 'POD-1385 / POD-531',
     argument:
       'Every server-to-daemon round-trip as an ordinary awaited method, and nothing else: it owns NO correlation state at all — the twenty-three pending maps it used to hold are one shared registry in `modules/daemon-request.ts` since that decomposition already happened. What is left is independent calls (including the five server-transfer ops landed in 7c59af7dd), each naming which control message it builds, which machine it targets and what a timeout means for that caller. There is no shared state for any subset of them to entangle through, so no subset can be lifted out and mean anything on its own.',
@@ -585,7 +654,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     // queries over the issues aggregate, still zero owned state; budget is ~100
     // lines of headroom above the measured 1002 so a neighbouring projection
     // does not force an immediate re-review.
-    budget: 1100,
     review: 'POD-1385 / POD-585 (re-review after POD-1653 + POD-568 projections)',
     argument:
       'The issues aggregate: the `issues` table and its child tables (`issue_labels`, `issue_deps`, `issue_comments`, `issue_messages`) behind ~39 public query methods and zero fields. A repository with no state cannot be a god of anything — its length is the number of queries the aggregate answers. The two methods that crossed the prior budget (listIssueCwdRows, closedIssueIds) are deliberately narrow projections of the same table, not a second job: each exists so a hot path can avoid SELECT * plus mapIssueRow, and each would be wrong if owned elsewhere because the column set and the closedness predicate are issue-aggregate facts. Splitting by child table would put a single aggregate transaction across several objects, which is the one thing an aggregate boundary exists to prevent.',
@@ -593,7 +661,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/store/messages.ts',
     kind: 'operation-surface',
-    budget: 750,
     review: 'POD-1606 / POD-1379 (per-reader ledger) / POD-1385',
     argument:
       'The messages aggregate: the unified `messages` table [spec:SP-34d7] plus `message_reads`, its per-reader satellite, behind 33 query methods and zero mutable fields (`db` is injected; the one static readonly is a shared SQL predicate string, not state). It crossed the 600-line screen at the main reconciliation, and the growth is one coherent addition rather than a second job: POD-1379 / [spec:SP-b11e] added the per-READER ledger because `messages.status` is the DELIVERY pipeline shared by every session on an issue, so one agent reading an issue mailbox consumed the unread status for all of them. `message_reads` cannot be owned elsewhere — `countPendingForSession` and `listPendingSendersForSession` join it against `messages` inside a single SQL predicate (`PENDING_FOR_SESSION`), so separating it would split one query across two repositories. Its length is the number of questions the aggregate answers, and with no state between the methods no subset of them can be lifted out and mean anything alone.',
@@ -601,7 +668,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/store/sessions.ts',
     kind: 'operation-surface',
-    budget: 900,
     review: 'POD-1385',
     argument:
       'The sessions aggregate: the `sessions` table plus its UI-adjacent satellites (`pins`, `snoozes`, `tab_order`, `session_drafts`), which share its soft-deletion and purge semantics and therefore cannot be owned elsewhere without duplicating that rule. 37 query methods over a single cached column-shape probe; no other state. Its length is the number of queries, not a count of jobs.',
@@ -609,7 +675,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/store/workflows.ts',
     kind: 'operation-surface',
-    budget: 750,
     review: 'POD-1385 / POD-362',
     argument:
       'The workflows aggregate: run rows and their state transitions behind 28 stateless query methods. A large share of the file is the discriminated `WorkflowActor` union POD-362 introduced so that the operator arm cannot carry a session id — declarations that make an illegal pair unrepresentable, not behaviour. Nothing is shared between the methods, so nothing can be separated out of them.',
@@ -617,7 +682,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/issues/service/crud.ts',
     kind: 'operation-surface',
-    budget: 950,
     review: 'POD-1385 / POD-320',
     argument:
       'One of the capability modules POD-320 composed over the single `IssueStore` when it dissolved the IssueService inheritance chain — the create/update/delete half, reached through narrow constructor ports and holding no state of its own. This file IS the result of the decomposition the Phase 4 criterion asks for; re-splitting a capability that already sits behind its own port would add a module boundary without moving a responsibility, and the issue brief names preserving this one-store capability composition as a constraint.',
@@ -625,7 +689,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/issues/service/reads.ts',
     kind: 'operation-surface',
-    budget: 850,
     review: 'POD-1385 / POD-320',
     argument:
       'The read/report capability of the same POD-320 composition: search, stats, graph, lint and doctor projections over the shared `IssueStore`, with no state and no method longer than 80 lines. Reads are grouped here precisely so that the visibility policy (`DEFAULT_ISSUE_REPORT_VISIBILITY`) has one place to be applied rather than one per report; splitting the reports apart would put that policy on several files and make a missed application invisible.',
@@ -633,7 +696,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/workflows/service.ts',
     kind: 'operation-surface',
-    budget: 850,
     review: 'POD-1385 / POD-732',
     argument:
       'The workflow engine surface: 40 small methods implementing the run arithmetic and the state machine, deliberately exposed to handlers through the narrower `WorkflowEngine` interface so that a handler cannot reach a guard by accident — authorization arrives through `ctx.access` or not at all. The interface is a written list of what still has to move when POD-732 finishes its cut, placed where the next reader finds it. No owned state; no method over 101 lines.',
@@ -641,7 +703,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/automations/service.ts',
     kind: 'operation-surface',
-    budget: 800,
     review: 'POD-1385',
     argument:
       "The scheduled-automations surface: 30 stateless methods covering definition CRUD, cron evaluation and run dispatch for the Automations tab. The scheduler timer that would be this module's state lives on the composition root, which owns process-lifetime timers so that shutdown can cancel them in one place; what is left here holds nothing and shares nothing between its methods.",
@@ -654,7 +715,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     // file two lines past the prior pin. Growth is more independent route
     // registration inside the same startup, still zero owned state; budget is
     // ~100 lines of headroom above the measured 802.
-    budget: 900,
     review: 'POD-1385 / POD-585 (re-review after POD-1670 routes + POD-541 mobile COOP)',
     argument:
       'HTTP server startup: bind-host resolution, port-in-use classification, route registration and the returned handle. A handful of short helpers plus one `startServer` that wires every surface the process exposes, no owned state. Its length comes from the number of routes the server registers (auth, setup, files, artifacts, MCP, tRPC, maintenance, version, mobile/web static, the local-daemon link), and each registration is independently readable. Splitting route registration from lifecycle would separate `startServer` from the routes whose failures it must classify and report through `PortInUseError`.',
@@ -662,7 +722,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/settings/service.ts',
     kind: 'operation-surface',
-    budget: 850,
     review: 'POD-1385',
     argument:
       'The settings surface: 32 short accessors and mutators over the settings store, plus the Telegram setup handshake and its one in-flight map. Half of the file — 354 of its 713 physical lines — is the written record of why the handshake polls the way it does and which principal each setting resolves for; the code itself is 359 lines, comfortably under the threshold. Removing that record to make a number smaller would delete the only explanation of a protocol nobody else in the tree implements.',
@@ -671,7 +730,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/sessions/command-plane.ts',
     kind: 'documented',
-    budget: 800,
     review: 'POD-1385 / POD-381 / POD-379',
     argument:
       "The L3 session command handlers: 321 lines of code behind a 328-line written record, which is why it crosses a physical-line screen at all. That record is load-bearing rather than decorative — it states which half of each command the CONTRACT owns (authz, idempotency, envelope) and which half the HANDLER owns (the daemon control leg), which is the split that stopped tRPC and relay from authorizing `sessions.sendText` two different ways; and it pins every not-found shape POD-379's oracle fixed, per command, so a future edit cannot quietly turn a silent no-op into a thrown error. Deleting the explanation to pass a line count would delete the only statement of the invariant the file exists to hold.",
@@ -680,7 +738,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/operations/engine.ts',
     kind: 'documented',
-    budget: 800,
     review:
       'POD-2097 (docs/internal/superpowers/specs/2026-08-14-update-operations-design.md §3.2–§3.4)',
     argument:
@@ -691,7 +748,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/issues/service/core.ts',
     kind: 'cohesive-owner',
-    budget: 1050,
     review: 'POD-1385 / POD-320',
     protectedState: ['hydrated', 'viewerState', 'wireCache', 'issueInputsGen'],
     argument:
@@ -700,7 +756,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/machines/service.ts',
     kind: 'cohesive-owner',
-    budget: 850,
     review: 'POD-1385 / POD-1467 / POD-1505 / POD-1778',
     protectedState: ['daemons', 'pendingByMachine', 'machineRecordsCache', 'machineNameCache'],
     argument:
@@ -709,7 +764,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/issues/service/workflow.ts',
     kind: 'cohesive-owner',
-    budget: 1300,
     review:
       'POD-1385 / POD-320 / POD-1606 (re-review after the main reconciliation) / POD-417 (re-review after the POD-384 watch)',
     protectedState: ['gitRefreshes', 'gitCommitsBySession', 'gitTouchedBySession', 'parentTips'],
@@ -719,7 +773,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/steward.ts',
     kind: 'cohesive-owner',
-    budget: 1200,
     review: 'POD-355 (boundary ownership review) / POD-1385',
     protectedState: ['timer'],
     argument:
@@ -728,7 +781,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/superagent/service.ts',
     kind: 'cohesive-owner',
-    budget: 1350,
     review: 'POD-1385',
     protectedState: [
       'turnInFlight',
@@ -745,7 +797,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/sessions/session-state/service.ts',
     kind: 'cohesive-owner',
-    budget: 800,
     review: 'POD-393 Phase 4 ledger entry / POD-1385',
     protectedState: [
       'overlays',
@@ -765,7 +816,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/messaging/service.ts',
     kind: 'cohesive-owner',
-    budget: 950,
     review: 'POD-1385 / [spec:SP-5d81] / [spec:SP-62c3]',
     protectedState: [
       'adapter',
@@ -786,7 +836,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/sessions/session.ts',
     kind: 'cohesive-owner',
-    budget: 850,
     review: 'POD-1385',
     protectedState: ['onUnreadRearm', 'workingMsTotal', 'incomingWorkingMsTotal'],
     argument:
@@ -795,7 +844,6 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
   {
     file: 'apps/server/src/modules/messages/service.ts',
     kind: 'cohesive-owner',
-    budget: 2100,
     review: 'POD-1397 / POD-1385',
     protectedState: ['turnHop', 'requeueCounts', 'attentionEmitted', 'sessionIssueTargets'],
     argument:
@@ -843,18 +891,60 @@ export const checkStale = (
 export const checkBudget = (
   measured: readonly Measurement[],
   ledger: readonly LedgerEntry[],
+  budgets: Readonly<Record<string, number>> = GOD_OBJECT_BUDGET,
 ): Finding[] => {
   const findings: Finding[] = []
   for (const entry of ledger) {
     const m = measured.find((x) => x.file === entry.file)
     if (!m) continue
-    if (m.physical > entry.budget)
+    const budget = budgets[entry.file]
+    // A missing budget is `checkLedgerBudgets`'s finding, not this one. Reporting
+    // it here too would say the module is over a bound that does not exist.
+    if (budget === undefined) continue
+    if (m.physical > budget)
       findings.push({
         check: 'review-budget-exceeded',
         where: entry.file,
-        detail: `${m.physical} physical lines is past the reviewed budget of ${entry.budget} (${entry.review}). Growth past the budget voids the argument: re-review the module, then either decompose it or raise the budget deliberately in a commit.`,
+        detail: `${m.physical} physical lines is past the reviewed budget of ${budget} (${entry.review}). Growth past the budget voids the argument: re-review the module, then either decompose it or raise the budget deliberately in a commit.`,
       })
   }
+  return findings
+}
+
+/**
+ * §3a The ledger and the budgets describe the same set of modules.
+ *
+ * Splitting the budget out of the entry (POD-3905) bought a name history can be
+ * read under, and cost the one thing a single object had for free: the two
+ * halves can now drift. Both directions are an escape rather than an
+ * inconvenience. An entry with no budget is a module whose growth nothing
+ * bounds, which is how `review-budget-exceeded` goes quiet for one file without
+ * any number being edited at all. A budget with no entry is a number the
+ * ratchet still guards and no audit reads — coverage that has stopped being
+ * coverage, and a name a future budget could be hidden under.
+ */
+export const checkLedgerBudgets = (
+  ledger: readonly LedgerEntry[],
+  budgets: Readonly<Record<string, number>> = GOD_OBJECT_BUDGET,
+): Finding[] => {
+  const findings: Finding[] = []
+  for (const entry of ledger)
+    if (budgets[entry.file] === undefined)
+      findings.push({
+        check: 'budget-missing',
+        where: entry.file,
+        detail:
+          'The ledger answers for this module but GOD_OBJECT_BUDGET carries no budget for it, so nothing bounds how far it may grow before the review is void. Add one keyed by exactly this path.',
+      })
+  const answered = new Set(ledger.map((e) => e.file))
+  for (const file of Object.keys(budgets))
+    if (!answered.has(file))
+      findings.push({
+        check: 'budget-orphaned',
+        where: file,
+        detail:
+          'GOD_OBJECT_BUDGET carries a budget for this module and no ledger entry answers for it, so the number is guarded by the committed-floor census and read by nothing. Remove it, or add the entry it belongs to.',
+      })
   return findings
 }
 
@@ -1041,6 +1131,7 @@ export const auditRepo = (root = ROOT): Finding[] => {
     ...checkUnexplained(measured, GOD_OBJECT_LEDGER),
     ...checkStale(measured, GOD_OBJECT_LEDGER),
     ...checkBudget(measured, GOD_OBJECT_LEDGER),
+    ...checkLedgerBudgets(GOD_OBJECT_LEDGER),
     ...checkArgument(GOD_OBJECT_LEDGER),
     ...checkPredicate(measured, GOD_OBJECT_LEDGER, readConstructionOrderClean(root), DECLARED_ROOT),
   ]
@@ -1071,7 +1162,6 @@ const M = (over: Partial<Measurement> = {}): Measurement => ({
 const ENTRY = (over: Partial<LedgerEntry> = {}): LedgerEntry => ({
   file: 'probe/module.ts',
   kind: 'operation-surface',
-  budget: 1000,
   review: 'POD-1385',
   argument:
     'A probe fixture whose argument is deliberately long enough to clear the length floor, so that the length check is not what any other probe case is accidentally measuring when it expects a clean result.',
@@ -1097,10 +1187,24 @@ export const probe = (): Finding[] => {
 
   expect('stale-ledger-entry', checkStale([], [ENTRY()]), checkStale([M()], [ENTRY()]))
 
+  const PROBE_BUDGET = { 'probe/module.ts': 1000 }
   expect(
     'review-budget-exceeded',
-    checkBudget([M({ physical: 1001 })], [ENTRY({ budget: 1000 })]),
-    checkBudget([M({ physical: 999 })], [ENTRY({ budget: 1000 })]),
+    checkBudget([M({ physical: 1001 })], [ENTRY()], PROBE_BUDGET),
+    checkBudget([M({ physical: 999 })], [ENTRY()], PROBE_BUDGET),
+  )
+
+  // The two halves drifting apart, planted in both directions — see
+  // `checkLedgerBudgets` for why each is an escape and not untidiness.
+  expect(
+    'budget-missing',
+    checkLedgerBudgets([ENTRY()], {}),
+    checkLedgerBudgets([ENTRY()], PROBE_BUDGET),
+  )
+  expect(
+    'budget-orphaned',
+    checkLedgerBudgets([], PROBE_BUDGET),
+    checkLedgerBudgets([ENTRY()], PROBE_BUDGET),
   )
 
   expect(

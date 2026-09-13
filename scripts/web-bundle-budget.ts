@@ -228,6 +228,43 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
  * gate came to have no test of its own ability to refuse — the only proof was a
  * dist in a sibling worktree, which is deleted with the worktree (POD-2530).
  */
+/**
+ * THE EIGHT BYTE CEILINGS — POD-3905.
+ *
+ * These were eight numeric literals written inline at their comparisons,
+ * `atMost('eager raw bytes', report.eager.raw, 1_650_000)` and seven more, and
+ * an inline argument has no name. `audit-committed-floors.ts` reads a guarded
+ * number by parsing a NAMED declaration out of the commit this branch started
+ * from, and its own header already listed this file as one of the two shapes
+ * its scan cannot see. Giving the eight one name is the whole of what was
+ * needed to put them under the ratchet; not one comparison changed.
+ *
+ * A NAME IS ALL THAT WAS NEEDED BECAUSE THE CENSUS PARSES RATHER THAN IMPORTS.
+ * This module reads `apps/web/dist` at module scope — see the note above — so
+ * importing it requires a built website standing by, and that is exactly why it
+ * has never had a sibling test. The census never imports it; it runs the same
+ * TypeScript parser over the file's text, so a ceiling here is comparable
+ * against history without a dist, without a build, and without reshaping a gate
+ * that works.
+ *
+ * WHY THESE PARTICULAR NUMBERS NEEDED IT. The prose at each call site below is
+ * a raise log: seven movements on the source ceiling alone — 7,400,000 to
+ * 7,450,000 to 7,500,000 to 7,650,000 to 7,700,000 to 7,800,000, then down to
+ * 7,700,000 and to 7,000,000 — each argued for in a comment, and each one a
+ * single-token diff that no check in the repository had an opinion about. The
+ * convention held every time. The convention was the only thing holding it,
+ * which is the sentence POD-3904 was filed about, written here about a
+ * different number.
+ *
+ * The comments stay where they are, beside the comparison they explain. This
+ * record holds the values and nothing else: moving the reasoning up here would
+ * separate each figure from the measurement that justified it.
+ */
+export const WEB_BUNDLE_BUDGET = {
+  eager: { raw: 1_650_000, gzip: 520_000, brotli: 447_000, sourceBytes: 7_000_000 },
+  settings: { raw: 105_000, gzip: 30_000, brotli: 26_000, sourceBytes: 280_000 },
+}
+
 const args = process.argv.slice(2)
 const checkBudget = args.includes('--check')
 const writeBaseline = args.includes('--write-baseline')
@@ -546,9 +583,9 @@ if (checkBudget) {
   // the same graph through four lenses, so a paydown that moves one moves all
   // four, and a proportional rule means the four go red at roughly the same
   // point instead of one becoming the sentinel by accident.
-  atMost('eager raw bytes', report.eager.raw, 1_650_000)
-  atMost('eager gzip bytes', report.eager.gzip, 520_000)
-  atMost('eager Brotli bytes', report.eager.brotli, 447_000)
+  atMost('eager raw bytes', report.eager.raw, WEB_BUNDLE_BUDGET.eager.raw)
+  atMost('eager gzip bytes', report.eager.gzip, WEB_BUNDLE_BUDGET.eager.gzip)
+  atMost('eager Brotli bytes', report.eager.brotli, WEB_BUNDLE_BUDGET.eager.brotli)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000
   // (2026-08-16; see the measured split above) → 7_700_000 (2026-08-17, on the
   // release line; the first 0.1.0 edge build measured 7,689,167 while every
@@ -688,11 +725,15 @@ if (checkBudget) {
   // deferral survives in DEFERRED_FIRST_PAINT_MODULES above, so both sides' named
   // guards hold. Raising the ceiling to carry growth that is no longer eager would
   // hand the paydown straight back.
-  atMost('eager parsed source bytes', report.eager.sourceBytes, 7_000_000)
-  atMost('settings raw bytes', report.settings.raw, 105_000)
-  atMost('settings gzip bytes', report.settings.gzip, 30_000)
-  atMost('settings Brotli bytes', report.settings.brotli, 26_000)
-  atMost('settings parsed source bytes', report.settings.sourceBytes, 280_000)
+  atMost('eager parsed source bytes', report.eager.sourceBytes, WEB_BUNDLE_BUDGET.eager.sourceBytes)
+  atMost('settings raw bytes', report.settings.raw, WEB_BUNDLE_BUDGET.settings.raw)
+  atMost('settings gzip bytes', report.settings.gzip, WEB_BUNDLE_BUDGET.settings.gzip)
+  atMost('settings Brotli bytes', report.settings.brotli, WEB_BUNDLE_BUDGET.settings.brotli)
+  atMost(
+    'settings parsed source bytes',
+    report.settings.sourceBytes,
+    WEB_BUNDLE_BUDGET.settings.sourceBytes,
+  )
 
   if (report.eager.ownershipMatrixSources.length > 0)
     errors.push('ownership matrix is present in the eager graph')

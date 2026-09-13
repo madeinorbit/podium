@@ -66,6 +66,56 @@ export interface CommittedBaseline {
   readonly what: string
 }
 
+// ---------------------------------------------------------------------------
+// Spelling a parsed constant
+// ---------------------------------------------------------------------------
+
+/**
+ * `constantsIn` keys a bare `const X = 1` under the EMPTY string and an object
+ * literal under its members. Both become findings a human has to read, so put
+ * the export's own name on the front: `MIN_ID_FIELD_SITES`, not ``, and
+ * `CLIENT_FILE_FLOOR.web`, not `web`.
+ */
+export const qualify = (
+  raw: Readonly<Record<string, number>>,
+  exportName: string,
+): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(raw).map(([k, v]) => [k === '' ? exportName : `${exportName}.${k}`, v]),
+  )
+
+/**
+ * Every key of one record, all one direction.
+ *
+ * `directions` is per KEY and has no default, for the reason
+ * `BaselineDirection` gives: one instrument can hold both shapes, and a floor
+ * that silently inherits ceiling semantics is this issue one level up. That
+ * reasoning is about an instrument holding SEVERAL numbers read by SEVERAL
+ * comparisons. It does not reach a record whose every member is read by ONE —
+ * `GOD_OBJECT_BUDGET` has exactly one, `m.physical > budget`, so every key in
+ * it is a ceiling by construction and there is no second shape for a guess to
+ * get wrong.
+ *
+ * Derived rather than spelled out ONLY where the key set is a POPULATION that
+ * moves: the god-object budgets gain and lose a key whenever a module crosses
+ * or leaves the 600-line threshold, and a hand-kept mirror of a moving set in a
+ * second file is precisely the list-that-rots this census exists to refuse. A
+ * FIXED vocabulary is spelled out instead — see `WEB_BUNDLE_BUDGET` below,
+ * whose eight keys are two graphs measured through four lenses and change only
+ * if that gate is redesigned.
+ */
+export const everyKeyIs = (
+  relativePath: string,
+  exportName: string,
+  direction: BaselineDirection,
+): Record<string, BaselineDirection> =>
+  Object.fromEntries(
+    Object.keys(qualify(constantsInFile(relativePath, exportName), exportName)).map((k) => [
+      k,
+      direction,
+    ]),
+  )
+
 /**
  * THE CENSUS. A `floor` is a number the measurement must stay AT OR ABOVE, so
  * lowering it is the escape; a `ceiling` is POD-3904's shape, where raising is.
@@ -129,6 +179,64 @@ export const COMMITTED_BASELINES: readonly CommittedBaseline[] = [
     directions: { ENTITY_SHAPE_THRESHOLD: 'ceiling' },
     what: 'Distinct entity-concept keys a declaration must hand-declare before it counts as entity-shaped (below it, the site is SKIPPED). A ceiling: raising it shrinks the counted population without touching a single site. Registered for completeness rather than because it is exposed — `representation-audit.test.ts` PINS it with `expect(ENTITY_SHAPE_THRESHOLD).toBe(3)`, and it is the only threshold in the repository a sibling test pins. The pin and this entry fail on different diffs: the pin catches the constant moving alone, this catches it moving together with the test that pins it.',
   },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'THRESHOLD',
+    directions: { THRESHOLD: 'ceiling' },
+    what: 'Physical lines a production module may reach before the audit demands a reviewed exception for it (`m.physical > THRESHOLD` selects the population). THE MASTER ESCAPE of that instrument, and the reason it is registered first: raising it does not argue with a single finding, it removes them. At 600 the audit reports 97 items on this branch, and there is a number above which it reports none. Every other bound in that file is an argument about one module; this one is an argument about whether there is an audit.',
+  },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'MIN_ARGUMENT',
+    directions: { MIN_ARGUMENT: 'floor' },
+    what: 'Characters a ledger entry’s written argument must run to before the audit accepts it (`entry.argument.trim().length < MIN_ARGUMENT` fails). A FLOOR — the one number in that file whose escape is lowering — and the same shape as `MIN_REASON_LENGTH` above. The god-object audit’s own position is that the prose, not the predicates, is what catches a module quietly doing several jobs, so this is the floor under the only check that reads the argument at all.',
+  },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'MAX_SURFACE_STATE',
+    directions: { MAX_SURFACE_STATE: 'ceiling' },
+    what: 'Private mutable fields an `operation-surface` may hold before its claim is refused (`privateStateFields.length > MAX_SURFACE_STATE`). A ceiling: raising it is how a module that has started entangling its operations through shared state keeps a kind whose whole claim is that they share nothing.',
+  },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'MAX_COUPLED_STATE',
+    directions: { MAX_COUPLED_STATE: 'ceiling' },
+    what: 'Coupled fields a `cohesive-owner` may declare before the claim stops being cohesion (`declared.length > MAX_COUPLED_STATE`). A ceiling, and one that file calibrated against a measured gap between 11 fields and 18 — so a raise past 17 readmits `messages/service.ts`, the module the bound was cut around, without re-measuring anything.',
+  },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'MAX_METHOD_LINES',
+    directions: { MAX_METHOD_LINES: 'ceiling' },
+    what: 'Lines the longest method of an `operation-surface` may span before the claim is refused (`maxMethodLines > MAX_METHOD_LINES`). A ceiling: the surface claim IS “many small operations”, so raising this is how one long method comes to hide inside a file whose average still looks fine.',
+  },
+  {
+    instrument: 'audit-god-objects',
+    relativePath: 'scripts/audit-god-objects.ts',
+    exportName: 'GOD_OBJECT_BUDGET',
+    directions: everyKeyIs('scripts/audit-god-objects.ts', 'GOD_OBJECT_BUDGET', 'ceiling'),
+    what: 'Physical lines past which each reviewed god-object exception is VOID and must be redone (`m.physical > budget`). Twenty-eight ceilings, one per ledger entry, keyed by the module so the key survives a reordering of the ledger. THE BEST-EVIDENCED ENTRY IN THIS CENSUS: replaying the ledger across the seventeen commits that have touched that file gives four raises, no lowerings, and three of the four sit in commits whose own subject line is “clear the two red audits on main”, “restore package-gate guardrail audits on main” and “Restore all verification lanes” — the number edited until the audit went quiet, with no re-review written beside it. Twenty of the twenty-eight are exceeded right now, so the pressure is live rather than historical.',
+  },
+  {
+    instrument: 'web-bundle-budget',
+    relativePath: 'scripts/web-bundle-budget.ts',
+    exportName: 'WEB_BUNDLE_BUDGET',
+    directions: {
+      'WEB_BUNDLE_BUDGET.eager.raw': 'ceiling',
+      'WEB_BUNDLE_BUDGET.eager.gzip': 'ceiling',
+      'WEB_BUNDLE_BUDGET.eager.brotli': 'ceiling',
+      'WEB_BUNDLE_BUDGET.eager.sourceBytes': 'ceiling',
+      'WEB_BUNDLE_BUDGET.settings.raw': 'ceiling',
+      'WEB_BUNDLE_BUDGET.settings.gzip': 'ceiling',
+      'WEB_BUNDLE_BUDGET.settings.brotli': 'ceiling',
+      'WEB_BUNDLE_BUDGET.settings.sourceBytes': 'ceiling',
+    },
+    what: 'Bytes the eager and settings graphs may reach before packaging fails (`actual <= budget` passes). Eight ceilings: two graphs through four lenses each — raw, gzip, Brotli and parsed source. Three of the four eager ones are PAYLOAD, i.e. bandwidth every session pays on open. Spelled out key by key rather than derived, because this vocabulary is fixed by that gate’s design rather than by which modules happen to be large this month. Until POD-3905 these eight were inline call arguments with no name — the second of the two shapes this file’s own header named as ones its scan could not see. The raise log is in the comments beside each comparison; the source ceiling alone has moved seven times.',
+  },
 ]
 
 /** Movements of a number in this census that have been argued for. */
@@ -154,45 +262,7 @@ export const NOT_A_COMMITTED_BASELINE: readonly CensusExclusion[] = [
     where: 'scripts/render-install-banner.ts:THRESHOLD',
     why: 'Not a gate. It is the ink-coverage fraction (0.45) at which the setup banner\u2019s ASCII art fills a half-cell; moving it changes what the banner looks like and can make no check pass that would otherwise have failed.',
   },
-  {
-    where: 'scripts/audit-god-objects.ts:THRESHOLD',
-    why: 'POD-3905 owns the budgets in `audit-god-objects.ts` and needs `baseline-ratchet.ts` to register them. Registering them from here would put two issues in one file; the entry moves to COMMITTED_BASELINES when that lane lands.',
-  },
-  {
-    where: 'scripts/audit-god-objects.ts:MIN_ARGUMENT',
-    why: 'POD-3905 owns the budgets in `audit-god-objects.ts` and needs `baseline-ratchet.ts` to register them. Registering them from here would put two issues in one file; the entry moves to COMMITTED_BASELINES when that lane lands.',
-  },
-  {
-    where: 'scripts/audit-god-objects.ts:MAX_SURFACE_STATE',
-    why: 'POD-3905 owns the budgets in `audit-god-objects.ts` and needs `baseline-ratchet.ts` to register them. Registering them from here would put two issues in one file; the entry moves to COMMITTED_BASELINES when that lane lands.',
-  },
-  {
-    where: 'scripts/audit-god-objects.ts:MAX_COUPLED_STATE',
-    why: 'POD-3905 owns the budgets in `audit-god-objects.ts` and needs `baseline-ratchet.ts` to register them. Registering them from here would put two issues in one file; the entry moves to COMMITTED_BASELINES when that lane lands.',
-  },
-  {
-    where: 'scripts/audit-god-objects.ts:MAX_METHOD_LINES',
-    why: 'POD-3905 owns the budgets in `audit-god-objects.ts` and needs `baseline-ratchet.ts` to register them. Registering them from here would put two issues in one file; the entry moves to COMMITTED_BASELINES when that lane lands.',
-  },
 ]
-
-// ---------------------------------------------------------------------------
-// Spelling a parsed constant
-// ---------------------------------------------------------------------------
-
-/**
- * `constantsIn` keys a bare `const X = 1` under the EMPTY string and an object
- * literal under its members. Both become findings a human has to read, so put
- * the export's own name on the front: `MIN_ID_FIELD_SITES`, not ``, and
- * `CLIENT_FILE_FLOOR.web`, not `web`.
- */
-export const qualify = (
-  raw: Readonly<Record<string, number>>,
-  exportName: string,
-): Record<string, number> =>
-  Object.fromEntries(
-    Object.entries(raw).map(([k, v]) => [k === '' ? exportName : `${exportName}.${k}`, v]),
-  )
 
 // ---------------------------------------------------------------------------
 // The registry's own check
@@ -207,11 +277,15 @@ export const qualify = (
  * TWO THINGS IT STILL CANNOT SEE, and they are named rather than assumed away.
  * A bound spelled as the length of a committed list — `DURABLE_STORES.length`,
  * `RETAINED_REPRESENTATIONS.length` — is not a numeric constant and never
- * matches. And a bound written INLINE at its comparison, as
- * `web-bundle-budget.ts` writes its eight byte ceilings, has no name to match.
- * Both are in the census document; neither is in this scan. That is why every
- * entry below also says in prose what its number bounds: a human reading the
- * list is the backstop for a convention.
+ * matches. And a bound written INLINE at its comparison has no name to match at
+ * all. `web-bundle-budget.ts`'s eight byte ceilings were the example given here
+ * of the second kind; POD-3905 did not teach the scan to see an inline argument,
+ * it gave those eight a name (`WEB_BUNDLE_BUDGET`), which is the only repair
+ * available — a convention over names cannot be widened to cover things that
+ * have none. The list-length shape is still outside this scan, and is still in
+ * the census document. That is why every entry below also says in prose what
+ * its number bounds: a human reading the list is the backstop for a
+ * convention.
  */
 export const BASELINE_SHAPED_NAME =
   /^(MIN|MAX)_|_(FLOOR|CEILING|THRESHOLD|BUDGET|LIMIT|MAX|MIN)$|^(THRESHOLD|FLOOR|CEILING|BUDGET|LIMIT)$|_(MAX|MIN)_/
