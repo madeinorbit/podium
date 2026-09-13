@@ -161,13 +161,16 @@ for (const table of DEF_TABLES) {
  * is why the cross-vocabulary check further down is written to be independent of
  * which resolver wins.
  *
- * INTEGRATION NOTE: PDM-416 (unlanded at the time of writing) widens the contract
- * walk to reach standalone exports. When it lands, `rename` resolves as a CONTRACT
- * and must move from this list to the contract-backed population. That collision is
- * deliberate — this list is asserted exactly so the move is visible and decided,
- * not silent.
+ * INTEGRATION NOTE, CORRECTED (PDM-449): PDM-416 (unlanded at the time of writing)
+ * widens the contract walk to reach standalone exports, so `rename` will ALSO resolve
+ * as a contract. This list does NOT change when that happens, and that is the repair:
+ * the population is every queued kind with a DEFINITION, so a kind gaining a contract
+ * is added to the contract checks rather than removed from these. An earlier draft
+ * excluded contract-resolved kinds here, which would have dropped `rename` out of both
+ * definition checks on the day PDM-416 landed. Adjusting the list would not have fixed
+ * that; decoupling the population from contract resolution is what fixes it.
  */
-const DEFINITION_BACKED = [
+const DEFINITION_RESOLVED = [
   'dismissOffer',
   'pinSet',
   'rename',
@@ -187,9 +190,26 @@ describe('the client outbox contract table matches the contracts', () => {
   const resolveDef = (name: string): CommandDef | undefined => defsByName.get(name)
 
   const contractBacked = entries.filter(([, c]) => lookup(c.name) !== undefined)
-  const definitionBacked = entries.filter(
-    ([, c]) => lookup(c.name) === undefined && resolveDef(c.name) !== undefined,
-  )
+  /**
+   * EVERY queued kind with a resolvable definition — INDEPENDENT of whether a full
+   * contract also resolves (PDM-449).
+   *
+   * This used to read `lookup(...) === undefined && resolveDef(...) !== undefined`,
+   * and that conjunction was a hole rather than a filter. `rename` is
+   * definition-resolved here only because the registry-shaped `lookup` cannot see a
+   * STANDALONE contract export; PDM-416 widens exactly that, and on the day it lands
+   * `rename` would have become contract-backed and DROPPED OUT OF BOTH definition
+   * checks — enrolment and eligibility — with its definition then unchecked. A
+   * definition quietly moved to `offline: 'direct-only'` would have escaped while the
+   * contract stayed `offline-eligible` and everything here passed.
+   *
+   * The two vocabularies are two declarations and BOTH are checked. Resolution order
+   * decides which contract case applies; it must never decide WHETHER a definition is
+   * checked. Note this also makes the population below stable across PDM-416 rather
+   * than something that must be adjusted when it lands — adjusting the list alone
+   * would not have closed this.
+   */
+  const definitionResolved = entries.filter(([, c]) => resolveDef(c.name) !== undefined)
 
   // -------------------------------------------------------------------------
   // EXHAUSTIVE QUEUED-SIDE ENUMERATION — the anti-vacuity spine of this file.
@@ -223,8 +243,8 @@ describe('the client outbox contract table matches the contracts', () => {
     expect(stateNamespaces).toContain(planeNamespace)
   })
 
-  it('the definition-backed population is exactly the eleven presence kinds', () => {
-    expect(definitionBacked.map(([kind]) => kind).sort()).toEqual(DEFINITION_BACKED)
+  it('the definition-resolved population is exactly the eleven presence kinds', () => {
+    expect(definitionResolved.map(([kind]) => kind).sort()).toEqual(DEFINITION_RESOLVED)
     // The contract-backed population is non-empty, or the contract cases below are
     // vacuous for a reason no assertion in them would report.
     expect(contractBacked.length).toBeGreaterThan(0)
@@ -257,7 +277,7 @@ describe('the client outbox contract table matches the contracts', () => {
   // thereby said the Outbox serves it, and a check on one is not evidence about the
   // other. Collapsing them into a single case would let either hold the other up.
 
-  it.each(definitionBacked)(
+  it.each(definitionResolved)(
     '%s: the definition DECLARES outbox enrolment — being queued is being served',
     (_kind, command) => {
       const def = resolveDef(command.name)
@@ -266,7 +286,7 @@ describe('the client outbox contract table matches the contracts', () => {
     },
   )
 
-  it.each(definitionBacked)(
+  it.each(definitionResolved)(
     '%s: the definition declares offline ELIGIBILITY — D4 rule 3, a separate fact',
     (_kind, command) => {
       const def = resolveDef(command.name)
@@ -323,5 +343,41 @@ describe('the client outbox contract table matches the contracts', () => {
     expect(def, 'rename definition must be reachable').toBeDefined()
     expect(commandExposure(def as CommandDef)).toContain('outbox')
     expect(sessionRenameContract.exposure).toContain('outbox')
+    // AND ELIGIBILITY, which this case used to omit (PDM-449). Enrolment agreeing is
+    // not the whole agreement: the two vocabularies each carry a delivery class too,
+    // and a definition drifting to `direct-only` while the contract stays
+    // `offline-eligible` is precisely the disagreement this case exists to catch.
+    expect((def as CommandDef).offline).toBe('eligible')
+    expect(sessionRenameContract.delivery.class).toBe('offline-eligible')
+  })
+
+  it('a contract-resolved kind is STILL definition-checked — the PDM-416 control', () => {
+    // THE DISCRIMINATING CONTROL PDM-449 REQUIRES, and the reason the cases above do
+    // not cover it: they run over `definitionResolved`, so if that population were ever
+    // re-coupled to contract resolution they would simply stop GENERATING rows for
+    // `rename` — and a case that does not run cannot fail. This names the scenario.
+    //
+    // PREMISE: simulate PDM-416 by resolving the standalone contract that today's
+    // registry-shaped `lookup` cannot see.
+    //
+    // NOT asserted: that `lookup` currently FAILS to resolve it. That is today's
+    // accident, and pinning it would make this control redden the day PDM-416 lands —
+    // for a reason with nothing to do with the invariant it protects.
+    const widened = (name: string): CommandContract | undefined =>
+      name === 'sessions.rename' ? sessionRenameContract : lookup(name)
+    expect(widened('sessions.rename'), 'premise: contract-resolved under PDM-416').toBeDefined()
+
+    // INVARIANT: being contract-resolved must not remove it from the definition checks.
+    expect(definitionResolved.map(([kind]) => kind)).toContain('rename')
+
+    // DISCRIMINATION: with the full contract UNCHANGED and correct, a definition whose
+    // eligibility is wrong must still be distinguishable. If this can pass while the
+    // definition says `direct-only`, the eligibility check is doing no work here.
+    const def = resolveDef('sessions.rename')
+    expect(def, 'rename definition must be reachable').toBeDefined()
+    const wrongDefinition: CommandDef = { ...(def as CommandDef), offline: 'direct-only' }
+    expect(wrongDefinition.offline).not.toBe('eligible')
+    expect((def as CommandDef).offline).toBe('eligible')
+    expect(sessionRenameContract.delivery.class).toBe('offline-eligible')
   })
 })
