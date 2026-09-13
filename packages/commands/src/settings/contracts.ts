@@ -310,8 +310,17 @@ const SECRET_DELIVERY: DeliveryPolicy = {
     'Apply IS the call — there is no queue and therefore no gap to re-authorize across — so the ' +
     'obligation ADR 3 D8 / Amendment 1 D16 places on this family is the LIVE check at the moment of ' +
     'the write: the admin floor is resolved against the principal’s CURRENT rights, never a ' +
-    'capability minted at spawn, and an agent’s scope is intersected with its human’s (ADR 9 D5 A1). ' +
-    'The caller is told which of the two refused it. BOTH HALVES ARE NOW SHIPPED, and this note ' +
+    'capability minted at spawn. THE TWO GATES ARE SEPARATE and neither feeds the other — ' +
+    '`adminFloorRefusal` refuses an AGENT at an admin floor outright, returning `delegated` WITHOUT ' +
+    'reading the delegating human’s role (PDM-299), so no scope intersection can carry an agent over ' +
+    'this floor; the ADR 9 D5 A1 intersection governs what an agent may REACH, a different axis. ' +
+    'HOW THE REFUSAL IS SHOWN DIFFERS BY COMMAND, and the earlier flat claim that “the caller is told ' +
+    'which of the two refused it” was false for one of this policy’s three consumers: the WRITES ' +
+    '(`settings.setSecret`, `settings.clearSecret`) refuse `FORBIDDEN` and say why, while the READ ' +
+    '`settings.secretPresence` refuses `NOT_FOUND` carrying `SECRET_SURFACE_ABSENT` — the same code ' +
+    'and string an instance without the surface returns — because the withheld fact IS an existence ' +
+    'fact and a distinguishable refusal would leak exactly what the floor protects ' +
+    '(`modules/settings/authz.ts`, §3.1.5). BOTH HALVES ABOVE ARE NOW SHIPPED, and this note ' +
     'used to end by denying the first: *“Nothing enforces the floor today — that is POD-1079’s, the ' +
     'same recorded gap `machines.pairingCode` carries.”* The consumer is ' +
     '`apps/server/src/modules/settings/authz.ts` (POD-421 3.7d), which `modules/settings/trpc.ts` ' +
@@ -571,10 +580,15 @@ export const settingsUpdateInstanceContract = {
       'reversible by writing it again — with the deliberate note that `hibernation.enabled` and ' +
       '`gitWorkflow.mergeStyle` have instance-wide behavioural blast radius; the ADMIN FLOOR is the ' +
       'gate that answers that, not a per-call confirmation prompt an agent would click through. ' +
-      'The floor IS enforced: the server’s derived command builder reads ' +
-      '`contract.policy.roleFloor` and refuses below it (PDM-294), against the account role of the ' +
-      'member the request authenticated as. (This line previously read “Nothing enforces the ' +
-      'floor today (single operator principal)” — corrected by PDM-421.)',
+      'The floor IS enforced, by this family’s own gate: `modules/settings/trpc.ts` calls ' +
+      '`settingsAuthzFailure` on every settings procedure, and for an `admin` floor that delegates to ' +
+      'the one shared `adminFloorRefusal` decision (PDM-299), against the role `settingsAuthzDeps` ' +
+      'reads with `users.roleOf(...)` on that call. (Two corrections, both PDM-421’s. It first read ' +
+      '“Nothing enforces the floor today (single operator principal)”, which was stale. The ' +
+      'replacement then named the SERVER’S DERIVED COMMAND BUILDER reading `contract.policy.roleFloor` ' +
+      '(PDM-294) — the wrong subsystem for this family, caught by the PDM-139 phase review after it ' +
+      'had already passed one. A repair’s replacement text gets less scrutiny than the claim it ' +
+      'replaces.)',
   },
   exposure: SERVED_ON,
   delivery: INSTANCE_PREFERENCE_DELIVERY,
