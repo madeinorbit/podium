@@ -761,14 +761,29 @@ export class SessionRepository {
      * failure direction is what matters — this branch did not refuse, it
      * ASSIGNED.
      *
-     * WHY IT IS A FAIL-CLOSED GUARD AND NOT A LIVE PATH. Nothing in the
-     * migration chain can produce the row it refuses: `owner_user_id` arrived
-     * NOT NULL with a backfilling DEFAULT (`20260731195047_phase-3-policy-ownership`)
-     * and every table rebuild since has carried NOT NULL. `SessionRow` types the
-     * field optional for legacy adapter boundaries, so the case is
-     * REPRESENTABLE in TypeScript while being unreachable through the store —
-     * which is exactly why the fallback was worth deleting rather than keeping:
-     * it read as a supported case. `ownerless-restore.test.ts` pins both halves.
+     * WHAT IT ACCEPTS AND WHAT IT REFUSES, stated rather than left to `!`. It
+     * accepts a NON-EMPTY owner and refuses `undefined`, `null` AND the EMPTY
+     * STRING. That is deliberately WIDER than the term it replaces: `??` fires
+     * only on null and undefined, so `''` used to hydrate a session owned by the
+     * empty string. This spelling is `upsertSession`'s own guard
+     * (`if (!row.ownerUserId) throw`), so the read side and the write side now
+     * refuse exactly the same set — an owner that is not a person is refused at
+     * both ends rather than at one.
+     *
+     * WHY IT IS A GUARD AND NOT A LIVE PATH — AND THE TWO HALVES HAVE DIFFERENT
+     * WARRANTS, which is the part not to collapse (PDM-451).
+     *   - NULL is excluded by the SCHEMA. `owner_user_id` arrived NOT NULL with
+     *     a backfilling DEFAULT (`20260731195047_phase-3-policy-ownership`) and
+     *     every table rebuild since has carried NOT NULL.
+     *   - THE EMPTY STRING IS NOT. `NOT NULL` permits `''`; nothing in the
+     *     schema forbids it. What excludes it is `upsertSession`'s RUNTIME
+     *     guard, an API guarantee of the one production writer — which a future
+     *     writer, a raw INSERT or an import can simply not go through. So this
+     *     refusal is NOT redundant with the constraint for that value, and that
+     *     is the stronger half of the reason it exists.
+     * `SessionRow` types the field optional for legacy adapter boundaries, so
+     * both cases stay REPRESENTABLE in TypeScript. `ownerless-restore.test.ts`
+     * pins each class and each warrant separately.
      */
     if (!r.ownerUserId) {
       log.warn('skipping a persisted session with no owner', { sessionId: r.id })

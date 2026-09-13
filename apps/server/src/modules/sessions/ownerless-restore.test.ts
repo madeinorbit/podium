@@ -1,6 +1,6 @@
 /**
  * A PERSISTED SESSION WITH NO OWNER IS REFUSED, NEVER ADOPTED BY THE FIRST
- * ADMIN (PDM-428).
+ * ADMIN (PDM-428), AND THE REFUSED CLASSES ARE BOUNDED HERE (PDM-451).
  *
  * WHAT WAS WRONG. `sessionFromStoredRow` — the one hydration used by boot
  * (`repository.loadFromStore`) and by restore
@@ -18,36 +18,45 @@
  * restore would hand somebody's personal Mac to whoever is admin) applies to a
  * session's transcript and repo state.
  *
- * WHAT THIS FILE ESTABLISHES, AND WHAT IT DOES NOT.
+ * THE REFUSAL IS WIDER THAN THE TERM IT REPLACED, AND THAT IS DELIBERATE.
+ * `!r.ownerUserId` refuses `undefined`, `null` AND the EMPTY STRING; `??` fired
+ * only on the first two, so `''` used to hydrate a session owned by the empty
+ * string. The spelling is `upsertSession`'s own guard, so the read side and the
+ * write side now refuse the same set. Each class is tested below, because a
+ * guard that rejects more than its stated warrant covers is a guard whose
+ * warrant is wrong.
  *
- *  - IT ESTABLISHES that the hydration function refuses an ownerless row in
- *    BOTH modes, and that the refusal is not "hydration is broken": a row that
- *    names an owner still hydrates, and comes back owned by the person the row
- *    names rather than by the admin.
- *  - IT ESTABLISHES that the row it refuses cannot arrive from the store today:
- *    `sessions.owner_user_id` is NOT NULL in the migrated schema. So this is a
- *    FAIL-CLOSED GUARD over a case the current schema forbids, not a repair to
- *    a live path, and the last test says so in a form that reddens if a future
- *    migration relaxes the column.
- *  - IT DOES NOT ESTABLISH that no unowned row can exist by any means. The
- *    migration chain is what was audited — `owner_user_id` arrived NOT NULL
- *    with a backfilling DEFAULT in `20260731195047_phase-3-policy-ownership`
- *    and every `__new_sessions` rebuild since has carried NOT NULL — and that
- *    says nothing about SQL issued outside drizzle, or about a database file
- *    swapped in beneath the migrator.
- *  - IT DOES NOT SPEAK for `session-revival.ts`, which keeps its own
- *    `firstAdminMemberId` fallback deliberately and for a documented reason
- *    (PDM-273). This file's claim is about hydration only.
+ * THE TWO CLASSES HAVE DIFFERENT WARRANTS AND THIS FILE KEEPS THEM APART.
  *
- * THE ROW THE TESTS BUILD IS REPRESENTABLE, WHICH IS THE WHOLE POINT.
+ *  - NULL is excluded by the SCHEMA. `owner_user_id` arrived NOT NULL with a
+ *    backfilling DEFAULT in `20260731195047_phase-3-policy-ownership`, and every
+ *    `__new_sessions` rebuild since has carried NOT NULL.
+ *  - THE EMPTY STRING IS NOT EXCLUDED BY THE SCHEMA. `NOT NULL` permits `''`,
+ *    and the test below inserts one into a migrated database and reads it back
+ *    to SHOW that rather than arguing it. What excludes `''` is
+ *    `upsertSession`'s RUNTIME guard — an API guarantee of the one production
+ *    writer, which a raw INSERT, an import, or a future second writer simply
+ *    does not go through. So for THAT value the read-side refusal is not
+ *    redundant with the constraint, and that is the stronger half of the reason
+ *    it exists.
+ *
+ * WHAT THIS FILE DOES NOT ESTABLISH. It bounds the input classes the guard
+ * accepts and refuses, and the warrant for each; it does not establish that no
+ * unowned row can exist by any means. The schema audit covers the migration
+ * chain and says nothing about SQL issued outside drizzle beyond the one raw
+ * INSERT performed here, nor about a database file swapped in beneath the
+ * migrator. It also does not speak for `session-revival.ts`, which keeps its own
+ * `firstAdminMemberId` fallback deliberately and for a documented reason
+ * (PDM-273). The claim is about hydration only.
+ *
  * `SessionRow.ownerUserId` is declared optional — "optional only at legacy
- * adapter boundaries" — so TypeScript admits the ownerless row while the
- * physical column forbids it. That gap is what made the fallback read as a
- * supported case, and it is why deleting the fallback needed a refusal in its
- * place rather than nothing at all.
+ * adapter boundaries" — so the absent case is representable in TypeScript while
+ * the physical column forbids it. That gap is what made the fallback read as a
+ * supported case.
  */
 
 import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { SessionRow } from '../../store/types'
@@ -56,10 +65,14 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { SessionRepository } from './repository'
 
 /** Someone who is emphatically NOT the instance's first admin. Used as the
- *  owner in the positive control so "the stored owner survives" cannot be
+ *  owner in the positive controls so "the stored owner survives" cannot be
  *  satisfied by the row happening to name the admin — the divergence is the
  *  assertion (false-green catalogue, shape 33). */
 const STRANGER = asUserId('u_not_the_first_admin')
+
+/** The private handle, reached the way the store suites already reach it, so a
+ *  row can be planted that no production writer would ever produce. */
+const rawDb = (store: SessionStore): SqlDatabase => (store as unknown as { db: SqlDatabase }).db
 
 /** The repository, for its hydration function only. `store` is REAL and is the
  *  port the deleted fallback read: `firstAdminMemberId(this.store)` resolved
@@ -86,7 +99,7 @@ const hydrator = (store: SessionStore): SessionRepository =>
  *  explain a refusal. */
 const row = (owner?: UserId): SessionRow => ({
   id: asSessionId('sess_hydrated_without_an_owner'),
-  ...(owner ? { ownerUserId: owner } : {}),
+  ...(owner !== undefined ? { ownerUserId: owner } : {}),
   agentKind: 'claude-code',
   cwd: '/home/u/repo',
   title: 'a session somebody started',
@@ -110,6 +123,39 @@ const row = (owner?: UserId): SessionRow => ({
   lastInputAt: null,
   lastResumedAt: null,
 })
+
+/** The columns a `sessions` INSERT must supply: NOT NULL with no default. Named
+ *  rather than derived so the planted row is a deliberate shape — and checked
+ *  AGAINST the derived set in the test that uses it, so a migration adding a
+ *  required column reddens there instead of silently changing what is planted
+ *  (catalogue shape 7: never compare two hand-kept lists). */
+const REQUIRED_SESSION_COLUMNS = [
+  'id',
+  'owner_user_id',
+  'agent_kind',
+  'cwd',
+  'title',
+  'origin_kind',
+  'status',
+  'durable_label',
+  'created_at',
+  'last_active_at',
+  'machine_id',
+] as const
+
+/** Plant a `sessions` row straight through SQLite, bypassing every write-side
+ *  guard. `agent_kind` is VALID on purpose: an invalid one is refused by the
+ *  guard ABOVE the owner check, which would make a passing refusal prove the
+ *  wrong clause. */
+const plantRow = (db: SqlDatabase, id: string, ownerUserId: string): void => {
+  db.prepare(
+    `INSERT INTO sessions (${REQUIRED_SESSION_COLUMNS.join(', ')})
+     VALUES (?, ?, 'claude-code', '/home/u/repo', 'a planted session', 'spawn', 'exited',
+       ?, '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z', 'machine-1')`,
+  ).run(id, ownerUserId, `podium-${id}`)
+}
+
+type ColumnInfo = { name: string; notnull: number; dflt_value: unknown; pk: number }
 
 describe('an ownerless session row is refused at hydration', () => {
   it.each(['boot', 'restore'] as const)(
@@ -144,10 +190,92 @@ describe('an ownerless session row is refused at hydration', () => {
     },
   )
 
+  it('refuses an EMPTY-STRING owner that a migrated database really does accept', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const db = rawDb(store)
+
+      // (1) THE WIDENING, PINNED AS A COUNTERFACTUAL RATHER THAN DESCRIBED.
+      // `??` fires only on null and undefined, so the term this guard replaced
+      // passed the empty string straight through to the Session. Refusing it is
+      // therefore a deliberate widening, not an accident of writing `!`.
+      const EMPTY = '' as UserId
+      expect(EMPTY ?? asUserId('substituted-by-the-old-term')).toBe('')
+
+      // (2) THE COLUMN LIST IS CHECKED AGAINST THE SCHEMA, not against a second
+      // copy of my own assumption: if a migration adds a required column, this
+      // reddens here rather than letting the plant below insert a shape the real
+      // table no longer has. It caught my first list on its first run — SQLite
+      // reports `notnull = 0` for a TEXT PRIMARY KEY, so `id` is demanded by the
+      // table without appearing in the derived set, and the two directions below
+      // say that rather than papering over it.
+      const columns = db.prepare('PRAGMA table_info(sessions)').all() as ColumnInfo[]
+      const demandedByTable = columns
+        .filter((c) => c.notnull === 1 && c.dflt_value == null)
+        .map((c) => c.name)
+      // Every column the table demands IS supplied by the plant…
+      expect([...REQUIRED_SESSION_COLUMNS]).toEqual(expect.arrayContaining(demandedByTable))
+      // …and the only thing the plant supplies beyond them is the primary key,
+      // asserted to BE the primary key so its absence from the derived set is
+      // explained rather than silently absorbed.
+      expect(
+        [...REQUIRED_SESSION_COLUMNS].filter((c) => !demandedByTable.includes(c)),
+      ).toEqual(['id'])
+      expect(columns.find((c) => c.name === 'id')?.pk).toBe(1)
+
+      // (3) NOT NULL DOES NOT EXCLUDE THE EMPTY STRING. Shown, not argued: the
+      // insert succeeds against the real migrated table and the value comes back
+      // through the ordinary store read.
+      plantRow(db, 'sess_planted_empty_owner', '')
+      const stored = await store.sessions.getSession(asSessionId('sess_planted_empty_owner'))
+      expect(stored, 'the plant must have landed, or nothing below is about hydration').toBeDefined()
+      expect(stored?.ownerUserId, 'the schema accepted an empty owner').toBe('')
+
+      // (4) AND HYDRATION REFUSES THAT REAL STORED ROW.
+      const hydrated = await hydrator(store).sessionFromStoredRow(stored as SessionRow, 'boot')
+      expect(hydrated, 'an empty-string owner must be refused too').toBeNull()
+
+      // (5) WHICH CLAUSE REFUSED IT. The same plant with a real owner hydrates,
+      // so the refusal above is the OWNER check and not the agentKind check
+      // above it, nor anything else about a planted row.
+      plantRow(db, 'sess_planted_real_owner', STRANGER)
+      const sibling = await store.sessions.getSession(asSessionId('sess_planted_real_owner'))
+      const hydratedSibling = await hydrator(store).sessionFromStoredRow(
+        sibling as SessionRow,
+        'boot',
+      )
+      expect(hydratedSibling, 'the identical plant with an owner must hydrate').not.toBeNull()
+      expect(hydratedSibling?.ownerUserId).toBe(STRANGER)
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('the empty string is excluded by upsertSession, an API guarantee and not the schema', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      // The distinction PDM-451 asked be kept: the production writer refuses a
+      // falsy owner, and that is a property of this FUNCTION rather than of the
+      // table. It is what makes the empty-owner row above reachable only by a
+      // path that does not come through here — and what makes the read-side
+      // refusal non-redundant for that value.
+      await expect(
+        store.sessions.upsertSession({ ...row(STRANGER), ownerUserId: '' as UserId }),
+      ).rejects.toThrow(/ownerUserId is required/)
+
+      // Non-vacuity for this assertion specifically: the same call with a real
+      // owner succeeds, so the rejection above is about the owner and not about
+      // the row being malformed.
+      await expect(store.sessions.upsertSession(row(STRANGER))).resolves.toBeUndefined()
+    } finally {
+      await store.close()
+    }
+  })
+
   it('still hydrates a row that names an owner, and keeps that owner', async () => {
     const store = await openTestStore(':memory:')
     try {
-      // NON-VACUITY FOR THE WHOLE FILE. If hydration refused everything, the two
+      // NON-VACUITY FOR THE WHOLE FILE. If hydration refused everything, the
       // refusals above would be green and worthless. The owner here is a
       // STRANGER, asserted different from the admin, so "the stored owner
       // survives" cannot be satisfied by the substitution the repair removed.
@@ -163,18 +291,16 @@ describe('an ownerless session row is refused at hydration', () => {
     }
   })
 
-  it('cannot receive such a row from the store: owner_user_id is NOT NULL', () => {
-    // WHY THE GUARD IS LATENT, stated as a check rather than as prose. This is
-    // the premise the refusal rests on, and it is the one that can change under
-    // it: the issue exists because a schema relaxation is all it would take. A
-    // migration that made this column nullable reddens HERE, by name, which is
-    // the notice a comment could not give.
+  it('the NULL half of the guard is the schema half: owner_user_id is NOT NULL', () => {
+    // The warrant for the null class, as a check rather than as prose, and
+    // bounded to what it covers: NOT NULL excludes NULL and says NOTHING about
+    // the empty string — which is why the empty-string test above exists and
+    // does not lean on this one. A migration that relaxes the column reddens
+    // HERE, by name, which is the "one schema change away" scenario the issue
+    // was filed about.
     const db = openMigratedTestDatabase()
     try {
-      const columns = db.prepare('PRAGMA table_info(sessions)').all() as {
-        name: string
-        notnull: number
-      }[]
+      const columns = db.prepare('PRAGMA table_info(sessions)').all() as ColumnInfo[]
       const owner = columns.find((c) => c.name === 'owner_user_id')
       // Asserted present first: a `find` that answered undefined would make the
       // notnull assertion below read as a pass on an absent subject.
