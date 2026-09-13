@@ -276,8 +276,14 @@ describe('SessionRegistry', () => {
         startNow: false,
       })
 
-      const hostStarted = await reg.modules.issues.start(hostIssue.id)
-      const remoteStarted = await reg.modules.issues.start(remoteIssue.id)
+      // WHO STARTED THESE (PDM-276). `issues.start` is incidental here -- the
+      // subject is repo affinity -- but it spawns a real session through the
+      // real relay wiring, and a spawn with no human is now refused rather than
+      // handed to the earliest admin. Stating the starter is what the fixture
+      // always meant; before, it was being supplied silently.
+      const starter = { ownerUserId: firstAdminMemberId() }
+      const hostStarted = await reg.modules.issues.start(hostIssue.id, undefined, starter)
+      const remoteStarted = await reg.modules.issues.start(remoteIssue.id, undefined, starter)
 
       expect(hostStarted.machineId).toBe(store.hostMachineId)
       expect(remoteStarted.machineId).toBe('remote-first')
