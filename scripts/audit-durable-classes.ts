@@ -281,10 +281,14 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // replacement would give two answers for the one release in which both exist.
   // `accounts` goes at PDM-296 and this entry outlives it.
   //
-  // WHAT THIS ENTRY DOES NOT DO is re-cell the matrix row, and that is a gap
-  // rather than a decision: `managed-credentials` still lists only
-  // `accounts.credential` under `sites`, so a reader arriving from the matrix
-  // lands on the table PDM-296 deletes. Recorded as a finding, not fixed here.
+  // THE GAP THIS ENTRY LEFT IS CLOSED — PDM-327. When PDM-324 wrote the comment
+  // above, the matrix row still listed only `accounts.credential` under `sites`,
+  // so a reader arriving from the matrix landed on the table PDM-296 deletes.
+  // The row now names `managed_credentials` first and marks `accounts` retired,
+  // and it records WHY the per-person key leaves owner / replication / secret
+  // unchanged rather than leaving that to be re-derived. The tie is mechanical,
+  // not a comment: see `audit-durable-classes.test.ts`, which flips the
+  // obligation the moment `accounts` leaves the schema.
   { store: 'managed_credentials', kind: 'drizzle-table', row: 'managed-credentials' },
   { store: 'execution_profiles', kind: 'drizzle-table', row: 'workflow-execution-profiles' },
   {
