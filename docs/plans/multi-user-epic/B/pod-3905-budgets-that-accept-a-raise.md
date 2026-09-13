@@ -320,3 +320,63 @@ this branch against `origin/main`. Only `audit:committed-floors` does that, and 
 runs nowhere. **Wiring it into a workflow is not in this issue's scope and should
 not be inferred from this receipt; it is named here so nobody reads "50 numbers
 guarded" as "50 numbers guarded in CI".**
+
+### A4 — PDM-325 is built; the genesis cost measured exactly, and it is 37, not 36
+
+PDM-325 reports its change built at `ec055a80c` on `issue/pdm-325-genesis-record`.
+
+**I could not execute it.** That branch is on no remote reachable from here
+(`git ls-remote` against both `origin` and `flatblock` returns nothing matching
+`pdm-325`/`genesis`), the object `ec055a80c` is not in this repository, and there
+is no sibling worktree holding it. So nothing below is a run of their code — it
+is their rule, which is fully specified, evaluated against the base commit
+`89574f1c8`, which I can read. Labelled as derived, not reproduced.
+
+Every key in `COMMITTED_BASELINES` at this head, split by whether it exists at
+that base:
+
+| | count |
+|---|---|
+| present at base → ordinary raise/lower path, **no genesis record** | **13** |
+| absent at base → **one `BaselineAuthorisation { from: null }` each** | **37** |
+
+All 13 present keys carry values **identical** at base and head, so none of them
+takes a raise or lower path either — and the shape PDM-325 named as the one real
+bug in their change (a genesis finding for a key that *is* on the base commit)
+cannot arise from this branch.
+
+**The 37 is one more than either of us predicted, and the extra one is not mine.**
+
+- 36 are this issue's: `GOD_OBJECT_BUDGET` (28) and `WEB_BUNDLE_BUDGET` (8).
+- **1 is `MIN_REASON_LENGTH`** — POD-3906's registration of the ratchet's own
+  floor, which lives in `scripts/baseline-ratchet.ts`. That file **does not exist
+  at `89574f1c8`** (`git cat-file -e` fails), so its key is absent at base exactly
+  as mine are.
+
+So PDM-325's gate fires on an **already-landed registration in PDM-325's own
+file**, independent of this issue: the epic branch needs that record even if
+POD-3905 is never merged. That is the gate working correctly, not a defect — but
+it means "eight genesis keys for the web-bundle hoist" understates the landing
+cost, and the first red after PDM-325 lands will include a key whose owner is
+neither of us. Worth knowing before it is read as my bug.
+
+PDM-325's specific #2 — which they said they had deliberately not checked rather
+than report a number they had not seen printed — is **confirmed, per key**:
+
+```
+THRESHOLD          base 600  head 600  same
+MIN_ARGUMENT       base 180  head 180  same
+MAX_SURFACE_STATE  base   2  head   2  same
+MAX_COUPLED_STATE  base  12  head  12  same
+MAX_METHOD_LINES   base 180  head 180  same
+```
+
+All five are present at `89574f1c8` with unchanged spellings and unchanged
+values, so all five are free.
+
+The 36 records still cannot be written here: `BaselineAuthorisation.from` is
+typed `readonly from: number` at `223218f5f`, so `from: null` does not compile
+until PDM-325 lands. The full enumerated list of 37 keys with their `to` values
+is derivable in one command from this head — iterate `COMMITTED_BASELINES`,
+`qualify(constantsIn(git show 89574f1c8:<path>, exportName))`, and take the keys
+the base does not have.
