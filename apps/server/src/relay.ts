@@ -1127,6 +1127,17 @@ export class SessionRegistry {
       issueExecutions: await ledger.authority.snapshot(
         'issueExecution',
       ) as SnapshotTail['issueExecutions'],
+      // THIS reader's own session marks [PDM-424]. Through the SAME
+      // `authority.snapshot` as every other kind, which is what puts it under
+      // the same per-principal scoping: `scopeBootstrap` runs `policy.decide`
+      // over each row and this kind's arm resolves the row's OWN user. A
+      // bootstrap assembled any other way would be the one door the split does
+      // not cover — and it MUST be here rather than left to the delta path,
+      // because the snapshot's session rows now carry neutral marks, so a client
+      // that never received this list renders every session unread.
+      sessionMarks: await ledger.authority.snapshot(
+        'sessionMarks',
+      ) as SnapshotTail['sessionMarks'],
       issueDeps: await ledger.authority.snapshot('issueDep') as SnapshotTail['issueDeps'],
       repos: repoProjectionRows(await this.store.repos.listRepos()).map((row) => row.value),
       shipOrders: await ledger.authority.snapshot('shipOrder') as SnapshotTail['shipOrders'],

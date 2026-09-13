@@ -61,6 +61,7 @@ import {
   type ConversationSummaryWire,
   type IssueDepProjection,
   type IssueExecutionProjection,
+  type SessionMarksWire,
   interactionRowId,
   type IssueEventWire,
   type IssueProjection,
@@ -295,6 +296,7 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 
 /** Entity collection kinds + transcripts — everything the quota guard covers. */
 const ENTITY_STORE_KINDS = [
+  'sessionMarks',
   'sessions',
   'issues',
   'issueProjections',
@@ -469,6 +471,16 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      // This reader's own session marks (PDM-424). Keyed on `sessionId` alone:
+      // every row here belongs to this principal by construction — the server's
+      // `keyedUserOf` arm cannot deliver anybody else's — so the user half would
+      // be a constant in the key and would only make the join look conditional.
+      sessionMarks: this.makeCollection<SessionMarksWire>(
+        'sessionMarks',
+        (m) => m.sessionId,
+        guarded,
+        guardedEvents,
+      ),
       repos: this.makeCollection<RepoProjection>('repos', (r) => r.id, guarded, guardedEvents),
       issueEvents: this.makeCollection<IssueEventWire>(
         'issueEvents',
@@ -555,6 +567,7 @@ class TanstackReplica implements Replica {
       issueProjections: [],
       issueDeps: [],
       issueExecutions: [],
+      sessionMarks: [],
       repos: [],
       issueEvents: [],
       pendingInteractions: [],
@@ -605,6 +618,7 @@ class TanstackReplica implements Replica {
         issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
         issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
         issueExecutions: this.cols.issueExecutions.toArray as IssueExecutionProjection[],
+        sessionMarks: this.cols.sessionMarks.toArray as SessionMarksWire[],
         repos: this.cols.repos.toArray as RepoProjection[],
         issueEvents: this.cols.issueEvents.toArray as IssueEventWire[],
         pendingInteractions: this.cols.pendingInteractions
@@ -1574,6 +1588,25 @@ class TanstackReplica implements Replica {
         return layoutRowId(layout.userId, layout.key)
       }
     }
+    // PER-USER SESSION MARKS HAVE NO `id` EITHER (PDM-424). Their identity is
+    // the session's, spelled `sessionId` so nobody mistakes the row for an entity
+    // with a life of its own, and this resolver falls through to `.id` for
+    // everything it does not name.
+    //
+    // WHAT BREAKS WITHOUT THIS ARM, and it is silent. `keyFor` is used by
+    // {@link upsertRows} for ONE decision: is this row an insert or an update?
+    // With no arm the key is `undefined`, `col.get(undefined)` misses, and every
+    // row is classified an INSERT. The collection's own `getKey` then dedupes it
+    // against the row already there, so the write is SILENTLY DISCARDED — no
+    // marks row can ever CHANGE. Read stays read, a snooze cannot be cleared, and
+    // nothing reports a failure.
+    //
+    // THE SECOND PLACE. `kernel/kinds.ts` carries the matching `rowKey` arm for
+    // the kernel replica; this is the legacy replica's own copy of the same
+    // question, and having the kernel arm is not having this one. PDM-408 found
+    // that on the issue twin by writing a marks-only-delta witness that published
+    // nothing at all until this existed.
+    if (kind === 'sessionMarks') return (row) => (row as SessionMarksWire).sessionId
     return (row) =>
       (
         row as

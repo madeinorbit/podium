@@ -23,6 +23,9 @@ import type { ReplicaKind, ReplicaRows } from '../contract'
 /** Kernel entity name → engine collection kind. */
 const ENTITY_TO_KIND = {
   session: 'sessions',
+  /** PDM-424's per-user session marks. Same rule as every kind below: the entity
+   *  spelling is `MetadataEntityKind`'s literal, not a guess. */
+  sessionMarks: 'sessionMarks',
   issue: 'issues',
   // The POD-796/POD-822 normalized kinds. Their entity spellings are NOT guessed
   // — they are `MetadataEntityKind`'s literals in protocol's `messages/sync.ts`
@@ -96,5 +99,11 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   // there: a row whose key fell through to `.id` would key on `undefined`, and
   // every issue's private half would collide on one row.
   if (kind === 'issueExecutions') return (row as ReplicaRows['issueExecutions']).issueId
+  // The session-marks row is keyed by ITS SESSION for the reason the collection
+  // is: every row a client holds is its own, so the user half is a constant.
+  // Keying on `.id` would be `undefined` here, and — unlike a collision between
+  // two issues — every session's marks would collide onto ONE row, so the whole
+  // collection would hold whichever arrived last.
+  if (kind === 'sessionMarks') return (row as ReplicaRows['sessionMarks']).sessionId
   return (row as ReplicaRows['issues']).id
 }

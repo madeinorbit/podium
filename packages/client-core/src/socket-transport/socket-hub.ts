@@ -26,6 +26,9 @@ import {
   joinIssueExecution,
   layoutRowId,
   readPositionRowId,
+  type SessionMarksWire,
+  sessionMarksRowId,
+  joinSessionMarks,
 } from '@podium/model'
 import {
   type ApprovalWire,
@@ -669,6 +672,11 @@ export class SocketHub {
    *  row landed second — which is most of the time, since it is emitted after
    *  the shared row in the same write. */
   private issueExecutionList: IssueExecutionProjection[] = []
+  /** THIS reader's own session read marks and snoozes [PDM-424]. Held separately
+   *  from `sessionList` for the reason the execution sidecar above is: neither
+   *  half has to land first, and a session row that arrives second carries the
+   *  broadcast's NEUTRAL marks. */
+  private sessionMarksList: SessionMarksWire[] = []
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
@@ -2396,6 +2404,19 @@ export class SocketHub {
             (x) => readPositionRowId(x.userId, x.streamId) === c.id,
           )
           break
+        case 'sessionMarks':
+          // PDM-424's per-user session marks. Matched on the composite id the
+          // Authority logs (`sessionMarksRowId`), not on `sessionId` alone: every
+          // row this client receives is its own, but the LOG's id is the pair,
+          // and a RETRACTION — the eviction a deleted session produces — carries
+          // only that composite.
+          this.sessionMarksList = applyChange(
+            this.sessionMarksList,
+            c.op,
+            c.value,
+            (x) => sessionMarksRowId(x.userId, x.sessionId) === c.id,
+          )
+          break
         default:
           c satisfies never
       }
@@ -2409,7 +2430,20 @@ export class SocketHub {
         (issue) => joinIssueExecution(issue, executionByIssue.get(issue.id)) as IssueWire,
       )
     }
-    if (touched.has('session')) this.emit('sessions', this.sessionList)
+    // THIS reader's own marks, re-joined onto the shared session rows [PDM-424].
+    // Re-joined when EITHER side moved, because a session row that arrives after
+    // the marks carries the broadcast's NEUTRAL values and would otherwise
+    // overwrite a mark this client already holds — the same reason the issue
+    // sidecar above re-joins on both.
+    if (touched.has('sessionMarks') || touched.has('session')) {
+      const marksBySession = new Map(this.sessionMarksList.map((x) => [x.sessionId as string, x]))
+      this.sessionList = this.sessionList.map((session) =>
+        joinSessionMarks(session, marksBySession.get(session.sessionId)),
+      )
+    }
+    if (touched.has('session') || touched.has('sessionMarks')) {
+      this.emit('sessions', this.sessionList)
+    }
     if (touched.has('issue') || touched.has('issueExecution')) {
       this.emit('issues', this.issueList)
     }

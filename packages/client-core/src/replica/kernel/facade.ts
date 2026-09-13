@@ -181,6 +181,7 @@ export interface KernelBackedReplica extends Replica {
  *  `REPLICA_BINDING_KINDS`. That is how `issueExecutions` was caught. If a
  *  further kind arrives, this is the third place to edit. */
 const ALL_KINDS: readonly ReplicaKind[] = [
+  'sessionMarks',
   'sessions',
   'issues',
   'issueProjections',
@@ -452,6 +453,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         issueProjections: project('issueProjections'),
         issueDeps: project('issueDeps'),
         issueExecutions: project('issueExecutions'),
+        sessionMarks: project('sessionMarks'),
         repos: project('repos'),
         issueEvents: project('issueEvents'),
         pendingInteractions: project('pendingInteractions'),

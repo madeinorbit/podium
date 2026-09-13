@@ -67,6 +67,7 @@ import type {
   IssueWire,
   LayoutWire,
   RepoProjection,
+  SessionMarksWire,
   SessionMeta,
   ShipOrderProjection,
   TranscriptItem,
@@ -92,6 +93,17 @@ export type StorageEventApi = {
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
   sessions: SessionMeta
+  /** THIS READER'S OWN read mark and snooze for a session (PDM-424) —
+   *  `(userId, sessionId)`. Keyed by SESSION ID in the collection, because a
+   *  client only ever holds its OWN rows: the server's `keyedUserOf` arm parses
+   *  the owner out of the row id and a foreign row can never be delivered, so
+   *  the user half is constant across every row this replica will ever see.
+   *
+   *  `SessionMeta` still carries `readAt` / `unread` / `snoozedUntil`, at NEUTRAL
+   *  values — the views join these over them (`joinSessionMarks`), which is why a
+   *  replica that has not received its rows yet paints everything unread rather
+   *  than somebody else's state. */
+  sessionMarks: SessionMarksWire
   /** The LEGACY embedded issue wire. Still held for compatibility consumers: the
    *  rich issue UI reads some supplements from it while normalized projections
    *  become the sole durable source. Its eventual retirement has one merger seam. */
@@ -160,6 +172,7 @@ export type ReplicaKind = keyof ReplicaRows
 
 export interface ReplicaHydrateResult {
   sessions: SessionMeta[]
+  sessionMarks: SessionMarksWire[]
   issues: IssueWire[]
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's

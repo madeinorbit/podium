@@ -90,10 +90,10 @@ export type SessionMarks = Omit<SessionMarksWire, 'userId' | 'sessionId'>
 /**
  * WHAT THE BROADCAST CARRIES INSTEAD OF SOMEBODY'S MARKS.
  *
- * The same values `NO_SESSION_USER_STATE` describes, and deliberately the same
- * object shape as this row's payload so the producer's neutral case and this
- * constant cannot drift apart. A person with no row is a person who has never
- * opened and never snoozed, which is exactly what a stranger should be shown.
+ * The same values `NO_SESSION_USER_STATE` describes, in the shape a neutral WIRE
+ * row has — see the omitted key below, which is where those two shapes differ.
+ * A person with no row is a person who has never opened and never snoozed, which
+ * is exactly what a stranger should be shown.
  *
  * NOTE FOR ANYONE WRITING A TEST AGAINST IT: on an instance whose only member is
  * the earliest admin, these values and HER values are the same bytes. An
@@ -103,7 +103,15 @@ export type SessionMarks = Omit<SessionMarksWire, 'userId' | 'sessionId'>
  */
 export const NEUTRAL_SESSION_MARKS: SessionMarks = Object.freeze({
   readAt: null,
-  snoozedUntil: undefined,
+  // `snoozedUntil` IS OMITTED, NOT SET TO `undefined`, and the distinction is
+  // not cosmetic. The producer (`Session.toMeta`) spreads the key only when the
+  // overlay has one, so a neutral row on the wire has NO `snoozedUntil` key at
+  // all. A constant that declared it present-and-undefined would be a second,
+  // different spelling of the neutral row — and `'snoozedUntil' in row` is a
+  // real question here, because `undefined` and absent are the SAME state while
+  // `null` is a different one. Caught by this constant's own witness in
+  // `session-marks-join.test.ts`, which built its broadcast fixture by spreading
+  // this object and then asked whether the key was there.
 })
 
 /**

@@ -1,4 +1,4 @@
-import { type IssueWire, joinIssueExecution } from '@podium/model'
+import { type IssueWire, joinIssueExecution, joinSessionMarks, type SessionMeta } from '@podium/model'
 import {
   type MetadataDeltaMessageLenient,
   parseChangesSinceResult,
@@ -190,7 +190,20 @@ export class LegacyWireV1Feed implements LegacyFeedSinkPort {
 const projectionOf = (
   snapshot: Extract<SyncChangesSinceResultLenient, { kind: 'snapshot' }>,
 ): LegacyMetadataProjection => ({
-  sessions: snapshot.sessions,
+  // The snapshot's session rows carry NEUTRAL marks [PDM-424] — the broadcast
+  // producer wires nobody's overlay — and this reader's own arrive as their own
+  // list, joined back on here so a v1 consumer downstream sees the row it has
+  // always seen. An absent marks row LEAVES the session row alone: it is already
+  // neutral as the producer sent it, and forcing neutral would wipe the client's
+  // own optimistic overlay, which is what PDM-408 found on the issue twin.
+  sessions: ((): SessionMeta[] => {
+    const marksBySession = new Map(
+      (snapshot.sessionMarks ?? []).map((row) => [row.sessionId as string, row]),
+    )
+    return snapshot.sessions.map((session) =>
+      joinSessionMarks(session, marksBySession.get(session.sessionId)),
+    )
+  })(),
   // The snapshot's issues are the SHARED shape [B4, PDM-136]; the owner's
   // private half arrives as its own list and is joined back on here, so a v1
   // consumer downstream sees the row it has always seen.
