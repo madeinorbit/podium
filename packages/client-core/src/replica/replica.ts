@@ -299,6 +299,7 @@ const ENTITY_STORE_KINDS = [
   'issues',
   'issueProjections',
   'issueDeps',
+  'issueExecutions',
   'repos',
   'issueEvents',
   'pendingInteractions',

@@ -61,6 +61,12 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   // flips, but the map is where they must be listed when they arrive.
   issueProjection: 'issueProjections',
   issueDep: 'issueDeps',
+  // The owner-scoped execution sidecar [B4, PDM-136]. It MUST be here: the
+  // installer skips a kind this map does not name (`kind === undefined →
+  // continue`), so its absence would drop every sidecar row on bootstrap and an
+  // owner's cold start would paint their own tasks as though never started —
+  // silently, because absence is exactly what an unstarted issue looks like.
+  issueExecution: 'issueExecutions',
   repo: 'repos',
   shipOrder: 'shipOrders',
   conversation: 'conversations',

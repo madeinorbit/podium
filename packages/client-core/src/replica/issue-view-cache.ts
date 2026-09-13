@@ -143,7 +143,18 @@ function storeFor(replica: Replica): IssueViewsStore {
   // The view joins all of these kinds. Prefer the kernel's one batch seam so a
   // multi-kind delta wakes the projection once; older replicas fall back to
   // their already-coalesced per-kind subscriptions.
-  const relevantKinds = new Set(['issues', 'issueProjections', 'issueDeps', 'repos', 'sessions'])
+  // `issueExecutions` joins here too [B4, PDM-136]: the view models fold the
+  // owner-scoped private half back onto the issue, so a sidecar-only delta must
+  // invalidate or the owner's worktree path never repaints — it would appear on
+  // the next unrelated issue change and look like a lag rather than a bug.
+  const relevantKinds = new Set([
+    'issues',
+    'issueProjections',
+    'issueExecutions',
+    'issueDeps',
+    'repos',
+    'sessions',
+  ])
   if (replica.subscribeRowBatch) {
     replica.subscribeRowBatch((changed) => {
       for (const kind of changed) {
@@ -156,6 +167,7 @@ function storeFor(replica: Replica): IssueViewsStore {
   } else {
     replica.subscribeRows('issues', invalidate)
     replica.subscribeRows('issueProjections', invalidate)
+    replica.subscribeRows('issueExecutions', invalidate)
     replica.subscribeRows('issueDeps', invalidate)
     replica.subscribeRows('repos', invalidate)
     replica.subscribeRows('sessions', invalidate)

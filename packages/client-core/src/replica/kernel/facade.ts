@@ -171,12 +171,21 @@ export interface KernelBackedReplica extends Replica {
  *  them yet: on this path they project empty, and a bootstrap that replaced the
  *  whole slice must still tell a listener on an empty kind that it re-read as
  *  empty. Leaving them out would make the notification set silently narrower
- *  than the interface, which is the harder bug to find later. */
+ *  than the interface, which is the harder bug to find later.
+ *
+ *  AND THIS LIST IS HAND-MAINTAINED, which is the trap [B4, PDM-136]. It is a
+ *  SECOND registry beside `ENTITY_TO_KIND` in `kinds.ts` and `ReplicaRows` in
+ *  `contract.ts`, and nothing derives it from either — so a kind added to the
+ *  contract is silently absent HERE, the notification set narrows, and the only
+ *  thing that notices is a test comparing `changed` against
+ *  `REPLICA_BINDING_KINDS`. That is how `issueExecutions` was caught. If a
+ *  further kind arrives, this is the third place to edit. */
 const ALL_KINDS: readonly ReplicaKind[] = [
   'sessions',
   'issues',
   'issueProjections',
   'issueDeps',
+  'issueExecutions',
   'repos',
   'issueEvents',
   'pendingInteractions',
