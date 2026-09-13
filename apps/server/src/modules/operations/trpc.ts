@@ -1,170 +1,69 @@
-import { asMachineId } from '@podium/model'
-import { TRPCError } from '@trpc/server'
-import { z } from 'zod'
-import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
-import { type Context, t } from '../../trpc'
-import { familyState } from '../derived-family'
-import { adminFloorMessage, adminFloorRefusal } from '../../command-principal'
-import { roleFloorDeps } from '../role-floor'
-
 /**
- * The operation surface (POD-2097, spec §3.0/§3.7). Three procedures, and the
- * first two are the whole of what a renderer needs.
+ * THE OPERATION SURFACE (POD-2097, spec §3.0/§3.7), DERIVED (PDM-297).
  *
- * `active` SERVES THE STORED BYTES, not a projection of them. Two reasons, and
- * both are the frozen contract (P8): a server must be able to hand an old
- * bundle a field that bundle has never heard of, and a bundle must be able to
- * read a field its server did not invent. Anything this file re-shaped on the
- * way out would be a second definition of the contract, in the one place where
- * the two ends are guaranteed to be different builds — the web bundle is
- * swapped during the operation it is rendering.
+ * Five procedures — `active`, `history`, `cancel`, `settleAsk`, `action` — and
+ * until this issue all five were HAND-WRITTEN here, joined to nothing. This file
+ * imported no contract, there was no `OPERATION_COMMANDS_TRPC` anywhere in
+ * `apps/server`, and so the three contracts in `packages/commands/src/operations`
+ * that declared a policy and a transport were not merely unenforced: they were
+ * UNATTACHED. Nothing compared what they declared with what was served.
+ *
+ * That is a worse failure than an unenforced floor and it is why it was its own
+ * row. Every instrument this epic relies on for exposure — the totality tests,
+ * the census, the deferred-capability mechanism — is defined over contracts
+ * JOINED to their procedures. An unjoined contract is invisible to all of them,
+ * so they answer green about a surface they cannot see. Measured, not assumed:
+ * planting `exposure: ['mcp']` on `operations.cancel` while this router served it
+ * on tRPC reddened NOTHING in either package.
+ *
+ * The procedures now come off `OPERATION_COMMANDS_TRPC` and `OPERATION_QUERIES`
+ * in `./registry`, through the one derived builder, so the same plant now fails
+ * at module load by name. This file declares only what differs: which tables,
+ * which state.
+ *
+ * WHAT LEFT THIS FILE AND WHERE IT WENT, since neither is a deletion:
+ *
+ *   - the hard-coded `admin` comparison in `assertActionAuthorized` is GONE,
+ *     replaced by the floor the three contracts already declared. `PDM-294` made
+ *     the builder read `contract.policy.roleFloor` and refuse below it at the
+ *     transport; `PDM-299` rewired this file's copy onto the one shared decision
+ *     and said in as many words that `PDM-297` owns the follow-through — "this
+ *     whole function becomes `roleFloorFailure(qualifiedName, contract, deps)`
+ *     and the hard-coded floor goes with it". It does. The rule is unchanged:
+ *     both spellings resolved the account grade through `roleFloorDeps` and
+ *     decided with `adminFloorRefusal`.
+ *   - the target-machine `manage` check moved to `./operation-target-gate`,
+ *     because a floor is a claim about the CALLER and that one is about the
+ *     TARGET. See that file's header, and the third position in
+ *     `derived-family.ts`'s "THE DECISIONS THIS FILE DOES TAKE".
+ *
+ * `active` STILL SERVES THE STORED BYTES. That was this file's loudest claim and
+ * the derivation does not weaken it: the read is a `DerivedQuery` whose `run`
+ * hands back what the engine projected, and `history` still hands on the parsed
+ * payload. The frozen contract (P8) is that a server must be able to hand an old
+ * bundle a field that bundle has never heard of — and the web bundle is swapped
+ * during the very operation it is rendering, so anything re-shaped on the way
+ * out would be a second definition of the contract in the one place the two ends
+ * are guaranteed to be different builds.
  */
 
-const operationsModule = (ctx: Context) => familyState(ctx).modules.operations
+import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import {
+  OPERATION_COMMANDS_TRPC,
+  OPERATION_QUERIES,
+  selectOperationState,
+} from './registry'
 
-/**
- * THE ADMIN FLOOR FOR ALL THREE OPERATION CONTRACTS, taken against the ACCOUNT
- * rather than against the transport (PDM-299).
- *
- * WHAT THIS USED TO READ, and why it was the odd one out: `ctx.principal
- * .capability.role !== 'admin'`. For a human that is exactly right by accident
- * — `userCommandPrincipal` mints the capability role FROM the account row on
- * every request and `UserRole` has only two members, so `capability.role ===
- * 'admin'` is equivalent to the live store role. For an AGENT it was the wrong
- * question asked of the wrong field: `relay.ts` and `SessionAuthz` hard-code
- * `role: 'worker'` on every live agent capability, so this line refused every
- * agent — not because a rule decided anything, but because no mint can produce
- * the value it compared against.
- *
- * That made the refusal untestable in the only way that matters. An assertion
- * that "an agent is refused" passed here for the wrong reason (false-green
- * catalogue entry 14), and it would have kept passing if the rule were deleted.
- *
- * Now the account grade is resolved through {@link roleFloorDeps} — the same
- * construction `fleetAuthzDeps`, `settingsAuthzDeps` and the derived builder
- * use, reading the delegating human's role LIVE (ADR 9 D5 A1) — and the
- * decision is {@link adminFloorRefusal}, the one function all five sites go
- * through. An agent is refused because the RULE refuses it, which is a thing a
- * test can break.
- *
- * NO CONTRACT IS CONSULTED HERE YET, and that is deliberate scope. All three
- * contracts declare `roleFloor: 'admin'` and this file hard-codes the same
- * floor, so they agree — but the family joins no contract table, so no builder
- * governs it. `PDM-297` owns that join; when it lands, this whole function
- * becomes `roleFloorFailure(qualifiedName, contract, deps)` and the hard-coded
- * floor goes with it.
- */
-async function assertActionAuthorized(ctx: Context, operationId: string): Promise<void> {
-  const { principal, role } = await roleFloorDeps(ctx)
-  const refusal = adminFloorRefusal(principal.kind, role)
-  if (refusal !== undefined) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: adminFloorMessage('operation recovery requires an admin account', refusal),
-    })
-  }
+export type OperationProcedures = FamilyProcedures<
+  typeof OPERATION_COMMANDS_TRPC,
+  typeof OPERATION_QUERIES
+>
 
-  const operation = (await operationsModule(ctx).engine.get(operationId))?.operation
-  const details: Record<string, unknown> =
-    operation?.details && typeof operation.details === 'object'
-      ? (operation.details as Record<string, unknown>)
-      : {}
-  const targetMachineId = details.targetMachineId
-  if (typeof targetMachineId !== 'string') return
-
-  const failure = checkMachineVerb(
-    principal,
-    asMachineId(targetMachineId),
-    await ownershipSnapshotFromMachines(familyState(ctx).modules.machines),
-    'manage',
-  )
-  if (!failure) return
-  throw new TRPCError({
-    code: failure === 'absent' ? 'NOT_FOUND' : 'FORBIDDEN',
-    message:
-      failure === 'absent'
-        ? `unknown machine '${targetMachineId}'`
-        : `you cannot manage machine '${targetMachineId}'`,
+/** THE DERIVED PROCEDURES, spread into `router.ts`'s `operations` router. */
+export const operationProcedures = (): OperationProcedures =>
+  derivedFamilyProcedures({
+    family: 'operations',
+    service: (state) => selectOperationState(state.modules, state.operationTargets),
+    commands: OPERATION_COMMANDS_TRPC,
+    queries: OPERATION_QUERIES,
   })
-}
-
-export function operationProcedures() {
-  return {
-    /** The one live operation, or null. Null is the ordinary answer. */
-    active: t.procedure
-      .input(z.object({ group: z.string().optional() }).optional())
-      .query(async ({ ctx, input }) => {
-        const engine = operationsModule(ctx).engine
-        const row = await engine.active(input?.group)
-        return row ? await engine.project(row) : null
-      }),
-
-    /** The audit trail that today does not exist: "did last night's update finish?" */
-    history: t.procedure
-      .input(
-        z
-          .object({
-            kind: z.string().optional(),
-            limit: z.number().int().min(1).max(100).optional(),
-          })
-          .optional(),
-      )
-      .query(async ({ ctx, input }) =>
-        (await operationsModule(ctx)
-          .engine.history(input?.kind, input?.limit))
-          .map((row) => JSON.parse(row.payload) as unknown),
-      ),
-
-    /**
-     * Cancel, when the step in flight says it is safe to (§3.2). A refusal is a
-     * RETURNED VALUE rather than an error: "this can't be canceled now, it will
-     * finish or fail" is a sentence the panel renders, not an exception it
-     * catches.
-     */
-    /**
-     * THE FLOOR THIS PROCEDURE DECLARED AND DID NOT ASK FOR (PDM-294).
-     *
-     * `operations.cancel`'s contract carries the same policy as `settleAsk` and
-     * `action` — `roleFloor: 'admin'`, `resource: 'machine'`,
-     * `machineVerb: 'manage'` — and its rationale says so in as many words:
-     * *"only an admin who can manage the operation target may invoke it"*. Two
-     * of the three went through {@link assertActionAuthorized} and this one did
-     * not, so any signed-in member could tear down another person's lifecycle
-     * staging mid-flight.
-     *
-     * The SAME function, deliberately, rather than a second admin comparison in
-     * this file: the three contracts declare the identical policy, and two
-     * spellings of one rule is how the two stop agreeing.
-     */
-    cancel: t.procedure
-      .input(z.object({ id: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await assertActionAuthorized(ctx, input.id)
-        return operationsModule(ctx).engine.cancel(input.id)
-      }),
-
-    settleAsk: t.procedure
-      .input(z.object({ id: z.string(), actionId: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await assertActionAuthorized(ctx, input.id)
-        return operationsModule(ctx).engine.dispatchAction(
-          input.id,
-          input.actionId,
-          ctx.principal,
-          { settleAsk: true },
-        )
-      }),
-
-    action: t.procedure
-      .input(z.object({ id: z.string(), actionId: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await assertActionAuthorized(ctx, input.id)
-        return operationsModule(ctx).engine.dispatchAction(
-          input.id,
-          input.actionId,
-          ctx.principal,
-          { settleAsk: false },
-        )
-      }),
-  }
-}

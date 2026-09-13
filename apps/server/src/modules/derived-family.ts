@@ -107,6 +107,26 @@
  * the bundle a `CommandPrincipal` would have worked and would have put a
  * capability, a role and a scope in front of every handler in thirteen
  * families, in order to fix one command in one of them.
+ *
+ * PDM-297 adds `operationTargets`, and it is the THIRD POSITION'S SECOND
+ * MEMBER rather than a fourth row in this table. That distinction is the whole
+ * of why this section did not have to grow a new argument: a position that can
+ * only ever hold one instance was never a position, it was an exception with a
+ * nice name. `operationTargets` was built by a different family, for a different
+ * question — may this caller `manage` the machine an operation targets, and then
+ * act — and it needed no rule that was not already written above.
+ *
+ * It is the same shape for the same reason. `operations.cancel`, `settleAsk` and
+ * `action` all declare `roleFloor: 'admin'`, which the gate above now enforces,
+ * and a floor still says nothing about the TARGET: the target machine is read
+ * out of the operation's own durable `details`, so it is a row-level question
+ * exactly like `cloud.moveSession`'s. The one thing operations needs that
+ * sessions did not is that the engine FORWARDS the caller's principal into
+ * kind-specific `onAction` handlers; the port carries that too, pre-bound, so
+ * the handler still asks and never holds. If a family ever genuinely cannot
+ * express its need as "the port answers and the service acts", that is a new
+ * position and belongs in this table with its own argument — not absorbed into
+ * this one.
  */
 
 import type { UserId } from '@podium/model'
@@ -133,6 +153,10 @@ import {
 } from './role-floor'
 import { sessionStatePrincipalFor } from './sessions/session-state/registry'
 import { type SessionTargetGate, sessionTargetGate } from './sessions/session-target-gate'
+import {
+  type OperationTargetGate,
+  operationTargetGate,
+} from './operations/operation-target-gate'
 
 /**
  * THE STATE A FAMILY MAY SELECT FROM — the whole of it, and deliberately a
@@ -272,6 +296,14 @@ export interface FamilyState {
    * service that takes a session id, and it is the reason this member exists.
    */
   readonly sessionTargets: SessionTargetGate
+  /**
+   * MAY THIS CALLER MANAGE THE MACHINE THIS OPERATION TARGETS — the ANSWER, and
+   * the acting methods bound to it (PDM-297). Selected by `operations` alone.
+   * See the third position in "THE DECISIONS THIS FILE DOES TAKE"; this is that
+   * position's second member, and `operations/operation-target-gate.ts` is its
+   * implementation.
+   */
+  readonly operationTargets: OperationTargetGate
   readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
@@ -510,6 +542,17 @@ export const familyState = (ctx: Context): FamilyState => ({
   // The principal is read HERE and nowhere downstream: the gate closes over it,
   // and what reaches a family is a question it may ask.
   sessionTargets: sessionTargetGate(mods(ctx), ctx.principal, ctx.overrideScope),
+  // TWO ACTORS, and the split is the shipped behaviour rather than a choice made
+  // here — see the port's header. The AUTHORIZING actor is resolved from the
+  // capability through `roleFloorDeps`, which is what `assertActionAuthorized`
+  // read; the DISPATCH actor is `ctx.principal`, which is what the engine
+  // forwarded into kind `onAction` handlers. Converging them is a pending
+  // PDM-107 ruling and a behaviour change, not a cutover's business.
+  operationTargets: operationTargetGate(
+    mods(ctx),
+    async () => (await roleFloorDeps(ctx)).principal,
+    ctx.principal,
+  ),
   ...(ctx.principal?.kind === 'user'
     ? {
         feedPrincipal: {
