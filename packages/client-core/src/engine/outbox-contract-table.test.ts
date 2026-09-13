@@ -59,20 +59,51 @@
  */
 
 import type { CommandContract } from '@podium/commands'
-import { ISSUE_CONTRACTS, LAYOUT_CONTRACTS, SETTINGS_CONTRACTS } from '@podium/commands'
+import * as COMMANDS from '@podium/commands'
 import { describe, expect, it } from 'vitest'
 import { OUTBOX_COMMANDS } from './wiring'
 
-/** Every contract a queued kind may name, by dotted name. The presence class
- *  (sessions.*, snoozes.*) has its own by-name lookup; issues.* is a plain
- *  registry. Both are consulted so no queued kind is excluded by silence. */
+/**
+ * EVERY CONTRACT THIS PACKAGE EXPORTS, by dotted name — DERIVED from the module
+ * namespace rather than from a hand-written list of registries.
+ *
+ * It used to name three (`ISSUE_CONTRACTS`, `SETTINGS_CONTRACTS`, `LAYOUT_CONTRACTS`),
+ * which is enough for the queued-kind direction — every queued kind lives in one of
+ * them — but NOT for the other one. "No contract declares `outbox` that this table
+ * does not queue" is a claim about ALL contracts, and a three-registry sample cannot
+ * make it: `@podium/commands` exports twenty-four `*_CONTRACTS` registries, and a
+ * future `files.*` or `workflows.*` contract that declared `outbox` would have been
+ * invisible to the check written to catch exactly that. A hand-coded list of WHERE
+ * things may live is the blind spot an audit like this exists to find.
+ *
+ * So the registries are discovered by shape — every exported object OR ARRAY whose
+ * values look like contracts — and {@link REGISTRIES_FOUND} below refuses a
+ * suspiciously small harvest, because a namespace walk that silently matched nothing
+ * would make the reverse direction vacuously true.
+ *
+ * ARRAYS ARE NOT A DETAIL. A first draft skipped them, on the reasonable-looking
+ * assumption that a registry is a keyed object — and `MAIL_CONTRACTS` is a plain
+ * ARRAY, so nine contracts were silently outside a census whose whole job is to be
+ * exhaustive. That is the shape this epic keeps finding: a census cannot see a site
+ * that declines to answer the question the way the census expects it asked.
+ */
 const byName = new Map<string, CommandContract>()
-for (const contract of [
-  ...Object.values(ISSUE_CONTRACTS),
-  ...Object.values(SETTINGS_CONTRACTS),
-  ...Object.values(LAYOUT_CONTRACTS),
-]) {
-  byName.set((contract as CommandContract).name, contract as CommandContract)
+let REGISTRIES_FOUND = 0
+for (const exported of Object.values(COMMANDS as Record<string, unknown>)) {
+  if (typeof exported !== 'object' || exported === null) continue
+  const values = Array.isArray(exported)
+    ? (exported as unknown[])
+    : Object.values(exported as Record<string, unknown>)
+  const contracts = values.filter(
+    (v): v is CommandContract =>
+      typeof v === 'object' &&
+      v !== null &&
+      typeof (v as CommandContract).name === 'string' &&
+      Array.isArray((v as { exposure?: unknown }).exposure),
+  )
+  if (contracts.length === 0) continue
+  REGISTRIES_FOUND += 1
+  for (const contract of contracts) byName.set(contract.name, contract)
 }
 /**
  * Only a FULL contract can be compared: `sessionStateCommand` returns the leaf
@@ -154,6 +185,20 @@ describe('the client outbox contract table matches the contracts', () => {
    * instead of one per re-run — the same reporting shape the `names contracts that
    * exist` case above uses.
    */
+  it('the contract harvest is not empty — an empty one makes the next case vacuous', () => {
+    // The reverse direction below is a claim over ALL contracts, so it is only worth
+    // anything if the walk actually FOUND them. Floors, not exact counts: this must
+    // not redden every time a registry is added.
+    expect(REGISTRIES_FOUND).toBeGreaterThanOrEqual(20)
+    expect(byName.size).toBeGreaterThanOrEqual(150)
+    // And the walk must reach what the old three-name list did not — one contract
+    // from a keyed registry it never named, and one from the ARRAY-shaped registry
+    // that an earlier draft of this very walk skipped.
+    expect(byName.has('issues.close')).toBe(true)
+    expect(byName.has('files.write')).toBe(true)
+    expect(byName.has('mail.send')).toBe(true)
+  })
+
   it('no contract declares `outbox` that this table does not queue', () => {
     const queued = new Set(entries.map(([, command]) => command.name))
     const declaredElsewhere = [...byName.values()]
