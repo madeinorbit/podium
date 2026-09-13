@@ -408,6 +408,277 @@ export function legacyIdempotencyWrapper(files: Array<[string, string]>): Findin
 }
 
 // ---------------------------------------------------------------------------
+// 7 — declared exposure equals actual reach, per transport (PDM-422)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE NINE `mcp` DECLARATIONS NO INSTRUMENT CAN CONFIRM OR REFUTE — a FINDING
+ * LIST, not a waiver, and the reason it exists is the whole of PDM-422.
+ *
+ * Nine mail contracts declare `mcp` in their `exposure`. The one MCP surface
+ * this server serves is `POST /mcp`, registered in `server.ts` against
+ * `superagent.mcpToolSpecs` / `superagent.callMcpTool` — the superagent's TOOL
+ * BELT (`modules/superagent/tools.ts`), with the issue tools bridged into it.
+ * The belt's own tools do not dispatch a proc NAME: `send_to_agent` and
+ * `ask_agent` call `modules.messages.send(…)`, the SERVICE method, directly. So
+ * there is no mechanical tool → contract-name mapping to compare a declaration
+ * against, and this audit cannot say either "served" or "unserved" about these
+ * nine without inventing one.
+ *
+ * WHAT IS MEASURED, so the next reader does not re-derive it: at this pin, no
+ * call site in either repo passes the literal `'mcp'` as the `transport`
+ * argument to any exposure check. `isMailProcExposedOn(proc, transport)` — the
+ * one runtime reader of this family's `exposure`, called from `gate.ts` — is
+ * reached only with `'trpc'` (the router) and `'relay'` (the relay dispatch and
+ * the default). Every other occurrence of the tag is a declaration, a member of
+ * a `TransportTag`-style union, a BAN-list entry (`AGENT_TRANSPORTS` in
+ * `modules/automations/trpc.ts`), or a doc comment describing a plant.
+ *
+ * So the honest statement about these nine is neither "decoration" nor "an open
+ * door": the tag is UNCONSULTED on the transport it names, and the transport it
+ * names reaches this family by a path that does not ask. Both halves are worth
+ * a human deciding about, and neither is something this script may decide.
+ *
+ * THE LIST IS ASSERTED IN BOTH DIRECTIONS below. A tenth contract growing an
+ * `mcp` tag reddens this audit, and so does one of these nine losing it — the
+ * second is the direction that matters, because a correct future repair should
+ * arrive as a reviewed edit here rather than as a silently shrinking list.
+ */
+export const MCP_DECLARED_UNVERIFIED: readonly string[] = [
+  'awaitAgent',
+  'dismiss',
+  'inbox',
+  'ledger',
+  'reply',
+  'send',
+  'show',
+  'spawnAgent',
+  'status',
+]
+
+/**
+ * THE UNCENSUSED MCP SUB-TRANSPORT, NAMED RATHER THAN LEFT UNSTATED — the same
+ * contract `served-route-census.ts` keeps with `UNCENSUSED_TRANSPORTS`.
+ *
+ * `served-route-census.ts` classifies `POST /mcp` as a `bridge` that "dispatches
+ * into the superagent's tool belt, which bridges the ISSUE COMMAND REGISTRY".
+ * That is true of the bridged half and says nothing about the belt's ~24 OWN
+ * tools, which are hand-written in `modules/superagent/tools.ts`, reach services
+ * directly, and belong to no command registry. Two of them reach this family.
+ */
+export const UNCENSUSED_MCP_SUB_TRANSPORT = {
+  name: 'superagent tool belt (modules/superagent/tools.ts)',
+  why:
+    "The MCP surface's population is the belt's own hand-written tool specs plus the bridged issue " +
+    'tools. A belt tool calls a SERVICE METHOD, not a named proc, so no tool → contract-name mapping ' +
+    'exists and no population of mail procs can be derived from it. A runtime recorder over the belt ' +
+    'is branch-sensitive and under-reports, which is why this audit reads source text and records the ' +
+    'hole instead of guessing at it.',
+} as const
+
+/**
+ * Registry key → contract const, read out of `MAIL_COMMANDS`.
+ *
+ * The join is read rather than restated because the two sides spell a command
+ * differently: the registry keys on the BARE wire name (`inbox`) and the
+ * contract carries the dotted identity (`mail.inboxConsume`). A check that
+ * mapped one to the other by string munging would be inventing the seam that
+ * this table already is.
+ */
+export function mailRegistryJoin(registrySource: string): Map<string, string> {
+  const out = new Map<string, string>()
+  const block = /export const MAIL_COMMANDS = \{([\s\S]*?)\n\} as const/.exec(registrySource)
+  if (!block) return out
+  for (const m of (block[1] as string).matchAll(/^\s*(\w+):\s*\{[^}]*?contract:\s*(\w+)/gm)) {
+    out.set(m[1] as string, m[2] as string)
+  }
+  return out
+}
+
+/**
+ * Contract const → its declared transport tags.
+ *
+ * Reads the INLINE ARRAY form (`exposure: ['trpc', 'cli', 'mcp', 'relay']`),
+ * which is how this family declares and which the issues-family instrument
+ * cannot parse at all: `audit-issue-commands.ts` reads `exposure: (\w+),` — a
+ * named CELL such as `SERVED_EVERYWHERE`. Pointing that regex at this file would
+ * have resolved an exposure for nothing and compared two empty sets. One
+ * declaration at a time, for the POD-1314 reason the issues instrument records.
+ */
+export function mailExposureByConst(contractsSource: string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const m of contractsSource.matchAll(/export const (\w+)[^=]*=\s*\{([\s\S]*?)\n\}/g)) {
+    const tags = /^\s*exposure: \[([^\]]*)\]/m.exec(m[2] as string)
+    if (!tags) continue
+    out.set(
+      m[1] as string,
+      (tags[1] as string)
+        .split(',')
+        .map((t) => t.trim().replace(/^'|'$/g, ''))
+        .filter((t) => t.length > 0),
+    )
+  }
+  return out
+}
+
+/**
+ * Every mail proc the tRPC surface actually serves.
+ *
+ * THE REACH SOURCE IS EVERY `mailMutation(`/`mailQuery(` CALL IN `router.ts`,
+ * AND NOT THE `messages:` ROUTER BLOCK — this is the negative control that makes
+ * the check trustworthy rather than the obvious implementation. `mail.ask` is
+ * served as `sessions.ask`, built by `mailMutation('ask')` inside the SESSIONS
+ * router, because the question a session asks its operator is a session-surface
+ * verb wearing a mail contract. A reach source scoped to the `messages:` block
+ * would report `mail.ask` as "declares trpc but nothing reaches it" — a false
+ * finding about a proc that is served, produced by an instrument that looked in
+ * one router because one router was where it expected the family to live.
+ */
+export function trpcReach(routerSource: string): Set<string> {
+  return new Set(
+    [...stripComments(routerSource).matchAll(/mail(?:Mutation|Query)\(\s*'(\w+)'/g)].map(
+      (m) => m[1] as string,
+    ),
+  )
+}
+
+/**
+ * ADR 3 D3 for this family: a transport is served because a contract NAMES it,
+ * which is only true if the naming and the wiring agree. Compared in BOTH
+ * directions, because the two failures are different bugs — a proc served
+ * without a declaration defeats the default-closed rule, and a declaration
+ * nothing reaches is the field decaying into decoration.
+ *
+ * ONLY `trpc` IS COMPARED, and the other three tags are accounted for rather
+ * than quietly skipped, which is the distinction this whole audit turns on:
+ *
+ *   · `trpc` — the reach is a static set of `mailMutation`/`mailQuery` calls in
+ *     `router.ts`. Derivable from source text, so it is compared.
+ *   · `relay` and `cli` — `relay-dispatch.ts` passes a RUNTIME proc string
+ *     straight to `MessageGate.dispatch`, so any name can arrive and `exposure`
+ *     IS the door rather than a claim about one. There is no second set to
+ *     compare against; the declaration is the enforcement.
+ *   · `mcp` — no tool → proc-name mapping exists at all. See
+ *     {@link MCP_DECLARED_UNVERIFIED} and {@link UNCENSUSED_MCP_SUB_TRANSPORT}.
+ */
+export function exposureMatchesReach(
+  registrySource: string,
+  contractsSource: string,
+  routerSource: string,
+  where: { registry: string; contracts: string; router: string },
+  /** Taken as a PORT so `--probe` can plant its own reviewed list. Defaulting it
+   *  here rather than at the call site keeps the gate reading the real record. */
+  recordedMcp: readonly string[] = MCP_DECLARED_UNVERIFIED,
+): Finding[] {
+  const findings: Finding[] = []
+  const join = mailRegistryJoin(registrySource)
+  const exposure = mailExposureByConst(contractsSource)
+
+  if (join.size === 0) {
+    return [
+      {
+        check: 'exposure-matches-reach',
+        where: where.registry,
+        detail:
+          'no `MAIL_COMMANDS` table could be read — the join between registry keys and contracts is ' +
+          'the subject of this check, and a comparison with nothing on one side is not evidence',
+      },
+    ]
+  }
+
+  // TOTALITY FIRST. A key whose exposure cannot be resolved would drop silently
+  // out of every set below and be reported as neither declared nor reached —
+  // the shape that let POD-1314 swallow a real declaration.
+  const declaredOn = (tag: string): Set<string> => {
+    const out = new Set<string>()
+    for (const [key, constName] of join) {
+      if (exposure.get(constName)?.includes(tag)) out.add(key)
+    }
+    return out
+  }
+  for (const [key, constName] of join) {
+    if (exposure.get(constName) === undefined) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.contracts,
+        detail:
+          `\`${key}\` joins \`${constName}\`, whose \`exposure\` cannot be read from ${where.contracts} ` +
+          '— an unreadable declaration silently leaves this comparison rather than failing it',
+      })
+    }
+  }
+
+  const declaredTrpc = declaredOn('trpc')
+  const reached = trpcReach(routerSource)
+  if (declaredTrpc.size === 0 || reached.size === 0) {
+    findings.push({
+      check: 'exposure-matches-reach',
+      where: `${where.contracts} / ${where.router}`,
+      detail:
+        `one side of the trpc comparison is EMPTY (declared=${declaredTrpc.size}, ` +
+        `reached=${reached.size}) — an equality between empty sets is not evidence`,
+    })
+    return findings
+  }
+
+  for (const proc of [...reached].sort()) {
+    if (!declaredTrpc.has(proc)) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.router,
+        detail:
+          `\`router.ts\` builds a tRPC procedure for mail \`${proc}\` but its contract does not ` +
+          'declare the `trpc` transport — a surface served without a declaration defeats the ' +
+          'default-closed rule (ADR 3 D3)',
+      })
+    }
+  }
+  for (const proc of [...declaredTrpc].sort()) {
+    if (!reached.has(proc)) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.contracts,
+        detail:
+          `mail \`${proc}\` declares the \`trpc\` transport but no \`mailMutation\`/\`mailQuery\` in ` +
+          'router.ts reaches it — a declaration that opens nothing is the field decaying into ' +
+          'decoration',
+      })
+    }
+  }
+
+  // THE `mcp` ARM. Not a comparison against a served set — there is none to
+  // derive — but against the reviewed list, in both directions.
+  const declaredMcp = declaredOn('mcp')
+  const recorded = new Set(recordedMcp)
+  for (const proc of [...declaredMcp].sort()) {
+    if (!recorded.has(proc)) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.contracts,
+        detail:
+          `mail \`${proc}\` newly declares the \`mcp\` transport. No instrument can confirm that ` +
+          `claim: the MCP surface is the ${UNCENSUSED_MCP_SUB_TRANSPORT.name}, whose tools call ` +
+          'service methods rather than named procs. Read it, decide whether the tag is true, and ' +
+          'record it in MCP_DECLARED_UNVERIFIED',
+      })
+    }
+  }
+  for (const proc of [...recorded].sort()) {
+    if (!declaredMcp.has(proc)) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: where.contracts,
+        detail:
+          `MCP_DECLARED_UNVERIFIED records mail \`${proc}\` as declaring \`mcp\` and it no longer ` +
+          'does. If that is the repair, drop it from the list in the same commit — a list that ' +
+          'shrinks on its own stops being a record of what was reviewed',
+      })
+    }
+  }
+  return findings
+}
+
+// ---------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------
 
@@ -466,6 +737,16 @@ export function auditMailCommands(): Finding[] {
           ...HANDLERS,
         ] as const
       ).map((rel) => [rel, read(rel)] as [string, string]),
+    ),
+    ...exposureMatchesReach(
+      read('apps/server/src/modules/messages/registry.ts'),
+      contracts,
+      router,
+      {
+        registry: 'apps/server/src/modules/messages/registry.ts',
+        contracts: CONTRACTS,
+        router: 'apps/server/src/router.ts',
+      },
     ),
   ]
 }
@@ -697,10 +978,148 @@ function probe(): Finding[] {
       ['<probe>/command-plane.ts', '// it used to be ctx.sessions.withMutation(id, fn)\nconst x = 1\n'],
     ]),
   )
+
+  // -------------------------------------------------------------------------
+  // 7 — exposure vs reach (PDM-422)
+  // -------------------------------------------------------------------------
+  //
+  // The fixtures below carry their OWN reviewed `mcp` list, so an `mcp` arm that
+  // fired on every fixture (the real list naming nine procs no fixture contains)
+  // could not hide a trpc regression behind nine spurious findings.
+  const REG_OK = [
+    'export const MAIL_COMMANDS = {',
+    '  send: { contract: mailSendContract, handler: sendHandler },',
+    '  inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },',
+    '  ask: { contract: mailAskContract, handler: askHandler },',
+    '} as const satisfies Record<string, MailCommand>',
+  ].join('\n')
+  const CON_OK = [
+    'export const mailSendContract: CommandContract<typeof i> = {',
+    "  name: 'mail.send',",
+    "  exposure: ['trpc', 'cli', 'mcp', 'relay'],",
+    '}',
+    '',
+    'export const mailInboxConsumeContract: CommandContract<typeof i> = {',
+    "  name: 'mail.inboxConsume',",
+    "  exposure: ['trpc', 'relay'],",
+    '}',
+    '',
+    'export const mailAskContract: CommandContract<typeof i> = {',
+    "  name: 'mail.ask',",
+    "  exposure: ['trpc', 'cli', 'relay'],",
+    '}',
+  ].join('\n')
+  const WHERE = {
+    registry: '<probe>/registry',
+    contracts: '<probe>/contracts',
+    router: '<probe>/router',
+  }
+  // `ask` is deliberately built in ANOTHER router block here — this is the real
+  // shape of `sessions.ask`, and it is the fixture that fails a reach source
+  // scoped to the `messages:` literal.
+  const ROUTER_OK = [
+    '  sessions: t.router({',
+    "    ask: mailMutation('ask'),",
+    '  }),',
+    '  messages: t.router({',
+    "    send: mailMutation('send'),",
+    "    inbox: mailMutation('inbox'),",
+    '  }),',
+  ].join('\n')
+
+  // THE NEGATIVE CONTROL, and the reason this check is trustworthy: declared and
+  // reached AGREE here, across two routers, so the check can say NO.
+  expectSilent(
+    'exposure-matches-reach/clean',
+    exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, ['send']),
+  )
+  // …and the same fixture with `ask` served only from the sessions router must
+  // still be silent, which is the false finding a messages-block-scoped reach
+  // source would produce (`mail.ask` declares trpc and IS served).
+  expectSilent(
+    'exposure-matches-reach/other-router',
+    exposureMatchesReach(
+      REG_OK,
+      CON_OK,
+      [
+        "  sessions: t.router({ ask: mailMutation('ask') }),",
+        "  messages: t.router({ send: mailMutation('send'), inbox: mailQuery('inbox') }),",
+      ].join('\n'),
+      WHERE,
+      ['send'],
+    ),
+  )
+  // A comment MENTIONING a call must not count as reach — the router documents
+  // its own derivation by quoting `mailMutation('ask')` in prose.
+  expect(
+    'exposure-matches-reach/declared-unreached',
+    exposureMatchesReach(
+      REG_OK,
+      CON_OK,
+      [
+        "// the sessions family builds `ask` through mailMutation('ask')",
+        "  messages: t.router({ send: mailMutation('send'), inbox: mailQuery('inbox') }),",
+      ].join('\n'),
+      WHERE,
+      ['send'],
+    ),
+  )
+  expect(
+    'exposure-matches-reach/reached-undeclared',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        'export const mailSendContract: CommandContract<typeof i> = {',
+        "  name: 'mail.send',",
+        "  exposure: ['relay'],",
+        '}',
+      ].join('\n'),
+      "  messages: t.router({ send: mailMutation('send') }),",
+      WHERE,
+      [],
+    ),
+  )
+  // A registry that lost its table reports, rather than comparing against nothing.
+  expect(
+    'exposure-matches-reach/no-registry',
+    exposureMatchesReach('const nothing = 1\n', CON_OK, ROUTER_OK, WHERE, ['send']),
+  )
+  // A key whose contract exposure cannot be READ leaves the comparison silently
+  // unless this fires — the POD-1314 shape, in this family's spelling.
+  expect(
+    'exposure-matches-reach/unreadable-exposure',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        'export const mailSendContract: CommandContract<typeof i> = {',
+        "  name: 'mail.send',",
+        "  exposure: ['trpc'],",
+        '}',
+      ].join('\n'),
+      "  messages: t.router({ send: mailMutation('send') }),",
+      WHERE,
+      ['send'],
+    ),
+  )
+  // The empty-side guard: an equality between empty sets is not evidence.
+  expect(
+    'exposure-matches-reach/empty',
+    exposureMatchesReach(REG_OK, CON_OK, 'nothing reaches anything\n', WHERE, ['send']),
+  )
+  // BOTH DIRECTIONS OF THE `mcp` RECORD. A tenth contract growing the tag…
+  expect(
+    'exposure-matches-reach/mcp-new',
+    exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, []),
+  )
+  // …and a recorded one losing it, which is the direction a silent repair takes.
+  expect(
+    'exposure-matches-reach/mcp-dropped',
+    exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, ['send', 'dismiss']),
+  )
   return failures
 }
 
-const PROBE_COUNT = 17
+const PROBE_COUNT = 26
 
 function main(): void {
   const argv = process.argv.slice(2)
@@ -731,14 +1150,18 @@ function main(): void {
         '  · there is ONE authz door — every transport enters through MessageGate.dispatch\n' +
         '  · every mail contract DECLARES its visibility class\n' +
         '  · a command that can WAKE a session declares `machineVerb: use` (POD-1179)\n' +
-        '  · the legacy `withMutation` wrapper stays deleted\n',
+        '  · the legacy `withMutation` wrapper stays deleted\n' +
+        '  · declared `trpc` exposure equals what router.ts reaches, both ways; and the `mcp`\n' +
+        '    declarations match MCP_DECLARED_UNVERIFIED, the reviewed record of the tags no\n' +
+        '    instrument can confirm (PDM-422)\n',
     )
     for (const f of findings) console.error(`  ${f.check}  ${f.where}\n      ${f.detail}`)
     process.exit(1)
   }
   console.log(
     'agent-mail surface audit OK — the derived surface is total, the deleted switch stayed deleted, ' +
-      'authz has one door, every contract is classified, and every wake path declares that it executes',
+      'authz has one door, every contract is classified, every wake path declares that it executes, ' +
+      'and declared exposure matches reach on every transport a reach can be derived for',
   )
 }
 
