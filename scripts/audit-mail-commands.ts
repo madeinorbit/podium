@@ -19,7 +19,16 @@
  * This script resolves NO modules and reads source TEXT. It runs in a fresh
  * checkout, in a worktree with no local install of the `@podium` scope, and
  * before anything is built — the three situations in which the suite above
- * cannot run at all. It catches the textual regressions a runtime check cannot
+ * cannot run at all.
+ *
+ * ONE QUALIFICATION, ADDED WHEN THE PARSING MOVED TO THE TYPESCRIPT TREE
+ * (PDM-422): this file now imports `typescript`, a declared devDependency of
+ * both the repo root and `scripts/`. It still resolves no `@podium` module and
+ * still needs nothing BUILT, so "before anything is built" and "no `@podium`
+ * install" both still hold. What no longer holds is running in a checkout where
+ * `bun install` has never run at all. That was judged the cheaper cost: the
+ * hand-rolled lexing it replaced was silently dropping registry entries and
+ * counting call-shaped text inside string literals as call sites. It catches the textual regressions a runtime check cannot
  * see: a hand-written `.mutation(` reappearing inside the `messages:` router
  * literal, `MessageGate`'s deleted switch growing back, a transport reaching
  * `dispatchMailCommand` around the one authz door, a new send path that wakes a
@@ -44,6 +53,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 export interface Finding {
   /** Which obligation failed — the acceptance criterion, in one token. */
@@ -450,6 +460,37 @@ export function legacyIdempotencyWrapper(files: Array<[string, string]>): Findin
  * tag reddens this audit, and so does one of these nine losing it — the second
  * is the direction that matters, because a correct future repair should arrive
  * as a reviewed edit here rather than as a silently shrinking list.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT REMAINS UNADJUDICATED — read this before citing PDM-422 as closed
+ * ---------------------------------------------------------------------------
+ *
+ * PDM-422 was asked: nine mail commands declare they are reachable from the AI
+ * tooling, and nothing compares that claim to what the AI tooling actually
+ * serves. THAT QUESTION IS STILL OPEN, and this list does not answer it. What
+ * this file added is a RECORDED INVENTORY of the nine plus a both-directions
+ * drift alarm on it. An inventory is not an adjudication.
+ *
+ * The open question, precisely: FOR EACH OF THE NINE, does the superagent tool
+ * belt in fact serve that contract's command over MCP — and if it does, by which
+ * tool? Answering it is a contract-by-contract reading of the belt's ~24 tools,
+ * which is source-reading work and not a scan. It ends in one of: the tag is
+ * true and the belt tool that makes it true is named; or the tag is false and
+ * should be deleted; or the belt should dispatch mail by proc name so the
+ * declaration becomes load-bearing. All three are decisions, not measurements.
+ *
+ * WHERE IT IS **NOT** OWNED, since two neighbouring issues are easy to mistake
+ * for it:
+ *   · PDM-434 owns the fact that this audit and its siblings run in no CI job.
+ *     Wiring them up would not adjudicate a single one of the nine.
+ *   · PDM-435 owns the `served-route-census.ts` `POST /mcp` rationale, which
+ *     describes only the bridged issue half of the belt. Correcting that row is
+ *     about how the DOOR is described, not about which MAIL contracts it serves.
+ *
+ * So the disposition stays with PDM-422 (or a successor it names) and neither of
+ * those two closes it. The `trpc` comparison below is a real both-directions
+ * check on a DIFFERENT transport; its green says nothing whatever about MCP, and
+ * this audit going green must not be read as the original question being settled.
  */
 export const MCP_DECLARED_UNRESOLVED: readonly string[] = [
   'awaitAgent',
@@ -477,22 +518,99 @@ export const UNCENSUSED_MCP_SUB_TRANSPORT = {
     'guessing at it. Deciding what each belt tool serves is a source-reading job, not a scan.',
 } as const
 
+/**
+ * PARSED, NOT LEXED — and this is the second thing PDM-139 had to ask for.
+ *
+ * The first two versions of these readers hand-rolled lexical parsing: a regex
+ * to enumerate registry entries, a brace counter to find each entry's extent, a
+ * comma split to read an exposure array, a regex to find call sites. Every one
+ * of them was wrong in a way that HID population rather than reporting it:
+ *
+ *   · the entry regex only saw `^\s{2}<key>: {`, so a four-space-indented entry,
+ *     a non-object value (`extra: extraEntry,`), a spread (`...EXTRA_COMMANDS,`)
+ *     or a computed key containing whitespace never matched — and therefore
+ *     never reached the `unparsed` arm that exists to report exactly that. The
+ *     reporting arm could only report shapes the enumerator already found, which
+ *     is the same blind spot one level earlier;
+ *   · the brace counter counted braces inside strings and comments;
+ *   · the contract lookup matched any textual `contract:` in the entry, nested
+ *     ones included, rather than the entry's OWN property;
+ *   · the call-site regex matched call-LOOKING text inside string literals.
+ *
+ * So the lexing is delegated to the TypeScript parser, which already knows what
+ * a string, a comment, a template and a call are. Values the tree cannot resolve
+ * are still reported explicitly — an AST does not remove the obligation to say
+ * what you could not read, it only stops the reader inventing an answer.
+ *
+ * THE COST, STATED RATHER THAN ABSORBED: this file now needs `typescript` from
+ * node_modules. That is a declared devDependency of both the repo root and
+ * `scripts/`, and it needs no BUILD and no `@podium` workspace install — so the
+ * header's claim about running before anything is built still holds. What no
+ * longer holds is running in a checkout where `bun install` has never been run.
+ * The header says so.
+ */
+const parse = (source: string, name: string): ts.SourceFile =>
+  ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+
+/** Strip `as const`, `satisfies X` and parentheses to reach the real initializer. */
+const unwrap = (node: ts.Expression | undefined): ts.Expression | undefined => {
+  let cur = node
+  while (
+    cur &&
+    (ts.isAsExpression(cur) || ts.isSatisfiesExpression(cur) || ts.isParenthesizedExpression(cur))
+  ) {
+    cur = cur.expression
+  }
+  return cur
+}
+
+/** The object literal initialising `export const <name>`, if that is what it is. */
+function objectLiteralFor(
+  source: ts.SourceFile,
+  name: string,
+): ts.ObjectLiteralExpression | undefined {
+  let out: ts.ObjectLiteralExpression | undefined
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
+      const init = unwrap(node.initializer)
+      if (init && ts.isObjectLiteralExpression(init)) out = init
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return out
+}
+
+/** A property's key when it is a plain or quoted name; undefined when computed. */
+const staticName = (prop: ts.ObjectLiteralElementLike): string | undefined => {
+  const n = prop.name
+  if (!n) return undefined
+  if (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isNumericLiteral(n)) return n.text
+  return undefined
+}
+
+/** A declaration that is PRESENT but which this file cannot resolve alone, and
+ *  why — the reason travels so the finding names the shape it actually hit. */
+export interface Unresolved {
+  readonly reason: string
+}
+
 /** What the registry parser made of `MAIL_COMMANDS`. */
 export interface RegistryJoin {
-  /** Registry key → contract const, for every entry this parser understood. */
+  /** Registry key → contract const, for every entry this parser resolved. */
   readonly join: Map<string, string>
   /**
-   * Entry spellings present in the table that this parser did NOT resolve.
+   * EVERY top-level property of the table that did not resolve to a key and a
+   * contract identifier, described well enough to act on.
    *
-   * WITHOUT THIS FIELD THE TOTALITY CHECK IS A FLOOR THAT CANNOT SEE ITS OWN
-   * BLIND SPOT: it iterates the entries the parser recognised, so an entry
-   * written in a shape the regex misses is absent from `join`, absent from the
-   * declared set, and — if the router does not mount it either — absent from
-   * both sides of every comparison, with nothing reported. A count cannot notice
-   * a shape that never arrives, so the parser reports what it could not read.
+   * This is now a total account of the object's own properties rather than of
+   * the ones an enumerating regex happened to match: the tree hands over every
+   * property, so a shape this code does not support is REPORTED instead of being
+   * absent from the population. A count cannot notice a shape that never
+   * arrives, and the previous enumerator decided what arrived.
    */
   readonly unparsed: readonly string[]
-  /** False when no `MAIL_COMMANDS` literal was found at all. */
+  /** False when no `MAIL_COMMANDS` object literal was found at all. */
   readonly found: boolean
 }
 
@@ -503,51 +621,55 @@ export interface RegistryJoin {
  * (`inbox`) and the contract carries the dotted identity (`mail.inboxConsume`),
  * so string-munging one into the other would invent the seam this table already
  * is.
- *
- * Entries are enumerated PERMISSIVELY (anything at the table's indentation that
- * opens a brace) and then resolved STRUCTURALLY — a bare key, a single-quoted
- * key or a double-quoted key all resolve. Anything else is reported through
- * `unparsed` rather than silently skipped.
  */
 export function mailRegistryJoin(registrySource: string): RegistryJoin {
   const join = new Map<string, string>()
   const unparsed: string[] = []
-  const block = /export const MAIL_COMMANDS = \{([\s\S]*?)\n\} as const/.exec(registrySource)
-  if (!block) return { join, unparsed, found: false }
-  const body = block[1] as string
-  // BRACE-MATCHED, not line-shaped. This table carries BOTH single-line entries
-  // (`send: { contract: x, handler: y },`) and multi-line ones
-  // (`pendingReminders: {\n  contract: …`). A regex anchored on a closing `},`
-  // at the table's indentation reads only the second kind — which the first
-  // draft of this parser did, and the discriminating probes caught it on the
-  // first run by reporting an EMPTY join for a table with three valid entries.
-  for (const entry of body.matchAll(/^\s{2}([^\s:]+):\s*\{/gm)) {
-    const rawKey = entry[1] as string
-    const open = body.indexOf('{', entry.index + entry[0].length - 1)
-    let depth = 0
-    let close = -1
-    for (let i = open; i < body.length; i++) {
-      if (body[i] === '{') depth++
-      else if (body[i] === '}') {
-        depth--
-        if (depth === 0) {
-          close = i
-          break
-        }
-      }
-    }
-    if (close === -1) {
-      unparsed.push(rawKey)
+  const table = objectLiteralFor(parse(registrySource, 'registry.ts'), 'MAIL_COMMANDS')
+  if (!table) return { join, unparsed, found: false }
+
+  for (const prop of table.properties) {
+    if (ts.isSpreadAssignment(prop)) {
+      unparsed.push(`spread \`...${prop.expression.getText()}\``)
       continue
     }
-    const inner = body.slice(open + 1, close)
-    const key = /^(?:'([\w$]+)'|"([\w$]+)"|([\w$]+))$/.exec(rawKey)
-    const contract = /\bcontract:\s*(\w+)/.exec(inner)?.[1]
-    if (!key || contract === undefined) {
-      unparsed.push(rawKey)
+    if (ts.isShorthandPropertyAssignment(prop)) {
+      unparsed.push(`shorthand \`${prop.name.text}\``)
       continue
     }
-    join.set((key[1] ?? key[2] ?? key[3]) as string, contract)
+    if (!ts.isPropertyAssignment(prop)) {
+      unparsed.push(`${ts.SyntaxKind[prop.kind]} \`${prop.getText().split('\n')[0]}\``)
+      continue
+    }
+    const key = staticName(prop)
+    if (key === undefined) {
+      unparsed.push(`computed key \`${prop.name.getText()}\``)
+      continue
+    }
+    const value = unwrap(prop.initializer)
+    if (!value || !ts.isObjectLiteralExpression(value)) {
+      unparsed.push(
+        `\`${key}\`, whose value is not an object literal (${
+          value ? ts.SyntaxKind[value.kind] : 'none'
+        })`,
+      )
+      continue
+    }
+    // THE ENTRY'S OWN `contract` PROPERTY. Not any textual `contract:` inside
+    // it: a nested object mentioning one would otherwise resolve the entry to
+    // the wrong const, and a doc comment quoting one would resolve it to a const
+    // that is not there at all.
+    const own = value.properties.find(
+      (p) => ts.isPropertyAssignment(p) && staticName(p) === 'contract',
+    ) as ts.PropertyAssignment | undefined
+    const contract = own && unwrap(own.initializer)
+    if (!contract || !ts.isIdentifier(contract)) {
+      unparsed.push(
+        `\`${key}\`, whose own \`contract\` property is ${own ? 'not a plain identifier' : 'absent'}`,
+      )
+      continue
+    }
+    join.set(key, contract.text)
   }
   return { join, unparsed, found: true }
 }
@@ -563,71 +685,96 @@ export function mailRegistryJoin(registrySource: string): RegistryJoin {
  *
  * THE `null` ARM IS LOAD-BEARING. An array element that is not a string literal
  * — a spread of a shared cell (`['trpc', ...AGENT_TAGS]`), an identifier, a
- * conditional — cannot be resolved by reading this file alone. Splitting on
- * commas and keeping the raw token would record a TAG NAMED `...AGENT_TAGS`:
- * the declaration would look successfully parsed, and if the spread carried
- * `trpc` or `mcp` the real tag would vanish from the comparison without a word.
- * So an unresolvable element poisons the whole declaration, deliberately.
+ * conditional — cannot be resolved by reading this file alone, and recording the
+ * raw token as a TAG would make the declaration look successfully parsed while a
+ * `trpc` or `mcp` the spread carries vanished from the comparison. So an
+ * unresolvable element poisons the whole declaration, deliberately.
  */
-export function mailExposureByConst(contractsSource: string): Map<string, string[] | null> {
-  const out = new Map<string, string[] | null>()
-  for (const m of contractsSource.matchAll(/export const (\w+)[^=]*=\s*\{([\s\S]*?)\n\}/g)) {
-    const tags = /^\s*exposure: \[([^\]]*)\]/m.exec(m[2] as string)
-    if (!tags) continue
-    const parts = (tags[1] as string)
-      .split(',')
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0)
-    const literal = /^'([^']*)'$|^"([^"]*)"$/
-    if (parts.some((t) => !literal.test(t))) {
-      out.set(m[1] as string, null)
-      continue
+export function mailExposureByConst(contractsSource: string): Map<string, string[] | Unresolved> {
+  const out = new Map<string, string[] | Unresolved>()
+  const source = parse(contractsSource, 'contracts.ts')
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const init = unwrap(node.initializer)
+      if (init && ts.isObjectLiteralExpression(init)) {
+        const own = init.properties.find(
+          (p) => ts.isPropertyAssignment(p) && staticName(p) === 'exposure',
+        ) as ts.PropertyAssignment | undefined
+        if (own) {
+          const value = unwrap(own.initializer)
+          if (!value || !ts.isArrayLiteralExpression(value)) {
+            // A named cell (`exposure: SERVED_EVERYWHERE`) — the ISSUES family's
+            // spelling — or anything else that is not an inline array.
+            out.set(node.name.text, {
+              reason: `its \`exposure\` is not an inline array literal (${
+                value ? ts.SyntaxKind[value.kind] : 'no initializer'
+              }), so it cannot be resolved by reading this file alone`,
+            })
+          } else if (value.elements.every((e) => ts.isStringLiteral(e))) {
+            out.set(
+              node.name.text,
+              value.elements.map((e) => (e as ts.StringLiteral).text),
+            )
+          } else {
+            const odd = value.elements.find((e) => !ts.isStringLiteral(e))
+            out.set(node.name.text, {
+              reason:
+                `its \`exposure\` array contains \`${odd?.getText() ?? '?'}\`, which is not a ` +
+                'string literal. Treating the raw token as a tag would hide a `trpc` or `mcp` it carries',
+            })
+          }
+        }
+      }
     }
-    out.set(
-      m[1] as string,
-      parts.map((t) => {
-        const q = literal.exec(t)
-        return (q?.[1] ?? q?.[2]) as string
-      }),
-    )
+    ts.forEachChild(node, visit)
   }
+  visit(source)
   return out
 }
 
 /**
- * Every mail proc name that `router.ts` SYNTACTICALLY builds a tRPC procedure
- * for.
+ * Every mail proc name for which `router.ts` contains a REAL CALL to
+ * `mailMutation`/`mailQuery` with a literal string argument.
  *
- * THE REACH SOURCE IS EVERY `mailMutation(`/`mailQuery(` CALL IN `router.ts`,
- * AND NOT THE `messages:` ROUTER BLOCK — this is the control that makes the
- * check trustworthy rather than the obvious implementation. `mail.ask` is served
- * as `sessions.ask`, built by `mailMutation('ask')` inside the SESSIONS router.
- * A reach source scoped to the `messages:` block would report `mail.ask` as
- * "declares trpc but nothing reaches it" — a false finding about a proc that is
- * served, produced by an instrument that looked in one router because one router
- * was where it expected the family to live.
+ * THE SOURCE IS THE WHOLE FILE, NOT THE `messages:` ROUTER BLOCK — the control
+ * that makes this trustworthy rather than the obvious implementation.
+ * `mail.ask` is served as `sessions.ask`, built by `mailMutation('ask')` inside
+ * the SESSIONS router. A source scoped to the `messages:` block would report
+ * `mail.ask` as "declares trpc but nothing reaches it" — a false finding about a
+ * proc that is served, produced by an instrument that looked in one router
+ * because one router was where it expected the family to live.
  *
- * WHAT THIS IS AND IS NOT — the bound matters, because "reach" overstates it.
- * This is a SYNTACTIC CALL-SITE INVENTORY. It does not evaluate `router.ts` and
- * cannot establish that a procedure is MOUNTED on the served router:
+ * THESE ARE CALL SITES, STRUCTURALLY. The tree distinguishes a call from text
+ * that merely looks like one, so a comment, a template and — the case an earlier
+ * version of this function counted and then merely DISCLAIMED — a string literal
+ * whose CONTENTS spell a call are all excluded. Disclaiming that was not good
+ * enough: string contents are not call syntax, and a bound does not make a wrong
+ * population right.
  *
- *   · a call inside a nested string literal is counted;
- *   · a call in a helper that is defined and never mounted is counted;
- *   · a procedure mounted by any means other than a literal
- *     `mailMutation('<name>')` / `mailQuery('<name>')` call is NOT counted.
- *
- * Comments are stripped, so prose quoting a call does not count — that much is
- * checked. The rest is a deliberate, recorded limitation: syntax alone does not
- * prove mounting, and this function does not claim it does. The runtime half of
- * that claim belongs to `modules/messages/cutover.test.ts`, which resolves real
- * objects; see this file's header on why the two instruments need each other.
+ * WHAT REMAINS UNPROVED, and is a genuine bound rather than a defect: a call in
+ * a helper that is defined and never mounted is still counted, because deciding
+ * that requires evaluating the module rather than reading it. So this is a CALL
+ * INVENTORY and it does NOT establish that a procedure is mounted on the served
+ * router. Nothing in this file's output may describe it as a served surface.
+ * The runtime half of that claim belongs to `modules/messages/cutover.test.ts`,
+ * which resolves real objects.
  */
 export function trpcCallSites(routerSource: string): Set<string> {
-  return new Set(
-    [...stripComments(routerSource).matchAll(/mail(?:Mutation|Query)\(\s*'(\w+)'/g)].map(
-      (m) => m[1] as string,
-    ),
-  )
+  const out = new Set<string>()
+  const source = parse(routerSource, 'router.ts')
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      (node.expression.text === 'mailMutation' || node.expression.text === 'mailQuery')
+    ) {
+      const first = node.arguments[0]
+      if (first && ts.isStringLiteral(first)) out.add(first.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return out
 }
 
 /**
@@ -709,7 +856,8 @@ export function exposureMatchesReach(
     const out = new Set<string>()
     for (const [key, constName] of join) {
       if (unresolved.has(key)) continue
-      if (exposure.get(constName)?.includes(tag) === true) out.add(key)
+      const declared = exposure.get(constName)
+      if (Array.isArray(declared) && declared.includes(tag)) out.add(key)
     }
     return out
   }
@@ -725,16 +873,12 @@ export function exposureMatchesReach(
           `${where.contracts} — an unreadable declaration silently leaves this comparison rather ` +
           'than failing it',
       })
-    } else if (tags === null) {
+    } else if (!Array.isArray(tags)) {
       unresolved.add(key)
       findings.push({
         check: 'exposure-matches-reach',
         where: where.contracts,
-        detail:
-          `\`${key}\` joins \`${constName}\`, whose \`exposure\` array contains an element that is ` +
-          'not a string literal (a spread, an identifier, a conditional). Reading this file alone ' +
-          'cannot say which transports it names, and treating the raw token as a tag would hide a ' +
-          '`trpc` or `mcp` the spread carries',
+        detail: `\`${key}\` joins \`${constName}\`, and ${tags.reason}`,
       })
     }
   }
@@ -759,9 +903,11 @@ export function exposureMatchesReach(
         check: 'exposure-matches-reach',
         where: where.router,
         detail:
-          `\`router.ts\` builds a tRPC procedure for mail \`${proc}\` but its contract does not ` +
-          'declare the `trpc` transport — a surface served without a declaration defeats the ' +
-          'default-closed rule (ADR 3 D3)',
+          `\`router.ts\` CALLS \`mailMutation\`/\`mailQuery\` for mail \`${proc}\` but its contract ` +
+          'does not declare the `trpc` transport. A call site is not proof of mounting — this scan ' +
+          'does not evaluate the module — but a procedure BUILT from a contract that does not name ' +
+          'the transport is the default-closed rule (ADR 3 D3) being defeated at the call, so ' +
+          'read the call site and either declare the transport or delete the call',
       })
     }
   }
@@ -771,9 +917,9 @@ export function exposureMatchesReach(
         check: 'exposure-matches-reach',
         where: where.contracts,
         detail:
-          `mail \`${proc}\` declares the \`trpc\` transport but no \`mailMutation\`/\`mailQuery\` in ` +
-          'router.ts reaches it — a declaration that opens nothing is the field decaying into ' +
-          'decoration',
+          `mail \`${proc}\` declares the \`trpc\` transport but router.ts contains no ` +
+          '`mailMutation`/`mailQuery` CALL for it — a declaration with no call site behind it opens ' +
+          'nothing, which is the field decaying into decoration',
       })
     }
   }
@@ -1241,7 +1387,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /builds a tRPC procedure for mail `send` but its contract does not declare/,
+    /CALLS `mailMutation`\/`mailQuery` for mail `send` but its contract does not declare/,
   )
   // DECLARED BUT NOT REACHED — the router drops `inbox`, everything else agrees.
   expectOnly(
@@ -1256,7 +1402,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /mail `inbox` declares the `trpc` transport but no/,
+    /mail `inbox` declares the `trpc` transport but router\.ts contains no/,
   )
   // A COMMENT quoting a call is not reach: same fixture, `inbox` mounted only in
   // prose, must still report `inbox` as unreached and nothing else.
@@ -1273,7 +1419,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /mail `inbox` declares the `trpc` transport but no/,
+    /mail `inbox` declares the `trpc` transport but router\.ts contains no/,
   )
 
   // THE EMPTY-SIDE GUARD, which must fire ONLY as itself.
@@ -1344,13 +1490,13 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /contains an element that is not a string literal/,
+    /array contains `\.\.\.AGENT_TAGS`, which is not a string literal/,
   )
   // A contract whose `exposure` is a NAMED CELL rather than an inline array is
   // also unresolvable here — this is the issues family's spelling, and reading
   // it as absent would silently drop the entry from both sets.
   expectOnly(
-    'exposure-matches-reach/exposure-absent',
+    'exposure-matches-reach/exposure-named-cell',
     exposureMatchesReach(
       REG_OK,
       [
@@ -1364,7 +1510,7 @@ function probe(): Finding[] {
       WHERE,
       ['send'],
     ),
-    /whose `exposure` cannot be found in/,
+    /`exposure` is not an inline array literal \(Identifier\)/,
   )
 
   // -- THE `mcp` RECORD, both directions, each isolated. ---------------------
@@ -1378,10 +1524,157 @@ function probe(): Finding[] {
     exposureMatchesReach(REG_OK, CON_OK, ROUTER_OK, WHERE, ['send', 'dismiss']),
     /records mail `dismiss` as declaring `mcp` and it no longer does/,
   )
+
+  // -- THE SHAPES PDM-139 NAMED (round 2). Each is planted BESIDE valid entries
+  //    and left UNMOUNTED, so the non-empty guards cannot rescue the check and
+  //    the shape under test is the only thing that can fire. ------------------
+
+  /** `MAIL_COMMANDS` with one extra top-level property of the caller's choosing. */
+  const regWith = (extra: string): string =>
+    [
+      'export const MAIL_COMMANDS = {',
+      '  send: { contract: mailSendContract, handler: sendHandler },',
+      '  inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },',
+      '  ask: { contract: mailAskContract, handler: askHandler },',
+      extra,
+      '} as const satisfies Record<string, MailCommand>',
+    ].join('\n')
+
+  // A FOUR-SPACE-INDENTED ENTRY IS A VALID ENTRY. The old enumerator was
+  // anchored on two-space indentation and would have dropped this silently; the
+  // tree does not care about whitespace, so it must RESOLVE and stay silent.
+  // Its proc is mounted in the router below, so a wrong answer shows up as a
+  // comparison finding rather than as nothing at all.
+  expectSilent(
+    'exposure-matches-reach/four-space-entry',
+    exposureMatchesReach(
+      [
+        'export const MAIL_COMMANDS = {',
+        '    send: { contract: mailSendContract, handler: sendHandler },',
+        '    inbox: { contract: mailInboxConsumeContract, handler: inboxConsumeHandler },',
+        '    ask: { contract: mailAskContract, handler: askHandler },',
+        '} as const satisfies Record<string, MailCommand>',
+      ].join('\n'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+  )
+  // A NON-OBJECT VALUE. `extra: extraEntry` is a valid property this parser
+  // cannot resolve to a contract, and it is UNMOUNTED — so without the report it
+  // would be in neither compared set and therefore invisible.
+  expectOnly(
+    'exposure-matches-reach/non-object-entry',
+    exposureMatchesReach(regWith('  extra: extraEntry,'), CON_OK, ROUTER_OK, WHERE, ['send']),
+    /`extra`, whose value is not an object literal/,
+  )
+  // A SPREAD OF ANOTHER TABLE. This is the shape that can add WHOLE FAMILIES of
+  // procs without a single line the old enumerator could see.
+  expectOnly(
+    'exposure-matches-reach/spread-entry',
+    exposureMatchesReach(regWith('  ...EXTRA_COMMANDS,'), CON_OK, ROUTER_OK, WHERE, ['send']),
+    /spread `\.\.\.EXTRA_COMMANDS`/,
+  )
+  // A COMPUTED KEY CONTAINING WHITESPACE — the old `[^\s:]+` enumerator could
+  // not match a key with a space in it at all.
+  expectOnly(
+    'exposure-matches-reach/computed-key',
+    exposureMatchesReach(
+      regWith('  [SOME_KEY + SUFFIX]: { contract: mailSmuggledContract, handler: h },'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /computed key/,
+  )
+  // A NESTED `contract:` MUST NOT RESOLVE THE ENTRY. The own property is absent
+  // here and only a nested one exists, so the entry is REPORTED rather than
+  // silently joined to the wrong const.
+  expectOnly(
+    'exposure-matches-reach/nested-contract',
+    exposureMatchesReach(
+      regWith('  smuggled: { meta: { contract: mailSendContract }, handler: h },'),
+      CON_OK,
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /`smuggled`, whose own `contract` property is absent/,
+  )
+  // A CONTRACT WITH NO `exposure` PROPERTY AT ALL is ABSENT, which is a
+  // different report from PRESENT-BUT-UNRESOLVABLE above.
+  expectOnly(
+    'exposure-matches-reach/exposure-truly-absent',
+    exposureMatchesReach(
+      REG_OK,
+      [
+        CON_OK.slice(0, CON_OK.indexOf('export const mailAskContract')),
+        'export const mailAskContract: CommandContract<typeof i> = {',
+        "  name: 'mail.ask',",
+        '}',
+      ].join('\n'),
+      ROUTER_OK,
+      WHERE,
+      ['send'],
+    ),
+    /whose `exposure` cannot be found in/,
+  )
+
+  // -- CALL SITES ARE CALLS, NOT TEXT THAT LOOKS LIKE ONE (PDM-139 round 2). --
+  //
+  // The earlier version matched call-LOOKING STRING CONTENTS and then disclaimed
+  // it in a comment. A bound does not make a wrong population right: string
+  // contents are not call syntax. These two fixtures are the same text in two
+  // positions, and they must give OPPOSITE answers.
+  const ROUTER_ASK_ONLY = [
+    "  sessions: t.router({ ask: mailMutation('ask') }),",
+    "  messages: t.router({ send: mailMutation('send') }),",
+  ].join('\n')
+  // A STRING whose CONTENTS spell the missing call must NOT satisfy the
+  // comparison: `inbox` is still unreached.
+  expectOnly(
+    'exposure-matches-reach/string-lookalike-is-not-a-call',
+    exposureMatchesReach(
+      REG_OK,
+      CON_OK,
+      [`  const hint = "mailMutation('inbox')"`, ROUTER_ASK_ONLY].join('\n'),
+      WHERE,
+      ['send'],
+    ),
+    /mail `inbox` declares the `trpc` transport but router\.ts contains no/,
+  )
+  // …and a TEMPLATE literal is the same shape with different quotes.
+  expectOnly(
+    'exposure-matches-reach/template-lookalike-is-not-a-call',
+    exposureMatchesReach(
+      REG_OK,
+      CON_OK,
+      ["  const hint = \u0060mailQuery('inbox')\u0060", ROUTER_ASK_ONLY].join('\n'),
+      WHERE,
+      ['send'],
+    ),
+    /mail `inbox` declares the `trpc` transport but router\.ts contains no/,
+  )
+  // THE CONTROL THAT MAKES THOSE TWO MEAN SOMETHING: the SAME text as a REAL
+  // call is counted, and the fixture goes silent. Without this, a function that
+  // counted nothing at all would pass both fixtures above.
+  expectSilent(
+    'exposure-matches-reach/real-call-is-a-call',
+    exposureMatchesReach(
+      REG_OK,
+      CON_OK,
+      [`  const inbox = mailMutation('inbox')`, ROUTER_ASK_ONLY].join('\n'),
+      WHERE,
+      ['send'],
+    ),
+  )
+
   return failures
 }
 
-const PROBE_COUNT = 30
+const PROBE_COUNT = 40
 
 function main(): void {
   const argv = process.argv.slice(2)
