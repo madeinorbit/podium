@@ -247,14 +247,26 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
  * against history without a dist, without a build, and without reshaping a gate
  * that works.
  *
- * WHY THESE PARTICULAR NUMBERS NEEDED IT. The prose at each call site below is
- * a raise log: seven movements on the source ceiling alone — 7,400,000 to
- * 7,450,000 to 7,500,000 to 7,650,000 to 7,700,000 to 7,800,000, then down to
- * 7,700,000 and to 7,000,000 — each argued for in a comment, and each one a
- * single-token diff that no check in the repository had an opinion about. The
- * convention held every time. The convention was the only thing holding it,
- * which is the sentence POD-3904 was filed about, written here about a
- * different number.
+ * WHY THESE PARTICULAR NUMBERS NEEDED IT, measured from git rather than read
+ * off the prose. Replaying all 29 commits that have touched this file, the
+ * eager source ceiling has moved FIFTEEN times — nine of them upward — and the
+ * other three eager ceilings six times each. Every movement was argued for in a
+ * comment beside it and in nothing else: a single-token diff no check in the
+ * repository had an opinion about. The convention held every time. The
+ * convention was the only thing holding it, which is the sentence POD-3904 was
+ * filed about, written here about a different number.
+ *
+ * Note that the call-site prose below UNDERCOUNTS this. Read as a chain it
+ * gives seven movements on the source ceiling; the replay gives fifteen,
+ * because a comment is written by whoever moved the number and a merge that
+ * moves it back is nobody's edit to narrate. That gap is its own argument for
+ * reading the baseline out of git instead of out of a comment.
+ *
+ * AND THE FOUR SETTINGS CEILINGS HAVE NEVER MOVED AT ALL, in any of the 29
+ * commits, and carry no comment. They are the four numbers here with nothing
+ * recorded behind them; `BASELINE_AUTHORISATIONS` in
+ * `audit-committed-floors.ts` says so in each of their genesis records rather
+ * than inventing a justification.
  *
  * The comments stay where they are, beside the comparison they explain. This
  * record holds the values and nothing else: moving the reasoning up here would

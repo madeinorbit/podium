@@ -239,8 +239,324 @@ export const COMMITTED_BASELINES: readonly CommittedBaseline[] = [
   },
 ]
 
-/** Movements of a number in this census that have been argued for. */
-export const BASELINE_AUTHORISATIONS: readonly BaselineAuthorisation[] = []
+/**
+ * Movements of a number in this census that have been argued for — and, since
+ * PDM-325, the FIRST value of one too.
+ *
+ * THE THIRTY-SIX GENESIS RECORDS BELOW ARE POD-3905’s OWN BILL. Naming the eight
+ * bundle ceilings and the twenty-eight god-object budgets is what made them
+ * comparable against history; it also made them keys the base commit does not
+ * carry, and PDM-325’s rule is that a first value costs the same paragraph a
+ * raised one does. That rule is right and it lands on this issue first: a gate
+ * registered at whatever the tree happens to say today is a debt banked as a
+ * baseline.
+ *
+ * SO TWENTY OF THE TWENTY-EIGHT BUDGETS ARE RECORDED AS DEBT MARKERS RATHER THAN
+ * AS CEILINGS THE TREE MEETS. `server.ts` starts at 900 while the module
+ * measures 2451. Starting it at 2451 would have made `review-budget-exceeded` go
+ * quiet and turned 1551 unreviewed lines into “reviewed” in one edit — the exact
+ * move this issue exists to make expensive, and one this ledger’s own history
+ * shows being made four times already. Each of those twenty reasons names its
+ * own gap rather than repeating this one.
+ *
+ * AND FOUR ARE FLAGGED RATHER THAN ARGUED. The settings chunk’s four ceilings
+ * have never moved in the twenty-nine commits that have touched
+ * `web-bundle-budget.ts`, and carry no comment, no measured headroom and nothing
+ * else to say where they came from. Their records fix the value and say exactly
+ * that, because a confident sentence invented for a number nobody can source is
+ * the rubber stamp this ledger was built to refuse. They are the four to look at
+ * first if anyone wants to spend a build on re-deriving something.
+ */
+export const BASELINE_AUTHORISATIONS: readonly BaselineAuthorisation[] = [
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/store/types.ts',
+    from: null,
+    to: 750,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for store/types.ts, a declarations module, reviewed at POD-1385. It starts at 750 because 750 is the last value a reviewer actually accepted, and the module now measures 835 — 85 lines past it, 1.11x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 835 instead would silence that finding and launder 85 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/migrations/schema.ts',
+    from: null,
+    to: 1600,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for migrations/schema.ts, a declaration table, reviewed at POD-1385 / [spec:SP-4428]. It starts at 1600 because 1600 is the last value a reviewer actually accepted, and the module now measures 2952 — 1352 lines past it, 1.84x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 2952 instead would silence that finding and launder 1352 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/composition/reactions.ts',
+    from: null,
+    to: 800,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for composition/reactions.ts, a declaration table, reviewed at POD-1385 / POD-355. It starts at 800 because that is the value the review set, and the module measures 721 today — within it, with 79 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/superagent/tools.ts',
+    from: null,
+    to: 1100,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/superagent/tools.ts, a declaration table, reviewed at POD-1385. It starts at 1100 because that is the value the review set, and the module measures 1009 today — within it, with 91 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/issues/registry.ts',
+    from: null,
+    to: 1400,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/issues/registry.ts, a declaration table, reviewed at POD-1398. It starts at 1400 because that is the value the review set, and the module measures 1394 today — within it, with 6 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/relay.ts',
+    from: null,
+    to: 2300,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for relay.ts, the composition root, reviewed at POD-1385 / POD-321 / POD-734 / POD-418. It starts at 2300 because 2300 is the last value a reviewer actually accepted, and the module now measures 3630 — 1330 lines past it, 1.58x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 3630 instead would silence that finding and launder 1330 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/machines/rpc.ts',
+    from: null,
+    to: 1200,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/machines/rpc.ts, an operation surface, reviewed at POD-1385 / POD-531. It starts at 1200 because 1200 is the last value a reviewer actually accepted, and the module now measures 1911 — 711 lines past it, 1.59x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1911 instead would silence that finding and launder 711 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/store/issues.ts',
+    from: null,
+    to: 1100,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for store/issues.ts, an operation surface, reviewed at POD-1385 / POD-585 (re-review after POD-1653 + POD-568 projections). It starts at 1100 because 1100 is the last value a reviewer actually accepted, and the module now measures 1611 — 511 lines past it, 1.46x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1611 instead would silence that finding and launder 511 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/store/messages.ts',
+    from: null,
+    to: 750,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for store/messages.ts, an operation surface, reviewed at POD-1606 / POD-1379 (per-reader ledger) / POD-1385. It starts at 750 because 750 is the last value a reviewer actually accepted, and the module now measures 1095 — 345 lines past it, 1.46x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1095 instead would silence that finding and launder 345 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/store/sessions.ts',
+    from: null,
+    to: 900,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for store/sessions.ts, an operation surface, reviewed at POD-1385. It starts at 900 because 900 is the last value a reviewer actually accepted, and the module now measures 1198 — 298 lines past it, 1.33x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1198 instead would silence that finding and launder 298 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/store/workflows.ts',
+    from: null,
+    to: 750,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for store/workflows.ts, an operation surface, reviewed at POD-1385 / POD-362. It starts at 750 because 750 is the last value a reviewer actually accepted, and the module now measures 752 — 2 lines past it, 1.00x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 752 instead would silence that finding and launder 2 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/issues/service/crud.ts',
+    from: null,
+    to: 950,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/issues/service/crud.ts, an operation surface, reviewed at POD-1385 / POD-320. It starts at 950 because 950 is the last value a reviewer actually accepted, and the module now measures 1851 — 901 lines past it, 1.95x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1851 instead would silence that finding and launder 901 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/issues/service/reads.ts',
+    from: null,
+    to: 850,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/issues/service/reads.ts, an operation surface, reviewed at POD-1385 / POD-320. It starts at 850 because 850 is the last value a reviewer actually accepted, and the module now measures 870 — 20 lines past it, 1.02x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 870 instead would silence that finding and launder 20 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/workflows/service.ts',
+    from: null,
+    to: 850,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/workflows/service.ts, an operation surface, reviewed at POD-1385 / POD-732. It starts at 850 because that is the value the review set, and the module measures 795 today — within it, with 55 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/automations/service.ts',
+    from: null,
+    to: 800,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/automations/service.ts, an operation surface, reviewed at POD-1385. It starts at 800 because that is the value the review set, and the module measures 702 today — within it, with 98 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/server.ts',
+    from: null,
+    to: 900,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for server.ts, an operation surface, reviewed at POD-1385 / POD-585 (re-review after POD-1670 routes + POD-541 mobile COOP). It starts at 900 because 900 is the last value a reviewer actually accepted, and the module now measures 2451 — 1551 lines past it, 2.72x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 2451 instead would silence that finding and launder 1551 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/settings/service.ts',
+    from: null,
+    to: 850,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/settings/service.ts, an operation surface, reviewed at POD-1385. It starts at 850 because that is the value the review set, and the module measures 751 today — within it, with 99 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/sessions/command-plane.ts',
+    from: null,
+    to: 800,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/sessions/command-plane.ts, a documented module, reviewed at POD-1385 / POD-381 / POD-379. It starts at 800 because 800 is the last value a reviewer actually accepted, and the module now measures 905 — 105 lines past it, 1.13x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 905 instead would silence that finding and launder 105 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/operations/engine.ts',
+    from: null,
+    to: 800,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/operations/engine.ts, a documented module, reviewed at POD-2097 (docs/internal/superpowers/specs/2026-08-14-update-operations-design.md §3.2–§3.4). It starts at 800 because 800 is the last value a reviewer actually accepted, and the module now measures 2083 — 1283 lines past it, 2.60x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 2083 instead would silence that finding and launder 1283 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/issues/service/core.ts',
+    from: null,
+    to: 1050,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/issues/service/core.ts, a cohesive owner, reviewed at POD-1385 / POD-320. It starts at 1050 because 1050 is the last value a reviewer actually accepted, and the module now measures 1449 — 399 lines past it, 1.38x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1449 instead would silence that finding and launder 399 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/machines/service.ts',
+    from: null,
+    to: 850,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/machines/service.ts, a cohesive owner, reviewed at POD-1385 / POD-1467 / POD-1505 / POD-1778. It starts at 850 because 850 is the last value a reviewer actually accepted, and the module now measures 1763 — 913 lines past it, 2.07x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1763 instead would silence that finding and launder 913 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/issues/service/workflow.ts',
+    from: null,
+    to: 1300,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/issues/service/workflow.ts, a cohesive owner, reviewed at POD-1385 / POD-320 / POD-1606 (re-review after the main reconciliation) / POD-417 (re-review after the POD-384 watch). It starts at 1300 because 1300 is the last value a reviewer actually accepted, and the module now measures 1842 — 542 lines past it, 1.42x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1842 instead would silence that finding and launder 542 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/steward.ts',
+    from: null,
+    to: 1200,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for steward.ts, a cohesive owner, reviewed at POD-355 (boundary ownership review) / POD-1385. It starts at 1200 because that is the value the review set, and the module measures 1143 today — within it, with 57 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/superagent/service.ts',
+    from: null,
+    to: 1350,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/superagent/service.ts, a cohesive owner, reviewed at POD-1385. It starts at 1350 because 1350 is the last value a reviewer actually accepted, and the module now measures 1694 — 344 lines past it, 1.25x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1694 instead would silence that finding and launder 344 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/sessions/session-state/service.ts',
+    from: null,
+    to: 800,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/sessions/session-state/service.ts, a cohesive owner, reviewed at POD-393 Phase 4 ledger entry / POD-1385. It starts at 800 because 800 is the last value a reviewer actually accepted, and the module now measures 903 — 103 lines past it, 1.13x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 903 instead would silence that finding and launder 103 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/messaging/service.ts',
+    from: null,
+    to: 950,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/messaging/service.ts, a cohesive owner, reviewed at POD-1385 / [spec:SP-5d81] / [spec:SP-62c3]. It starts at 950 because that is the value the review set, and the module measures 889 today — within it, with 61 lines of headroom. Carried forward unchanged from the `budget:` field POD-3905 moved out of the ledger entry: this record fixes the number’s history, it does not re-open the review that chose it. Raising it from here costs a further record.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/sessions/session.ts',
+    from: null,
+    to: 850,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/sessions/session.ts, a cohesive owner, reviewed at POD-1385. It starts at 850 because 850 is the last value a reviewer actually accepted, and the module now measures 1220 — 370 lines past it, 1.44x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 1220 instead would silence that finding and launder 370 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'GOD_OBJECT_BUDGET.apps/server/src/modules/messages/service.ts',
+    from: null,
+    to: 2100,
+    issue: 'POD-3905',
+    reason:
+      'Physical-line budget for modules/messages/service.ts, a cohesive owner, reviewed at POD-1397 / POD-1385. It starts at 2100 because 2100 is the last value a reviewer actually accepted, and the module now measures 2996 — 896 lines past it, 1.43x. THIS NUMBER IS A DEBT MARKER, NOT A CEILING THE FILE MEETS: the audit has been reporting it as exceeded, and the gap IS the unreviewed growth. Starting the ratchet at 2996 instead would silence that finding and launder 896 unreviewed lines into ’reviewed’ in the same edit — which is precisely the move POD-3905 was filed to make expensive, and which this file’s history shows being made four times already. The honest first value is the reviewed one, left where it is until somebody re-reviews the module or decomposes it.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.eager.raw',
+    from: null,
+    to: 1650000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on raw bytes of the eager graph — payload, downloaded by every session on open. It starts at 1,650,000 because that is the value in the tree, and unlike most numbers in this census that value has a measurement behind it: Set by the POD-2730 paydown at bdc46c002, which measured 1,458,334 after the move and left 191,666 of headroom (~13%). Replaying this file’s 29 commits, this ceiling has moved 6 times, every movement argued for only in a comment beside it — which is the convention POD-3904 was filed about, holding by nothing but goodwill. The genesis value is the post-paydown one, so the clearance the paydown bought is what a future raise has to argue against.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.eager.gzip',
+    from: null,
+    to: 520000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on gzip bytes of the eager graph — payload. It starts at 520,000 because that is the value in the tree, and unlike most numbers in this census that value has a measurement behind it: Set by the same POD-2730 paydown, which measured 460,501 after the move and left 59,499 of headroom (~13%). Replaying this file’s 29 commits, this ceiling has moved 6 times, every movement argued for only in a comment beside it — which is the convention POD-3904 was filed about, holding by nothing but goodwill. The genesis value is the post-paydown one, so the clearance the paydown bought is what a future raise has to argue against.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.eager.brotli',
+    from: null,
+    to: 447000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on Brotli bytes of the eager graph — payload. It starts at 447,000 because that is the value in the tree, and unlike most numbers in this census that value has a measurement behind it: Set by the same POD-2730 paydown, which measured 395,176 after the move and left 51,824 of headroom (~13%). Replaying this file’s 29 commits, this ceiling has moved 6 times, every movement argued for only in a comment beside it — which is the convention POD-3904 was filed about, holding by nothing but goodwill. The genesis value is the post-paydown one, so the clearance the paydown bought is what a future raise has to argue against.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.eager.sourceBytes',
+    from: null,
+    to: 7000000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on parsed source bytes of the eager graph — house style, not bandwidth. It starts at 7,000,000 because that is the value in the tree, and unlike most numbers in this census that value has a measurement behind it: Set by the POD-2730 paydown, which measured 6,189,048 after the move and left 810,952 of clearance (13.1%), deliberately sized against recorded drift of ~53,497 bytes over twenty commits so it lasts months rather than days. Replaying this file’s 29 commits, this ceiling has moved 15 times, every movement argued for only in a comment beside it — which is the convention POD-3904 was filed about, holding by nothing but goodwill. The genesis value is the post-paydown one, so the clearance the paydown bought is what a future raise has to argue against.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.settings.raw',
+    from: null,
+    to: 105000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on raw bytes of the settings chunk. FLAGGED RATHER THAN ARGUED, and deliberately so. Replaying all 29 commits that have touched this file, this number has NEVER moved, and unlike its four eager siblings it carries no comment, no measured headroom and no paydown behind it — the file records nothing about where 105,000 came from. So this record fixes the value at what the tree has always had and claims no more than that: it is not an endorsement that 105,000 is the right ceiling. Re-deriving it needs a build to measure the settings chunk against, which this issue did not have. Inventing a justification here would be the rubber stamp the ledger exists to refuse.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.settings.gzip',
+    from: null,
+    to: 30000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on gzip bytes of the settings chunk. FLAGGED RATHER THAN ARGUED, and deliberately so. Replaying all 29 commits that have touched this file, this number has NEVER moved, and unlike its four eager siblings it carries no comment, no measured headroom and no paydown behind it — the file records nothing about where 30,000 came from. So this record fixes the value at what the tree has always had and claims no more than that: it is not an endorsement that 30,000 is the right ceiling. Re-deriving it needs a build to measure the settings chunk against, which this issue did not have. Inventing a justification here would be the rubber stamp the ledger exists to refuse.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.settings.brotli',
+    from: null,
+    to: 26000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on Brotli bytes of the settings chunk. FLAGGED RATHER THAN ARGUED, and deliberately so. Replaying all 29 commits that have touched this file, this number has NEVER moved, and unlike its four eager siblings it carries no comment, no measured headroom and no paydown behind it — the file records nothing about where 26,000 came from. So this record fixes the value at what the tree has always had and claims no more than that: it is not an endorsement that 26,000 is the right ceiling. Re-deriving it needs a build to measure the settings chunk against, which this issue did not have. Inventing a justification here would be the rubber stamp the ledger exists to refuse.',
+  },
+  {
+    key: 'WEB_BUNDLE_BUDGET.settings.sourceBytes',
+    from: null,
+    to: 280000,
+    issue: 'POD-3905',
+    reason:
+      'Ceiling on parsed source bytes of the settings chunk. FLAGGED RATHER THAN ARGUED, and deliberately so. Replaying all 29 commits that have touched this file, this number has NEVER moved, and unlike its four eager siblings it carries no comment, no measured headroom and no paydown behind it — the file records nothing about where 280,000 came from. So this record fixes the value at what the tree has always had and claims no more than that: it is not an endorsement that 280,000 is the right ceiling. Re-deriving it needs a build to measure the settings chunk against, which this issue did not have. Inventing a justification here would be the rubber stamp the ledger exists to refuse.',
+  },
+]
 
 export interface CensusExclusion {
   /** `<relative path>:<CONST>`, exactly as the scan spells it. */

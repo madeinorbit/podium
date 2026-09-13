@@ -380,3 +380,101 @@ until PDM-325 lands. The full enumerated list of 37 keys with their `to` values
 is derivable in one command from this head — iterate `COMMITTED_BASELINES`,
 `qualify(constantsIn(git show 89574f1c8:<path>, exportName))`, and take the keys
 the base does not have.
+
+---
+
+## A5 — the genesis records, written (the work the landing sent back)
+
+The coordinator landed the naming work and returned the issue, correctly: this
+receipt had said the 36 keys "go live when this lands". They did not go live —
+they reported as violations, and a number that reports as a violation is not
+guarded, only visible. Done now, at the integrated tree.
+
+**Reproduced before writing anything.** `bun scripts/audit-committed-floors.ts
+--require-base` at `b9fad5911`: **36 `baseline-introduced-without-authorisation`
++ 1 `baseline-base-unavailable`**, exactly the split the coordinator measured.
+
+**Correction to A4 above:** A4 called all 37 "one `BaselineAuthorisation
+{ from: null }` each". The count and the identification of the 37th were right;
+the *kind* was not. The 37th is `baseline-base-unavailable`, not a genesis
+finding, because `scripts/baseline-ratchet.ts` is missing at the base **as a
+whole file** — so `base === null` and `checkBaseline` returns before it consults
+any authorisation.
+
+### The 37th cannot be repaired with a record — tested, not assumed
+
+The coordinator offered: *if it is a one-line record you can write correctly,
+take it; otherwise leave it.* It is not. I added a well-formed genesis record for
+`MIN_REASON_LENGTH` and re-ran:
+
+```
+baseline-base-unavailable  baseline-ratchet      exit=1      (unchanged)
+```
+
+There is no per-key remedy because the defect is not per-key: the file is absent,
+so no key in that instrument has a base to be compared against. It resolves when
+`scripts/baseline-ratchet.ts` exists at the merge base — i.e. when the epic
+reaches `main` — or under `PODIUM_RATCHET_BASE`. **Left for the coordinator to
+place, as offered.**
+
+### 36 records, and four of them refuse to argue
+
+All 36 written into `BASELINE_AUTHORISATIONS`. `--require-base` now reports **0**
+genesis findings; the only remaining finding is the 37th, which is not mine.
+
+Each reason carries that key's own measured facts rather than a shared sentence:
+
+- **20 budgets are recorded as debt markers.** Each names its own gap — e.g.
+  `server.ts` starts at **900 while the module measures 2451**, and the reason
+  says that starting at 2451 would silence `review-budget-exceeded` and launder
+  1551 unreviewed lines into "reviewed" in one edit. This is the receipt's own
+  argument for guarding, put where the gate enforces it.
+- **8 budgets are recorded as live ceilings with headroom** (e.g.
+  `issues/registry.ts` 1394/1400 — six lines of room), carried forward unchanged.
+- **4 eager bundle ceilings cite real measurements** — the POD-2730 paydown's
+  1,458,334 / 460,501 / 395,176 / 6,189,048 and the clearance each left.
+- **4 settings ceilings are FLAGGED, not argued.** Replaying all 29 commits that
+  have touched `web-bundle-budget.ts`, `settings.raw/gzip/brotli/sourceBytes`
+  have **never moved**, and unlike their eager siblings they carry no comment, no
+  measured headroom and no paydown. The file records nothing about where 105,000
+  / 30,000 / 26,000 / 280,000 came from. Their records fix the value and say
+  exactly that — no endorsement. **Flagged to the coordinator as asked:** these
+  four are the ones to spend a build on re-deriving. Writing a confident sentence
+  for them would have been the rubber stamp the ledger exists to refuse.
+
+### The records are load-bearing — mutation-tested
+
+| mutation | result |
+|---|---|
+| a record's `to` changed 900 → 2451 (the laundering value) | genesis finding returns for `server.ts` (and `store/sessions.ts`, which shares the value) |
+| one reason shortened below `MIN_REASON_LENGTH` | genesis finding returns for `WEB_BUNDLE_BUDGET.eager.sourceBytes` |
+| one record deleted | genesis finding returns for `GOD_OBJECT_BUDGET.…/relay.ts` |
+
+So the records cannot be satisfied by a placeholder, a stale number, or an
+absence.
+
+### A second correction to this receipt: "seven movements" was an undercount
+
+This receipt and the code comment both said the eager source ceiling had moved
+**seven** times, read off the call-site prose. Replaying all 29 commits from git
+gives **fifteen** (nine upward), and six each for the other three eager ceilings.
+The prose undercounts because a comment is written by whoever moved the number,
+and a merge that moves it back is nobody's edit to narrate. Corrected in
+`web-bundle-budget.ts`, with that gap noted there as its own argument for reading
+a baseline out of git rather than out of a comment.
+
+### Confirmed, not relayed: the `@podium/scripts` lane does run in CI
+
+`.github/workflows/ci.yml:390` — `- name: unit tests (cached package tasks)` runs
+`bun run test:full`. So the two sibling tests added by this issue execute in CI.
+`audit:committed-floors` itself still runs in no workflow (POD-3908).
+
+### Verification at the integrated tree
+
+| command | exit | covered |
+|---|---|---|
+| `bun run audit:committed-floors` | **0** | probe + default gate |
+| `bun scripts/audit-committed-floors.ts --require-base` | 1 | **0 genesis findings**; the one remaining is the 37th, not this issue's |
+| `bun scripts/audit-god-objects.ts` | 1 | 97 findings — 41/36/20, unchanged by the records |
+| focused vitest, 4 ratchet files | **0** | **4 files, 89 tests passed** (77 before; +12 from PDM-325's own additions) |
+| `biome check` on both changed files | 0 | clean |
