@@ -5,14 +5,29 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 
 /**
- * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
- * agent relay request → gate → service → operator decision → exec frame to the
- * owning daemon → result lands. Mirrors relay-agent-relay.test.ts's harness.
+ * The agent relay's approvals arm, driven end to end through the real registry
+ * [spec:SP-edbb] (#410): agent relay request → gate → service → operator decision
+ * → exec frame to the owning daemon → result lands. Mirrors
+ * relay-agent-relay.test.ts's harness, and shares its shard.
+ *
+ * NOT NAMED `*e2e*`, AND THE NAME IS THE LANE (PDM-289). The unit lane and every
+ * package-local lane exclude the `*e2e*.test.ts` filename glob on the grounds that
+ * such a file "boots a live in-process server on a real port" (vitest.unit.config.ts).
+ * This file does no such thing — it constructs a `SessionRegistry` in process and
+ * pushes daemon frames at it, exactly as relay-agent-relay.test.ts does — but it
+ * was called `approvals-relay-e2e.test.ts`, so the filename alone kept it out of
+ * every routinely-run lane and out of `test-shards.json`, which is derived from
+ * what the unit lane collects. For as long as that was true the only thing
+ * exercising this transport was `bun run test:integration`, and an inherited red
+ * here (PDM-292) went undetected because nothing ran it.
+ *
+ * `scripts/test-configuration.test.ts` now refuses an `e2e`-named suite that
+ * reaches for nothing real, so the next file cannot hide the same way.
  */
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
-describe('approval broker relay e2e (#410)', () => {
+describe('approval broker relay arm (#410)', () => {
   const registries: SessionRegistry[] = []
   const machineId = 'm1'
   let registry: SessionRegistry
@@ -199,13 +214,13 @@ describe('approval broker relay e2e (#410)', () => {
    *
    * WHAT THIS TEST IS FOR, since it is not the discriminating one. Whether a
    * DIFFERENT HUMAN is told apart from the same one is decided in
-   * `modules/approvals/service.test.ts`, which runs in the store shard and
-   * therefore in every lane; this file is in no `test-shards.json` entry and the
-   * unit lane excludes it by its `e2e` filename, so it runs only in the root
-   * integration lane. What belongs HERE is the thing only this lane can
-   * show: that the capability's two identity halves actually reach the service
-   * across the real gate, rather than the arm passing an empty caller — which
-   * would refuse everybody, or, gated on the payload instead, admit anybody.
+   * `modules/approvals/service.test.ts`, which runs in the store shard. What
+   * belongs HERE is the thing only the transport can show: that the capability's
+   * two identity halves actually reach the service across the real gate, rather
+   * than the arm passing an empty caller — which would refuse everybody, or,
+   * gated on the payload instead, admit anybody. Until PDM-289 renamed this file
+   * that half was proved only by the integration lane; it is now in the boundary
+   * shard, so it runs whenever the server suite does.
    *
    * THE SECOND SESSION HAS A REAL SECOND OWNER, not no owner. An unowned session
    * is refused too, by the other arm of the gate, so a fixture built that way

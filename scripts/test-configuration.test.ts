@@ -370,6 +370,92 @@ describe('test lane configuration', () => {
     ).toEqual([])
   })
 
+  /**
+   * THE FILENAME EXEMPTION HAS TO BE EARNED [PDM-289].
+   *
+   * Three lane selectors are driven by a file's NAME rather than by what it does: the unit
+   * lane (and, through `createPackageVitestConfig`, every package-local lane) drops
+   * `*e2e*.test.ts` and `*.integration.*`; the integration lane picks the same names up;
+   * and the POD-3716 census directly above EXEMPTS them from its own "has a lane" check.
+   * That is a reasonable shorthand — the stated grounds are that such a file "boots a live
+   * in-process server on a real port" — but nothing checked the claim, so a file earned the
+   * exemption by being called something.
+   *
+   * WHAT THAT COST. `apps/server/src/approvals-relay-e2e.test.ts` constructed a
+   * `SessionRegistry` in process and pushed daemon frames at it, exactly as
+   * `relay-agent-relay.test.ts` does one directory over — no port, no process, ~1s of test
+   * time. Its name alone kept the agent relay's whole approvals arm out of every routinely
+   * run lane, and out of `test-shards.json`, which is derived from what the unit lane
+   * collects. An inherited red in it (PDM-292) survived undetected because nothing ran it,
+   * and PDM-278's privacy witness — that a stranger's agent cannot read another human's
+   * approval row — was proved only by `bun run test:integration`. Renaming it to
+   * `relay-agent-approvals.test.ts` put it in the boundary shard beside its sibling.
+   *
+   * SO THE CLAIM IS NOW CHECKED. A name-exempted suite must show, in its own source, that
+   * it reaches for something the fast lanes cannot give it. The scan is deliberately
+   * generous — any server, process, socket, browser or real-checkout reach counts, and a
+   * comment does not — because its job is to catch the suite that reaches for NOTHING, not
+   * to grade how heavy the rest are.
+   *
+   * THE ROSTER BELOW IS AN EXACT SET, not a floor. A suite that stops earning its name is
+   * red; a rostered suite that is fixed without being struck off is red too. That is what
+   * keeps it from becoming the second hand-maintained list that a stale check compares
+   * against (false-green catalogue 7).
+   */
+  it('makes a test earn its e2e/integration filename exemption [PDM-289]', () => {
+    /** Server, process, socket, browser or real-checkout reach — see the doc comment. */
+    const REACHES_THE_REAL_WORLD =
+      /\bstart[A-Z]\w*Server\b|\bcreateServer\b|\.listen\(|Bun\.serve\b|Bun\.spawn\b|\bspawnSync\b|\bexecFileSync\b|\bexecFile\b|\bexecSync\b|node:child_process|node:net|node:https?|\bWebSocket\b|\bnew Worker\b|Bun\.Terminal\b|@playwright|\bmkdtempSync\b|\btmpdir\(\)|\bfetch\(|\brealpathSync\b|\bcreateRequire\b|\breadFileSync\b|\breaddirSync\b/
+
+    /**
+     * Suites whose name claims a lane they do not need. Each is a live finding, not an
+     * accepted exception: strike the entry when the file is renamed or moved, and the
+     * assertion below will tell you if you strike one that is still misnamed.
+     *
+     * `scripts/loop-split-load.integration.test.ts` is the sharp one — the integration lane
+     * EXCLUDES it by path as well, so it currently runs in no lane at all.
+     */
+    const NOT_YET_EARNING_THE_NAME = [
+      'apps/daemon/src/control/session-launch.integration.test.ts',
+      'scripts/loop-split-load.integration.test.ts',
+      'tests/e2e/state-channel-attention.e2e.test.ts',
+    ]
+
+    const repoRoot = fileURLToPath(new URL('../', import.meta.url))
+    // A pruning walk, not `readdirSync(recursive)`: the recursive form descends into every
+    // node_modules in the workspace before any filter sees a path.
+    const walk = (dir: string, prefix: string, out: string[]): string[] => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+        const relativePath = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+        if (entry.isDirectory()) walk(join(dir, entry.name), relativePath, out)
+        else out.push(relativePath)
+      }
+      return out
+    }
+    const nameExempted = walk(repoRoot, '', [])
+      .filter((file) => /\.test\.tsx?$/.test(file))
+      .filter((file) => {
+        const name = file.slice(file.lastIndexOf('/') + 1)
+        return name.includes('e2e') || name.includes('.integration.')
+      })
+      .sort()
+    // A scan that found nothing would pass this test while checking nothing (false-green
+    // catalogue 9). The population is ~70 files; any collapse means the walk broke.
+    expect(nameExempted.length).toBeGreaterThan(40)
+
+    const inert = nameExempted.filter((file) => {
+      const source = readFileSync(join(repoRoot, file), 'utf8')
+        // Prose about ports and processes is not reach. Strip comments before scanning.
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '')
+      return !REACHES_THE_REAL_WORLD.test(source)
+    })
+    expect(inert, 'suites exempted by name that reach for nothing real').toEqual(
+      NOT_YET_EARNING_THE_NAME,
+    )
+  })
+
   it('keeps every server shard on the shared hermetic setup [POD-520]', () => {
     // The split turned one server lane into five. Each is a separate Vitest invocation, so
     // each can lose the hardening on its own: the env scrubber that keeps a suite off the
