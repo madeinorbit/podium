@@ -326,10 +326,10 @@ export const RAISE_AUTHORISATIONS: readonly RaiseAuthorisation[] = [
     key: 'FIRST_ADMIN_USER_ID',
     from: 46,
     renamedTo: 'firstAdminMemberId',
-    to: 42,
+    to: 38,
     issue: 'POD-3904',
     reason:
-      'A2 retired the `FIRST_ADMIN_USER_ID` constant in favour of the `firstAdminMemberId()` accessor (65be6da71), and the baseline key was renamed with it. The sites are the same sites — a rename moves none — and the count FELL 46 -> 42 in the same work, because three sites in `server.ts` and one in `auth-route.ts` now resolve the earliest admin member out of the store instead of defaulting to a compiled-in id. Recorded rather than passed over because a rename that carries a value across is how a baseline loses its history, and this instrument now refuses one that is not argued for.',
+      'A2 retired the `FIRST_ADMIN_USER_ID` constant in favour of the `firstAdminMemberId()` accessor (65be6da71), and the baseline key was renamed with it. The sites are the same sites — a rename moves none — and the count FELL 46 -> 42 in the same work, because three sites in `server.ts` and one in `auth-route.ts` now resolve the earliest admin member out of the store instead of defaulting to a compiled-in id. It then fell again, 42 -> 38, when POD-3903 re-measured it on the PDM-107 epic branch at e9820be79 after phase B removed four more ambient resolutions; POD-3903 was filed precisely because the number had fallen and nobody had lowered the baseline, leaving the gate red with nothing to see. Both movements are recorded here rather than passed over, because a rename that carries a value across is how a baseline loses its history, and this instrument now refuses one that is not argued for. Note what this single entry demonstrates about the instrument itself: every movement it has ever recorded is DOWNWARD, and the ratchet only compares upward — POD-3906 carries that gap.',
   },
 ]
 
