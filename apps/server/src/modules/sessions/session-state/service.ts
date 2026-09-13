@@ -157,7 +157,11 @@ export interface SessionOwnerMemo {
 }
 
 export interface SessionStatePorts {
-  readonly store: Pick<SessionStore, 'sessions'>
+  /** `transact` is here for the CROSS-OWNER writes [PDM-424 review]:
+   *  {@link SessionStateService.rearmUnreadForAll} clears N holders' rows and
+   *  must publish N sidecar rows in the SAME transaction, and it has no
+   *  `persistSession` to borrow one from. */
+  readonly store: Pick<SessionStore, 'sessions' | 'transact'>
   /**
    * WRITE-SEAM LEDGER for the `sessionMarks` sidecar [PDM-424].
    *
@@ -631,17 +635,31 @@ export class SessionStateService {
   }
 
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
+    // ONE TRANSACTION FOR THE CLEAR AND EVERY HOLDER'S ROW [PDM-424 review].
+    // This used to clear directly and publish afterwards, so a capture failing on
+    // the SECOND holder left the clear committed with the first holder's row
+    // published and the rest not — and a retry would find the rows already gone
+    // and skip the work. `store.transact` rather than `persistSession` because
+    // this path has no session to persist and `persistSession` SILENTLY SKIPS a
+    // session that is no longer live, which would turn a rollback-safety fix into
+    // a behaviour change on the terminal-transition path.
+    //
     // Holders BEFORE the clear: the delete is what removes them from the table.
     // A holder whose only row is a SNOOZE is republished here too, carrying the
     // value it already had. That is a deliberate no-op row rather than a bug: one
     // sidecar row carries both halves, so filtering to read-mark holders would
     // need a second statement of which table owns which key, and that is the
-    // duplication this split exists to avoid. The cost is one redundant upsert
-    // per snooze-only holder on a terminal transition.
-    const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
-    await this.ports.store.sessions.clearAllReadAt(sessionId)
+    // duplication this split exists to avoid.
+    await this.ports.store.transact(async () => {
+      const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
+      await this.ports.store.sessions.clearAllReadAt(sessionId)
+      // INSIDE, so the publish reads the cleared values on this connection; and
+      // the invalidation is repeated after the transaction because a read taken
+      // during it can cache a value the rollback then discards.
+      this.invalidateAllOverlays()
+      await this.publishMarksForHolders(holders, sessionId)
+    })
     this.invalidateAllOverlays()
-    await this.publishMarksForHolders(holders, sessionId)
   }
 
   async setSnooze(
@@ -670,10 +688,20 @@ export class SessionStateService {
     // person whose snooze this clears may also hold a read mark, and one sidecar
     // row carries both halves, so republishing the union keeps every holder's row
     // consistent with the store rather than only the half that changed.
-    const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
-    await this.ports.persistSession(sessionId, async () => await this.ports.store.sessions.clearAllSnoozes(sessionId))
+    // THE PUBLISH IS INSIDE THE PERSIST [PDM-424 review], for the same reason
+    // `persistPerUser` moved: it used to await the clear and then publish
+    // outside it, so an append failure left the snoozes cleared and committed
+    // with the holder rows stale or half-published, and a retry would find
+    // `hasAnySnooze` false and return early having done nothing.
+    await this.ports.persistSession(sessionId, async () => {
+      const holders = await this.ports.store.sessions.listSessionMarkHolders(sessionId)
+      await this.ports.store.sessions.clearAllSnoozes(sessionId)
+      this.invalidateAllOverlays()
+      await this.publishMarksForHolders(holders, sessionId)
+    })
+    // Again after the span: a projection read inside it can cache a value the
+    // rollback discards, which is the ghost-row rule `persistPerUser` states.
     this.invalidateAllOverlays()
-    await this.publishMarksForHolders(holders, sessionId)
     this.ports.broadcastSessions()
   }
 

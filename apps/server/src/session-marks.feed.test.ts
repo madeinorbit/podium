@@ -173,11 +173,30 @@ async function build() {
       },
     ])
   /**
-   * A DELETION, in the order the repository does it: the session row is gone by
-   * the time the tombstone is emitted. That ordering is the whole question — a
-   * read gate that must fail closed cannot also carry the retraction.
+   * A FIXTURE-AUTHORED BATCH, AND NOT A PRODUCTION DELETION. Corrected at the
+   * phase reviewer's instruction, because the old name and comment claimed to be
+   * "a deletion, in the order the repository does it" and it is not.
+   *
+   * **Production emits no `sessionMarks` removal at all.**
+   * `SessionKill.sessionRemovalSpecs` returns exactly
+   * `[{ entity: 'session', op: 'remove' }]`. So constructing the marks removals
+   * here MANUFACTURES the refs that make the anchor fire — the catalogue's
+   * "witness that manufactures its own end state", one level up. What the cases
+   * below establish is that the anchor arm ANSWERS when it is asked; they do not
+   * and cannot establish that any deletion ASKS it.
+   *
+   * WHAT THE REAL PATHS DO is measured separately in
+   * `session-marks.deletion.test.ts`, against a real `SessionRegistry`: both
+   * production deletions are SOFT, neither touches the per-user tables, the
+   * session row survives tombstoned and restorable, and no marks removal is
+   * published — which is the CORRECT answer, because retracted marks would be
+   * gone when the session came back. `purgeSession` is the only path that clears
+   * those tables and it has no production caller.
+   *
+   * So this remains a useful arm-level witness under an honest name, and the
+   * question "does a deletion retract" is answered in that other file.
    */
-  const deleteSession = async (holders: readonly UserId[]) => {
+  const authoredRetractionBatch = async (holders: readonly UserId[]) => {
     sharedExists = false
     await authority.capture([
       { entity: 'session', entityId: SHARED, op: 'remove' },
@@ -188,7 +207,7 @@ async function build() {
       })),
     ])
   }
-  return { authority, grant, revoke, publishMarks, deleteSession }
+  return { authority, grant, revoke, publishMarks, authoredRetractionBatch }
 }
 
 /** The marks rows a FRESH CLIENT is served — the cold-bootstrap path. */
@@ -233,14 +252,51 @@ describe('what a principal is actually SERVED', () => {
     const { authority, grant, revoke, publishMarks } = await build()
     await grant(reader)
     await publishMarks(reader, 'T-reader')
+    // THE OWNER HOLDS A MARK TOO, and this is the correction the phase reviewer
+    // required: the control below used to assert the owner's list was `[]`
+    // WITHOUT EVER PUBLISHING AN OWNER MARK, so it could not show the owner was
+    // untouched — an empty list is what an unpublished row looks like, and it is
+    // also what a feed that had stopped serving this kind entirely looks like.
+    // A readable NONEMPTY positive is the only thing that tells those apart.
+    await publishMarks(owner, 'T-owner')
     expect(await bootstrapMarks(authority, reader)).toEqual([sessionMarksRowId(reader, SHARED)])
 
     await revoke(reader)
 
     expect.soft(await bootstrapMarks(authority, reader)).toEqual([])
-    // The owner is untouched — the control that says the refusal came from the
-    // revocation and not from the feed having stopped serving this kind.
-    expect.soft(await bootstrapMarks(authority, owner)).toEqual([])
+    // …and the owner STILL RECEIVES THEIRS. The refusal above came from the
+    // revocation, not from this kind having stopped being served.
+    expect.soft(await bootstrapMarks(authority, owner)).toEqual([sessionMarksRowId(owner, SHARED)])
+  })
+
+  it('refuses the revoked reader on the DELTA path too, with the owner still served', async () => {
+    // THE DELTA HALF, through the real Authority [reviewer item 4]. The bootstrap
+    // case above is a cold client; a running one reads `changesSince`, and two
+    // arms that disagree is how one of them gets missed.
+    const { authority, grant, revoke, publishMarks } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    await publishMarks(owner, 'T-owner')
+
+    await revoke(reader)
+    // Cursor AFTER the revoke, so what follows can only arrive as a delta.
+    const before = await authority.cursor()
+    await publishMarks(reader, 'T-reader-2')
+    await publishMarks(owner, 'T-owner-2')
+
+    const served = async (user: UserId) => {
+      const res = await authority.changesSince(before, humanPrincipal(user))
+      // SHAPE ASSERTED BEFORE NARROWING: a bare `if (kind !== 'batch') return`
+      // finishes green on a reset or an undefined without reaching the assertion.
+      // `batch` is the only legitimate outcome — the cursor was taken after the
+      // revoke and two changes have been appended since.
+      expect(res?.kind).toBe('batch')
+      if (res?.kind !== 'batch') return null
+      return res.changes.filter((c) => c.entity === 'sessionMarks').map((c) => c.entityId)
+    }
+
+    expect.soft(await served(reader)).toEqual([])
+    expect.soft(await served(owner)).toEqual([sessionMarksRowId(owner, SHARED)])
   })
 
   it('serves each person their own row on the DELTA path too, not only bootstrap', async () => {
@@ -270,17 +326,22 @@ describe('what a principal is actually SERVED', () => {
   })
 })
 
-describe('a deleted session retracts the marks it carried', () => {
+describe('the anchor arm answers when a marks removal IS in the batch', () => {
   it('delivers the OWNER their removal, though the read gate refuses the row', async () => {
     // THE CASE THE ANCHOR EXISTS FOR. The session row is gone before the
     // tombstone is emitted, so `keyedUserOf` — which sees a ref and cannot tell
     // a removal from an upsert — refuses it. Without the anchor the owner's
     // client keeps an unread dot for a session that no longer exists, forever.
     //
-    // THE OWNER IS THE DISCRIMINATING CASE, not the grantee: a grant outlives
-    // the session row, so a grantee's `remove` can still travel the ordinary
-    // path. The owner's admission came from the row that was just deleted.
-    const { authority, publishMarks, deleteSession } = await build()
+    // CORRECTED AT THE REVIEWER'S INSTRUCTION. This said the owner is the
+    // discriminating case "because a grantee's remove can still travel the
+    // ordinary path". That contradicts the explicit existence gate this issue
+    // added: `keyedUserOf` refuses a marks row whose session does not resolve,
+    // for EVERYONE, grantee included — the surviving grant buys nothing once the
+    // row is gone. So the ordinary path carries NEITHER, and the anchor is the
+    // only route for both. The owner is still the case asserted here; it is not
+    // discriminating in the way the old sentence claimed.
+    const { authority, publishMarks, authoredRetractionBatch } = await build()
     await publishMarks(owner, 'T-owner')
     await publishMarks(owner, 'T-kept', KEPT)
     const before = await authority.cursor()
@@ -290,7 +351,7 @@ describe('a deleted session retracts the marks it carried', () => {
       [sessionMarksRowId(owner, KEPT), sessionMarksRowId(owner, SHARED)].sort(),
     )
 
-    await deleteSession([owner])
+    await authoredRetractionBatch([owner])
 
     const res = await authority.changesSince(before, humanPrincipal(owner))
     // Shape first, for the reason the delta case above spells out.
@@ -304,14 +365,41 @@ describe('a deleted session retracts the marks it carried', () => {
     expect.soft(await bootstrapMarks(authority, owner)).toEqual([sessionMarksRowId(owner, KEPT)])
   })
 
+  it('refuses a SURVIVING GRANTEE just as it refuses the owner, once the session is gone', async () => {
+    // THE CONTROL THE OLD COMMENT'S CLAIM WOULD HAVE FAILED [reviewer item 4].
+    // Deleting a session does not delete its grant edges, so a grantee is still
+    // admitted by `maySeeSession` — and the explicit existence gate refuses them
+    // anyway. THE GRANT IS DELIBERATELY RETAINED: revoking it would refuse for
+    // the ordinary reason and prove nothing about the missing session.
+    const { authority, grant, publishMarks, authoredRetractionBatch } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    await publishMarks(owner, 'T-owner')
+    // PRECONDITION — both were served while the session existed, so the refusals
+    // below cannot be satisfied by a feed that never delivered them.
+    expect.soft(await bootstrapMarks(authority, reader)).toEqual([sessionMarksRowId(reader, SHARED)])
+    expect.soft(await bootstrapMarks(authority, owner)).toEqual([sessionMarksRowId(owner, SHARED)])
+
+    await authoredRetractionBatch([owner, reader])
+
+    // Neither is served on a fresh bootstrap: the gate is about the session, not
+    // about which right admitted them.
+    expect.soft(await bootstrapMarks(authority, reader)).toEqual([])
+    expect.soft(await bootstrapMarks(authority, owner)).toEqual([])
+    // …and the KEPT session's mark still reaches its holder, so this is a
+    // refusal about the gone session rather than the feed going quiet.
+    await publishMarks(owner, 'T-kept', KEPT)
+    expect.soft(await bootstrapMarks(authority, owner)).toEqual([sessionMarksRowId(owner, KEPT)])
+  })
+
   it('does not serve an ORDINARY upsert for a session that is gone', async () => {
     // The other half of the same boundary, and why the read gate is not relaxed
     // for the missing-session case: an escape there would admit ordinary upserts
     // and bootstrap rows exactly as readily as a retraction, and the boot
     // reconcile republishes pre-existing rows.
-    const { authority, publishMarks, deleteSession } = await build()
+    const { authority, publishMarks, authoredRetractionBatch } = await build()
     await publishMarks(owner, 'T-owner')
-    await deleteSession([])
+    await authoredRetractionBatch([])
 
     // A stale upsert — exactly what a boot reconcile racing a deletion produces.
     await publishMarks(owner, 'T-stale')

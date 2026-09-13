@@ -2002,6 +2002,7 @@
         "src/server.version.test.ts",
         "src/session-by-id-scaling.test.ts",
         "src/session-cutover.audit.test.ts",
+        "src/session-marks.deletion.test.ts",
         "src/session-marks.feed.test.ts",
         "src/session-marks.visibility.test.ts",
         "src/sessions.ledger.test.ts",

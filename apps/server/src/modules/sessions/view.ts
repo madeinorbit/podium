@@ -249,40 +249,24 @@ export class SessionView {
     // `byId(id, principal)` still wire that principal's own overlay, unchanged —
     // this branch only stops inventing a viewer when the caller named none.
     //
-    // WHAT WENT WITH IT. `internalOverlayUser()` was PDM-291's named answer to
-    // "whose overlay does a principal-less pass wire", left deliberately in place
-    // when that issue removed visibility's borrowing of the same identity. This
-    // was its only caller, so the method is deleted rather than left standing —
-    // a surviving resolver with no consumer reads as a fallback somebody may
-    // reach for again, which is the shape PDM-295 rewrote comments across three
-    // files to prevent. The question it answered is now answered by the split.
+    // WHAT DID NOT GO WITH IT. `internalOverlayUser()` SURVIVES and is still
+    // called on this line — its ANSWER is discarded, not its call. An earlier
+    // revision of this comment said the method "is deleted", and it was, until
+    // removing the call turned out to break worktree adoption; see that method's
+    // own header for the observed contrast and PDM-437 for where the evidence
+    // stops. The stale sentence is corrected rather than left, because a comment
+    // describing a deletion beside a live call is worse than no comment.
     //
-    // THE READ IT REPLACED WAS POSITIONED HERE ON PURPOSE [PDM-291] and that
-    // reasoning is recorded rather than discarded: `defaultPrincipal()` used to
-    // be awaited exactly at this line, and moving it DOWN to where the overlay is
-    // consumed inserted a fresh await into the middle of a pass that runs inside
-    // a caller's transaction span, reopening the interleaving window
-    // `lifecycle-runtime-fold.test.ts`'s site 7 catches — a
-    // `StaleIssueRevisionError: expected revision 1, found 2` three frames away
+    // THE READ'S POSITION WAS CHOSEN ON PURPOSE [PDM-291] and that reasoning is
+    // kept: `defaultPrincipal()` used to be awaited exactly here, and moving it
+    // DOWN to where the overlay is consumed inserted a fresh await into the
+    // middle of a pass that runs inside a caller's transaction span, reopening
+    // the interleaving window `lifecycle-runtime-fold.test.ts`'s site 7 catches —
+    // a `StaleIssueRevisionError: expected revision 1, found 2` three frames away
     // from anything this file mentions (measured: 3 runs failed with the read
-    // moved down, 3 passed with it here). Removing the await entirely cannot
-    // reopen that window; adding one back below can, so do not.
-    // RESOLVED FIRST, BEFORE ANY OTHER READ IN THIS METHOD, and that position is
-    // load-bearing [PDM-291] — and REMOVING it breaks something PDM-291 did not
-    // name, by a mechanism nobody has established yet: see
-    // {@link internalOverlayUser} for the observed contrast and PDM-437 for where
-    // the evidence stops. "The four probes that pin it" is how this line read
-    // before the phase reviewer pointed out that probes pin a contrast, not a
-    // cause. The answer is
-    // deliberately NOT used for the overlay any more: a principal-less pass is
-    // the BROADCAST, and one ledger value per session id reaches every
-    // subscriber, so wiring any identity here shows one person's read marks and
-    // snoozes to everybody. That was the defect [PDM-424].
-    // THE SHORT-CIRCUIT IS PRESERVED EXACTLY as it was before PDM-424: a
-    // principal-ful pass never resolved this identity and still does not, so it
-    // pays nothing for a read it has no use for. Making the call unconditional
-    // cost the reader-scoped budget two statements it had never paid — measured,
-    // 6 -> 8, and reverted.
+    // moved down, 3 passed with it here). PDM-424 ADDS ONE FACT AND NO
+    // EXPLANATION: removing the read entirely breaks something else again, by a
+    // mechanism nobody has established. Leave it where it is.
     const internalOverlayUser = forPrincipal ? undefined : await this.internalOverlayUser()
     // …and here is the whole repair: a principal-ful pass wires that principal's
     // own overlay, exactly as before; a principal-less one wires NOBODY's, and

@@ -24,6 +24,15 @@
  * does not name, the collection stays empty, and the join silently falls back to
  * neutral — precisely the failure being guarded, reproduced.
  *
+ * THE LEGACY REPLICA AND THE KERNEL REPLICA ARE TWO DIFFERENT KEY RESOLVERS, and
+ * the registration case here exercises the LEGACY one: `createReplica` is the
+ * TanStack replica whose `keyFor` arm resolves `sessionMarks` to `sessionId`. The
+ * KERNEL replica's matching `rowKey` arm in `kernel/kinds.ts` is a SEPARATE copy
+ * of the same question, exercised by the binding cases in
+ * `engine/replica-binding.test.ts`, which drive `createKernelReplica`. Having one
+ * arm is not having the other — PDM-408 found exactly that on the issue twin,
+ * where a marks-only delta published nothing until the legacy arm existed.
+ *
  * The value tests below would ALL still pass with that line deleted, because
  * they call the join directly. That is the point: they prove the join is
  * correct, and only the first proves it runs.
@@ -134,6 +143,20 @@ describe('joining this reader’s marks over the broadcast', () => {
 
     expect.soft(joined.readAt).toBeNull()
     expect.soft(joined.unread).toBe(true)
+  })
+
+  it('takes the SERVER row over a value this client painted optimistically', () => {
+    // THE HELD-ROW CASE [phase review item 3]. The absent-sidecar case below says
+    // what happens with no row; this says what happens when one ARRIVES over an
+    // optimistic paint. The server's value wins, because the sidecar is the
+    // authority for this person's marks — the optimistic paint was a guess about
+    // exactly this row.
+    const painted = { ...neutralWire(BEFORE_READ), readAt: 'optimistic-guess', unread: false }
+
+    const joined = joinSessionMarks(painted, myMarks())
+
+    expect.soft(joined.readAt).toBe(READ_AT)
+    expect.soft(joined.unread).toBe(false)
   })
 
   it('leaves the row ALONE when this reader has no marks — the ordinary case', () => {
