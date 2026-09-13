@@ -39,6 +39,32 @@
       "encoded": "\"\""
     },
     {
+      "schema": "AccountRevisionRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "account",
+        "userId": "userId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"account\",\"userId\":\"userId\",\"revision\":1}"
+    },
+    {
+      "schema": "AccountRevisionRef",
+      "variant": "full",
+      "wire": {
+        "kind": "account",
+        "userId": "userId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"account\",\"userId\":\"userId\",\"revision\":1}"
+    },
+    {
       "schema": "ActorRef",
       "variant": "minimal",
       "wire": {
@@ -1273,6 +1299,52 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"accountId\":\"accountId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\",\"subagentModel\":\"subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
+    },
+    {
+      "schema": "ConfigurationRevisionRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "configuration",
+        "scope": "instance-settings",
+        "id": null,
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"configuration\",\"scope\":\"instance-settings\",\"id\":null,\"revision\":1}"
+    },
+    {
+      "schema": "ConfigurationRevisionRef",
+      "variant": "full",
+      "wire": {
+        "kind": "configuration",
+        "scope": "instance-settings",
+        "id": "id",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"configuration\",\"scope\":\"instance-settings\",\"id\":\"id\",\"revision\":1}"
+    },
+    {
+      "schema": "ConfigurationScopeField",
+      "variant": "minimal",
+      "wire": "instance-settings",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"instance-settings\""
+    },
+    {
+      "schema": "ConfigurationScopeField",
+      "variant": "full",
+      "wire": "instance-settings",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"instance-settings\""
     },
     {
       "schema": "ConversationDiagnosticWire",
@@ -2947,13 +3019,14 @@
             }
           },
           "coverage": 1,
-          "nestedBuckets": ["loop.nestedBuckets[0]"]
+          "nestedBuckets": ["loop.nestedBuckets[0]"],
+          "inclusive": ["loop.inclusive[0]"]
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"]}}"
+      "encoded": "{\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"],\"inclusive\":[\"loop.inclusive[0]\"]}}"
     },
     {
       "schema": "HumanSettableIssueStage",
@@ -3200,6 +3273,27 @@
       "encoded": "\"inv_0ujtsYcgvSTl8PAuAdqWYSMnLOv\""
     },
     {
+      "schema": "IssueAccountability",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "IssueAccountability",
+      "variant": "full",
+      "wire": {
+        "assignmentRevision": 1,
+        "inputRevision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"assignmentRevision\":1,\"inputRevision\":1}"
+    },
+    {
       "schema": "IssueAgentDefaults",
       "variant": "minimal",
       "wire": {
@@ -3318,7 +3412,6 @@
         },
         "priority": 1,
         "type": "task",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 1,
         "color": "rose",
@@ -3399,6 +3492,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 1,
+        "assignmentRevision": 1,
+        "inputRevision": 1,
         "owner": "owner",
         "visibility": "personal",
         "createdAt": "createdAt",
@@ -3407,7 +3502,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":1,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":1,\"assignmentRevision\":1,\"inputRevision\":1,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueAggregate",
@@ -3458,7 +3553,6 @@
         },
         "priority": 2,
         "type": "bug",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 2,
         "color": "pink",
@@ -3539,6 +3633,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 2,
+        "assignmentRevision": 2,
+        "inputRevision": 2,
         "owner": "owner",
         "visibility": "per-user-state",
         "createdAt": "createdAt",
@@ -3547,7 +3643,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":2,\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":2,\"assignmentRevision\":2,\"inputRevision\":2,\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueAggregate",
@@ -3598,7 +3694,6 @@
         },
         "priority": 3,
         "type": "feature",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 3,
         "color": "fuchsia",
@@ -3679,6 +3774,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 3,
+        "assignmentRevision": 3,
+        "inputRevision": 3,
         "owner": "owner",
         "visibility": "owned-compute",
         "createdAt": "createdAt",
@@ -3687,7 +3784,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":3,\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":3,\"assignmentRevision\":3,\"inputRevision\":3,\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueAggregate",
@@ -3738,7 +3835,6 @@
         },
         "priority": 4,
         "type": "chore",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 4,
         "color": "violet",
@@ -3819,6 +3915,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 4,
+        "assignmentRevision": 4,
+        "inputRevision": 4,
         "owner": "owner",
         "visibility": "deployment-substrate",
         "createdAt": "createdAt",
@@ -3827,7 +3925,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":4,\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":4,\"assignmentRevision\":4,\"inputRevision\":4,\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueAssistantPolicy",
@@ -5054,7 +5152,6 @@
         },
         "priority": 1,
         "type": "task",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 1,
         "color": "rose",
@@ -5135,6 +5232,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 1,
+        "assignmentRevision": 1,
+        "inputRevision": 1,
         "owner": "owner",
         "visibility": "personal",
         "createdAt": "createdAt",
@@ -5143,7 +5242,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":1,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":1,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":1,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"proposed\",\"suggestedStage\":\"proposed\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"user\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":1,\"type\":\"task\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"user\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":1}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"tracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"human\",\"audience\":\"human\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":1,\"assignmentRevision\":1,\"inputRevision\":1,\"owner\":\"owner\",\"visibility\":\"personal\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueProjection",
@@ -5194,7 +5293,6 @@
         },
         "priority": 2,
         "type": "bug",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 2,
         "color": "pink",
@@ -5275,6 +5373,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 2,
+        "assignmentRevision": 2,
+        "inputRevision": 2,
         "owner": "owner",
         "visibility": "per-user-state",
         "createdAt": "createdAt",
@@ -5283,7 +5383,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":2,\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":2,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":2,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"backlog\",\"suggestedStage\":\"backlog\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"agent\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":2,\"type\":\"bug\",\"labels\":[\"labels[0]\"],\"estimateMin\":2,\"color\":\"pink\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"agent\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":2}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"untracked\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":2,\"assignmentRevision\":2,\"inputRevision\":2,\"owner\":\"owner\",\"visibility\":\"per-user-state\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueProjection",
@@ -5334,7 +5434,6 @@
         },
         "priority": 3,
         "type": "feature",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 3,
         "color": "fuchsia",
@@ -5415,6 +5514,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 3,
+        "assignmentRevision": 3,
+        "inputRevision": 3,
         "owner": "owner",
         "visibility": "owned-compute",
         "createdAt": "createdAt",
@@ -5423,7 +5524,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":3,\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":3,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":3,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"planning\",\"suggestedStage\":\"planning\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":true,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"machine\",\"id\":\"lastLifecycleActor.actor.id\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":3,\"type\":\"feature\",\"labels\":[\"labels[0]\"],\"estimateMin\":3,\"color\":\"fuchsia\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":true,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"machine\",\"id\":\"asked.attribution.actor.id\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":true}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":3}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":true,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"createdBy.actor.id\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":3,\"assignmentRevision\":3,\"inputRevision\":3,\"owner\":\"owner\",\"visibility\":\"owned-compute\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueProjection",
@@ -5474,7 +5575,6 @@
         },
         "priority": 4,
         "type": "chore",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 4,
         "color": "violet",
@@ -5555,6 +5655,8 @@
         "linearUrl": "linearUrl",
         "prUrl": "prUrl",
         "revision": 4,
+        "assignmentRevision": 4,
+        "inputRevision": 4,
         "owner": "owner",
         "visibility": "deployment-substrate",
         "createdAt": "createdAt",
@@ -5563,7 +5665,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":4,\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
+      "encoded": "{\"id\":\"id\",\"repoId\":\"repoId\",\"seq\":4,\"title\":\"title\",\"brief\":\"brief\",\"design\":\"design\",\"acceptance\":\"acceptance\",\"activityNotes\":\"activityNotes\",\"notesUpdatedAt\":\"notesUpdatedAt\",\"dependencyNote\":\"dependencyNote\",\"suggestedReason\":\"suggestedReason\",\"description\":{\"value\":\"description.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"description.opsTail[0]\"}]},\"notes\":{\"value\":\"notes.value\",\"revision\":4,\"opsTail\":[{\"unknownFixture\":\"notes.opsTail[0]\"}]},\"stage\":\"in_progress\",\"suggestedStage\":\"in_progress\",\"closedReason\":\"closedReason\",\"closedAt\":\"closedAt\",\"deferUntil\":\"deferUntil\",\"archived\":false,\"deletedAt\":\"deletedAt\",\"lastLifecycleActor\":{\"actor\":{\"kind\":\"system\",\"job\":\"lastLifecycleActor.actor.job\"},\"onBehalfOf\":\"lastLifecycleActor.onBehalfOf\"},\"priority\":4,\"type\":\"chore\",\"labels\":[\"labels[0]\"],\"estimateMin\":4,\"color\":\"violet\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\",\"parentId\":\"parentId\",\"supersededBy\":\"supersededBy\",\"duplicateOf\":\"duplicateOf\",\"blockedByNotes\":[\"blockedByNotes[0]\"],\"worktreePath\":\"worktreePath\",\"branch\":\"branch\",\"parentBranch\":\"parentBranch\",\"machineId\":\"machineId\",\"defaultAgent\":\"defaultAgent\",\"defaultModel\":\"defaultModel\",\"defaultEffort\":\"defaultEffort\",\"needsHuman\":false,\"asked\":{\"question\":\"asked.question\",\"options\":[\"asked.options[0]\"],\"at\":\"asked.at\",\"by\":\"asked.by\",\"attribution\":{\"actor\":{\"kind\":\"system\",\"job\":\"asked.attribution.actor.job\"},\"onBehalfOf\":\"asked.attribution.onBehalfOf\"}},\"panel\":{\"todos\":[{\"text\":\"panel.todos[0].text\",\"done\":false}],\"artifacts\":[{\"path\":\"panel.artifacts[0].path\",\"title\":\"panel.artifacts[0].title\",\"addedAt\":\"panel.artifacts[0].addedAt\",\"sourceKind\":\"terminal-evidence\",\"artifactId\":\"panel.artifacts[0].artifactId\",\"entry\":\"panel.artifacts[0].entry\",\"files\":[{\"path\":\"panel.artifacts[0].files[0].path\",\"size\":4}],\"sourcePaths\":[\"panel.artifacts[0].sourcePaths[0]\"],\"tracking\":\"unknown\",\"untrackedPaths\":[\"panel.artifacts[0].untrackedPaths[0]\"]}],\"deferred\":[{\"text\":\"panel.deferred[0].text\",\"addedAt\":\"panel.deferred[0].addedAt\"}]},\"intentOrigin\":\"agent\",\"audience\":\"agent\",\"isDraftVessel\":false,\"coordinatorSessionId\":\"coordinatorSessionId\",\"startedBySession\":\"startedBySession\",\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"},\"linearId\":\"linearId\",\"linearIdentifier\":\"linearIdentifier\",\"linearUrl\":\"linearUrl\",\"prUrl\":\"prUrl\",\"revision\":4,\"assignmentRevision\":4,\"inputRevision\":4,\"owner\":\"owner\",\"visibility\":\"deployment-substrate\",\"createdAt\":\"createdAt\",\"updatedAt\":\"updatedAt\"}"
     },
     {
       "schema": "IssueSearchFilter",
@@ -5735,7 +5837,6 @@
       "wire": {
         "priority": 1,
         "type": "task",
-        "assignee": "assignee",
         "labels": ["labels[0]"],
         "estimateMin": 1,
         "color": "rose",
@@ -5745,7 +5846,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"priority\":1,\"type\":\"task\",\"assignee\":\"assignee\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\"}"
+      "encoded": "{\"priority\":1,\"type\":\"task\",\"labels\":[\"labels[0]\"],\"estimateMin\":1,\"color\":\"rose\",\"sortKey\":\"sortKey\",\"dueAt\":\"dueAt\"}"
     },
     {
       "schema": "IssueType",
@@ -5773,12 +5874,14 @@
         "entityId": "entityId",
         "readAt": null,
         "tuckedAt": null,
-        "pinnedAt": null
+        "pinnedAt": null,
+        "startedAt": null,
+        "assignmentDismissedAt": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null,\"pinnedAt\":null}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":null,\"tuckedAt\":null,\"pinnedAt\":null,\"startedAt\":null,\"assignmentDismissedAt\":null}"
     },
     {
       "schema": "IssueUserState",
@@ -5788,12 +5891,14 @@
         "entityId": "entityId",
         "readAt": "readAt",
         "tuckedAt": "tuckedAt",
-        "pinnedAt": "pinnedAt"
+        "pinnedAt": "pinnedAt",
+        "startedAt": "startedAt",
+        "assignmentDismissedAt": "assignmentDismissedAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"pinnedAt\":\"pinnedAt\"}"
+      "encoded": "{\"userId\":\"userId\",\"entityId\":\"entityId\",\"readAt\":\"readAt\",\"tuckedAt\":\"tuckedAt\",\"pinnedAt\":\"pinnedAt\",\"startedAt\":\"startedAt\",\"assignmentDismissedAt\":\"assignmentDismissedAt\"}"
     },
     {
       "schema": "IssueWire",
@@ -6328,6 +6433,24 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
     },
     {
+      "schema": "LoginEmail",
+      "variant": "minimal",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
+      "schema": "LoginEmail",
+      "variant": "full",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
       "schema": "LoopBucketCostWire",
       "variant": "minimal",
       "wire": {
@@ -6417,12 +6540,13 @@
           }
         },
         "coverage": 1,
-        "nestedBuckets": ["nestedBuckets[0]"]
+        "nestedBuckets": ["nestedBuckets[0]"],
+        "inclusive": ["inclusive[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"]}"
+      "encoded": "{\"at\":\"at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"nestedBuckets[0]\"],\"inclusive\":[\"inclusive[0]\"]}"
     },
     {
       "schema": "LoopProfileLevelWire",
@@ -6834,6 +6958,32 @@
       "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
+      "schema": "MemberDirectoryEntry",
+      "variant": "minimal",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "disabledAt": null
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"disabledAt\":null}"
+    },
+    {
+      "schema": "MemberDirectoryEntry",
+      "variant": "full",
+      "wire": {
+        "userId": "userId",
+        "displayName": "displayName",
+        "disabledAt": "disabledAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"userId\":\"userId\",\"displayName\":\"displayName\",\"disabledAt\":\"disabledAt\"}"
+    },
+    {
       "schema": "MemberId",
       "variant": "minimal",
       "wire": "mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv",
@@ -7140,6 +7290,23 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"title\":\"title\",\"ref\":\"ref\"}"
     },
     {
+      "schema": "OwnerAsAssigneeField",
+      "variant": "minimal",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": ""
+    },
+    {
+      "schema": "OwnerAsAssigneeField",
+      "variant": "full",
+      "wire": "",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"\""
+    },
+    {
       "schema": "Ownership",
       "variant": "minimal",
       "wire": {
@@ -7162,6 +7329,24 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"owner\":\"owner\",\"visibility\":\"personal\"}"
+    },
+    {
+      "schema": "ParticipationRoleField",
+      "variant": "minimal",
+      "wire": "collaborator",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"collaborator\""
+    },
+    {
+      "schema": "ParticipationRoleField",
+      "variant": "full",
+      "wire": "collaborator",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"collaborator\""
     },
     {
       "schema": "PersonalPreferences",
@@ -7817,6 +8002,59 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "1"
+    },
+    {
+      "schema": "RevisionRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "task",
+        "issueId": "issueId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"task\",\"issueId\":\"issueId\",\"revision\":1}"
+    },
+    {
+      "schema": "RevisionRef",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "task",
+        "issueId": "issueId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"task\",\"issueId\":\"issueId\",\"revision\":1}"
+    },
+    {
+      "schema": "RevisionRef",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "account",
+        "userId": "userId",
+        "revision": 2
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"account\",\"userId\":\"userId\",\"revision\":2}"
+    },
+    {
+      "schema": "RevisionRef",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "configuration",
+        "scope": "workflow-definition",
+        "id": "id",
+        "revision": 3
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"configuration\",\"scope\":\"workflow-definition\",\"id\":\"id\",\"revision\":3}"
     },
     {
       "schema": "RoleBackend",
@@ -13218,6 +13456,161 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"issueId\":\"issueId\",\"state\":\"costed\",\"own\":{\"models\":[{\"model\":\"own.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"rollup\":{\"models\":[{\"model\":\"rollup.models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"messages\":1,\"sessionCount\":1},\"descendantCount\":1,\"provisional\":true,\"floor\":\"none\",\"harnesses\":[\"claude-code\"],\"uncostedSessionCount\":1,\"sessions\":[{\"sessionId\":\"sessions[0].sessionId\",\"title\":\"sessions[0].title\",\"harness\":\"claude-code\",\"running\":true,\"models\":[{\"model\":\"sessions[0].models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"firstTsMs\":1,\"lastTsMs\":1}],\"sampledAt\":\"sampledAt\"}"
+    },
+    {
+      "schema": "TaskParticipants",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "collaborators": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"collaborators\":[]}"
+    },
+    {
+      "schema": "TaskParticipants",
+      "variant": "full",
+      "wire": {
+        "issueId": "issueId",
+        "collaborators": ["collaborators[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"collaborators\":[\"collaborators[0]\"]}"
+    },
+    {
+      "schema": "TaskParticipation",
+      "variant": "minimal",
+      "wire": {
+        "issueId": "issueId",
+        "userId": "userId",
+        "role": "collaborator",
+        "joinedAt": "joinedAt",
+        "addedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "addedBy.actor.id"
+          },
+          "onBehalfOf": null
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"userId\":\"userId\",\"role\":\"collaborator\",\"joinedAt\":\"joinedAt\",\"addedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"addedBy.actor.id\"},\"onBehalfOf\":null}}"
+    },
+    {
+      "schema": "TaskParticipation",
+      "variant": "full/arm0",
+      "wire": {
+        "issueId": "issueId",
+        "userId": "userId",
+        "role": "collaborator",
+        "joinedAt": "joinedAt",
+        "addedBy": {
+          "actor": {
+            "kind": "user",
+            "id": "addedBy.actor.id"
+          },
+          "onBehalfOf": "addedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"userId\":\"userId\",\"role\":\"collaborator\",\"joinedAt\":\"joinedAt\",\"addedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"addedBy.actor.id\"},\"onBehalfOf\":\"addedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TaskParticipation",
+      "variant": "full/arm1",
+      "wire": {
+        "issueId": "issueId",
+        "userId": "userId",
+        "role": "follower",
+        "joinedAt": "joinedAt",
+        "addedBy": {
+          "actor": {
+            "kind": "agent",
+            "id": "addedBy.actor.id"
+          },
+          "onBehalfOf": "addedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"userId\":\"userId\",\"role\":\"follower\",\"joinedAt\":\"joinedAt\",\"addedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"addedBy.actor.id\"},\"onBehalfOf\":\"addedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TaskParticipation",
+      "variant": "full/arm2",
+      "wire": {
+        "issueId": "issueId",
+        "userId": "userId",
+        "role": "follower",
+        "joinedAt": "joinedAt",
+        "addedBy": {
+          "actor": {
+            "kind": "machine",
+            "id": "addedBy.actor.id"
+          },
+          "onBehalfOf": "addedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"userId\":\"userId\",\"role\":\"follower\",\"joinedAt\":\"joinedAt\",\"addedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"addedBy.actor.id\"},\"onBehalfOf\":\"addedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TaskParticipation",
+      "variant": "full/arm3",
+      "wire": {
+        "issueId": "issueId",
+        "userId": "userId",
+        "role": "follower",
+        "joinedAt": "joinedAt",
+        "addedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "addedBy.actor.job"
+          },
+          "onBehalfOf": "addedBy.onBehalfOf"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"issueId\":\"issueId\",\"userId\":\"userId\",\"role\":\"follower\",\"joinedAt\":\"joinedAt\",\"addedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"addedBy.actor.job\"},\"onBehalfOf\":\"addedBy.onBehalfOf\"}}"
+    },
+    {
+      "schema": "TaskRevisionRef",
+      "variant": "minimal",
+      "wire": {
+        "kind": "task",
+        "issueId": "issueId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"task\",\"issueId\":\"issueId\",\"revision\":1}"
+    },
+    {
+      "schema": "TaskRevisionRef",
+      "variant": "full",
+      "wire": {
+        "kind": "task",
+        "issueId": "issueId",
+        "revision": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"task\",\"issueId\":\"issueId\",\"revision\":1}"
     },
     {
       "schema": "TelegramChatBinding",
