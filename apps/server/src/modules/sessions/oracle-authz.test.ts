@@ -55,7 +55,11 @@ const AGENT_ONLY = willChange(
   'POD-1073',
   'agent-capability path only — there is no human-vs-human authz today',
 )
-const NO_USER_PRINCIPAL = willChange('POD-1075', 'one shared password ⇒ OPERATOR admin/all')
+// The oracle drives ONE logged-in caller, so these cases see one principal. That
+// is the harness, not the transport: per-member login has landed and
+// `userCommandPrincipal` scopes an ordinary member to `owned` (PDM-421 corrected
+// the previous reason, "one shared password ⇒ OPERATOR admin/all").
+const NO_USER_PRINCIPAL = willChange('POD-1075', 'oracle drives a single logged-in caller')
 
 /**
  * THE THREE WAYS A RELAYED CALL CAN END, and why telling them apart is the point

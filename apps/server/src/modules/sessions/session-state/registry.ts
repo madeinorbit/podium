@@ -82,9 +82,14 @@ export type SessionStateTransport = 'trpc' | 'relay' | 'cli' | 'mcp' | 'ws'
  * questions, and `nameSource` is the shipped feature that depends on the answer.
  */
 /**
- * The principal for a WebSocket client message. Same sole human as the tRPC seam
- * (both are the one shared password today) but carrying the attached client's id,
- * which the draft handler needs.
+ * The principal for a WebSocket client message. The same person the tRPC seam
+ * resolves — both read the member off the authenticated client session — but
+ * carrying the attached client's id, which the draft handler needs.
+ *
+ * (This said "Same sole human as the tRPC seam (both are the one shared password
+ * today)". The two seams do still agree, which was the point; the reason was
+ * wrong. `auth-route.ts` verifies the resolved member's own credential and
+ * persists that member on the session row. Corrected by PDM-421.)
  */
 export function sessionStatePrincipalFor(
   principal: CommandPrincipal,

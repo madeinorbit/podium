@@ -199,11 +199,19 @@ export interface WorkflowPolicyPorts {
  * short-circuiting every guard.
  *
  * WHAT DID NOT CHANGE, deliberately: `protectedWrite` is still the flag the
- * transport sets, and the single human is still `SINGLE_USER_HUMAN`. This
- * function is the seam where POD-1075's real `(user, device, capability)`
- * principal replaces both — at which point `onBehalfOf` comes from the
- * delegation record and `role` from the account, and nothing downstream of here
- * changes at all. That is the point of putting the derivation in one function.
+ * transport sets, and `SINGLE_USER_HUMAN` is still the value this function
+ * substitutes when a caller arrives with NO resolved `onBehalfOf`. That is a
+ * fallback, not a description of the instance: every shipped door supplies a
+ * `CommandPrincipal` — `workflowCaller` over tRPC, `workflowCallerForCapability`
+ * over the relay — and where one is supplied it decides, as the note below on
+ * the two branches says in as many words.
+ *
+ * (This used to read *the single human is still `SINGLE_USER_HUMAN`*, which
+ * contradicted that note: `auth-route.ts` verifies the resolved member's own
+ * credential, so `onBehalfOf` comes from a real person on every shipped path.
+ * Corrected by PDM-421, which changed no behaviour — the substitution at the
+ * `undefined` branch is untouched and still fails toward a named id rather than
+ * `null`, which means REVOKED.)
  *
  * `onBehalfOf` is resolved on EVERY call and never memoized. ADR 9 D5 A1: an
  * agent's rights are its human's CURRENT rights, so a revoked delegation must

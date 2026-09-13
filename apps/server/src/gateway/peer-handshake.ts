@@ -83,13 +83,18 @@ export interface PreparedDaemonAcceptor {
  * floor (never delivered, no principal) and the socket keeps waiting for a real
  * handshake, which `wsServer.daemon.test.ts` pins.
  *
- * NOTE ON THE CONSOLE ROLE: no `clientSessions` port is passed, because per-user
- * client sessions do not exist yet (POD-1075). The registry therefore holds an
- * explicit REFUSAL for the console role rather than a gap, and `/client` keeps its
- * existing cookie gate until POD-1075 lands the (user, device) resolution this
- * strategy needs. Wiring the console strategy to today's single instance password
- * would resolve every cookie to one ambient operator — the exact hole this work
- * removes.
+ * NOTE ON THE CONSOLE ROLE: no `clientSessions` port is passed. The registry
+ * therefore holds an explicit REFUSAL for the console role rather than a gap, and
+ * `/client` keeps its own cookie gate — `auth-route.ts`, which resolves a login
+ * identifier to a member, verifies THAT member's own credential and persists the
+ * member on the session row.
+ *
+ * (The reason this used to give is retracted. It said *per-user client sessions
+ * do not exist yet (POD-1075)* and that wiring the strategy to *today's single
+ * instance password* would resolve every cookie to one ambient operator.
+ * Per-user client sessions exist and the instance password is gone (POD-1554).
+ * What has not happened is that nobody has supplied this port, so the refusal
+ * stands on that alone. Corrected by PDM-421.)
  */
 const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({

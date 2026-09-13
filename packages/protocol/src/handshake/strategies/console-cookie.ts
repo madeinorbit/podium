@@ -19,13 +19,20 @@
  * A `client_session` is a DEVICE, not a person: the principal carries both
  * halves, and a user may hold many devices (ADR 3 Amendment 1 D14.1).
  *
- * PRODUCTION BINDING IS BLOCKED ON POD-1075. `client_sessions` has no user
- * column today and `@podium/runtime`'s auth-store holds ONE password for the
- * whole instance. Writing this strategy against that shape — resolving every
- * cookie to a single ambient operator — is precisely the multi-user hole this
- * issue removes, so it is not written that way and there is no production
- * implementation of the port yet. The strategy is complete against the port's
- * per-user shape and unit-tested against a fake.
+ * THERE IS STILL NO PRODUCTION BINDING, and the reason is now simply that nobody
+ * has supplied the port: `default-registry.ts` yields
+ * `unavailableStrategy('console', 'sessionCookie', ...)` when `clientSessions` is
+ * absent, and the server authenticates the console through `auth-route.ts`
+ * instead. The strategy is complete against the port's per-user shape and
+ * unit-tested against a fake.
+ *
+ * (The reason this paragraph used to give is retracted. It said *`client_sessions`
+ * has no user column today and `@podium/runtime`'s auth-store holds ONE password
+ * for the whole instance*, so writing the strategy would mean resolving every
+ * cookie to a single ambient operator. `client_sessions` carries the member, and
+ * POD-1554 removed the per-instance password from `auth-store.ts` — whose own
+ * header says so. The per-user shape this strategy was written against is the
+ * shape the server already has. Corrected by PDM-421.)
  */
 
 import type { z } from 'zod'

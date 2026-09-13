@@ -460,11 +460,23 @@ export class SettingsService {
    * and it went red on the first attempt, which is how this is known rather than
    * assumed.
    *
-   * One shared password means one writer and one reader today, so the writer's
-   * view IS every reader's view. When that stops being true these subscribers
-   * need a per-user reaction rather than a broadcast, and this is the seam where
-   * that change lands — recorded here rather than left for someone to discover
-   * from a notification that went to the wrong person.
+   * THE JUSTIFICATION THIS PARAGRAPH USED TO GIVE IS RETRACTED. It read: *One
+   * shared password means one writer and one reader today, so the writer's view
+   * IS every reader's view.* That premise is gone — `auth-route.ts` verifies the
+   * resolved member's own `user_credentials` row and persists that member on the
+   * session, so two people can be signed in to one instance and a personal leaf
+   * can differ between them. The emit below still carries ONE writer's resolved
+   * view to every subscriber.
+   *
+   * WHAT PDM-421 DID NOT ESTABLISH, and is saying rather than implying: whether
+   * that is now a live defect. The reaction registry declares both subscribers
+   * OWNER-SCOPED on their own terms — `sessions.auto-continue-settings` keys on
+   * *owner + sessionId + settings revision* and invariants "bounded by its
+   * owner", `messaging.telegram-configure` on *user + bot-token fingerprint*
+   * (composition/reactions.ts) — which is consistent with them using this event
+   * as a TRIGGER and re-reading per-user state themselves. Nobody has measured
+   * which it is. This is still the seam where a per-user reaction would land if
+   * the answer is the other one.
    *
    * Emitted only on an actual difference: the shipped clients round-trip the
    * whole blob on every edit, so an unchanged save must not make every

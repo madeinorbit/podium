@@ -52,11 +52,17 @@
  *                   memory, is the fixture certifying itself.
  *
  * WHAT THIS DOES NOT EVIDENCE. Two principals here are two `FeedPrincipal`
- * values. The shipped authenticator is device-grade — one shared password, two
- * connections indistinguishable AS PERSONS — so these cases prove the MECHANISM
- * carries the distinction end to end on both platforms. They are not the
- * second-account check; `docs/multi-user-readiness.md` §3.2 is why there cannot
- * be one yet.
+ * values SUPPLIED BY THE FIXTURE, so these cases prove the MECHANISM carries the
+ * distinction end to end on both platforms. They are not the second-account
+ * check, because no login happens in this file.
+ *
+ * (This used to say the bound was the product's: *the shipped authenticator is
+ * device-grade — one shared password, two connections indistinguishable AS
+ * PERSONS*, citing `docs/multi-user-readiness.md` §3.2 for why there *cannot be
+ * one yet*. `auth-route.ts` verifies the resolved member's own credential and
+ * `CLIENT_PRINCIPAL_GRADE` reads `'user'`, so the bound is this file's fixtures
+ * rather than the authenticator — and a second-account check is writeable
+ * somewhere. Corrected by PDM-421.)
  *
  * WHY THE MOBILE LANE IS NOT "THE SAME THING TWICE". The two adapters fail
  * differently on exactly this family: IndexedDB's `delete` and a row simply not

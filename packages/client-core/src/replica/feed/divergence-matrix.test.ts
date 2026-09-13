@@ -30,11 +30,19 @@
  * WHAT THIS CANNOT EVIDENCE
  * ---------------------------------------------------------------------------
  *
- * Two principals here are two `FeedPrincipal` values. The shipped authenticator is
- * device-grade — one shared password, two connections indistinguishable AS PERSONS
- * — so these cases prove the MECHANISM carries the distinction end to end, and do
- * not prove per-person isolation. Basis document §5 states the split; nothing here
- * should be read as the second-account check.
+ * Two principals here are two `FeedPrincipal` values SUPPLIED BY THE FIXTURE. So
+ * these cases prove the MECHANISM carries the distinction end to end; they do not
+ * prove per-person isolation, because no login happens in this file. Basis
+ * document §5 states the split; nothing here should be read as the second-account
+ * check.
+ *
+ * (The reason this used to give is retracted: *the shipped authenticator is
+ * device-grade — one shared password, two connections indistinguishable AS
+ * PERSONS.* `auth-route.ts` resolves a login identifier to a member and verifies
+ * THAT member's own credential, and `CLIENT_PRINCIPAL_GRADE` reads `'user'`. The
+ * bound on this file is now its own — a stubbed policy and fixture principals —
+ * rather than a limit of the product, which also means a second-account check is
+ * WRITEABLE somewhere and is not written here. Corrected by PDM-421.)
  */
 
 import { ConformanceAuthority, type ConformancePrincipal, conformanceUser } from '@podium/sync'

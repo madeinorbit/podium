@@ -202,8 +202,12 @@ function sessionStateRegistryFor(ctx: Context): SessionStateRegistry {
   })
 }
 
-/** The transport principal for a tRPC call. One shared password ⇒ the sole human
- *  (§3.2); POD-1075 replaces this with a real per-user principal. */
+/** The transport principal for a tRPC call — the member the request authenticated
+ *  as. `server.ts`'s `requestPrincipal` reads the user off the client session and
+ *  mints `userCommandPrincipal(user, role)`; open mode (local, no credential
+ *  required) resolves the earliest admin instead. (This comment previously said
+ *  "One shared password ⇒ the sole human (§3.2)" and named POD-1075 as the
+ *  replacement. Per-member login has landed; corrected by PDM-421.) */
 export function sessionStatePrincipal(ctx: Context) {
   return sessionStatePrincipalFor(ctx.principal)
 }

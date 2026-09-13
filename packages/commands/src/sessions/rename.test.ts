@@ -272,9 +272,11 @@ describe('the reducer models the WRITER-AUTHORIZATION OUTCOME, not just the effe
 
   it('treats a write with NO authored attribution as a human write', () => {
     // The default matters and is not arbitrary: an unattributed write on this path
-    // is the operator cookie (§3.2's sole human today), and treating it as an agent
-    // would let a missing pair SILENTLY strip a human's sovereign nameSource. It
-    // fails toward the human, which is the direction [spec:SP-eb60] protects.
+    // came in over the console cookie — a signed-in PERSON, whichever member that
+    // is — and treating it as an agent would let a missing pair SILENTLY strip a
+    // human's sovereign nameSource. It fails toward the human, which is the
+    // direction [spec:SP-eb60] protects. (This said "§3.2's sole human today";
+    // per-member login has landed and the cookie names the member — PDM-421.)
     expect(reduce({ name: 'chosen', nameSource: 'user' }, 'still mine', undefined)).toEqual({
       kind: 'value',
       value: { name: 'still mine', nameSource: 'user' },

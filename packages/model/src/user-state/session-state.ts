@@ -152,23 +152,33 @@ export const NO_SESSION_USER_STATE: SessionUserOverlay = {
 }
 
 /**
- * THE SOLE USER, until POD-1075 mints real accounts.
+ * THE PRE-ACCOUNTS USER ID — the owner every per-user row written before real
+ * accounts carries.
  *
- * Podium authenticates with one shared password that resolves to `OPERATOR`, and
- * `client_sessions` has no user column — a client session is a DEVICE, not a
- * person (docs/multi-user-readiness.md §3.2). So every per-user row written today
- * belongs to one identity, and that identity needs a NAME rather than an implicit
- * empty string, for three reasons:
+ * It was minted so those rows would have a NAME rather than an implicit empty
+ * string, for three reasons that still hold:
  *
- *  1. the rows are keyed `(userId, entityId)` NOW, so the migration POD-1075
- *     performs is "give this row a real owner", not "add a column";
+ *  1. the rows are keyed `(userId, entityId)`, so giving a row a real owner is a
+ *     VALUE migration, not a schema one;
  *  2. a self-scoping check needs something to compare against — with no principal
  *     identity a `self` policy would be vacuously true, which is worse than absent;
- *  3. it is greppable. Every site that will need a real principal is
- *     `SOLE_USER_ID`, so POD-1075's work is enumerable instead of archaeological.
+ *  3. it is greppable. Every site that predates a real principal is
+ *     `SOLE_USER_ID`, so the remaining work is enumerable instead of archaeological.
  *
  * It is NOT a fallback. A principal that arrives without an identity must be
  * refused, never defaulted to this — that is the §3.1.6 S4 rule ("unknown chats
  * must fail closed, never fall back to an operator identity") applied here.
+ *
+ * THE HEADER THIS REPLACES IS RETRACTED. It was titled *THE SOLE USER, until
+ * POD-1075 mints real accounts* and reasoned: *Podium authenticates with one
+ * shared password that resolves to `OPERATOR`, and `client_sessions` has no user
+ * column — a client session is a DEVICE, not a person.* Both facts have changed.
+ * `client_sessions` carries the member (`auth-route.ts` passes it to
+ * `createClientSession`; `requestUserId` reads it back), and login verifies THAT
+ * member's own `user_credentials` row — POD-1554 removed the per-instance
+ * password from `packages/runtime/src/auth-store.ts`. So this constant is no
+ * longer "the sole user"; it is the id that pre-accounts rows were written with,
+ * and reading it as a statement about who is signed in is the error this note
+ * exists to stop. Corrected by PDM-421, which changed no value and no call site.
  */
 export const SOLE_USER_ID = 'user:sole' as const

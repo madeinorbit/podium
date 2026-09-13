@@ -116,12 +116,21 @@ export interface PeerAuthStrategy<C extends PeerCredential = PeerCredential> {
  * PER-USER client sessions — ADR 3 Amendment 1 D14.1: a `client_session` remains
  * a DEVICE; it gains a user reference, and a user may hold many.
  *
- * The port is deliberately shaped as `(user, device)` even though today's
- * `client_sessions` table has no user column: POD-1075 lands the per-user
- * sessions this resolves against, and writing the port against today's single
- * shared password would bake the single-operator assumption into the one place
- * this issue exists to remove it from. Until POD-1075 lands there is no
- * production implementation, and the fail-closed default is the correct one.
+ * The port is deliberately shaped as `(user, device)`, which is the shape the
+ * server's own `client_sessions` row now has: it carries the member, and login
+ * verifies THAT member's own credential before minting it.
+ *
+ * THERE IS STILL NO PRODUCTION IMPLEMENTATION OF THIS PORT, and the fail-closed
+ * default is the correct one — `default-registry.ts` yields
+ * `unavailableStrategy('console', 'sessionCookie', ...)` when `clientSessions` is
+ * absent, which it is in the shipped composition. The server authenticates the
+ * console through `auth-route.ts` directly rather than through this strategy.
+ *
+ * (The reason this paragraph used to give for that absence is retracted: it said
+ * *today's `client_sessions` table has no user column* and that writing the port
+ * against *today's single shared password* would bake in the single-operator
+ * assumption. Neither is true any more; what remains true is simply that nobody
+ * has wired the port. Corrected by PDM-421.)
  */
 export interface ClientSessionDirectory {
   /**

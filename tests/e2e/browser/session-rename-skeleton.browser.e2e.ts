@@ -18,11 +18,19 @@
  *      then drains on reconnect and converges on the second client.
  *
  * WHAT IS NOT, AND WHY — the different-user denial. The criterion asks for a
- * client of a DIFFERENT user to be denied on the write path. That is not
- * expressible at runtime today: authentication is one shared password and
- * `client_sessions` has no user column (readiness §3.2), so the transport cannot
- * mint a second person — every browser here is the same principal by
- * construction. Producing one would mean faking the very thing under test.
+ * client of a DIFFERENT user to be denied on the write path. This suite does not
+ * cover it: both browsers here log in as the same member by construction, and
+ * nobody has written the two-member variant.
+ *
+ * THE REASON THIS USED TO GIVE IS RETRACTED, AND IT TURNS A "CANNOT" INTO A
+ * "HAVE NOT". It read: *that is not expressible at runtime today: authentication
+ * is one shared password and `client_sessions` has no user column (readiness
+ * §3.2), so the transport cannot mint a second person.* Both facts are gone —
+ * `auth-route.ts` resolves a login identifier to a member and verifies THAT
+ * member's own `user_credentials` row, and the session row carries the member.
+ * So the runtime half IS expressible now, and this ledger entry records a gap
+ * somebody can close rather than one the product forbids. PDM-421 corrected the
+ * reason and did not write the test.
  *
  * It IS proven, at the enforcement point where a principal is an argument:
  * `apps/server/src/modules/sessions/rename-shadow.test.ts` ("an agent whose human

@@ -562,8 +562,10 @@ export const settingsUpdateInstanceContract = {
       'reversible by writing it again — with the deliberate note that `hibernation.enabled` and ' +
       '`gitWorkflow.mergeStyle` have instance-wide behavioural blast radius; the ADMIN FLOOR is the ' +
       'gate that answers that, not a per-call confirmation prompt an agent would click through. ' +
-      'Nothing enforces the floor today (single operator principal); POD-1079 owns it, and this ' +
-      'contract is what it will read.',
+      'The floor IS enforced: the server’s derived command builder reads ' +
+      '`contract.policy.roleFloor` and refuses below it (PDM-294), against the account role of the ' +
+      'member the request authenticated as. (This line previously read “Nothing enforces the ' +
+      'floor today (single operator principal)” — corrected by PDM-421.)',
   },
   exposure: SERVED_ON,
   delivery: INSTANCE_PREFERENCE_DELIVERY,

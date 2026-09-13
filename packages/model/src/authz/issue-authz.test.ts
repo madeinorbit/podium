@@ -389,14 +389,23 @@ describe('the unconstrained admin capability keeps its reach across the new targ
    * an instance-level fact about a person, ADR 9 D1.4) and the CAPABILITY scope
    * (`all`, what this call may reach). The bypass was never the scope being
    * wide; it was PRIVATE targets being decided by the scope at all. They are now
-   * decided by the attribution pair's `onBehalfOf`, which the shared-password
-   * transport already supplies correctly — so an admin keeps unconstrained reach
-   * over task trees and loses it over everyone else's private rows, today,
-   * rather than at the flip.
+   * decided by the attribution pair's `onBehalfOf`, which the transport already
+   * supplies correctly — so an admin keeps unconstrained reach over task trees
+   * and loses it over everyone else's private rows, today, rather than at the
+   * flip.
    *
-   * So what this test now pins is the half that is still true: the
-   * shared-password transport still mints ONE capability whose SCOPE is
-   * unconstrained, and narrowing that scope remains Phase 3's to do.
+   * So what this test pins is the ADMIN's shape: an admin's capability carries
+   * `role: 'admin'` with `scope: { kind: 'all' }`, and it is the SCOPE, not the
+   * role, that is unconstrained.
+   *
+   * (Both paragraphs used to attribute that to "the shared-password transport",
+   * the second saying it *still mints ONE capability whose SCOPE is
+   * unconstrained*. That is no longer the transport's shape: `auth-route.ts`
+   * verifies the resolved member's own credential, and `userCommandPrincipal`
+   * gives an ADMIN `scope: 'all'` and an ordinary member `scope: { kind:
+   * 'owned' }` — so an unconstrained scope is now a property of the ADMIN rather
+   * than of every caller. The assertions below are about an admin and are
+   * unchanged. Corrected by PDM-421.)
    */
   it('is the FIRST ADMIN’s reach, and the scope — not the role — is what is unconstrained', () => {
     expect(UNCONSTRAINED_ADMIN.role).toBe('admin')

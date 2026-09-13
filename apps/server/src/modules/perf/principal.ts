@@ -34,11 +34,17 @@
  *
  * Every site hands this function the live feed principal for the connection or
  * call (from `feedPrincipalOf` on the WS plane, or from `FamilyState.feedPrincipal`
- * on /trpc). The digest therefore tracks whoever the transport authenticated —
- * one shared-password account today, many accounts the day per-user login has
- * more than one row — with no edit at the record sites. Hard-coding a constant
+ * on /trpc). The digest therefore tracks whoever the transport authenticated,
+ * with no edit at the record sites — which is how it kept working when login
+ * became per-member without anyone touching this file. Hard-coding a constant
  * here would be the trap this harness paid for once already: a dimension added
  * later cannot be applied to samples already recorded.
+ *
+ * (This used to read "one shared-password account today, many accounts the day
+ * per-user login has more than one row". That day has arrived: `auth-route.ts`
+ * resolves a login identifier to a member and verifies that member's own
+ * `user_credentials` row. Corrected by PDM-421 — the derivation argument is
+ * unaffected and is the reason no edit was needed.)
  */
 
 import { type Principal, principalRoutingId } from '@podium/protocol'

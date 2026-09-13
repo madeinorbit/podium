@@ -21,14 +21,19 @@
  *
  * WHY ADOPTION IS NOT SIMPLY FORBIDDEN. There is one case where attribution is
  * CERTAIN rather than merely likely: a device on which exactly one identity has
- * ever existed. Today that is every device, because there are no user identities
- * at all — `/auth/status` is a shared-password gate (`docs/multi-user-readiness.md`
- * §3.2: "no user identity anywhere in the model") — so a pre-multi-user store on a
- * pre-multi-user client can only have been written by the one operator now signed
- * in. Refusing there would throw away real queued work of the person who authored
- * it, in the name of a boundary that does not yet exist. That is the
- * "single-account upgrade path" arm, and it closes by itself the moment identity
- * lands, because {@link LegacyIdentityEvidence} stops reporting `single-account`.
+ * ever existed. A pre-multi-user store on such a device can only have been written
+ * by the one operator now signed in, and refusing there would throw away real
+ * queued work of the person who authored it. That is the "single-account upgrade
+ * path" arm, and it closes by itself as identity reaches a client, because the
+ * composition root stops reporting `single-account`.
+ *
+ * (This used to add: *Today that is every device, because there are no user
+ * identities at all — `/auth/status` is a shared-password gate.* That is no longer
+ * the server's shape: `auth-route.ts` resolves a login identifier to a member and
+ * verifies THAT member's own credential. The arm's OWN prediction has held — at
+ * PDM-421 no production composition root constructs `single-account` evidence, only
+ * tests do — so the correction is to the premise, not to the gate. Corrected by
+ * PDM-421.)
  *
  * THE VERDICT IS A UNION, NOT A BOOLEAN, and POD-376 asked for that specifically:
  * a gate that reports only "refused" cannot distinguish a working default from a

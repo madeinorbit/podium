@@ -165,10 +165,16 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // SINGLE-OPERATOR ARTEFACT: "unwrapped = the human" is an invariant the
-    // receiver's prime rules trust, and it rests on there being exactly ONE
-    // operator principal (one shared password, one capability that is admin over
-    // everything). POD-728 dissolves that class into named people and must
-    // decide what unwrapped means then.
+    // receiver's prime rules trust, and it rests on every human message coming
+    // from one undifferentiated `{ kind: 'operator' }` sender. POD-728 dissolves
+    // that class into named people and must decide what unwrapped means then.
+    //
+    // (The reason this used to give — "one shared password, one capability that
+    // is admin over everything" — is retracted. Per-member login has landed and
+    // `userCommandPrincipal` scopes an ordinary member to `owned`, so the
+    // instance can hold two humans already; what has NOT changed is that the
+    // message sender union still has a single `operator` arm, which is the real
+    // thing this case rests on. Corrected by PDM-421.)
     const body = 'raw \u001b[201~ bytes \u0007 kept'
     await h.svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body })
     expect(h.pushes.map((p) => p.text)).toEqual([body])

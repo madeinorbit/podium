@@ -368,26 +368,39 @@ export const owns = (
  * WHY EVERY CELL BELOW SAYS `roleFloor: 'member'`, INCLUDING THE MANAGE ONE.
  *
  * `roleFloor` is Amendment 1 D15's ACCOUNT GRADE — a floor on which commands a
- * principal may ATTEMPT, decided by what kind of account they hold. Podium has no
- * account grades: POD-1075 has not landed, there is one shared password, and
- * `client_sessions` has no user column. Declaring `admin` on any of the sixty-eight
- * would name a gate no transport can evaluate, and the enforcement point would then
- * either ignore it (a decoration) or invent an answer (a fabricated identity). ADR 9
- * D5 A1's live-evaluation rule cuts the same way: a floor that cannot be resolved at
- * apply time is not a floor.
+ * principal may ATTEMPT, decided by what kind of account they hold. `member` here
+ * means "every account may attempt these", and the decision is left to the gate
+ * below.
  *
- * The gate that DOES exist is `policy.action` against the caller's capability scope,
- * which is `IssueAction`'s viewer/worker/admin ladder — the operator holds scope
- * `all`, an agent holds `subtree`. That ladder is carried faithfully: `manage`
- * commands are operator-only today and stay operator-only, and that fact rides
- * `action`, which is where the shipped code already reads it.
+ * The gate that carries it is `policy.action` against the caller's capability
+ * scope, which is `IssueAction`'s viewer/worker/admin ladder — an ADMIN holds scope
+ * `all`, an ordinary member `owned`, an agent `subtree`. That ladder is carried
+ * faithfully, and that fact rides `action`, which is where the shipped
+ * `checkIssueAccess` already reads it.
+ *
+ * THE REASON THIS SECTION USED TO GIVE IS RETRACTED, AND IT LEAVES A DECISION
+ * OPEN. It read: *Podium has no account grades: POD-1075 has not landed, there is
+ * one shared password, and `client_sessions` has no user column. Declaring `admin`
+ * on any of the sixty-eight would name a gate no transport can evaluate* — with
+ * ADR 9 D5 A1 cited for "a floor that cannot be resolved at apply time is not a
+ * floor". Every clause of that is now false. POD-1075 landed the `users` table and
+ * roles; `auth-route.ts` resolves a login identifier to a member and verifies THAT
+ * member's own `user_credentials` row; `client_sessions` carries the member
+ * (`requestUserId` reads it back); and PDM-294 made the derived builder READ
+ * `contract.policy.roleFloor` and refuse, with `store/users.ts` supplying the
+ * account role — so a floor IS resolvable at apply time.
+ *
+ * PDM-421 corrected the reason and CHANGED NO FLOOR. Whether any of these cells —
+ * the `manage` one in particular — should now declare `admin` is a policy question
+ * about who may attempt what, and it wants deciding on its own merits rather than
+ * inheriting a default that was chosen because the gate did not exist.
  */
 const ROLE_FLOOR_RATIONALE =
-  'Role floor `member` throughout: POD-1075 has not landed, so there are no account grades to floor ' +
-  'against — one shared password, no user column on `client_sessions`. The gate that exists is ' +
-  '`action` against the caller’s capability scope (operator = `all`, agent = `subtree`), which is ' +
-  'where the shipped `checkIssueAccess` already reads it. An `admin` floor here would name a grade ' +
-  'no transport can authenticate.'
+  'Role floor `member` throughout: every account may ATTEMPT these cells, and the gate that decides ' +
+  'them is `action` against the caller’s capability scope (admin = `all`, member = `owned`, agent = ' +
+  '`subtree`), which is where the shipped `checkIssueAccess` already reads it. Whether any of them ' +
+  'should now floor at `admin` is an open policy question rather than a limit of the transport: ' +
+  'account grades ARE resolvable at apply time (PDM-294).'
 
 /**
  * READS ARE NEVER SUBTREE-GATED TODAY, and `resource: 'none'` is the faithful way to

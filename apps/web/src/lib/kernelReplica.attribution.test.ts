@@ -55,7 +55,12 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
     db = `attribution-${dbSeq}`
   })
 
-  it('ADOPTS under the shared-password grade — no identities exist, so the store is the operator’s', async () => {
+  // PDM-421 renamed this case from "ADOPTS under the shared-password grade — no
+  // identities exist, so the store is the operator’s". The evidence kind it drives
+  // is `single-account`, which is what the name now says; "shared-password" and
+  // "no identities exist" describe a server that no longer exists (`auth-route.ts`
+  // verifies the resolved member's own credential). No assertion changed.
+  it('ADOPTS under single-account evidence — one identity has ever used this device', async () => {
     const { assembly, degraded } = await open(
       { kind: 'single-account', principal: 'default' },
       db,

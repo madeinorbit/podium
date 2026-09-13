@@ -66,7 +66,9 @@ export const MUST_NOT_CHANGE = 'must-not-change'
 
 /** Issues that deliberately supersede a characterized behaviour. */
 export const SUPERSEDING_ISSUES = [
-  // Real user identity + per-user principal (one shared password today).
+  // Real user identity + per-user principal. (This said "one shared password
+  // today"; per-member login has landed — PDM-421. The tag stays because the
+  // characterized behaviours below still predate it.)
   'POD-1075',
   // Authorization over human-vs-human (agent-capability only today).
   'POD-1073',
@@ -142,9 +144,15 @@ export interface Oracle {
   ): Promise<Awaited<ReturnType<SessionRegistry['modules']['sessions']['listSessions']>>[number]>
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
-   * with the capability minted from the calling session's cwd. This is the ONLY
-   * authorization boundary the product has today: the tRPC surface above is
-   * unconditionally OPERATOR (one shared password ⇒ admin/all).
+   * with the capability minted from the calling session's cwd. This is the
+   * boundary the oracle's own cases exercise; the tRPC surface above is driven by
+   * ONE logged-in caller, which is a property of this harness rather than of the
+   * transport.
+   *
+   * (This said the tRPC surface is *unconditionally OPERATOR (one shared password
+   * => admin/all)*. It is not: `userCommandPrincipal` gives an admin `scope:
+   * 'all'` and an ordinary member `scope: { kind: 'owned' }`, over whichever
+   * member logged in. Corrected by PDM-421.)
    */
   relay(req: RelayRequest): Promise<RelayReply>
   dispose(): Promise<void>

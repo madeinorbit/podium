@@ -58,9 +58,14 @@ class Peer implements EdgePeer {
   }
 }
 
-/** The existing suite's server: today's shipped composition, one shared password
- *  and one principal. POD-376's scoping gate is a no-op here BY DESIGN, and the
- *  cases below prove it stays one. */
+/** The existing suite's server: today's shipped composition at the
+ *  `device-unscoped` grade. POD-376's scoping gate is a no-op at that grade BY
+ *  DESIGN, and the cases below prove it stays one.
+ *
+ *  (This said the composition is "one shared password and one principal". The
+ *  password half is false — `auth-route.ts` verifies the resolved member's own
+ *  credential — and the principal half was never what made the gate a no-op; the
+ *  GRADE is, and it is the parameter above. Corrected by PDM-421.) */
 const edge = (grade: FeedScopingGrade = 'device-unscoped') =>
   new WireFeedEdge({ diagnostics: () => [], visibilityGrade: () => grade })
 

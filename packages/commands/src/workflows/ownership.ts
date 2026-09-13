@@ -49,12 +49,20 @@
 export type WorkflowUserRef = string
 
 /**
- * The one human of a single-user instance, named rather than left as `null`.
+ * THE NAMED STAND-IN for a caller that arrived with no resolved human — not a
+ * claim that the instance has one person.
  *
- * `null` is A1's REVOCATION value and must keep meaning exactly that. Giving
- * the single-user present a real id is what lets `onBehalfOf === null` stay a
- * denial everywhere instead of being special-cased into "no accounts yet, so
- * allow" — the special case being, once more, the shape of the bug.
+ * `null` is A1's REVOCATION value and must keep meaning exactly that. Giving the
+ * unresolved case a real id is what lets `onBehalfOf === null` stay a denial
+ * everywhere instead of being special-cased into "no accounts yet, so allow" —
+ * the special case being, once more, the shape of the bug. That argument is why
+ * the constant survives per-member login unchanged.
+ *
+ * (This was headed *The one human of a single-user instance*. Accounts exist and
+ * `auth-route.ts` verifies the resolved member's own credential, so the shipped
+ * doors supply a real human and this value is reached only on the fallback
+ * branch — `workflowPrincipal` in the server's workflows handlers. Corrected by
+ * PDM-421, which changed no value and no call site.)
  */
 export const SINGLE_USER_HUMAN: WorkflowUserRef = 'user:single'
 

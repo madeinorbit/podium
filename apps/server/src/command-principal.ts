@@ -7,15 +7,30 @@
  * WHY THIS EXISTS NOW, BEFORE ACCOUNTS DO
  * ---------------------------------------------------------------------------
  *
- * POD-1075 has landed the `User` aggregate, the `users` table and the per-user
- * `client_sessions` column, so a person is now a real row. What has NOT changed
- * is the AUTHENTICATOR: `packages/runtime/src/auth-store.ts` is still one
- * password per instance, so every authenticated human still resolves to the SAME
- * person — the first admin. Per-user credentials and login are Phase 3
- * (POD-315), and until they land, `resolvePrincipal` returning one identity is
- * the honest answer rather than a placeholder.
+ * POD-1075 landed the `User` aggregate, the `users` table and the per-user
+ * `client_sessions` column, so a person is a real row. THE AUTHENTICATOR HAS
+ * SINCE FOLLOWED: `auth-route.ts` resolves a login identifier to a member and
+ * verifies THAT member's own `user_credentials` row before minting a session
+ * (`resolveLoginIdentifier` -> `credentialFor` -> `verifyPasswordHash`), the
+ * session row carries that member, and `requestUserId` reads it back. So
+ * `resolvePrincipal` returns the person who logged in, and
+ * `userCommandPrincipal` gives an admin `scope: 'all'` and an ordinary member
+ * `scope: { kind: 'owned' }`.
  *
- * That is precisely why the resolution has to be a PORT rather than a constant.
+ * THE REASON THIS SECTION USED TO GIVE IS RETRACTED. It said
+ * *`packages/runtime/src/auth-store.ts` is still one password per instance, so
+ * every authenticated human still resolves to the SAME person — the first
+ * admin*, and that per-user credentials were Phase 3 work not yet landed.
+ * POD-1554 removed `hasPassword`/`setPassword`/`clearPassword`/`verifyPassword`/
+ * `applyEnvPassword` from `auth-store.ts`, whose own header says so; what is left
+ * there is the KDF over one `user_credentials` row per account. The one place
+ * that still resolves to the earliest admin is OPEN MODE (`server.ts`'s
+ * `requestPrincipal`, local request with no credential required), which is a
+ * policy on a member rather than a property of the password. Corrected by
+ * PDM-421.
+ *
+ * The port shape is unaffected by that correction, and the original argument for
+ * it stands on its own terms.
  * ADR 3 Amendment 1's rejected-alternatives table says it directly: keeping
  * `OPERATOR` (role `admin`, scope `all`) as the tRPC principal and adding users
  * later means "every ownership check would be dead code on the one transport

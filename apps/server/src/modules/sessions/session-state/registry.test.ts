@@ -2,11 +2,19 @@ import { soleHumanSessionStatePrincipal } from '../../../test-support/session-st
 /**
  * MULTI-USER PROPERTIES of the session-state command envelope (POD-380).
  *
- * These are the assertions POD-379's oracle structurally CANNOT make. The oracle
- * drives the tRPC surface, and that surface has exactly one principal today (one
- * shared password ⇒ `OPERATOR`, and `client_sessions` has no user column — §3.2).
- * So the oracle can prove behaviour is preserved; it cannot prove two people do
- * not see each other's state, because it cannot produce a second person.
+ * These are the assertions POD-379's oracle does not make. The oracle drives the
+ * tRPC surface through a single logged-in caller, so it can prove behaviour is
+ * preserved; it does not exhibit two people, so it cannot show that they do not
+ * see each other's state.
+ *
+ * THE REASON THIS HEADER USED TO GIVE IS RETRACTED. It said the tRPC surface *has
+ * exactly one principal today (one shared password => `OPERATOR`, and
+ * `client_sessions` has no user column — §3.2)*. Both halves are false:
+ * `client_sessions` carries the member (`auth-route.ts` passes it to
+ * `createClientSession` and `requestUserId` reads it back), and the principal is
+ * that member with their own role. So a second person IS producible from that
+ * seam — which means a transport-level version of these properties is now
+ * WRITEABLE and is not written. Corrected by PDM-421.
  *
  * This file tests the ENFORCEMENT POINT directly — `SessionStateRegistry.execute` —
  * where a principal is an argument. That is not a workaround for a missing
