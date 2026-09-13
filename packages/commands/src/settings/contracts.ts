@@ -311,8 +311,17 @@ const SECRET_DELIVERY: DeliveryPolicy = {
     'obligation ADR 3 D8 / Amendment 1 D16 places on this family is the LIVE check at the moment of ' +
     'the write: the admin floor is resolved against the principal’s CURRENT rights, never a ' +
     'capability minted at spawn, and an agent’s scope is intersected with its human’s (ADR 9 D5 A1). ' +
-    'The caller is told which of the two refused it. Nothing enforces the floor today — that is ' +
-    'POD-1079’s, the same recorded gap `machines.pairingCode` carries.',
+    'The caller is told which of the two refused it. BOTH HALVES ARE NOW SHIPPED, and this note ' +
+    'used to end by denying the first: *“Nothing enforces the floor today — that is POD-1079’s, the ' +
+    'same recorded gap `machines.pairingCode` carries.”* The consumer is ' +
+    '`apps/server/src/modules/settings/authz.ts` (POD-421 3.7d), which `modules/settings/trpc.ts` ' +
+    'calls on every settings procedure; for an `admin` floor it delegates to the one shared ' +
+    '`adminFloorRefusal` decision (PDM-299). And the LIVE half holds for the reason this note gives ' +
+    'rather than by luck: `settingsAuthzDeps` resolves the principal per call and reads the role with ' +
+    '`users.roleOf(...)` at that moment, so the floor really is checked against current rights and ' +
+    'not a capability minted at spawn. The `machines.pairingCode` comparison went with the retracted ' +
+    'clause and is NOT re-asserted here — it is a claim about another family, unverified by PDM-421. ' +
+    'Corrected by PDM-421 under PDM-439.',
 }
 
 /**
@@ -616,7 +625,12 @@ export const settingsSetSecretContract = {
       '`classificationErrors`, and it carries NO `machineVerb`, exactly as `machines.pairingCode` ' +
       'does: there is no compute this places work on. `confirmation: "confirm"` because a replace is ' +
       'DESTRUCTIVE — `conflict: "cmd"`, online replace only, and the previous material is ' +
-      'unrecoverable the moment it is overwritten. Nothing enforces the floor today; POD-1079 owns it.',
+      'unrecoverable the moment it is overwritten. THE ADMIN FLOOR IS ENFORCED — this rationale used ' +
+      'to end *“Nothing enforces the floor today; POD-1079 owns it.”*, and ' +
+      '`apps/server/src/modules/settings/authz.ts` is the file that falsified it: its own header ' +
+      'quotes this sentence as the gap it was written to close (POD-421 3.7d). POD-1079 shipped the ' +
+      'FLEET gate and left this family declarative, which is why the sentence survived as long as it ' +
+      'did. Corrected by PDM-421 under PDM-439.',
   },
   exposure: SERVED_ON,
   delivery: SECRET_DELIVERY,
