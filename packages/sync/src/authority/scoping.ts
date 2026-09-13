@@ -37,8 +37,8 @@
  * ---------------------------------------------------------------------------
  *
  * D14.4's terminal path is taken when a visibility change is too large to
- * enumerate. It is produced HERE, from the size of the set the POLICY derived —
- * never from a field a caller set. A caller that could ask for a rescope on
+ * enumerate, or a removal's audience cannot be established by the live policy.
+ * It is derived HERE from those policy answers, never from a field a caller set. A caller that could ask for a rescope on
  * another principal's behalf would be an oracle for that principal's rights, and
  * the frame it produced would be indistinguishable from an honest one. So the
  * publisher has no `rescope` method to call: it applies the arm the derivation
@@ -191,7 +191,16 @@ export async function scopeBatch(
 
   for (const [index, change] of changes.entries()) {
     // 1. The ordinary path: is this row in this principal's slice right now?
-    if (scoped.policy.decide(principal, change).visible) visible.push(change)
+    if (scoped.policy.decide(principal, change).visible) {
+      visible.push(change)
+    } else if (change.op === 'remove') {
+      // A hard delete can erase the ownership fact the live policy needs. A
+      // watermark would leave an earlier, authorized copy in the replica. We
+      // cannot safely name that row to this principal, so replace its scoped
+      // world instead. This also covers catch-up after a process restart without
+      // retaining deleted payloads or trusting a process-local audience cache.
+      return { kind: 'rescope', throughSeq, reason: 'removal-visibility-unavailable' }
+    }
 
     // 2. D14.3: did this row MOVE anyone's visibility? Asked of the port that
     //    owns the tables, never inferred from the payload — a payload-shaped

@@ -1542,7 +1542,13 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
         await this.store.deps.store.issues.deleteIssue(id)
       },
-      changes: () => [{ entity: 'issue', id, op: 'remove' }],
+      // All replica halves leave in the same commit. A scoped removal may
+      // request a fresh bootstrap as soon as this commit publishes.
+      changes: () => [
+        { entity: 'issue', id, op: 'remove' },
+        { entity: 'issueProjection', id, op: 'remove' },
+        { entity: 'issueExecution', id, op: 'remove' },
+      ],
     })
     // THE INSTALL IS A TARGETED REMOVAL, NOT A WHOLE-MAP RE-READ [POD-3366].
     //
@@ -1583,8 +1589,8 @@ export class IssueCrudModule {
         ...(row.duplicateOf === id ? { duplicateOf: null } : {}),
       })
     }
-    // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
-    // the normalized feed as the remove reconcile derives from full truth.
+    // The purged issue's three halves were removed in the commit above. The
+    // full-list tail still reconciles cascade effects on other rows and edges.
     // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
     // whole tail now.
     //

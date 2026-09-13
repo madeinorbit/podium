@@ -592,3 +592,41 @@ describe('bootstrap — the installed world for ONE principal', () => {
     expect(world.changes.some((c) => c.op === 'evict')).toBe(false)
   })
 })
+
+
+describe('hard deletes whose ownership fact has disappeared', () => {
+  it('rescopes live and catch-up readers without revealing the deleted id', async () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('private'))
+    await authority.capture([upsert('private', { secret: 'owner-only' })])
+    const cursor = await authority.cursor()
+    expect((await authority.bootstrap(ADA)).changes.map((row) => row.entityId)).toContain('private')
+    const ada = collect(authority, ADA)
+    const stranger = collect(authority, GRACE)
+
+    tables.revoke('ada', ref('private'))
+    await authority.capture([{ entity: 'session', entityId: 'private', op: 'remove' }])
+
+    const expected = {
+      kind: 'rescope', throughSeq: cursor + 1, ids: [], ops: [],
+    }
+    expect(ada).toEqual([expected])
+    expect(stranger).toEqual([expected])
+    for (const principal of [ADA, GRACE]) {
+      expect(await authority.changesSince(cursor, principal)).toEqual({
+        kind: 'rescope', throughSeq: cursor + 1,
+        reason: 'removal-visibility-unavailable',
+      })
+      expect((await authority.bootstrap(principal)).changes).toEqual([])
+    }
+  })
+
+  it('still delivers an ordinary remove when the policy can authorize it', async () => {
+    const { authority, tables } = build()
+    tables.grant('ada', ref('private'))
+    await authority.capture([upsert('private', { title: 'visible' })])
+    const ada = collect(authority, ADA)
+    await authority.capture([{ entity: 'session', entityId: 'private', op: 'remove' }])
+    expect(ada).toEqual([{ kind: 'batch', throughSeq: 2, ids: ['private'], ops: ['remove'] }])
+  })
+})
