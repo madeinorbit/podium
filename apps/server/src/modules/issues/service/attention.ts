@@ -535,20 +535,46 @@ export class IssueAttentionModule {
       // "Read" is now a fact about a READER, so the sweep asks the broadcast
       // viewer (POD-1076). Behaviour is unchanged on a one-person instance.
       //
-      // "AUTO-ARCHIVED BECAUSE WHO READ IT?" IS ANSWERED, NOT OPEN (PDM-429):
-      // ONE named reader, deliberately, because `archived` is a SHARED column
-      // and a shared flag cannot take a per-viewer gate. An earlier note here
-      // called this an open question and assigned it to POD-1136. POD-1136 is
-      // CLOSED; it delivered the per-user read LOOKUP this line makes, and never
-      // the WHOSE-read decision, so the sentence had aged into a deferral to
-      // nobody. Do not reach for it as a blocker — check the tracker.
+      // "AUTO-ARCHIVED BECAUSE WHO READ IT?" IS TWO QUESTIONS, AND ONLY THE
+      // FIRST IS SETTLED (PDM-429, corrected after review).
       //
-      // THE DECIDING FACT IS A SIDE EFFECT, not a preference about sidebars.
-      // Archiving runs `onIssueArchived`, which releases the issue's WORKTREE
-      // FROM DISK and archives EVERY member's session. There is no coherent
-      // per-person value of "this checkout is deleted", so the flag is shared
-      // and so is its gate. The per-person "hide this from my list" already
-      // exists and is a different column: `tucked_at` on `issue_user_state`.
+      // SETTLED — `archived` IS SHARED, not per-user. Archiving runs
+      // `onIssueArchived`, which releases the issue's WORKTREE FROM DISK and
+      // archives EVERY member's session. There is no coherent per-person value
+      // of "this checkout is deleted", so the flag is shared, and a shared flag
+      // takes ONE principal rather than a quantifier over members. The
+      // per-person "hide this from my list" already exists and is a different
+      // column: `tucked_at` on `issue_user_state`.
+      //
+      // NOT SETTLED — WHETHER THE EARLIEST ADMINISTRATOR IS THE RIGHT PRINCIPAL.
+      // The paragraph above establishes that the gate is one reader. It says
+      // nothing about WHICH, and `broadcastViewer()` is an INSTANCE-level
+      // constant with no relationship to this issue: on one person it coincides
+      // with everyone, and with several members it is the wrong person for every
+      // issue somebody else owns.
+      //
+      // THE RECOMMENDATION, grounded in the ownership policy this schema already
+      // enforces rather than in taste: gate on `issues.owner_user_id` — the
+      // accountable human, NOT NULL on every row, and deliberately the only
+      // owner column (A2 dropped `assignee` precisely so "owner and assignee
+      // disagree" cannot be a state). Ownership is already the authorization
+      // primitive for issues (`mayReadOwned`), and `assignment_revision` exists
+      // so a change of accountable human is detectable. That is a per-ISSUE
+      // answer where the status quo is a per-INSTANCE one.
+      //
+      // WHAT THE RECOMMENDATION DOES NOT CLOSE, and none of it is implemented
+      // here: a DISABLED owner would gate forever, so the worktree is never
+      // freed — note `earliestAdmin()` filters `disabledAt` and an owner gate
+      // would have to decide that case; an owner CHANGE between the read and the
+      // sweep has no defined policy; and moving the gate moves
+      // `applyObservedAutoArchive`'s refusal below with it, which is a fenced
+      // command. PDM-452 carries the decision. This code still gates on the
+      // broadcast viewer and is unchanged.
+      //
+      // An earlier note here called the whose-read question POD-1136's. POD-1136
+      // is CLOSED; it delivered the per-user read LOOKUP this line makes and
+      // never the decision, so the sentence had aged into a deferral to nobody.
+      // Check the tracker, not the comment.
       const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(await this.store.broadcastViewer(), row.id))?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
@@ -593,14 +619,25 @@ export class IssueAttentionModule {
     // ask the same principal" a checked fact instead of two constants that
     // happen to match.
     //
-    // THIS REFUSAL IS PERMANENT (PDM-429). The line here used to end "when
-    // `archived` becomes per-user (POD-1077), this comparison becomes 'the
-    // principal whose flag you are setting'". Both halves were wrong. POD-1077
-    // is CLOSED — it shipped a scoped-feed kernel and never made overlay content
-    // per-principal — and `archived` is NOT becoming per-user, because archiving
-    // frees the worktree from disk and archives every member's session, which
-    // are shared effects with no per-person value. So this comparison does not
-    // become something else later: it is the invariant, and it stays.
+    // THE REFUSAL SURVIVES, THE CONSTANT MAY NOT (PDM-429, corrected after
+    // review). The line here used to end "when `archived` becomes per-user
+    // (POD-1077), this comparison becomes 'the principal whose flag you are
+    // setting'". POD-1077 is CLOSED — it shipped a scoped-feed kernel and never
+    // made overlay content per-principal — so that promise was to nobody, and
+    // `archived` is NOT becoming per-user: archiving frees the worktree and
+    // archives every member's session, which are shared effects.
+    //
+    // So the SHAPE of this check is not a deferral: a shared flag is gated by
+    // ONE principal, and a proposal naming anyone else must be refused rather
+    // than evaluated against the wrong person. That is what makes "the janitor
+    // and the server ask the same principal" checkable.
+    //
+    // WHAT IS NOT SETTLED is that the principal is `broadcastViewer()`. That is
+    // an instance-level constant unrelated to this issue; PDM-452 carries the
+    // choice, and the recommendation recorded beside `sweepAutoArchive` is
+    // `issues.owner_user_id`. IF THAT GATE MOVES, THIS COMPARISON MOVES WITH IT
+    // — both sides must name the same principal or the refusal stops meaning
+    // anything. Do not read this as an invariant about the earliest admin.
     if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
     const viewerReadAt = (await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id))?.readAt
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),

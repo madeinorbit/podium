@@ -37,7 +37,7 @@
 
 import { asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { sessionReadPorts } from '../../../test-support/session-facts'
@@ -52,6 +52,18 @@ let store: SessionStore
 /** The admin the migration chain mints — the viewer the mint used to consult. */
 let ada: UserId
 let svc: IssueService
+/** Every store this file opens, so each is closed once (see the `afterEach`).
+ *  A test that replaces `store` must push the new handle here BEFORE the
+ *  assignment, or the old one is unreachable and never closed. */
+const openedStores: SessionStore[] = []
+
+/** Open a store, register it for cleanup, and make it the current one. */
+async function openStore(): Promise<SessionStore> {
+  const opened = await openTestStore(':memory:')
+  openedStores.push(opened)
+  store = opened
+  return opened
+}
 
 async function build(): Promise<IssueService> {
   const deps: IssueDeps = {
@@ -77,8 +89,14 @@ async function build(): Promise<IssueService> {
   return await IssueService.create(deps)
 }
 
+afterEach(async () => {
+  // Splice, so a close that throws cannot leave the list holding handles a later
+  // test would try to close again.
+  for (const opened of openedStores.splice(0)) await opened.close()
+})
+
 beforeEach(async () => {
-  store = await openTestStore(':memory:')
+  await openStore()
   const earliest = await store.users.earliestAdmin()
   if (!earliest) throw new Error('fixture: the migrated store has no earliest admin')
   ada = asUserId(earliest.id)
@@ -161,15 +179,25 @@ describe('the mint scope does not consult per-user pins (PDM-429)', () => {
     expect((afterUnpin.sortKey ?? '') < (whilePinned.sortKey ?? '')).toBe(true)
   })
 
-  it('two members holding DIFFERENT pins mint the identical key', async () => {
-    // BOTH people, different non-default values at the SAME path
-    // (`issue_user_state.pinned_at`), in one store — the shape PDM-402's mark
-    // tests use, applied to the shared column instead of the per-user row.
+  it('a pin stored for a non-gating member does not move the mint point', async () => {
+    // WHAT THIS ESTABLISHES, and the title says only that much (PDM-453). Two
+    // people hold different non-default values at the SAME path
+    // (`issue_user_state.pinned_at`), and the key this service mints is
+    // independent of BOTH. That is independence from the stored pins the
+    // service can see — not two asking principals minting the same key.
+    //
+    // IT IS NOT A TWO-PRINCIPAL WITNESS, because BOTH creates below are issued
+    // through ONE service that resolves ONE viewer; Ben never asks for anything.
+    // An earlier title here said "two members ... mint the identical key", which
+    // claimed the thing the construction cannot reach. The real second-principal
+    // witness needs a consumer that can create AS Ben, which does not exist at
+    // this pin; when PDM-402 lands one, that witness belongs here beside this.
     //
     // Ada's pin goes through the service so the hydrated overlay sees it; Ben's
     // is written straight to the store because no service path can currently
-    // reach a non-broadcast member's row. See the header: BEN'S HALF OF THIS
-    // ASSERTION CANNOT FAIL TODAY and is a forward guard, not evidence.
+    // reach a non-broadcast member's row. Ben's leg therefore cannot fail today
+    // whatever the mint's scope is — it is a forward guard, not evidence for the
+    // repair. The evidence is Ada's discriminating witness above.
     const { oldest, top } = await threeRows()
 
     await svc.update(top.id, { pinned: true })
@@ -185,10 +213,14 @@ describe('the mint scope does not consult per-user pins (PDM-429)', () => {
     const withPins = await svc.create({ repoPath: '/r', title: 'with pins', startNow: false })
 
     // The control: the same three creates and the same fourth create, in a store
-    // where nobody has pinned anything. Same key, so no pin held by anybody
-    // moved the anchor. Without this leg the assertion above is just a string
-    // comparison against itself.
-    store = await openTestStore(':memory:')
+    // where nobody has pinned anything. Same key, so no stored pin moved the
+    // anchor. Without this leg the assertion above is just a string comparison
+    // against itself.
+    //
+    // `openStore` registers the new handle for cleanup BEFORE it replaces
+    // `store`, so the pinned store above is still closed by the `afterEach`
+    // rather than being dropped here (PDM-453).
+    await openStore()
     svc = await build()
     await threeRows()
     const noPins = await svc.create({ repoPath: '/r', title: 'with pins', startNow: false })

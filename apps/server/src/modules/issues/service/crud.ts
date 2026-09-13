@@ -764,20 +764,27 @@ export class IssueCrudModule {
       // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
       // which is what "the operator has seen it" meant when this was a column.
       //
-      // ONE READER, AND SETTLED RATHER THAN DEFERRED (PDM-429). `archived` is a
-      // SHARED column, so whatever gates it answers for everyone; the cascade
-      // therefore keeps ONE named gating reader instead of growing a quantifier
-      // over members. Both obvious generalisations fail, and they fail for
-      // reasons rather than by taste: gating on the CLOSING member hides a child
-      // from everyone because one person read it, and "skip if ANY member has it
-      // unread" degenerates the moment a second member exists, since absence of
-      // a row IS unread and most people have not touched most issues — the
-      // cascade would never archive anything again.
+      // ONE READER, AND WHICH ONE IS STILL OPEN (PDM-429, corrected after
+      // review). `archived` is a SHARED column, so whatever gates it answers for
+      // everyone, and the cascade therefore keeps ONE gating reader rather than
+      // growing a quantifier over members. THAT MUCH IS SETTLED. That the reader
+      // is the earliest administrator is NOT — see `sweepAutoArchive` in
+      // `attention.ts` for the recommendation (`issues.owner_user_id`) and for
+      // what it leaves open. PDM-452 carries it; this site is unchanged.
       //
-      // The same decision, its deciding side effect (archive frees the worktree
-      // and archives every member's session) and the rejected alternatives are
-      // written out once beside the auto-archive sweep in `attention.ts`; this
-      // is the second site that inherits it, not a second decision.
+      // WHY A QUANTIFIER IS NOT THE ANSWER, argued rather than measured and
+      // bounded as such. Gating on the CLOSING member hides a child from
+      // everyone because one person read it. "Skip if ANY member has it unread"
+      // requires a read row from every member, and absence of a row IS unread —
+      // so as membership grows the gate increasingly waits on people with no
+      // relationship to the issue, and nothing creates rows for them. I have NOT
+      // measured member counts or read-row density, so the mechanism is the
+      // claim; an earlier version of this comment said the cascade "would never
+      // archive anything again", which is stronger than anything I checked.
+      //
+      // The shared-versus-per-user reasoning and the rejected alternatives are
+      // written out once beside the auto-archive sweep; this is the second site
+      // that inherits the decision, not a second decision.
       if (this.store.issueOverlay(child.id).readAt == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
