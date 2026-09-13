@@ -559,27 +559,33 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     // is now `forbidden`, and this was the only assertion in the suite that
     // reddened.
     //
-    // THE ASSERTION WAS WRONG AGAINST ITS OWN PREMISE. The acceptance criterion
-    // is "with ONE ADMIN OWNING EVERYTHING, the full authz matrix reproduces
-    // today's behaviour", and a session owned by a second person is precisely the
-    // input that premise excludes. AT THE TIME A3 WAS WRITTEN the product said so
-    // in its own words — `modules/sessions/session-state/registry.ts`, *"Until
-    // POD-1075 there is no `owner` column, so today every existing session is
-    // owned by the instance's first admin"*. Owner and reader were the same person
-    // on a shipped instance, so A3 denied nothing an operator could reach. What
-    // the old line actually pinned was the ADMIN-TO-PRIVATE-RESOURCE BYPASS, as
-    // though it were a shipped capability worth preserving.
+    // THE ASSERTION WAS WRONG AGAINST ITS OWN PREMISE, AND THE PREMISE IS A
+    // FIXTURE. The acceptance criterion is "with ONE ADMIN OWNING EVERYTHING, the
+    // full authz matrix reproduces today's behaviour". A session owned by a SECOND
+    // person is precisely the input that fixture excludes, so asserting a read of
+    // it was asserting outside the criterion the test names. What the old line
+    // actually pinned was the ADMIN-TO-PRIVATE-RESOURCE BYPASS, as though it were
+    // a shipped capability worth preserving.
     //
-    // THE SECOND CITATION THAT USED TO STAND HERE IS GONE. This paragraph also
-    // quoted *this file's own header* as *"`auth-store.ts` is still one password
-    // per instance, so every authenticated caller resolves to
-    // `firstAdminMemberId()`"*. That header was replaced — see the top of this
-    // file — because the claim stopped being true when per-member credentials
-    // landed, so the quotation pointed at text that no longer exists. The
-    // reasoning above does not depend on it: it is an argument about what A3's
-    // acceptance criterion EXCLUDED when A3 was written, which the registry
-    // citation carries on its own. Corrected under the PDM-139 phase B review
-    // disposition.
+    // THAT IS THE WHOLE ARGUMENT, AND IT IS DELIBERATELY NOT MORE. It says
+    // nothing about what deployed instances or A3-era callers could reach, and it
+    // must not: A3's deferral was SEQUENCING — no production exposure before B —
+    // NOT the absence of a reachable defect. Adopted member authentication
+    // existed, and durable and issue owners were read.
+    //
+    // TWO CITATIONS THAT USED TO STAND HERE ARE GONE, and neither is replaced.
+    // This paragraph quoted *this file's own header* as *"`auth-store.ts` is still
+    // one password per instance, so every authenticated caller resolves to
+    // `firstAdminMemberId()`"*; that header was replaced — see the top of this
+    // file — so the quotation pointed at text that no longer exists. It also
+    // quoted `modules/sessions/session-state/registry.ts` (*"Until POD-1075 there
+    // is no `owner` column..."*) to argue that owner and reader were the same
+    // person on a shipped instance, and therefore that A3 denied nothing an
+    // operator could reach. THAT INFERENCE IS NOT MADE HERE EITHER. Phase A
+    // acceptance rejected it in the present tense, and moving it into the past
+    // tense would launder a rejected claim into an unproved historical one rather
+    // than retire it. Corrected under the PDM-139 phase B review disposition,
+    // which named this specific hazard.
     //
     // NOR DOES THIS CONCEDE THE EXPOSURE ORDER, which is the clause pointing the
     // other way (execution charter: *"through phases A and B ... the issue
