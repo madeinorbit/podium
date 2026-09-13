@@ -42,6 +42,7 @@ import type { MetadataChangeLenient } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { BootstrapSession } from './bootstrap'
 import { COLD_CURSOR } from './feed'
+import { issueViewModelsFromReplica } from './issue-view-models'
 import { createReplica, memoryStorage } from './replica'
 
 const ME = asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
@@ -144,5 +145,112 @@ describe('joining this reader’s marks over the broadcast', () => {
 
     expect(joined.userId).toBeUndefined()
     expect(Object.keys(joined).filter((k) => k === 'issueId')).toEqual([])
+  })
+})
+
+describe('the ORDER the view model applies the halves in', () => {
+  /**
+   * PDM-139 named this explicitly, and it is the one ordering bug this shape
+   * invites. `buildIssueViewModel` spreads the legacy `IssueWire` supplement —
+   * which carries the broadcast's neutral `pinned` / `tuckedAt` / `readAt` — and
+   * then takes `readAt` out of the result to drive `unread` and the row cursor.
+   *
+   * If the marks join were applied to anything OTHER than that supplement, or
+   * applied after `readAt` had already been read out of it, the reader's own
+   * mark would be computed away: the rollups below would describe neutral while
+   * the row rendered the mark, or the reverse. Both look like a lag rather than
+   * a bug.
+   */
+  it('joins marks INTO the legacy supplement, before readAt is taken from it', () => {
+    const neutralSupplement = {
+      id: ISSUE,
+      title: 'X',
+      updatedAt: '2026-06-29T00:00:00.000Z',
+      ...NEUTRAL_ISSUE_MARKS,
+    } as unknown as IssueWire
+
+    const joined = joinIssueMarks(neutralSupplement, myMarks())
+
+    // The value `readAt` is taken from downstream is the JOINED one…
+    expect(joined.readAt).toBe(AT)
+    // …and the rest of the supplement survives the join untouched, so nothing
+    // that rides the legacy row is lost to it.
+    expect((joined as unknown as IssueWire).title).toBe('X')
+    expect((joined as unknown as IssueWire).updatedAt).toBe('2026-06-29T00:00:00.000Z')
+  })
+
+  it('lets a LATER neutral broadcast lose to marks already held', () => {
+    // The re-join case: an issue row arriving after the marks carries neutral
+    // values, and joining it against the held marks must restore them rather
+    // than let the fresher row win on recency alone.
+    const laterNeutralEcho = {
+      id: ISSUE,
+      title: 'X renamed',
+      ...NEUTRAL_ISSUE_MARKS,
+    } as unknown as IssueWire
+
+    const joined = joinIssueMarks(laterNeutralEcho, myMarks())
+
+    expect(joined.title as unknown as string).toBe('X renamed') // the shared half IS fresher
+    expect(joined.readAt).toBe(AT) // the per-user half is still mine
+    expect(joined.pinned).toBe(true)
+  })
+})
+
+describe('the VIEW MODEL applies the join, not just the helper', () => {
+  /**
+   * WHY THIS BLOCK EXISTS, AND HOW IT WAS FOUND. Everything above calls
+   * `joinIssueMarks` directly. That proves the helper, and proves nothing about
+   * the call site — I established that by deleting the join from
+   * `buildIssueViewModel` and running the client suite: **101 tests passed**.
+   * The view-model join had no witness at all, which is the same false-green
+   * shape as an unregistered kind, one layer in.
+   *
+   * These drive `issueViewModelsFromReplica` over a real replica, so the marks
+   * have to travel the collection → builder → model path the app uses.
+   */
+  const projection = {
+    id: ISSUE,
+    seq: 1,
+    title: 'X',
+    description: { value: '' },
+    stage: 'in_progress',
+    updatedAt: '2026-06-29T00:00:00.000Z',
+    createdAt: '2026-06-29T00:00:00.000Z',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    intentOrigin: 'human',
+    audience: 'human',
+    isDraftVessel: false,
+  }
+
+  const seed = (marks: IssueMarksWire[]) => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [projection as never])
+    // The broadcast row, exactly as the server now sends it: neutral marks.
+    replica.applySnapshot('issues', [
+      { id: ISSUE, ...NEUTRAL_ISSUE_MARKS, updatedAt: '2026-06-29T00:00:00.000Z' } as never,
+    ])
+    replica.applySnapshot('issueMarks', marks as never[])
+    return replica
+  }
+
+  it('carries THIS reader’s readAt into the model, not the broadcast’s neutral', () => {
+    const model = issueViewModelsFromReplica(seed([myMarks()])).get(ISSUE)
+
+    expect(model).toBeDefined()
+    expect(model?.readAt).toBe(AT)
+    expect(model?.pinned).toBe(true)
+  })
+
+  it('leaves the model unmarked when this reader has no row', () => {
+    // The control: without it the case above is satisfied by a builder that had
+    // started reporting `readAt` from somewhere else entirely.
+    const model = issueViewModelsFromReplica(seed([])).get(ISSUE)
+
+    expect(model).toBeDefined()
+    expect(model?.readAt ?? null).toBeNull()
+    expect(model?.pinned).toBe(false)
   })
 })
