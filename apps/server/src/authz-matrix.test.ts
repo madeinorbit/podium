@@ -34,17 +34,57 @@
  * source reddens the matrix rather than quietly making it fictional.
  *
  * ---------------------------------------------------------------------------
+ * WHAT LEVEL THIS SUITE OPERATES AT — READ THIS BEFORE ANY LEG
+ * ---------------------------------------------------------------------------
+ *
+ * These are POLICY-LEVEL CAPABILITY TESTS. Every leg calls a decision function
+ * — `authorize`, `resolvePrincipal`, `checkIssueAccess`, `placementDecision`,
+ * `resolveAddress` — directly, on a capability VALUE. Nothing here issues an
+ * HTTP request, opens a tRPC call, writes a relay frame or drains a real outbox
+ * entry. A "transport"
+ * in the table below is therefore THE SHAPE OF THE CAPABILITY that transport
+ * mints, not the transport itself, and a green leg says "the policy layer
+ * decides this shape correctly" — never "the cli path is safe end to end".
+ *
+ * That is a level choice rather than a limitation. The decision lives in
+ * `packages/model/src/authz/issue-authz.ts`, and what is worth matrixing is the
+ * cross-product of capability shapes against target kinds, which no
+ * request-level test can vary cheaply. The corresponding blind spot is a
+ * transport that mints a shape OTHER than the one the table cites — which is
+ * precisely what `capability shapes match their minting sites` exists to catch,
+ * and why it pins against the production constants instead of restating them.
+ *
+ * ---------------------------------------------------------------------------
  * WHAT IS DELIBERATELY NOT ASSERTED HERE
  * ---------------------------------------------------------------------------
  *
- * Two humans. `auth-store.ts` is still one password per instance, so every
- * authenticated caller resolves to `firstAdminMemberId()` and the transports
- * cannot yet tell two people apart. The matrix therefore drives the POLICY layer
- * with the principals the transports WILL supply — which is the only way read
- * denial and the delegation ceiling can be tested before login lands, and
- * exactly the ordering ADR 3 Amendment 1's rejected-alternatives table demands
- * ("keeping OPERATOR and adding users later" leaves every ownership check dead
- * code until the flip). Where a property is bounded by that, it says so.
+ * WHAT STOOD HERE WAS STALE, AND IT WAS LOAD-BEARING (PDM-394). This paragraph
+ * said `auth-store.ts` was "still one password per instance", that "every
+ * authenticated caller resolves to `firstAdminMemberId()`", and that the
+ * transports "cannot yet tell two people apart" — and it spent those three
+ * claims justifying the scope substitutions below. All three are now false, so
+ * the justification is withdrawn rather than quietly inherited:
+ *
+ *  - POD-1554 deleted `hasPassword` / `setPassword` / `clearPassword` /
+ *    `verifyPassword` / `applyEnvPassword`, the functions that read and wrote
+ *    ONE hash per instance. A credential is now one row per account in
+ *    `user_credentials.password_hash`, and "is login required" is
+ *    `users.hasPerUserCredentials()` (`auth-route.ts`, `server.ts`).
+ *  - `server.ts#requestPrincipal` resolves the CREDENTIALED account: it reads
+ *    the cookie or bearer, loads that user's row, and mints
+ *    `userCommandPrincipal(thatUserId, account.role)`. Two authenticated people
+ *    get two different principals.
+ *  - `store.users.earliestAdmin()` survives as the OPEN-MODE fallback only — a
+ *    host-local request on an instance that requires no credentials. It is no
+ *    longer the answer for an authenticated caller, so it cannot stand in for
+ *    "the transports have one identity".
+ *
+ * What IS still deliberately not asserted is unchanged in substance and now has
+ * its true reason: no leg drives a real request, because this is the policy
+ * level (above). Where a leg overrides a shipped capability's `scope` it says so
+ * at the site, and the obligation that creates is that the override must not
+ * erase the dimension the leg claims to sweep — the defect PDM-394 fixed, and
+ * the reason the agent-scope legs assert their own scope before using it.
  */
 
 import { type Principal } from '@podium/protocol'
@@ -465,12 +505,19 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
 
 describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp and relay', () => {
   /**
-   * The transports cannot yet mint a person-scoped capability (one password,
-   * one account), so the matrix drives the policy layer with the capability each
-   * transport WILL supply once login lands: same role, scope narrowed from the
-   * ambient shape to the caller's own identity. That substitution is the only
-   * part of this describe that is not the shipped path, and it is named here
-   * rather than hidden in a helper.
+   * A PERSON-SCOPED CAPABILITY, CONSTRUCTED — and PDM-394 corrected the reason.
+   *
+   * This used to say the transports "cannot yet mint" one, "one password, one
+   * account", and that the real shape arrives "once login lands". That was true
+   * when it was written and is not now: `requestPrincipal` resolves the
+   * credentialed account, and credentials are per-account rows (file header).
+   *
+   * The substitution stands for a different reason. This is a policy-level
+   * suite: `authorize` takes a capability VALUE, and an `owned` scope IS the
+   * shape a person-scoped caller presents to it. What is named here rather than
+   * hidden in a helper is that the scope is NARROWED from the ambient shape — so
+   * a reader can see which dimension every leg below holds fixed, which is the
+   * thing that has to be checked before calling a parametrised sweep a sweep.
    */
   const personScoped = (transport: Transport, user: UserId): Capability => ({
     ...transport.capabilityFor(AGENT_OF_OWNER),
@@ -730,9 +777,9 @@ describe('D7 — a private session is owner-only on every transport, grant or no
    * `owned`-scope question. The parametrisation sweeps the transports and is
    * uniform in the one dimension they actually differ in.
    *
-   * The pair a session read is made of in production is (worker/`subtree`) x
-   * (`private` target), and until this leg no assertion in this file joined
-   * them. The SINGLE-USER PARITY test above does drive the SHIPPED agent
+   * The capability/target pair a real session read PRESENTS TO THE EVALUATOR is
+   * (worker/`subtree`) x (`private` target), and until this leg no assertion in
+   * this file joined them. The SINGLE-USER PARITY test above does drive the SHIPPED agent
    * capability, but against `someoneElsesSession`, which is the `owned` shape —
    * and B2/PDM-251 repointed both session producers (`session-state/registry.ts`,
    * `rename-target-path.ts`) onto `private`. So the file covered (real scope x
