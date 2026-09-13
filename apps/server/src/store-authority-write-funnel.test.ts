@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -48,27 +48,44 @@ import { describe, expect, it } from 'vitest'
  *
  * STILL OUTSIDE IT, and named rather than implied: hand-written SQL text (this
  * scans drizzle builder calls only, where the table is an argument at the call
- * site), and a statement assembled by a helper in another file. The alias case is
- * NOT outside it — a reference is judged by what it RESOLVES to, so
- * `import { users as usersTable }` is still the table.
+ * site), and a statement assembled by a helper in another file.
+ *
+ * THE ALIAS HANDLING IS SYNTACTIC IMPORT-NAME MAPPING, NOT SYMBOL RESOLUTION,
+ * and the distinction is the reviewer's. It reads this file's named imports and
+ * maps local name -> imported name, so `import { users as usersTable }` is
+ * recognised. It does NOT resolve symbols: a namespace import used as
+ * `schema.users` is matched on the property name alone, and a table reached
+ * through a re-export, a local rebinding or a value passed in as a parameter is
+ * not tracked at all.
  */
 
 /**
- * The scanned files, named REPO-RELATIVE and resolved from the repository root
- * on purpose, and this test lives in its OWN file for the same reason.
+ * The scanned files, named REPO-RELATIVE and resolved from the repository root.
  *
- * `scripts/server-test-shards.ts` derives each shard's Turbo `inputs` from the
- * import closure, and this test has no import edge to the files it reads. It
- * recognises a source-reading test by a repo-root path literal NEXT TO a
- * filesystem call (`scansRepositorySource`), and only then pins the file to the
- * broad `boundary` shard whose inputs span the trees it can see. Written as
- * `new URL('../store/users.ts', import.meta.url)` the literal is invisible to
- * that scan, the shard key does not cover the repositories, and a commit adding
- * a raw write replays as a CACHE HIT — a green from a lane that never ran. An
- * earlier revision of this instrument lived inside
- * `modules/machines/service.test.ts` and had exactly that defect. Keep the
- * literals, and keep this file separate so pinning it to `boundary` does not
- * drag a services-shard file along with it.
+ * WHY THIS FILE IS SEPARATE: `scripts/server-test-shards.ts` recognises a
+ * source-reading test by a repo-root path literal next to a filesystem call
+ * (`scansRepositorySource`) and PINS IT to the broad `boundary` shard.
+ * Recognition is per FILE, so leaving this scanner inside
+ * `modules/machines/service.test.ts` would have re-pinned sixty behavioural
+ * tests out of `services` along with it. That is the whole reason for the split.
+ *
+ * A CORRECTION, KEPT HERE BECAUSE THE CLAIM WAS PUBLISHED AND WAS WRONG. An
+ * earlier revision of this header said the previous relative-URL spelling left
+ * these three repositories out of the lane's cache key, so a commit adding a raw
+ * write would replay as a CACHE HIT. THAT IS FALSE, and the phase B reviewer
+ * caught it. `apps/server/turbo.json` was parsed at four pins — the epic tip
+ * before this instrument existed, and all three of its revisions — and
+ * `src/store/{users,machines,grants}.ts` are explicit inputs to BOTH
+ * `test:services` and `test:boundary` at every one of them. They arrive through
+ * the IMPORT CLOSURE, which reaches the store from the server code these lanes
+ * already import; the path literals never carried them. The regeneration's only
+ * turbo diff is this test file's own entry.
+ *
+ * The mistake was checking the inputs AFTER regenerating, seeing the three files
+ * present, and crediting the change — a post-hoc attribution with no control,
+ * where one `git show <old-sha>:apps/server/turbo.json` would have falsified it.
+ * Whether a missed source-reading classification matters for other walked files
+ * is a separate question and is NOT asserted here.
  */
 const REPOSITORIES: { path: string; table: string; columns: readonly string[] }[] = [
   // `disabledAt` and `role` are the only authority-relevant columns on `users`
@@ -196,20 +213,65 @@ const classifyPayload = (node: ts.Expression | undefined, columns: readonly stri
   return names.some((name) => columns.includes(name)) ? 'relevant' : 'irrelevant'
 }
 
-/** The `set:` initializer of an `onConflictDoUpdate({ … })` argument. */
+/**
+ * The `set:` initializer of an `onConflictDoUpdate({ … })` argument — after
+ * adjudicating the WHOLE options object, not just the first `set` it meets.
+ *
+ * `{ set: { avatar }, ...patch }` is the shape that beat the previous version:
+ * it returned the literal `{ avatar }`, which classifies IRRELEVANT, while the
+ * spread can replace `set` entirely with an authority-changing payload. A
+ * computed key can do the same, and a duplicate `set` later in the literal
+ * simply wins at runtime. None of those may be read as "the payload is
+ * `{ avatar }`".
+ *
+ * `undefined` means UNRESOLVED — the caller reports it rather than skipping it.
+ */
 const conflictSetPayload = (call: ts.CallExpression): ts.Expression | undefined => {
   const argument = call.arguments[0]
   if (!argument || !ts.isObjectLiteralExpression(argument)) return undefined
+  let resolved: ts.Expression | undefined
   for (const property of argument.properties) {
-    if (
-      ts.isPropertyAssignment(property) &&
-      ts.isIdentifier(property.name) &&
-      property.name.text === 'set'
-    ) {
-      return property.initializer
+    // Anything that can introduce or replace `set` without naming it here.
+    if (ts.isSpreadAssignment(property)) return undefined
+    if (property.name && ts.isComputedPropertyName(property.name)) return undefined
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) {
+      return undefined
+    }
+    if (property.name && ts.isIdentifier(property.name) && property.name.text === 'set') {
+      // A later duplicate wins at runtime, so keep overwriting rather than
+      // returning the first.
+      resolved = ts.isPropertyAssignment(property) ? property.initializer : undefined
+      if (resolved === undefined) return undefined
     }
   }
-  return undefined
+  return resolved
+}
+
+/**
+ * Does this source write `table` through a drizzle builder AT ALL — funnelled or
+ * not, authority-relevant or not?
+ *
+ * A DIFFERENT QUESTION from {@link authorityWritesOutsideTheFunnel}, and keeping
+ * them apart is the reviewer's correction: the population claim ("these three
+ * files are the only writers") cannot be answered by a function that filters to
+ * raw authority writes, because every funnelled or irrelevant write elsewhere
+ * would vanish and the assertion would pass for the wrong reason.
+ */
+const anyBuilderWrite = (source: string, table: string, fileName: string): boolean => {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
+  const aliases = importAliases(sf)
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (found) return
+    ts.forEachChild(node, visit)
+    if (!ts.isCallExpression(node)) return
+    const callee = node.expression
+    if (!ts.isPropertyAccessExpression(callee) || !BUILDER_WRITES.has(callee.name.text)) return
+    const first = node.arguments[0]
+    if (first && namesTable(first, table, aliases)) found = true
+  }
+  visit(sf)
+  return found
 }
 
 /**
@@ -409,7 +471,7 @@ describe('the authority-write funnel scanner', () => {
       .toHaveLength(0)
   })
 
-  it('judges the table by what the reference RESOLVES to, not by its spelling', () => {
+  it('maps an import alias syntactically (NOT symbol resolution — see the header)', () => {
     expect
       .soft(
         scan(
@@ -423,6 +485,66 @@ describe('the authority-write funnel scanner', () => {
     // CLEAN CONTROL: a different table that merely looks similar is not it.
     expect
       .soft(scan('    await this.db.update(userCredentials).set({ disabledAt }).run()'))
+      .toHaveLength(0)
+  })
+
+  it('adjudicates the WHOLE onConflictDoUpdate options object, not its first set', () => {
+    // THE SHAPE THAT BEAT THE PREVIOUS VERSION. It returned the literal
+    // `{ avatar }` and classified it irrelevant, while the spread can replace
+    // `set` outright with an authority-changing payload.
+    const spreadOuter = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, ...patch }).run()',
+    )
+    expect.soft(spreadOuter).toHaveLength(1)
+    expect.soft(spreadOuter[0]?.verdict).toBe('unresolved')
+
+    // A COMPUTED KEY in the OUTER object can introduce `set` without naming it.
+    const computedOuter = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ [key]: { disabledAt } }).run()',
+    )
+    expect.soft(computedOuter).toHaveLength(1)
+    expect.soft(computedOuter[0]?.verdict).toBe('unresolved')
+
+    // The OPTIONS OBJECT ITSELF passed as an identifier is equally unreadable.
+    const identifierOuter = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate(options).run()',
+    )
+    expect.soft(identifierOuter).toHaveLength(1)
+    expect.soft(identifierOuter[0]?.verdict).toBe('unresolved')
+
+    // A DUPLICATE `set` later in the literal wins at runtime, so the last one is
+    // what must be read -- here an authority payload hiding behind a harmless one.
+    expect
+      .soft(
+        scan(
+          '    await this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, set: { disabledAt } }).run()',
+        ),
+      )
+      .toHaveLength(1)
+
+    // CLEAN CONTROLS. A fully readable options object naming no authority column
+    // stays silent...
+    expect
+      .soft(
+        scan(
+          '    await this.db.insert(users).values(v).onConflictDoUpdate({ target: users.id, set: { avatar } }).run()',
+        ),
+      )
+      .toHaveLength(0)
+    // ...and one that does name an authority column is still caught as RAW, not
+    // merely unresolved, so the new conservatism has not collapsed the two.
+    const readableAuthority = scan(
+      '    await this.db.insert(users).values(v).onConflictDoUpdate({ target: users.id, set: { disabledAt } }).run()',
+    )
+    expect.soft(readableAuthority).toHaveLength(1)
+    expect.soft(readableAuthority[0]?.verdict).toBe('raw')
+    // ...and a genuinely funnelled one, spread and all, stays silent.
+    expect
+      .soft(
+        scan(
+          "    await this.committed.write(async () => this.db.insert(users).values(v).onConflictDoUpdate({ set: { avatar }, ...patch }).returning().all(), 'upsert')",
+        ),
+      )
       .toHaveLength(0)
   })
 
@@ -443,6 +565,51 @@ describe('the authority-write funnel scanner', () => {
   })
 })
 
+/**
+ * Every file under `roots` that a `visit` callback marks, walked once.
+ *
+ * ONLY AN ABSENT ROOT MAY CONTRIBUTE NOTHING. The previous version wrapped the
+ * WHOLE walk in a `catch {}` "for a tree absent from this checkout", which also
+ * swallowed every read, stat and parse failure inside trees that DO exist — so a
+ * permission error or an unreadable file would have quietly shrunk the
+ * population and left the assertion green. Absence is checked explicitly, up
+ * front; everything else propagates.
+ */
+const walkRepositorySources = (
+  roots: readonly string[],
+  visit: (relativePath: string, source: string) => void,
+): void => {
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue
+      const full = join(dir, entry)
+      if (statSync(full).isDirectory()) {
+        walk(full)
+        continue
+      }
+      if (!full.endsWith('.ts') || full.endsWith('.test.ts')) continue
+      visit(full.slice(REPOSITORY_ROOT.length).replace(/^\/+/, ''), readFileSync(full, 'utf8'))
+    }
+  }
+  for (const root of roots) {
+    const path = join(REPOSITORY_ROOT, root)
+    if (!existsSync(path)) continue
+    walk(path)
+  }
+}
+
+/** Every file containing ANY drizzle builder write to one of the three tables,
+ *  funnelled or not, authority-relevant or not. */
+const builderWriteFiles = (): string[] => {
+  const files = new Set<string>()
+  walkRepositorySources(SEARCH_ROOTS, (relativePath, source) => {
+    for (const { table } of REPOSITORIES) {
+      if (anyBuilderWrite(source, table, relativePath)) files.add(relativePath)
+    }
+  })
+  return [...files].sort()
+}
+
 describe('the three authority repositories', () => {
   it('contain no raw or unresolved authority write', () => {
     const findings = REPOSITORIES.flatMap(({ path, table, columns }) =>
@@ -456,41 +623,43 @@ describe('the three authority repositories', () => {
     expect(findings).toEqual([])
   })
 
-  it('are the only builder writers of those tables in the repository', () => {
-    // THE POPULATION, DERIVED RATHER THAN ASSERTED. It was a grep in a receipt
-    // until the reviewer pointed out the test did not establish it.
-    //
-    // This file is pinned to the `boundary` shard precisely because it reads
-    // trees no import closure can see; that is what keeps this check's inputs in
-    // the lane's cache key instead of letting it replay green.
-    const writers = new Set<string>()
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir)) {
-        if (entry === 'node_modules' || entry === '.git' || entry === 'dist') continue
-        const full = join(dir, entry)
-        if (statSync(full).isDirectory()) {
-          walk(full)
-          continue
-        }
-        if (!full.endsWith('.ts') || full.endsWith('.test.ts')) continue
-        const relative = full.slice(REPOSITORY_ROOT.length).replace(/^\/+/, '')
-        for (const { table, columns } of REPOSITORIES) {
-          if (
-            authorityWritesOutsideTheFunnel(readFileSync(full, 'utf8'), table, columns, relative)
-              .length > 0
-          ) {
-            writers.add(relative)
-          }
-        }
+  it('are the only files in the repository that write those tables at all', () => {
+    // THE POPULATION PROPERTY, STATED AS WHAT IT ACTUALLY IS. The previous
+    // version called itself this and asked a DIFFERENT question: it ran
+    // `authorityWritesOutsideTheFunnel` over the tree and asserted the result was
+    // empty. That finds only RAW or UNRESOLVED authority writes, so a funnelled
+    // write in a fourth file -- or an authority-IRRELEVANT one -- vanished, and
+    // the test could not have established the claim its name made. It needs an
+    // enumeration that ignores both the funnel and the column list, which is
+    // what `anyBuilderWrite` is.
+    expect(builderWriteFiles()).toEqual(REPOSITORIES.map(({ path }) => path).sort())
+  })
+
+  it('and nothing anywhere in the repository writes them raw or unreadably', () => {
+    // The repo-wide version of the first test, named for what it checks rather
+    // than for the population claim it cannot make.
+    const findings: Finding[] = []
+    walkRepositorySources(SEARCH_ROOTS, (relativePath, source) => {
+      for (const { table, columns } of REPOSITORIES) {
+        findings.push(...authorityWritesOutsideTheFunnel(source, table, columns, relativePath))
       }
-    }
-    for (const root of SEARCH_ROOTS) {
-      try {
-        walk(join(REPOSITORY_ROOT, root))
-      } catch {
-        // A tree absent from this checkout contributes nothing.
-      }
-    }
-    expect([...writers].sort()).toEqual([])
+    })
+    expect(findings).toEqual([])
+  })
+
+  it('the walk skips an ABSENT root and FAILS on an unexpected traversal error', () => {
+    // THE NEGATIVE CONTROL for the swallowed-error defect. An absent root is the
+    // only tolerated case; anything else must be visible. A path that exists but
+    // is a FILE makes readdirSync throw, which is the cheapest stand-in for the
+    // permission and I/O failures the old `catch {}` hid.
+    let visited = 0
+    expect(() =>
+      walkRepositorySources(['no-such-tree-at-all'], () => {
+        visited += 1
+      }),
+    ).not.toThrow()
+    expect(visited).toBe(0)
+
+    expect(() => walkRepositorySources([REPOSITORIES[0]?.path ?? ''], () => {})).toThrow()
   })
 })
