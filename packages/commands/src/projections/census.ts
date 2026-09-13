@@ -49,8 +49,8 @@
  * WHY THERE ARE TWO LISTS AND NOT ONE
  * ---------------------------------------------------------------------------
  *
- * A census reports what it found. For 65 of the 76 there is a rule in the
- * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 11
+ * A census reports what it found. For 71 of the 76 there is a rule in the
+ * shipped code and {@link PROJECTION_POLICIES} writes it down. For the other 5
  * there is NO server-side reader scoping — the handler returns what the service
  * returns — and inventing a plausible policy for those would put a FALSE entry
  * in the audit surface, which `modules/approvals/queries.ts` correctly
@@ -86,6 +86,29 @@
  * a mixed list of fourteen where the urgent ones could wait behind the tidy
  * ones; it is six disclosures, and `docs/gates/pdm-253-phase-b-read-rows.md`
  * gives each one an owner.
+ *
+ * ---------------------------------------------------------------------------
+ * AND THAT PARAGRAPH IS NOW HISTORY, WHICH IS WHY IT IS STILL HERE (C/PDM-254)
+ * ---------------------------------------------------------------------------
+ *
+ * All six of those disclosures were closed during phase B — `sessions.status`
+ * (PDM-229), `accounts.list` (PDM-271/PDM-280), `conversations.search`
+ * (PDM-274), and the three `files.*` reads (PDM-272). There is no phase-B row
+ * and no `discloses-private-execution` row left; `projection-census.test.ts`
+ * asserts the second of those as `toEqual([])` and would fail if one returned.
+ *
+ * PDM-254 then re-derived phase C's rows against the shipped handlers and all
+ * three survived the same way `conversations.search` did — they were governed
+ * already. `sync.changesSince`, `sync.feedChangesSince` and `sync.feedSlice`
+ * were listed for a fallback to a synthesised feed principal that POD-1208 had
+ * deleted a MONTH before A3.2 wrote the row down. They are governed entries
+ * below and the ungoverned list is five, all phase F's.
+ *
+ * EVERY NUMBER IN THIS HEADER IS PROSE AND NOTHING CHECKS IT. The test checks
+ * that the two lists are total against the router, that no read is in both, and
+ * that each policy is well formed — never that a count written here matches the
+ * array beneath it. The 65/11 this paragraph replaced was wrong in both
+ * directions and had been since PDM-253 moved eight rows. Count the arrays.
  *
  * So they go in {@link UNGOVERNED_PROJECTIONS}, each naming the phase that owns
  * closing it. That list is REQUIRED TO BE NON-EMPTY by the census test until it
@@ -929,6 +952,41 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
     rationale:
       "`visibleMachinesFor` is an authorization projection: `canSeeMachine` filters the rows and `machineUseDecision` attaches each machine's `use` answer, so a machine the principal may not execute on is never OFFERED and one it may not see is simply absent. A3.2 listed it as ungoverned because its rule lives in a `router.ts` procedure rather than in a table this census can read — but the ungoverned list means A READ WITH NO SERVER-SIDE READER SCOPING, and this read has one. The rule is recorded HERE, which is the home it was missing; that its procedure is still the one hand-written read in `router.ts` is a structural note for B2, not a gap in reader scoping. TWO TRANSPORTS, AND THIS ROW SAID ONE — corrected here by the same check POD-3900 forced onto `sessions.status`. `RELAY_ALLOWED.machines` carries `list` and `relay-dispatch.ts:220` serves it, so an agent reaches this read over the relay as well. THE GATES AGREE, and that is verified rather than assumed: the relay arm calls the SAME `visibleMachinesFor(modules(), capability)` the router calls, inheriting the projection rather than restating it, and its own comment says so. Recording it anyway is the point — a row naming one transport makes the other one's gate unaskable, which is exactly how `sessions.status` hid a divergent relay gate behind a correct tRPC one.",
   }),
+
+  // ---- sync: the metadata feed, scoped by the Authority and not by the handler -
+  p({
+    name: 'sync.changesSince',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'shared-task',
+    resource: 'issue',
+    indirectResources: ['session', 'repo'],
+    forbiddenFields: [],
+    rationale:
+      'THE FINDING THIS ROW CARRIED DESCRIBED CODE THAT HAD ALREADY BEEN DELETED. A3.2 recorded “falls back to a synthesised feed principal when `feedPrincipal` is absent”. That fallback was `s.publicationAuthority`, and POD-1208 (`d235f6c7919589a6101db7b2f7c8bfe26fbb253e`, 2026-08-10, an ancestor of this tree) replaced it with `s.feedPrincipal ?? (() => { throw })()` a month before the row was written — which is why re-reading the HANDLER rather than the finding is what settled this. FOUR GATES, EACH NAMED SO THE NEXT READER CHECKS RATHER THAN TRUSTS. (1) `/trpc/*` sits behind `clientAuthGuard`, and its one bypass, `isHostSetupBootstrap`, is fenced to host-local requests for the nine names in `BOOTSTRAP_PROCEDURES` (`apps/server/src/readiness-boundary.ts`) — no `sync.*` is among them, so the `earliestAdmin()` bootstrap principal in `server.ts`\'s tRPC context cannot serve this read. (2) That context resolves the principal from the cookie or the authorization header and throws when there is none. The one widening left is OPEN MODE (`requestPrincipal`): a host-local request on an instance with no per-user credentials configured acts as the earliest admin — and in that state there is exactly one account to be, so it discloses nobody to nobody. (3) `derived-family.ts` mints `feedPrincipal` only from a `user` or an `agent` principal; a `system` principal gets none and this handler throws. An agent gets `NoDelegationsGranted`, an EMPTY scope, so a /trpc agent sees nothing. (4) THE ROWS ARE DECIDED ONE AT A TIME. `Authority.changesSince` scopes the range through `policy.decide(principal, row)` and the snapshot arm goes through `scopeBootstrap`, and the shipped composition root installs `GrantEdgeVisibilityPolicy` (`apps/server/src/relay.ts`), whose DECLARED grade is `per-principal` — not the `DeviceGradeUnscopedPolicy` that `Ledger` falls back to when no policy is passed. `apps/server/src/feed-visibility.ts`\'s `classOf` covers all thirteen `MetadataEntityKind`s with none falling through to `unclassified`: `repo` is substrate, `userLayout` and `userReadPosition` are `per-user-state` decided by the user in the row key, and the other ten are `personal` decided by owner-or-grant. THE ONE ARM THAT RETURNS TRUE UNCONDITIONALLY is `mayRead`\'s `userId === \'device:shared-instance-password\'`, reachable only by `DEVICE_GRADE_PRINCIPAL`, which this transport cannot mint: `CLIENT_PRINCIPAL_GRADE` is `\'user\'` since POD-1554 gave every account its own password hash, whatever twelve other files\' comments still say about it. `shared-task` AND NOT `caller-only`, because a grant edge admits a second person; this read is bounded by exactly the feed predicate C4 (PDM-144) replaces, so the row DESCRIBES that predicate and licenses nothing wider. WHAT THIS ROW DOES NOT SAY, and PDM-254 filed it as a C4 precondition rather than leaving it implied: the scoping is row ADMISSION ONLY. `scopeBootstrap` pushes the whole row and nothing on this path narrows a FIELD, so the empty `forbiddenFields` is a statement about today\'s owner-or-grant predicate and not about the wider one C4 installs — under which an admitted `session` row still carries its whole `SessionMeta`, `cwd` included. WHAT WITNESSES THIS ROW, PROVED BY DELIBERATE BREAK RATHER THAN ASSERTED, because `projection-census.test.ts` can check that this entry is well formed and never that it is TRUE: deleting `scopeBootstrap`\'s `policy.decide(principal, row).visible` filter reddens `packages/sync/src/authority/authority.scoped.test.ts > suppresses a row the principal may not see`; making `feed-visibility.ts`\'s `mayRead` return true reddens `apps/server/src/automation-removal-scoping.test.ts > does not deliver another user\u2019s removal \u2014 the fix widens delivery, not visibility`; and swapping this composition root to `DeviceGradeUnscopedPolicy` raises a new `unscoped-policy-sites` finding in `bun run audit:scoped-feed`. AND WHAT DOES NOT, written down rather than left for the green to imply: the HANDLER\'s own refusal when `feedPrincipal` is absent is unwitnessed \u2014 `authenticated feed principal required` is asserted in exactly one test file and that is the PERF family\'s copy of the same guard, not this one\'s. Nor does anything witness the three `= DEVICE_GRADE_PRINCIPAL` DEFAULT PARAMETERS on the path (`SessionLifecycle.syncChangesSince`, `WriteFunnel.changesSince`, `WriteFunnel.snapshot`): every shipped caller passes a principal, so all three defaults are dead today, but each names the \u201ceveryone\u201d principal as its fallback and a future caller that omitted the argument would get an instance-wide read and no error.',
+  }),
+  p({
+    name: 'sync.feedChangesSince',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'shared-task',
+    resource: 'issue',
+    indirectResources: ['session', 'repo'],
+    forbiddenFields: [],
+    rationale:
+      'The wire v2 sibling, on the same four gates as `sync.changesSince` and through the SAME `authority.changesSince(from, principal)` call — `WriteFunnel.feedChangesSince` says so in its own comment: there is no second filter here, so a row suppressed on the live path is suppressed here identically. It adds one REFUSAL of its own and no widening: a cursor whose `(feedId, epoch)` does not match this feed answers `bootstrap-required` before the range is read, so a cursor minted against another feed cannot be used to address rows in this one.',
+  }),
+  p({
+    name: 'sync.feedSlice',
+    exposure: TRPC,
+    roleFloor: 'member',
+    rowScope: 'shared-task',
+    resource: 'issue',
+    indirectResources: ['session', 'repo'],
+    forbiddenFields: [],
+    rationale:
+      'THE AUTHORITY\'S OWN VIEW OF THIS PRINCIPAL\'S SLICE (POD-376), and the narrowest of the three in both directions. It is `AuthorityPort.bootstrap` for the SAME principal through the SAME policy object — the same four gates as `sync.changesSince` — reduced to `(entity, entityId)` keys, so it carries no payloads at all. A principal that may not see a row does not receive its KEY here either, which is the property that makes it usable as the shadow comparison\'s basis rather than a second opinion about visibility.',
+  }),
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -953,25 +1011,6 @@ export interface UngovernedProjection {
 }
 
 export const UNGOVERNED_PROJECTIONS: readonly UngovernedProjection[] = [
-  {
-    name: 'sync.changesSince',
-    owner: 'C',
-    severity: 'unclassified',
-    finding:
-      "Falls back to a synthesised feed principal when `feedPrincipal` is absent. The fallback is the seam C4 (PDM-144) replaces when it swaps the owner-or-grant task read predicate; classifying it now would either freeze today's predicate in a second place or pre-empt C4's decision.",
-  },
-  {
-    name: 'sync.feedChangesSince',
-    owner: 'C',
-    severity: 'unclassified',
-    finding: 'As `sync.changesSince` — same principal fallback, same C4 dependency.',
-  },
-  {
-    name: 'sync.feedSlice',
-    owner: 'C',
-    severity: 'unclassified',
-    finding: 'As `sync.changesSince` — same principal fallback, same C4 dependency.',
-  },
   {
     name: 'cloud.capabilities',
     owner: 'F',
