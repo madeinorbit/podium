@@ -133,14 +133,9 @@ it('normalizes an omitted colliding native harness prefix', async () => {
  * this file's `managed:anthropic` row red: it selects a managed slot and
  * connects nothing, so the spawn is refused before the account id it exists to
  * check is ever stored. The refusal is correct — the repair is to connect the
- * credential, not to soften what the case asserts.
- *
- * SEEDED FOR THE OWNER THIS SPAWN WILL RESOLVE. `createSession` below passes
- * neither `ownerUserId` nor a binding, so `create()`'s last-term fallback
- * resolves the instance's first admin; the same file's neighbour
- * `spawn-account-env.test.ts` seeds the same way and for the same reason
- * (PDM-276 owns closing that fallback). Seeding under any other id would refuse
- * again, for a reason unrelated to what this case is about.
+ * credential, not to soften what the case asserts. The two sibling `native:`
+ * rows are green either way: `resolveAccountEnv` returns `{}` for a non-managed
+ * id and never reaches the lookup.
  */
 const MANAGED_ANTHROPIC = {
   id: asAccountId('managed:anthropic'),
@@ -157,12 +152,18 @@ it.each([
   'native:claude-code',
   'managed:anthropic',
 ])('preserves the explicit account %s exactly', async (accountId) => {
+  // ONE owner value, used three times: the credential is connected for this
+  // person, the session is started for this person, and the row is asserted to
+  // belong to this person. PDM-276 made the owner explicit here; seeding under
+  // the same expression rather than re-deriving it from the store is what makes
+  // "the credential follows the session's owner" true by construction in this
+  // fixture instead of by two lookups agreeing.
+  const owner = firstAdminMemberId()
   const store = await storeWithClaudeDefaults()
-  const owner = await firstAdminMemberId(store)
   if (accountId.startsWith('managed:')) await store.accounts.upsert(owner, MANAGED_ANTHROPIC)
   const { registry, daemon } = await makeRegistry(store)
   const { sessionId } = await registry.modules.sessions.createSession({
-    ownerUserId: firstAdminMemberId(),
+    ownerUserId: owner,
     agentKind: 'opencode',
     cwd: '/proj',
     accountId: asAccountId(accountId),
@@ -174,12 +175,12 @@ it.each([
   // PIN THE PROPERTY THE SEED ABOVE RELIES ON (false-green catalogue #19): the
   // credential was connected for `owner`, so this case only stays green while
   // the session created here is owned by that same person. If `create()` ever
-  // resolves a different owner, this line says so by name instead of the
-  // managed row quietly reverting to a refusal that looks like a stale fixture.
-  // It is a tripwire, not the witness: that the credential follows the SESSION'S
-  // owner rather than the first admin is proved next door in
-  // `spawn-account-env.test.ts`, where a stranger is refused the admin's key and
-  // spawns on their own.
+  // stores a different owner than the one it was given, this line says so by
+  // name instead of the managed row quietly reverting to a refusal that looks
+  // like a stale fixture. It is a tripwire, not the witness: that the credential
+  // follows the SESSION'S owner rather than the first admin is proved next door
+  // in `spawn-account-env.test.ts`, where a stranger is refused the admin's key
+  // and spawns on their own.
   expect(session?.ownerUserId).toBe(owner)
 })
 
