@@ -50,6 +50,11 @@
  * decoration. Checking one direction would have left the other free to rot, and
  * before PDM-416 neither was checked at all.
  *
+ * WHAT THE MCP HALF OF PDM-416 DID *NOT* COVER, since this file is cited as its
+ * evidence: nothing here speaks to `mcp`. That tag is checked by
+ * `scripts/audit-issue-commands.ts`, and only for the ISSUE family's CLI/MCP table —
+ * the `mail.*` family and the superagent tool belt are outside it (PDM-422).
+ *
  * WHAT THIS CANNOT SEE, said out loud: the eleven kinds in {@link UNGUARDED}. They
  * are presence-class `CommandDef`s, whose `CommandTransport` union does not even
  * CONTAIN `'outbox'` — the mismatch is not merely undeclared there, it is
@@ -136,6 +141,14 @@ const lookup = (name: string): CommandContract | undefined => {
  * The list is asserted EXACTLY, so a presence command gaining a full contract
  * reddens this test and the row moves under the guard instead of staying
  * quietly unchecked.
+ *
+ * BOUND ON THAT CLAIM, because it was stated too strongly once already. It holds
+ * for a contract reachable from `@podium/commands`' module namespace, which is what
+ * `byName` now walks — NOT for one defined somewhere this package cannot import. A
+ * queued kind whose contract lives outside that namespace resolves to `undefined`
+ * here and lands in this list, looking like a presence command; the list is asserted
+ * exactly, so it cannot arrive UNNOTICED, but it will be misdescribed as presence
+ * class rather than as unreachable. Reviewer's correction (PDM-139), kept.
  */
 const UNGUARDED = [
   'dismissOffer',

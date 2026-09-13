@@ -358,6 +358,26 @@ export function exposureMismatch(
       })
       continue
     }
+    // AN EXPOSURE CELL THIS FILE CANNOT PARSE IS UNRESOLVED, NOT "NO CLI/MCP".
+    // `exposureOf` returns an IDENTIFIER, and asking `cliMcp.has(identifier)`
+    // directly answers false for two very different situations: a cell that really
+    // does not name cli/mcp, and a cell that was never parsed at all (declared in
+    // another file, or spelled in a way the cell regex does not match). Collapsing
+    // them fails CLOSED in one direction — a reached proc still gets reported as
+    // undeclared — and OPEN in the other: a contract nothing reaches would drop out
+    // of the `declared` set silently and its decayed declaration would never be
+    // named. So an unknown cell is its own finding, exactly like an absent one.
+    if (!cellTags.has(exposure)) {
+      findings.push({
+        check: 'exposure-matches-reach',
+        where: CONTRACTS,
+        detail:
+          `\`issues.${block.name}\` (${constName}) cites exposure cell \`${exposure}\`, which is ` +
+          'not among the cells this audit parsed — it is UNRESOLVED, and treating it as ' +
+          '"declares no cli/mcp" would drop a real declaration out of this comparison silently',
+      })
+      continue
+    }
     if (cliMcp.has(exposure)) declared.add(block.name)
   }
   const reached = new Set(
@@ -508,7 +528,13 @@ function probe(): Finding[] {
     ),
   )
 
-  const CELLS_OK = "export const SERVED_EVERYWHERE: readonly TransportTag[] = ['trpc', 'relay', 'cli', 'mcp']"
+  // Both cells the contract fixtures cite. Since an UNPARSED cell is now its own
+  // finding, a fixture that cites a cell it does not define is not a clean fixture —
+  // the probe harness caught exactly that and it was the fixture that was wrong.
+  const CELLS_OK = [
+    "export const SERVED_EVERYWHERE: readonly TransportTag[] = ['trpc', 'relay', 'cli', 'mcp']",
+    "export const SERVED_ON_WIRE: readonly TransportTag[] = ['trpc', 'relay']",
+  ].join('\n')
   const contractsFixture = [
     'export const shownContract = {',
     "  name: 'issues.shown',",
@@ -587,6 +613,25 @@ function probe(): Finding[] {
   expect(
     'exposure-matches-reach/unreached-via-spread-cell',
     exposureMismatch(queuedFixture, QUEUED_CELLS, 'client.issues.other.query()\n'),
+  )
+
+  // An exposure cell the audit never parsed must be UNRESOLVED, not silently read as
+  // "declares no cli/mcp". Note the cells source here IS valid (it has a cli/mcp
+  // cell), so this exercises the per-contract arm rather than the early return above.
+  expect(
+    'exposure-matches-reach/unknown-cell',
+    exposureMismatch(
+      [
+        contractsFixture,
+        '',
+        'export const elsewhereContract = {',
+        "  name: 'issues.elsewhere',",
+        '  exposure: A_CELL_DEFINED_IN_ANOTHER_FILE,',
+        '} as const',
+      ].join('\n'),
+      CELLS_OK,
+      'client.issues.shown.query()\n',
+    ),
   )
 
   // An exposure that can be resolved from NEITHER a field nor a spread is a finding,
