@@ -6445,17 +6445,28 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
   })
 
   it('on ONE shared session each holder gets only their OWN row, through delete and restore', async () => {
-    // THE LEG THE TWO-OWNER CASE ABOVE CANNOT REACH [PDM-450, second round]. The
-    // reviewer's objection: there, the stranger is refused a marks row on a
-    // session THEY CANNOT SEE AT ALL, so `maySeeSession` alone explains the
-    // refusal and `keyedUserOf`'s user-match is never exercised. That case would
-    // stay green with the per-user key deleted outright.
+    // THE LEG THE TWO-OWNER CASE ABOVE CANNOT REACH [PDM-450, second round].
     //
-    // Here the owner and a read-GRANTEE both pass `maySeeSession` for the SAME
-    // session, so both marks rows are session-visible to both principals and the
-    // per-user key is the only thing that can separate them. That is the whole
-    // point of this case, and it is why the grant has to be on the same session
-    // rather than a second one.
+    // MEASURED, AND IT CORRECTS MY FIRST EXPLANATION OF IT. I first wrote that
+    // the two-owner case was weak because the stranger is refused a row on a
+    // session they cannot see, so `maySeeSession` explained the refusal. THAT IS
+    // WRONG, and wrong in a way worth leaving here: `sessionMarks` is
+    // `per-user-state`, the kernel routes it BY KEY ALONE, and the `maySeeSession`
+    // call inside the arm is evaluated with the ROW'S user — never the asking
+    // one. It cannot refuse a stranger anything.
+    //
+    // The actual weakness is a CONFOUND. In a two-owner fixture, key-ship and
+    // session-ownership COINCIDE: the person a marks row is keyed to is also the
+    // only person who owns its session. So the fixture cannot tell "keyed to the
+    // row's own user" apart from "keyed to the session's owner" — two different
+    // rules that agree on every row it contains. PLANT O (return the SESSION'S
+    // owner) leaves that case GREEN and reddens this one, which is the
+    // demonstration rather than the argument.
+    //
+    // Here a read-GRANTEE holds a row on the OWNER'S session, so key-ship and
+    // session-ownership come apart: both rows are session-visible to both
+    // principals, and only the key can decide. That is why the grant has to be on
+    // the same session rather than a second one.
     //
     // BROKEN IN BOTH DIRECTIONS, because one plant cannot prove a join. PLANT N
     // (classOf 'sessionMarks' → 'personal') empties every list — it reddens the
