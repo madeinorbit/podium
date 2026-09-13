@@ -368,11 +368,21 @@ describe('a cached replica APPLIES the retraction, and keeps the other mark', ()
    * that publishes a perfect tombstone and a client that never applies it look
    * identical from the server side.
    *
-   * So this holds TWO marks on TWO issues in a real replica, applies the
-   * eviction the feed delivers for one of them, and requires that ONLY that one
-   * disappears. Both preconditions are asserted first: a witness that never
-   * established the marks were held would be satisfied by a replica that showed
-   * nothing from the start.
+   * So this holds TWO marks on TWO issues, evicts one, and requires that ONLY
+   * that one disappears from the published snapshot. Both preconditions are
+   * asserted first: a witness that never established the marks were held would
+   * be satisfied by a replica that showed nothing from the start.
+   *
+   * WHAT IT PROVES, PRECISELY, AND WHAT IT DOES NOT (PDM-139). It drops the rows
+   * from the cache ITSELF and then announces the event, so it establishes that
+   * the BINDING re-derives and republishes correctly over an evicted row. It
+   * does NOT establish that a DELIVERED eviction causes that cache mutation — a
+   * replica that ignored every incoming eviction would pass this file, because
+   * the end state is manufactured here rather than produced by the code.
+   *
+   * That half is `replica/issue-marks-eviction.test.ts`, which drives the real
+   * `Replica` over a real store: the rows arrive through the real bootstrap, the
+   * eviction arrives as an ordinary delta frame, and nothing is deleted by hand.
    */
   const ME = 'mem_me'
   const marksRow = (issueId: string, readAt: string) => ({

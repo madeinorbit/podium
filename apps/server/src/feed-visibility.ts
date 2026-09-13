@@ -451,6 +451,27 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // see the `issueMarks` arm of {@link visibilityEdge} below, where an
           // eviction is derived from the row's own audience rather than smuggled
           // through the read gate.
+          // THE ISSUE MUST STILL EXIST, and this condition is marks-specific on
+          // purpose (PDM-139). `mayReadIssueFromSnapshot` checks asked-for, then
+          // OWNER, then GRANTS — and never that the issue is still there. A
+          // purge deletes the issue row and NOT its grants, so a previously
+          // admitted grantee stays admitted by a surviving edge and would keep
+          // being SERVED stale marks naming an issue nobody can open. The owner
+          // is refused only because their branch reads a row that is gone, which
+          // is an accident of which check fails first rather than a property of
+          // the gate.
+          //
+          // NOT fixed inside the shared helper: its other four consumers —
+          // `issue`/`issueProjection`, `issueDep`, `issueEvent`, `shipOrder` —
+          // ask it about issues they have their own reasons to reach, and
+          // tightening it for all of them is a change to four arms nobody
+          // reviewed. The condition lives here, where the requirement is.
+          //
+          // This is ORDINARY DISCLOSURE and it fails closed. The retraction of a
+          // row already held is the anchor's job — see the `issueMarks` arm of
+          // `visibilityEdge` — and that path is unaffected by this line, which
+          // is the whole point of their being separate.
+          if (prefetch.issues.get(marks.issueId) === undefined) return null
           if (!mayReadIssueFromSnapshot(marks.userId, marks.issueId, prefetch)) return null
           return marks.userId
         }

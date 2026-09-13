@@ -449,3 +449,61 @@ describe('a stale mark on a deleted issue is never SERVED', () => {
     expect(upserts).toEqual([])
   })
 })
+
+describe('the GRANTEE path, whose grant outlives the purge', () => {
+  /**
+   * PDM-139's point, and it is the hole my own grantee-RETRACTION comment
+   * documented without my connecting it. `mayReadIssueFromSnapshot` checks
+   * asked-for, then owner, then GRANTS — and never that the issue exists. A
+   * purge deletes the issue row and not its grants, so a previously-admitted
+   * grantee is STILL admitted by a surviving edge.
+   *
+   * The owner is refused for a missing issue only because the owner check reads
+   * a row that is gone. That is an accident of which branch fails, not a
+   * property of the gate — so the two missing-issue negatives above, which use
+   * the owner, could not see this at all.
+   *
+   * The grant is deliberately RETAINED here. Revoking it would refuse the row
+   * for the ordinary reason and prove nothing about the missing issue.
+   */
+  it('refuses a stale UPSERT for a gone issue even to a surviving grantee', async () => {
+    const { authority, grant, publishMarks, purge } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    // Precondition: served while the issue existed, so the refusal below is the
+    // deletion rather than a gate that never admitted them.
+    expect(await bootstrapMarks(authority, reader)).toEqual([issueMarksRowId(reader, SHARED)])
+
+    await purge([])
+    const before = await authority.cursor()
+    await publishMarks(reader, 'T-orphan')
+
+    const delivery = await authority.changesSince(before, humanPrincipal(reader))
+    expect(delivery?.kind).toBe('batch')
+    if (delivery?.kind !== 'batch') return
+    expect(delivery.changes.filter((c) => c.entity === 'issueMarks' && c.op === 'upsert')).toEqual(
+      [],
+    )
+  })
+
+  it('refuses a fresh BOOTSTRAP row for a gone issue even to a surviving grantee', async () => {
+    const { authority, grant, publishMarks, purge } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+    expect(await bootstrapMarks(authority, reader)).toEqual([issueMarksRowId(reader, SHARED)])
+
+    await purge([])
+
+    expect(await bootstrapMarks(authority, reader)).toEqual([])
+  })
+
+  it('still serves a grantee their marks while the issue is READABLE', async () => {
+    // The positive that stops the two refusals above being satisfied by a gate
+    // that simply stopped admitting grantees.
+    const { authority, grant, publishMarks } = await build()
+    await grant(reader)
+    await publishMarks(reader, 'T-reader')
+
+    expect(await bootstrapMarks(authority, reader)).toEqual([issueMarksRowId(reader, SHARED)])
+  })
+})
