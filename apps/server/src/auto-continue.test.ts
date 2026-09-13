@@ -17,18 +17,26 @@ const working = (): AgentRuntimeState => ({
 
 function harness(initial: { live?: boolean; state?: AgentRuntimeState; enabled?: boolean } = {}) {
   const sessionId = asSessionId('s1')
+  // `isEnabled` takes the session since PDM-295 — the switch is the OWNER's, and
+  // the session is what names them. This harness drives one session, so it
+  // records the id it was asked about rather than ignoring the argument.
+  const asked: string[] = []
   const sent: string[] = []
   let live = initial.live ?? true
   let state = initial.state
   let enabled = initial.enabled ?? true
   const deps: AutoContinueDeps = {
-    isEnabled: async () => enabled,
+    isEnabled: async (id) => {
+      asked.push(id)
+      return enabled
+    },
     sendContinue: (id) => sent.push(id),
     getSession: (id) => (id === sessionId ? { live, state } : undefined),
   }
   return {
     c: new AutoContinueController(deps),
     sent,
+    asked,
     sessionId,
     setState: (s: AgentRuntimeState | undefined) => {
       state = s
@@ -104,7 +112,7 @@ describe('AutoContinueController', () => {
     const h = harness({ state: errored() })
     await h.c.onStateChange(h.sessionId, errored())
     expect(h.c.isActive(h.sessionId)).toBe(true)
-    await h.c.onSettingsChanged(false, [])
+    await h.c.onSettingsChanged(false, [h.sessionId])
     expect(h.c.isActive(h.sessionId)).toBe(false)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(h.sent.length).toBe(1)

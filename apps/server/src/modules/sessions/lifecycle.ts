@@ -803,9 +803,6 @@ export class SessionLifecycle {
   private async spawn(input: Parameters<SessionStart['spawn']>[0]): Promise<SessionSpawnResult> {
     return await this.sessionStart.spawn(input)
   }
-  settingsViewer(...args: any[]): any {
-    return (this.sessionAuthz as any).settingsViewer(...args)
-  }
   onClientAttached(
     principal: ClientPrincipal,
     client: ClientConn,

@@ -7,7 +7,7 @@
 
 import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, UserId } from '@podium/model'
-import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import {
   type CommandPrincipal,
   resolvePrincipalAsync,
@@ -424,20 +424,28 @@ export class SessionAuthz {
    * rule; selecting a different harness must not inherit that harness's model or effort
    * [spec:SP-7ff1].
    */
-  /**
-   * WHOSE PREFERENCES A SESSION-SPAWNING READ USES (POD-1213).
-   *
-   * `roles.*` and `autoContinue.*` are `preferences-personal` and live on
-   * `user_preferences` now, so a read of the instance blob would see the model's
-   * defaults rather than anyone's choices. `firstAdminMemberId()` is spelled out
-   * here for the reason `IssueService.broadcastViewer` spells it out: this
-   * build's transport authenticates one shared password, so the sole account is
-   * the only true answer — and POD-315 replaces this body with the requesting
-   * principal, with every caller already asking the question.
-   */
-  async settingsViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.ports.store))
-  }
+  // `settingsViewer()` LIVED HERE AND IS GONE (PDM-295).
+  //
+  // It returned `firstAdminMemberId(store)` for every caller, so `roles.*` and
+  // `autoContinue.*` — both `preferences-personal` — resolved to whoever
+  // enrolled first rather than to the person starting the session. The comment
+  // above it named POD-315 as the replacement "with every caller already asking
+  // the question"; POD-315 closed without touching it, which made this an
+  // ORPHAN rather than a deferral and made the comment actively misleading:
+  // readers took the port for ready and keyed new work on it.
+  //
+  // Its justification is not repeated anywhere, deliberately. "This build's
+  // transport authenticates one shared password, so the sole account is the only
+  // true answer" is the single-user premise phase A's reviewer rejected in
+  // writing — adopted member authentication exists, and a stale comment is not
+  // evidence of one human.
+  //
+  // THE REPAIR WAS A TYPE, NOT A NEW BODY, following PDM-291's read-path shape.
+  // There is no port to re-point: `SessionLaunchConfig.modelDefaults` takes the
+  // viewer as a REQUIRED parameter, so a caller with no human to name fails to
+  // compile rather than resolving to an operator identity. POD-315's premise
+  // turned out to be true — every caller did already have the human — it had
+  // simply never been collected.
 
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
   /**

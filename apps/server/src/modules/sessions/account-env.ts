@@ -17,12 +17,12 @@
  * exceed that ceiling in the one dimension the ceiling cannot express, because
  * spend and rate limit are not authorization.
  *
- * DO NOT SOURCE THIS FROM `settingsViewer()`. That port looks like the answer
- * and is not: its one implementation returns `firstAdminMemberId()`, and the
- * comment beside it promises a replacement that shipped without happening
- * (PDM-295). Keying here on it would resolve the earliest admin's credential for
- * every spawn on the instance — the defect this file exists to close, wearing a
- * new name.
+ * THERE IS NO LONGER A `settingsViewer()` TO SOURCE IT FROM (PDM-295). That port
+ * returned `firstAdminMemberId()` for every caller while a comment beside it
+ * promised a replacement that had already shipped without happening; keying here
+ * on it would have resolved the earliest admin's credential for every spawn on
+ * the instance. It is deleted, and the preference read that used it — WHICH SLOT
+ * this role runs on — now names the same `owner` this lookup does.
  *
  * ---------------------------------------------------------------------------
  * A MANAGED SLOT WITH NO ROW FOR THIS OWNER REFUSES, AND DOES NOT SUBSTITUTE
@@ -67,12 +67,13 @@ export async function resolveAccountEnv(
 /**
  * The refusal, naming the person and the provider.
  *
- * It says CONNECT A KEY rather than "choose a different account", and that is
- * deliberate: until PDM-295 lands, the SLOT comes from the first admin's
- * settings while the credential comes from this owner's rows, so a member can be
- * refused on a slot they never chose and cannot change from their own settings.
- * Sending them to the account selector would send them somewhere that cannot
- * help them.
+ * It says CONNECT A KEY rather than "choose a different account", and since
+ * PDM-295 that is simply the right advice: the slot is the one THIS owner chose,
+ * so the person reading the refusal can act on it — either by connecting the key
+ * or by changing the slot in their own settings. Before PDM-295 the slot came
+ * from the first admin's settings while the credential came from this owner's
+ * rows, so a member could be refused on a slot they never picked and could not
+ * change; the wording was chosen for that case and holds for this one.
  */
 function missingCredentialMessage(owner: UserId, accountId: AccountId): string {
   const provider = accountId.slice(MANAGED.length)

@@ -25,16 +25,20 @@
  * credential. Injecting one would put it a single `env` away from being streamed
  * to the browser and written into persisted scrollback.
  *
- * WHOSE PREFERENCES ARE READ is deliberately NOT decided here. The viewer
- * arrives through the `settingsViewer` port because that question belongs to the
- * service that knows the calling principal. POD-315 was supposed to replace that
- * port's body with the requesting principal and closed without doing it, so it
- * still answers `firstAdminMemberId()` — PDM-295. This module needs no change
- * when that is fixed.
+ * WHOSE PREFERENCES ARE READ is a REQUIRED PARAMETER (PDM-295), not a port.
  *
- * WHOSE CREDENTIAL IS INJECTED is a different question with a different answer,
- * and `accountEnv` takes it as a parameter rather than reading the port. See
- * there.
+ * It used to arrive through a `settingsViewer()` port whose single implementation
+ * returned `firstAdminMemberId()`, so every spawn on the instance ran on the
+ * earliest admin's model, effort and account slot. Making the viewer a parameter
+ * is the repair PDM-291 used for the read path: a TYPE rather than a flag, so a
+ * caller with no human to name does not compile instead of resolving to one.
+ *
+ * WHOSE CREDENTIAL IS INJECTED is a different question, and `accountEnv` takes it
+ * as `owner`. It is now answered by the SAME person as the slot — which is what
+ * closes the split PDM-280 §7.4 recorded, where a member could be refused on a
+ * slot somebody else had chosen and that they could not change from their own
+ * settings. The two remain separate parameters because they are separate
+ * questions: preference versus ownership. They simply no longer disagree.
  */
 
 import type { AccountId, AgentKind, UserId } from '@podium/model'
@@ -45,8 +49,6 @@ import { resolveAccountEnv } from './account-env'
 
 export interface LaunchConfigPorts {
   store: Pick<SessionStore, 'settings' | 'accounts'>
-  /** Whose preferences a spawning read uses. Not this module's decision. */
-  settingsViewer(): UserId | Promise<UserId>
 }
 
 export interface LaunchModelDefaults {
@@ -59,13 +61,18 @@ export interface LaunchModelDefaults {
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
+  /**
+   * `viewer` IS THE HUMAN WHOSE PREFERENCES THESE ARE, and it is required
+   * (PDM-295). Both callers hold one: `spawn()` takes `ownerUserId` as a
+   * required parameter since B1, and `create()` resolves its owner before it
+   * asks this question.
+   */
   async modelDefaults(
     agentKind: AgentKind,
+    viewer: UserId,
     override?: { model?: string; effort?: string },
   ): Promise<LaunchModelDefaults> {
-    const settings = await this.ports.store.settings.getSettingsFor(
-      await this.ports.settingsViewer(),
-    )
+    const settings = await this.ports.store.settings.getSettingsFor(viewer)
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
     const explicitModel = override?.model
@@ -102,18 +109,19 @@ export class SessionLaunchConfig {
    * Native accounts yield {} — the CLI uses its own login and the frame is
    * unchanged.
    *
-   * `owner` IS THE SESSION'S OWNER AND ARRIVES FROM THE CALLER (PDM-280), which
-   * is a different question from `settingsViewer()` and must not be folded into
-   * it. The two answer different things and, until PDM-295, different people:
+   * `owner` IS THE SESSION'S OWNER AND ARRIVES FROM THE CALLER (PDM-280). It now
+   * answers BOTH halves, which is the PDM-295 repair:
    *
-   *  - WHICH SLOT this role runs on is a PREFERENCE, read through
-   *    `settingsViewer()` — today the earliest admin's for everyone.
-   *  - WHOSE CREDENTIAL fills that slot is OWNERSHIP, and belongs to the human
-   *    the session belongs to.
+   *  - WHICH SLOT this role runs on is a PREFERENCE, and it is read for `owner`.
+   *  - WHOSE CREDENTIAL fills that slot is OWNERSHIP, also `owner`.
    *
-   * So a member can be refused on a slot chosen by somebody else. That is a real
-   * consequence rather than an oversight, it is the PDM-295 orphan's to remove,
-   * and the refusal message says "connect a key" for exactly that reason.
+   * They are still two questions and the code still spells them separately; what
+   * changed is that the first one stopped being answered by the earliest admin.
+   * Before PDM-295 the slot came from `settingsViewer()` and the credential from
+   * this owner's rows, so a member could be refused on a slot they never chose
+   * and could not change from their own settings (PDM-280 §7.4). A person who
+   * picks a managed slot and connects its key now spawns; one who picks a slot
+   * and connects nothing is still refused, by name, and never borrows.
    *
    * A `shell` still gets nothing and is checked BEFORE the credential lookup:
    * refusing to open a terminal because a provider key is missing would be
@@ -129,10 +137,7 @@ export class SessionLaunchConfig {
     // an omitted account still performs this live settings read for every call.
     const selectedAccountId =
       accountId ??
-      resolveRole(
-        await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-        'coding',
-      ).accountId
+      resolveRole(await this.ports.store.settings.getSettingsFor(owner), 'coding').accountId
     if (agentKind === 'shell') return {}
     return await resolveAccountEnv(this.ports.store.accounts, owner, selectedAccountId)
   }

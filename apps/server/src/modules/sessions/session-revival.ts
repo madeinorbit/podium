@@ -456,7 +456,10 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...(await this.ports.launchConfig.modelDefaults(session.agentKind)),
+      // A revived session re-reads the defaults LIVE (that is the point of this
+      // path) but as ITS OWN owner, not the earliest admin — the same person the
+      // credential below resolves for (PDM-295).
+      ...(await this.ports.launchConfig.modelDefaults(session.agentKind, session.ownerUserId)),
       // A revived session keeps its OWN owner's credential: the row is durable
       // (B1), so a session that comes back after a restart bills the same human
       // it billed before rather than whoever the server resolves by default

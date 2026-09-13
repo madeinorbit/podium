@@ -35,10 +35,19 @@ import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
  * WHAT THIS MODULE DOES NOT DECIDE
  * ---------------------------------------------------------------------------
  *
- * WHOSE preferences a spawning read uses. `settingsViewer` arrives as a port and
- * stays owned by `SessionLifecycle`, which has five callers for it. It resolves
- * to `firstAdminMemberId()` today and POD-315 replaces that with the requesting
- * principal; this module needs no change when it does.
+ * ---------------------------------------------------------------------------
+ * WHAT THIS MODULE DOES DECIDE, AND DID NOT USED TO
+ * ---------------------------------------------------------------------------
+ *
+ * WHOSE preferences a spawning read uses. This arrived as a `settingsViewer`
+ * port whose only implementation answered `firstAdminMemberId()`, beside a
+ * comment promising that POD-315 would replace it with the requesting principal.
+ * POD-315 CLOSED WITHOUT DOING SO, so that was an orphan rather than a deferral
+ * and every spawn read the earliest admin's `roles.*`. PDM-295 removed the port:
+ * the viewer is now a required parameter on `SessionLaunchConfig`, supplied here
+ * from the human this module has ALREADY resolved. Both paths have one —
+ * `spawn()`'s `ownerUserId` is required, and `create()` resolves its owner
+ * before it asks — so there is no arm left that needs a stand-in.
  *
  * WHO OWNS A SESSION THIS MODULE STARTS. The initiating human, resolved from the
  * binding principal (its parent session's owner for an agent spawn) or supplied
@@ -122,8 +131,6 @@ export interface SessionStartPorts {
   state: SessionStateService
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
-  /** Whose preferences a spawning read uses. NOT this module's decision. */
-  settingsViewer(): UserId | Promise<UserId>
   durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
@@ -224,60 +231,15 @@ export class SessionStart {
      */
     runtimeContract?: RuntimeContractRequest
   }): Promise<SessionSpawnResult> {
-    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
-    // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
-    // AgentKind: persisting or broadcasting it fails the sessionsChanged
-    // zod-parse and silently wipes the whole session list on every client.
-    const requested = AgentKind.safeParse(input.agentKind)
-    const agentKind = requested.success
-      ? requested.data
-      : resolveRole(
-          await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-          'coding',
-        ).harness
-    // Resolve the target machine before model validation — the catalog is
-    // machine-keyed (POD-1123), so we validate against THIS spawn's host.
-    if (input.loginHarness && agentKind !== 'shell') {
-      throw new Error('loginHarness is only valid for shell sessions')
-    }
-    const machineId = await this.ports.resolveMachineForAgent(
-      input.machineId,
-      input.cwd,
-      agentKind,
-      input.use,
-    )
-    // Reject an explicit model/effort the live catalog doesn't list BEFORE any
-    // spawn side effect [spec:SP-cc60].
-    const { forced } = assertModelSelectionValid(
-      await this.ports.store.settings.getModelCatalog(machineId),
-      {
-        agentKind,
-        ...(input.model !== undefined ? { model: input.model } : {}),
-        ...(input.effort !== undefined ? { effort: input.effort } : {}),
-        ...(input.forceUnknownModel ? { force: true } : {}),
-      },
-    )
-    // Spawner name is validated before any side effect so a bad title never
-    // leaves a half-spawned session.
-    let curatedName: string | undefined
-    if (input.name !== undefined) {
-      const norm = normalizeAgentName(input.name)
-      if (!norm.ok) throw new Error(norm.reason)
-      curatedName = norm.name
-    }
-    // Explicit attachment wins; otherwise starting in an issue-owned worktree
-    // means continuing that issue (spec: issue-as-workspace).
-    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd)) ?? undefined
-    const sessionId = input.sessionId ?? asSessionId(randomUUID())
-    const preparedInstructions = await this.ports.instructionsForStart({
-      sessionId,
-      cwd: input.cwd,
-      agentKind,
-      ...(issueId ? { issueId } : {}),
-      ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
-    })
-    const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
+    /**
+     * RESOLVED FIRST, BECAUSE THE PREFERENCE READS BELOW ASK FOR A PERSON
+     * (PDM-295). This used to sit further down, after the harness and account
+     * defaults had already been read as `settingsViewer()` — the earliest admin.
+     * Nothing between here and its old position contributes to it: it reads
+     * `input.binding` and one session-owner lookup, so hoisting moves a pure
+     * read earlier and changes no side effect. What it buys is that every
+     * question below this line can be asked about the RIGHT human.
+     */
     /**
      * THE SESSION IS OWNED BY THE HUMAN WHO STARTED IT (B1, PDM-133).
      *
@@ -330,6 +292,61 @@ export class SessionStart {
           : undefined
     const ownerUserId =
       bindingOwner ?? input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+
+    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
+    // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
+    // AgentKind: persisting or broadcasting it fails the sessionsChanged
+    // zod-parse and silently wipes the whole session list on every client.
+    const requested = AgentKind.safeParse(input.agentKind)
+    const agentKind = requested.success
+      ? requested.data
+      : resolveRole(
+          await this.ports.store.settings.getSettingsFor(ownerUserId),
+          'coding',
+        ).harness
+    // Resolve the target machine before model validation — the catalog is
+    // machine-keyed (POD-1123), so we validate against THIS spawn's host.
+    if (input.loginHarness && agentKind !== 'shell') {
+      throw new Error('loginHarness is only valid for shell sessions')
+    }
+    const machineId = await this.ports.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      agentKind,
+      input.use,
+    )
+    // Reject an explicit model/effort the live catalog doesn't list BEFORE any
+    // spawn side effect [spec:SP-cc60].
+    const { forced } = assertModelSelectionValid(
+      await this.ports.store.settings.getModelCatalog(machineId),
+      {
+        agentKind,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.forceUnknownModel ? { force: true } : {}),
+      },
+    )
+    // Spawner name is validated before any side effect so a bad title never
+    // leaves a half-spawned session.
+    let curatedName: string | undefined
+    if (input.name !== undefined) {
+      const norm = normalizeAgentName(input.name)
+      if (!norm.ok) throw new Error(norm.reason)
+      curatedName = norm.name
+    }
+    // Explicit attachment wins; otherwise starting in an issue-owned worktree
+    // means continuing that issue (spec: issue-as-workspace).
+    const issueId = input.issueId ?? (await this.ports.soleOwnerForCwd(input.cwd)) ?? undefined
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
+    const preparedInstructions = await this.ports.instructionsForStart({
+      sessionId,
+      cwd: input.cwd,
+      agentKind,
+      ...(issueId ? { issueId } : {}),
+      ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
+    })
+    const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
+    const useArgv = taskPrompt !== undefined && harnessSupportsInitialPrompt(agentKind)
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -469,8 +486,11 @@ export class SessionStart {
       agentKind: input.agentKind,
       ownerUserId,
     })
+    // The defaults are THIS OWNER's: model, effort and subagent model are
+    // `preferences-personal` and `ownerUserId` is required on this path (B1).
     const launch = await this.ports.launchConfig.modelDefaults(
       input.agentKind,
+      ownerUserId,
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
         : undefined,
@@ -479,7 +499,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+            await this.ports.store.settings.getSettingsFor(ownerUserId),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the
@@ -614,8 +634,9 @@ export class SessionStart {
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       // The credential is resolved for `ownerUserId` — the human this session
-      // belongs to, required on this path since B1 — and NOT for
-      // `settingsViewer()`, which answers the earliest admin (PDM-280/PDM-295).
+      // belongs to, required on this path since B1. Since PDM-295 the SLOT above
+      // is resolved for that same person, so a member is no longer refused on a
+      // slot somebody else chose (PDM-280 §7.4).
       ...(await this.ports.launchConfig.accountEnv(
         input.agentKind,
         ownerUserId,

@@ -127,10 +127,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })
-  bag.launchConfig = new SessionLaunchConfig({
-    store,
-    settingsViewer: () => bag.settingsViewer(),
-  })
+  bag.launchConfig = new SessionLaunchConfig({ store })
   bag.naming = new SessionNaming({
     session: (sessionId) => bag.sessions.get(sessionId),
     mutate: (sessionId, write) => {
@@ -219,7 +216,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     machines,
     issueAccess: bag.deps.issueAccess,
     getSession: (sessionId) => bag.sessions.get(sessionId),
-    settingsViewer: () => bag.settingsViewer(),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
   const serverDriven = (session: Session): boolean =>
@@ -315,7 +311,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     launchConfig: bag.launchConfig,
     terminalProof: bag.terminalProof,
-    settingsViewer: () => bag.settingsViewer(),
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     hasSession: (sessionId) => bag.sessions.has(sessionId),
     registerSession: (session) => {
@@ -591,12 +586,31 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       : undefined,
   })
 
+  /**
+   * THE AUTO-CONTINUE SWITCH FOR ONE SESSION, named once so the controller and
+   * the settings re-arm below cannot drift into two spellings of it.
+   */
+  const autoContinueEnabledFor = async (sessionId: SessionId): Promise<boolean> => {
+    const owner = (await ownership.sessionOwner(sessionId))?.owner
+    if (!owner) return false
+    return (await store.settings.getSettingsFor(owner)).autoContinue.enabled
+  }
   bag.autoContinue = new AutoContinueController({
-    // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
-    // so it is resolved for a user. See `settingsViewer` below for why that
-    // user is spelled out rather than defaulted.
-    isEnabled: async () =>
-      (await store.settings.getSettingsFor((await bag.settingsViewer()))).autoContinue.enabled,
+    /**
+     * PER SESSION, FOR THAT SESSION'S OWNER (POD-1213, fixed by PDM-295).
+     *
+     * Auto-continue governs the reader's OWN sessions, so the switch has to be
+     * read for the person whose session is about to be nudged. It used to be
+     * read once for `settingsViewer()` — the earliest admin — which made it a
+     * de-facto instance switch: that one person's preference decided whether
+     * EVERYBODY's errored agents got `continue` typed into them, and a member
+     * who turned it off in their own settings was still nudged.
+     *
+     * NO OWNER MEANS OFF, and that is the fail-closed direction rather than the
+     * convenient one. Typing into somebody's terminal is an action taken on
+     * their behalf; when nobody can be named, the thing not to do is act.
+     */
+    isEnabled: autoContinueEnabledFor,
     sendContinue: (sessionId) => {
       bag.continueSession({ sessionId })
     },
@@ -1008,22 +1022,43 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Keep the cached draftSync flag current (POD-859). Resolved through the
     // canonical experiments system (channel/config/user) [spec:SP-f4b9].
     bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
-    const wasEnabled = previous.autoContinue.enabled
-    const nowEnabled = next.autoContinue.enabled
-    if (nowEnabled === wasEnabled) return
-    const ids = nowEnabled
-      ? [...bag.sessions.values()]
-          .filter(
-            (s) =>
-              (s.status === 'live' || s.status === 'starting') &&
-              s.agentState?.phase === 'errored' &&
-              s.agentState.error?.retryable === true,
-          )
-          .map((s) => s.sessionId)
-      : []
+    /**
+     * RE-EVALUATED PER OWNER (PDM-295), because the event cannot say whose
+     * settings moved.
+     *
+     * This used to compare `previous.autoContinue.enabled` with
+     * `next.autoContinue.enabled` and apply the answer to EVERY session. That
+     * read as an instance switch and behaved like one: the blob the emitter
+     * carries is resolved for the WRITER, so one member's edit armed or
+     * cancelled everybody's recovery loops.
+     *
+     * The payload has no `userId` to narrow by, and adding one reaches the
+     * settings, notify and messaging subscribers — a wider change than this
+     * repair, and the settings service's own header already names that as the
+     * seam where it lands. So the event is treated as what it honestly is, a
+     * "something moved, look again" nudge: each candidate session is re-asked
+     * against ITS OWN owner's switch, and a session whose owner cannot be named
+     * lands in the disabled arm rather than being left running.
+     */
+    const candidates = [...bag.sessions.values()]
+      .filter(
+        (s) =>
+          (s.status === 'live' || s.status === 'starting') &&
+          s.agentState?.phase === 'errored' &&
+          s.agentState.error?.retryable === true,
+      )
+      .map((s) => s.sessionId)
     // NOT awaited: a bus listener returns void and has no caller to answer
     // (rule 57). Arming is best-effort; each loop re-reads the switch itself.
-    void bag.autoContinue.onSettingsChanged(nowEnabled, ids)
+    void (async () => {
+      const enabled: SessionId[] = []
+      const disabled: SessionId[] = []
+      for (const id of candidates) {
+        ;((await autoContinueEnabledFor(id)) ? enabled : disabled).push(id)
+      }
+      await bag.autoContinue.onSettingsChanged(true, enabled)
+      await bag.autoContinue.onSettingsChanged(false, disabled)
+    })()
   })
   // Agent mail send-time nudge (issue #103): resolve membership and the
   // coordinator from the canonical issue id at delivery time. The nudge carries

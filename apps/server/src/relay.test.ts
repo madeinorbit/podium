@@ -6229,6 +6229,109 @@ describe('SessionRegistry — auto-continue', () => {
     })
   })
 
+  /**
+   * WHOSE SWITCH IS READ (PDM-295).
+   *
+   * `autoContinue.*` is `preferences-personal`, but the controller read it once
+   * through `settingsViewer()` — the EARLIEST ADMIN — and applied that answer to
+   * every session on the instance. So one person's preference decided whether
+   * everybody's errored agents got `continue` typed into them.
+   *
+   * Both directions are asserted, and that pairing is what makes them able to
+   * say no. A controller that simply stopped reading anything would pass the
+   * "off" case; one that still reads the admin would pass the "on" case. Only a
+   * per-owner read passes both, because the two cases give Ada and Ben OPPOSITE
+   * values and assert the SESSION's owner wins each time.
+   */
+  const ben = asUserId('mem_0BBBBBBBBBBBBBBBBBBBBBBBBBB')
+
+  async function withBen(reg: SessionRegistry, ada: boolean, benEnabled: boolean) {
+    await reg.sessionStore.users.create(
+      {
+        id: ben,
+        displayName: 'Ben',
+        role: 'member',
+        createdAt: '2099-01-01T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'scrypt:hash',
+    )
+    for (const [who, enabled] of [
+      [firstAdminMemberId(), ada],
+      [ben, benEnabled],
+    ] as const) {
+      await reg.modules.settings.setSettingsFor(who, {
+        ...(await reg.modules.settings.getSettingsFor(who)),
+        autoContinue: { enabled, promptDismissed: false },
+      })
+    }
+  }
+
+  async function benSession(reg: SessionRegistry): Promise<string> {
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      ownerUserId: ben,
+    })
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    return sessionId
+  }
+
+  it("continues a member's session on THEIR switch while the earliest admin's is off", async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await withBen(reg, false, true)
+    const sessionId = await benSession(reg)
+
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: erroredState,
+    })
+
+    // Reading the admin's switch here answers "off" and sends nothing.
+    await expect.poll(() => daemon).toContainEqual(continueInput)
+    await reg.modules.settings.setSettingsFor(ben, {
+      ...(await reg.modules.settings.getSettingsFor(ben)),
+      autoContinue: { enabled: false, promptDismissed: false },
+    })
+  })
+
+  it("leaves a member's session alone when THEY turned it off, whatever the admin chose", async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    await withBen(reg, true, false)
+    const sessionId = await benSession(reg)
+
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: erroredState,
+    })
+
+    // And the admin's own session, on the same instance, still continues — so
+    // this is not green because auto-continue stopped working altogether.
+    const adaSession = await liveSession(reg)
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId: asSessionId(adaSession),
+      state: erroredState,
+    })
+    await expect.poll(() => daemon).toContainEqual(continueInput)
+    expect(
+      daemon.filter(
+        (m) => m.type === 'input' && 'sessionId' in m && m.sessionId === asSessionId(sessionId),
+      ),
+    ).toEqual([])
+
+    await reg.modules.settings.setSettingsFor(firstAdminMemberId(), {
+      ...(await reg.modules.settings.getSettingsFor(firstAdminMemberId())),
+      autoContinue: { enabled: false, promptDismissed: false },
+    })
+  })
+
   it('arms already-errored sessions when the setting is switched on', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []

@@ -22,7 +22,6 @@ export interface SessionWorkspacePorts {
   machines: MachinesService
   issueAccess: DurableIssueAccessIndex
   getSession: SessionLookup
-  settingsViewer(): UserId | Promise<UserId>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
@@ -30,18 +29,29 @@ export interface SessionWorkspacePorts {
 export class SessionWorkspace {
   constructor(private readonly ports: SessionWorkspacePorts) {}
 
-  async prepareTarget(input: {
-    agentKind?: AgentKind
-    cwd: string
-    machineId?: MachineId
-    use?: MachineUseResolver
-  }): Promise<{ cwd: string; machineId?: MachineId }> {
+  /**
+   * `viewer` IS THE HUMAN THIS PLACEMENT IS FOR (PDM-295), and it is required.
+   *
+   * Only the DEFAULT harness reads it — an explicit `agentKind` never asks — but
+   * the default is a personal preference like any other, and reading it as
+   * `settingsViewer()` meant a member's un-suffixed create was placed using the
+   * earliest admin's choice of CLI. The caller in `command-plane` resolves the
+   * accountable owner for exactly this call and refuses without one.
+   */
+  async prepareTarget(
+    input: {
+      agentKind?: AgentKind
+      cwd: string
+      machineId?: MachineId
+      use?: MachineUseResolver
+    },
+    viewer: UserId,
+  ): Promise<{ cwd: string; machineId?: MachineId }> {
     if (!input.machineId) return { cwd: input.cwd }
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())), 'coding')
-          .harness
+      : resolveRole(await this.ports.store.settings.getSettingsFor(viewer), 'coding').harness
     // A freshly reconnected daemon temporarily hides its persisted inventory:
     // the old report belongs to the previous socket. Explicit placement can
     // afford to wait for this connection's report before the harness gate, and

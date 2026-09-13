@@ -620,6 +620,7 @@
         "src/modules/sessions/issue-mail-nudge.ts",
         "src/modules/sessions/issue-workflow-port.ts",
         "src/modules/sessions/launch-config.ts",
+        "src/modules/sessions/launch-config.viewer.test.ts",
         "src/modules/sessions/lifecycle.ts",
         "src/modules/sessions/machine-reconciler.ts",
         "src/modules/sessions/naming.ts",

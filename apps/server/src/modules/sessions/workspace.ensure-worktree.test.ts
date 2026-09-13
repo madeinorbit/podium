@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asMachineId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { Session } from './session'
@@ -30,11 +30,14 @@ describe('prepareTarget reconnect inventory', () => {
       store: { repos: { listRepos } },
     } as unknown as SessionWorkspacePorts)
 
-    const preparing = workspace.prepareTarget({
-      agentKind: 'claude-code',
-      cwd: '/repo',
-      machineId: asMachineId('machine-b'),
-    })
+    const preparing = workspace.prepareTarget(
+      {
+        agentKind: 'claude-code',
+        cwd: '/repo',
+        machineId: asMachineId('machine-b'),
+      },
+      asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'),
+    )
 
     expect(waitForInventory).toHaveBeenCalledWith('machine-b')
     expect(resolveMachineForAgent).not.toHaveBeenCalled()
@@ -54,11 +57,14 @@ describe('prepareTarget reconnect inventory', () => {
     } as unknown as SessionWorkspacePorts)
 
     await expect(
-      workspace.prepareTarget({
-        agentKind: 'shell',
-        cwd: '/repo',
-        machineId: asMachineId('machine-b'),
-      }),
+      workspace.prepareTarget(
+        {
+          agentKind: 'shell',
+          cwd: '/repo',
+          machineId: asMachineId('machine-b'),
+        },
+        asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'),
+      ),
     ).resolves.toEqual({ cwd: '/repo', machineId: 'machine-b' })
     expect(waitForInventory).not.toHaveBeenCalled()
     expect(resolveMachineForAgent).toHaveBeenCalledOnce()

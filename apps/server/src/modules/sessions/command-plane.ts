@@ -602,12 +602,21 @@ export const SESSION_COMMAND_HANDLERS = {
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
+    // OWNERSHIP IS RESOLVED BEFORE THE TARGET IS PREPARED (PDM-295). Two reasons,
+    // and they point the same way: preparing may CLONE a repository onto the
+    // target machine, so a request with no accountable human must be refused
+    // before it can cause that — the same rule the machine-use gate above obeys —
+    // and `prepareTarget` now needs the human, because the default harness it
+    // falls back to is that person's preference rather than the earliest admin's.
     const ownership = createdOwnership(
       ctx.principal,
       rest.issueId ? { id: rest.issueId } : undefined,
     )
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+    const target = await ctx.sessions.workspace.prepareTarget(
+      { ...rest, use: ctx.machineUse },
+      ownership.owner as import('@podium/model').UserId,
+    )
     const createdDraftId =
       !rest.issueId && draftIssue
         ? (await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {

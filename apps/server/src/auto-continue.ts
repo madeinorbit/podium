@@ -4,8 +4,16 @@ import type { AgentRuntimeState, SessionId } from '@podium/model'
 /** Everything the controller needs from the relay, injected so the loop is
  *  unit-testable with spies + fake timers and carries no relay knowledge. */
 export interface AutoContinueDeps {
-  /** The global master switch, read fresh on every decision. */
-  isEnabled: () => Promise<boolean>
+  /**
+   * The switch for THIS SESSION, read fresh on every decision (PDM-295).
+   *
+   * It takes the session because `autoContinue.*` is a personal preference and
+   * the session names the person: the answer is its owner's. It was a
+   * no-argument "global master switch" that resolved the earliest admin, which
+   * on a multi-human instance is one person's preference governing everybody's
+   * agents. Implementations return FALSE when the owner cannot be named.
+   */
+  isEnabled: (sessionId: SessionId) => Promise<boolean>
   /** Type one `continue⏎` into the session (relay.continueSession, phase-gated). */
   sendContinue: (sessionId: SessionId) => void
   /** Liveness + latest agent state, or undefined if the session is gone. */
@@ -42,7 +50,7 @@ export class AutoContinueController {
   /** Relay calls this on every agent-state transition. Arms on a retryable error,
    *  stops (resetting backoff) the instant the agent is no longer in one. */
   async onStateChange(sessionId: SessionId, next: AgentRuntimeState): Promise<void> {
-    if ((await this.deps.isEnabled()) && isRetryableErrored(next)) await this.arm(sessionId)
+    if ((await this.deps.isEnabled(sessionId)) && isRetryableErrored(next)) await this.arm(sessionId)
     else this.stop(sessionId)
   }
 
@@ -60,11 +68,19 @@ export class AutoContinueController {
     await this.tick(sessionId)
   }
 
-  /** Master switch flipped. On enable, arm any already-errored live sessions; on
-   *  disable, cancel every running loop. */
+  /**
+   * ONE PERSON'S SWITCH FLIPPED (PDM-295), so only THEIR sessions are affected.
+   *
+   * `retryableErroredLiveIds` is already narrowed by the caller to the sessions
+   * that person owns. On enable, arm them; on disable, stop those same loops —
+   * NOT `stopAll()`, which is what this did while the switch was the earliest
+   * admin's and therefore everybody's. An instance where one member turning
+   * auto-continue off silently cancelled every other member's recovery loops is
+   * the same defect wearing a different hat.
+   */
   async onSettingsChanged(enabled: boolean, retryableErroredLiveIds: SessionId[]): Promise<void> {
     if (!enabled) {
-      this.stopAll()
+      for (const id of retryableErroredLiveIds) this.stop(id)
       return
     }
     for (const id of retryableErroredLiveIds) await this.arm(id)
@@ -95,7 +111,12 @@ export class AutoContinueController {
     const loop = this.loops.get(sessionId)
     if (!loop) return
     const snap = this.deps.getSession(sessionId)
-    if (!(await this.deps.isEnabled()) || !snap || !snap.live || !isRetryableErrored(snap.state)) {
+    if (
+      !(await this.deps.isEnabled(sessionId)) ||
+      !snap ||
+      !snap.live ||
+      !isRetryableErrored(snap.state)
+    ) {
       this.stop(sessionId)
       return
     }
