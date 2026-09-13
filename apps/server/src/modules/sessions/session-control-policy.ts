@@ -143,12 +143,24 @@ const humanMay = (
    * the day it stops being empty a decision someone made at a named type, rather
    * than a one-line edit nothing could see.
    *
-   * IT IS NOT THIS ISSUE'S CALL TO REMOVE. ADR 9 Amendment 1 D7 says an instance
-   * admin may not view or drive another member's session — the `role === 'admin'`
-   * short circuit that used to sit above this line is already gone [PDM-270] —
-   * and whether a grant arm survives at all for `watch`/`drive` is PDM-270's
-   * decision, not a side effect of a typing change. Removing the cast is how it
-   * gets enacted; leaving it is how the question stays visible until then.
+   * WHOSE DECISION IT IS — AND IT IS NOT PDM-270'S, WHICH IS DONE. PDM-355's
+   * brief said this line "needs PDM-270's decision". It does not. PDM-270 was
+   * about the ADMIN GRADE: the `role === 'admin'` short circuit that used to sit
+   * between the two lines above, plus `scope.kind === 'all'` in
+   * `session-state/service.ts`. Both are gone and PDM-270 closed. It deliberately
+   * left THIS arm standing, because a grant is not a grade.
+   *
+   * What is actually open is SESSION SHARING, which the execution charter defers
+   * out of v1 — see `LegacyGrant` in `@podium/model`'s `authz/axes.ts`:
+   * "resurrecting it means deciding a verb model, not re-enabling a lookup". The
+   * `driveGrantees ?? watchGrantees` default above is the transitional
+   * "grant = share" shape that deferral leaves behind, and it is the thing a verb
+   * model would replace. Until someone decides that, this arm is unreachable
+   * (the list is empty) and the cast is what keeps it visible. Filed as PDM-393.
+   *
+   * So: removing the cast is how "sessions are owner-only, full stop" gets
+   * enforced by the compiler. Replacing it with a named unbrand is how a decided
+   * sharing model gets enacted. Leaving it as-is asserts neither.
    */
   return (grantees as readonly string[]).includes(human)
 }
