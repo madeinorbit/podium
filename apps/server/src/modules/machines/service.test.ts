@@ -1924,3 +1924,187 @@ describe('MachinesService parked frames and an authority change with no machine 
     expect(daemon.got).toEqual([approvalExec])
   })
 })
+
+/**
+ * PDM-411 — THE ORDERING THE WHOLE GUARD RESTS ON, PINNED RATHER THAN ASSUMED.
+ *
+ * `flushQueued` compares a parked delivery's stamp against `authorityEpoch()`
+ * read at flush. That comparison only means anything if the epoch has ALREADY
+ * moved by then — i.e. if the committed-write subscriber that bumps it is
+ * guaranteed to have run, not merely likely to have. A guard whose ordering is
+ * USUAL rather than GUARANTEED fails OPEN and SILENTLY: the frame flushes,
+ * nothing logs a discard, and every test stays green.
+ *
+ * IT IS GUARANTEED, and this is where the guarantee comes from rather than a
+ * hope. `CommittedRows.write` publishes through `applyAfterCommit`, which is
+ * post-commit MECHANISM 1 (a commit application). `post-commit.ts` states the
+ * waiting rule — "the promise `transact` returns resolves after the COMMIT,
+ * after every commit application, and after every durable follow-up" — and
+ * `executor.ts` implements it: `await lease.session.commit()`, then
+ * `await runner.drain(registry)`, then return. Inside the drain, a synchronous
+ * commit application is NOT awaited (`if (isThenable(result)) await result`),
+ * deliberately, so a batch forms one turn with no microtask boundary for a
+ * reader to slip into. Both epoch subscribers are synchronous.
+ *
+ * SO THE ASSERTION IS THE ABSENCE OF AN AWAIT. Each write below is followed
+ * IMMEDIATELY by the epoch read, in the same continuation. If publication ever
+ * became mechanism 3 (an external effect, which the outer promise explicitly
+ * does NOT wait for) or gained a microtask hop, these reads would see the old
+ * value and this reddens — which is the only way that change is visible at all.
+ */
+describe('MachinesService authority epoch and the committed-write ordering', () => {
+  test('each authority stream has ALREADY bumped when its own write resolves', async () => {
+    const { svc, store } = await storedService()
+    const approvalExec = { type: 'approvalExecRequest', requestId: 'r', op: { kind: 'update' } } as ControlMessage
+
+    // A queue must exist for the users arm to be observable — it bumps only
+    // machines with something parked. Parked first so all three arms are read
+    // under identical conditions.
+    svc.toMachine(MACHINE, approvalExec)
+
+    // MACHINES. No await between the write resolving and the read.
+    const beforeOwner = svc.authorityEpoch(MACHINE)
+    await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
+    expect.soft(svc.authorityEpoch(MACHINE)).toBe(beforeOwner + 1)
+
+    // GRANTS.
+    const beforeGrant = svc.authorityEpoch(MACHINE)
+    await store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: MACHINE,
+      grantee: 'carol',
+      verb: 'use',
+      owner: firstAdminMemberId(),
+      visibility: 'private',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: firstAdminMemberId(),
+      onBehalfOf: null,
+    })
+    expect.soft(svc.authorityEpoch(MACHINE)).toBe(beforeGrant + 1)
+
+    // USERS (PDM-409's stream, which inherits exactly this ordering).
+    const dora = asUserId('dora')
+    await store.users.create(
+      {
+        id: dora,
+        displayName: 'Dora',
+        email: 'dora@example.com',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'password-hash',
+    )
+    const beforeDisable = svc.authorityEpoch(MACHINE)
+    await store.users.disable(dora, new Date().toISOString())
+    expect.soft(svc.authorityEpoch(MACHINE)).toBe(beforeDisable + 1)
+  })
+
+  test('every AUTHORITY-CHANGING write to the three tables goes through the commit funnel', async () => {
+    // THE OTHER HALF OF PDM-411, AND THE ONE THAT WAS ACTUALLY BROKEN. The
+    // ordering above is worth nothing for a write that never publishes at all:
+    // `UsersRepository.removeMember` disabled an account with a raw
+    // `db.update(users)` and no subscriber ever heard it (PDM-409).
+    //
+    // DERIVED, NOT LISTED. The write statements are read out of the repository
+    // sources rather than enumerated here, because a hand-written "where writes
+    // may live" list is exactly the blind spot this is meant to find.
+    //
+    // AUTHORITY-CHANGING, not merely "a write". A `users` row also carries an
+    // email, a display name, an avatar and a cloud account id, and changing any
+    // of those alters nobody's right to run anything — a census that flagged
+    // them would be noise a reader learns to ignore. What decides `use` is
+    // `users.disabledAt` and `users.role`, `machines.ownerUserId`, and ANY
+    // change to a `grants` row.
+    const { readFileSync } = await import('node:fs')
+    const here = new URL('.', import.meta.url)
+    const repositories = [
+      { file: '../../store/users.ts', table: 'users', columns: ['disabledAt', 'role'] },
+      { file: '../../store/machines.ts', table: 'machines', columns: ['ownerUserId'] },
+      // Every grant row change alters who may use something; there is no
+      // authority-irrelevant column on the edge itself.
+      { file: '../../store/grants.ts', table: 'grants', columns: [] },
+    ]
+
+    const unfunnelled = (source: string, table: string, columns: string[]): string[] => {
+      const lines = source.split('\n')
+      const found: string[] = []
+      for (const [index, line] of lines.entries()) {
+        const verb = new RegExp(`\\.(insert|update|delete)\\(${table}\\)`).exec(line)
+        if (!verb) continue
+        // The statement runs from here to whatever terminates it. Reading the
+        // whole span is what lets a `.set({...})` on a following line be seen.
+        const statement = lines.slice(index, index + 12).join('\n')
+        // AN INSERT CANNOT TAKE AUTHORITY AWAY. A row that did not exist held
+        // nothing, so a creation is a first sighting and never a loss — the same
+        // rule `noteCommittedOwner` applies to a machine's first owner. (It is
+        // still a publication gap for anything that wants to LEARN of the row:
+        // `createUnclaimed` bypasses the funnel and WorldIndex never sees an
+        // unclaimed member appear. That is not this guard's question.)
+        //
+        // A DELETE always is. A grants row change always is, whatever it names.
+        // For an UPDATE, only the `.set({...})` payload counts: `attachAccount`
+        // mentions `disabledAt` in its WHERE clause and assigns nothing of the
+        // kind, and reading the whole statement made it a false row.
+        const assigned = /\.set\(([\s\S]*?)\)/.exec(statement)?.[1] ?? ''
+        const touchesAuthority =
+          verb[1] === 'delete' ||
+          (columns.length === 0 && verb[1] !== 'insert') ||
+          (verb[1] === 'update' &&
+            columns.some((column) => new RegExp(`\\b${column}\\b`).test(assigned)))
+        if (!touchesAuthority) continue
+        // The funnel opens at most a few lines above the statement it wraps.
+        const preamble = lines.slice(Math.max(0, index - 6), index + 1).join('\n')
+        if (!preamble.includes('committed.write')) found.push(`${table}:${index + 1}: ${line.trim()}`)
+      }
+      return found
+    }
+
+    // THE PROBE, so a census that can only ever say YES is not mistaken for a
+    // passing one. Both directions, on all three shapes.
+    const raw = '    await this.db.update(users).set({ disabledAt }).where(eq(users.id, userId)).run()'
+    expect.soft(unfunnelled(raw, 'users', ['disabledAt', 'role'])).toHaveLength(1)
+    expect
+      .soft(
+        unfunnelled(
+          "    await this.committed.write(async () => this.db.update(users).set({ disabledAt }).returning().all(), 'upsert')",
+          'users',
+          ['disabledAt', 'role'],
+        ),
+      )
+      .toHaveLength(0)
+    // An authority-IRRELEVANT raw write must stay quiet, or the census reduces
+    // to "every write", which is the version that produced four false rows.
+    expect
+      .soft(
+        unfunnelled('    await this.db.update(users).set({ avatar }).where(eq(users.id, userId)).run()', 'users', [
+          'disabledAt',
+          'role',
+        ]),
+      )
+      .toHaveLength(0)
+    // And a grants write is authority-relevant whatever column it names.
+    expect.soft(unfunnelled('    await this.db.delete(grants).where(match).run()', 'grants', [])).toHaveLength(1)
+    // A column named only in the PREDICATE is not an assignment.
+    expect
+      .soft(
+        unfunnelled(
+          '    await this.db.update(users).set({ cloudAccountId }).where(isNull(users.disabledAt)).run()',
+          'users',
+          ['disabledAt', 'role'],
+        ),
+      )
+      .toHaveLength(0)
+    // And an insert is never a loss, even one that names a role.
+    expect
+      .soft(unfunnelled('    await this.db.insert(users).values({ role: "admin" }).run()', 'users', ['disabledAt', 'role']))
+      .toHaveLength(0)
+
+    const findings: string[] = []
+    for (const { file, table, columns } of repositories) {
+      findings.push(...unfunnelled(readFileSync(new URL(file, here), 'utf8'), table, columns))
+    }
+    expect(findings).toEqual([])
+  })
+})
