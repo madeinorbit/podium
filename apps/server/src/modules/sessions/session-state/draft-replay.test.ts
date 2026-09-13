@@ -17,7 +17,7 @@ describe('draft replay ordering', () => {
     })
     const sessionOwner = vi.fn(async () => {
       await authorization
-      return { owner: firstAdminMemberId(), grants: [] }
+      return { owner: firstAdminMemberId(), legacyGrants: [] }
     })
     const state = new SessionStateService({
       store: { sessions: { setDraftDoc: vi.fn() } } as unknown as SessionStatePorts['store'],

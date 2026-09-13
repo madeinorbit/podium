@@ -22,6 +22,7 @@ import {
   mayWatch,
   type SessionControlContext,
 } from './session-control-policy'
+import type { SessionOwnership } from './session-ownership'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStateService } from './session-state/service'
 
@@ -50,7 +51,7 @@ export interface SessionClientControlPorts {
    * away from being an unwired one. A fixture that does not care now says so
    * explicitly — see the test helpers in session-control-identity.test.ts.
    */
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<SessionOwnership | undefined>
   /**
    * Machine `use` for this principal on the session's host. REQUIRED — see
    * `sessionOwner` above. `MachineUseDecision` deliberately has no `'unknown'`

@@ -41,7 +41,10 @@
  * and is recorded as an open gap in the ledger.
  */
 
-import { asMutationId, asSessionId, asUserId, type UserId} from '@podium/model'
+import { asMutationId, asSessionId, asUserId, type UserId,
+  type LegacyGrant,
+  asLegacyGrant,
+} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -68,7 +71,7 @@ async function revocableStack() {
 
   // Mutable ownership, read LIVE on every call — which is the whole mechanism.
   // There is no snapshot to invalidate because there is no snapshot.
-  const ownership = { owner: firstAdminMemberId() as string | null, grants: [] as string[] }
+  const ownership = { owner: firstAdminMemberId() as string | null, legacyGrants: [] as LegacyGrant[] }
 
   const deps = {
     sessions: new Proxy(sessions, {
@@ -76,7 +79,7 @@ async function revocableStack() {
         if (prop === 'sessionOwner') {
           return (sessionId: string) =>
             sessionId === created.sessionId
-              ? { owner: ownership.owner, grants: ownership.grants }
+              ? { owner: ownership.owner, legacyGrants: ownership.legacyGrants }
               : undefined
         }
         return Reflect.get(target, prop, receiver)
@@ -274,7 +277,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
   it('a GRANT is NOT enough — a session is owner-only (PDM-251)', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
-    s.ownership.grants = [firstAdminMemberId()]
+    s.ownership.legacyGrants = [asLegacyGrant(firstAdminMemberId())]
 
     expect(
       (await renameOnTargetPath(
@@ -292,7 +295,7 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     // the denial above is the grant being refused, and not a fixture in which
     // nobody can rename anything.
     s.ownership.owner = firstAdminMemberId()
-    s.ownership.grants = []
+    s.ownership.legacyGrants = []
     expect(
       (await renameOnTargetPath(
         s.deps,

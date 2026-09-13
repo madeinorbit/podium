@@ -189,7 +189,7 @@ describe('session ownership resolves through the store reads [POD-3507]', () => 
     await authz.primeOwnerMemo(memo, [PARKED])
     const primed = await authz.sessionOwner(PARKED, memo)
 
-    expect(noMemo).toEqual({ owner: SESSION_FALLBACK, grants: [] })
+    expect(noMemo).toEqual({ owner: SESSION_FALLBACK, legacyGrants: [] })
     expect(unprimed).toEqual(noMemo)
     expect(primed).toEqual(noMemo)
     // NON-VACUITY for the primed leg: `primeOwnerMemo` really did run its
@@ -218,7 +218,7 @@ describe('session ownership resolves through the store reads [POD-3507]', () => 
     // between "inactive history" and "no data", and the reason the assertion
     // above has to be here. Without it this is catalogue #13: a comparison that
     // passes trivially when both sides are empty.
-    expect(owner?.grants).toEqual([])
+    expect(owner?.legacyGrants).toEqual([])
     expect(owner?.owner).toBe(SESSION_FALLBACK)
     // The grantee did not become the owner by another route either.
     expect(owner?.owner).not.toBe(GRANTEE)

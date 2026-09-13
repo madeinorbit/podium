@@ -36,6 +36,7 @@ import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex, mayReadPrivate } from '../../issue-authz'
+import type { SessionOwnership } from './session-ownership'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -196,14 +197,14 @@ export async function mayReadPrivateSession(
 export async function mayReadSessionPrivate(
   userId: UserId | undefined,
   sessionId: SessionId,
-  ownerOf: (sessionId: SessionId) => Promise<{ owner: UserId; grants: string[] } | undefined>,
+  ownerOf: (sessionId: SessionId) => Promise<SessionOwnership | undefined>,
 ): Promise<boolean> {
   const target = await ownerOf(sessionId)
   if (target === undefined) return false
   return mayReadPrivate(userId, {
     id: sessionId,
     owner: target.owner,
-    legacyGrants: target.grants,
+    legacyGrants: target.legacyGrants,
   })
 }
 

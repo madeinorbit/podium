@@ -686,7 +686,7 @@ describe('attribution and ownership come from the principal', () => {
     })
     expect(await o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
       owner: COLLEAGUE,
-      grants: [],
+      legacyGrants: [],
     })
   })
 
@@ -793,7 +793,7 @@ describe('session visibility is bounded by the delegating human', () => {
     })
     expect(await o.reg.modules.sessions.sessionOwner(live.sessionId)).toEqual({
       owner: COLLEAGUE,
-      grants: [],
+      legacyGrants: [],
     })
 
     const stranger = await ctxFor(o, human(firstAdminMemberId()), {

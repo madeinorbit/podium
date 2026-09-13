@@ -97,6 +97,7 @@ import {
 import type { Capability } from '../../issue-authz'
 import type { MachineListing } from '../machines/service'
 import { SessionFactsReader, type SessionFacts } from './facts'
+import type { SessionOwnership } from './session-ownership'
 import type { SessionOwnerMemo } from './session-state/service'
 import {
   liveSessionsUsingWorktree,
@@ -560,7 +561,7 @@ export class SessionLifecycle {
   sessionOwner(
     sessionId: SessionId,
     memo?: SessionOwnerMemo,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
+  ): Promise<SessionOwnership | undefined> {
     return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
   machineUseForClient(

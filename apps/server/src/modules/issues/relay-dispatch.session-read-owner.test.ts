@@ -42,6 +42,7 @@ import {
   type SessionMeta,
   type SessionMetaInput,
   type UserId,
+  type LegacyGrant,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
@@ -156,7 +157,7 @@ function harness() {
   const sessionsSvc = {
     sessionOwner: async (sessionId: SessionId) => {
       const owner = OWNER_OF[sessionId]
-      return owner ? { owner, grants: [] as string[] } : undefined
+      return owner ? { owner, legacyGrants: [] as LegacyGrant[] } : undefined
     },
   } as unknown as SessionLifecycle
 

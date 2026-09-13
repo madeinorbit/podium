@@ -1,17 +1,29 @@
-import type { Attribution, SessionId, UserId, MachineId } from '@podium/model'
+import type { Attribution, LegacyGrant, SessionId, UserId, MachineId } from '@podium/model'
 import { actorSystem, actorUser } from '@podium/model'
 import type { ClientMessage, SessionOpenUrlMessage, SessionOpenUrlResultMessage, SubscriptionRegistry } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
 import type { ClientConn, ClientRegistry } from './client-registry'
+import { mayReadPrivate } from '../issue-authz'
 
 interface BrowserOpenSession {
   machineId: MachineId
 }
 
+/**
+ * STRUCTURALLY `modules/sessions/session-ownership.ts`'s `SessionOwnership`, and
+ * spelled locally on purpose: this gateway declares its own narrow view of every
+ * lifecycle shape it consumes rather than importing the module's types.
+ *
+ * What is NOT local is the BRAND. `legacyGrants` is `readonly LegacyGrant[]` here
+ * for the same reason it is there — `legacyGrants.includes(someUserId)` must not
+ * compile — and a local re-spelling at `string[]` would have quietly restored the
+ * bypass at the wiring, which is the failure mode this typing exists to prevent
+ * (PDM-355).
+ */
 interface BrowserOpenOwnership {
-  owner: UserId
-  grants: string[]
+  readonly owner: UserId
+  readonly legacyGrants: readonly LegacyGrant[]
 }
 
 export interface BrowserOpenGatewayDeps {
@@ -193,13 +205,25 @@ export class BrowserOpenGateway {
   }
 
   private async clientMaySeeSession(client: ClientConn, sessionId: SessionId): Promise<boolean> {
-    // Use the same live owner/grant facts the feed visibility policy reads; no
-    // connection-cached authorization copy can outlive a grant revocation.
+    // Use the same live owner facts the feed visibility policy reads; no
+    // connection-cached authorization copy can outlive a change of owner.
+    //
+    // OWNER-ONLY, ASKED OF THE MODEL (PDM-355). This was
+    // `ownership.owner === client.principal.user || ownership.grants.includes(...)`
+    // — the owner-or-GRANT rule, which is the TASK predicate and not the rule a
+    // SESSION is under (ADR 9 Amendment 1 D7; architecture section 10 requires
+    // cross-user session grants to be INEFFECTIVE). It admitted nobody only
+    // because `sessionOwner` returns an empty list, a convention in another
+    // function rather than a property here. The edges are still passed — as
+    // `legacyGrants`, at a type that admits no `UserId` to `includes` — so they
+    // are carried and refused rather than dropped into an unstated second policy.
     const ownership = await this.deps.sessionOwner(sessionId)
     if (!ownership) return false
-    return (
-      ownership.owner === client.principal.user || ownership.grants.includes(client.principal.user)
-    )
+    return mayReadPrivate(client.principal.user, {
+      id: sessionId,
+      owner: ownership.owner,
+      legacyGrants: ownership.legacyGrants,
+    })
   }
 
   private recipients(sessionId: SessionId): ClientConn[] {

@@ -15,6 +15,7 @@ import {
   type Attribution,
   actorAgent,
   actorUser,
+  type LegacyGrant,
   type SessionId,
   type UserId,
   type UserRole,
@@ -33,10 +34,19 @@ export type SessionControlVerb = 'watch' | 'drive'
  */
 export interface SessionControlContext {
   readonly owner: UserId
-  /** Grantees who may spectate (read / write / manage). */
-  readonly watchGrantees: readonly string[]
-  /** Grantees who may take control (write / manage). */
-  readonly driveGrantees: readonly string[]
+  /**
+   * Grantees who may spectate (read / write / manage).
+   *
+   * BRANDED, AND THE BRAND IS THE POINT (PDM-355). This was `readonly string[]`,
+   * and a `readonly string[]` ANYWHERE ON THE PATH launders the source typing
+   * back to a comparable type: a `LegacyGrant` IS a `string`, so it flowed in
+   * here silently and `humanMay`'s `grantees.includes(human)` three functions
+   * down compiled clean. Typing `sessionOwner` at its source is necessary and
+   * not sufficient; the brand has to reach the comparison.
+   */
+  readonly watchGrantees: readonly LegacyGrant[]
+  /** Grantees who may take control (write / manage). See {@link watchGrantees}. */
+  readonly driveGrantees: readonly LegacyGrant[]
   /**
    * Machine `use` for this principal on the session's host (ADR 9 D6 M1).
    * `absent` and `denied` both refuse attach — session share is not a back door
@@ -91,18 +101,18 @@ export const controlSubjectFromCommand = (principal: CommandPrincipal): ControlS
  * already exposes. `write`/`manage` drive; any grant verb watches.
  */
 export const contextFromOwnership = (
-  ownership: { owner: UserId; grants: readonly string[] },
+  ownership: { owner: UserId; legacyGrants: readonly LegacyGrant[] },
   machineUse: SessionControlContext['machineUse'],
   /**
    * Optional write/manage-only list. When omitted, every listed grantee may both
    * watch and drive (today's transitional "grant = share" shape). Callers that
    * know verb-level grants pass the filtered lists explicitly.
    */
-  driveGrantees?: readonly string[],
+  driveGrantees?: readonly LegacyGrant[],
 ): SessionControlContext => ({
   owner: ownership.owner,
-  watchGrantees: ownership.grants,
-  driveGrantees: driveGrantees ?? ownership.grants,
+  watchGrantees: ownership.legacyGrants,
+  driveGrantees: driveGrantees ?? ownership.legacyGrants,
   machineUse,
 })
 
@@ -116,10 +126,31 @@ export const contextFromOwnership = (
 const humanMay = (
   human: UserId,
   owner: UserId,
-  grantees: readonly string[],
+  grantees: readonly LegacyGrant[],
 ): boolean => {
   if (human === owner) return true
-  return grantees.includes(human)
+  /**
+   * ── THE ADMIN BREAK-GLASS, CONFRONTED RATHER THAN DECIDED (PDM-355) ────────
+   *
+   * This line is PDM-270's open question, and typing the list is what forces it
+   * to be looked at instead of inherited. `grantees.includes(human)` no longer
+   * compiles on its own: `grantees` is `readonly LegacyGrant[]` all the way from
+   * `sessionOwner`, and a `LegacyGrant` is deliberately not a `UserId`.
+   *
+   * THE CAST IS DELIBERATE AND CHANGES NOTHING TODAY. `sessionOwner` has
+   * returned an empty list since B1/PDM-133, so this arm admits nobody and the
+   * behaviour here is byte-identical to what it was. What the cast does is make
+   * the day it stops being empty a decision someone made at a named type, rather
+   * than a one-line edit nothing could see.
+   *
+   * IT IS NOT THIS ISSUE'S CALL TO REMOVE. ADR 9 Amendment 1 D7 says an instance
+   * admin may not view or drive another member's session — the `role === 'admin'`
+   * short circuit that used to sit above this line is already gone [PDM-270] —
+   * and whether a grant arm survives at all for `watch`/`drive` is PDM-270's
+   * decision, not a side effect of a typing change. Removing the cast is how it
+   * gets enacted; leaving it is how the question stays visible until then.
+   */
+  return (grantees as readonly string[]).includes(human)
 }
 
 /**

@@ -6,7 +6,7 @@
 
 
 import { createLogger, describeError } from '@podium/logger'
-import type { SessionId, UserId } from '@podium/model'
+import type { LegacyGrant, SessionId, UserId } from '@podium/model'
 import { asSessionId, asUserId } from '@podium/model'
 import {
   type CommandPrincipal,
@@ -14,7 +14,7 @@ import {
   userCommandPrincipal,
 } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import type { Capability } from '../../issue-authz'
+import { type Capability, mayReadPrivate } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import { granteesOf } from './session-state/grantees'
@@ -25,6 +25,7 @@ import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
+import type { SessionOwnership } from './session-ownership'
 import type { SessionOwnerMemo } from './session-state/service'
 
 const log = createLogger('server:session-authz')
@@ -145,9 +146,32 @@ export class SessionAuthz {
       }
     }
 
+    /**
+     * OWNER-ONLY, ASKED OF THE MODEL (PDM-355).
+     *
+     * This was `ownership.owner !== actor && !ownership.grants.includes(actor)`
+     * — the owner-or-GRANT rule, which is the TASK predicate and not the rule a
+     * SESSION is under (ADR 9 Amendment 1 D7; architecture section 10). It
+     * admitted nobody only because `sessionOwner` returns an empty list, which
+     * was a convention in another function rather than a property here.
+     *
+     * The evidence is still passed rather than dropped — as `legacyGrants`, at a
+     * type that admits no `UserId` to `includes`, so the bypass cannot be
+     * re-spelled by accident.
+     *
+     * WHY THE READ PREDICATE FOR AN APPLY GATE. `mayReadPrivate` mints its own
+     * `owned`-scope-self capability, so what it asks is ownership alone — which
+     * is exactly, and only, what the two lines it replaces asked. The SCOPE term
+     * for this principal's actual capability is not skipped: it is applied below
+     * by `resolveSessionTarget` + `assertMayCommandSession`, where it already was.
+     */
+    const actor = principal.kind === 'user' ? principal.user : principal.onBehalfOf
     if (
-      ownership.owner !== (principal.kind === 'user' ? principal.user : principal.onBehalfOf) &&
-      !ownership.grants.includes(principal.kind === 'user' ? principal.user : principal.onBehalfOf)
+      !mayReadPrivate(actor, {
+        id: input.sessionId,
+        owner: ownership.owner,
+        legacyGrants: ownership.legacyGrants,
+      })
     ) {
       return refused
     }
@@ -318,12 +342,12 @@ export class SessionAuthz {
      * memo's own retirement, filed beneath PDM-139 rather than smuggled in here.
      */
     _memo?: SessionOwnerMemo,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
+  ): Promise<SessionOwnership | undefined> {
     const durable = this.ports.sessions.get(sessionId) ?? await this.storedOwnershipRecord(sessionId)
     if (!durable) return undefined
     const owner = durable.ownerUserId
     if (!owner) return undefined
-    return { owner, grants: [] }
+    return { owner, legacyGrants: [] }
   }
 
   /**

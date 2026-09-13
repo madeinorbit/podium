@@ -10,6 +10,8 @@ import {
   firstAdminMemberId,
   type SessionId,
   type UserId,
+  type LegacyGrant,
+  asLegacyGrant,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
@@ -69,7 +71,7 @@ function makeClient(
 
 function control(opts: {
   session: Session
-  owner?: { owner: UserId; grants: string[] } | undefined
+  owner?: { owner: UserId; legacyGrants: LegacyGrant[] } | undefined
   machineUse?: 'granted' | 'denied' | 'absent'
   occupancy?: number
 }): SessionClientControl {
@@ -160,7 +162,7 @@ describe('POD-1081 attach + take-control policy', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [] }, // alice not on the list
+      owner: { owner: OWNER, legacyGrants: [] }, // alice not on the list
       machineUse: 'granted',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
@@ -178,7 +180,7 @@ describe('POD-1081 attach + take-control policy', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      owner: { owner: OWNER, legacyGrants: [asLegacyGrant(ALICE)] },
       machineUse: 'denied',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
@@ -197,7 +199,7 @@ describe('POD-1081 attach + take-control policy', () => {
     session.attachKinds = []
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [] },
+      owner: { owner: OWNER, legacyGrants: [] },
       machineUse: 'granted',
     })
     const owner = makeClient('c-owner-native-gap', OWNER, 'admin')
@@ -218,7 +220,7 @@ describe('POD-1081 attach + take-control policy', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      owner: { owner: OWNER, legacyGrants: [asLegacyGrant(ALICE)] },
       machineUse: 'granted',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
@@ -240,7 +242,7 @@ describe('POD-1081 attach + take-control policy', () => {
       // which uses the same grants list for both — simulate read-only by denying
       // drive at the machine layer while still... actually authorizeDrive uses
       // the same grants for watch and drive when not split. Use a custom gate:
-      owner: { owner: OWNER, grants: [] }, // alice not grantee → no drive
+      owner: { owner: OWNER, legacyGrants: [] }, // alice not grantee → no drive
       machineUse: 'granted',
     })
     // Attach alice as spectator via direct terminal (already past attach gate).
@@ -264,7 +266,7 @@ describe('POD-1081 attach + take-control policy', () => {
 
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      owner: { owner: OWNER, legacyGrants: [asLegacyGrant(ALICE)] },
       machineUse: 'granted',
     })
     const alice = makeClient('c-alice', ALICE, 'member')
@@ -294,7 +296,7 @@ describe('POD-1081 attach + take-control policy', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [] },
+      owner: { owner: OWNER, legacyGrants: [] },
       machineUse: 'granted',
     })
     const desktop = makeClient('c-desktop', OWNER, 'admin')
@@ -337,7 +339,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      owner: { owner: OWNER, legacyGrants: [asLegacyGrant(ALICE)] },
       machineUse: 'granted',
     })
     const owner = makeClient('c-owner', OWNER, 'admin')
@@ -372,7 +374,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      owner: { owner: OWNER, legacyGrants: [asLegacyGrant(ALICE)] },
       machineUse: 'granted',
     })
     const owner = makeClient('c-owner', OWNER, 'admin')
@@ -429,7 +431,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       pushPriorities: vi.fn(),
       setDraft: vi.fn(),
       editDraft: vi.fn(),
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
+      sessionOwner: async () => ({ owner: OWNER, legacyGrants: [] }),
       machineUseFor: async () => 'granted',
     })
 
@@ -519,7 +521,7 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
       editDraft: vi.fn(),
       // Stated, not defaulted (POD-333): this case is about input attribution
       // after a revoke, so it grants both — but it has to SAY so.
-      sessionOwner: async () => ({ owner: OWNER, grants: [] }),
+      sessionOwner: async () => ({ owner: OWNER, legacyGrants: [] }),
       machineUseFor: async () => 'granted',
     })
 
@@ -611,7 +613,7 @@ it('attaches, transfers control, and delivers input through the real async owner
 describe('MU-07/08: a session is private to the human who started it', () => {
   const BOB = asUserId('user:bob')
   /** Bob's session, on a machine both can use. Ownership is the only variable. */
-  const bobsOwnership = { owner: BOB, grants: [] }
+  const bobsOwnership = { owner: BOB, legacyGrants: [] }
 
   const memberClient = (id: string, user: UserId) => makeClient(id, user, 'member')
 
@@ -667,7 +669,7 @@ describe('MU-07/08: a session is private to the human who started it', () => {
   it('and admits that same ADMIN to the session it DOES own', async () => {
     // THE ALLOW ARM. The grade is not blacklisted; it is simply not consulted.
     const session = makeSession()
-    const ctl = control({ session, owner: { owner: ALICE, grants: [] }, machineUse: 'granted' })
+    const ctl = control({ session, owner: { owner: ALICE, legacyGrants: [] }, machineUse: 'granted' })
     const admin = makeClient('c-alice-admin-own', ALICE, 'admin')
 
     await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })

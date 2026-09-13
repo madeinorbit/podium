@@ -36,6 +36,8 @@ import {
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
+  type LegacyGrant,
+  asLegacyGrant,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
@@ -82,7 +84,7 @@ function session(over: Partial<SessionMetaInput>): SessionMeta {
 
 interface Ownership {
   readonly owner: string
-  readonly grants: readonly string[]
+  readonly legacyGrants: readonly LegacyGrant[]
 }
 
 function harness(opts?: {
@@ -109,7 +111,7 @@ function harness(opts?: {
   const everySession = (): SessionMeta[] => [...first, ...later]
 
   const owners: Record<string, Ownership> = opts?.owners ?? {
-    [TARGET]: { owner: OWNER, grants: [] },
+    [TARGET]: { owner: OWNER, legacyGrants: [] },
   }
 
   const toolkit = new SessionReadToolkit({
@@ -213,7 +215,7 @@ describe('sessions.status ownership', () => {
    * side of that as anybody else who is not the owner.
    */
   it('refuses a grantee — a task grant does not open the session (PDM-251)', async () => {
-    const h = harness({ owners: { [TARGET]: { owner: OWNER, grants: [GRANTEE] } } })
+    const h = harness({ owners: { [TARGET]: { owner: OWNER, legacyGrants: [asLegacyGrant(GRANTEE)] } } })
     const err = await statusFor(h.stateFor(GRANTEE), TARGET).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(TRPCError)
     expect((err as TRPCError).code).toBe('NOT_FOUND')
@@ -270,8 +272,8 @@ describe('sessions.status ownership', () => {
         session({ sessionId: SIBLING, status: 'live', lastActiveAt: '3' }),
       ],
       owners: {
-        [TARGET]: { owner: OWNER, grants: [] },
-        [SIBLING]: { owner: STRANGER, grants: [] },
+        [TARGET]: { owner: OWNER, legacyGrants: [] },
+        [SIBLING]: { owner: STRANGER, legacyGrants: [] },
       },
     })
     const result = await statusFor(h.stateFor(OWNER), '#228')

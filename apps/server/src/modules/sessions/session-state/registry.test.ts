@@ -25,6 +25,8 @@ import {
   firstAdminMemberId,
   type SessionId,
   type UserId,
+  type LegacyGrant,
+  asLegacyGrant,
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
@@ -460,7 +462,7 @@ describe('a queued write drained AFTER the principal lost the session is rejecte
     const base = await fixture()
     let owner: string | null = BOB
     const sessions = base.reg.modules.sessions as unknown as {
-      sessionOwner: (id: string) => { owner: string | null; grants: string[] } | undefined
+      sessionOwner: (id: string) => { owner: string | null; legacyGrants: LegacyGrant[] } | undefined
     }
     const realOwner = sessions.sessionOwner.bind(sessions)
     sessions.sessionOwner = (id: string) => {
@@ -468,7 +470,7 @@ describe('a queued write drained AFTER the principal lost the session is rejecte
       // `grants` stays EMPTY on purpose: it is what B1 made it, and pinning it
       // here means a future edit that starts admitting grantees again cannot
       // make these tests pass by that route.
-      return found ? { owner, grants: [] } : undefined
+      return found ? { owner, legacyGrants: [] } : undefined
     }
     return { ...base, revoke: () => (owner = firstAdminMemberId()) }
   }
@@ -524,13 +526,13 @@ describe('a queued write drained AFTER the principal lost the session is rejecte
   it('a GRANT on the session does not admit a second person to it', async () => {
     const base = await fixture()
     const sessions = base.reg.modules.sessions as unknown as {
-      sessionOwner: (id: string) => { owner: string | null; grants: string[] } | undefined
+      sessionOwner: (id: string) => { owner: string | null; legacyGrants: LegacyGrant[] } | undefined
     }
     const realOwner = sessions.sessionOwner.bind(sessions)
     // A grant list that DOES name BOB — the shape the old fixture relied on.
     sessions.sessionOwner = (id: string) => {
       const found = realOwner(id)
-      return found ? { owner: firstAdminMemberId(), grants: [BOB] } : undefined
+      return found ? { owner: firstAdminMemberId(), legacyGrants: [asLegacyGrant(BOB)] } : undefined
     }
     const { sessionId } = await base.session()
 
