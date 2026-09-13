@@ -1243,6 +1243,7 @@
         "src/modules/sessions/oracle-idempotency.test.ts",
         "src/modules/sessions/oracle-session-state.test.ts",
         "src/modules/sessions/oracle-support.ts",
+        "src/modules/sessions/ownerless-creation.test.ts",
         "src/modules/sessions/paste.ts",
         "src/modules/sessions/publication/broadcast.ts",
         "src/modules/sessions/queries.status-authz.test.ts",
