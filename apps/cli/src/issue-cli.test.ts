@@ -1,34 +1,27 @@
-import { mailInboxTruncationNotice } from '@podium/protocol'
+import { ISSUE_COMMANDS } from '@podium/issue-client'
 import { describe, expect, it, vi } from 'vitest'
 import { parseIssueArgs, resolveRepoArg, runIssueCli } from './issue-cli'
 
 describe('parseIssueArgs', () => {
-  it('recommends a --limit form its own parser actually honours [PDM-407]', () => {
-    // NOT a test that the space form works — that is PDM-427's defect and not
-    // mine to assert green. This pins the weaker property that is actually mine:
-    // the flag form the truncation BANNER prints must be one this CLI honours.
-    //
-    // Read separately, the banner and the parser agree with nobody. Measured on
-    // the issue CLI: `--limit 500` yields args.limit === true and pushes '500'
-    // into the next POSITIONAL, which on `mail` is the issue ref — so following
-    // the banner would have asked for issue 500 and still shown 50 rows. That is
-    // PDM-427's defect, except that this banner is NEW guidance, so PDM-407 would
-    // have shipped it rather than inherited it.
-    //
-    // Taking the token FROM the banner rather than restating it is the point: a
-    // restated literal drifts silently when the banner changes, and this test
-    // exists precisely because guidance and behaviour drifted apart.
-    const line = mailInboxTruncationNotice(500, 'podium issue mail inbox #107').find((l) =>
-      l.includes('--limit'),
-    )
-    expect(line).toBeDefined()
-    const match = /--limit\S*/.exec(line ?? '')
-    expect(match).not.toBeNull()
-    const token = (match?.[0] ?? '').replace('<n>', '500')
-    const parsed = parseIssueArgs(['mail', 'inbox', '#107', token])
+  it('parses the --limit form the inbox help prints [PDM-407]', () => {
+    // NOT a claim that the space form works — that is PDM-427's defect and not
+    // mine to assert green. The property that IS mine: any --limit form this
+    // codebase PRINTS must be one this parser honours. `flagsFromZodShape` calls
+    // a key value-LESS iff its schema accepts `true` and rejects every
+    // VALUE_PROBE, and `z.coerce.number()` does exactly that — so on the issue
+    // CLI a numeric flag parses as a boolean, the space form drops its value, and
+    // the number falls through to the next POSITIONAL, which on `mail` is the
+    // issue ref. `--limit 500` would have asked for ISSUE 500.
+    const parsed = parseIssueArgs(['mail', 'inbox', '#107', '--limit=500'])
     // BOTH HALVES: the value arrived, AND it did not land in the issue ref.
     expect(parsed.args.limit).toBe('500')
     expect(parsed.positionals).toEqual(['inbox', '#107'])
+    // The spelling the CLI advertises, taken from the command's own summary
+    // rather than restated here — a restated literal drifts silently when the
+    // summary changes, and guidance drifting from behaviour IS the defect.
+    const summary = ISSUE_COMMANDS.find((c) => c.name === 'mail')?.summary ?? ''
+    expect(summary).toContain('--limit=')
+    expect(summary).not.toMatch(/--limit [<n]/)
   })
 
   it('parses the command, positionals, --flag value, --flag=value, and --bool', () => {

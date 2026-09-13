@@ -24,7 +24,7 @@ import {
   ISSUE_TREE_DEFAULT_MAX_NODES,
   MAIL_INBOX_DEFAULT_LIMIT,
   MAIL_INBOX_MAX_LIMIT,
-  mailInboxTruncationNotice,
+  renderInboxPage,
   selfRefNudge,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
@@ -1164,9 +1164,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           return { text: mailSendOutcomeText(ref, m.id, m.disposition), data: m }
         }
         case 'inbox': {
-          // Sent even when unset, like `events` below (POD-1342): a FULL page is
-          // how truncation is detected, so the CLI has to know the cap the server
-          // applied rather than let it choose silently [PDM-407].
+          // EXACTLY `limit` [PDM-407]. Over-fetching by one would MEASURE whether
+          // older mail exists, but an inbox read MARKS WHAT IT RETURNS READ, so
+          // the probe row would be consumed and never displayed — the very
+          // read-status defect this issue is about. A full page is therefore
+          // reported as MAY-be-more, which is honest and costs nobody a message.
+          // The page is rendered NEWEST FIRST and bounded by BYTES,
+          // because the defect this fixes is a display-layer cut that always
+          // takes the tail — selecting the newest rows and then printing them
+          // oldest-first hands the cut the very message the reader came for.
           const limit = (a.limit as number | undefined) ?? MAIL_INBOX_DEFAULT_LIMIT
           const msgs = (await c.issues.mailInbox.mutate({
             ...(ref ? { id: ref } : {}),
@@ -1180,19 +1186,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             wasUnread: boolean
           }[]
           if (!msgs.length) return { text: '(no mail)', data: msgs }
-          const lines = msgs.map(
-            (m) =>
-              `${m.wasUnread ? '*' : ' '} ${m.id} ${m.fromAuthor} ${m.createdAt}${m.status === 'claimed' ? ' [claimed]' : ''}\n  ${m.body}`,
+          const text = renderInboxPage(
+            msgs.map((m) => ({
+              id: m.id,
+              header: `${m.wasUnread ? '*' : ' '} ${m.id} ${m.fromAuthor} ${m.createdAt}${m.status === 'claimed' ? ' [claimed]' : ''}`,
+              body: m.body,
+            })),
+            { showCommand: 'podium mail show', pageWasFull: msgs.length >= limit },
           )
-          if (msgs.length >= limit) {
-            const notice = mailInboxTruncationNotice(
-              limit,
-              `podium issue mail inbox${ref ? ` ${ref}` : ''}`,
-            )
-            lines.push('', ...notice)
-            lines.unshift(...notice, '')
-          }
-          return { text: lines.join('\n'), data: msgs }
+          return { text, data: msgs }
         }
         case 'claim': {
           if (!ref) throw new Error('mail claim needs a message id: mail claim <msgId>')

@@ -627,6 +627,10 @@ export const mailInboxInput = z
   .object({
     id: IssueIdField.optional(),
     // The page size the caller will quote back in its truncation notice [PDM-407].
+    // The page size the caller will show. NOT over-fetched by one: reading an
+    // inbox MARKS THE RETURNED ROWS READ, so a probe row would be consumed
+    // without ever being displayed — the exact read-status defect this issue is
+    // about. Truncation is reported as may-be-more instead [PDM-407].
     limit: z.number().int().min(1).max(MAIL_INBOX_MAX_LIMIT).optional(),
   })
   .optional()

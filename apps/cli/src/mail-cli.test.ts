@@ -243,38 +243,49 @@ describe('podium mail CLI (argv shape)', () => {
     })
   })
 
-  it('sends the cap explicitly, so it can quote the one the server used [PDM-407]', async () => {
+  it('asks for exactly the page it will show [PDM-407]', async () => {
     const c = client()
     await runMailCli(['inbox'], c)
-    // Sent even when unset. A full page is how truncation is detected, so a CLI
-    // that lets the server pick silently cannot tell a full page from a whole box.
+    // NOT limit + 1. Over-fetching would measure whether older mail exists, but
+    // an inbox read MARKS WHAT IT RETURNS READ — the probe row would be consumed
+    // and never displayed, which is the read-status defect this issue is about.
     expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({ limit: MAIL_INBOX_DEFAULT_LIMIT })
     await runMailCli(['inbox', '--limit', '3'], c)
     expect(c.messages.inbox.mutate).toHaveBeenLastCalledWith({ limit: 3 })
     await expect(runMailCli(['inbox', '--limit', 'lots'], c)).rejects.toThrow(/--limit/)
   })
 
-  it('marks a FULL page truncated at both ends, and says the page is the newest [PDM-407]', async () => {
-    const full = Array.from({ length: 3 }, (_, i) => ({ ...WIRE, id: `msg_${i}` }))
-    const out = await runMailCli(['inbox', '--limit', '3'], client({ inbox: full }))
-    const lines = out.split('\n')
-    // AT THE TOP as well as the bottom. This listing is cut by whatever reads it
-    // — a terminal, an agent's tool-output cap — exactly when it is long, and a
-    // footer is the first thing such a cut removes. That is the failure being
-    // fixed here, so the notice must survive it.
-    expect(lines[0]).toMatch(/TRUNCATED/)
-    expect(lines.at(-1)).toMatch(/--limit/)
-    expect(out.match(/TRUNCATED/g)).toHaveLength(2)
-    // And it must say WHICH end was kept, or a reader cannot tell whether the
-    // mail it is missing is older or newer than what it can see.
-    expect(out).toMatch(/newest/)
+  it('renders NEWEST FIRST so a display cut takes the oldest [PDM-407]', async () => {
+    // The defect is a BYTE cut at the display layer, and such a cut always takes
+    // the TAIL. Selecting the newest rows and then printing them oldest-first
+    // hands the cut exactly the message the reader came for, which is what the
+    // first version of this fix did.
+    const rows = ['a', 'b', 'c'].map((id) => ({ ...WIRE, id: `msg_${id}` }))
+    const out = await runMailCli(['inbox', '--limit', '3'], client({ inbox: rows }))
+    const body = out.split('\n').filter((l) => l.includes('msg_'))
+    expect(body[0]).toContain('msg_c')
+    expect(body.at(-1)).toContain('msg_a')
+    // And the full-read route is named up front, not a widening flag: asking for
+    // more rows is the wrong answer to an output that was already too long.
+    const head = out.split('\n').slice(0, 3).join('\n')
+    expect(head).toContain('podium mail show')
+    expect(head).not.toMatch(/--limit/)
   })
 
-  it('leaves a page shorter than the cap unmarked [PDM-407]', async () => {
-    // The admission that pairs with the notice above: without it, a CLI that
-    // printed the banner unconditionally would satisfy the truncation test.
-    const out = await runMailCli(['inbox', '--limit', '3'], client())
-    expect(out).not.toMatch(/TRUNCATED/)
+  it('says MAY on a full page and stays silent on a short one [PDM-407]', async () => {
+    // The old notice inferred "older messages are not listed" from
+    // length === limit, stating as fact something it could not know: a box
+    // holding exactly one page was labelled definitely truncated. A full page
+    // now says MAY, and a short page says nothing at all — the admission that
+    // stops the banner being printed unconditionally.
+    const full = ['a', 'b', 'c'].map((id) => ({ ...WIRE, id: `msg_${id}` }))
+    const out = await runMailCli(['inbox', '--limit', '3'], client({ inbox: full }))
+    expect(out).toMatch(/MAY be older messages/i)
+    expect(out).not.toMatch(/Older messages exist\b/i)
+
+    const short = ['a', 'b'].map((id) => ({ ...WIRE, id: `msg_${id}` }))
+    const out2 = await runMailCli(['inbox', '--limit', '3'], client({ inbox: short }))
+    expect(out2).not.toMatch(/older messages/i)
   })
 
   it('show needs an id and renders thread metadata', async () => {

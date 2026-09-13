@@ -19,7 +19,7 @@ import type { ThreadId } from '@podium/model'
 import {
   MAIL_INBOX_DEFAULT_LIMIT,
   MAIL_INBOX_MAX_LIMIT,
-  mailInboxTruncationNotice,
+  renderInboxPage,
 } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
@@ -135,7 +135,8 @@ function helpText(): string {
     '      --expires-in <duration> sets an absolute TTL (e.g. 2m, 30s, 1h, or seconds).',
     `  inbox [--issue <ref>] [--limit=<n>]`,
     '      Read your mailbox (marks messages received). --issue peeks at another box.',
-    `      Returns the NEWEST ${MAIL_INBOX_DEFAULT_LIMIT} by default; --limit=<n> raises it to ${MAIL_INBOX_MAX_LIMIT}.`,
+    `      NEWEST FIRST, bounded output; ${MAIL_INBOX_DEFAULT_LIMIT} by default, --limit=<n> up to ${MAIL_INBOX_MAX_LIMIT}.`,
+    '      Long pages are shortened to previews — read one in full with `show <id>`.',
     '  show <id>',
     '      One message in full (sender/recipient/thread/ledger).',
     '  status <id>',
@@ -175,7 +176,8 @@ interface MessageWire {
   expectsResponse?: boolean
 }
 
-function renderRow(m: MessageWire): string {
+/** The one-line header: id first, because the id is the read-by-id key. */
+function renderHeader(m: MessageWire): string {
   const flags = [
     m.status,
     m.kind !== 'message' ? m.kind : null,
@@ -183,7 +185,12 @@ function renderRow(m: MessageWire): string {
     m.expectsResponse && !m.ackedBy ? 'wants-reply' : null,
     m.ackedBy ? 'acked' : null,
   ].filter(Boolean)
-  return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]\n  ${m.body}`
+  return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]`
+}
+
+/** Header plus full body — `show`, which renders exactly one message. */
+function renderRow(m: MessageWire): string {
+  return `${renderHeader(m)}\n  ${m.body}`
 }
 
 /** The send disposition, worded for the sender (#834, [POD-854] blocking send).
@@ -326,21 +333,20 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
     }
     case 'inbox': {
       const limit = parseInboxLimit(args.limit)
-      // Sent even when unset, like `podium issue events` (POD-1342): a FULL page
-      // is how truncation is detected, so a CLI that lets the server choose
-      // silently cannot tell a capped page from a whole mailbox.
+      // EXACTLY `limit`, not one more. Over-fetching would measure whether older
+      // mail exists, but an inbox read MARKS WHAT IT RETURNS READ, so the probe
+      // row would be consumed and never displayed — the read-status defect this
+      // issue exists to fix. A full page is reported as MAY-be-more instead.
       const rows = (await client.messages.inbox.mutate({
         ...(typeof args.issue === 'string' ? { issue: args.issue } : {}),
         limit,
       })) as MessageWire[]
       if (!rows.length) return done('(no messages)', rows)
-      const lines = rows.map(renderRow)
-      if (rows.length >= limit) {
-        const notice = mailInboxTruncationNotice(limit, 'podium mail inbox')
-        lines.push('', ...notice)
-        lines.unshift(...notice, '')
-      }
-      return done(lines.join('\n'), rows)
+      const text = renderInboxPage(
+        rows.map((m) => ({ id: m.id, header: renderHeader(m), body: m.body })),
+        { showCommand: 'podium mail show', pageWasFull: rows.length >= limit },
+      )
+      return done(text, rows)
     }
     case 'show': {
       const id = positionals[0]
