@@ -100,7 +100,7 @@ describe('session-state tRPC isolation between two logged-in members', () => {
       janitorWorkerForTests: noJanitorWorkerForTests,
     })
     const users = handle.registry.sessionStore.users
-    adminId = firstAdminMemberId()
+    adminId = await firstAdminMemberId(handle.registry.sessionStore)
     await users.setEmail(adminId, adminEmail)
     await users.setPasswordHash(adminId, await hashPassword(adminPassword), new Date().toISOString())
 

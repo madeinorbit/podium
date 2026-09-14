@@ -96,7 +96,7 @@ describe('POD-376 · two authenticated persons, live v2 feed', () => {
     })
     baseUrl = `http://127.0.0.1:${server.port}`
     const users = server.registry.sessionStore.users
-    adminId = firstAdminMemberId()
+    adminId = await firstAdminMemberId(server.registry.sessionStore)
     await users.setEmail(adminId, adminEmail)
     await users.setPasswordHash(adminId, await hashPassword(adminPassword), new Date().toISOString())
     adminCookie = await login(adminEmail, adminPassword, adminId)
