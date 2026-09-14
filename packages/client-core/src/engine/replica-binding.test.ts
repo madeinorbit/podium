@@ -227,6 +227,60 @@ describe('the binding joins THIS reader’s marks onto session rows', () => {
     b.stop()
   })
 
+  it('the SESSION going away and coming back keeps THIS reader’s mark joined', async () => {
+    // THE BINDING LIFECYCLE [PDM-450 round four]. apps/server witnesses the
+    // delete/restore through the real Replica, but it CANNOT execute the binding
+    // — it has no dependency on this package, which is a bound I have been
+    // repeating in receipts. The honest answer to "the binding is not exercised"
+    // is not to keep restating the bound: it is to exercise it HERE, where the
+    // binding actually runs. This is the same sequence as the server-side case,
+    // one layer down.
+    const b = await startBound()
+    b.deliver('session', A, shared(A, '2026-08-01T00:00:00.000Z'))
+    b.deliver('session', B, shared(B, '2026-08-01T00:00:00.000Z'))
+    b.deliver('sessionMarks', A, marks(A, '2026-08-02T00:00:00.000Z'))
+    b.deliver('sessionMarks', B, marks(B, '2026-08-02T00:00:00.000Z'))
+    // PRECONDITION: both joined before anything is removed, so "it came back"
+    // cannot pass on a row that was never there.
+    const before = b.lastRows()
+    expect.soft(before.get(A)?.readAt).toBe('2026-08-02T00:00:00.000Z')
+    expect.soft(before.get(A)?.unread).toBe(false)
+    b.publications.length = 0
+
+    // THE DELETE: the SESSION row goes; the marks row is deliberately NOT
+    // touched, because that is what the server does — soft delete keeps per-user
+    // rows and only the session leaves the feed.
+    b.cache.drop('session', A)
+    b.replica.onKernelEvent({ type: 'evicted', entity: 'session', entityId: A })
+
+    const whileGone = b.lastRows()
+    expect.soft(whileGone.has(A)).toBe(false)
+    // The OTHER session is untouched — the scope control.
+    expect.soft(whileGone.get(B)?.readAt).toBe('2026-08-02T00:00:00.000Z')
+    // AND THE MARK OUTLIVED THE SESSION IN THE PUBLISHED SLICE. Without this the
+    // restore below could be satisfied by a mark that was re-delivered rather
+    // than retained, which is a different claim.
+    const marksIds = (b.publications.at(-1)?.snapshot.sessionMarks ?? []).map(
+      (r) => (r as unknown as { sessionId: string }).sessionId,
+    )
+    expect.soft(marksIds).toContain(A)
+    b.publications.length = 0
+
+    // THE RESTORE: the session row returns carrying the BROADCAST's neutral
+    // marks, exactly as it arrives from the server — readAt null, unread true.
+    // If the binding did not re-join, those neutral values would be what the
+    // reader sees, and that is the defect this whole issue exists to remove.
+    b.deliver('session', A, shared(A, '2026-08-01T00:00:00.000Z'))
+
+    const after = b.lastRows()
+    expect.soft(after.get(A)?.readAt).toBe('2026-08-02T00:00:00.000Z')
+    expect.soft(after.get(A)?.unread).toBe(false)
+    // B still correct, so the re-join was not a blanket re-derive that happened
+    // to fix A while disturbing its neighbour.
+    expect.soft(after.get(B)?.readAt).toBe('2026-08-02T00:00:00.000Z')
+    b.stop()
+  })
+
   it('a SHARED-session change re-joins the marks this client already holds', async () => {
     // The other direction, and the reason the binding re-derives on BOTH kinds:
     // a session row arriving second carries the broadcast's NEUTRAL marks and

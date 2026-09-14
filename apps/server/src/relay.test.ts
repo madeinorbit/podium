@@ -6555,6 +6555,71 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     await reg.dispose()
   })
 
+  it('a client bootstrapping WHILE the session is deleted — what it actually gets', async () => {
+    // THE STATE THE HELD CONSUMER CANNOT REACH BY CONSTRUCTION [PDM-450 round
+    // four]. A held client never re-bootstraps, and the cold-bootstrap case above
+    // attaches AFTER the restore. Nobody had attached DURING the deletion.
+    //
+    // THIS CASE REPORTS WHAT THE SERVER DOES, IT DOES NOT ASSERT WHAT IT SHOULD.
+    // The answer turned out to be that the two arms DISAGREE — the session is
+    // withheld and its marks row is served — which is written up at the assertion
+    // below with the source that causes it.
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const me = firstAdminMemberId()
+    const issue = await reg.modules.issues.create({ repoPath: '/repo', title: 'Doomed', startNow: false })
+    const kept = await reg.modules.issues.create({ repoPath: '/repo', title: 'Kept', startNow: false })
+    const doomed = (await reg.modules.sessions.createSession({
+      ownerUserId: me, agentKind: 'shell', cwd: '/repo', issueId: issue.id,
+    })).sessionId
+    const survivor = (await reg.modules.sessions.createSession({
+      ownerUserId: me, agentKind: 'shell', cwd: '/repo', issueId: kept.id,
+    })).sessionId
+    await reg.modules.sessions.markSessionRead(me, doomed)
+    await reg.modules.sessions.markSessionRead(me, survivor)
+    await reg.modules.sessions.flushBroadcasts()
+
+    await reg.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await reg.modules.sessions.flushBroadcasts()
+
+    // Attach NOW, mid-deletion.
+    const c = sink()
+    await attachCurrent(reg, c.send)
+    const store = await applyToRealReplica(c.sent)
+    const sessions = heldIn(store, 'session')
+    const marks = heldIn(store, 'sessionMarks')
+
+    // THE SCOPE CONTROL FIRST, so a wholly empty bootstrap cannot pass this.
+    expect.soft(sessions).toContain(survivor)
+    expect.soft(marks).toContain(sessionMarksRowId(me, survivor))
+    // The deleted session itself is NOT served.
+    expect.soft(sessions).not.toContain(doomed)
+    // …AND ITS MARKS ROW IS. THIS IS THE MEASURED ANSWER AND IT SURPRISED ME —
+    // I wrote the opposite assertion first and the run corrected it. A client
+    // attaching mid-deletion receives an ORPHAN: a marks row naming a session it
+    // does not have and cannot open.
+    //
+    // MECHANISM, READ FROM SOURCE RATHER THAN INFERRED FROM THIS RESULT. The two
+    // arms disagree about a tombstone. The `session` arm filters the deleted row
+    // out of the feed. The marks arm gates on
+    // `prefetch.sessions.get(marks.sessionId) !== undefined`, and that map is
+    // built from `store.sessions.getSessions([...])` (feed-visibility.ts:574),
+    // whose query is `inArray(id)` with NO `isNull(deletedAt)` predicate
+    // (store/sessions.ts:156) — so a tombstoned row satisfies the gate.
+    //
+    // WHICH MAKES THE GATE'S OWN COMMENT WRONG ABOUT ITS PURPOSE. It says it is
+    // there so a previously admitted grantee does not "keep being SERVED stale
+    // marks naming a session nobody can open". For a PURGE it does that. For a
+    // SOFT DELETE — the reversible path, the one with a production caller — it
+    // does not, because the row is still there to be found.
+    //
+    // PINNED AS OBSERVED BEHAVIOUR, NOT ENDORSED. Filed separately; no repair
+    // here. The assertion exists so that a change to either arm has to come past
+    // it and make a decision, rather than drifting silently in either direction.
+    expect.soft(marks).toContain(sessionMarksRowId(me, doomed))
+    await reg.dispose()
+  })
+
   it('serves each principal their OWN marks and refuses a stranger, at the gateway', async () => {
     // FIXTURE IDENTITY INJECTION, NOT AUTHENTICATION [PDM-450]. `attachTestClient`
     // takes a `userId`, so the serving path can be asked what it does for a given
@@ -6727,12 +6792,21 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     expect.soft(await marksOf(ownerClient)).not.toContain(granteeRow)
     expect.soft(await marksOf(granteeClient)).toContain(granteeRow)
     expect.soft(await marksOf(granteeClient)).not.toContain(ownerRow)
-    // The stranger has no grant: neither row, and their own row present so the
-    // refusals above are not satisfied by an empty feed.
-    expect.soft(await marksOf(strangerClient)).toEqual(
-      expect.not.arrayContaining([ownerRow, granteeRow]),
-    )
-    expect.soft(await marksOf(strangerClient)).toContain(sessionMarksRowId(stranger, theirs))
+    // THE STRANGER'S REFUSALS, ONE ASSERTION EACH [PDM-450 round four] — and the
+    // reviewer was right that a set-level assertion was not good enough here. It
+    // was worse than imprecise, it was WEAK. This read:
+    //
+    //     expect(strangerRows).toEqual(expect.not.arrayContaining([ownerRow, granteeRow]))
+    //
+    // `arrayContaining([a, b])` matches an array holding ALL of a and b, so its
+    // negation only fails when BOTH are present. A stranger receiving the
+    // OWNER'S marks row and not the grantee's PASSED IT. Measured, not reasoned:
+    // a scratch case asserting exactly that shape over `['ownerRow']` is green.
+    // Split, so each refusal fails on its own and names its own row.
+    const strangerRows = await marksOf(strangerClient)
+    expect.soft(strangerRows).not.toContain(ownerRow)
+    expect.soft(strangerRows).not.toContain(granteeRow)
+    expect.soft(strangerRows).toContain(sessionMarksRowId(stranger, theirs))
     // VALUES, not just ids: the snooze rides the grantee's row and nobody else's.
     expect.soft(await snoozeOf(granteeClient, granteeRow)).toBe(until)
     expect.soft(await snoozeOf(ownerClient, ownerRow)).toBeUndefined()
