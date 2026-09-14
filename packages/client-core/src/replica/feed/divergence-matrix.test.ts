@@ -27,14 +27,18 @@
  *                   which is the mechanism; they are not the product's commands.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS CANNOT EVIDENCE
+ * WHAT THIS FILE EVIDENCES, AND WHERE THE SECOND-ACCOUNT CHECK LIVES
  * ---------------------------------------------------------------------------
  *
- * Two principals here are two `FeedPrincipal` values. The shipped authenticator is
- * device-grade — one shared password, two connections indistinguishable AS PERSONS
- * — so these cases prove the MECHANISM carries the distinction end to end, and do
- * not prove per-person isolation. Basis document §5 states the split; nothing here
- * should be read as the second-account check.
+ * Two principals here are two `FeedPrincipal` values. These cases prove the
+ * MECHANISM carries the distinction end to end. They are not the second-account
+ * check — that needs the authenticator, which this package does not own.
+ *
+ * That check is now writeable (per-account passwords, `CLIENT_PRINCIPAL_GRADE =
+ * 'user'`) and lives in `tests/e2e/feed-v2-second-member.e2e.test.ts`: two
+ * `/auth/login` cookies, the same consumer this file owns, and the assertion
+ * that a private row of A never appears on B's replica. Basis document §5 named
+ * the split; it no longer names a missing authenticator.
  */
 
 import { ConformanceAuthority, type ConformancePrincipal, conformanceUser } from '@podium/sync'

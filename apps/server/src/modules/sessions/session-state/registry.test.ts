@@ -2,16 +2,16 @@ import { soleHumanSessionStatePrincipal } from '../../../test-support/session-st
 /**
  * MULTI-USER PROPERTIES of the session-state command envelope (POD-380).
  *
- * These are the assertions POD-379's oracle structurally CANNOT make. The oracle
- * drives the tRPC surface, and that surface has exactly one principal today (one
- * shared password ⇒ `OPERATOR`, and `client_sessions` has no user column — §3.2).
- * So the oracle can prove behaviour is preserved; it cannot prove two people do
- * not see each other's state, because it cannot produce a second person.
+ * These are the assertions POD-379's oracle structurally did not make: it drives
+ * the tRPC surface, and until per-account passwords the transport minted one
+ * principal (one shared password ⇒ `OPERATOR`). The transport-level second-member
+ * cases now live in `registry.transport.test.ts` — two `/auth/login` cookies,
+ * real `user_credentials` rows, tRPC as each person.
  *
  * This file tests the ENFORCEMENT POINT directly — `SessionStateRegistry.execute` —
- * where a principal is an argument. That is not a workaround for a missing
- * feature: `SessionStateRegistry` is where the policy is decided at runtime, so it is
- * the thing that actually has to hold when POD-1075 mints real users.
+ * where a principal is an argument. That is not a workaround: `SessionStateRegistry`
+ * is where the policy is decided at runtime, including the mismatched-capability
+ * case the transport cannot even express (it always mints a coherent principal).
  *
  * WHAT WOULD MAKE THESE VACUOUS, and how each is guarded: a test that only ever
  * shows refusals passes against an envelope wired shut. Every denial assertion

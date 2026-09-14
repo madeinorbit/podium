@@ -17,18 +17,12 @@
  *   2. Rename from the web UI, OFFLINE → paints optimistically on the author,
  *      then drains on reconnect and converges on the second client.
  *
- * WHAT IS NOT, AND WHY — the different-user denial. The criterion asks for a
- * client of a DIFFERENT user to be denied on the write path. That is not
- * expressible at runtime today: authentication is one shared password and
- * `client_sessions` has no user column (readiness §3.2), so the transport cannot
- * mint a second person — every browser here is the same principal by
- * construction. Producing one would mean faking the very thing under test.
- *
- * It IS proven, at the enforcement point where a principal is an argument:
- * `apps/server/src/modules/sessions/rename-shadow.test.ts` ("an agent whose human
- * does NOT hold the session is denied at apply") and `rename-offline.test.ts`
- * (revoked owner, revoked grant, revoked delegating human). POD-1075 makes the
- * runtime half possible; the ledger records the gap rather than implying it away.
+ * WHAT WAS MISSING, AND WHERE IT LIVES NOW — the different-user denial. The
+ * criterion asks for a client of a DIFFERENT user to be denied on the write
+ * path. Per-account passwords make that expressible: the test below invites a
+ * second member, logs them in on their own browser context, and asserts the
+ * rename is refused while the owner's UI keeps the original name. Enforcement-
+ * point coverage remains in `rename-shadow.test.ts` / `rename-offline.test.ts`.
  */
 
 import { join } from 'node:path'
@@ -346,6 +340,96 @@ test.describe('session.rename on the target path, end to end', () => {
 
     await observer.close()
   })
+})
+
+test('a different user is denied renaming a session they do not hold', async ({
+  browser,
+  context: ownerContext,
+  page: ownerPage,
+}) => {
+  test.skip(!OWNER_PASSWORD, 'requires PODIUM_PASSWORD so two production principals can log in')
+  if (!OWNER_PASSWORD) return
+
+  const owner = 'user:sole'
+  const memberEmail = `rename-denial-member-${Date.now()}@example.com`
+  const memberPassword = 'rename-denial-member-password'
+  const ownerToken = await login(ownerContext.request, owner, OWNER_PASSWORD)
+  await ownerContext.addCookies([
+    {
+      name: 'podium_session',
+      value: ownerToken,
+      url: HTTP,
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+  ])
+
+  const invitation = await ownerContext.request.post(`${HTTP}/auth/members/invite`, {
+    data: { email: memberEmail, role: 'member' },
+  })
+  if (!invitation.ok())
+    throw new Error(`invite member -> ${invitation.status()}: ${await invitation.text()}`)
+  const { invite } = (await invitation.json()) as { invite: { token: string } }
+  const account = await ownerContext.request.post(`${HTTP}/auth/members/complete`, {
+    data: {
+      token: invite.token,
+      email: memberEmail,
+      displayName: 'Rename Denial Member',
+      password: memberPassword,
+    },
+  })
+  if (!account.ok()) throw new Error(`claim member -> ${account.status()}: ${await account.text()}`)
+  const { userId: member } = (await account.json()) as { userId: string }
+  expect(member).toBeTruthy()
+
+  await openApp(ownerPage)
+  const sessionId = await openSessionId(ownerPage)
+  const original = `rename-owner-${Date.now()}`
+  await renameViaUi(ownerPage, sessionId, original)
+  await expectConverged(ownerPage, original)
+
+  const memberContext = await browser.newContext({ baseURL: HTTP })
+  try {
+    const memberToken = await login(memberContext.request, memberEmail, memberPassword)
+    await memberContext.addCookies([
+      {
+        name: 'podium_session',
+        value: memberToken,
+        url: HTTP,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ])
+    const memberPage = await memberContext.newPage()
+    await openBareApp(memberPage)
+
+    // VISIBILITY: the member's work list is a real replica of THEIR slice. If
+    // this contained `original`, the denial below would be a write against a
+    // session they can already see — a different case, and not the criterion's.
+    expect(await sidebarText(memberPage)).not.toContain(original)
+
+    // WRITE PATH: the same cookie the UI would send. A 2xx rename here would
+    // mean the walking-skeleton envelope accepted a stranger; the owner's
+    // label staying put is the product assertion, the status is the
+    // instrument that the call was refused rather than silently dropped
+    // before it reached the envelope.
+    const stolen = `rename-stolen-${Date.now()}`
+    const response = await memberContext.request.post(`${HTTP}/trpc/sessions.rename`, {
+      data: { sessionId, name: stolen },
+    })
+    expect(response.ok()).toBe(false)
+    expect(await sidebarText(ownerPage)).toContain(original)
+    expect(await sidebarText(ownerPage)).not.toContain(stolen)
+    const still = await rpc<Array<{ sessionId: string; name?: string }>>(
+      ownerContext.request,
+      'sessions.list',
+      undefined,
+      'get',
+    )
+    expect(still.find((row) => row.sessionId === sessionId)?.name).toBe(original)
+  } finally {
+    await memberContext.close()
+  }
 })
 
 test('kernel Outbox dead-letter retry, edit, and discard after a live apply refusal', async ({

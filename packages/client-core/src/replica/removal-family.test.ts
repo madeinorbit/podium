@@ -52,11 +52,12 @@
  *                   memory, is the fixture certifying itself.
  *
  * WHAT THIS DOES NOT EVIDENCE. Two principals here are two `FeedPrincipal`
- * values. The shipped authenticator is device-grade — one shared password, two
- * connections indistinguishable AS PERSONS — so these cases prove the MECHANISM
- * carries the distinction end to end on both platforms. They are not the
- * second-account check; `docs/multi-user-readiness.md` §3.2 is why there cannot
- * be one yet.
+ * values. These cases prove the MECHANISM carries the distinction end to end on
+ * both platforms. They are not the second-account check — that needs the
+ * authenticator. Per-account passwords made it writeable; it lives in
+ * `tests/e2e/feed-v2-second-member.e2e.test.ts` ("revoking a share evicts the
+ * row from B and leaves A holding it, not as a deletion"). §3.2 is no longer
+ * why there cannot be one.
  *
  * WHY THE MOBILE LANE IS NOT "THE SAME THING TWICE". The two adapters fail
  * differently on exactly this family: IndexedDB's `delete` and a row simply not
