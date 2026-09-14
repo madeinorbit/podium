@@ -4,6 +4,7 @@ import {
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
   REPLICA_TRANSCRIPT_ITEM_CAP,
+  type ReplicaHydrateResult,
   type ReplicaInit,
 } from '@podium/client-core/replica'
 import type { IssueWire, SessionId, SessionMeta, TranscriptItem } from '@podium/model'
@@ -298,11 +299,13 @@ describe('replica adapter', () => {
       issues: [],
       issueProjections: [],
       issueDeps: [],
+      issueExecutions: [],
       issueEvents: [],
       repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
+      pendingInteractions: [],
       // The replicated shipping row arrived with the durable shipping model. An
       // empty table is still a table the degraded replica has to offer, or a
       // reader would have to branch on whether storage happened to work.
@@ -313,7 +316,7 @@ describe('replica adapter', () => {
       // cold too — a persisted cursor would lie about what is on disk (ADR 2 D1).
       feedCursor: COLD_CURSOR,
       schemaReset: false,
-    })
+    } satisfies ReplicaHydrateResult)
     r.applySnapshot('sessions', [session('s1')])
     r.applyChanges('issues', [issue('i1')], [])
     r.setCursor(1)
@@ -331,17 +334,19 @@ describe('replica adapter', () => {
       issues: [],
       issueProjections: [],
       issueDeps: [],
+      issueExecutions: [],
       issueEvents: [],
       repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
+      pendingInteractions: [],
       shipOrders: [],
       userLayouts: [],
       cursor: null,
       feedCursor: COLD_CURSOR,
       schemaReset: false,
-    })
+    } satisfies ReplicaHydrateResult)
   })
 
   it('a quota-exceeded entity write degrades to memory: ingest completes, no cursor advance (#181)', async () => {
