@@ -1,3 +1,8 @@
+-- expand-only: contract-step
+-- retires: issues.assignee
+-- expanded-in: 20260715135845_baseline
+-- reason: Retire the legacy assignee column after ownership adjudication; owner_user_id is the sole stored owner. This declares the measured loss, not a release-gap exception.
+
 -- A2 · THE SECOND OWNER COLUMN GOES (spec: multi-user epic A2, ADR 9 Amendment 1 D10)
 --
 -- `20260912164233_a2-ownership-backfill` has already read every `assignee`,
