@@ -50,6 +50,26 @@ describe('hermetic test env', () => {
       assertHermeticStateDir({ PODIUM_STATE_DIR: join(liveStateDir, 'child') }, liveStateDir),
     ).toThrow(/must not use the live state tree/)
   })
+
+  it('refuses the original live tree after HOME changes', () => {
+    const previousHome = process.env.HOME
+    const previousLiveStateDir = process.env.PODIUM_LIVE_STATE_DIR
+    const originalLiveStateDir = resolve(join(tmpdir(), 'podium-original-home', '.podium'))
+    try {
+      // This is the startup capture supplied by the harness before a test can mutate HOME.
+      process.env.PODIUM_LIVE_STATE_DIR = originalLiveStateDir
+      process.env.HOME = join(tmpdir(), 'podium-fake-home')
+
+      expect(() =>
+        assertHermeticStateDir({ PODIUM_STATE_DIR: originalLiveStateDir }),
+      ).toThrow(/must not use the live state tree/)
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (previousLiveStateDir === undefined) delete process.env.PODIUM_LIVE_STATE_DIR
+      else process.env.PODIUM_LIVE_STATE_DIR = previousLiveStateDir
+    }
+  })
 })
 
 describe('hermetic child env', () => {
