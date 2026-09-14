@@ -33,13 +33,17 @@
  *    `sessionFromStoredRow` in BOTH modes. Executed.
  *  - EMPTY STRING: planted into a migrated database through raw SQL, read back
  *    through the ordinary store read, and put through hydration. Executed.
- *  - NULL: NOT executed, and it cannot be. `SessionRow.ownerUserId` is
- *    `UserId | undefined` — `null` is not in the type — and the only thing that
- *    could produce one is a NULL column, which `mapSession` reads off a NOT NULL
- *    column. The last test asserts THE CONSTRAINT, which is a fact about the
- *    table and NOT a hydration run: it says a null owner cannot arrive, not that
- *    hydration was driven with one. `!r.ownerUserId` would refuse it if it ever
- *    did, but no test in this file demonstrates that.
+ *  - NULL: NOT executed — by NOTHING IN THIS FILE, which is the whole of the
+ *    claim. A test COULD drive one: a cast, a hand-shaped row or a raw insert
+ *    reaches `sessionFromStoredRow` with null whenever someone chooses to, and
+ *    this file already casts elsewhere. What is true is narrower and is about
+ *    PRODUCERS, not about what a test can construct: no typed caller yields a
+ *    null owner, because `SessionRow.ownerUserId` is `UserId | undefined` and
+ *    `mapSession` reads the field off a NOT NULL column. The last test asserts
+ *    THAT CONSTRAINT, which is a fact about the table and NOT a hydration run:
+ *    it says a null owner cannot arrive, not that hydration was driven with one.
+ *    `!r.ownerUserId` would refuse it if it ever did, and no test here
+ *    demonstrates that.
  *
  * THE TWO CLASSES HAVE DIFFERENT WARRANTS AND THIS FILE KEEPS THEM APART.
  *
@@ -310,8 +314,9 @@ describe('an ownerless session row is refused at hydration', () => {
   it('the NULL half of the guard is the schema half: owner_user_id is NOT NULL', () => {
     // THIS ASSERTS A CONSTRAINT; IT DOES NOT RUN HYDRATION (PDM-451). It says a
     // null owner cannot ARRIVE — not that `sessionFromStoredRow` was driven with
-    // one, which no test here does and which `SessionRow`'s type
-    // (`UserId | undefined`) does not admit without a cast. Read it as the
+    // one, which no test in this file does. Nothing stops a test from driving
+    // one with a cast; the claim here is about what this file covers and about
+    // what the typed producers emit, not about what is testable. Read it as the
     // warrant for the null class, not as coverage of it.
     //
     // Bounded to what it covers: NOT NULL excludes NULL and says NOTHING about
