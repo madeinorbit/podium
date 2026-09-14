@@ -16,7 +16,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 import { systemPrincipal, userCommandPrincipal } from './command-principal'
 import { sessionsForIssue } from './issue-util'
@@ -3127,6 +3127,105 @@ describe('IssueService ready/blocked lists (P2a)', () => {
     const b = await svc.create({ repoPath: '/r', title: 'B', startNow: false })
     await store.issues.addIssueDep(a.id, b.id, 'blocks')
     expect((await svc.blockedList('/r')).map((w) => w.title)).toEqual(['A'])
+  })
+})
+
+describe('IssueService archived work', () => {
+  let h: Awaited<ReturnType<typeof harness>>
+  beforeEach(async () => { h = await harness() })
+  afterEach(async () => { await h.store.close() })
+
+  it('keeps archived issues readable but never ready, including after reload', async () => {
+    const issue = await h.svc.create({ repoPath: '/r', title: 'Archived ready probe', startNow: false })
+    expect(issue.ready).toBe(true)
+    await h.svc.archive(issue.id)
+    const reloaded = await IssueService.create(h.deps)
+    expect(await reloaded.get(issue.id)).toMatchObject({ archived: true, ready: false, stage: 'backlog' })
+    expect((await reloaded.list('/r')).map((w) => w.id)).toContain(issue.id)
+    expect(await reloaded.update(issue.id, { archived: false })).toMatchObject({ archived: false, ready: true })
+  })
+
+  it('readyList excludes archived backlog issues and retains live work', async () => {
+    const live = await h.svc.create({ repoPath: '/r', title: 'Live ready work', startNow: false })
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Archived ready work', startNow: false })
+    await h.svc.archive(gone.id)
+    expect((await h.svc.readyList('/r')).map((w) => w.id)).toEqual([live.id])
+  })
+
+  it('blockedList excludes archived blocked issues and retains live blockers', async () => {
+    const blocker = await h.svc.create({ repoPath: '/r', title: 'Shared open blocker', startNow: false })
+    const live = await h.svc.create({ repoPath: '/r', title: 'Live blocked work', startNow: false })
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Archived blocked work', startNow: false })
+    await h.store.issues.addIssueDep(live.id, blocker.id, 'blocks')
+    await h.store.issues.addIssueDep(gone.id, blocker.id, 'blocks')
+    expect((await h.svc.blockedList('/r')).map((w) => w.id)).toEqual([live.id, gone.id])
+    await h.svc.archive(gone.id)
+    expect((await h.svc.blockedList('/r')).map((w) => w.id)).toEqual([live.id])
+  })
+
+  it.each([false, true])('children excludes archived branches (recursive=%s)', async (recursive) => {
+    const parent = await h.svc.create({ repoPath: '/r', title: 'Parent of work', startNow: false })
+    const live = await h.svc.create({ repoPath: '/r', title: 'Live child work', parentId: parent.id, startNow: false })
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Archived child work', parentId: parent.id, startNow: false })
+    const grand = await h.svc.create({ repoPath: '/r', title: 'Archived grandchild work', parentId: gone.id, startNow: false })
+    expect((await h.svc.children(parent.id, recursive)).map((w) => w.id)).toEqual(
+      recursive ? [live.id, gone.id, grand.id] : [live.id, gone.id],
+    )
+    await h.svc.archive(gone.id)
+    expect((await h.svc.children(parent.id, recursive)).map((w) => w.id)).toEqual([live.id])
+  })
+
+  it('search excludes archived open and closed matches but retains live matches', async () => {
+    const live = await h.svc.create({ repoPath: '/r', title: 'Search live work', startNow: false })
+    const done = await h.svc.create({ repoPath: '/r', title: 'Search done work', startNow: false })
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Search archived work', startNow: false })
+    const goneDone = await h.svc.create({ repoPath: '/r', title: 'Search archived done', startNow: false })
+    await h.svc.close(done.id)
+    await h.svc.close(goneDone.id)
+    await h.svc.archive(gone.id)
+    await h.svc.archive(goneDone.id)
+    expect((await h.svc.search({ repoPath: '/r', text: 'Search' })).map((w) => w.id)).toEqual([live.id, done.id])
+    expect((await h.svc.search({ repoPath: '/r', status: 'open' })).map((w) => w.id)).toEqual([live.id])
+    expect((await h.svc.search({ repoPath: '/r', status: 'closed' })).map((w) => w.id)).toEqual([done.id])
+  })
+
+  it('stats excludes archived rows from every work bucket', async () => {
+    const live = await h.svc.create({ repoPath: '/r', title: 'Live ready work', startNow: false })
+    const done = await h.svc.create({ repoPath: '/r', title: 'Live done work', startNow: false })
+    await h.svc.close(done.id)
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Archived ready work', startNow: false })
+    const goneDone = await h.svc.create({ repoPath: '/r', title: 'Archived done work', startNow: false })
+    const goneBlocked = await h.svc.create({ repoPath: '/r', title: 'Archived blocked work', startNow: false })
+    const goneDeferred = await h.svc.create({ repoPath: '/r', title: 'Archived deferred work', startNow: false })
+    await h.svc.close(goneDone.id)
+    await h.store.issues.addIssueDep(goneBlocked.id, live.id, 'blocks')
+    await h.svc.update(goneDeferred.id, { deferUntil: '2999-01-01T00:00:00.000Z' })
+    expect(await h.svc.stats('/r')).toEqual({ total: 6, open: 4, closed: 2, ready: 2, blocked: 1, deferred: 1 })
+    for (const issue of [gone, goneDone, goneBlocked, goneDeferred]) await h.svc.archive(issue.id)
+    expect(await h.svc.stats('/r')).toEqual({ total: 2, open: 1, closed: 1, ready: 1, blocked: 0, deferred: 0 })
+  })
+
+  it.each([null, '/r/existing'])('start refuses archived issues before side effects (worktree=%s)', async (worktreePath) => {
+    const gone = await h.svc.create({ repoPath: '/r', title: 'Archived start work', startNow: false })
+    await h.svc.archive(gone.id)
+    // An archive can still have a checkout while its asynchronous cleanup runs.
+    if (worktreePath) await h.svc.update(gone.id, { worktreePath })
+    const before = await h.svc.get(gone.id)
+    vi.mocked(h.deps.repoOp).mockClear()
+    vi.mocked(h.deps.spawnSession).mockClear()
+    await expect(h.svc.start(gone.id)).rejects.toThrow('archived issues cannot be started')
+    expect(h.deps.repoOp).not.toHaveBeenCalled()
+    expect(h.deps.spawnSession).not.toHaveBeenCalled()
+    expect(await h.svc.get(gone.id)).toEqual(before)
+  })
+
+  it('start accepts explicitly unarchived work and reaches the mocked spawn', async () => {
+    const issue = await h.svc.create({ repoPath: '/r', title: 'Restored start work', startNow: false })
+    await h.svc.archive(issue.id)
+    await h.svc.update(issue.id, { archived: false })
+    expect(await h.svc.start(issue.id)).toMatchObject({ archived: false, stage: 'in_progress' })
+    expect(h.deps.repoOp).toHaveBeenCalled()
+    expect(h.deps.spawnSession).toHaveBeenCalledTimes(1)
   })
 })
 

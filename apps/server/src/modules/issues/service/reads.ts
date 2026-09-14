@@ -123,7 +123,7 @@ export class IssueReportsModule {
     const inScope = await this.store.repoScopeFilter(repoPath)
     const wires = await Promise.all(
       [...this.store.rows.values()]
-        .filter((r) => !r.deletedAt && inScope(r))
+        .filter((r) => !r.deletedAt && !r.archived && inScope(r))
         .map(async (r) => await this.store.toWire(r, commentCounts, batch)),
     )
     return wires
@@ -189,7 +189,7 @@ export class IssueReportsModule {
     const walk = async (pid: string): Promise<void> => {
       for (const r of this.store.rows.values()) {
         if (!(await mayRead(r.id)) || r.parentId !== pid) continue
-        if (r.deletedAt) continue
+        if (r.deletedAt || r.archived) continue
         rows.push(r)
         if (recursive) await walk(r.id)
       }
@@ -564,7 +564,7 @@ export class IssueReportsModule {
       mayRead,
     )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
     return wires
-      .filter((r) => !r.deletedAt)
+      .filter((r) => !r.deletedAt && !r.archived)
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
         if (filter.priority != null && w.priority !== filter.priority) return false
@@ -613,7 +613,7 @@ export class IssueReportsModule {
     const batch = await this.store.wireBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
     const wires = await Promise.all((await filterReadable(
-      [...this.store.rows.values()].filter((r) => !r.deletedAt && inScope(r)),
+      [...this.store.rows.values()].filter((r) => !r.deletedAt && !r.archived && inScope(r)),
       mayRead,
     )).map(async (r) => await this.store.toWire(r, commentCounts, batch)))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length

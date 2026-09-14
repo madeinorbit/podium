@@ -671,6 +671,7 @@ export class IssueStore {
     const blocked = await this.computeBlocked(row, batch)
     const deferred = this.isDeferred(row)
     const ready =
+      !row.archived &&
       isIssueStage(row.stage) &&
       isReadyIssueStage(row.stage) &&
       !this.isClosed(row) &&

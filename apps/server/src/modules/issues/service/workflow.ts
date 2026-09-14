@@ -276,6 +276,9 @@ export class IssueGitWorkflowModule {
     // `let`, because this draft does NOT survive the worktree phase below — see the
     // re-draft after it (POD-3373).
     let row = await this.store.draftOrThrow(id)
+    if (row.archived) {
+      throw new Error('archived issues cannot be started; unarchive the issue first')
+    }
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot start issue work')
     }
