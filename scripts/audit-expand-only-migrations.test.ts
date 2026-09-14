@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   adjudicate,
   findTighteningDdl,
@@ -7,6 +11,8 @@ import {
   parseContractDeclaration,
   probeFailures,
   runChecks,
+  runAudit,
+  probeKinds,
   type SchemaShape,
 } from './audit-expand-only-migrations'
 
@@ -246,6 +252,190 @@ describe('the real migration tree', () => {
     expect(runChecks().map((finding) => finding.detail)).toEqual([
       'machines.supervised is destroyed with no contract-step declaration',
       'issues.assignee is destroyed with no contract-step declaration',
+    ])
+  })
+})
+
+const fixtureExpand = '20260101000000_the-expand'
+const fixtureContract = '20260102000000_the-contract'
+const fixtureMigrationRoot = 'apps/server/src/migrations/drizzle'
+
+/** Actual git objects and actual SQLite replay: no mocked release decision. */
+function withReleaseFixture(
+  released: boolean,
+  tagKind: 'lightweight' | 'annotated' | 'missing',
+  check: (root: string, git: (...args: string[]) => string) => void,
+): void {
+  const root = mkdtempSync(join(tmpdir(), 'expand-release-'))
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', root, ...args], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Gate fixture',
+        GIT_AUTHOR_EMAIL: 'gate@example.invalid',
+        GIT_COMMITTER_NAME: 'Gate fixture',
+        GIT_COMMITTER_EMAIL: 'gate@example.invalid',
+      },
+    }).trim()
+  const writeMigration = (name: string, sql: string) => {
+    const directory = join(root, fixtureMigrationRoot, name)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'migration.sql'), sql)
+  }
+  try {
+    git('init', '--quiet')
+    git('config', 'commit.gpgsign', 'false')
+    git('config', 'core.hooksPath', '/dev/null')
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ version: '1.2.3' }))
+    if (released) writeMigration(fixtureExpand, 'CREATE TABLE t (id text, old_value text);')
+    git('add', 'package.json', ...(released ? [fixtureMigrationRoot] : []))
+    git('commit', '--quiet', '-m', 'release fixture')
+    if (tagKind === 'annotated') git('tag', '-a', 'v1.2.3', '-m', 'release fixture')
+    if (tagKind === 'lightweight') git('tag', 'v1.2.3')
+    if (!released) writeMigration(fixtureExpand, 'CREATE TABLE t (id text, old_value text);')
+    writeMigration(
+      fixtureContract,
+      `-- expand-only: contract-step
+-- retires: t.old_value
+-- expanded-in: ${fixtureExpand}
+-- reason: the old field has been replaced
+ALTER TABLE t DROP COLUMN old_value;`,
+    )
+    check(root, git)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+describe('release boundary through local git and migration replay', () => {
+  it.each([
+    'lightweight',
+    'annotated',
+  ] as const)('spares an expand inside a %s release tag', (kind) => {
+    withReleaseFixture(true, kind, (root) => {
+      expect(runAudit(root)).toEqual({ findings: [], skips: [] })
+    })
+  })
+
+  it('refuses an earlier expand absent from the package version release', () => {
+    withReleaseFixture(false, 'lightweight', (root, git) => {
+      // A newer unrelated tag containing the expand must not substitute for package.json.
+      git('add', fixtureMigrationRoot)
+      git('commit', '--quiet', '-m', 'unreleased migrations')
+      git('tag', 'v9.9.9')
+      expect(runAudit(root)).toEqual({
+        findings: [
+          {
+            where: `${fixtureMigrationRoot}/${fixtureContract}/migration.sql`,
+            kind: 'expand-not-released',
+            detail: `expanded-in: ${fixtureExpand} is absent from release v1.2.3; ship the expand before its contract step`,
+          },
+        ],
+        skips: [],
+      })
+    })
+  })
+
+  it('visibly skips a missing local release tag without refusing a valid declaration', () => {
+    withReleaseFixture(false, 'missing', (root) => {
+      expect(runAudit(root)).toEqual({
+        findings: [],
+        skips: [
+          {
+            where: `${fixtureMigrationRoot}/${fixtureContract}/migration.sql`,
+            kind: 'release-boundary-unavailable',
+            detail: 'local tag v1.2.3 cannot be resolved; release boundary was not checked',
+          },
+        ],
+      })
+    })
+  })
+
+  it('does not mistake an empty migration directory in the release for a shipped expand', () => {
+    withReleaseFixture(false, 'lightweight', (root, git) => {
+      const note = `${fixtureMigrationRoot}/${fixtureExpand}/README.md`
+      writeFileSync(join(root, note), 'not a migration')
+      git('add', note)
+      git('commit', '--quiet', '-m', 'directory only')
+      git('tag', '-f', 'v1.2.3')
+      expect(runAudit(root).findings.map((finding) => finding.kind)).toEqual([
+        'expand-not-released',
+      ])
+    })
+  })
+
+  it('skips an unreadable release tree without contacting a promisor remote', () => {
+    withReleaseFixture(true, 'lightweight', (root, git) => {
+      const tree = git('rev-parse', `v1.2.3:${fixtureMigrationRoot}`)
+      const marker = join(root, 'remote-was-contacted')
+      const helper = join(root, 'remote-helper.sh')
+      writeFileSync(helper, `touch '${marker}'\nexit 1\n`)
+      git('config', 'remote.origin.url', `ext::sh ${helper}`)
+      git('config', 'remote.origin.promisor', 'true')
+      git('config', 'protocol.ext.allow', 'always')
+      rmSync(join(root, '.git', 'objects', tree.slice(0, 2), tree.slice(2)))
+      expect(runAudit(root)).toEqual({
+        findings: [],
+        skips: [
+          {
+            where: `${fixtureMigrationRoot}/${fixtureContract}/migration.sql`,
+            kind: 'release-boundary-unavailable',
+            detail: 'local tree for v1.2.3 cannot be read; release boundary was not checked',
+          },
+        ],
+      })
+      expect(existsSync(marker)).toBe(false)
+    })
+  })
+
+  it('leaves additive epic work alone even when the release tag is missing', () => {
+    withReleaseFixture(false, 'missing', (root) => {
+      writeFileSync(
+        join(root, fixtureMigrationRoot, fixtureContract, 'migration.sql'),
+        'ALTER TABLE t ADD COLUMN next_value text;',
+      )
+      expect(runAudit(root)).toEqual({ findings: [], skips: [] })
+    })
+  })
+
+  it('still refuses an invalid declaration when release evidence is unavailable', () => {
+    withReleaseFixture(false, 'missing', (root) => {
+      writeFileSync(
+        join(root, fixtureMigrationRoot, fixtureContract, 'migration.sql'),
+        `-- expand-only: contract-step
+-- retires: t.id
+-- expanded-in: ${fixtureExpand}
+-- reason: deliberately wrong retired field
+ALTER TABLE t DROP COLUMN old_value;`,
+      )
+      const result = runAudit(root)
+      expect(result.findings.map((finding) => finding.kind)).toEqual([
+        'undeclared-loss',
+        'declaration-retires-nothing',
+      ])
+      expect(result.skips.map((skip) => skip.kind)).toEqual(['release-boundary-unavailable'])
+    })
+  })
+})
+
+describe('declared table-drop probe vocabulary', () => {
+  it('spares DROP TABLE declared as table probe_table', () => {
+    const probe = PROBES.find(
+      (entry) => entry.name === 'a declared DROP TABLE retires the table name',
+    )
+    expect(probe).toBeDefined()
+    expect(probeKinds(probe!.sql, probe!.baseline, probe!.release)).toEqual([])
+  })
+
+  it('reports one undeclared-loss and seven declaration-retires-nothing for column spelling', () => {
+    const probe = PROBES.find(
+      (entry) => entry.name === 'a declared DROP TABLE misdeclared as seven columns',
+    )
+    expect(probe).toBeDefined()
+    expect(probeKinds(probe!.sql, probe!.baseline, probe!.release)).toEqual([
+      ...Array(7).fill('declaration-retires-nothing'),
+      'undeclared-loss',
     ])
   })
 })

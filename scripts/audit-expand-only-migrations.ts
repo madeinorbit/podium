@@ -65,14 +65,15 @@
  * perform fails too. `expanded-in:` must name a migration that really exists and
  * really is earlier. `reason:` is for the human; the gate only insists it is there.
  *
- * WHAT THIS STILL CANNOT CHECK, stated so nobody mistakes silence for proof: that
- * the expand shipped a RELEASE earlier rather than merely a migration earlier. The
- * tree carries no release boundary a script can read, so the gate verifies
- * ordering and leaves the release gap to the reviewer the `reason:` line is
- * addressed to.
+ * The release boundary is the local tag `v<package.json version>`. A declared
+ * contract step must name an expand whose migration.sql exists in that tag's
+ * tree. No fetch is performed. Unavailable local release evidence produces a
+ * visible `release-boundary-unavailable` SKIP, never a release finding.
+ * For a whole table drop, write `retires: table accounts`, not its columns.
  */
 
 import { Database } from 'bun:sqlite'
+import { spawnSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
@@ -89,6 +90,7 @@ export type FindingKind =
   | 'undeclared-loss'
   | 'declaration-retires-nothing'
   | 'unknown-expand'
+  | 'expand-not-released'
   | 'chain-does-not-replay'
 
 export interface MigrationFinding {
@@ -336,11 +338,56 @@ export function lossBetween(before: SchemaShape, after: SchemaShape): string[] {
 // Adjudicating one migration: measurement against declaration.
 // ---------------------------------------------------------------------------
 
+export type ReleaseBoundary =
+  | { tag: string; migrations: ReadonlySet<string> }
+  | { tag: string; reason: string }
+
+/** Local objects only. Deny transports too, for Git versions predating NO_LAZY_FETCH. */
+export function readReleaseBoundary(root: string): ReleaseBoundary {
+  const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
+    version: string
+  }
+  const tag = `v${version}`
+  const git = (args: string[]) =>
+    spawnSync('git', ['-C', root, ...args], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_NO_LAZY_FETCH: '1',
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_ALLOW_PROTOCOL: '',
+      },
+    })
+  const resolved = git(['rev-parse', '--verify', `refs/tags/${tag}^{tree}`])
+  if (resolved.status !== 0) {
+    return { tag, reason: `local tag ${tag} cannot be resolved; release boundary was not checked` }
+  }
+  const tree = git([
+    'ls-tree',
+    '-r',
+    '--name-only',
+    '-z',
+    resolved.stdout.trim(),
+    '--',
+    MIGRATION_ROOT,
+  ])
+  if (tree.status !== 0) {
+    return { tag, reason: `local tree for ${tag} cannot be read; release boundary was not checked` }
+  }
+  const migrations = new Set<string>()
+  for (const path of tree.stdout.split('\0')) {
+    const parts = path.slice(`${MIGRATION_ROOT}/`.length).split('/')
+    if (parts.length === 2 && parts[1] === 'migration.sql') migrations.add(parts[0]!)
+  }
+  return { tag, migrations }
+}
+
 export interface Adjudication {
   lost: string[]
   declaration: ContractDeclaration | null
   /** Migration directory names ordered before this one, for `expanded-in`. */
   earlier: ReadonlySet<string>
+  release?: ReleaseBoundary
 }
 
 /**
@@ -348,7 +395,7 @@ export interface Adjudication {
  * no declaration is a finding; a declaration must account for the loss exactly,
  * name a real earlier expand, and carry a reason.
  */
-export function adjudicate({ lost, declaration, earlier }: Adjudication): Array<{
+export function adjudicate({ lost, declaration, earlier, release }: Adjudication): Array<{
   kind: FindingKind
   detail: string
 }> {
@@ -392,6 +439,19 @@ export function adjudicate({ lost, declaration, earlier }: Adjudication): Array<
     })
   }
 
+  if (
+    declaration.expandedIn !== null &&
+    earlier.has(declaration.expandedIn) &&
+    release !== undefined &&
+    'migrations' in release &&
+    !release.migrations.has(declaration.expandedIn)
+  ) {
+    findings.push({
+      kind: 'expand-not-released',
+      detail: `expanded-in: ${declaration.expandedIn} is absent from release ${release.tag}; ship the expand before its contract step`,
+    })
+  }
+
   if (declaration.reason === null) {
     findings.push({
       kind: 'unknown-expand',
@@ -406,22 +466,30 @@ export function adjudicate({ lost, declaration, earlier }: Adjudication): Array<
 // The gate.
 // ---------------------------------------------------------------------------
 
-function migrationDirectories(): string[] {
-  return readdirSync(join(ROOT, MIGRATION_ROOT), { withFileTypes: true })
+function migrationDirectories(root: string): string[] {
+  return readdirSync(join(root, MIGRATION_ROOT), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort()
 }
 
-export function runChecks(): MigrationFinding[] {
+export interface MigrationSkip {
+  where: string
+  kind: 'release-boundary-unavailable'
+  detail: string
+}
+
+export function runAudit(root = ROOT): { findings: MigrationFinding[]; skips: MigrationSkip[] } {
+  const skips: MigrationSkip[] = []
+  let release: ReleaseBoundary | undefined
   const findings: MigrationFinding[] = []
-  const directories = migrationDirectories()
+  const directories = migrationDirectories(root)
   const earlier = new Set<string>()
   const db = new Database(':memory:')
 
   for (const directory of directories) {
-    const path = relative(ROOT, join(ROOT, MIGRATION_ROOT, directory, 'migration.sql'))
-    const sql = readFileSync(join(ROOT, path), 'utf8')
+    const path = relative(root, join(root, MIGRATION_ROOT, directory, 'migration.sql'))
+    const sql = readFileSync(join(root, path), 'utf8')
 
     const before = shapeOf(db)
     try {
@@ -434,7 +502,8 @@ export function runChecks(): MigrationFinding[] {
         kind: 'chain-does-not-replay',
         detail: `${(error as Error).message} — the gate could measure nothing past this point`,
       })
-      return findings
+      db.close()
+      return { findings, skips }
     }
     const after = shapeOf(db)
 
@@ -443,10 +512,18 @@ export function runChecks(): MigrationFinding[] {
     }
 
     if (!HISTORICAL_ALLOWLIST.has(path)) {
+      const declaration = parseContractDeclaration(sql)
+      if (declaration !== null && declaration.expandedIn !== null) {
+        release ??= readReleaseBoundary(root)
+        if ('reason' in release) {
+          skips.push({ where: path, kind: 'release-boundary-unavailable', detail: release.reason })
+        }
+      }
       const adjudicated = adjudicate({
         lost: lossBetween(before, after),
-        declaration: parseContractDeclaration(sql),
+        declaration,
         earlier,
+        release,
       })
       for (const finding of adjudicated) findings.push({ where: path, ...finding })
     }
@@ -454,7 +531,12 @@ export function runChecks(): MigrationFinding[] {
     earlier.add(directory)
   }
 
-  return findings
+  db.close()
+  return { findings, skips }
+}
+
+export function runChecks(): MigrationFinding[] {
+  return runAudit().findings
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +559,8 @@ const BASELINE = `CREATE TABLE probe_table (
 export const PROBES: ReadonlyArray<{
   name: string
   sql: string
+  baseline?: string
+  release?: ReleaseBoundary
   /** The findings this must produce, by kind. Empty means it must be spared. */
   expect: FindingKind[]
 }> = [
@@ -529,7 +613,7 @@ ALTER TABLE __new_probe_table RENAME TO probe_table;`,
     expect: [],
   },
   {
-    name: 'a declared contract step that accounts for its loss',
+    name: 'a declared contract step whose expand is released and accounts for its loss',
     sql: `-- expand-only: contract-step
 -- retires: probe_table.old_value
 -- expanded-in: 00000000000000_probe-expand
@@ -565,12 +649,54 @@ ALTER TABLE probe_table DROP COLUMN old_value;`,
 ALTER TABLE probe_table DROP COLUMN old_value;`,
     expect: ['unknown-expand'],
   },
+  {
+    name: 'a declared DROP TABLE retires the table name',
+    sql: `-- expand-only: contract-step
+-- retires: table probe_table
+-- expanded-in: 00000000000000_probe-expand
+-- reason: the released expand replaced the table
+DROP TABLE probe_table;`,
+    expect: [],
+  },
+  {
+    name: 'a declared DROP TABLE misdeclared as seven columns',
+    baseline: 'CREATE TABLE probe_table (id text, a text, b text, c text, d text, e text, f text);',
+    sql: `-- expand-only: contract-step
+-- retires: probe_table.id, probe_table.a, probe_table.b, probe_table.c, probe_table.d, probe_table.e, probe_table.f
+-- expanded-in: 00000000000000_probe-expand
+-- reason: deliberately wrong column spelling
+DROP TABLE probe_table;`,
+    expect: ['undeclared-loss', ...Array<FindingKind>(7).fill('declaration-retires-nothing')],
+  },
+  {
+    name: 'a declared contract step before its expand is released',
+    sql: `-- expand-only: contract-step
+-- retires: probe_table.old_value
+-- expanded-in: 00000000000000_probe-expand
+-- reason: the expand is earlier but unreleased
+ALTER TABLE probe_table DROP COLUMN old_value;`,
+    release: { tag: 'vprobe', migrations: new Set() },
+    expect: ['expand-not-released'],
+  },
+  {
+    name: 'ordinary additive work with an unreleased expand',
+    sql: 'ALTER TABLE probe_table ADD COLUMN unreleased text;',
+    release: { tag: 'vprobe', migrations: new Set() },
+    expect: [],
+  },
 ]
 
 /** Run one probe against a planted baseline and report the kinds it produced. */
-export function probeKinds(sql: string): FindingKind[] {
+export function probeKinds(
+  sql: string,
+  baseline = BASELINE,
+  release: ReleaseBoundary = {
+    tag: 'vprobe',
+    migrations: new Set(['00000000000000_probe-expand']),
+  },
+): FindingKind[] {
   const db = new Database(':memory:')
-  applyMigration(db, BASELINE)
+  applyMigration(db, baseline)
   const before = shapeOf(db)
   applyMigration(db, sql)
   const after = shapeOf(db)
@@ -580,15 +706,17 @@ export function probeKinds(sql: string): FindingKind[] {
     lost: lossBetween(before, after),
     declaration: parseContractDeclaration(sql),
     earlier: new Set(['00000000000000_probe-expand']),
+    release,
   })) {
     kinds.push(finding.kind)
   }
+  db.close()
   return kinds.sort()
 }
 
 export function probeFailures(): string[] {
   return PROBES.flatMap((probe) => {
-    const got = probeKinds(probe.sql)
+    const got = probeKinds(probe.sql, probe.baseline, probe.release)
     const want = [...probe.expect].sort()
     return got.join(',') === want.join(',')
       ? []
@@ -601,7 +729,7 @@ if (import.meta.main) {
 
   if (args.has('--probe')) {
     for (const probe of PROBES) {
-      const got = probeKinds(probe.sql)
+      const got = probeKinds(probe.sql, probe.baseline, probe.release)
       const want = [...probe.expect].sort()
       const ok = got.join(',') === want.join(',')
       const verb = probe.expect.length === 0 ? 'spares' : 'catches'
@@ -625,10 +753,13 @@ if (import.meta.main) {
     process.exit(0)
   }
 
-  const findings = runChecks()
+  const { findings, skips } = runAudit()
   if (args.has('--json')) {
-    console.log(JSON.stringify({ findings }, null, 2))
+    console.log(JSON.stringify({ findings, skips }, null, 2))
   } else {
+    for (const skip of skips) {
+      console.error(`SKIP ${skip.kind}\n  ${skip.where}\n  ${skip.detail}\n`)
+    }
     for (const finding of findings) {
       console.error(`${finding.kind}\n  ${finding.where}\n  ${finding.detail}\n`)
     }
