@@ -133,7 +133,7 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
   const path = join(spec.stateDir, 'podium.db')
   // Isolation starts from a supported database. Retired sentinel IDs are refused
   // by store boot; machine-identity.test.ts owns that refusal contract. Keep the
-  // unowned host row so this lane still proves boot assigns its admin owner.
+  // unowned host row with only its admin present, so bootstrap has one owner.
   const machineId = '00000000-0000-4000-8000-000000000734'
   writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
   await (await openTestStore(path, asMachineId(machineId))).close()
@@ -144,6 +144,14 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
       (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
       VALUES (?, 'named-host', 'named-host', 'named-token', 't', 't', NULL)`,
   ).run(machineId)
+  db.close()
+}
+
+// Add the second human only after the host has an established owner. Two active
+// humans at first boot intentionally quarantine an unowned host (PDM-134).
+// This is a credential-free fixture seed, not coverage of invite enrollment.
+function seedNamedMember(spec: InstanceSpec): void {
+  const db = openDatabase(join(spec.stateDir, 'podium.db'))
   db.prepare(
     `INSERT INTO users (id, display_name, role, created_at, disabled_at)
      VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
@@ -632,6 +640,39 @@ describe('long instance durable sockets', () => {
 })
 
 describe('multi-instance runtime isolation', () => {
+  for (const ambiguous of [false, true]) {
+    it(
+      ambiguous
+        ? 'quarantines an unowned named host when two active humans precede bootstrap'
+        : 'assigns an unowned named host to its sole active human at bootstrap',
+      async () => {
+        const spec = makeSpec('blue', ambiguous ? 'ambiguous-owner' : 'sole-owner')
+        await seedNamedState(spec)
+        if (ambiguous) seedNamedMember(spec)
+        const instance = startInstance(spec, { PODIUM_ADOPT_STATE: '1' })
+        await waitUntil(async () => (await version(instance))?.instanceId === 'blue', 'owner server')
+        const db = openDatabase(join(spec.stateDir, 'podium.db'))
+        try {
+          const humans = db.prepare('SELECT id FROM users WHERE disabled_at IS NULL').all()
+          expect(humans).toHaveLength(ambiguous ? 2 : 1)
+          const owner = earliestAdminMember(db)
+          expect(owner).toBeDefined()
+          const rows = db
+            .prepare('SELECT owner_user_id AS ownerUserId FROM machines')
+            .all() as { ownerUserId: string | null }[]
+          expect(rows).toHaveLength(1)
+          expect(rows[0]?.ownerUserId).toBe(ambiguous ? null : owner)
+        } finally {
+          db.close()
+        }
+        const stopped = await runCli(instance, ['stop'])
+        expect(stopped.code, stopped.stderr).toBe(0)
+        await waitUntil(() => instance.child.exitCode !== null, 'owner parent cleanup')
+      },
+      90_000,
+    )
+  }
+
   it('reports a rejected source CLI boot with a nonzero exit and its reason', async () => {
     const spec = makeSpec('blue', 'rejected-source-boot')
     await seedNamedState(spec)
@@ -1782,7 +1823,13 @@ exec "$CANARY_REAL_CLI" "$@"
 
     // A second authenticated member is still inside the SAME named deployment,
     // but the instance label grants no execute authority over its host machine.
+    seedNamedMember(named)
     const memberToken = NAMED_MEMBER_TOKEN
+    const memberStatus = await fetch(`http://127.0.0.1:${named.port}/auth/status`, {
+      headers: { cookie: SESSION_COOKIE + '=' + memberToken },
+    })
+    expect(memberStatus.status).toBe(200)
+    expect(await memberStatus.json()).toMatchObject({ authed: true, userId: 'user:member' })
     const memberApi = trpc(named, SESSION_COOKIE + '=' + memberToken)
     await expect(
       memberApi.sessions.create.mutate({
