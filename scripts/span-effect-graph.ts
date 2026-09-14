@@ -534,6 +534,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
   },
   /* --- captured projection inputs (POD-3855) ------------------------------ */
+  'apps/server/src/modules/issues/projection.ts#<module>.labelsOf': {
+    kind: 'contained',
+    why: 'the label lookup shared by issueProjectionRows and issueExecutionRows. Both production callbacks in IssueService.allProjections/allExecutions only read the captured labelsByIssue map and return an empty array when absent; the store read happens before the callback is supplied. The test callbacks return a constant array. The callback performs no IO, writes or publication, so under rule 19 a rollback leaves nothing outside the process wrong for having seen it.',
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.sessionFacts': {
     kind: 'contained',
     why: 'a zero-IO snapshot of the live session registry; reading it publishes nothing outside this process',

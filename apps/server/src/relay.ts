@@ -188,6 +188,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
+import { adoptSessionWorktree } from './modules/issues/worktree-adoption'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 
@@ -1932,21 +1933,10 @@ export class SessionRegistry {
           await issues.onSessionRemovedOrArchived(event.sessionId)
           break
         case 'adoptWorktree': {
-          const issue = await issueAccess.getMeta(event.issueId)
-          const message = event.message
-          if (
-            !issue ||
-            issue.archived ||
-            issue.worktreePath !== null ||
-            message.kind !== 'worktree'
-          )
-            break
-          if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
-          if ((await issueAccess.worktreePaths()).includes(message.cwd)) break
-          await issues.update(issue.id, {
-            worktreePath: message.cwd,
-            machineId: event.machineId,
-            ...(message.branch ? { branch: message.branch } : {}),
+          await adoptSessionWorktree(event, {
+            getMeta: (id) => issueAccess.getMeta(id),
+            worktreePaths: () => issueAccess.worktreePaths(),
+            update: (id, patch) => issues.update(id, patch),
           })
           break
         }

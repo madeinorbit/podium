@@ -30,6 +30,9 @@ import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/
 import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
+import { SessionView } from './modules/sessions/view'
+import { adoptSessionWorktree } from './modules/issues/worktree-adoption'
+import { StaleIssueRevisionError } from './store/issue-revision'
 import type {SessionRow} from './store'
 import { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
@@ -496,6 +499,69 @@ describe('SessionRegistry', () => {
       branch: 'claude/x',
       machineId: reg.sessionStore.hostMachineId,
     })
+  })
+
+  it('adopts without the internal projection identity read', async () => {
+    const overlay = vi.spyOn(SessionView.prototype, 'internalOverlayUser').mockResolvedValue(undefined)
+    try {
+      const { cwdMsg, read } = await adopting()
+      await cwdMsg({})
+      await expect.poll(read).toMatchObject({
+        worktreePath: '/repo/.claude/worktrees/x', branch: 'claude/x',
+      })
+    } finally {
+      overlay.mockRestore()
+    }
+  })
+
+  it.each(['coordinator', 'archived', 'owned', 'other-repo', 'occupied'] as const)(
+    'rechecks adoption after a revision conflict: %s', async (winner) => {
+      const { reg, issue, read } = await adopting()
+      await expect.poll(async () => (await read())?.coordinatorSessionId ?? null).not.toBeNull()
+      const update = vi.fn(async (id: string, patch: Parameters<typeof reg.modules.issues.update>[1]) =>
+        reg.modules.issues.update(id, patch))
+      let occupied = false
+      update.mockImplementationOnce(async () => {
+        if (winner === 'archived') await reg.modules.issues.update(issue.id, { archived: true })
+        if (winner === 'owned') await reg.modules.issues.update(issue.id, { worktreePath: '/repo/winner', branch: 'winner' })
+        if (winner === 'occupied') occupied = true
+        throw new StaleIssueRevisionError(issue.id, 1, 2)
+      })
+      let reads = 0
+      await adoptSessionWorktree({
+        kind: 'adoptWorktree', issueId: issue.id, machineId: reg.sessionStore.hostMachineId,
+        message: { type: 'sessionCwd', sessionId: asSessionId('adoption-probe'), cwd: '/repo/adopted',
+          kind: 'worktree', repoRoot: '/repo', branch: 'adopted' },
+      }, {
+        getMeta: async () => {
+          const row = await reg.sessionStore.issues.getIssue(issue.id)
+          reads++
+          return row && winner === 'other-repo' && reads > 1 ? { ...row, repoPath: '/other' } : row
+        },
+        worktreePaths: async () => occupied ? ['/repo/adopted'] : [],
+        update,
+      })
+      expect(await read()).toMatchObject({
+        worktreePath: winner === 'coordinator' ? '/repo/adopted' : winner === 'owned' ? '/repo/winner' : null,
+        branch: winner === 'coordinator' ? 'adopted' : winner === 'owned' ? 'winner' : null,
+      })
+      expect(update).toHaveBeenCalledTimes(winner === 'coordinator' ? 2 : 1)
+      if (winner !== 'coordinator') expect(reads).toBe(2)
+    },
+  )
+
+  it.each(['revision', 'other'] as const)('reports exhausted or unrelated adoption failures: %s', async (kind) => {
+    const { reg, issue } = await adopting()
+    const failure = kind === 'revision' ? new StaleIssueRevisionError(issue.id, 1, 2) : new Error('write refused')
+    const update = vi.fn().mockRejectedValue(failure)
+    await expect(adoptSessionWorktree({
+      kind: 'adoptWorktree', issueId: issue.id, machineId: reg.sessionStore.hostMachineId,
+      message: { type: 'sessionCwd', sessionId: asSessionId('adoption-probe'), cwd: '/repo/adopted',
+        kind: 'worktree', repoRoot: '/repo' },
+    }, {
+      getMeta: () => reg.sessionStore.issues.getIssue(issue.id), worktreePaths: async () => [], update,
+    })).rejects.toBe(failure)
+    expect(update).toHaveBeenCalledTimes(kind === 'revision' ? 3 : 1)
   })
 
   it('never adopts the repo MAIN checkout as an issue workspace', async () => {
