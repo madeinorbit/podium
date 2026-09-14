@@ -73,7 +73,10 @@ describe('the gate can say YES', () => {
     for (const probe of PROBES) {
       expect(outcomesOf(probe.input), probe.name).toContain(probe.expect)
     }
-  })
+    // Each probe scans the real tree, including synchronous Git and file reads.
+    // Budget this repeated audit locally so host contention does not turn its
+    // findings into a timeout; ordinary tests retain the shared 20-second limit.
+  }, 120_000)
 
   it('and the real tree is spared', () => {
     // The half that stops "every probe fires" from being satisfied by a gate
