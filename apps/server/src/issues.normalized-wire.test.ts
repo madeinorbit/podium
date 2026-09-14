@@ -1,6 +1,8 @@
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
+// These ledger/wire fixtures explicitly read the synthetic instance-wide feed.
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import {
@@ -250,10 +252,10 @@ async function issueWorkForOneFieldSessionChange(
 
 describe('issueProjection emission is unconditional with transitional legacy residue [POD-797]', () => {
   const changesOf = async (registry: SessionRegistry, entity: string) => {
-    const boot = await registry.modules.sessions.syncChangesSince(null)
+    const boot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
     // whole durable change log instead.
-    const all = await registry.modules.sessions.syncChangesSince(0)
+    const all = await registry.modules.sessions.syncChangesSince(0, DEVICE_GRADE_PRINCIPAL)
     return all.kind === 'delta'
       ? all.changes.filter((c) => c.entity === entity)
       : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
@@ -288,7 +290,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     await registry.modules.issues.publishRepos()
     await registry.modules.issues.addDep('iss_0', 'iss_1')
 
-    const snapshot = await registry.modules.sessions.syncChangesSince(null)
+    const snapshot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
@@ -308,7 +310,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
     )
-    const snapshot = await registry.modules.sessions.syncChangesSince(null)
+    const snapshot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
@@ -319,7 +321,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
         .map((session) => session.sessionId),
     ).toEqual([sessionId])
 
-    const all = await registry.modules.sessions.syncChangesSince(0)
+    const all = await registry.modules.sessions.syncChangesSince(0, DEVICE_GRADE_PRINCIPAL)
     expect(all.kind).toBe('delta')
     if (all.kind !== 'delta') throw new Error('expected delta')
     const sessionChanges = all.changes.filter(
@@ -335,7 +337,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
     const reboot = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
-    const after = await reboot.modules.sessions.syncChangesSince(cursor)
+    const after = await reboot.modules.sessions.syncChangesSince(cursor, DEVICE_GRADE_PRINCIPAL)
     expect(after.kind).toBe('delta')
     if (after.kind !== 'delta') throw new Error('expected delta')
     expect(
@@ -402,7 +404,7 @@ describe('normalized dep emission [POD-797]', () => {
   }, async () => {
     const { registry } = await world()
     await registry.modules.sessions.flushBroadcasts()
-    const before = await registry.modules.sessions.syncChangesSince(0)
+    const before = await registry.modules.sessions.syncChangesSince(0, DEVICE_GRADE_PRINCIPAL)
     const beforeCount =
       before.kind === 'delta'
         ? before.changes.filter((change) => change.entity === 'issueDep').length
@@ -411,7 +413,7 @@ describe('normalized dep emission [POD-797]', () => {
     await registry.modules.issues.addDep('iss_1', 'iss_2')
     await registry.modules.sessions.flushBroadcasts()
     expect(issueMembershipScanCount()).toBe(0)
-    const after = await registry.modules.sessions.syncChangesSince(0)
+    const after = await registry.modules.sessions.syncChangesSince(0, DEVICE_GRADE_PRINCIPAL)
     const edges =
       after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
     expect(edges.length - beforeCount).toBe(1)

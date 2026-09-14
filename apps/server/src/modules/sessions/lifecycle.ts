@@ -849,7 +849,7 @@ export class SessionLifecycle {
   }
   async syncChangesSince(
     cursor: number | null,
-    principal: Principal = DEVICE_GRADE_PRINCIPAL,
+    principal: Principal,
   ): Promise<SyncChangesSinceResult> {
     const sourceCursor = await this.funnel.cursor()
     const { feedId, epoch } = await this.funnel.feedIdentity()

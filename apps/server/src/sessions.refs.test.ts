@@ -4,6 +4,8 @@
  * a broadcast can never brand a soon-to-be-attached session POD-DRAFT-n.
  */
 import { firstAdminMemberId } from '@podium/model'
+// These ledger/wire fixtures explicitly read the synthetic instance-wide feed.
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
@@ -57,7 +59,7 @@ describe('session birth naming (#474)', () => {
   it('does not consume the first issue letter when the attachment append fails', async () => {
     const { store, reg, issue, meta } = await harness()
     const { sessionId } = await reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/elsewhere' })
-    const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+    const cursor = (await reg.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
@@ -75,7 +77,7 @@ describe('session birth naming (#474)', () => {
       refIssueId: null,
       refLetter: null,
     })
-    expect(await reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+    expect(await reg.modules.sessions.syncChangesSince(cursor, DEVICE_GRADE_PRINCIPAL)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -88,7 +90,7 @@ describe('session birth naming (#474)', () => {
 
   it('does not consume DRAFT-1 when the first spawn append fails', async () => {
     const { store, reg, meta } = await harness()
-    const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+    const cursor = (await reg.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
@@ -99,7 +101,7 @@ describe('session birth naming (#474)', () => {
       reg.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/r/podium' }),
     ).rejects.toThrow('first draft append failed')
     append.mockRestore()
-    expect(await reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+    expect(await reg.modules.sessions.syncChangesSince(cursor, DEVICE_GRADE_PRINCIPAL)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],

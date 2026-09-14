@@ -1,6 +1,8 @@
 import { firstAdminMemberId } from '@podium/model'
 import type { IssueWire, SessionMeta, SharedIssueWire } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
+// These ledger/wire fixtures explicitly read the synthetic instance-wide feed.
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
@@ -171,7 +173,7 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = await makeRegistry()
     await registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
 
-    const boot = await registry.modules.sessions.syncChangesSince(null)
+    const boot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     expect(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
     expect(boot.issues.map((i) => i.title)).toEqual(['a'])
@@ -180,7 +182,7 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.close(created.id, 'wontfix')
     await registry.modules.sessions.createSession({ ownerUserId: firstAdminMemberId(), agentKind: 'shell', cwd: '/w' })
 
-    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
+    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor, DEVICE_GRADE_PRINCIPAL)
     expect(catchUp.kind).toBe('delta')
     if (catchUp.kind !== 'delta') return
 
@@ -194,7 +196,7 @@ describe('SessionRegistry metadata deltas', () => {
       }
       return [...m.values()]
     }
-    const fresh = await registry.modules.sessions.syncChangesSince(null)
+    const fresh = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     if (fresh.kind !== 'snapshot') throw new Error('expected snapshot')
     const byId = <T>(l: T[], key: (t: T) => string) =>
       [...l].sort((x, y) => key(x).localeCompare(key(y)))
@@ -223,7 +225,7 @@ describe('SessionRegistry metadata deltas', () => {
     flush(registry)
 
     // The cursor a client held while it was away — nothing tucked yet.
-    const away = await registry.modules.sessions.syncChangesSince(null)
+    const away = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
     if (away.kind !== 'snapshot') throw new Error('expected snapshot')
     expect(away.issues.find((i) => i.id === w.id)?.tuckedAt ?? null).toBeNull()
 
@@ -240,7 +242,7 @@ describe('SessionRegistry metadata deltas', () => {
 
     // And the client that was disconnected converges through catch-up rather
     // than painting the stale un-tucked row from its own storage.
-    const healed = await registry.modules.sessions.syncChangesSince(away.cursor)
+    const healed = await registry.modules.sessions.syncChangesSince(away.cursor, DEVICE_GRADE_PRINCIPAL)
     expect(healed.kind).toBe('delta')
     if (healed.kind !== 'delta') return
     const change = healed.changes.find((c) => c.entity === 'issue' && c.id === w.id)

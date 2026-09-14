@@ -1,6 +1,7 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { Ledger } from '@podium/sync'
+// These fixtures explicitly read the synthetic instance-wide ledger/wire feed.
+import { DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
@@ -151,7 +152,7 @@ describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
       write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
     })
-    const changes = await funnel.changesSince(cursor)
+    const changes = await funnel.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
     expect(await funnel.cursor()).toBe(2)
   })

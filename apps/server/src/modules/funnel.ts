@@ -174,14 +174,14 @@ export class WriteFunnel {
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
   async changesSince(
     cursor: number | null,
-    principal: Principal = DEVICE_GRADE_PRINCIPAL,
+    principal: Principal,
   ): Promise<MetadataChange[] | null> {
     const delivery = await this.deps.authority.changesSince(cursor, principal)
     if (delivery === null || delivery.kind !== 'batch') return null
     return delivery.changes.flatMap(toBusChange)
   }
 
-  async snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): Promise<MetadataChange[]> {
+  async snapshot(principal: Principal): Promise<MetadataChange[]> {
     return (await this.deps.authority.bootstrap(principal)).changes.flatMap(toBusChange)
   }
 
