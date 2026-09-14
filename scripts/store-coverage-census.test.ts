@@ -13,7 +13,9 @@
  * rather than trusting a green run over a document nobody has changed.
  */
 
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -122,5 +124,49 @@ describe('the enumeration follows the rules the census states', () => {
 
   it('ignores a class the module does not export', () => {
     expect(membersOfSource('fixture.ts', source).every((m) => m.className === 'Repo')).toBe(true)
+  })
+})
+
+describe('sync-lines', () => {
+  it('rewrites stale line numbers with single-space padding and is idempotent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'store-census-sync-lines-'))
+    try {
+      const write = (path: string, contents: string) => {
+        mkdirSync(dirname(join(root, path)), { recursive: true })
+        writeFileSync(join(root, path), contents)
+      }
+      write(
+        'apps/server/src/store/table-writes.ts',
+        'export class TableWrites {\n  subscribe(): void {}\n  publish(): void {}\n}\n',
+      )
+      write('apps/server/src/modules/operations/store.ts', '')
+      write('packages/sync/src/adapters/sqlite/sync-repository.ts', '')
+      const doc = 'docs/internal/pod-3244-store-coverage-census.md'
+      const stale =
+        '| `apps/server/src/store/table-writes.ts` | TableWrites | `subscribe` | 9999 | yes | server:store | — |'
+      const current =
+        '| `apps/server/src/store/table-writes.ts` | TableWrites | `publish` | 3 | no | — | — |'
+      const gone =
+        '| `apps/server/src/store/table-writes.ts` | TableWrites | `removed` | 42 | no | — | — |'
+      const markdown = ['# Census fixture', '', stale, current, gone, ''].join('\n')
+      write(doc, markdown)
+      const sync = () =>
+        execFileSync('bun', [join(repoRoot, 'scripts/store-coverage-census.ts'), 'sync-lines'], {
+          env: { ...process.env, CENSUS_REPO_ROOT: root },
+          encoding: 'utf8',
+        })
+
+      expect(sync()).toContain('rewrote 1 line number(s)')
+      // Assert the entire emitted row, including its new number and exact padding.
+      // A no-op rewrite, doubled space, or change to another column must fail.
+      const refreshed =
+        '| `apps/server/src/store/table-writes.ts` | TableWrites | `subscribe` | 2 | yes | server:store | — |'
+      const expected = ['# Census fixture', '', refreshed, current, gone, ''].join('\n')
+      expect(readFileSync(join(root, doc), 'utf8')).toBe(expected)
+      expect(sync()).toContain('rewrote 0 line number(s)')
+      expect(readFileSync(join(root, doc), 'utf8')).toBe(expected)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

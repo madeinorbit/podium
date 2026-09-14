@@ -716,7 +716,7 @@ function syncLines(): number {
     )
     if (!derived || Number(lineNo.trim()) === derived.line) return line
     rewritten += 1
-    cells[3] = ` ${derived.line}`
+    cells[3] = `${derived.line}`
     return `|${cells.join(' | ')}|`
   })
   writeFileSync(path, out.join('\n'))
