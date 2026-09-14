@@ -961,7 +961,8 @@ export const machinePairingCodeContract = {
       'gate that exists. Recorded as a FORK: ADR 9 D6 M3 ("pairing runs from that person’s laptop") ' +
       'reads as self-service, which would argue `member`. The admin floor is the default-closed side ' +
       'of it and matches the shipped surface (hub role only, Settings → Machines). The floor is ' +
-      'enforced by `modules/fleet/authz.ts` through the shared `adminFloorRefusal` shipped in POD-1079.',
+      'enforced by modules/fleet/authz.ts (POD-1079); its ' +
+      'admin-floor decision uses the shared adminFloorRefusal (PDM-299).',
   },
   exposure: SERVED_ON,
   delivery: PAIRING_DELIVERY,
