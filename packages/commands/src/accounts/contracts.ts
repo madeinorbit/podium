@@ -277,11 +277,13 @@ export const accountsLoginContract = {
       'is still shared by every agent on that machine, so the property the two credential writes ' +
       'lost is one this command never had. This constraint is now enforced from this declaration: ' +
       'PDM-360 makes relay.ts native-login ' +
-      'authorization read this floor and use the shared adminFloorRefusal decision. Login is ' +
-      'served only through tRPC; the agent relay refuses the accounts family. PDM-281 separately ' +
-      'keyed attempt reuse by harness AND owner, closing cross-owner disclosure and the ' +
-      'cross-owner machine-use bypass. A second admin with no use grant cannot reuse the first ' +
-      "admin's attempt. Same-owner in-flight reuse still returns before fresh authorization; " +
+      'authorization read this floor and use the shared adminFloorRefusal decision. This depends ' +
+      'on relay.ts authorizerFor reading ACCOUNT_CONTRACTS.login.policy.roleFloor. SERVED_ON ' +
+      'declares only trpc; AgentRelayGate.run separately rejects accounts via RELAY_ALLOWED. ' +
+      'Cross-owner reuse protection depends on NativeLoginService.startInScope using ' +
+      'attemptKey(harness, ownerUserId), the owner/harness key added by PDM-281, closing the ' +
+      'cross-owner disclosure and machine-use bypass. A second admin with no use grant cannot reuse the first ' +
+      "admin's attempt. startInScope still returns an existing inFlight attempt before authorizerFor; " +
       'these repairs do not establish reauthorization of that path. The admin floor remains ' +
       'deliberate because native CLI credentials are shared on the host; changing it requires ' +
       'a separate policy decision.',
