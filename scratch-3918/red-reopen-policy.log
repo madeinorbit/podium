@@ -1,0 +1,21 @@
+$ bun scripts/test-file.ts apps/daemon/src/reopen-policy.test.ts
+test:file: lane node — apps/daemon/src/reopen-policy.test.ts
+
+ RUN  v5.0.0-beta.6 /home/mgw/src/other/podium/.worktrees/issue-3918-p1b-mode-aware-repaint-and-replay
+
+ ❯ |node| apps/daemon/src/reopen-policy.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| apps/daemon/src/reopen-policy.test.ts [ apps/daemon/src/reopen-policy.test.ts ]
+Error: Cannot find module './reopen-policy' imported from /home/mgw/src/other/podium/.worktrees/issue-3918-p1b-mode-aware-repaint-and-replay/apps/daemon/src/reopen-policy.test.ts
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  17:44:48
+   Duration  1.92s (transform 57ms, setup 114ms, import 0ms, tests 0ms, environment 0ms)
+
+test:file: 1 group, 1 failed — 1 file named; this is not a suite result.
+error: script "test:file" exited with code 1
