@@ -185,6 +185,19 @@ export function mergeLatestTranscriptPage(
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
+/**
+ * Alternate-screen enter/leave (`CSI ? 1049 h` / `l`), possibly with a
+ * multi-parameter set. Mirrors the daemon's canonical
+ * `apps/daemon/src/screen-mode.ts`: the server needs the same signal for its
+ * replay decision (an alternate reopen must not replay stale bytes), and it
+ * sees the same byte stream, so it sniffs it here rather than growing a
+ * cross-process mode report. 1047 is ignored, exactly as there.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
+const ALT_SCREEN_SEQUENCE = /\x1b\[\?([0-9;]*)([hl])/g
+/** Tail rescanned with the next frame so a 1049 split across frames still matches. */
+const MODE_CARRY_BYTES = 64
+
 export interface SessionTerminalState {
   grid: Geometry
   times: readonly [outputAtMs: number, inputAtMs: number, resumedAtMs: number]
@@ -375,6 +388,15 @@ export class SessionTerminal {
   private readonly clientAttributions = new WeakMap<ClientConn, ReturnType<typeof perfPrincipal>>()
   private readonly outputLog: { seq: number; bytes: Buffer }[] = []
   private outputLogBytes = 0
+  /**
+   * Whether the program is painting its alternate canvas (POD-3918 P1b).
+   * Sniffed in {@link bufferFrame} from the same 1049 stream the daemon
+   * tracks; a fresh attach in this mode replays NO log bytes — the daemon's
+   * model reconstitution (same size) or size-first repaint (different size)
+   * is the first frame instead.
+   */
+  private altScreen = false
+  private modeCarry = ''
   private transcript: TranscriptItem[] = []
   /** Complete items committed through the runtime event log. Kept separately
    * so a legacy tail reset cannot erase the shared terminal bridge. */
@@ -517,7 +539,12 @@ export class SessionTerminal {
     })
     const startedAt = performance.now()
     let replayBytes = 0
-    for (const frame of frames) {
+    // An alternate fresh attach rebuilds its screen from the daemon, never
+    // from these bytes: they were produced at whatever grid was current then
+    // and replaying them into this grid is the corruption (POD-3918). A
+    // resumed attach keeps its delta — missed live bytes, not a rebuild.
+    const replayedFrames = !resumed && this.altScreen ? [] : frames
+    for (const frame of replayedFrames) {
       replayBytes += frame.bytes.byteLength
       this.sendOutput(client, frame.seq, frame.bytes, false)
     }
@@ -540,7 +567,11 @@ export class SessionTerminal {
     // the next attach too. A clean resume keeps its screen and only needs the delta —
     // including a caught-up one, whose empty delta is "nothing changed", NOT "nothing to
     // rebuild from"; only an EMPTY LOG (a restarted server) means the latter.
-    if (!resumed || this.outputLog.length === 0) this.redraw(this.outputLog.length === 0)
+    // An alternate fresh attach skipped the replay above, so the viewer holds
+    // nothing: the redraw is required even with a non-empty log, and the flag
+    // tells the daemon it must produce the first frame (model or repaint).
+    if (!resumed || this.outputLog.length === 0)
+      this.redraw(this.outputLog.length === 0 || (!resumed && this.altScreen))
   }
 
   reassignController(fromId: string, toId: string): void {
@@ -1258,6 +1289,7 @@ export class SessionTerminal {
   }
 
   private bufferFrame(seq: number, bytes: Buffer): void {
+    this.trackScreenMode(bytes)
     if (SCREEN_RESET.test(bytes.toString('latin1'))) {
       this.outputLog.length = 0
       this.outputLogBytes = 0
@@ -1277,6 +1309,23 @@ export class SessionTerminal {
   }
 
   /** Convert the canonical bytes only at one recipient's negotiated edge. */
+
+  /**
+   * Mirror of the daemon's 1049 mode tracker over this terminal's own byte
+   * stream. Split-safe across frames via the carried tail; idempotent and
+   * last-wins, so a rescanned overlap can never move the mode backwards.
+   */
+  private trackScreenMode(bytes: Buffer): void {
+    const text = this.modeCarry + bytes.toString('latin1')
+    ALT_SCREEN_SEQUENCE.lastIndex = 0
+    let match: RegExpExecArray | null
+    // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic exec loop
+    while ((match = ALT_SCREEN_SEQUENCE.exec(text)) !== null) {
+      if (!(match[1] ?? '').split(';').includes('1049')) continue
+      this.altScreen = match[2] === 'h'
+    }
+    this.modeCarry = text.slice(-MODE_CARRY_BYTES)
+  }
 
   private sendOutput(
     client: ClientConn,

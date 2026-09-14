@@ -1069,6 +1069,10 @@ export function createOpencodeClientTerminals(
       return true
     },
 
+    owns(sessionId) {
+      return attachments.get(sessionId)?.session !== undefined
+    },
+
     resizeAcknowledged(sessionId, cols, rows) {
       const session = attachments.get(sessionId)?.session
       if (!session) return undefined
@@ -1082,8 +1086,7 @@ export function createOpencodeClientTerminals(
       return session.resizeAcknowledged(cols, rows)
     },
 
-    redraw(sessionId, replayRequired = false) {
-      const record = attachments.get(sessionId)
+    redraw(sessionId, replayRequired = false) {      const record = attachments.get(sessionId)
       if (!record) return false
       if (replayRequired && !record.session) {
         record.replayRequired = true

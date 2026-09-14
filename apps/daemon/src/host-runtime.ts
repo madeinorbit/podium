@@ -123,6 +123,7 @@ import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './trans
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
+import { trackSessionOutput } from './session-screens'
 
 const log = createLogger('daemon:host')
 /**
@@ -1079,7 +1080,12 @@ export async function createDaemonHostRuntime(args: {
       ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
     // One session-addressed relay for engine terminals and on-demand harness
     // client terminals. The latter intentionally returns the parent session id.
-    frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
+    frames: (streamId, frame) => {
+      // P1b (POD-3918): headed output feeds the same headless model and 1049
+      // mode as bridge output, so the reopen policy sees both paths alike.
+      trackSessionOutput(ctx, asSessionId(streamId), frame)
+      ctx.outputScheduler.enqueue(asSessionId(streamId), frame)
+    },
     releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
     // Executable discovery belongs to the machine command environment, while
     // `homeDir` below is the isolated credential home passed to the child. Keep

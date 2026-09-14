@@ -22,6 +22,7 @@ import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
+import type { SessionScreenState } from '../session-screens'
 import type { AppliedGeometryRecord } from './applied-geometry'
 import type { Durable } from './durable'
 
@@ -136,6 +137,13 @@ export interface DaemonContext {
   nativeClientRetries?: Map<SessionId, number>
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
+  /**
+   * Per-session headless screen state (POD-3918 P1b): the 1049 mode tracker
+   * and the VT model the reopen policy reconstitutes from. Fed by the output
+   * funnels and the apply sites; dropped when the session's terminal goes
+   * away. Optional so hand-built contexts keep working.
+   */
+  sessionScreens?: Map<SessionId, SessionScreenState>
   /** The one per-machine runtime. Family registries are private mechanisms
    * behind this root; handlers never walk them independently. Optional only
    * during bootstrap while the driver host ports close their wiring cycle. */

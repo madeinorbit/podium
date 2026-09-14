@@ -12,7 +12,7 @@ import { asSessionId } from '@podium/model'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
-import { trackSessionOutput, trackSessionSize } from '../session-screens'
+import { sessionScreenFor, trackSessionOutput, trackSessionSize } from '../session-screens'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 const ENTER_ALT = '\x1b[?1049h'
@@ -37,6 +37,7 @@ function world(opts: { headed: boolean }): {
   const clientTerminals = {
     resize: vi.fn(() => true),
     redraw: vi.fn(() => true),
+    owns: vi.fn(() => opts.headed),
   }
   const ctx = {
     bridges: new Map([[SESSION, bridge]]),
@@ -55,15 +56,20 @@ function world(opts: { headed: boolean }): {
   return { ctx, bridge, clientTerminals, enqueued }
 }
 
-function seedAlt(ctx: DaemonContext): void {
+async function seedAlt(ctx: DaemonContext): Promise<void> {
   trackSessionSize(ctx, SESSION, MODEL_SIZE.cols, MODEL_SIZE.rows)
   trackSessionOutput(ctx, SESSION, Buffer.from(ENTER_ALT, 'latin1'))
   trackSessionOutput(ctx, SESSION, Buffer.from('\x1b[HAgent TUI frame', 'latin1'))
+  // The headless emulator parses writes asynchronously; production control
+  // frames always arrive on a later tick than the PTY output they follow, so
+  // yield the same way here before snapshotting.
+  await sessionScreenFor(ctx, SESSION)?.model?.flush()
 }
 
-function seedNormal(ctx: DaemonContext): void {
+async function seedNormal(ctx: DaemonContext): Promise<void> {
   trackSessionSize(ctx, SESSION, MODEL_SIZE.cols, MODEL_SIZE.rows)
   trackSessionOutput(ctx, SESSION, Buffer.from('shell line\r\n', 'latin1'))
+  await sessionScreenFor(ctx, SESSION)?.model?.flush()
 }
 
 const textOf = (enqueued: Uint8Array[]): string =>
@@ -72,9 +78,9 @@ const textOf = (enqueued: Uint8Array[]): string =>
 describe('mode-aware redraw (bridge path)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('alternate at the SAME size reconstitutes from the model, then goes live', () => {
+  it('alternate at the SAME size reconstitutes from the model, then goes live', async () => {
     const { ctx, bridge, enqueued } = world({ headed: false })
-    seedAlt(ctx)
+    await seedAlt(ctx)
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(bridge.replay).not.toHaveBeenCalled()
     expect(bridge.resize).not.toHaveBeenCalled()
@@ -83,9 +89,9 @@ describe('mode-aware redraw (bridge path)', () => {
     expect(bridge.redraw).toHaveBeenCalledTimes(1)
   })
 
-  it('alternate at a DIFFERENT viewer size applies the size BEFORE repainting', () => {
+  it('alternate at a DIFFERENT viewer size applies the size BEFORE repainting', async () => {
     const { ctx, bridge, enqueued } = world({ headed: false })
-    seedAlt(ctx)
+    await seedAlt(ctx)
     ctx.pendingResizes.set(SESSION, { ...VIEWER_SIZE })
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(bridge.replay).not.toHaveBeenCalled()
@@ -98,16 +104,16 @@ describe('mode-aware redraw (bridge path)', () => {
     expect(textOf(enqueued)).toContain('Agent TUI frame')
   })
 
-  it('normal + replay debt still replays the host ring tail (restart-approximate)', () => {
+  it('normal + replay debt still replays the host ring tail (restart-approximate)', async () => {
     const { ctx, bridge } = world({ headed: false })
-    seedNormal(ctx)
+    await seedNormal(ctx)
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(bridge.replay).toHaveBeenCalledWith(256 * 1024)
   })
 
-  it('normal with no debt just repaints', () => {
+  it('normal with no debt just repaints', async () => {
     const { ctx, bridge } = world({ headed: false })
-    seedNormal(ctx)
+    await seedNormal(ctx)
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION })
     expect(bridge.replay).not.toHaveBeenCalled()
     expect(bridge.redraw).toHaveBeenCalledTimes(1)
@@ -117,9 +123,9 @@ describe('mode-aware redraw (bridge path)', () => {
 describe('mode-aware redraw (headed path follows the same policy: audit item 6)', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('headed alternate at a DIFFERENT viewer size resizes through the client terminal BEFORE redrawing', () => {
+  it('headed alternate at a DIFFERENT viewer size resizes through the client terminal BEFORE redrawing', async () => {
     const { ctx, clientTerminals, enqueued } = world({ headed: true })
-    seedAlt(ctx)
+    await seedAlt(ctx)
     ctx.pendingResizes.set(SESSION, { ...VIEWER_SIZE })
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(clientTerminals.resize).toHaveBeenCalledWith(
@@ -134,9 +140,9 @@ describe('mode-aware redraw (headed path follows the same policy: audit item 6)'
     expect(textOf(enqueued)).toContain('Agent TUI frame')
   })
 
-  it('headed alternate at the SAME size reconstitutes without touching the program size', () => {
+  it('headed alternate at the SAME size reconstitutes without touching the program size', async () => {
     const { ctx, clientTerminals, enqueued } = world({ headed: true })
-    seedAlt(ctx)
+    await seedAlt(ctx)
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(clientTerminals.resize).not.toHaveBeenCalled()
     expect(textOf(enqueued)).toContain('Agent TUI frame')

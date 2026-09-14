@@ -65,6 +65,14 @@ import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } 
 export { harnessCompatEnv } from './session-env'
 
 import { sourceForRead } from './transcripts'
+import { decideReopenScreen } from '../reopen-policy'
+import {
+  forgetSessionScreen,
+  sessionScreenFor,
+  snapshotFirstFrame,
+  trackSessionOutput,
+  trackSessionSize,
+} from '../session-screens'
 
 const log = createLogger('daemon:session')
 
@@ -554,6 +562,8 @@ export function wireBridge(
       session.resize(cols, rows)
       return true
     })
+    // The program is at the held size now, so the headless model follows it.
+    trackSessionSize(ctx, sessionId, pending.cols, pending.rows)
     ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
   } else if (reported) {
     // AN APPLY SITE TOO, and the one that is easy to misread. `reported` is the
@@ -562,6 +572,7 @@ export function wireBridge(
     // grid. No dispatch: it is already there. A reattach passes `undefined` and
     // records nothing, because a size-neutral attach applies nothing.
     record.apply(sessionId, reported.cols, reported.rows)
+    trackSessionSize(ctx, sessionId, reported.cols, reported.rows)
   }
   session.onFrame((frame) => {
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
@@ -576,6 +587,9 @@ export function wireBridge(
     measureTask('frames', () => {
       ctx.observers.onFrame?.(sessionId, frame.data)
       ctx.outputScheduler.enqueue(sessionId, frame.data)
+      // P1b (POD-3918): the headless model and the 1049 mode see every live
+      // byte, so a reopen reconstitutes from what the program drew.
+      trackSessionOutput(ctx, sessionId, frame.data)
       // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
       // running for this (flagged) session.
       if (ctx.composerEngine.has(sessionId)) {
@@ -598,6 +612,7 @@ export function wireBridge(
     // terminal that no longer exists.
     record.forget(sessionId)
     ctx.pendingResizes.delete(sessionId)
+    forgetSessionScreen(ctx, sessionId)
     ctx.composerEngine.detach(sessionId)
     ctx.durableLabels.delete(sessionId)
     ctx.outputScheduler.remove(sessionId)
@@ -2477,6 +2492,9 @@ export const sessionHandlers: Pick<
         // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
         // a pty session, and a client terminal is opened at it.
         ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+      } else {
+        // The program is at the asked size now, so the headless model follows it.
+        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
       }
       ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
       ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
@@ -2519,10 +2537,14 @@ export const sessionHandlers: Pick<
             return
           }
           record.apply(msg.sessionId, acked.cols, acked.rows)
+          // The program is at the acknowledged size now: the model follows it.
+          trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
         })
         .catch((err) => log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }))
     } else {
       record.apply(msg.sessionId, answer.cols, answer.rows)
+      // The program is at the answered size now: the model follows it.
+      trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
     }
   },
   draftTarget: (ctx, msg) => {
@@ -2530,23 +2552,131 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    if (ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired)) return
+    // MODE-AWARE REOPEN (POD-3918 P1b) — the same decision for the headed arm
+    // and the bridge arm (audit item 6): alternate screens never replay stale
+    // bytes, a viewer size that differs from the model is applied FIRST, and
+    // a same-size alternate reopens from the model serialisation. The arms
+    // differ only in HOW they apply (client terminal vs pty bridge), never in
+    // WHAT they decide.
+    const screen = sessionScreenFor(ctx, msg.sessionId)
+    const record = appliedGeometryFor(ctx)
+    const viewer = ctx.pendingResizes.get(msg.sessionId) ?? record.applied(msg.sessionId) ?? undefined
     const bridge = ctx.bridges.get(msg.sessionId)
-    if (!bridge) return
-    // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server sends `replayRequired`
-    // when a client attaches against an EMPTY log — a server restart, or a deploy
-    // that restarted both server and daemon. abduco can only ask the program to
-    // repaint. The host keeps the output, so it replays its tail instead: the
-    // viewer gets the last screen, and the program is not touched at all.
-    const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> }).replay
-    if (msg.replayRequired && replay) {
-      void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) => {
-        log.warn('host replay failed; falling back to a repaint', { err, sessionId: msg.sessionId })
-        bridge.redraw()
+    const decision = decideReopenScreen({
+      mode: screen?.tracker.current ?? 'normal',
+      modelSize: screen?.modelSize ?? record.applied(msg.sessionId) ?? undefined,
+      viewerSize: viewer ? { cols: viewer.cols, rows: viewer.rows } : undefined,
+      modelAlive: screen?.model !== undefined,
+      ringReplayable:
+        typeof (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay ===
+        'function',
+      replayRequired: msg.replayRequired === true,
+    })
+    const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay
+    const enqueueSnapshot = (): void => {
+      const snapshot = screen?.model
+        ? snapshotFirstFrame(screen.tracker.current, screen.model.lines(false))
+        : undefined
+      if (snapshot) ctx.outputScheduler.enqueue(msg.sessionId, snapshot)
+    }
+    const applyBridgeSizeFirst = (): void => {
+      if (!viewer || !bridge) return
+      const applied = record.apply(msg.sessionId, viewer.cols, viewer.rows, (cols, rows) => {
+        bridge.resize(cols, rows)
+        return true
       })
+      if (applied) {
+        ctx.pendingResizes.delete(msg.sessionId)
+        trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
+      }
+    }
+    const applyHeadedSizeFirst = (): void => {
+      // The headed twin of the apply above, under the resize handler's
+      // discipline: record only what was really applied (POD-3919), and a
+      // request that reaches no terminal stays held.
+      if (!viewer || !ctx.clientTerminals) return
+      const answer = dispatchClientResize(ctx, msg.sessionId, viewer.cols, viewer.rows)
+      if (answer === undefined) return
+      if (isResizePromise(answer)) {
+        void answer
+          .then((acked) => {
+            if (!acked) return
+            record.apply(msg.sessionId, acked.cols, acked.rows)
+            trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
+            ctx.pendingResizes.delete(msg.sessionId)
+          })
+          .catch((err) =>
+            log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
+          )
+        return
+      }
+      record.apply(msg.sessionId, answer.cols, answer.rows)
+      trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
+      ctx.pendingResizes.delete(msg.sessionId)
+    }
+    const terminals = ctx.clientTerminals
+    if (terminals?.owns?.(msg.sessionId)) {
+      switch (decision.kind) {
+        case 'snapshot-then-live':
+          enqueueSnapshot()
+          break
+        case 'resize-repaint-with-placeholder':
+          enqueueSnapshot()
+          applyHeadedSizeFirst()
+          break
+        case 'resize-repaint':
+          applyHeadedSizeFirst()
+          break
+        case 'ring-replay':
+        case 'repaint':
+        case 'repaint-only':
+          break
+      }
+      terminals.redraw(msg.sessionId, msg.replayRequired)
       return
     }
-    bridge.redraw()
+    if (terminals?.redraw(msg.sessionId, msg.replayRequired)) return
+    if (!bridge) return
+    switch (decision.kind) {
+      case 'ring-replay':
+        // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server sends
+        // `replayRequired` when a client attaches against an EMPTY log — a
+        // server restart, or a deploy that restarted both server and daemon.
+        // abduco can only ask the program to repaint. The host keeps the
+        // output, so it replays its tail instead: the viewer gets the last
+        // screen, and the program is not touched at all. Approximate until
+        // POD-3925: the ring carries no size history, so the tail is assumed
+        // at one size.
+        if (replay) {
+          void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) => {
+            log.warn('host replay failed; falling back to a repaint', {
+              err,
+              sessionId: msg.sessionId,
+            })
+            bridge.redraw()
+          })
+          return
+        }
+        bridge.redraw()
+        return
+      case 'snapshot-then-live':
+        enqueueSnapshot()
+        bridge.redraw()
+        return
+      case 'resize-repaint-with-placeholder':
+        enqueueSnapshot()
+        applyBridgeSizeFirst()
+        bridge.redraw()
+        return
+      case 'resize-repaint':
+        applyBridgeSizeFirst()
+        bridge.redraw()
+        return
+      case 'repaint':
+      case 'repaint-only':
+        bridge.redraw()
+        return
+    }
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)
