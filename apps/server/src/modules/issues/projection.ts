@@ -10,12 +10,14 @@ import {
   type IssueDepProjection,
   type IssueExecutionProjection,
   type IssueProjection,
+  type SharedIssueProjection,
   issueDepId,
   issueDepToWire,
   Repo,
   type RepoProjection,
   repoToWire,
   toExecutionWire,
+  toSharedWire,
   toWire,
   type IssueId,
   type RepoId,
@@ -189,11 +191,15 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
 export function issueProjectionRows(
   rows: Iterable<IssueRow>,
   labelsOf: (id: string) => string[],
-): { id: IssueId; value: IssueProjection }[] | undefined {
-  const out: { id: IssueId; value: IssueProjection }[] = []
+): { id: IssueId; value: SharedIssueProjection }[] | undefined {
+  const out: { id: IssueId; value: SharedIssueProjection }[] = []
   for (const row of rows) {
     try {
-      out.push({ id: row.id, value: issueRowToProjection(row, labelsOf(row.id)) })
+      // Shared half only [PDM-387]. The four private execution keys ride
+      // `issueExecutionRows` below; publishing the full projection here would
+      // duplicate them onto the arm C4 widens. `.parse()` via `toSharedWire`,
+      // never a structural delete — one list, one omit.
+      out.push({ id: row.id, value: toSharedWire(issueRowToProjection(row, labelsOf(row.id))) })
     } catch (err) {
       log.warn(
         'an issue could not be projected — skipping the whole issueProjection publish so reconcile cannot mistake a partial list for a delete',

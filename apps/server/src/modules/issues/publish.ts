@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import type { IssueWire } from '@podium/model'
+import { type IssueWire, toSharedIssueWire } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
 
@@ -86,7 +86,7 @@ export class IssuePublisher implements IssuePublishSpecs {
     const issues = localIssues
     this.currentLocalIssues = localIssues
     return {
-      rows: issues.map((i) => ({ id: i.id, value: i })),
+      rows: issues.map((i) => ({ id: i.id, value: toSharedIssueWire(i) })),
     }
   }
 
@@ -104,6 +104,6 @@ export class IssuePublisher implements IssuePublishSpecs {
               candidate.id === issue.id ? issue : candidate,
             )
     }
-    return { rows: [{ id: issue.id, value: issue }] }
+    return { rows: [{ id: issue.id, value: toSharedIssueWire(issue) }] }
   }
 }

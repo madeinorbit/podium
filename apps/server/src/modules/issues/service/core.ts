@@ -8,8 +8,10 @@ import {
   type IssueId,
   type IssuePanel,
   type IssueExecutionProjection,
-  type IssueProjection,
+  type SharedIssueProjection,
   toExecutionWire,
+  toSharedIssueWire,
+  toSharedWire,
   type IssueUserOverlay,
   type IssueWire,
   type MachineId,
@@ -1035,7 +1037,7 @@ export class IssueStore {
     row: IssueRow,
   ): Promise<
     (
-      | { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }
+      | { entity: 'issueProjection'; id: string; op: 'upsert'; value: SharedIssueProjection }
       | { entity: 'issueExecution'; id: string; op: 'upsert'; value: IssueExecutionProjection }
     )[]
   > {
@@ -1047,8 +1049,12 @@ export class IssueStore {
       row,
       await this.deps.store.issues.getIssueLabels(row.id),
     )
+    // The shared arm is parsed through `toSharedWire` [PDM-387]. Leaving the
+    // full projection here is how B4's sidecar landed as a duplicate rather
+    // than a move: protocol types SharedIssueProjection, the server does not
+    // parse outbound frames, and the bytes still carried the four keys.
     return [
-      { entity: 'issueProjection', id: row.id, op: 'upsert', value: projection },
+      { entity: 'issueProjection', id: row.id, op: 'upsert', value: toSharedWire(projection) },
       { entity: 'issueExecution', id: row.id, op: 'upsert', value: toExecutionWire(projection) },
     ]
   }
@@ -1062,7 +1068,7 @@ export class IssueStore {
    *  POD-1576, when the relay's write-less publish tail was its outside caller;
    *  {@link reconcileAndPublish} is the only caller left, so this is the
    *  service's own truth now and no publisher unions anything into it. */
-  async allProjections(): Promise<{ id: string; value: IssueProjection }[] | undefined> {
+  async allProjections(): Promise<{ id: string; value: SharedIssueProjection }[] | undefined> {
     const labelsByIssue = await this.deps.store.issues.listIssueLabelsByIssue()
     return issueProjectionRows(this.rows.values(), (id) => labelsByIssue.get(id) ?? [])
   }
@@ -1274,7 +1280,16 @@ export class IssueStore {
       // so it carries the revision upsertIssue just assigned — the same
       // ordering `w` depends on), not from `w`.
       changes: (w) => [
-        { entity: 'issue', id: row.id, op: 'upsert', value: w },
+        {
+          entity: 'issue',
+          id: row.id,
+          op: 'upsert',
+          // Shared half only [PDM-387]. `toWire` itself stays wide: it is the
+          // owner's get/list payload. The feed arm is typed SharedIssueWire
+          // and the server does not parse outbound frames, so the omit has
+          // to happen here, at the producer.
+          value: toSharedIssueWire(w),
+        },
         ...committedProjectionChanges,
         ...committedExtraChanges,
       ],
@@ -1381,7 +1396,7 @@ export class IssueStore {
             entity: 'issue' as const,
             id: row.id,
             op: 'upsert' as const,
-            value: committedWires[index]!,
+            value: toSharedIssueWire(committedWires[index]!),
           },
           ...(committedProjectionChanges[index] ?? []),
         ]),

@@ -12,6 +12,7 @@ import {
   type GrantVerb,
   type IssueId,
   type IssueWire,
+  toSharedIssueWire,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
@@ -1517,7 +1518,9 @@ export class IssueCrudModule {
         })
         committed = await this.store.toWire(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
+      changes: () => [
+        { entity: 'issue', id: row.id, op: 'upsert', value: toSharedIssueWire(wire()) },
+      ],
       apply: () => {
         this.store.installRow(row.id, row)
       },
@@ -1640,7 +1643,9 @@ export class IssueCrudModule {
         })
         committed = await this.store.toWire(row)
       },
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
+      changes: () => [
+        { entity: 'issue', id: row.id, op: 'upsert', value: toSharedIssueWire(wire()) },
+      ],
       apply: () => {
         this.store.installRow(row.id, row)
       },

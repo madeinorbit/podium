@@ -1,3 +1,4 @@
+import { toSharedIssueWire } from '@podium/model'
 import {
   attributionOf,
   type SystemCommandPrincipal,
@@ -328,7 +329,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       const wire = await store.allWire()
       await store.deps.ledger.reconcile(
         'issue',
-        wire.map((i) => ({ id: i.id, value: i })),
+        wire.map((i) => ({ id: i.id, value: toSharedIssueWire(i) })),
       )
       const reconcileMs = performance.now() - reconcileStart
       if (reconcileMs > 2000) {

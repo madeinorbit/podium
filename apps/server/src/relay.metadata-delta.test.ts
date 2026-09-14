@@ -1,4 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
+import { firstAdminMemberId, ISSUE_PRIVATE_EXECUTION_KEYS } from '@podium/model'
 import type { IssueWire, SessionMeta, SharedIssueWire } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -65,8 +65,8 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.create({ repoPath: '/r', title: 'first', startNow: false })
     flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(3)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(3)
+    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(4)
+    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(4)
 
     // Wire v2 is canonical; the retired cap no longer selects a second entity path.
     const legacyNew = legacy.inbox.slice(legacyBefore)
@@ -79,11 +79,13 @@ describe('SessionRegistry metadata deltas', () => {
     const changes = deltas(deltaNew)
     // `issueEvent` rides along because creating an issue APPENDS an event, and
     // that event is a feed row now (POD-1772) rather than something the pane
-    // re-asks for on a timer. The `issues.update` case below is unchanged on
-    // purpose: its kind is not one the feed carries.
+    // re-asks for on a timer. `issueExecution` is the owner-scoped sidecar from
+    // the same persist batch [B4]. A poll of 3 was racing the afterCommit event
+    // against that batch and could miss either.
     expect(changes.map((change) => change.entity).sort()).toEqual([
       'issue',
       'issueEvent',
+      'issueExecution',
       'issueProjection',
     ])
     const residue = changes.find((change) => change.entity === 'issue')
@@ -112,12 +114,11 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
     const legacyChanges = deltas(legacyNew)
-    // THREE kinds per issue write since B4 (PDM-136): the two shared payloads
-    // and the owner-scoped `issueExecution` sidecar carrying the private
-    // execution keys the shared two no longer have.
+    // Notes-only does not move a private key, so the sidecar is a no-op upsert
+    // and Ledger.commit drops it [PDM-405]. The worktreePath case below is the
+    // counterfactual that does publish `issueExecution`.
     expect(legacyChanges.map((change) => change.entity).sort()).toEqual([
       'issue',
-      'issueExecution',
       'issueProjection',
     ])
     expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
@@ -125,12 +126,43 @@ describe('SessionRegistry metadata deltas', () => {
     const changes = deltas(delta.inbox.slice(deltaBefore))
     expect(changes.map((change) => change.entity).sort()).toEqual([
       'issue',
-      'issueExecution',
       'issueProjection',
     ])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issue')
     expect((residue as { value: SharedIssueWire }).value.notes).toBe('self-contained edit')
+  })
+
+  it('a worktreePath update omits the private keys from both shared arms and carries them on the sidecar [PDM-387]', async () => {
+    const registry = await makeRegistry()
+    const w = await registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
+    flush(registry)
+    const legacy = await client(registry)
+    const before = legacy.inbox.length
+
+    await registry.issues.update(w.id, { worktreePath: '/wt/pdm-387-private' })
+    flush(registry)
+
+    await expect.poll(() => deltas(legacy.inbox.slice(before)).length).toBeGreaterThan(0)
+    const changes = deltas(legacy.inbox.slice(before)).filter((change) => change.id === w.id)
+    const shared = changes.filter(
+      (change) => change.entity === 'issue' || change.entity === 'issueProjection',
+    )
+    const sidecar = changes.filter((change) => change.entity === 'issueExecution')
+
+    expect(ISSUE_PRIVATE_EXECUTION_KEYS.length).toBeGreaterThan(0)
+    expect(shared.filter((change) => change.entity === 'issue').length).toBeGreaterThan(0)
+    expect(shared.filter((change) => change.entity === 'issueProjection').length).toBeGreaterThan(0)
+    expect(sidecar.length).toBeGreaterThan(0)
+
+    for (const change of shared) {
+      const value = (change as { value?: Record<string, unknown> }).value
+      for (const key of ISSUE_PRIVATE_EXECUTION_KEYS) {
+        expect.soft(value).not.toHaveProperty(key)
+      }
+    }
+    const sidecarValue = (sidecar[0] as { value?: Record<string, unknown> }).value
+    expect(sidecarValue?.worktreePath).toBe('/wt/pdm-387-private')
   })
 
   it('streams session upserts through the same seam', async () => {

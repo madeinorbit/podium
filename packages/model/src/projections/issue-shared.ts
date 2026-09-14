@@ -5,13 +5,17 @@
  * READ THIS BEFORE READING A GREEN TEST AS SAFETY
  * ---------------------------------------------------------------------------
  *
- * This file is a CLASSIFICATION. It is not, on its own, an enforcement, and
- * nothing here changes what the feed currently broadcasts. `IssueProjection` is
- * still the payload the `issueProjection` change-log entity carries, and it
- * still contains every key named private below. Saying so here rather than only
- * in a receipt, because a reader who meets `SharedIssueProjection` and its
- * passing tests could reasonably conclude the payload had been made safe. It has
- * not. It has been CLASSIFIED, which is the necessary first half.
+ * This file is a CLASSIFICATION. A green test here is not a feed green: it
+ * proves the omit schema, not that any producer parses through it.
+ *
+ * Enforcement of the shared half is at the producers [PDM-387]:
+ * `issueProjectionRows`, `IssueService.projectionChanges`, the live `issue`
+ * change specs, `IssuePublisher.issuesChanged` / `issueUpdated`, and the boot
+ * reconcile all call `toSharedWire` / `toSharedIssueWire`. The ledger-wrapper
+ * half (total over commit/capture/reconcile) is PDM-415's and is a second
+ * layer, not a substitute. `IssueProjection` / `IssueWire` themselves still
+ * declare the four keys — the owner's client holds them after
+ * `joinIssueExecution`. What must not ride the shared arms is the bytes.
  *
  * WHY THE SECOND HALF IS NOT HERE. The `issueProjection` payload is
  * PRINCIPAL-INDEPENDENT by construction: `prepareBatch` resolves one

@@ -1,10 +1,15 @@
-import { asRepoId, type UnbrandIds } from '@podium/model'
+import {
+  asRepoId,
+  ISSUE_PRIVATE_EXECUTION_KEYS,
+  type UnbrandIds,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow } from '../../store'
 import { captureLogs } from '../../test-support/capture-logs'
 import {
   issueDepProjectionRows,
   issueDepToProjection,
+  issueExecutionRows,
   issueProjectionRows,
   issueRowToProjection,
   repoProjectionRows,
@@ -337,6 +342,38 @@ describe('issueProjectionRows: all-or-nothing [POD-796]', () => {
       expect(logs.at('warn')).not.toHaveLength(0)
     } finally {
       logs.restore()
+    }
+  })
+})
+
+describe('issueProjectionRows: private execution keys [PDM-387]', () => {
+  const planted = row({
+    coordinatorSessionId: 'ses_coord',
+    startedBySession: 'ses_started',
+  })
+
+  it('the shared rows omit all four private execution keys by name', () => {
+    const rows = issueProjectionRows([planted], () => NO_LABELS)
+    expect(rows).toHaveLength(1)
+    expect(ISSUE_PRIVATE_EXECUTION_KEYS.length).toBeGreaterThan(0)
+    for (const key of ISSUE_PRIVATE_EXECUTION_KEYS) {
+      expect.soft(rows![0]!.value).not.toHaveProperty(key)
+    }
+    // Non-vacuity: the adapter still produced those keys, so the omit is a
+    // producer act, not a fixture that never had them.
+    const full = issueRowToProjection(planted, NO_LABELS)
+    for (const key of ISSUE_PRIVATE_EXECUTION_KEYS) {
+      expect.soft(full).toHaveProperty(key)
+    }
+  })
+
+  it('the sidecar rows carry the same four keys the shared rows omit', () => {
+    const shared = issueProjectionRows([planted], () => NO_LABELS)
+    const sidecar = issueExecutionRows([planted], () => NO_LABELS)
+    expect(sidecar).toHaveLength(1)
+    for (const key of ISSUE_PRIVATE_EXECUTION_KEYS) {
+      expect.soft(sidecar![0]!.value).toHaveProperty(key)
+      expect.soft(shared![0]!.value).not.toHaveProperty(key)
     }
   })
 })

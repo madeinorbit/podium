@@ -7,11 +7,10 @@
  *
  * WHAT A GREEN HERE DOES AND DOES NOT MEAN. It means the classification is total
  * over the projection's real key set and that the shared shape drops exactly the
- * four private keys. It does NOT mean the broadcast payload is safe: the feed
- * still carries `IssueProjection`, and nothing in this package can change that.
- * See `issue-shared.ts`'s header. Said here as well as there because a test file
- * is where someone checks whether a property holds, and this one would otherwise
- * imply a property it does not test.
+ * four private keys. It does NOT mean the broadcast payload is safe on its own:
+ * this package does not sit on the feed. The producers that parse through
+ * `toSharedWire` / `toSharedIssueWire` are PDM-387's; a green here can survive
+ * those call sites being deleted. See `issue-shared.ts`'s header.
  */
 
 import { describe, expect, it } from 'vitest'
