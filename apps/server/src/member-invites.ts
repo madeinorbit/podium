@@ -62,8 +62,12 @@ export class MemberInvites {
   }
 
   async list(actor: UserId) {
-    if ((await this.users.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
-    return (await this.users.pendingInvites()).map(({ tokenHash: _, ...invite }) => invite)
+    const account = await this.users.get(actor)
+    if (!account) throw new Error('Member unavailable')
+    const invites = await this.users.pendingInvites(account.role === 'admin' ? undefined : actor)
+    return invites
+      .filter((invite) => Date.parse(invite.expiresAt) > this.now())
+      .map(({ tokenHash: _, ...invite }) => invite)
   }
 
   async revoke(actor: UserId, id: string): Promise<void> {

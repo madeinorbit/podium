@@ -156,6 +156,7 @@ export const ROW = {
 
   userAccount: id('user-account'),
   accountCredential: id('account-credential'),
+  pendingMemberInvite: id('pending-member-invite'),
   perUserClientSession: id('per-user-client-session'),
   grantEdge: id('grant-edge'),
   delegationRecord: id('delegation-record'),
@@ -3207,6 +3208,57 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
       note: 'Never replicated and excluded from every wire projection, so no principal’s view of it can change. What multi-user changes is WHO MAY RESET it — an admin-grade action (D15).',
     },
     open: [],
+  },
+  {
+    id: ROW.pendingMemberInvite,
+    section: 'multi-user-classes',
+    title: 'Pending member invite (`member_invites`)',
+    sites: [
+      '`member_invites`',
+      'apps/server/src/member-invites.ts',
+      'apps/server/src/store/users.ts',
+    ],
+    home: 'server',
+    idMinting: 'Server-minted `InviteId` and bearer token; only the token hash is persisted',
+    writers: ['operator'],
+    replication: 'none',
+    replicationNote:
+      'No sync projection. The inviter reads invite metadata through the server command path, and the invitee presents the bearer token to claim it.',
+    conflict: 'cmd',
+    conflictNote:
+      'Create, revoke and claim are serialized server commands. Expiry is a read-time validity boundary, not a competing field write.',
+    tombstone: 'hard-delete',
+    tombstoneNote:
+      'Accepted and revoked invites are deleted. Expired rows remain in this class as inert, unclaimable records until cleanup; disabling or removing the inviter revokes their outstanding rows by deleting them.',
+    offline: 'never-enqueue',
+    secret: 'secret-value',
+    secretNote:
+      'The bearer token is returned once and only its hash is stored. Invite metadata is server-local and is readable to the inviter for their own outstanding rows or to an active admin for management.',
+    owner: {
+      kind: 'user',
+      resolves: 'inviting-user',
+      note: 'The inviter in `created_by` is the accountable owner; the invitee has no account identity until claim succeeds.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'none',
+      reason: 'secret-admin-grade',
+      note: 'The invite is not grantable. An active admin may manage it as a membership command, while the inviter may read their own metadata without an admin role.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'The creating admin is the inviter and owner; an agent-created command remains attributed to its delegating human.',
+    },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'There is no share or rescope operation. The inviter keeps their own read after an admin-role change; acceptance, expiry, revoke and inviter disable change the row lifecycle, not its visibility class.',
+    },
+    open: ['O1'],
+    openNote:
+      'O1 also covers the email address carried by an invite before an account exists: the inviter-facing metadata is an existence-bearing pre-account directory fact, and this row records the question without resolving the Phase 3 policy.',
   },
   perUserState({
     id: ROW.perUserClientSession,

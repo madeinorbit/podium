@@ -2,7 +2,7 @@ import { asUserId, LoginEmail, type UserId } from '@podium/model'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { isAllowedHttpOrigin } from './http-cors'
-import { CreateMemberInvite, InvitePassword, MemberInvites } from './member-invites'
+import { CreateMemberInvite, InvitePassword, type MemberInvites } from './member-invites'
 import type { UsersRepository } from './store/users'
 
 export type MemberInviteMail = (message: {
@@ -42,18 +42,27 @@ export function registerMemberRoutes(
       return c.json({ error: 'Origin refused' }, 403)
     await next()
   })
+  const actor = async (request: Request) => {
+    const actor = await options.resolveUserId(request)
+    return actor && (await users.get(actor)) ? actor : undefined
+  }
   const admin = async (request: Request) => {
     const actor = await options.resolveUserId(request)
     return actor && (await users.roleOf(actor)) === 'admin' ? actor : undefined
   }
   routes.get('/list', async (c) => {
-    const actor = await admin(c.req.raw)
-    if (!actor) return c.json({ error: 'Administrator required' }, 403)
+    const currentMemberId = await actor(c.req.raw)
+    if (!currentMemberId) return c.json({ error: 'Member unavailable' }, 403)
+    const current = await users.get(currentMemberId)
+    if (!current) return c.json({ error: 'Member unavailable' }, 403)
+    const isAdmin = current.role === 'admin'
     return c.json({
-      members: await users.list(),
-      invites: await invites.list(actor),
-      mailAvailable: Boolean(options.sendMail),
-      currentMemberId: actor,
+      // O1 remains open for the member directory, so ordinary members receive
+      // their own profile rather than every account's existence-bearing row.
+      members: isAdmin ? await users.list() : [current],
+      invites: await invites.list(currentMemberId),
+      mailAvailable: isAdmin && Boolean(options.sendMail),
+      currentMemberId,
     })
   })
   routes.post('/invite', async (c) => {

@@ -72,6 +72,29 @@ describe('totality — no row escapes annotation', () => {
       }
     }
   })
+  it('gives pending member invites their own inviter-owned class', () => {
+    const row = OWNERSHIP_MATRIX_INDEX.get(ROW.pendingMemberInvite as string)
+    expect(row).toBeDefined()
+    expect(row).toMatchObject({
+      home: 'server',
+      replication: 'none',
+      conflict: 'cmd',
+      tombstone: 'hard-delete',
+      offline: 'never-enqueue',
+      secret: 'secret-value',
+      visibility: 'personal',
+      systemWriter: 'never-writes',
+      open: ['O1'],
+    })
+    expect(row?.owner).toMatchObject({ kind: 'user', resolves: 'inviting-user' })
+    expect(row?.grants).toMatchObject({ kind: 'none', reason: 'secret-admin-grade' })
+    expect(row?.tombstoneNote).toContain('Expired rows remain')
+    expect(row?.openNote).toContain('before an account exists')
+    expect(row?.id).not.toBe(ROW.accountCredential)
+    expect(OWNERSHIP_MATRIX_INDEX.get(ROW.accountCredential as string)?.sites).not.toContain(
+      '`member_invites`',
+    )
+  })
 
   it('declares owner/grant inheritance on create for EVERY row (ADR 9 O4)', () => {
     for (const row of rows) {
@@ -464,12 +487,19 @@ describe('no annotation contradicts the ADR', () => {
     for (const row of rows.filter((r) => r.secret === 'secret-value')) {
       expect(row.replication, `${row.id} replicates secret material`).toBe('none')
       expect(row.offline, `${row.id} may enqueue a secret write`).toBe('never-enqueue')
-      expect(row.visibility, `${row.id} is secret-value but not class secret`).toBe('secret')
       expect(row.grants.kind).toBe('none')
       if (row.grants.kind === 'none') {
         expect(row.grants.reason).toBe('secret-admin-grade')
       }
-      expect(row.owner.kind).toBe('none')
+      if (row.id === ROW.pendingMemberInvite) {
+        // The bearer field is secret-value, while the redacted relationship
+        // metadata has a personal inviter read predicate.
+        expect(row.visibility).toBe('personal')
+        expect(row.owner).toMatchObject({ kind: 'user', resolves: 'inviting-user' })
+      } else {
+        expect(row.visibility).toBe('secret')
+        expect(row.owner.kind).toBe('none')
+      }
     }
     // telegramChatId is NOT a secret and IS per-user state (D15's boundary note).
     const chat = OWNERSHIP_MATRIX_INDEX.get(ROW.telegramChatBinding as string) as MatrixRow

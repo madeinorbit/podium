@@ -904,7 +904,7 @@ export const users = sqliteTable(
   ],
 )
 
-/** Invite tokens are credentials: only their hash is persisted; no sync projection. */
+/** Pending invites are inviter-owned relationship state: only the token hash is persisted; no sync projection. */
 export const memberInvites = sqliteTable('member_invites', {
   id: text().$type<import('@podium/model').InviteId>().primaryKey(),
   tokenHash: text('token_hash').notNull().unique(),

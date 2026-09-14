@@ -1,10 +1,12 @@
-import { asUserId, firstAdminMemberId } from '@podium/model'
+import { asUserId, firstAdminMemberId, newInviteId, type UserId } from '@podium/model'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { hashToken } from './auth-tokens'
 import { MemberInvites } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+
 type CreatedInvite = {
   url: string
   invite: { id: string; token: string; expiresAt: string }
@@ -17,15 +19,18 @@ beforeEach(async () => {
 afterEach(async () => {
   await store.close()
 })
-function app(options: { admin?: boolean; mail?: boolean; mailFails?: boolean } = {}) {
+function app(
+  options: { actor?: UserId; admin?: boolean; mail?: boolean; mailFails?: boolean } = {},
+) {
   const hono = new Hono()
+  const resolvedActor = options.actor ?? (options.admin ? firstAdminMemberId() : undefined)
   const sendMail = vi.fn(async () => {
     if (options.mailFails) throw new Error('offline')
   })
   registerMemberRoutes(hono, {
     users: store.users,
     invites: new MemberInvites(store.users),
-    resolveUserId: async () => (options.admin ? firstAdminMemberId() : undefined),
+    resolveUserId: async () => resolvedActor,
     appUrl: () => 'https://workspace.example/',
     ...(options.mail ? { sendMail } : {}),
   })
@@ -67,6 +72,51 @@ test('management requires admin and refuses cross-origin mutations', async () =>
   expect((await post(app({ admin: true }).hono, 'invite', {}, 'https://evil.example')).status).toBe(
     403,
   )
+})
+test('active members can read their own profile and inviter-owned invites', async () => {
+  const adminApp = app({ admin: true }).hono
+  const adminResponse = await post(adminApp, 'invite', { email: 'admin-owned@example.com' })
+  expect(adminResponse.status).toBe(200)
+  const created = await post(adminApp, 'invite', { email: 'anna@example.com' })
+  expect(created.status).toBe(200)
+  const invite = (await created.json()) as CreatedInvite
+  const completed = await post(app().hono, 'complete', {
+    token: invite.invite.token,
+    email: 'anna@example.com',
+    displayName: 'Anna',
+    password: 'password123',
+  })
+  expect(completed.status).toBe(200)
+  const { userId } = (await completed.json()) as { userId: string }
+  const memberId = asUserId(userId)
+  const memberToken = 'm'.repeat(43)
+  await store.users.insertInvite({
+    id: newInviteId(),
+    tokenHash: hashToken(memberToken),
+    memberId: null,
+    email: 'member-owned@example.com',
+    role: 'member',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    createdBy: memberId,
+    createdAt: '2026-09-11T12:00:00.000Z',
+  })
+  const response = await app({ actor: memberId }).hono.request(
+    'https://workspace.example/auth/members/list',
+  )
+  expect(response.status).toBe(200)
+  const body = (await response.json()) as {
+    currentMemberId: string
+    members: Array<{ id: string }>
+    invites: Array<{ email: string }>
+    mailAvailable: boolean
+  }
+  expect(body.currentMemberId).toBe(userId)
+  expect(body.members).toHaveLength(1)
+  expect(body.members).toEqual([expect.objectContaining({ id: userId })])
+  expect(body.invites.map((invite) => invite.email)).toEqual(['member-owned@example.com'])
+  expect(JSON.stringify(body)).not.toContain(hashToken(memberToken))
+  expect(JSON.stringify(body)).not.toContain('admin-owned@example.com')
+  expect(body.mailAvailable).toBe(false)
 })
 test('public completion refuses forged account ids and tokenless trusted claims', async () => {
   const invite = await new MemberInvites(store.users).create(firstAdminMemberId(), {})

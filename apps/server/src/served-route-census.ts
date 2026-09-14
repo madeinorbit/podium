@@ -161,9 +161,9 @@ export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
     path: '/auth/members/list',
     kind: 'reads-stored-rows',
     guard:
-      "member-routes.ts `admin()`: resolveUserId, then users.roleOf(actor) === 'admin', else 403",
+      'member-routes.ts `actor()`: resolveUserId, then users.get(actor) must return an active account, else 403; invites.list(actor) scopes non-admins to created_by',
     rationale:
-      "Returns every member row plus the actor's own invites. The admin floor is applied in the handler itself, not inherited from a prefix, and `invites.list(actor)` is scoped to the caller. Re-read at this pin.",
+      'Admins receive the member directory and all outstanding invite metadata; ordinary members receive only their own profile and invites they created. The invite row is inviter-owned, not account-credential state, and its bearer token is never returned.',
   },
   {
     method: 'GET',

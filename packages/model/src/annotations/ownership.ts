@@ -178,6 +178,8 @@ export type OwnerResolution =
   /** ADR 9 D8 S6: an automation/workflow definition is owned by its CREATOR and
    *  runs as that person with that person's CURRENT rights. */
   | 'creating-user'
+  /** A pending member invite is owned by the human who created it. */
+  | 'inviting-user'
   /** The user in a `(userId, entityId)` key — per-user state (D10). */
   | 'the-user-in-the-key'
   /** ADR 9 D6 M3: whoever paired the machine. */

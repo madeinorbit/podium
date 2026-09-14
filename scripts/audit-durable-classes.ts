@@ -412,39 +412,14 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   },
   { store: 'users', kind: 'drizzle-table', row: 'user-account' },
   { store: 'user_credentials', kind: 'drizzle-table', row: 'account-credential' },
-  // AN INVITE IS CREDENTIAL MATERIAL, and the schema says so in the one line
-  // above the table: only the token’s HASH is persisted, and there is no sync
-  // projection. The plaintext token is returned exactly once, by
-  // `MemberInvites.create`, and is never stored; `tokenHash` is stripped from
-  // every projection the service builds, so the secret VALUE reaches nobody
-  // and only the surrounding metadata is ever shown.
-  //
-  // `account-credential` RATHER THAN `user-account`, and the choice is
-  // default-closed rather than convenient. An invite is the pending half of
-  // account lifecycle, and `user-account` is where that lifecycle is named —
-  // its `grants` cell says invite/disable/remove is admin-grade — so that row
-  // is the obvious reach. It is also the wrong one: it is `personal` and
-  // replicates server-to-clients, and a row whose `member_id` may be NULL is
-  // nobody’s profile. Filing a bearer token under the class of the thing it
-  // lets someone BECOME would widen a secret by one hop. Every cell of
-  // `account-credential` holds instead: `secret-value` at rest; `none`
-  // replication; `cmd` conflict, because create/revoke/claim are commands and
-  // there is no field for two writers to race on; `hard-delete` tombstone —
-  // `deleteInvite` removes the row, `complete` consumes it, and `removeMember`
-  // deletes a member’s invites outright; `never-enqueue` offline; and
-  // `secret-admin-grade` grants, since `create`, `list` and `revoke` each test
-  // `roleOf(actor) === 'admin'` before doing anything. The claim path
-  // (`inspect`, `complete`) is authenticated by PRESENTING the secret rather
-  // than by a role, which is the behaviour of a credential and not of a
-  // profile — it is the strongest evidence for this cell, not an exception to it.
-  //
-  // WHAT THIS ENTRY DOES NOT SETTLE: whether ADR 1 should carry a row of its
-  // own for a pending invite. `account-credential`’s `sites` names
-  // `user_credentials` and the instance password, not this table, and an invite
-  // carries a role and an expiry no other credential does. The store is
-  // classified conservatively here so that it is not INVISIBLE; the ADR
-  // question is recorded as a finding rather than answered by a declaration.
-  { store: 'member_invites', kind: 'drizzle-table', row: 'account-credential' },
+  // PDM-328. A pending invite is its own relationship class, not a credential
+  // of the instance or of the not-yet-existent invitee. The inviter in
+  // `created_by` owns the workflow and may read their own outstanding invite
+  // metadata without an admin role; active admins retain management access.
+  // The bearer token remains `secret-value`: only its hash is persisted, and
+  // there is no sync projection. The matrix row records the terminal-state and
+  // O1 decisions; this declaration records the durable table membership.
+  { store: 'member_invites', kind: 'drizzle-table', row: 'pending-member-invite' },
   { store: 'grants', kind: 'drizzle-table', row: 'grant-edge' },
   { store: 'telegram_chat_bindings', kind: 'drizzle-table', row: 'telegram-chat-binding' },
   {

@@ -106,7 +106,15 @@ test('an admin invite becomes a member login accepted by protected workspace ope
   })
 
   const revoked = await createInvite(adminCookie, 'revoked@example.com')
-  expect((await fetch(url('/auth/members/list'), { headers })).status).toBe(403)
+  const memberList = await fetch(url('/auth/members/list'), { headers })
+  expect(memberList.status).toBe(200)
+  const memberListBody = await memberList.json()
+  expect(memberListBody).toMatchObject({
+    currentMemberId: userId,
+    members: [expect.objectContaining({ id: userId, email: claim.email, role: 'member' })],
+    invites: [],
+    mailAvailable: false,
+  })
   for (const [action, body] of [
     ['invite', { email: 'forbidden@example.com', role: 'admin' }],
     ['revoke', { id: revoked.id }],

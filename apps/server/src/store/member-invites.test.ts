@@ -1,6 +1,7 @@
-import { asUserId, firstAdminMemberId, InviteId } from '@podium/model'
+import { asUserId, firstAdminMemberId, InviteId, newInviteId } from '@podium/model'
 import { verifyPasswordHash } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { hashToken } from '../auth-tokens'
 import { MemberInvites } from '../member-invites'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -44,6 +45,48 @@ describe('member invitations', () => {
       invites.complete({ token: invite.token, identity: passwordIdentity }),
     ).rejects.toThrow()
     expect((await store.users.list()).length).toBe(2)
+  })
+  test('lets an inviter read only its own outstanding invite metadata and revoke it on disable', async () => {
+    const memberInvite = await create({ email: 'anna@example.com' })
+    const member = await invites.complete({ token: memberInvite.token, identity: passwordIdentity })
+    const inviterId = asUserId(member.id)
+    const ownToken = 'o'.repeat(43)
+    const expiredToken = 'e'.repeat(43)
+    const createdAt = new Date(now).toISOString()
+    await store.users.insertInvite({
+      id: newInviteId(),
+      tokenHash: hashToken(ownToken),
+      memberId: null,
+      email: 'own@example.com',
+      role: 'member',
+      expiresAt: '2026-09-12T12:00:00.000Z',
+      createdBy: inviterId,
+      createdAt,
+    })
+    await store.users.insertInvite({
+      id: newInviteId(),
+      tokenHash: hashToken(expiredToken),
+      memberId: null,
+      email: 'expired@example.com',
+      role: 'member',
+      expiresAt: '2026-09-10T12:00:00.000Z',
+      createdBy: inviterId,
+      createdAt,
+    })
+    await create({ email: 'other@example.com' })
+
+    const own = await invites.list(inviterId)
+    expect(own.map((invite) => invite.email)).toEqual(['own@example.com'])
+    expect(JSON.stringify(own)).not.toContain(hashToken(ownToken))
+    const admin = await invites.list(firstAdminMemberId())
+    expect(admin.map((invite) => invite.email)).toEqual(
+      expect.arrayContaining(['own@example.com', 'other@example.com']),
+    )
+    expect(admin.map((invite) => invite.email)).not.toContain('expired@example.com')
+
+    await store.users.disable(inviterId, new Date(now).toISOString())
+    expect(await store.users.pendingInvites(inviterId)).toEqual([])
+    await expect(invites.inspect(ownToken)).rejects.toThrow()
   })
   test('links an account to a new member without minting a password', async () => {
     const invite = await create({ role: 'admin', email: 'anna@example.com' })

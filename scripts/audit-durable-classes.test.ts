@@ -148,6 +148,7 @@ describe('the tables the multi-user epic added are each classified', () => {
       const entries = DURABLE_STORES.filter((s) => s.store === table)
       expect(entries.length, `${table} must have exactly one entry`).toBe(1)
       const entry = entries[0] as DurableStore
+      if (table === 'member_invites') expect(entry.row).toBe('pending-member-invite')
       if (entry.row === null) {
         // The `null` arm is a REASON, and the gate checks it for length because
         // an empty one is a shrug. Asserted here too so the arm cannot be taken

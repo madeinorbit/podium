@@ -15,16 +15,17 @@ import { CommittedRows } from './committed-rows'
  * world index; disabled accounts and unknown roles still fail closed.
  *
  * Member writes are also used by the invite-and-claim service. Its public
- * routes enforce admin access; trusted account claims are an in-process
+ * mutation routes enforce admin access; the list route exposes an inviter's own
+ * outstanding invites to active members; trusted account claims are an in-process
  * capability.
  */
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
-import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import { clientSessions, memberInvites, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
 
 export interface UserAccountRow {
@@ -230,6 +231,10 @@ export class UsersRepository {
     currentReadScope().clear(this.accountsSlot)
     await this.committed.write(async () => this.db.update(users).set({ disabledAt })
       .where(eq(users.id, userId)).returning().all(), 'upsert')
+    // An inviter's outstanding bearer tokens are delegated authority. Disable
+    // revokes them immediately rather than allowing a disabled admin to leave
+    // a live path that can create a new principal.
+    await this.db.delete(memberInvites).where(eq(memberInvites.createdBy, userId)).run()
   }
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {
@@ -399,7 +404,10 @@ export class UsersRepository {
         .run()
       await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
       await this.db.delete(userCredentials).where(eq(userCredentials.userId, userId)).run()
-      await this.db.delete(memberInvites).where(eq(memberInvites.memberId, userId)).run()
+      await this.db
+        .delete(memberInvites)
+        .where(or(eq(memberInvites.memberId, userId), eq(memberInvites.createdBy, userId)))
+        .run()
     })
   }
 
@@ -407,8 +415,13 @@ export class UsersRepository {
     await this.db.insert(memberInvites).values(invite).run()
   }
 
-  async pendingInvites(): Promise<(typeof memberInvites.$inferSelect)[]> {
-    return await this.db.select().from(memberInvites).orderBy(asc(memberInvites.createdAt)).all()
+  async pendingInvites(createdBy?: UserId): Promise<(typeof memberInvites.$inferSelect)[]> {
+    return await this.db
+      .select()
+      .from(memberInvites)
+      .where(createdBy ? eq(memberInvites.createdBy, createdBy) : undefined)
+      .orderBy(asc(memberInvites.createdAt))
+      .all()
   }
 
   async inviteByHash(hash: string): Promise<typeof memberInvites.$inferSelect | undefined> {
