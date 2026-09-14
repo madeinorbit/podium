@@ -588,15 +588,26 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // value) in an `evict` to every issue grantee who may not read the
       // session — B3.2. An issue grant does not move session visibility
       // (PDM-251), so those subjects could never produce a legitimate upsert
-      // for that reader. They also could not re-admit a session grantee who
-      // is not already in the issue audience.
+      // for that reader. The session edge below handles a session-only grant
       if (ref.entity === 'session') {
-        const audience = await deps.audienceFor('session', ref.entityId)
-        if (audience.length === 0) return null
         const rows = await measure('visibility.session.getSession', async () =>
           await store.sessions.getSessions([ref.entityId]),
         )
         const session = rows.get(ref.entityId)
+        // GrantsRepository's audience is historical: revoked readers stay in it
+        // so a later change can retract rows they previously held. Reconcile
+        // that audience with the current owner/read grants before naming the
+        // session's current identifiers. Historical-only readers must rescope;
+        // dropping them would lose the required revocation signal.
+        const historicalAudience = await deps.audienceFor('session', ref.entityId)
+        const currentAudience = new Set<string>()
+        if (session?.ownerUserId) currentAudience.add(session.ownerUserId)
+        for (const edge of deps.worldIndex.grantsFor('session', ref.entityId)) {
+          if (sessionGrantAdmits(edge, edge.grantee)) currentAudience.add(edge.grantee)
+        }
+        const audience = [...new Set([...historicalAudience, ...currentAudience])]
+        if (audience.length === 0) return null
+        const rescopeAudience = historicalAudience.filter((userId) => !currentAudience.has(userId))
         return {
           audience,
           subjects: [
@@ -605,6 +616,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
               ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
               : []),
           ],
+          ...(rescopeAudience.length > 0 ? { rescopeAudience } : {}),
         }
       }
       if (ref.entity !== 'issue') return null

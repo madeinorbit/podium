@@ -183,6 +183,7 @@ export async function scopeBatch(
 ): Promise<ScopedDelivery> {
   const resolved = prepared ?? (await prepareBatch(deps, changes))
   const visible: ScopedChange[] = []
+  let privacyRescope = false
   const anchored: ScopedChange[] = []
   const human = humanOf(principal)
   // Every decision in this pass — the ordinary rows and the anchored ones — goes
@@ -202,6 +203,14 @@ export async function scopeBatch(
     // A principal with no human (machine/system) is in nobody's audience by
     // construction — `audience` names HUMANS whose view moved (D14.3).
     if (human === null || !edge.audience.includes(human)) continue
+    // Some historical audience members cannot safely receive the current
+    // subject identifiers: an identifier rotation may have happened after
+    // their grant was revoked. Re-bootstrap that principal instead of
+    // emitting an eviction naming a value they never held.
+    if (edge.rescopeAudience?.includes(human)) {
+      privacyRescope = true
+      continue
+    }
     for (const [subjectIndex, subject] of edge.subjects.entries()) {
       anchored.push(
         anchorFor(
@@ -213,6 +222,10 @@ export async function scopeBatch(
         ),
       )
     }
+  }
+
+  if (privacyRescope) {
+    return { kind: 'rescope', throughSeq, reason: 'visibility-identifier-retraction' }
   }
 
   if (anchored.length > deps.rescopeThreshold) {

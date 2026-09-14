@@ -41,7 +41,7 @@
 
 import { asUserId, issueDepId, firstAdminMemberId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import { DEFAULT_RESCOPE_THRESHOLD, type EntityChangeSpec, type Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
@@ -399,8 +399,8 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     // B3.2 gave sessions their own visibility edge, so each granted session
-    // write now contributes an anchored row. Stay under the rescope threshold
-    // (32); this used to seed 50 because session changes had no edge at all.
+    // write now contributes an anchored row. This is deliberately the
+    // below-threshold control; the threshold arm is covered separately below.
     // Seed only grants, so no earlier feed delivery can reach these subscribers.
     const SESSION_COUNT = 16
     for (let i = 0; i < SESSION_COUNT; i++) {
@@ -459,6 +459,39 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
       expect(reads.batches).toBe(0)
     } finally {
       for (const off of unsubscribe) off()
+    }
+  })
+  it('rescopes when the session edge crosses the anchored-row threshold', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const { ledger, store } = internals(reg)
+    const SESSION_COUNT = DEFAULT_RESCOPE_THRESHOLD + 1
+    expect(SESSION_COUNT).toBeGreaterThan(DEFAULT_RESCOPE_THRESHOLD)
+
+    for (let i = 0; i < SESSION_COUNT; i++) {
+      await store.grants.upsert({
+        resourceKind: 'session', resourceId: `threshold_${i}`, grantee: OWNER,
+        verb: 'read', owner: OTHER_OWNER, visibility: 'personal',
+        createdAt: '2026-09-11T00:00:00Z', actorKind: 'user',
+        actorId: OTHER_OWNER, onBehalfOf: OTHER_OWNER,
+      })
+    }
+
+    let finishDelivery!: (batch: unknown) => void
+    const delivery = new Promise<unknown>((resolve) => { finishDelivery = resolve })
+    const unsubscribe = ledger.authority.subscribe(feedPrincipal, (batch) => finishDelivery(batch))
+    try {
+      await ledger.capture(Array.from({ length: SESSION_COUNT }, (_, i) => ({
+        entity: 'session', id: `threshold_${i}`, op: 'upsert',
+        value: { id: `threshold_${i}`, v: 2 },
+      })) as EntityChangeSpec[])
+      const batch = await delivery
+      expect(batch).toEqual({
+        kind: 'rescope',
+        throughSeq: SESSION_COUNT,
+        reason: `visibility-change:${SESSION_COUNT}-rows-over-threshold-${DEFAULT_RESCOPE_THRESHOLD}`,
+      })
+    } finally {
+      unsubscribe()
     }
   })
 })

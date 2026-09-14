@@ -277,6 +277,23 @@ export interface VisibilityStatePort {
  * `scoped-feed`'s audit and `authority.scoped.test.ts` both pin this: flipping
  * only the policy flips the op, and no input shape can name one.
  */
+/**
+ * A visibility change's audience and the entities whose visibility it moved.
+ *
+ * `rescopeAudience` is a bounded privacy-safe escape hatch for a subject whose
+ * current identifier cannot be reconciled with what a historical audience
+ * member could have held. Those principals must re-bootstrap instead of
+ * receiving an `evict` that names a value they never received.
+ */
+export interface VisibilityEdge {
+  /** Humans whose view moved and who may receive anchored rows. */
+  readonly audience: readonly UserRef[]
+  /** Subjects whose current state is re-admitted or evicted. */
+  readonly subjects: readonly EntityRef[]
+  /** Humans whose slice must be re-scoped without naming any subject. */
+  readonly rescopeAudience?: readonly UserRef[]
+}
+
 export interface VisibilityAnchorPort {
   /**
    * Did this durable row change who may see what? `null` for an ordinary entity
@@ -291,7 +308,7 @@ export interface VisibilityAnchorPort {
   visibilityEdge(
     ref: EntityRef,
   ): Promise<
-    { readonly audience: readonly UserRef[]; readonly subjects: readonly EntityRef[] } | null
+    VisibilityEdge | null
   >
   /**
    * The entity's CURRENT wire value, for a re-admitting `upsert` (D14.2), or

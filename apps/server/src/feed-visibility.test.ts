@@ -250,7 +250,7 @@ async function aliceOwnsTaskWithPrivateSession() {
   stores.push(store)
   const world = await WorldIndex.load(store)
   const issue = { id: TASK, ownerUserId: ALICE } as IssueRow
-  const session = {
+  let session = {
     id: ALICE_SESSION,
     ownerUserId: ALICE,
     resumeValue: ALICE_RESUME,
@@ -264,7 +264,8 @@ async function aliceOwnsTaskWithPrivateSession() {
     },
     findSessionsByResumeValues: async (values: readonly string[]) => {
       const map = new Map<string, SessionRow>()
-      if (values.includes(ALICE_RESUME)) map.set(ALICE_RESUME, session)
+      const resumeValue = session.resumeValue
+      if (resumeValue !== null && values.includes(resumeValue)) map.set(resumeValue, session)
       return map
     },
     findSessionsByIssueIds: async (issueIds: readonly ReturnType<typeof asIssueId>[]) =>
@@ -309,7 +310,15 @@ async function aliceOwnsTaskWithPrivateSession() {
       actorId: ALICE,
       onBehalfOf: ALICE,
     })
-  return { store, policy, grant, sessions }
+  return {
+    store,
+    policy,
+    grant,
+    sessions,
+    setResumeValue: (resumeValue: string) => {
+      session = { ...session, resumeValue }
+    },
+  }
 }
 
 describe("a task grant does not name another member's session or resume [B3.2]", () => {
@@ -339,13 +348,17 @@ describe("a task grant does not name another member's session or resume [B3.2]",
     expect.soft(state.mayRead(BOB, { entity: 'session', entityId: ALICE_SESSION })).toBe(false)
     expect.soft(state.mayRead(BOB, { entity: 'conversation', entityId: ALICE_RESUME })).toBe(false)
 
+    await store.sync.appendChanges(
+      [{ entity: 'issue', entityId: TASK, op: 'upsert', payload: JSON.stringify({ id: TASK, title: 'current task' }) }],
+      1,
+    )
+
     const visibility = new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted())
     const issueChange: SequencedChange = {
-      seq: 1,
+      seq: 2,
       entity: 'issue',
       entityId: TASK,
-      op: 'upsert',
-      value: { id: TASK },
+      op: 'remove',
     }
     const delivery = await scopeBatch(
       {
@@ -355,16 +368,21 @@ describe("a task grant does not name another member's session or resume [B3.2]",
       },
       asPrincipal(BOB),
       [issueChange],
-      1,
+      2,
     )
     expect(delivery.kind).toBe('batch')
     if (delivery.kind !== 'batch') return
 
-    // POSITIVE: Bob received the task he was granted. An empty slice would
-    // satisfy the negative below because nothing was delivered at all.
-    expect
-      .soft(delivery.changes.some((row) => row.entity === 'issue' && row.entityId === TASK))
-      .toBe(true)
+    // POSITIVE: Bob received the current task value through the issue anchor.
+    // An empty slice would satisfy the negative below because nothing was
+    // delivered at all.
+    expect(delivery.changes).toContainEqual({
+      seq: 2,
+      entity: 'issue',
+      entityId: TASK,
+      op: 'upsert',
+      value: { id: TASK, title: 'current task' },
+    })
 
     const leaked = delivery.changes.filter(
       (row) => row.entityId === ALICE_SESSION || row.entityId === ALICE_RESUME,
@@ -372,31 +390,33 @@ describe("a task grant does not name another member's session or resume [B3.2]",
     expect(leaked).toEqual([])
   })
 
-  it("a session grant re-admits on the session's own visibility edge, not the issue's", async () => {
+  it('scopes an authorized session change through the session edge at the scopeBatch seam', async () => {
     const { store, policy, grant } = await aliceOwnsTaskWithPrivateSession()
+    // SCOPEBATCH SEAM CONTROL: this grant is the fixture's current session
+    // visibility state. It does not claim that a production grant command
+    // currently triggers this path; session grants remain inactive history in
+    // the live session authorization plane.
     await store.transact(async () => {
       await grant('session', BOB, 'read', ALICE_SESSION)
     })
+    await store.sync.appendChanges(
+      [
+        {
+          entity: 'session',
+          entityId: ALICE_SESSION,
+          op: 'upsert',
+          payload: JSON.stringify({ id: ALICE_SESSION, resumeValue: ALICE_RESUME }),
+        },
+        {
+          entity: 'conversation',
+          entityId: ALICE_RESUME,
+          op: 'upsert',
+          payload: JSON.stringify({ id: ALICE_RESUME, text: 'current transcript' }),
+        },
+      ],
+      1,
+    )
 
-    const sessionEdge = await policy.anchors.visibilityEdge({
-      entity: 'session',
-      entityId: ALICE_SESSION,
-    })
-    expect(sessionEdge).not.toBeNull()
-    expect(sessionEdge?.audience).toContain(BOB)
-    expect(sessionEdge?.subjects).toContainEqual({
-      entity: 'session',
-      entityId: ALICE_SESSION,
-    })
-    expect(sessionEdge?.subjects).toContainEqual({
-      entity: 'conversation',
-      entityId: ALICE_RESUME,
-    })
-
-    const issueEdge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: TASK })
-    // No issue grant, so the issue has no audience and no edge. The session
-    // subjects cannot be hiding on it.
-    expect(issueEdge).toBeNull()
 
     const visibility = new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted())
     const sessionChange: SequencedChange = {
@@ -418,10 +438,144 @@ describe("a task grant does not name another member's session or resume [B3.2]",
     )
     expect(delivery.kind).toBe('batch')
     if (delivery.kind !== 'batch') return
-    expect(delivery.changes.some((row) => row.entity === 'session' && row.entityId === ALICE_SESSION))
-      .toBe(true)
-    expect(
-      delivery.changes.some((row) => row.entity === 'conversation' && row.entityId === ALICE_RESUME),
-    ).toBe(true)
+    expect(delivery.changes).toContainEqual({
+      seq: 1,
+      entity: 'session',
+      entityId: ALICE_SESSION,
+      op: 'upsert',
+      value: { id: ALICE_SESSION, resumeValue: ALICE_RESUME },
+    })
+    expect(delivery.changes).toContainEqual({
+      seq: 1,
+      entity: 'conversation',
+      entityId: ALICE_RESUME,
+      op: 'upsert',
+      value: { id: ALICE_RESUME, text: 'current transcript' },
+    })
+    const sessionEdge = await policy.anchors.visibilityEdge({
+      entity: 'session',
+      entityId: ALICE_SESSION,
+    })
+    expect(sessionEdge).not.toBeNull()
+    expect(sessionEdge?.audience).toContain(BOB)
+    expect(sessionEdge?.subjects).toContainEqual({
+      entity: 'session',
+      entityId: ALICE_SESSION,
+    })
+    expect(sessionEdge?.subjects).toContainEqual({
+      entity: 'conversation',
+      entityId: ALICE_RESUME,
+    })
+
+    const issueEdge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: TASK })
+    // No issue grant, so the issue has no audience and no edge. The session
+    // subjects cannot be hiding on it.
+    expect(issueEdge).toBeNull()
+  })
+  it('rescope retracts a revoked reader without naming a later resume value', async () => {
+    const { store, policy, grant, setResumeValue } = await aliceOwnsTaskWithPrivateSession()
+    await store.transact(async () => {
+      await grant('session', BOB, 'read', ALICE_SESSION)
+    })
+    await store.sync.appendChanges(
+      [
+        {
+          entity: 'session',
+          entityId: ALICE_SESSION,
+          op: 'upsert',
+          payload: JSON.stringify({ id: ALICE_SESSION, resumeValue: ALICE_RESUME }),
+        },
+        {
+          entity: 'conversation',
+          entityId: ALICE_RESUME,
+          op: 'upsert',
+          payload: JSON.stringify({ id: ALICE_RESUME, text: 'held by Bob' }),
+        },
+      ],
+      1,
+    )
+
+    // CONTROL: Bob really held the old session and conversation value before
+    // revocation. A retraction test that never establishes this is vacuous.
+    const visibility = new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted())
+    const held = await scopeBatch(
+      {
+        policy: visibility,
+        anchors: policy.anchors,
+        rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD,
+      },
+      asPrincipal(BOB),
+      [{
+        seq: 1,
+        entity: 'session',
+        entityId: ALICE_SESSION,
+        op: 'upsert',
+        value: { id: ALICE_SESSION, resumeValue: ALICE_RESUME },
+      }],
+      1,
+    )
+    expect(held.kind).toBe('batch')
+    if (held.kind !== 'batch') return
+    expect(held.changes).toContainEqual({
+      seq: 1,
+      entity: 'conversation',
+      entityId: ALICE_RESUME,
+      op: 'upsert',
+      value: { id: ALICE_RESUME, text: 'held by Bob' },
+    })
+
+    await store.transact(async () => {
+      await store.grants.remove('session', ALICE_SESSION, BOB, 'read')
+    })
+    setResumeValue('alice-resume-R2')
+    await store.sync.appendChanges(
+      [
+        {
+          entity: 'session',
+          entityId: ALICE_SESSION,
+          op: 'upsert',
+          payload: JSON.stringify({ id: ALICE_SESSION, resumeValue: 'alice-resume-R2' }),
+        },
+        {
+          entity: 'conversation',
+          entityId: 'alice-resume-R2',
+          op: 'upsert',
+          payload: JSON.stringify({ id: 'alice-resume-R2', text: 'new transcript' }),
+        },
+      ],
+      2,
+    )
+
+    const rotatedEdge = await policy.anchors.visibilityEdge({
+      entity: 'session',
+      entityId: ALICE_SESSION,
+    })
+    expect(rotatedEdge?.audience).toContain(BOB)
+    expect(rotatedEdge?.rescopeAudience).toContain(BOB)
+
+    const rotated = await scopeBatch(
+      {
+        policy: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
+        anchors: policy.anchors,
+        rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD,
+      },
+      asPrincipal(BOB),
+      [{
+        seq: 2,
+        entity: 'session',
+        entityId: ALICE_SESSION,
+        op: 'upsert',
+        value: { id: ALICE_SESSION, resumeValue: 'alice-resume-R2' },
+      }],
+      2,
+    )
+    expect(rotated.kind).toBe('rescope')
+    if (rotated.kind !== 'rescope') return
+    expect(rotated.throughSeq).toBe(2)
+    expect(rotated).toEqual({
+      kind: 'rescope',
+      throughSeq: 2,
+      reason: 'visibility-identifier-retraction',
+    })
   })
 })
