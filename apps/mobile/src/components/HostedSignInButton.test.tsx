@@ -32,10 +32,11 @@ it('opens one browser attempt on repeated presses and offers a retry', async () 
   const button = screen.getByRole('button', { name: 'Continue with Podium Cloud' })
   fireEvent.click(button)
   fireEvent.click(button)
-  expect(begin).toHaveBeenCalledTimes(1)
+  await waitFor(() => expect(begin).toHaveBeenCalledTimes(1))
   expect(begin).toHaveBeenCalledWith(
     'https://api.podium.do',
     'https://ade.podium.do/account/sign-in',
+    undefined,
   )
   finish()
   await screen.findByText('Finish signing in in your browser, then return to Podium.')
