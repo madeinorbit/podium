@@ -1,4 +1,10 @@
-import { type AgentRuntimeState, asIssueId, asSessionId, asUserId, type UserId } from '@podium/model'
+import {
+  type AgentRuntimeState,
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type UserId,
+} from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
