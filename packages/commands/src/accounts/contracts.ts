@@ -275,20 +275,16 @@ export const accountsLoginContract = {
       'THE DIVERGENCE INSIDE ONE FAMILY IS DELIBERATE — do not harmonize it. PDM-280 gave MANAGED ' +
       "CREDENTIALS an owner column; a native login writes the HOST'S CLI credential store, which " +
       'is still shared by every agent on that machine, so the property the two credential writes ' +
-      'lost is one this command never had. Its sentence above is still literally true. One further ' +
-      "reason a hand edit here would still be wrong rather than merely early: `relay.ts`'s " +
-      "`authorizerFor` hard-codes its own `role !== 'admin'` refusal OUTSIDE this contract " +
-      '(PDM-309), so lowering the floor would change nothing a caller can observe and would ' +
-      'leave this policy declaring what the server does not implement. THE SECOND REASON IS ' +
-      'CLOSED, and is recorded rather than deleted because the floor it justified has not moved ' +
-      'yet: `NativeLoginService.startInScope` reused an in-flight attempt by HARNESS alone, ' +
-      'returning its session and machine BEFORE the machine-use recheck. PDM-281 keyed reuse by ' +
-      "harness AND owner, so a stranger's attempt is unreachable rather than returned and no " +
-      'reused path skips that recheck. Note what that defect was and was not, because only half ' +
-      "of it was ever this floor's business: its DISCLOSURE half was bounded here, " +
-      'admin-to-admin, and a lower floor would have widened it to anyone-to-admin; its ' +
-      'machine-grant BYPASS half this floor never gated at all, and was live between two admins ' +
-      'until PDM-281 closed it. This floor moves when PDM-309 closes, not before.',
+      'lost is one this command never had. This constraint is now enforced from this declaration: ' +
+      'PDM-360 makes relay.ts native-login ' +
+      'authorization read this floor and use the shared adminFloorRefusal decision. Login is ' +
+      'served only through tRPC; the agent relay refuses the accounts family. PDM-281 separately ' +
+      'keyed attempt reuse by harness AND owner, closing cross-owner disclosure and the ' +
+      'cross-owner machine-use bypass. A second admin with no use grant cannot reuse the first ' +
+      "admin's attempt. Same-owner in-flight reuse still returns before fresh authorization; " +
+      'these repairs do not establish reauthorization of that path. The admin floor remains ' +
+      'deliberate because native CLI credentials are shared on the host; changing it requires ' +
+      'a separate policy decision.',
   },
   exposure: SERVED_ON,
   delivery: {

@@ -13,7 +13,8 @@
  *
  * (PDM-299 has since made those two hand-written sites read {@link
  * adminFloorRefusal} below, so all five agree about WHO may satisfy an admin
- * floor. They still hard-code the FLOOR VALUE rather than reading a contract —
+ * floor. PDM-360 adds the sixth site, native login in relay.ts, which also
+ * reads its contract floor. The two hand-written sites still hard-code the FLOOR VALUE rather than reading a contract —
  * `operations` joins no contract table, which is `PDM-297`.)
  *
  * The other EIGHTEEN were documentation, and the most exposed of them is
@@ -113,14 +114,14 @@ import {
  *
  * THE PLACEMENT IS NOT COSMETIC and the repository measured it. This module
  * takes a tRPC `Context`, so it is transport-layer; `WorkflowAccess` — one of
- * the five consumers — is a HANDLER, and importing this file from there pulled
+ * the consumers — is a HANDLER, and importing this file from there pulled
  * `../trpc` into the workflow service's module graph. `scripts/server-test-
  * shards.ts` assigns shards by what a test actually CONSUMES, so the first
  * version of this change silently moved three workflow suites from the `store`
  * shard to `services`: same files, different config, which is exactly the
  * "green from the wrong config" the false-green catalogue lists as entry 11.
- * `command-principal.ts` has no transport dependency, every one of the five
- * sites already imports it, and the shard manifest is unchanged.
+ * `command-principal.ts` has no transport dependency, the existing
+ * sites already import it, and the shard manifest is unchanged.
  */
 export { type AdminFloorRefusal, adminFloorMessage, adminFloorRefusal }
 import { type Context, mods } from '../trpc'

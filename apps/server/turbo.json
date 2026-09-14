@@ -1958,6 +1958,7 @@
         "src/relay.metadata-delta.test.ts",
         "src/relay.model-catalog.test.ts",
         "src/relay.model-effort.test.ts",
+        "src/relay.native-login-policy.test.ts",
         "src/relay.outbox.test.ts",
         "src/relay.test.ts",
         "src/relay.ts",

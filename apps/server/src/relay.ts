@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
+import { ACCOUNT_CONTRACTS } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
 import type {
   AgentKind,
@@ -59,6 +60,8 @@ import {
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-tokens'
 import {
+  adminFloorMessage,
+  adminFloorRefusal,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
@@ -1608,7 +1611,16 @@ export class SessionRegistry {
       // start re-reads (rule 46).
       authorizerFor: async (ownerUserId) => {
         const user = await this.store.users.get(ownerUserId)
-        if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
+        // This entry is human-only: accounts.login is served by tRPC and the
+        // agent relay refuses the accounts family. If that boundary changes,
+        // carry the actual principal here rather than reconstructing its kind.
+        if (ACCOUNT_CONTRACTS.login.policy.roleFloor === 'admin') {
+          const refusal = adminFloorRefusal('user', user?.role)
+          if (refusal) {
+            return () => adminFloorMessage('native provider login requires an admin account', refusal)
+          }
+        }
+        if (!user) return () => 'native provider login requires an enabled account'
         const principal = userCommandPrincipal(ownerUserId, user.role)
         const ownership = await ownershipSnapshotFromMachines(machines)
         return (machineId) => {

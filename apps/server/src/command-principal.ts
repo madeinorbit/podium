@@ -135,8 +135,11 @@ export function userCommandPrincipal(user: UserId, role: UserRole): UserCommandP
 }
 
 /**
- * WHO MAY SATISFY AN ADMIN FLOOR — the ONE decision, read by all five sites
- * (PDM-299).
+ * WHO MAY SATISFY AN ADMIN FLOOR — the ONE decision, read by six sites
+ * (PDM-299, PDM-360). Native login in relay.ts is the sixth: it reads the
+ * accounts.login contract floor and checks its authenticated human here. The
+ * agent relay does not expose that command; widening its transport requires
+ * carrying the actual principal into native login.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS SETTLES, AND WHY IT HAD TO BE SETTLED SOMEWHERE
@@ -217,7 +220,7 @@ export type AdminFloorRefusal =
  * Takes the KIND rather than a whole {@link CommandPrincipal} so the one caller
  * that has no `CommandPrincipal` to hand — `WorkflowAccess`, whose fixture path
  * carries only the actor half — goes through this function instead of spelling
- * the rule a sixth time. See `workflowPrincipalKind`.
+ * the rule independently. See `workflowPrincipalKind`.
  *
  * ONLY THE ADMIN FLOOR IS SHARED. The `member` floor is deliberately NOT
  * decided here, because the three gates genuinely disagree about it for
