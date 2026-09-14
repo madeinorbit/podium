@@ -3,7 +3,8 @@ import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
 
 const REPO = resolve(import.meta.dirname, '..')
-const ROOT = resolve(REPO, 'apps/server/src/relay.ts')
+// Start above relay so moving a relay import cannot hide server-composed modules.
+const ROOT = resolve(REPO, 'apps/server/src/server.ts')
 const OUTPUT = resolve(REPO, 'docs/architecture/server-composition-graph.md')
 
 export interface ImportGraph {
