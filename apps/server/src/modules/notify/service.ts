@@ -216,6 +216,12 @@ export class NotifyService {
       if (!state) continue
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
+      // This replay is intentionally WRITER-SCOPED: `settings.changed` carries
+      // the writer's resolved view, and the replay tells that newly configured
+      // target about every owned blocked session that needs attention. Per-user
+      // attention routing is ADR 9 D8 S3 / POD-315 work. Telegram's per-owner
+      // route check below is a binding gate, not a reason to resolve this ntfy
+      // target per owner before that fan-out work lands.
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
       if (sendTelegram && (await this.telegramEnabled(ownerUserId, next, botToken)))
         await this.sendTelegram(ownerUserId, telegram, notice, info.sessionId)

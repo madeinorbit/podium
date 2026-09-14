@@ -175,3 +175,58 @@ describe('NotifyService under the async store (POD-3820)', () => {
     expect(requested).toEqual([OWNER])
   })
 })
+/**
+ * The settings replay deliberately uses the WRITER'S resolved target for every
+ * blocked session. POD-1213 made notification preferences personal, but its
+ * handoff leaves per-user attention fan-out to ADR 9 D8 S3 / POD-315; this
+ * witness protects the current replay contract until that work changes it.
+ */
+describe('the writer-scoped external-target replay', () => {
+  it('replays every owned blocked session to the writer’s newly configured ntfy topic', async () => {
+    const sessions = [
+      {
+        info: { ...info(), sessionId: asSessionId('alice-session'), name: 'Alice session' },
+        state: state('needs_user'),
+        ownerUserId: asUserId('alice'),
+      },
+      {
+        info: { ...info(), sessionId: asSessionId('bob-session'), name: 'Bob session' },
+        state: state('errored'),
+        ownerUserId: asUserId('bob'),
+      },
+    ]
+    const previous = PodiumSettings.parse({
+      notifications: { web: false, ntfyTopic: '', telegramChatId: '' },
+    })
+    const next = PodiumSettings.parse({
+      notifications: { web: false, ntfyTopic: ' writer-topic ', telegramChatId: '' },
+    })
+    const pushed: Array<{ topic: string; title: string }> = []
+    const deps: NotifyDeps = {
+      getSettings: async () => next,
+      telegramBotToken: async () => '',
+      appendEvent: () => {},
+      now: () => NOW,
+      clients: () => [],
+      sessionInfo: () => undefined,
+      sessionStates: () => sessions,
+    }
+    const bus = new EventBus()
+    new NotifyService(
+      deps,
+      {
+        ntfy: (topic, notice) => pushed.push({ topic, title: notice.title }),
+        telegram: () => {},
+      },
+      bus,
+    )
+
+    bus.emit('settings.changed', { previous, next })
+    await settle()
+
+    expect(pushed).toEqual([
+      { topic: 'writer-topic', title: 'Alice session needs you' },
+      { topic: 'writer-topic', title: 'Bob session hit an error' },
+    ])
+  })
+})
