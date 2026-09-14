@@ -3,18 +3,19 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const timingScript = join(__dirname, 'release-build-timing.ts')
 
 function timingEnv(directory: string): NodeJS.ProcessEnv {
-  return {
+  return hermeticChildEnv({
     ...process.env,
     PODIUM_RELEASE_BUILD_TIMING: '1',
     PODIUM_RELEASE_TIMING_DIR: directory,
     PODIUM_RELEASE_CHANNEL: 'dev',
     PODIUM_RELEASE_TIMING_VERSION: 'dev-test',
     PODIUM_RELEASE_TIMING_SHA: 'abc1234',
-  }
+  })
 }
 
 describe('release build timing command wrapper', () => {

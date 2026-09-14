@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const repoRoot = join(__dirname, '..')
 const desktopWorkflow = readFileSync(
@@ -59,7 +60,7 @@ function runResolve(env: {
   writeFileSync(output, '')
   const stdout = execFileSync('bash', [script], {
     encoding: 'utf8',
-    env: {
+    env: hermeticChildEnv({
       PATH: process.env.PATH ?? '',
       GITHUB_OUTPUT: output,
       INPUT_CHANNEL: '',
@@ -67,7 +68,7 @@ function runResolve(env: {
       GITHUB_REF: '',
       GITHUB_REF_NAME: '',
       ...env,
-    },
+    }),
   })
   const outputs: Record<string, string> = {}
   for (const line of readFileSync(output, 'utf8').split('\n').filter(Boolean)) {
@@ -215,12 +216,12 @@ exit 0
     cwd: work,
     encoding: 'utf8',
     timeout: 20_000,
-    env: {
+    env: hermeticChildEnv({
       PATH: `${bin}:${process.env.PATH ?? ''}`,
       CHANNEL: input.channel,
       TARGET_TAG: input.targetTag,
       GITHUB_REPOSITORY: 'madeinorbit/podium',
-    },
+    }),
   })
   if (result.status !== 0) {
     throw new Error(`publish step failed (${result.status}): ${result.stderr}`)
@@ -393,9 +394,13 @@ describe('desktop release workflow', () => {
     // The seed is the real first-run boundary this runner can prove: main.rs execs
     // `podium-cli` out of the copy in Application Support, so the copy — quarantine-stripped
     // exactly as the shell does it — is what must verify and run.
-    expect(macSigningVerifier).toContain('cp -R "$APP/Contents/Resources/resources/payload" "$seeded"')
+    expect(macSigningVerifier).toContain(
+      'cp -R "$APP/Contents/Resources/resources/payload" "$seeded"',
+    )
     expect(macSigningVerifier).toContain('xattr -dr com.apple.quarantine "$seeded"')
-    expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$seeded/podium-cli"')
+    expect(macSigningVerifier).toContain(
+      'codesign --verify --strict --verbose=2 "$seeded/podium-cli"',
+    )
     expect(macSigningVerifier).toContain('"$seeded/podium-cli" --version')
     // The in-bundle sidecar still has to carry the JIT entitlement — the seed is a copy of it.
     expect(macSigningVerifier).toContain("grep -q 'allow-jit'")
@@ -404,7 +409,9 @@ describe('desktop release workflow', () => {
     // rcodesign pass, and the tarball is never uploaded by any job in this workflow. Verifying
     // it blocks every darwin release on a byproduct no user receives. The bytes a grant really
     // installs are cross-built in release.yml and gated by assert-headless-bundle.sh there.
-    expect(macSigningVerifier).not.toContain("find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'")
+    expect(macSigningVerifier).not.toContain(
+      "find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'",
+    )
     expect(macSigningVerifier).not.toContain('$granted/podium-cli')
   })
 

@@ -1,7 +1,7 @@
 import './machine-update-boot.integration.bun.test'
 import { afterEach, describe, expect, it } from 'bun:test'
-import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
@@ -13,13 +13,14 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { syncQueriesOver } from '../apps/server/src/store/executor/sync-drizzle'
 import { OperationStore } from '../apps/server/src/modules/operations/store'
 import { UpdateRecoveryStore } from '../apps/server/src/modules/updates/recovery-store'
-import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
-import { requestMachineUpdate } from '../packages/runtime/src/machine-update-control'
+import { syncQueriesOver } from '../apps/server/src/store/executor/sync-drizzle'
 import { readMachineUpdateJournal } from '../packages/runtime/src/machine-update'
+import { requestMachineUpdate } from '../packages/runtime/src/machine-update-control'
+import { hermeticChildEnv } from '../test-hermetic-env'
 import { socketRequest } from './fixtures/machine-update-runtime'
 
 const fixture = new URL('./fixtures/machine-update-runtime.ts', import.meta.url).pathname
@@ -222,13 +223,13 @@ class Group {
     mkdirSync(this.state(id), { recursive: true })
     if (!existsSync(this.install(id))) this.entry(this.install(id), '1.0.0')
     writeFileSync(join(this.state(id), 'update-key'), this.pubkey)
-    const env: NodeJS.ProcessEnv = {}
-    for (const [key, value] of Object.entries(process.env))
+    const env = hermeticChildEnv()
+    for (const key of Object.keys(env))
       if (
-        !key.startsWith('PODIUM_') &&
-        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key)
+        key.startsWith('PODIUM_') ||
+        ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key)
       )
-        env[key] = value
+        delete env[key]
     Object.assign(env, {
       PODIUM_INSTANCE: `fixture-${id}`,
       PODIUM_STATE_DIR: this.state(id),
@@ -631,7 +632,9 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     expect(group.journal('coordinator')?.grant.target).toEqual(target)
     expect(await socketRequest(group.socket, '/identity')).toEqual(oldIdentity)
     expect((await group.operation(operationId))?.details?.databaseSnapshotPath).toBeUndefined()
-    expect((await group.operation(operationId))?.details?.coordinatorSnapshotGrantId).toBeUndefined()
+    expect(
+      (await group.operation(operationId))?.details?.coordinatorSnapshotGrantId,
+    ).toBeUndefined()
     expect(
       group
         .events('coordinator')

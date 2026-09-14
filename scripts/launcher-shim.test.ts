@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 import { launcherShim } from './build-bun'
 
 // A `podium-cli` stub standing in for the real compiled CLI: it prints exactly what the
@@ -58,11 +59,10 @@ describe('launcher shim symlink resolution', () => {
     const link = writeSymlink(join(dest, 'podium'), join(bin, 'podium'))
     const out = execFileSync(link, ['daemon'], {
       encoding: 'utf8',
-      env: {
-        ...process.env,
+      env: hermeticChildEnv({
         PODIUM_WEB_DIR: '',
         PODIUM_MOBILE_WEB_DIR: '',
-      },
+      }),
     })
     expect(out).toContain(`PODIUM_HOME=${dest}`) // the real bundle, not BIN
     expect(out).not.toContain(`PODIUM_HOME=${bin}`)

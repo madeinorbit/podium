@@ -7,13 +7,14 @@
  * roles, but only a real boot can establish that the janitor handshakes and the
  * parent reports its installed payload and services on the machine plane.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createServer } from 'node:net'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openDatabase } from '../packages/runtime/src/sqlite'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = join(import.meta.dirname, '..')
 const CLI = join(ROOT, 'scripts/cli.ts')
@@ -93,7 +94,7 @@ describe('desktop-supervised local stack', () => {
     delete inherited.PODIUM_AGENT_RELAY
     const child = spawn('bun', ['--conditions=@podium/source', CLI, '--takeover'], {
       cwd: ROOT,
-      env: {
+      env: hermeticChildEnv({
         ...inherited,
         PODIUM_STATE_DIR: stateDir,
         // The native shell runs this parent from its Application Support
@@ -106,7 +107,7 @@ describe('desktop-supervised local stack', () => {
         PODIUM_APP_VERSION: version,
         PODIUM_DESKTOP_SUPERVISED: '1',
         PODIUM_SUPERVISOR_PID: String(process.pid),
-      },
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     children.push(child)

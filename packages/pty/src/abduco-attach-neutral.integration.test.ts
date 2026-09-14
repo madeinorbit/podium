@@ -18,6 +18,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { hermeticChildEnv } from '@podium/runtime/hermetic-child-env'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { attachAbducoAgent, killAbducoSession, spawnAbducoAgent } from './abduco.js'
 import { ABDUCO_FEATURES, buildVendoredAbduco } from './abduco-bin.js'
@@ -109,7 +110,7 @@ function createSession(masterBin: string, cols = 0, rows = 0): string {
   // master's own pty is forked at abduco's 80x25 default whatever we pass.
   execFileSync(masterBin, ['-n', label, process.execPath, fixture], {
     stdio: 'ignore',
-    env: { ...process.env, TERM: 'xterm-256color', COLUMNS: String(cols), LINES: String(rows) },
+    env: hermeticChildEnv({ TERM: 'xterm-256color', COLUMNS: String(cols), LINES: String(rows) }),
   })
   return label
 }

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../../../test-hermetic-env'
 import { PATH_MARKER, pathHint, persistPath } from './install-path'
 
 /** A box with every shell installed, unless a test says otherwise. */
@@ -164,7 +165,7 @@ describe('a real login shell finds the command afterwards [R5]', () => {
       shell,
       [...args, '-c', 'printf "podium-probe:%s\n" "$(command -v podium)"'],
       {
-        env: { HOME: home, PATH: CLEAN_PATH, TERM: 'dumb' },
+        env: hermeticChildEnv({ HOME: home, PATH: CLEAN_PATH, TERM: 'dumb' }),
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       },
@@ -197,7 +198,7 @@ describe('a real login shell finds the command afterwards [R5]', () => {
     mkdirSync(bin, { recursive: true })
     persistPath(bin, home, allShells)
     const out = execFileSync('sh', ['-c', '. "$HOME/.profile"; . "$HOME/.profile"; echo "$PATH"'], {
-      env: { HOME: home, PATH: CLEAN_PATH },
+      env: hermeticChildEnv({ HOME: home, PATH: CLEAN_PATH }),
       encoding: 'utf8',
     })
     const copies = out

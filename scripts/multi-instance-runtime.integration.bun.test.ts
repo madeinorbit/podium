@@ -6,16 +6,16 @@
  */
 import './legacy-cli-update.integration.bun.test'
 import { afterAll, describe, expect, it } from 'bun:test'
-import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import {
-  cpSync,
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -23,22 +23,23 @@ import {
 import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { asMachineId, asSessionId } from '@podium/model'
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
+import type { UpdateGrantMessage } from '@podium/protocol'
 import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
-import {
-  ABDUCO_SUN_PATH_MAX,
-  abducoSocketDir,
-  abducoSocketPathBytes,
-  longestDurableLabelFor,
-} from '@podium/runtime/abduco-socket'
 import {
   abducoSocketPath,
   killAbducoSession,
   resolveAbducoBin,
   spawnAbducoAgent,
 } from '@podium/pty'
+import {
+  ABDUCO_SUN_PATH_MAX,
+  abducoSocketDir,
+  abducoSocketPathBytes,
+  longestDurableLabelFor,
+} from '@podium/runtime/abduco-socket'
+import { readDaemonHealth } from '@podium/runtime/daemon-health'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,
@@ -48,22 +49,22 @@ import {
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
-import { readDaemonHealth } from '@podium/runtime/daemon-health'
-import { writeParentRequest, readParentResult } from '@podium/runtime/parent-control'
 import { updateFingerprint } from '@podium/runtime/machine-update'
+import { readParentResult, writeParentRequest } from '@podium/runtime/parent-control'
 import { openDatabase } from '@podium/runtime/sqlite'
-import type { AppRouter } from '../apps/server/src/router'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
-import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
+import type { AppRouter } from '../apps/server/src/router'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
+import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 import { buildVendoredHost } from '../packages/pty/src/host-bin'
 import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
 } from '../packages/runtime/src/machine-update'
-import { UpdatesService } from '../apps/server/src/modules/updates/service'
-import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
-import type { UpdateGrantMessage } from '@podium/protocol'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -159,7 +160,7 @@ function instanceEnv(
   spec: InstanceSpec,
   overrides: Record<string, string | undefined> = {},
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env }
+  const env: NodeJS.ProcessEnv = hermeticChildEnv()
   for (const key of [
     'PODIUM_AGENT_RELAY',
     'PODIUM_ISSUE_RELAY',
@@ -708,10 +709,7 @@ describe('multi-instance runtime isolation', () => {
       },
     )
     try {
-      const [stdout, code] = await Promise.all([
-        new Response(child.stdout).text(),
-        child.exited,
-      ])
+      const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited])
       expect(code, stdout).toBe(0)
       expect(stdout).toContain('"machineEvents":"passed"')
       console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))

@@ -40,6 +40,7 @@ import {
 } from '../packages/runtime/src/instance'
 import { registeredParentPid } from '../packages/runtime/src/parent-control'
 import { openDatabase } from '../packages/runtime/src/sqlite'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = join(import.meta.dirname, '..')
 /**
@@ -202,7 +203,7 @@ async function bootStack(
   const args = ['--conditions=@podium/source', CLI, 'parent', ...(takeover ? ['--takeover'] : [])]
   const child = spawn('bun', args, {
     cwd: ROOT,
-    env: {
+    env: hermeticChildEnv({
       ...inherited,
       HOME: home,
       PODIUM_INSTANCE: instanceId,
@@ -214,7 +215,7 @@ async function bootStack(
       PODIUM_PARENT_BIN: process.execPath,
       PODIUM_PARENT_CLI: CLI,
       ...extraEnv,
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   children.push(child)

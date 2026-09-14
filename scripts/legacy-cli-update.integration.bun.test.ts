@@ -1,12 +1,21 @@
 /** Production CLI admission across separate legacy invocations and real signed swaps. */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const work = mkdtempSync(join(tmpdir(), 'podium-legacy-cli-'))
@@ -101,13 +110,14 @@ function installation(name: string) {
   mkdirSync(install, { recursive: true })
   cpSync(cli, join(install, 'podium.js'))
   writeFileSync(join(install, 'VERSION'), '1.0.0\n')
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) =>
-        !key.startsWith('PODIUM_') &&
-        !['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key),
-    ),
-  )
+  const env = hermeticChildEnv()
+  for (const key of Object.keys(env)) {
+    if (
+      key.startsWith('PODIUM_') ||
+      ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID', 'ABDUCO_SOCKET_DIR'].includes(key)
+    )
+      delete env[key]
+  }
   Object.assign(env, {
     PODIUM_INSTANCE: 'legacy-recovery',
     PODIUM_STATE_DIR: state,

@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { executedTestFiles, SHARD_REPORT_DIR_ENV } from '../apps/server/test-shard-report'
+import { hermeticChildEnv } from '../test-hermetic-env'
 import {
   readManifest,
   reconcile,
   repositoryRoot,
   SHARD_COMMAND_ENV,
-  shardInvocation,
   SHARDS,
+  shardInvocation,
 } from './server-test-shards'
 
 /**
@@ -104,14 +105,13 @@ async function runCli(plan: StubPlan, args: string[] = []): Promise<CliResult> {
   writeFileSync(stub, STUB_SOURCE)
   writeFileSync(ledger, '')
 
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
+  const env: Record<string, string> = hermeticChildEnv({
     [SHARD_COMMAND_ENV]: `bun ${stub}`,
     [SHARD_REPORT_DIR_ENV]: reports,
     STUB_ROOT: repositoryRoot,
     STUB_PLAN: JSON.stringify(plan),
     STUB_LEDGER: ledger,
-  }
+  })
   // The aggregate must behave as a hand-run command, not as a Turbo task whose dependencies
   // already did the running. Deleted rather than set to undefined: an env value of the
   // STRING "undefined" is truthy, and would silently put this test in the delegated path.

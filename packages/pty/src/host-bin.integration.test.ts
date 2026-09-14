@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hermeticChildEnv } from '@podium/runtime/hermetic-child-env'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildVendoredHost,
@@ -211,7 +212,7 @@ describe.skipIf(!hasCompiler)('managed podium-host build', () => {
               const file = join(dir, 'child.ts')
               writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
               const p = spawn(process.execPath, [file], {
-                env: { ...process.env, PODIUM_STATE_DIR: state } as NodeJS.ProcessEnv,
+                env: hermeticChildEnv({ PODIUM_STATE_DIR: state }),
               })
               let out = ''
               let err = ''

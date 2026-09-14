@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parentRequestPath } from '../packages/runtime/src/parent-control'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -90,7 +91,7 @@ async function startStack(env: Record<string, string>): Promise<Stack> {
   delete inherited.NOTIFY_SOCKET
   const parent = spawn('bun', ['--conditions=@podium/source', FIXTURE, 'parent', '--takeover'], {
     cwd: ROOT,
-    env: {
+    env: hermeticChildEnv({
       ...inherited,
       PODIUM_STATE_DIR: root,
       PODIUM_HOME: root,
@@ -98,7 +99,7 @@ async function startStack(env: Record<string, string>): Promise<Stack> {
       PODIUM_APP_VERSION: '1.0.0',
       FIXTURE_PARENT_CHILDREN: 'server',
       ...env,
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   started.push(parent)

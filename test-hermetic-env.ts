@@ -335,26 +335,4 @@ export function releaseHermeticTmpContainer(): void {
 // ensureHermeticFileScopeForBun from test-hermetic-bun-hooks.ts.
 mintHermeticFileScope()
 
-/**
- * Return a standalone environment snapshot for a real child process.
- *
- * Bun's Node-compatible child-process layer can retain the environment that
- * existed when a Vitest worker was created: later writes to `process.env` are
- * not a reliable child-process boundary. Callers that need this hermetic
- * setup must therefore pass this copy as `spawn`/`execFile`'s `env` option;
- * mutating `process.env` alone is not isolation.
- */
-export function hermeticChildEnv(
-  overrides: Readonly<Record<string, string | undefined>> = {},
-): Record<string, string> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => typeof entry[1] === 'string',
-    ),
-  )
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete env[key]
-    else env[key] = value
-  }
-  return env
-}
+export { hermeticChildEnv } from './packages/runtime/src/hermetic-child-env'

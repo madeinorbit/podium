@@ -1,7 +1,8 @@
-import { expect, test } from 'vitest'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { expect, test } from 'vitest'
+import { hermeticChildEnv } from '../../../test-hermetic-env'
 import { runDrizzleMigrations } from './migrations'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 
 // Keep migrations and the real worker: neither shares the subprocess identity slot.
 test('independent janitor worker resolves its owner from a migrated database', async () => {
@@ -17,7 +18,12 @@ test('independent janitor worker resolves its owner from a migrated database', a
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
   db.close()
   try {
-    const output = execFileSync('bun', ['--conditions=@podium/source', '-e', `
+    const output = execFileSync(
+      'bun',
+      [
+        '--conditions=@podium/source',
+        '-e',
+        `
       import { firstAdminMemberIdOrUndefined } from './packages/model/src/identity/first-admin.ts';
       if (firstAdminMemberIdOrUndefined() !== undefined) throw new Error('test host unexpectedly primed');
       import { JanitorWorkerClient } from './packages/janitor/src/worker-client.ts';
@@ -26,7 +32,18 @@ test('independent janitor worker resolves its owner from a migrated database', a
       while (client.state() !== 'running' && Date.now() < deadline) await Bun.sleep(20);
       console.log(client.state() === 'running' ? 'SMOKE_OK' : 'SMOKE_BAD ' + client.reason());
       await client.close();
-    `], { cwd: root, env: { ...process.env, REVIEW_DATABASE: dbPath }, encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] })
+    `,
+      ],
+      {
+        cwd: root,
+        env: hermeticChildEnv({ REVIEW_DATABASE: dbPath }),
+        encoding: 'utf8',
+        timeout: 15000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
     expect(output).toContain('SMOKE_OK')
-  } finally { rmSync(dir, { recursive: true, force: true }) }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }, 20000)

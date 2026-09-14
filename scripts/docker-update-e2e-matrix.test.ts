@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const root = join(import.meta.dirname, '..')
 const harness = readFileSync(join(root, 'scripts/docker-update-e2e.sh'), 'utf8')
@@ -32,7 +33,7 @@ function drive(only: string, script: string): string {
   return execFileSync('bash', ['-c', `source scripts/docker-update-e2e.sh\n${script}`], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, PODIUM_UPDATE_E2E_ONLY: only },
+    env: hermeticChildEnv({ PODIUM_UPDATE_E2E_ONLY: only }),
   })
 }
 

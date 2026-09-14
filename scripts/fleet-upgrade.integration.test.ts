@@ -55,11 +55,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
 import type { MachineId } from '@podium/model'
+import { afterEach, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import { defaultDbPath } from '../apps/server/src/store'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -434,7 +435,7 @@ async function startFleetParent(
   attached.catch(() => undefined)
   const child = spawn('bun', ['--conditions=@podium/source', FIXTURE, 'parent', '--takeover'], {
     cwd: ROOT,
-    env: {
+    env: hermeticChildEnv({
       ...inherited,
       PODIUM_STATE_DIR: stateDir,
       PODIUM_HOME: installDir,
@@ -445,7 +446,7 @@ async function startFleetParent(
       ...(options.pairCode ? { FIXTURE_FLEET_PAIR_CODE: options.pairCode } : {}),
       ...(options.children ? { FIXTURE_PARENT_CHILDREN: options.children.join(',') } : {}),
       ...options.env,
-    },
+    }),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   started.push(child)
@@ -498,8 +499,7 @@ async function startFleetParent(
     },
     supervisorState,
     connectivity: () => readJson('connectivity.json'),
-    legacyState: () =>
-      readJson('daemon.json') as { machineId: string; token?: string } | undefined,
+    legacyState: () => readJson('daemon.json') as { machineId: string; token?: string } | undefined,
   }
 }
 
@@ -824,9 +824,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // THE WAVE'S STARTING POSITION: every machine present, every row its own
     // version. The unstamped one is a peer, not a casualty.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',
@@ -889,8 +887,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     const daemonSpawnsBefore = unstamped.spawns('daemon').length
     process.kill(daemonPid, 'SIGKILL')
     await until(
-      () =>
-        unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined,
+      () => (unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined),
       `the superseded parent to restart its daemon, and so to report; log:\n${unstamped.output()}`,
       30_000,
     )
@@ -933,9 +930,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     // The rest of the fleet never noticed any of it.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',

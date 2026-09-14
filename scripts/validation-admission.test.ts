@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 import { decideTestAdmission } from './test'
 import {
   resolveValidationSlots,
@@ -33,9 +34,10 @@ function temporaryDirectory(prefix: string): string {
   return dir
 }
 
-function fakePodium(
-  options: { alreadyHeld?: string; blockLock?: string } = {},
-): { env: Record<string, string | undefined>; log: string } {
+function fakePodium(options: { alreadyHeld?: string; blockLock?: string } = {}): {
+  env: Record<string, string | undefined>
+  log: string
+} {
   const dir = temporaryDirectory('podium-validation-locks-')
   const log = join(dir, 'calls.log')
   const executable = join(dir, 'podium')
@@ -96,7 +98,10 @@ describe('focused package selection', () => {
 })
 
 describe('minimal validation locks', () => {
-  it.each(['focused', 'typecheck'] as const)('%s runs without any Podium lock call', async (kind) => {
+  it.each([
+    'focused',
+    'typecheck',
+  ] as const)('%s runs without any Podium lock call', async (kind) => {
     const { env, log } = fakePodium()
     await expect(
       runWithValidationAdmission(kind, ['bash', '-c', 'exit 0'], {
@@ -146,11 +151,7 @@ describe('minimal validation locks', () => {
     await expect(
       runWithValidationAdmission(
         'watch',
-        [
-          'bash',
-          '-c',
-          `test "$${VALIDATION_HELD_ENV}" = watch && test "$PODIUM_TEST_WORKERS" = 1`,
-        ],
+        ['bash', '-c', `test "$${VALIDATION_HELD_ENV}" = watch && test "$PODIUM_TEST_WORKERS" = 1`],
         { cwd: process.cwd(), env, label: 'test:watch' },
       ),
     ).resolves.toBe(0)
@@ -339,7 +340,11 @@ describe('focused/typecheck slot pool', () => {
     // never race the child's exit however slow the machine is.
     const run = runWithValidationAdmission(
       'focused',
-      ['bash', '-c', `n=0; while [ ! -f "${release}" ] && [ "$n" -lt 500 ]; do sleep 0.02; n=$((n+1)); done`],
+      [
+        'bash',
+        '-c',
+        `n=0; while [ ! -f "${release}" ] && [ "$n" -lt 500 ]; do sleep 0.02; n=$((n+1)); done`,
+      ],
       { cwd: process.cwd(), env, label: 'long', renewIntervalMs: 10 },
     )
     const stamp = (): number | undefined => {
@@ -416,29 +421,46 @@ describe('default pool across task temporary directories', () => {
     const defaultExpression = "join(homedir(), '.cache', 'podium', hostname(), 'validation-slots')"
     expect(original).toContain(defaultExpression)
     const mutant = join(root, 'old-admission.ts')
-    writeFileSync(mutant, original
-      .replace('availableParallelism, homedir, hostname', 'availableParallelism, homedir, hostname, tmpdir')
-      .replace(defaultExpression, "join(tmpdir(), 'podium-validation-slots')"))
+    writeFileSync(
+      mutant,
+      original
+        .replace(
+          'availableParallelism, homedir, hostname',
+          'availableParallelism, homedir, hostname, tmpdir',
+        )
+        .replace(defaultExpression, "join(tmpdir(), 'podium-validation-slots')"),
+    )
 
     async function observe(module: string, name: string): Promise<string> {
       const dir = join(root, name)
       const home = join(dir, 'home')
       const release = join(dir, 'release')
-      for (const path of [home, join(dir, 'a'), join(dir, 'b')]) mkdirSync(path, { recursive: true })
+      for (const path of [home, join(dir, 'a'), join(dir, 'b')])
+        mkdirSync(path, { recursive: true })
       const runner = join(dir, 'runner.ts')
-      writeFileSync(runner, `
+      writeFileSync(
+        runner,
+        `
         import { runWithValidationAdmission } from ${JSON.stringify(module)};
         process.exit(await runWithValidationAdmission('focused',
           [process.execPath, '-e', process.env.BODY],
           { cwd: process.cwd(), env: process.env, slotPollIntervalMs: 10 }));
-      `)
+      `,
+      )
       const children: ReturnType<typeof Bun.spawn>[] = []
       function start(task: string, body: string) {
         const child = Bun.spawn([process.execPath, runner], {
-          env: { ...process.env, HOME: home, USERPROFILE: home,
-            TMPDIR: join(dir, task), TMP: join(dir, task), TEMP: join(dir, task),
-            PODIUM_VALIDATION_SLOT_DIR: undefined, PODIUM_VALIDATION_RESOURCE_HELD: undefined,
-            PODIUM_VALIDATION_SLOTS: '1', BODY: body },
+          env: hermeticChildEnv({
+            HOME: home,
+            USERPROFILE: home,
+            TMPDIR: join(dir, task),
+            TMP: join(dir, task),
+            TEMP: join(dir, task),
+            PODIUM_VALIDATION_SLOT_DIR: undefined,
+            PODIUM_VALIDATION_RESOURCE_HELD: undefined,
+            PODIUM_VALIDATION_SLOTS: '1',
+            BODY: body,
+          }),
           stdio: ['ignore', 'pipe', 'pipe'],
         })
         children.push(child)
@@ -448,14 +470,19 @@ describe('default pool across task temporary directories', () => {
       const timeout = new Promise<never>((_, reject) => {
         deadline = setTimeout(() => reject(new Error('admission child made no progress')), 10_000)
       })
-      const holder = start('a', `console.log('holding');
-        while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(10);`)
+      const holder = start(
+        'a',
+        `console.log('holding');
+        while (!(await Bun.file(${JSON.stringify(release)}).exists())) await Bun.sleep(10);`,
+      )
       async function firstOutput(stream: ReadableStream<Uint8Array>): Promise<string> {
         const reader = stream.getReader()
         try {
           const result = await Promise.race([reader.read(), timeout])
           return new TextDecoder().decode(result.value)
-        } finally { reader.releaseLock() }
+        } finally {
+          reader.releaseLock()
+        }
       }
       try {
         expect(await firstOutput(holder.stdout as ReadableStream<Uint8Array>)).toContain('holding')
@@ -472,13 +499,15 @@ describe('default pool across task temporary directories', () => {
         clearTimeout(deadline!)
         writeFileSync(release, '')
         for (const child of children) child.kill('SIGTERM')
-        await Promise.all(children.map(child => child.exited))
+        await Promise.all(children.map((child) => child.exited))
       }
     }
 
     // Positive fault injection: the same observer sees entry while the holder
     // still owns its slot, so the acceptance assertion would reject old code.
     expect(await observe(mutant, 'negative-control')).toContain('entered')
-    expect(await observe(source, 'candidate')).toContain('validation queued: all 1 validation slots are in use')
+    expect(await observe(source, 'candidate')).toContain(
+      'validation queued: all 1 validation slots are in use',
+    )
   }, 20_000)
 })

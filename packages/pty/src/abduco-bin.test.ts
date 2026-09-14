@@ -13,6 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hermeticChildEnv } from '@podium/runtime/hermetic-child-env'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ABDUCO_FEATURES,
@@ -171,7 +172,7 @@ describe('C9: abduco resolution order', () => {
       `import { resolveAbducoBin } from ${JSON.stringify(target)}\n` +
         "process.stdout.write('<<<' + JSON.stringify(resolveAbducoBin({ fresh: true }) ?? null) + '>>>')\n",
     )
-    const clean: Record<string, string> = { HOME: join(dir, 'home') }
+    const clean: Record<string, string> = hermeticChildEnv({ HOME: join(dir, 'home') })
     for (const [key, value] of Object.entries(env)) if (value !== undefined) clean[key] = value
     const out = spawnSync(process.execPath, [probe], { encoding: 'utf8', env: clean })
     if (out.status !== 0) {
@@ -305,7 +306,7 @@ function inChild(body: string, env: Record<string, string | undefined>): string 
     writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
     const r = spawnSync(process.execPath, [file], {
       encoding: 'utf8',
-      env: { ...process.env, ...env } as NodeJS.ProcessEnv,
+      env: hermeticChildEnv(env),
     })
     if (r.status !== 0) throw new Error(`child failed (${r.status}): ${r.stderr}`)
     return (r.stdout ?? '').trim().split('\n').pop() ?? ''
@@ -408,7 +409,7 @@ describe.skipIf(!hasCompiler)('managed abduco build', () => {
               const file = join(dir, 'child.ts')
               writeFileSync(file, `import * as A from ${JSON.stringify(MODULE_PATH)}\n${body}\n`)
               const p = spawn(process.execPath, [file], {
-                env: { ...process.env, PODIUM_STATE_DIR: state } as NodeJS.ProcessEnv,
+                env: hermeticChildEnv({ PODIUM_STATE_DIR: state }),
               })
               let out = ''
               let err = ''

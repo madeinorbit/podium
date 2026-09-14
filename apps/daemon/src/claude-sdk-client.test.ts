@@ -13,6 +13,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../../../test-hermetic-env'
 import { claudeSdkHostEnv, runClaudeSdkChildTurn } from './claude-sdk-client.js'
 import { HeadlessTurnError, type HeadlessTurnSpec } from './headless-drivers.js'
 
@@ -517,10 +518,12 @@ describe('the daemon carries the tool record across the pipe (POD-3050)', () => 
       ['-e', 'process.stdout.write(`${process.env.HOME}|${process.env.CLAUDE_CONFIG_DIR}`)'],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: claudeSdkHostEnv({
-          ...spec,
-          env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
-        }),
+        env: hermeticChildEnv(
+          claudeSdkHostEnv({
+            ...spec,
+            env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
+          }),
+        ),
       },
     )
     alive.push(child)

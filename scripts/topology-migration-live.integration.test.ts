@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { hermeticChildEnv } from '../test-hermetic-env'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -165,14 +166,13 @@ async function startManager(runtimeDir: string, configHome: string): Promise<Pri
   // three deletes below are exactly the keys that type does not admit. The point
   // of this env is to strip inherited session plumbing before starting a private
   // systemd, so it has to be able to name keys the narrow type does not.
-  const env: Record<string, string | undefined> = {
-    ...process.env,
+  const env = hermeticChildEnv({
     XDG_RUNTIME_DIR: runtimeDir,
     XDG_CONFIG_HOME: configHome,
-  }
-  delete env.PODIUM_AGENT_RELAY
-  delete env.NOTIFY_SOCKET
-  delete env.DBUS_SESSION_BUS_ADDRESS
+    PODIUM_AGENT_RELAY: undefined,
+    NOTIFY_SOCKET: undefined,
+    DBUS_SESSION_BUS_ADDRESS: undefined,
+  })
   const manager = spawn(
     'systemd',
     ['--user', '--unit=default.target', '--log-target=console', '--log-level=warning'],
@@ -258,7 +258,9 @@ async function workingParent(port: number): Promise<boolean> {
 }
 
 describe('single-unit migration live kill matrix', () => {
-  it.each(phases)('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
+  it.each(
+    phases,
+  )('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
     const root = await mkdtemp(join(tmpdir(), 'podium-topology-live-'))
     const runtimeDir = join(root, 'runtime')
     const configHome = join(root, 'config')
@@ -321,7 +323,7 @@ describe('single-unit migration live kill matrix', () => {
 
       migrator = spawn(BUN, ['--conditions=@podium/source', '--eval', migratorSource()], {
         cwd: ROOT,
-        env: {
+        env: hermeticChildEnv({
           ...manager.env,
           PODIUM_STATE_DIR: stateDir,
           PODIUM_INSTANCE: instanceId,
@@ -330,7 +332,7 @@ describe('single-unit migration live kill matrix', () => {
           FIXTURE_CHECKPOINT: checkpointPath,
           FIXTURE_NOTIFY_LOG: notifyPath,
           FIXTURE_PARENT_BODY: renderedParent,
-        },
+        }),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       let migrationOutput = ''
@@ -374,8 +376,10 @@ describe('single-unit migration live kill matrix', () => {
           'active',
           'active',
         ])
-        if (phase === 'before-parent-write') expect(existsSync(join(unitDir, parentUnit))).toBe(false)
-        if (phase === 'after-parent-write') expect(unitState(manager.env, parentUnit)).toBe('inactive')
+        if (phase === 'before-parent-write')
+          expect(existsSync(join(unitDir, parentUnit))).toBe(false)
+        if (phase === 'after-parent-write')
+          expect(unitState(manager.env, parentUnit)).toBe('inactive')
         if (phase === 'after-parent-enable') {
           expect(enableState(manager.env, parentUnit)).toBe('enabled')
           expect(unitState(manager.env, parentUnit)).toBe('inactive')
