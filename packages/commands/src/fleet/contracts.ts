@@ -960,8 +960,8 @@ export const machinePairingCodeContract = {
       'could admit a member instead: the machine does not exist yet, so the role floor is the only ' +
       'gate that exists. Recorded as a FORK: ADR 9 D6 M3 ("pairing runs from that person’s laptop") ' +
       'reads as self-service, which would argue `member`. The admin floor is the default-closed side ' +
-      'of it and matches the shipped surface (hub role only, Settings → Machines). Nothing enforces ' +
-      'the floor today; POD-1079 owns that.',
+      'of it and matches the shipped surface (hub role only, Settings → Machines). The floor is ' +
+      'enforced by `modules/fleet/authz.ts` through the shared `adminFloorRefusal` shipped in POD-1079.',
   },
   exposure: SERVED_ON,
   delivery: PAIRING_DELIVERY,
