@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
 import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
+import { createDurable } from './durable'
 import { reconcileNativeClientTerminal, sessionHandlers } from './session'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
@@ -101,6 +102,9 @@ function harness(over: { reportGeometry?: boolean } = {}): Harness {
   // The real client-terminal host: only the process ports are injected, and it
   // is wired to the daemon exactly as `host-runtime.ts` wires it.
   const clientTerminals = createOpencodeClientTerminals({
+    // The `spawn` seam below overrides this entirely; it states the backend
+    // this test means now that the port is required (POD-3917).
+    durable: createDurable('abduco', { host: false, abduco: true }),
     appliedGeometry: appliedGeometryFor(ctx),
     birthGeometry: (sessionId) =>
       ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),

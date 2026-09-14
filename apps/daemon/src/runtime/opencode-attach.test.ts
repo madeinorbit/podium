@@ -25,6 +25,7 @@ import type { AgentFrame, AgentSession } from '@podium/pty'
 import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppliedGeometryRecord } from '../control/applied-geometry'
+import { createDurable } from '../control/durable'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
   CLIENT_TERMINAL_INPUT_MAX_BYTES,
@@ -32,6 +33,7 @@ import {
   type ClientTerminalKind,
   clientTerminalLabel,
   codexAttachLabel,
+  createClientTerminalsFor,
   createOpencodeClientTerminals,
   grokAttachLabel,
   opencodeAttachLabel,
@@ -43,6 +45,13 @@ const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
 
 const URL = 'http://127.0.0.1:41234'
+
+/**
+ * The backend every spawn-injecting test below means: the `spawn` seam overrides
+ * `durable.spawn` entirely, so this object is never called — it is here to state
+ * the backend explicitly, now that the port is required (POD-3917).
+ */
+const abducoOnly = createDurable('abduco', { host: false, abduco: true })
 
 const target = {
   kind: 'opencode',
@@ -171,6 +180,7 @@ function harness(opts: HarnessOptions = {}) {
     fire: () => {},
   }
   const terminals = createOpencodeClientTerminals({
+    durable: abducoOnly,
     ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
@@ -332,6 +342,7 @@ describe('the client terminal a server-family attach produces', () => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
       reclaim: async () => {},
@@ -595,6 +606,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
       reclaim: async () => {},
@@ -623,6 +635,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
       reclaim: async () => {},
@@ -648,6 +661,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
       reclaim: async () => {},
@@ -674,6 +688,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
       reclaim: async () => {},
@@ -867,6 +882,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => {
         await started
@@ -896,6 +912,7 @@ describe('warm-parking', () => {
     const resolvers: Array<(client: AgentSession) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () =>
         new Promise<AgentSession>((resolve) => {
@@ -982,6 +999,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async (o) => {
         spawns.push(o.label)
@@ -1055,6 +1073,7 @@ describe('warm-parking', () => {
     })
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: () => {},
       spawn: async () => {
         await started
@@ -1092,6 +1111,7 @@ describe('warm-parking', () => {
     let armed = 0
     let cleared = 0
     const terminals = createOpencodeClientTerminals({
+      durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async () => {
         spawnCount += 1
@@ -1203,6 +1223,7 @@ describe('warm-parking', () => {
     function subject(homeDir?: string) {
       const reclaimed: string[] = []
       const terminals = createOpencodeClientTerminals({
+        durable: abducoOnly,
         frames: () => {},
         // `hasMaster` is DELIBERATELY not injected here: it is the subject.
         reclaim: async (label) => {
@@ -1680,5 +1701,38 @@ describe('under backend=host the client terminal lives in the host, not abduco (
     terminals.adopt(SESSION) // an adoption holds no session and probes by label
     const label = opencodeAttachLabel(SESSION)
     expect(calls).toEqual([`spawn:host:${label}`, `kill:host:${label}`, `probe:host:${label}`])
+  })
+})
+
+describe('without a durable host there are no client terminals (POD-3917)', () => {
+  it('refuses to be built without a durable host — there is no silent abduco fallback', () => {
+    // ARMED: before the fix the fallback built an abduco-only host here, so
+    // this construction succeeded and the omission silently chose a backend.
+    // Now the omission throws at the call site that made it.
+    expect(() =>
+      createOpencodeClientTerminals({
+        frames: () => {},
+      } as unknown as Parameters<typeof createOpencodeClientTerminals>[0]),
+    ).toThrow(/requires ports\.durable/)
+  })
+
+  it('a backend=none daemon gets no terminal host rather than a substituted one', () => {
+    // The deliberate answer to the one real decision: `undefined` in means
+    // `undefined` out — never an abduco object the daemon never selected.
+    expect(createClientTerminalsFor(undefined, { frames: () => {} })).toBeUndefined()
+  })
+
+  it('a daemon WITH a durable host gets its terminals built on that object', async () => {
+    const terminals = createClientTerminalsFor(abducoOnly, {
+      frames: () => {},
+      spawn: async () => fakeClient(),
+      reclaim: async () => {},
+      hasMaster: () => false,
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    expect(terminals).toBeDefined()
+    await terminals?.attach({ sessionId: SESSION, target })
+    await terminals?.close(SESSION)
   })
 })

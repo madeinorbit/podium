@@ -118,7 +118,7 @@ import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { AbducoSpawnOptions, AgentSession } from '@podium/pty'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
-import { createDurable, type Durable } from '../control/durable'
+import type { Durable } from '../control/durable'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -328,13 +328,13 @@ export interface OpencodeClientTerminalPorts {
   /** Current machine command environment used to resolve the client executable. */
   commandEnvironment?: () => Promise<HarnessEnvironment>
   /**
-   * The daemon's durable host (SPEC-6). The three seams below default to IT —
-   * spawn on the selected backend, reclaim and the master probe across every
-   * adapter — so a client terminal under `backend=host` is created, found and
-   * reclaimed in the host's directory, not abduco's. Absent (older tests), the
-   * defaults are abduco alone.
+   * The daemon's durable host (SPEC-6). Spawn, reclaim and the master probe all
+   * go through IT — so a client terminal under `backend=host` is created, found
+   * and reclaimed in the host's directory, not abduco's. REQUIRED: the only
+   * production call site passes `ctx.durable`, and an omitted one used to fall
+   * back to abduco silently (POD-3917).
    */
-  durable?: Durable
+  durable: Durable
   /** Injection seams over `durable`. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
@@ -421,10 +421,31 @@ interface Attachment {
   watched?: boolean
 }
 
+/**
+ * NO CLIENT TERMINALS WITHOUT A DURABLE HOST (POD-3917).
+ *
+ * A `backend=none` daemon holds no durable host for its own sessions, and a
+ * client terminal built for it would need a backend substituted silently — the
+ * exact fallback the required {@link OpencodeClientTerminalPorts.durable} port
+ * exists to forbid. So that daemon builds NOTHING here: the caller leaves
+ * `ctx.clientTerminals` unset, the server-family drivers refuse a Native attach
+ * with their per-machine wording, and every control frame that reaches for one
+ * already tolerates its absence. `undefined` is the honest answer; abduco is
+ * not this daemon's to give.
+ */
+export function createClientTerminalsFor(
+  durable: Durable | undefined,
+  ports: Omit<OpencodeClientTerminalPorts, 'durable'>,
+): OpencodeClientTerminals | undefined {
+  if (durable === undefined) return undefined
+  return createOpencodeClientTerminals({ ...ports, durable })
+}
+
 export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
-  const durable = ports.durable ?? createDurable('abduco', { host: false, abduco: true })
+  if (!ports.durable) throw new Error('createOpencodeClientTerminals requires ports.durable')
+  const durable = ports.durable
   const spawn = ports.spawn ?? ((opts: AbducoSpawnOptions) => durable.spawn(opts))
   const reclaim = ports.reclaim ?? ((label: string) => durable.kill(label))
   /**

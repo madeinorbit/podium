@@ -60,6 +60,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { abducoHasSession } from '@podium/pty'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
+import { createDurable } from '../control/durable'
 import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach'
 import { opencodeScopeLabel } from './opencode-server'
 
@@ -147,7 +148,12 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     server?.kill('SIGKILL')
     // These attachments are DURABLE by construction. Without an explicit close
     // each run would leave a master and a scope behind for the whole warm TTL.
-    const terminals = createOpencodeClientTerminals({ frames: () => {} })
+    const terminals = createOpencodeClientTerminals({
+      // This re-proof predates the host backend: it asserts abduco masters, so
+      // it states abduco explicitly (POD-3917).
+      durable: createDurable('abduco', { host: false, abduco: true }),
+      frames: () => {},
+    })
     await terminals.close(GOOD)
     await terminals.close(BAD)
   }, 60_000)
@@ -158,6 +164,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   ): Promise<{ bytes: string; streamId: string }> => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
+      durable: createDurable('abduco', { host: false, abduco: true }),
       frames: (_streamId, frame) => frames.push(frame),
     })
     const endpoint = await terminals.attach({
@@ -246,7 +253,10 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
 
       // And closing the attachment takes the master with it, rather than leaving
       // a scope resident for the machine's lifetime.
-      await createOpencodeClientTerminals({ frames: () => {} }).close(GOOD)
+      await createOpencodeClientTerminals({
+        durable: createDurable('abduco', { host: false, abduco: true }),
+        frames: () => {},
+      }).close(GOOD)
       expect(await abducoHasSession(label)).toBe(false)
     },
     CASE_TIMEOUT_MS,

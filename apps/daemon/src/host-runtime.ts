@@ -108,7 +108,7 @@ import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
 import { daemonRuntimeHost } from './runtime/host'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
-import { createOpencodeClientTerminals } from './runtime/opencode-attach'
+import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
 import { createOpencodeHost, opencode2VersionDiagnostic } from './runtime/opencode-server'
 import { createScopeMonitor } from './runtime/scope-monitor'
@@ -1046,14 +1046,13 @@ export async function createDaemonHostRuntime(args: {
    * frames about the machine, not about a driver, and their handlers reach it
    * through `ctx`.
    *
-   * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here would
-   * make every daemon boot pay for resolving (and on a cold machine, BUILDING)
-   * the vendored binary, for a client most sessions never open. A machine that
-   * cannot start one says so at the attach that asks for it — the spawn fails,
-   * the port answers `undefined`, and the driver refuses with the per-machine
-   * wording.
+   * ABSENT WHEN THE DAEMON HAS NO DURABLE HOST, deliberately (POD-3917). A
+   * `backend=none` daemon builds no terminal host at all rather than silently
+   * substituting abduco — see `createClientTerminalsFor` for the reason. The
+   * drivers refuse a Native attach with their per-machine wording, and the
+   * metrics below report zero reclaimable attachments.
    */
-  const clientTerminals = createOpencodeClientTerminals({
+  const clientTerminals = createClientTerminalsFor(ctx.durable, {
     // The one applied-size record this daemon owns (POD-3290). Opening a client
     // terminal is a real apply, and this is the only wiring that lets that fact
     // reach the frames which report a grid.
@@ -1088,11 +1087,12 @@ export async function createDaemonHostRuntime(args: {
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
     // The client terminal is a durable session like any other: it lives under
-    // whichever host this daemon selected, and is found/reclaimed through the
-    // same object (SPEC-6).
-    ...(durable ? { durable } : {}),
+    // whichever host this daemon selected (SPEC-6) — the whole `ctx.durable`,
+    // handed to `createClientTerminalsFor` as one object, never rebuilt here
+    // per backend.
   })
-  ctx.clientTerminals = clientTerminals
+  // Set only when the daemon has a durable host to build one on (POD-3917).
+  if (clientTerminals) ctx.clientTerminals = clientTerminals
 
   /**
    * THE ONE CGROUP OBSERVER (POD-2413).
@@ -1172,14 +1172,11 @@ export async function createDaemonHostRuntime(args: {
        * already runs. The stream id is the key, exactly as the engine variant's
        * endpoint uses the session id — one relay, two kinds of terminal.
        *
-       * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here
-       * would make every daemon boot pay for resolving (and on a cold machine,
-       * BUILDING) the vendored binary, for a client most sessions never open. A
-       * machine that cannot start one says so at the attach that asks for it —
-       * the spawn fails, the port answers `undefined`, and the driver refuses
-       * with the per-machine wording.
+       * ABSENT ON A backend=none DAEMON (POD-3917): there is no terminal host
+       * to hand over, and the opencode host answers a Native attach with its
+       * per-machine refusal instead.
        */
-      clientTerminals,
+      ...(clientTerminals ? { clientTerminals } : {}),
       ...(generationInventory?.executables.has('opencode')
         ? { executablePath: resolvedHarnessPath(generationInventory, 'opencode') }
         : {}),
@@ -1197,7 +1194,9 @@ export async function createDaemonHostRuntime(args: {
     host: {
       ...createOpencodeHost({
         resources: (subject) => scopeMonitor.resources(subject),
-        clientTerminals,
+        // Absent on a backend=none daemon (POD-3917): no terminal host, so the
+        // opencode host refuses a Native attach with its per-machine wording.
+        ...(clientTerminals ? { clientTerminals } : {}),
         stageAttachment,
         ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
         ...(homeDir ? { homeDir } : {}),
@@ -1238,25 +1237,32 @@ export async function createDaemonHostRuntime(args: {
     host: createCodexHost({
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
-      attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
-        try {
-          return await clientTerminals.attach({
-            sessionId,
-            // The 0600 Unix listener the stock TUI dials directly; filesystem
-            // permission is the authentication, so there is no secret with it.
-            target: {
-              kind: 'codex',
-              conversation: threadId,
-              endpoint: { address: clientAddress },
-              workdir,
+      // Omitted outright on a backend=none daemon (POD-3917): without a
+      // terminal host the codex host reports it cannot host one, rather than
+      // reaching a backend this daemon never selected.
+      ...(clientTerminals
+        ? {
+            attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
+              try {
+                return await clientTerminals.attach({
+                  sessionId,
+                  // The 0600 Unix listener the stock TUI dials directly; filesystem
+                  // permission is the authentication, so there is no secret with it.
+                  target: {
+                    kind: 'codex',
+                    conversation: threadId,
+                    endpoint: { address: clientAddress },
+                    workdir,
+                  },
+                })
+              } catch (err) {
+                log.warn('could not host a Codex client terminal', { err, sessionId })
+                return undefined
+              }
             },
-          })
-        } catch (err) {
-          log.warn('could not host a Codex client terminal', { err, sessionId })
-          return undefined
-        }
-      },
-      detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
+            detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
+          }
+        : {}),
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
       instanceUuid: instance.instanceUuid,
@@ -1269,19 +1275,25 @@ export async function createDaemonHostRuntime(args: {
     appliedGeometry: appliedGeometryFor(ctx),
     host: createGrokAcpHost({
       resources: (subject) => scopeMonitor.resources(subject),
-      attachClient: async ({ sessionId, grokSessionId, workdir }) => {
-        try {
-          return await clientTerminals.attach({
-            sessionId,
-            // A stdio engine has nothing to address: the client comes back
-            // through grok's own native store, so the endpoint is empty.
-            target: { kind: 'grok', conversation: grokSessionId, endpoint: {}, workdir },
-          })
-        } catch (err) {
-          log.warn('could not host a Grok client terminal', { err, sessionId })
-          return undefined
-        }
-      },
+      // Omitted outright on a backend=none daemon (POD-3917): same rule as the
+      // codex host above — no terminal host, no attach arm.
+      ...(clientTerminals
+        ? {
+            attachClient: async ({ sessionId, grokSessionId, workdir }) => {
+              try {
+                return await clientTerminals.attach({
+                  sessionId,
+                  // A stdio engine has nothing to address: the client comes back
+                  // through grok's own native store, so the endpoint is empty.
+                  target: { kind: 'grok', conversation: grokSessionId, endpoint: {}, workdir },
+                })
+              } catch (err) {
+                log.warn('could not host a Grok client terminal', { err, sessionId })
+                return undefined
+              }
+            },
+          }
+        : {}),
       // Same instance-home rule as the opencode host above (POD-2247).
       ...(homeDir ? { homeDir } : {}),
       instanceUuid: instance.instanceUuid,
@@ -1338,8 +1350,9 @@ export async function createDaemonHostRuntime(args: {
       load: sampleHostLoad(),
       // What this machine can give back WITHOUT parking a session (spec §5).
       // Always sent, including as 0 — which the server treats exactly as an
-      // absent field, since both mean "nothing here to reclaim first".
-      reclaimableAttachments: clientTerminals.reclaimable(),
+      // absent field, since both mean "nothing here to reclaim first". A
+      // backend=none daemon holds no terminal host, so it always reports 0.
+      reclaimableAttachments: clientTerminals?.reclaimable() ?? 0,
       // Whose pressure it is (POD-2413). Absent on a host with no cgroups, or
       // before any session has been scoped here — the server then reads only
       // the host-wide number, exactly as it did before this existed.
