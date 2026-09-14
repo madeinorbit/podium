@@ -129,35 +129,39 @@ export function sessionOwnerVisibility(
  *    person, so dropping this arm would stop a parent reading the child it
  *    created — a control the accepted architecture keeps.
  *
- *    EVERY SPAWN PRODUCER IS NOW FIXED, AND THE ARM STILL STANDS — for a
+ *    TWO NAMED SPAWN PRODUCERS ARE NOW FIXED, AND THE ARM STILL STANDS — for a
  *    different reason than it used to, which is the part worth reading. POD-3901
  *    changed `messages/handlers/spawn-agent.ts` and POD-3902 changed both
  *    `issues/service/workflow.ts` spawns (`start`, `addSession`) to stamp the
  *    INITIATING HUMAN, and `capabilityForSession` mints an agent's `onBehalfOf`
- *    from its own session's owner — so a spawn now always writes the parent
- *    session's own human, and for every child MINTED TODAY the owner arm above
- *    already answers yes. That much of the old justification is spent.
+ *    from its own session's owner — so those two producers now write the parent
+ *    session's own human, and for a child they mint the owner arm above already
+ *    answers yes. That much of the old justification is spent. It is not a claim
+ *    about every spawn: `SessionRevival.resumeSession`'s fresh-spawn arm still
+ *    has `?? firstAdminMemberId()` (see below).
  *
- *    WHAT THE ARM ACTUALLY COVERS IS A MISMATCHED OWNER, NOT A NULL ONE.
- *    `sessionOwner` returns `undefined` for a null `ownerUserId`, and
- *    `sessionOwnerVisibility` reads that as not-visible. That is a real shape,
- *    and it is not this arm's subject. A `firstAdminMemberId()` site does not
- *    leave the row unowned: it mints or hydrates it as the earliest-enrolled
- *    account, so the owner arm answers yes for that admin and no for any other
- *    parent human. The parent arm is what still lets the creating session read
- *    the child. Historical children whose durable owner is not the parent's
- *    human are the same class — `relay-dispatch.session-read-owner.test.ts`
- *    plants one (CHILD owned by Alice, spawned by Bob) — and nothing has shown
- *    they cannot exist in stored data.
+ *    THE ARM ADMITS ON THE SPAWN RELATION ALONE. `isSpawnedBy(...)` returns
+ *    true before `ownerOf` is ever called, so a parent is admitted whether the
+ *    child's durable owner is null, is a different human, or matches. What the
+ *    arm uniquely covers is every admitted parent relationship whose owner
+ *    check WOULD refuse — null owner and mismatched owner alike.
+ *    `relay-dispatch.session-read-owner.test.ts` plants one case of that set
+ *    (CHILD owned by Alice, spawned by Bob), not the population. A hypothetical
+ *    matching-owner fixture would still be admitted here, and would also be
+ *    admitted by the owner arm; it is not the existing witness.
  *
- *    THE THREE SITES, AFTER PDM-428. An earlier revision of this paragraph
- *    inventoried two open `firstAdminMemberId()` sites and named the wrong
- *    tickets against them.
+ *    THE THREE SITES, AT THIS PIN AND AS PDM-428 PROPOSES. This comment sits on
+ *    a candidate whose base is OSS `879930b28`. An earlier revision inventoried
+ *    two open `firstAdminMemberId()` sites and named the wrong tickets against
+ *    them.
  *      - `SessionStart.create` (PDM-276, done): fallback gone; the type requires
  *        an owner or a binding. It was never `repository.ts`.
- *      - `repository.sessionFromStoredRow` (PDM-428): no longer substitutes; an
- *        unowned row is skipped. Null was not reachable through a
- *        schema-conformant store in any case (`owner_user_id` arrived NOT NULL).
+ *      - `repository.sessionFromStoredRow`: at THIS pin still substitutes
+ *        `r.ownerUserId ?? (await firstAdminMemberId(this.store))`. PDM-428's
+ *        published tip (`749d26ea0`) skips an unowned row instead; that is a
+ *        proposed correction at its inspected pin, not the tree this comment is
+ *        committed against. The discovered-from edge to PDM-428 is provenance,
+ *        not a hard blocking edge.
  *      - `SessionRevival.resumeSession` fresh-spawn: the
  *        `?? firstAdminMemberId()` term is still there. The SuperagentService
  *        reason is spent (PDM-273): `openInTerminal` now passes `ownerUserId`.
@@ -166,18 +170,16 @@ export function sessionOwnerVisibility(
  *    THE REMOVAL RULE WAS THE DEFECT, NOT MERELY THE INVENTORY. The paragraph
  *    used to say: when an unowned row is no longer reachable, this arm has
  *    nothing left to cover and should go with PDM-276/PDM-273. That condition
- *    is unrelated to what the arm does. PDM-428 lands, someone checks "are
- *    unowned rows still reachable", gets no, and deletes an arm that guards
- *    mismatched-owner children. The tests that name this arm assert a spawnedBy
- *    entity kind, not that `sessionOwner` returned undefined — a fixture whose
- *    owner already matches the parent (every child minted today) stays green
- *    with the arm gone. A stale comment misinforms; a removal rule keyed on the
- *    wrong condition ACTS.
+ *    is unrelated to what the arm does. PDM-428 landing would invite a careful
+ *    person to check "are unowned rows still reachable", get no, and delete an
+ *    arm that still admits every parent whose owner check would refuse. A stale
+ *    comment misinforms; a removal rule keyed on the wrong condition ACTS.
  *
  *    So: do not remove this arm because unowned rows became unreachable, and
- *    do not remove it on the strength of the spawn fix alone. Re-check whether
- *    a child can still have a durable owner who is not the parent's human.
- *    The SELF arm above is independent of all of it and stays regardless.
+ *    do not remove it on the strength of the two named spawn-producer fixes
+ *    alone. Re-check the full admitted set — every parent relationship whose
+ *    owner check would refuse. The SELF arm above is independent of all of it
+ *    and stays regardless.
  *
  * Provenance, not a claim: `spawnedBy` is stamped by the server at spawn and is
  * never read from agent input, which is what makes the parent arm safe to state

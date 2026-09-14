@@ -60,15 +60,16 @@ const BOB = asUserId('u_bob')
 const ALICES = asSessionId('s_alice')
 /** Bob's session. A member of the SAME task, with write on it. */
 const BOBS = asSessionId('s_bob')
-/** Spawned by Bob's session and owned by ALICE. A mismatched-owner child, not
- *  an unowned one — `OWNER_OF[CHILD]` is Alice, `spawnedBy` is Bob's session.
- *  NO SPAWN PRODUCER MINTS THIS ROW ANY MORE: POD-3901 fixed `spawn-agent.ts`
- *  and POD-3902 fixed both `issues/service/workflow.ts` spawns, so every child
- *  minted today carries its parent's own human. The row is kept, and so is the
- *  parent arm it exercises, because that arm's subject is this shape: the owner
- *  arm admits Alice and refuses Bob, and Bob must still read the child he
- *  spawned. It is not a stand-in for a null `ownerUserId`, and it is not waiting
- *  on PDM-276 or PDM-273. See `mayReadPrivateSession`'s header. */
+/** Spawned by Bob's session and owned by ALICE. One case of a parent
+ *  relationship whose owner check would refuse — `OWNER_OF[CHILD]` is Alice,
+ *  `spawnedBy` is Bob's session — not the full set the parent arm admits
+ *  (null owner, mismatched owner, and matching owner alike, because spawnedBy
+ *  returns before `ownerOf`). POD-3901 fixed `spawn-agent.ts` and POD-3902
+ *  fixed both `issues/service/workflow.ts` spawns; those two producers no
+ *  longer mint this row. That is not a claim about every spawn. The row is
+ *  kept so Bob still reads the child he spawned when the owner arm would
+ *  refuse him. It is not waiting on PDM-276 or PDM-273. See
+ *  `mayReadPrivateSession`'s header. */
 const CHILD = asSessionId('s_child')
 
 const ISSUE = {
