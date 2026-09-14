@@ -60,16 +60,15 @@ const BOB = asUserId('u_bob')
 const ALICES = asSessionId('s_alice')
 /** Bob's session. A member of the SAME task, with write on it. */
 const BOBS = asSessionId('s_bob')
-/** Spawned by Bob's session and owned by ALICE. NO SPAWN PRODUCER MINTS THIS ROW
- *  ANY MORE — POD-3901 fixed `spawn-agent.ts` and POD-3902 fixed both
- *  `issues/service/workflow.ts` spawns, so every child now carries its parent's
- *  own human. The row is kept, and so is the parent arm it exercises, because
- *  the arm's remaining job is on the READ side: `sessionOwner` answers
- *  `undefined` for a row with a null owner, which is unreachable-by-owner for
- *  the parent that created it, and unowned rows stay reachable while PDM-276 and
- *  PDM-273 are open. This fixture is that case in its starkest form — a child
- *  the owner arm cannot admit — and Bob must still be able to read it. See
- *  `mayReadPrivateSession`'s header for the full argument. */
+/** Spawned by Bob's session and owned by ALICE. A mismatched-owner child, not
+ *  an unowned one — `OWNER_OF[CHILD]` is Alice, `spawnedBy` is Bob's session.
+ *  NO SPAWN PRODUCER MINTS THIS ROW ANY MORE: POD-3901 fixed `spawn-agent.ts`
+ *  and POD-3902 fixed both `issues/service/workflow.ts` spawns, so every child
+ *  minted today carries its parent's own human. The row is kept, and so is the
+ *  parent arm it exercises, because that arm's subject is this shape: the owner
+ *  arm admits Alice and refuses Bob, and Bob must still read the child he
+ *  spawned. It is not a stand-in for a null `ownerUserId`, and it is not waiting
+ *  on PDM-276 or PDM-273. See `mayReadPrivateSession`'s header. */
 const CHILD = asSessionId('s_child')
 
 const ISSUE = {

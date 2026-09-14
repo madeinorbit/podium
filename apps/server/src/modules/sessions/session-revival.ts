@@ -32,9 +32,9 @@
  * Dispose: none. The coordinator holds a single-flight map only; no timer.
  *
  * Ambient: resumeSession's `ownerUserId ?? firstAdminMemberId()` fallback, moved
- * here from lifecycle. B1 (PDM-133) attempted to remove it and could not — a
- * production caller supplies no human (see the note at the site). Census usage
- * delta: 0.
+ * here from lifecycle. B1 (PDM-133) attempted to remove it and could not — the
+ * production caller that blocked that removal now names its human (PDM-273);
+ * the term itself remains, see the note at the site. Census usage delta: 0.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -174,15 +174,17 @@ export class SessionRevival {
      * session has never moved it between humans, and B1 did not need to change
      * that. This arm is the one that mints a new row.
      *
-     * THE `firstAdminMemberId` FALLBACK SURVIVES, AND B1 TRIED TO REMOVE IT.
-     * Made fail-closed first; that broke a PRODUCTION caller —
-     * `SuperagentService` resumes a thread's terminal with no `ownerUserId` at
-     * all, so a thread whose row has been pruned would have thrown instead of
-     * reopening. The right fix is for that caller to name its human, and
-     * `modules/superagent` is B2's write set, not B1's. Filed beneath PDM-139;
-     * until it lands, a resume that cannot name a human mints the row under the
-     * first-enrolled account, which is wrong on a multi-human instance and is
-     * stated here rather than left for someone to find.
+     * THE `firstAdminMemberId` FALLBACK IS STILL HERE. B1 tried to remove it
+     * and could not: SuperagentService used to resume a thread's terminal with
+     * no `ownerUserId`, so fail-closed threw instead of reopening a pruned row.
+     * THAT REASON IS SPENT (PDM-273). `openInTerminal` now passes `ownerUserId`.
+     * `command-plane` resume throws if it cannot name a human and then passes
+     * one. `HandoffPorts.resumeSession` is typed without `ownerUserId`, and
+     * `HandoffCoordinator` never calls it. A resume that still omits a human —
+     * test fixtures, or a future caller — mints the row under the first-enrolled
+     * account, which is wrong on a multi-human instance. The fallback is not
+     * deleted here; do not read this comment as a live SuperagentService cause,
+     * and do not read PDM-273 as still open.
      */
     const spawned = await this.ports.spawn({
       agentKind: input.agentKind,
