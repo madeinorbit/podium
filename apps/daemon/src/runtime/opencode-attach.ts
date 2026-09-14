@@ -310,6 +310,15 @@ export interface OpencodeClientTerminals {
   ): Geometry | Promise<Geometry | undefined> | undefined
   redraw(sessionId: SessionId, replayRequired?: boolean): boolean
   /**
+   * Whether a LIVE client terminal is attached right now (POD-3918 P1b).
+   *
+   * A non-mutating peek for the mode-aware reopen policy: it must decide
+   * (size-first, snapshot) BEFORE any repaint is nudged, and `redraw()` both
+   * decides and nudges in one call. False while starting, parked, or absent —
+   * those keep today's `redraw()` bookkeeping path.
+   */
+  owns?(sessionId: SessionId): boolean
+  /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
    * attachments are the first thing reclaimed under pressure, because they are
    * pure convenience and the session engine is untouched).
@@ -1086,7 +1095,8 @@ export function createOpencodeClientTerminals(
       return session.resizeAcknowledged(cols, rows)
     },
 
-    redraw(sessionId, replayRequired = false) {      const record = attachments.get(sessionId)
+    redraw(sessionId, replayRequired = false) {
+      const record = attachments.get(sessionId)
       if (!record) return false
       if (replayRequired && !record.session) {
         record.replayRequired = true
