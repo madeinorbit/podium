@@ -1499,6 +1499,7 @@ describe('hosted sign-in profile activation', () => {
     await act(async () => resolve({ server: 'https://cloud.example', token: 'cloud-token' }))
     expect([...seams.credentials.values()]).not.toContain('cloud-token')
     expect(seams.hostedCancel).toHaveBeenCalled()
+    expect(seams.logout).toHaveBeenCalledWith('https://cloud.example', 'cloud-token', undefined)
   })
   it('keeps existing credentials when redemption is refused', async () => {
     seams.hostedRedeem.mockRejectedValue(new Error('expired'))

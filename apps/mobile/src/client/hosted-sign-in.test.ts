@@ -129,6 +129,37 @@ describe('hosted phone sign-in', () => {
     expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
     expect(r.fetcher).toHaveBeenCalledTimes(2)
   })
+  it('preserves an issued bearer when canceled during redemption', async () => {
+    const r = rig()
+    await r.client.begin()
+    let releaseResponse!: () => void
+    const responseReleased = new Promise<void>((resolve) => {
+      releaseResponse = resolve
+    })
+    let redemptionStarted!: () => void
+    const redemptionStartedPromise = new Promise<void>((resolve) => {
+      redemptionStarted = resolve
+    })
+    r.fetcher.mockImplementationOnce(async () => {
+      redemptionStarted()
+      await responseReleased
+      return Response.json({
+        token: 'session-token',
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
+      })
+    })
+    const redemption = r.client.redeem(link)
+    await redemptionStartedPromise
+    await r.client.cancel()
+    releaseResponse()
+    await expect(redemption).rejects.toMatchObject({
+      name: 'HostedSignInCanceledError',
+      session: {
+        server: 'https://api.podium.do',
+        token: 'session-token',
+      },
+    })
+  })
   it('does not retry a code after ambiguous network failure', async () => {
     const r = rig()
     await r.client.begin()

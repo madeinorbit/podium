@@ -8,6 +8,20 @@ export interface HostedReturn {
   code: string
   challenge: string
 }
+export interface HostedSession {
+  server: string
+  token: string
+  workspaceId?: string
+}
+export class HostedSignInCanceledError extends Error {
+  readonly session: HostedSession
+
+  constructor(session: HostedSession) {
+    super(ended)
+    this.name = 'HostedSignInCanceledError'
+    this.session = session
+  }
+}
 interface Attempt {
   server: string
   appOrigin: string
@@ -198,12 +212,13 @@ export function createHostedSignIn(deps: HostedSignInDependencies) {
         !(Date.parse(body.expiresAt) > deps.now())
       )
         throw new Error('The server did not return a valid phone session.')
-      if (current !== generation) throw new Error(ended)
-      return {
+      const session: HostedSession = {
         server: attempt.server,
         token: body.token as string,
         ...(attempt.workspaceId ? { workspaceId: attempt.workspaceId } : {}),
       }
+      if (current !== generation) throw new HostedSignInCanceledError(session)
+      return session
     },
   }
 }
