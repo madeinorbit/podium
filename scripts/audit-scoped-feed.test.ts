@@ -28,10 +28,12 @@
  * the text checks.
  */
 
+import { readFileSync } from 'node:fs'
+import { YAML } from 'bun'
 import { asUserId } from '@podium/model'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { runtimeChecks, shippedKernel, type KernelUnderTest } from './audit-scoped-feed'
+import { auditScopedFeedText, runtimeChecks, shippedKernel, type KernelUnderTest } from './audit-scoped-feed'
 import { Authority } from '../packages/sync/src/authority/authority'
 import { FeedPublisher } from '../packages/sync/src/feed'
 
@@ -109,5 +111,30 @@ describe('the instrument can say YES — three broken kernels, three catches', (
       } as never as KernelUnderTest['FeedPublisher'],
     }))
     expect(findings.map((f) => f.check)).toContain('runtime-watermark')
+  })
+})
+
+describe('the scoped-feed source gate stays enforceable', () => {
+  it('runs the full source gate as a blocking pull-request CI step', () => {
+    const ci = YAML.parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')) as {
+      on: Record<string, unknown>
+      jobs: Record<string, {
+        if?: unknown
+        'continue-on-error'?: unknown
+        steps: { run?: string; if?: unknown; 'continue-on-error'?: unknown }[]
+      }>
+    }
+    expect(ci.on).toHaveProperty('pull_request')
+    const job = ci.jobs.lint!
+    expect(job.if).toBeUndefined()
+    expect(job['continue-on-error'] ?? false).toBe(false)
+    const steps = job.steps.filter((step) => step.run === 'bun run audit:scoped-feed')
+    expect(steps).toHaveLength(1)
+    expect(steps[0]?.if).toBeUndefined()
+    expect(steps[0]?.['continue-on-error'] ?? false).toBe(false)
+  })
+
+  it('has zero findings against the shipped source tree', () => {
+    expect(auditScopedFeedText()).toEqual([])
   })
 })

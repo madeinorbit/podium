@@ -114,13 +114,14 @@ export class IssueEventFeedPublisher {
       }
       const specs: EntityChangeSpec[] = [{ entity: 'issueEvent', id, op: 'upsert', value }]
       this.window.push(id)
+      // Window expiry removes the feed row globally; it is not an access revocation.
       while (this.window.length > this.windowSize) {
-        const evicted = this.window.shift()
-        if (evicted !== undefined) {
-          specs.push({ entity: 'issueEvent', id: evicted, op: 'remove' })
+        const expired = this.window.shift()
+        if (expired !== undefined) {
+          specs.push({ entity: 'issueEvent', id: expired, op: 'remove' })
         }
       }
-      // ONE capture: the arrival and the eviction it caused are the same
+      // ONE capture: the arrival and the window expiry it caused are the same
       // observation, and a replica must never see the window grow past its own
       // bound because the two halves were separately ordered.
       await this.deps.ledger.capture(specs)
