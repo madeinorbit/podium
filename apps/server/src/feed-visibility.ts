@@ -107,32 +107,6 @@ type BootstrapReadCache = {
   latestByRef: Map<string, Map<string, ChangeLogReadRow>>
   issueDepsByFromId: Map<string, IssueDepSubject[]>
   shipOrdersByIssueId: Map<string, ShipOrderSubject[]>
-  /**
-   * The sessions bound to each anchorable issue, filled in ONE query [POD-3261].
-   *
-   * It used to be the WHOLE `sessions` table — `loadSessions()`, 49 columns of
-   * every live row, mapped into objects — filtered in memory to the handful
-   * bound to the issue in hand. Same generation key, same cached lifetime, and
-   * the same conserved quantity of ONE session read per generation; what changed
-   * is that the read is the indexed `issue_id IN (…)` lookup that answers the
-   * question actually being asked.
-   *
-   * ITS SIZE COMES FROM THE AUDIENCE MAP, not from the batch. Only an issue with
-   * a non-empty visibility audience can produce an edge at all — the caller
-   * returns `null` above otherwise — so the ids worth fetching are exactly
-   * `audienceResourceIds('issue')`, which is an in-memory read
-   * and costs nothing. `covered` records which ids that fill covered, because an
-   * absent entry has to mean "this issue has no sessions" and not "the fill
-   * happened before this issue had an audience"; an uncovered id falls through
-   * to its own point read.
-   *
-   * `findSessionsByIssueIds` applies exactly the `deleted_at IS NULL` filter
-   * `loadSessions` applied, so the row set is the one the filter returned.
-   */
-  sessionsByIssue?: Promise<{
-    readonly covered: Set<string>
-    readonly byIssueId: Map<string, SessionRow[]>
-  }>
 }
 
 /** The store surface this policy reads. Nothing here writes. */
@@ -597,52 +571,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       shipOrdersByIssueId,
     }
   }
-  /**
-   * The sessions bound to one issue, from the generation's one fill.
-   *
-   * See {@link BootstrapReadCache.sessionsByIssue}: the fill is sized by the
-   * audience map, so the fall-through below is reached only by an issue that
-   * gained an audience after the fill — rare, and a point read rather than a
-   * refill because refilling would re-read every anchorable issue to learn about
-   * one.
-   */
-  const sessionsForIssue = async (cache: BootstrapReadCache, issueId: string): Promise<SessionRow[]> => {
-    // Anchors resolve concurrently; share the pending session query as well.
-    if (cache.sessionsByIssue === undefined) {
-      cache.sessionsByIssue = (async () => {
-        const anchorable = await deps.audienceResourceIds('issue')
-        const byIssueId = new Map<string, SessionRow[]>()
-        const rows =
-          anchorable.length === 0
-            ? []
-            : await store.sessions.findSessionsByIssueIds(anchorable.map((id) => asIssueId(id)))
-        for (const row of rows) {
-          const boundTo = row.issueId
-          if (boundTo == null) continue
-          const bucket = byIssueId.get(boundTo)
-          if (bucket) bucket.push(row)
-          else byIssueId.set(boundTo, [row])
-        }
-        return { covered: new Set(anchorable), byIssueId }
-      })()
-    }
-    const fill = cache.sessionsByIssue
-    let held: Awaited<typeof fill>
-    try {
-      held = await fill
-    } catch (error) {
-      if (cache.sessionsByIssue === fill) cache.sessionsByIssue = undefined
-      throw error
-    }
-    const known = held.byIssueId.get(issueId)
-    if (known !== undefined) return known
-    if (held.covered.has(issueId)) return []
-    const rows = await store.sessions.findSessionsByIssueIds([asIssueId(issueId)])
-    held.covered.add(issueId)
-    held.byIssueId.set(issueId, rows)
-    return rows
-  }
-
   const durableChangeValueOf = async (ref: { entity: string; entityId: string }): Promise<unknown> => {
     const row = (await currentBootstrapReadCache()).latestByRef.get(ref.entity)?.get(ref.entityId)
     if (row?.op !== 'upsert' || row.payload === null) return undefined
@@ -655,13 +583,34 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
 
   const anchors: VisibilityAnchorPort = {
     visibilityEdge: async (ref) => {
+      // Session grants ride the SESSION audience. Putting `session` /
+      // `conversation` on the issue edge named those ids (and the resume
+      // value) in an `evict` to every issue grantee who may not read the
+      // session — B3.2. An issue grant does not move session visibility
+      // (PDM-251), so those subjects could never produce a legitimate upsert
+      // for that reader. They also could not re-admit a session grantee who
+      // is not already in the issue audience.
+      if (ref.entity === 'session') {
+        const audience = await deps.audienceFor('session', ref.entityId)
+        if (audience.length === 0) return null
+        const rows = await measure('visibility.session.getSession', async () =>
+          await store.sessions.getSessions([ref.entityId]),
+        )
+        const session = rows.get(ref.entityId)
+        return {
+          audience,
+          subjects: [
+            { entity: 'session' as const, entityId: ref.entityId },
+            ...(session?.resumeValue
+              ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
+              : []),
+          ],
+        }
+      }
       if (ref.entity !== 'issue') return null
       const audience = await deps.audienceFor('issue', ref.entityId)
       if (audience.length === 0) return null
       const cache = await currentBootstrapReadCache()
-      // BY QUERY, NEVER BY SCAN [POD-3261], the same lesson the `conversation`
-      // arm learned at POD-1614. See {@link BootstrapReadCache.sessionsByIssue}.
-      const issueSessions = await sessionsForIssue(cache, ref.entityId)
       const subjects = [
         { entity: 'issue' as const, entityId: ref.entityId },
         { entity: 'issueProjection' as const, entityId: ref.entityId },
@@ -671,20 +620,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // upsert. Leaving it off the anchor would mean an ownership change
         // moved the shared half and left the private half where it was.
         { entity: 'issueExecution' as const, entityId: ref.entityId },
-        ...issueSessions.map((session) => ({
-          entity: 'session' as const,
-          entityId: session.id,
-        })),
-        ...issueSessions.flatMap((session) =>
-          session.resumeValue
-            ? [
-                {
-                  entity: 'conversation' as const,
-                  entityId: session.resumeValue,
-                },
-              ]
-            : [],
-        ),
         ...(cache.issueDepsByFromId.get(ref.entityId) ?? []),
         // The issue's feed history rides its audience (POD-1772): a grant that
         // hands somebody the issue and none of its events would give them a

@@ -204,14 +204,10 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       })
     }
     const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
-    // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
-    // is ONE SESSION READ per generation, however many anchored issue refs the
-    // batch carries; only the read changed. It was `loadSessions()` — every live
-    // row, 49 columns, filtered in memory — and it is now the indexed
-    // `issue_id IN (…)` lookup, sized once from the issues that have a
-    // visibility audience. `loadSessions` is asserted to be gone from this path
-    // as well, so the count below cannot be satisfied by the old read coming
-    // back beside the new one.
+    // B3.2 dropped session/conversation subjects from the issue edge, so an
+    // issue-only batch no longer reads sessions-by-issue-id at all. The old
+    // whole-table scan must stay gone; a regression that put those subjects
+    // back would make `findSessionsByIssueIds` fire again.
     const sessionLoads = vi.spyOn(store.sessions, 'findSessionsByIssueIds')
     const wholeTableLoads = vi.spyOn(store.sessions, 'loadSessions')
     const dependencyId = issueDepId('i1', 'i-target', 'blocks')
@@ -229,9 +225,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     }
     // Before the fix, this fixture made 5 latest-state folds (one anchor scan
     // plus current values) and 2 full session loads. The conserved quantities
-    // are now one fold and one session read.
+    // are now one fold and zero session-by-issue reads (B3.2).
     expect(latestStates).toHaveBeenCalledTimes(1)
-    expect(sessionLoads).toHaveBeenCalledTimes(1)
+    expect(sessionLoads).toHaveBeenCalledTimes(0)
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
       first.changes.filter(
@@ -267,7 +263,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // A durable append changes the generation before evaluation, so current
     // values cannot come from the previous authorization snapshot.
     expect(latestStates).toHaveBeenCalledTimes(2)
-    expect(sessionLoads).toHaveBeenCalledTimes(2)
+    expect(sessionLoads).toHaveBeenCalledTimes(0)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
         entity: 'issue',
@@ -402,9 +398,12 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
   it('reads them without SQL for a batch across subscribed principals', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
-    // Session subjects do not trigger the issue-anchor rescope threshold (32).
+    // B3.2 gave sessions their own visibility edge, so each granted session
+    // write now contributes an anchored row. Stay under the rescope threshold
+    // (32); this used to seed 50 because session changes had no edge at all.
     // Seed only grants, so no earlier feed delivery can reach these subscribers.
-    for (let i = 0; i < 50; i++) {
+    const SESSION_COUNT = 16
+    for (let i = 0; i < SESSION_COUNT; i++) {
       await store.grants.upsert({
         resourceKind: 'session', resourceId: `shared_${i}`, grantee: OWNER,
         verb: 'read', owner: OTHER_OWNER, visibility: 'personal',
@@ -431,7 +430,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
     )
     try {
       const publish = () => grantReadsDuring(reg, async () => {
-        await ledger.capture(Array.from({ length: 50 }, (_, i) => ({
+        await ledger.capture(Array.from({ length: SESSION_COUNT }, (_, i) => ({
           entity: 'session', id: `shared_${i}`, op: 'upsert',
           value: { id: `shared_${i}`, v: 2 },
         })) as EntityChangeSpec[])
@@ -449,7 +448,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
       for (const batch of payloads) {
         expect(batch).toEqual(expect.objectContaining({
           kind: 'batch',
-          changes: expect.arrayContaining(Array.from({ length: 50 }, (_, i) => expect.objectContaining({
+          changes: expect.arrayContaining(Array.from({ length: SESSION_COUNT }, (_, i) => expect.objectContaining({
             entity: 'session', entityId: `shared_${i}`, op: 'upsert',
             value: { id: `shared_${i}`, v: 2 },
           }))),

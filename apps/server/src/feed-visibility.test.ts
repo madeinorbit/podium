@@ -1,5 +1,13 @@
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
-import type { EntityRef } from '@podium/sync'
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
+import {
+  DEFAULT_RESCOPE_THRESHOLD,
+  GrantEdgeVisibilityPolicy,
+  NoDelegationsGranted,
+  scopeBatch,
+  type EntityRef,
+  type SequencedChange,
+} from '@podium/sync'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
@@ -205,5 +213,215 @@ describe("the issue's private execution half is owner-scoped [B4, PDM-136]", () 
     const edge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: 'shared' })
     expect(edge).not.toBeNull()
     expect(edge?.subjects).toContainEqual({ entity: 'issueExecution', entityId: 'shared' })
+  })
+})
+
+/**
+ * B3.2 / this issue. Not a content leak: `anchorFor` re-decides per subject, so a
+ * principal who may not read the session gets `{op:'evict'}` rather than the
+ * value. The evict row still carries `entityId`, and the conversation subject
+ * is the session's resume value. B3 names resume identifiers as private.
+ *
+ * The shared `fixture()` above returns `[]` from `findSessionsByIssueIds`, so
+ * those two subjects never appear there and every `mayRead` instrument stays
+ * green. This block binds a session and asserts on the DELIVERED rows.
+ *
+ * Distinct ids on purpose: the shared fixture uses `'shared'` for both the
+ * issue and the session, which would make "Bob received `shared`" true for
+ * either half.
+ */
+const ALICE = asUserId('alice')
+const BOB = asUserId('bob')
+const TASK = asIssueId('task-i')
+const ALICE_SESSION = asSessionId('alice-session')
+const ALICE_RESUME = 'alice-resume-R'
+
+function asPrincipal(userId: typeof BOB): Principal {
+  return {
+    kind: 'user',
+    user: userId,
+    device: asDeviceId(`dev:${userId}`),
+    capability: asCapabilityRef(`cap:${userId}`),
+  }
+}
+
+async function aliceOwnsTaskWithPrivateSession() {
+  const store = await openTestStore(':memory:')
+  stores.push(store)
+  const world = await WorldIndex.load(store)
+  const issue = { id: TASK, ownerUserId: ALICE } as IssueRow
+  const session = {
+    id: ALICE_SESSION,
+    ownerUserId: ALICE,
+    resumeValue: ALICE_RESUME,
+    issueId: TASK,
+  } as SessionRow
+  const sessions = {
+    getSessions: async (ids: readonly string[]) => {
+      const map = new Map<string, SessionRow>()
+      if (ids.includes(ALICE_SESSION)) map.set(ALICE_SESSION, session)
+      return map
+    },
+    findSessionsByResumeValues: async (values: readonly string[]) => {
+      const map = new Map<string, SessionRow>()
+      if (values.includes(ALICE_RESUME)) map.set(ALICE_RESUME, session)
+      return map
+    },
+    findSessionsByIssueIds: async (issueIds: readonly ReturnType<typeof asIssueId>[]) =>
+      issueIds.some((id) => id === TASK) ? [session] : [],
+  }
+  const rows: FeedVisibilityStore = {
+    issues: {
+      getIssue: async (id) => (id === TASK ? issue : null),
+      getIssues: async (ids) => {
+        const map = new Map<string, IssueRow>()
+        if (ids.includes(TASK)) map.set(TASK, issue)
+        return map
+      },
+    },
+    sessions,
+    shipping: { issueIdsForOrders: async () => new Map() },
+    automations: { ownerOf: async () => undefined, runOwnerOf: async () => undefined },
+    sync: store.sync,
+  }
+  const policy = makeFeedVisibility({
+    store: rows,
+    worldIndex: world.reader,
+    audienceResourceIds: (kind) => store.grants.visibilityAudienceResourceIds(kind),
+    audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
+    authorizationRevision: () => store.grants.visibilityRevision(),
+  })
+  const grant = async (
+    kind: string,
+    grantee: string,
+    verb: GrantRow['verb'],
+    resourceId: string,
+  ) =>
+    store.grants.upsert({
+      resourceKind: kind,
+      resourceId,
+      grantee,
+      verb,
+      owner: ALICE,
+      visibility: 'personal',
+      createdAt: '2026-09-11T00:00:00Z',
+      actorKind: 'user',
+      actorId: ALICE,
+      onBehalfOf: ALICE,
+    })
+  return { store, policy, grant, sessions }
+}
+
+describe("a task grant does not name another member's session or resume [B3.2]", () => {
+  it('delivers the grantee no row whose entityId is the session id or resume value', async () => {
+    const { store, policy, grant, sessions } = await aliceOwnsTaskWithPrivateSession()
+    await store.transact(async () => {
+      await grant('issue', BOB, 'read', TASK)
+    })
+
+    // The session is bound to the issue. If this is empty, the negative below
+    // is the shared fixture's vacuity (no subjects) wearing this test's name.
+    expect(await sessions.findSessionsByIssueIds([TASK])).toEqual([
+      expect.objectContaining({ id: ALICE_SESSION, resumeValue: ALICE_RESUME }),
+    ])
+
+    const edge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: TASK })
+    expect(edge).not.toBeNull()
+    expect(edge?.audience).toContain(BOB)
+
+    const state = await policy.state.forBatch!([
+      { entity: 'issue', entityId: TASK },
+      { entity: 'session', entityId: ALICE_SESSION },
+      { entity: 'conversation', entityId: ALICE_RESUME },
+    ])
+    // Same person, same task: the grant works, and it does not open the session.
+    expect.soft(state.mayRead(BOB, { entity: 'issue', entityId: TASK })).toBe(true)
+    expect.soft(state.mayRead(BOB, { entity: 'session', entityId: ALICE_SESSION })).toBe(false)
+    expect.soft(state.mayRead(BOB, { entity: 'conversation', entityId: ALICE_RESUME })).toBe(false)
+
+    const visibility = new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted())
+    const issueChange: SequencedChange = {
+      seq: 1,
+      entity: 'issue',
+      entityId: TASK,
+      op: 'upsert',
+      value: { id: TASK },
+    }
+    const delivery = await scopeBatch(
+      {
+        policy: visibility,
+        anchors: policy.anchors,
+        rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD,
+      },
+      asPrincipal(BOB),
+      [issueChange],
+      1,
+    )
+    expect(delivery.kind).toBe('batch')
+    if (delivery.kind !== 'batch') return
+
+    // POSITIVE: Bob received the task he was granted. An empty slice would
+    // satisfy the negative below because nothing was delivered at all.
+    expect
+      .soft(delivery.changes.some((row) => row.entity === 'issue' && row.entityId === TASK))
+      .toBe(true)
+
+    const leaked = delivery.changes.filter(
+      (row) => row.entityId === ALICE_SESSION || row.entityId === ALICE_RESUME,
+    )
+    expect(leaked).toEqual([])
+  })
+
+  it("a session grant re-admits on the session's own visibility edge, not the issue's", async () => {
+    const { store, policy, grant } = await aliceOwnsTaskWithPrivateSession()
+    await store.transact(async () => {
+      await grant('session', BOB, 'read', ALICE_SESSION)
+    })
+
+    const sessionEdge = await policy.anchors.visibilityEdge({
+      entity: 'session',
+      entityId: ALICE_SESSION,
+    })
+    expect(sessionEdge).not.toBeNull()
+    expect(sessionEdge?.audience).toContain(BOB)
+    expect(sessionEdge?.subjects).toContainEqual({
+      entity: 'session',
+      entityId: ALICE_SESSION,
+    })
+    expect(sessionEdge?.subjects).toContainEqual({
+      entity: 'conversation',
+      entityId: ALICE_RESUME,
+    })
+
+    const issueEdge = await policy.anchors.visibilityEdge({ entity: 'issue', entityId: TASK })
+    // No issue grant, so the issue has no audience and no edge. The session
+    // subjects cannot be hiding on it.
+    expect(issueEdge).toBeNull()
+
+    const visibility = new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted())
+    const sessionChange: SequencedChange = {
+      seq: 1,
+      entity: 'session',
+      entityId: ALICE_SESSION,
+      op: 'upsert',
+      value: { id: ALICE_SESSION, resumeValue: ALICE_RESUME },
+    }
+    const delivery = await scopeBatch(
+      {
+        policy: visibility,
+        anchors: policy.anchors,
+        rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD,
+      },
+      asPrincipal(BOB),
+      [sessionChange],
+      1,
+    )
+    expect(delivery.kind).toBe('batch')
+    if (delivery.kind !== 'batch') return
+    expect(delivery.changes.some((row) => row.entity === 'session' && row.entityId === ALICE_SESSION))
+      .toBe(true)
+    expect(
+      delivery.changes.some((row) => row.entity === 'conversation' && row.entityId === ALICE_RESUME),
+    ).toBe(true)
   })
 })
