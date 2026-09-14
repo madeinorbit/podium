@@ -207,6 +207,34 @@ export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: S
 }
 
 /**
+ * Put a server-family session's client terminal at this size and answer what
+ * it ACKNOWLEDGED (POD-3919 audit item 4) — the size the kernel now reports,
+ * not necessarily what was asked for. Answers NOW for a terminal whose backend
+ * offers no acknowledgement, LATER (a promise) where one can differ — see
+ * `OpencodeClientTerminals.resizeAcknowledged` for why the shape is both.
+ * `undefined` when there is no client to resize, or the acknowledgement never
+ * arrived: the caller must hold the request, never record the ask as the fact.
+ */
+function dispatchClientResize(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  cols: number,
+  rows: number,
+): Geometry | Promise<Geometry | undefined> | undefined {
+  const terminals = ctx.clientTerminals
+  if (!terminals) return undefined
+  if (terminals.resizeAcknowledged) return terminals.resizeAcknowledged(sessionId, cols, rows)
+  return terminals.resize(sessionId, cols, rows) === true ? { cols, rows } : undefined
+}
+
+/** Whether an acknowledgement answer arrived as a promise or was answered now. */
+function isResizePromise(
+  answer: Geometry | Promise<Geometry | undefined>,
+): answer is Promise<Geometry | undefined> {
+  return typeof (answer as Promise<Geometry | undefined>)?.then === 'function'
+}
+
+/**
  * Reconcile one server-family session's on-demand original harness TUI.
  *
  * `spendBudget` IS WHAT KEEPS TWO DIFFERENT HAZARDS FROM SHARING ONE COUNTER.
@@ -279,17 +307,28 @@ export function reconcileNativeClientTerminal(
             // SIGWINCH and a TUI repaint for no change; the request is simply
             // no longer held.
             ctx.pendingResizes.delete(sessionId)
-          } else if (
+          } else {
             // AN APPLY SITE (POD-3290), and one of the two that used to be
             // SILENT (POD-3809). The held request has just reached a real client
             // terminal, so it stops being a request and becomes this daemon's
             // applied grid — and the one operation that records it is the one
             // that reports it.
-            record.apply(sessionId, pending.cols, pending.rows, (cols, rows) =>
-              ctx.clientTerminals?.resize(sessionId, cols, rows) === true,
-            )
-          ) {
-            ctx.pendingResizes.delete(sessionId)
+            //
+            // RECORDED AT THE ACKNOWLEDGED SIZE (POD-3919 audit item 4). The
+            // host answers with what the kernel now reports, which is not
+            // always what was asked for; the record and its report state that
+            // size. `undefined` keeps the request held for the next reconcile:
+            // nothing was applied, so nothing is recorded.
+            const acked = await dispatchClientResize(ctx, sessionId, pending.cols, pending.rows)
+            if (acked) {
+              record.apply(sessionId, acked.cols, acked.rows)
+              ctx.pendingResizes.delete(sessionId)
+            } else {
+              // Held, as before — and flushed, as before: `record.apply` flushes
+              // before it dispatches, so a request held for lack of a terminal
+              // still moved the bytes it was holding out first.
+              ctx.outputScheduler?.flushNow?.(sessionId)
+            }
           }
         }
       } else {
@@ -465,8 +504,13 @@ const HOST_REPLAY_TAIL_BYTES = 256 * 1024
  * Keep a way to read the host connection's resume point after the session is
  * gone: the host adapter's session exposes its connection, and `lastSeq` on it
  * survives the socket closing. Other backends record nothing.
+ *
+ * EXPORTED for the client-terminal host (`runtime/opencode-attach.ts`), which
+ * holds the same kind of session — a host connection with a ring — on a path
+ * that never becomes a bridge. It reports through a port, wired in
+ * `host-runtime.ts`, because that module owns no context to write to.
  */
-function rememberDurableSeq(ctx: DaemonContext, sessionId: SessionId, session: AgentSession): void {
+export function rememberDurableSeq(ctx: DaemonContext, sessionId: SessionId, session: AgentSession): void {
   const conn = (session as { connection?: { lastSeq?: bigint } }).connection
   if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
 }
@@ -2418,34 +2462,68 @@ export const sessionHandlers: Pick<
     // applied, so there is nothing to report, which is the one thing this file
     // and the record agree on without either having to remember it.
     const record = appliedGeometryFor(ctx)
-    const applied = bridge
-      ? record.apply(msg.sessionId, msg.cols, msg.rows, (cols, rows) => {
-          bridge.resize(cols, rows)
-          return true
-        })
-      : // A driver-owned (server-family) session takes it through the client
-        // terminal instead. Its output travels through the same scheduler, and
-        // its W has to move for the same reason, so it flushes and reports
-        // exactly as a bridged session does — because it is the same operation.
-        record.apply(
-          msg.sessionId,
-          msg.cols,
-          msg.rows,
-          (cols, rows) => ctx.clientTerminals?.resize(msg.sessionId, cols, rows) === true,
-        )
-    if (!applied) {
-      // Nothing to put at the size yet — no bridge and no client terminal, so the
-      // spawn this resize belongs to is still in flight. Hold the request instead
-      // of dropping it: the server has already moved its own geometry (and told
+    if (bridge) {
+      const applied = record.apply(msg.sessionId, msg.cols, msg.rows, (cols, rows) => {
+        bridge.resize(cols, rows)
+        return true
+      })
+      if (!applied) {
+        // Nothing to put at the size yet — no bridge and no client terminal, so the
+        // spawn this resize belongs to is still in flight. Hold the request instead
+        // of dropping it: the server has already moved its own geometry (and told
+        // the browser), so a drop here is what leaves the PTY at 80x24 under a
+        // client rendering a fitted grid (POD-628). Last one wins — an in-flight
+        // session has no screen to reflow, only a size to be BORN at, and being
+        // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
+        // a pty session, and a client terminal is opened at it.
+        ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+      }
+      ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
+      ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
+      return
+    }
+    // A driver-owned (server-family) session takes it through the client
+    // terminal instead. Its output travels through the same scheduler, and
+    // its W has to move for the same reason, so it flushes and reports
+    // exactly as a bridged session does — because it is the same operation.
+    //
+    // RECORDED AT THE ACKNOWLEDGED SIZE (POD-3919 audit item 4), so this arm
+    // answers in two times where the bridge arm answers in one: a terminal
+    // whose backend offers no acknowledgement is recorded synchronously,
+    // exactly as before, and only an acknowledged resize waits out its
+    // round-trip. The observers still hear the ask immediately — the screens
+    // reflow to the viewer's grid while the report carries the truth a beat
+    // behind, exactly as before when the two agreed (which is every time but
+    // a clamp).
+    ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
+    ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
+    const answer = dispatchClientResize(ctx, msg.sessionId, msg.cols, msg.rows)
+    if (answer === undefined) {
+      // Nothing to put at the size yet — no client terminal, so the spawn this
+      // resize belongs to is still in flight. Hold the request instead of
+      // dropping it: the server has already moved its own geometry (and told
       // the browser), so a drop here is what leaves the PTY at 80x24 under a
       // client rendering a fitted grid (POD-628). Last one wins — an in-flight
       // session has no screen to reflow, only a size to be BORN at, and being
-      // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
-      // a pty session, and a client terminal is opened at it.
+      // born at it is now what happens (POD-3809): a client terminal is opened
+      // at it. Flushed, as before: `record.apply` flushes before it dispatches,
+      // so a held request still moves the bytes it was holding out first.
+      ctx.outputScheduler?.flushNow?.(msg.sessionId)
       ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    } else if (isResizePromise(answer)) {
+      void answer
+        .then((acked) => {
+          if (!acked) {
+            ctx.outputScheduler?.flushNow?.(msg.sessionId)
+            ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+            return
+          }
+          record.apply(msg.sessionId, acked.cols, acked.rows)
+        })
+        .catch((err) => log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }))
+    } else {
+      record.apply(msg.sessionId, answer.cols, answer.rows)
     }
-    ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
-    ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
   draftTarget: (ctx, msg) => {
     // A chat-originated draft to mirror into the native composer (POD-859 phase 4).

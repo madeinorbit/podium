@@ -63,6 +63,7 @@ import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { createDurable } from './control/durable'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
+import { rememberDurableSeq } from './control/session'
 import {
   createSchemaGate,
   MAX_CONVERGENCE_ATTEMPTS,
@@ -1057,6 +1058,10 @@ export async function createDaemonHostRuntime(args: {
     // terminal is a real apply, and this is the only wiring that lets that fact
     // reach the frames which report a grid.
     appliedGeometry: appliedGeometryFor(ctx),
+    // A client terminal never becomes a bridge, so the bridge path's resume
+    // point never sees it (POD-3919 audit item 7). The same function, on the
+    // same map, for the same kind of session — a host connection with a ring.
+    rememberDurableSeq: (sessionId, session) => rememberDurableSeq(ctx, sessionId, session),
     /**
      * WHAT SIZE TO OPEN IT AT (POD-3809). The viewer's first ask reaches a
      * server-family session before it has any terminal, so the resize handler

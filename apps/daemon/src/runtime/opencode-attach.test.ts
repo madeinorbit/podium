@@ -25,7 +25,9 @@ import type { AgentFrame, AgentSession } from '@podium/pty'
 import { scopeUnitName } from '@podium/pty'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppliedGeometryRecord } from '../control/applied-geometry'
+import type { DaemonContext } from '../control/context'
 import { createDurable } from '../control/durable'
+import { rememberDurableSeq } from '../control/session'
 import { attributeMemory, type ProcSample } from '../memory-breakdown'
 import {
   CLIENT_TERMINAL_INPUT_MAX_BYTES,
@@ -136,6 +138,22 @@ interface HarnessOptions {
    * generation reset, so the adopted rows below must drive it here.
    */
   adopted?: boolean
+  /**
+   * What the adopted session's backend reports as its live size — the host's
+   * WELCOME frame on a real host attach. Absent (the abduco case) the size is
+   * unknowable and nothing is recorded.
+   */
+  adoptedGeometry?: { cols: number; rows: number }
+  /**
+   * The client terminal's host connection resume point, when the backend has
+   * one. A live object the test holds: mutating `lastSeq` moves the point the
+   * daemon remembered, which is what proves it remembered a reader, not a
+   * value.
+   */
+  connectionSeq?: { lastSeq: bigint }
+  /** Where the daemon keeps the resume point — wired to the real
+   *  `rememberDurableSeq` exactly as `host-runtime.ts` wires it. */
+  rememberDurableSeq?: (sessionId: SessionId, session: AgentSession) => void
   redrawFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
@@ -183,6 +201,7 @@ function harness(opts: HarnessOptions = {}) {
     durable: abducoOnly,
     ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
+    ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     releaseStream: (streamId) => state.released.push(streamId),
     spawn: async (o) => {
@@ -198,7 +217,15 @@ function harness(opts: HarnessOptions = {}) {
       if (opts.spawnError) throw opts.spawnError
       const client = fakeClient(opts.redrawFrame, opts.subscribeFrame)
       state.clients.push(client)
-      return opts.adopted ? { ...client, adopted: true } : client
+      const withConnection = opts.connectionSeq ? { connection: opts.connectionSeq } : {}
+      return opts.adopted
+        ? {
+            ...client,
+            adopted: true,
+            ...withConnection,
+            ...(opts.adoptedGeometry ? { appliedGeometry: { ...opts.adoptedGeometry } } : {}),
+          }
+        : { ...client, ...withConnection }
     },
     reclaim: async (label) => {
       state.reclaimed.push(label)
@@ -1641,6 +1668,38 @@ describe('opening a client terminal is what records an applied size', () => {
     expect(appliedGeometry.applied(SESSION)).toBeUndefined()
   })
 
+  /**
+   * AUDIT ITEM 5 (POD-3914): an adopted client terminal reports its real size.
+   *
+   * The guard above was written for abduco, where a surviving master's size is
+   * unknowable. On the host it is knowable — the WELCOME frame carries the
+   * kernel's size for the running program — so a daemon restart no longer
+   * leaves the session's W stale until the first ask.
+   */
+  it('audit item 5: an adopted host terminal reports its WELCOME size', async () => {
+    const sent: DaemonMessage[] = []
+    const appliedGeometry = new AppliedGeometryRecord({ send: (msg) => sent.push(msg) })
+    const { terminals } = harness({
+      appliedGeometry,
+      adopted: true,
+      adoptedGeometry: { cols: 137, rows: 43 },
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // Recorded AND reported: the server's W becomes current from this frame,
+    // with no dispatch — the terminal is already at this size.
+    expect(appliedGeometry.applied(SESSION)).toEqual({ cols: 137, rows: 43 })
+    expect(sent).toEqual([
+      {
+        type: 'geometryApplied',
+        sessionId: SESSION,
+        geometry: { cols: 137, rows: 43 },
+        cause: 'request',
+      },
+    ])
+  })
+
   it('forgets the size when the terminal it belonged to is closed', async () => {
     const appliedGeometry = new AppliedGeometryRecord({ send: () => {} })
     const { terminals } = harness({ appliedGeometry })
@@ -1650,6 +1709,58 @@ describe('opening a client terminal is what records an applied size', () => {
     await terminals.close(SESSION)
 
     expect(appliedGeometry.applied(SESSION)).toBeUndefined()
+  })
+})
+
+/**
+ * AUDIT ITEM 7 (POD-3914): a client terminal populates a resume point.
+ *
+ * `rememberDurableSeq` used to run only on the bridge path, so a client
+ * terminal — which has no bridge — kept no resume point and a reconnecting
+ * daemon could only repaint. The point is populated here, at the one moment
+ * this module holds the fresh session; consuming it (resuming from it instead
+ * of repainting) is later work — the point is in-memory and cannot survive
+ * the restart it was written for until it is persisted with the host.
+ */
+describe('a client terminal populates its host resume point', () => {
+  function wired() {
+    const durableSeqs = new Map<SessionId, () => bigint | undefined>()
+    const connectionSeq = { lastSeq: 41n }
+    const { terminals, state } = harness({
+      connectionSeq,
+      rememberDurableSeq: (sessionId, session) =>
+        rememberDurableSeq({ durableSeqs } as DaemonContext, sessionId, session),
+    })
+    return { terminals, state, durableSeqs, connectionSeq }
+  }
+
+  it('audit item 7: the point is populated and carries the live value', async () => {
+    const { terminals, durableSeqs, connectionSeq } = wired()
+
+    // ARMED: before the fix nothing remembered the client session, so no point
+    // was ever populated for it.
+    expect(durableSeqs.get(SESSION)).toBeUndefined()
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // The point the daemon remembered…
+    expect(durableSeqs.get(SESSION)?.()).toBe(41n)
+    // …is a reader, not a value: it moves as the connection advances.
+    connectionSeq.lastSeq = 87n
+    expect(durableSeqs.get(SESSION)?.()).toBe(87n)
+  })
+
+  it('audit item 7: a terminal with no host connection populates nothing', async () => {
+    const durableSeqs = new Map<SessionId, () => bigint | undefined>()
+    const { terminals } = harness({
+      rememberDurableSeq: (sessionId, session) =>
+        rememberDurableSeq({ durableSeqs } as DaemonContext, sessionId, session),
+    })
+
+    await terminals.attach({ sessionId: SESSION, target })
+
+    // The abduco-shaped half: no connection, no resume point — and no throw.
+    expect(durableSeqs.get(SESSION)).toBeUndefined()
   })
 })
 

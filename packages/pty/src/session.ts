@@ -39,6 +39,19 @@ export interface AgentSession {
   writeBytes(data: Uint8Array): void
   resize(cols: number, rows: number): void
   /**
+   * Resize and resolve with what the backend ACKNOWLEDGED — the size the
+   * kernel now reports, which is not always what was asked for. `resize()`
+   * returns void, so without this the acknowledgement a host already tracks
+   * (its RESIZED frame) is unreachable from the daemon, and the applied-size
+   * record can only state the request (POD-3919 audit item 4).
+   *
+   * Optional: backends with no acknowledgement (abduco, direct ptys) omit it
+   * and callers fall back to the requested size. Resolves `undefined` when the
+   * resize could not be acknowledged — the caller must then treat the request
+   * as unapplied, not as applied at the requested size.
+   */
+  resizeAcknowledged?(cols: number, rows: number): Promise<Geometry | undefined>
+  /**
    * Force a real repaint even when geometry is unchanged. `hard` additionally
    * injects Ctrl-L for programs that ignore the SIGWINCH nudge while idle (shells
    * at their prompt); leave it off for TUIs, which repaint on resize and would

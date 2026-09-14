@@ -677,6 +677,19 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
   })
   ready.catch(() => {})
 
+  /**
+   * THE ACKNOWLEDGED RESIZE (POD-3919 audit item 4). The host answers every
+   * resize with a RESIZED frame carrying what the kernel now reports, so the
+   * acknowledgement is known — it just never left this module, because
+   * `AgentSession.resize` returns void. This resolves with it; `undefined`
+   * when the resize never reached the host.
+   */
+  const resizeAcknowledged = (cols: number, rows: number): Promise<Geometry | undefined> =>
+    conn.resize(cols, rows).then(
+      (r) => (applied = { cols: r.cols, rows: r.rows }),
+      () => undefined,
+    )
+
   const proc: PtyProcess = {
     get pid() {
       return childPid
@@ -691,12 +704,9 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
       conn.write(data).catch(() => {})
     },
     resize(cols, rows) {
-      conn
-        .resize(cols, rows)
-        .then((r) => {
-          applied = { cols: r.cols, rows: r.rows }
-        })
-        .catch(() => {})
+      // Fire-and-forget, exactly as before: the acknowledgement settles into
+      // `appliedGeometry` above for whoever reads it after.
+      void resizeAcknowledged(cols, rows)
     },
     kill() {
       conn.detach()
@@ -711,6 +721,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
     ...session,
     ready,
     connection: conn,
+    resizeAcknowledged,
     async replay(tailBytes) {
       if (disposed) return
       await ready

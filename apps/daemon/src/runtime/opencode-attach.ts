@@ -289,6 +289,25 @@ export interface OpencodeClientTerminals {
   /** Route the browser terminal transport to the attached harness client. */
   input(sessionId: SessionId, data: Uint8Array): boolean
   resize(sessionId: SessionId, cols: number, rows: number): boolean
+  /**
+   * Resize and answer what the terminal ACKNOWLEDGED (POD-3919 audit item 4) —
+   * the size the kernel now reports, which is not always what was asked for.
+   * Answers NOW (a plain {@link Geometry}) when the session's backend offers
+   * no acknowledgement: the fire-and-forget resize IS the apply there, so the
+   * requested size stays the fact — the abduco behaviour, and what every
+   * caller stated before the host exposed its RESIZED frame. Answers LATER (a
+   * promise) when it does. `undefined` when there is no client to resize: the
+   * caller must hold the request, not record it.
+   *
+   * The sync-or-async shape is the point: callers keep the synchronous
+   * hold/record contract for backends that apply synchronously, and await only
+   * where an acknowledgement can actually differ.
+   */
+  resizeAcknowledged?(
+    sessionId: SessionId,
+    cols: number,
+    rows: number,
+  ): Geometry | Promise<Geometry | undefined> | undefined
   redraw(sessionId: SessionId, replayRequired?: boolean): boolean
   /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
@@ -375,6 +394,19 @@ export interface OpencodeClientTerminalPorts {
   birthGeometry?(sessionId: SessionId): Geometry | undefined
   /** The per-daemon last resort, when {@link birthGeometry} knows nothing. */
   geometry?: Geometry
+  /**
+   * KEEP THIS CLIENT TERMINAL'S HOST RESUME POINT (POD-3919 audit item 7).
+   *
+   * A client terminal is a host connection with a ring like any bridge
+   * session, but it never becomes a bridge — so the bridge path's
+   * `rememberDurableSeq` never sees it and a reconnecting daemon could only
+   * repaint. Called with the fresh session at the one moment this module holds
+   * it; the wiring stores a live reader, not a value. Consuming the point
+   * (resuming from it instead of repainting) is later work: the point is
+   * in-memory and cannot survive the restart it was written for until it is
+   * persisted with the host.
+   */
+  rememberDurableSeq?: (sessionId: SessionId, session: AgentSession) => void
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
   clearTimer?(handle: unknown): void
@@ -648,6 +680,11 @@ export function createOpencodeClientTerminals(
     driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
+    // A RESUME POINT FOR A TERMINAL THAT HAS NO BRIDGE (POD-3919 audit item
+    // 7). The session is a host connection with a ring; remembering its live
+    // `lastSeq` is what lets a later reconnect replay what was missed. A
+    // backend with no connection records nothing.
+    ports.rememberDurableSeq?.(record.streamId, session)
     /**
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
@@ -698,8 +735,22 @@ export function createOpencodeClientTerminals(
      * survived this daemon at a size of its own, and recording a size for it
      * would invent exactly the 120x40 that the server-family binds used to
      * announce.
+     *
+     * ON THE HOST THE SIZE IS KNOWABLE (POD-3919 audit item 5), so the
+     * exclusion is conditional, not blanket. The host's WELCOME frame carries
+     * the kernel's size for the running program — `session.appliedGeometry`,
+     * set only when the host reports `hasPty` — and an adopted host terminal
+     * reports it here: recorded and reported with no dispatch, because the
+     * terminal is already at it. An adopted abduco master reports nothing and
+     * keeps the exclusion above: its size is still unknowable.
      */
     if (!session.adopted) ports.appliedGeometry?.apply(record.streamId, birth.cols, birth.rows)
+    else if (session.appliedGeometry)
+      ports.appliedGeometry?.apply(
+        record.streamId,
+        session.appliedGeometry.cols,
+        session.appliedGeometry.rows,
+      )
     record.preserveReplayOnRelaunch = false
     session.onFrame((frame) => {
       driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
@@ -1016,6 +1067,19 @@ export function createOpencodeClientTerminals(
       if (!session) return false
       session.resize(cols, rows)
       return true
+    },
+
+    resizeAcknowledged(sessionId, cols, rows) {
+      const session = attachments.get(sessionId)?.session
+      if (!session) return undefined
+      // No acknowledgement on this backend: the fire-and-forget resize above
+      // IS the apply, so the requested size stays the fact — answered now, so
+      // the caller keeps its synchronous record.
+      if (!session.resizeAcknowledged) {
+        session.resize(cols, rows)
+        return { cols, rows }
+      }
+      return session.resizeAcknowledged(cols, rows)
     },
 
     redraw(sessionId, replayRequired = false) {

@@ -44,7 +44,7 @@ const target = {
   workdir: '/home/agent/work',
 } as const
 
-function fakeClient(): AgentSession & { sizes: Array<[number, number]> } {
+function fakeClient(ack?: { cols: number; rows: number }): AgentSession & { sizes: Array<[number, number]> } {
   const sizes: Array<[number, number]> = []
   return {
     sizes,
@@ -57,6 +57,18 @@ function fakeClient(): AgentSession & { sizes: Array<[number, number]> } {
     resize: (cols: number, rows: number) => {
       sizes.push([cols, rows])
     },
+    // A host-backed client acknowledges with what the kernel now reports, which
+    // is not always what was asked for. Absent (as here by default) the caller
+    // falls back to the requested size — the abduco behaviour this suite's older
+    // rows pin.
+    ...(ack
+      ? {
+          resizeAcknowledged: async (cols: number, rows: number) => {
+            sizes.push([cols, rows])
+            return { ...ack }
+          },
+        }
+      : {}),
     redraw: () => {},
     redrawWhenReady: () => {},
     geometry: () => ({ cols: 0, rows: 0 }),
@@ -72,9 +84,13 @@ interface Harness {
   clients: ReturnType<typeof fakeClient>[]
   /** The viewer opened Native: arm the request and let the reconcile run. */
   openNative(): Promise<void>
+  /** Drain the fire-and-forget acknowledgement round-trip the resize paths take. */
+  drain(): Promise<void>
 }
 
-function harness(over: { reportGeometry?: boolean } = {}): Harness {
+function harness(
+  over: { reportGeometry?: boolean; ackSize?: { cols: number; rows: number }; defaultBirth?: boolean } = {},
+): Harness {
   const sent: DaemonMessage[] = []
   const born: Array<[number, number]> = []
   const clients: ReturnType<typeof fakeClient>[] = []
@@ -106,13 +122,20 @@ function harness(over: { reportGeometry?: boolean } = {}): Harness {
     // this test means now that the port is required (POD-3917).
     durable: createDurable('abduco', { host: false, abduco: true }),
     appliedGeometry: appliedGeometryFor(ctx),
-    birthGeometry: (sessionId) =>
-      ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
+    // Without the birth port the terminal opens at the harness default, so the
+    // held request is still outstanding when the reconcile runs and takes the
+    // dispatch arm below — the one this issue's first test drives.
+    ...(over.defaultBirth
+      ? {}
+      : {
+          birthGeometry: (sessionId) =>
+            ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
+        }),
     frames: () => {},
     releaseStream: () => {},
     spawn: async (o) => {
       born.push([o.cols ?? 0, o.rows ?? 0])
-      const client = fakeClient()
+      const client = fakeClient(over.ackSize)
       clients.push(client)
       return client as unknown as Awaited<
         ReturnType<NonNullable<Parameters<typeof createOpencodeClientTerminals>[0]['spawn']>>
@@ -154,6 +177,10 @@ function harness(over: { reportGeometry?: boolean } = {}): Harness {
       reconcileNativeClientTerminal(ctx, SESSION)
       // The reconcile is fire-and-forget; drain what its awaits are parked on.
       await ctx.nativeClientTransitions?.get(SESSION)
+      await new Promise((r) => setTimeout(r, 0))
+    },
+    drain: async () => {
+      await new Promise((r) => setTimeout(r, 0))
       await new Promise((r) => setTimeout(r, 0))
     },
   }
@@ -234,6 +261,54 @@ describe('a later ask, once the client terminal exists', () => {
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual({ cols: 96, rows: 27 })
     expect(reports(h.sent)).toEqual([ASKED, { cols: 96, rows: 27 }])
     // Nothing is held: it was applied, so it is not a pending request.
+    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+})
+
+/**
+ * AUDIT ITEM 4 (POD-3914): the applied-size record for a client terminal holds
+ * the ACKNOWLEDGED size, not the requested one.
+ *
+ * The host acknowledges every resize with what the kernel now reports, which is
+ * not always what was asked for (a clamp, a race with another writer). Both
+ * dispatch sites used to write the REQUESTED values: the record, and the report
+ * built from it, stated a size the terminal was never at.
+ */
+describe('audit item 4: the record holds the acknowledged size', () => {
+  /** What the viewer asked for, and what the kernel reported instead. */
+  const ACKED = { cols: 200, rows: 50 } as const
+
+  it('a held request dispatched at attach records what the host acknowledged', async () => {
+    // Born at the default, so the held request is still outstanding when the
+    // reconcile runs and takes the dispatch arm.
+    const h = harness({ defaultBirth: true, ackSize: ACKED })
+
+    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
+    await h.openNative()
+    await h.drain()
+
+    // The terminal was born at the default and the request went down to it…
+    expect(h.born).toEqual([[120, 40]])
+    expect(h.clients[0]?.sizes).toEqual([[ASKED.cols, ASKED.rows]])
+    // …but the record holds what the host acknowledged, and the server was
+    // told that size — never the requested one.
+    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
+    expect(reports(h.sent)).toEqual([{ cols: 120, rows: 40 }, ACKED])
+    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+
+  it('a later ask records what the host acknowledged', async () => {
+    const h = harness({ ackSize: ACKED })
+    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
+    await h.openNative()
+    await h.drain()
+
+    sessionHandlers.resize(h.ctx, { type: 'resize', sessionId: SESSION, cols: 96, rows: 27 })
+    await h.drain()
+
+    expect(h.clients[0]?.sizes).toEqual([[96, 27]])
+    expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
+    expect(reports(h.sent)).toEqual([ASKED, ACKED])
     expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
   })
 })
