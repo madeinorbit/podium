@@ -46,7 +46,10 @@ describe.each(['live', 'request'] as const)('MemoryVisibilityPolicy (%s)', (mode
   afterEach(async () => { await registry?.dispose() })
 
   const grant = async (resourceKind: string, resourceId: string, verb: 'read' | 'write' | 'manage' | 'use', grantee = bob) => {
-    await store.grants.upsert({ resourceKind, resourceId, verb, grantee, owner: alice, visibility: 'personal', createdAt: at, actorKind: 'user', actorId: alice, onBehalfOf: alice })
+    const owner = resourceKind === 'issue'
+      ? (await store.issues.getIssue(resourceId))?.ownerUserId ?? alice
+      : (await store.sessions.getSession(asSessionId(resourceId)))?.ownerUserId ?? alice
+    await store.grants.upsert({ resourceKind, resourceId, verb, grantee, owner, visibility: 'personal', createdAt: at, actorKind: 'user', actorId: owner, onBehalfOf: owner })
     // Grants are request-local facts. A subsequent read request must see the
     // new edges, including the batchIssueOwners path.
     policy = new MemoryVisibilityPolicy(store)
