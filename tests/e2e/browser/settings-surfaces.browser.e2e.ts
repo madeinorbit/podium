@@ -17,12 +17,12 @@
  * TWO PRINCIPALS, AND HOW THE SECOND ONE IS PRODUCED
  * ---------------------------------------------------------------------------
  *
- * `PODIUM_E2E_ACCOUNT_ROLE=member` demotes the harness's one account through the
- * single method the gate consults (see `serve-harness.ts` for the full reasoning
- * and its limits). Everything else is the product. A member cannot LOG IN on
- * this build — `CLIENT_PRINCIPAL_GRADE` is still `device` — so what a green
- * member run shows is that the screens behave correctly when the server answers
- * as it does for a member, which is the half this issue owns.
+ * PODIUM_E2E_ACCOUNT_ROLE=member overrides users.roleOf in the harness; it
+ * does not log in a second account. Per-account login exists (POD-1554), and
+ * client principals are user-grade. This suite covers the screens under a
+ * forced role response, not member credential verification or isolation between
+ * independently authenticated accounts. Those remain coverage gaps here; the
+ * harness override is not a limitation of the product's authentication.
  *
  * The admin project runs by default; the member project needs the env var, so
  * `bun run e2e:settings-member` is a separate invocation and both are recorded

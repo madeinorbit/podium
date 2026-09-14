@@ -970,10 +970,9 @@ export const grants = sqliteTable(
 // USER (ADR 9 D1.3). `user_id` is what makes "which device" and "who" two
 // answers instead of one.
 //
-// It does NOT yet make the transport able to tell two people apart: there is
-// still one shared password, so every row an upgraded instance has names the
-// first admin, and `CLIENT_PRINCIPAL_GRADE` stays `'device'`. Per-user login is
-// Phase 3 (POD-315).
+// Password login verifies per-account credentials (POD-1554) and records the
+// authenticated user here. CLIENT_PRINCIPAL_GRADE is 'user'; the session's
+// device binding does not reduce the grade of the authenticated principal.
 //
 // `label` records WHY a row exists (POD-1376): 'login' = a browser sign-in,
 // 'upstream' = a node⇄hub provisioning token, 'break-glass' = a session minted

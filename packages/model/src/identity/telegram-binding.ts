@@ -33,21 +33,14 @@
  * a parameter a caller can thread a chat-supplied value into.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS DOES NOT MAKE TRUE, STATED SO NOBODY READS IT AS DONE
+ * THE MINT MUST NAME THE AUTHENTICATED USER
  * ---------------------------------------------------------------------------
  *
- * The MECHANISM is trustworthy; the BINDING it produces today is only as
- * trustworthy as the transport that minted the code, and that transport is one
- * shared password (`packages/runtime/src/auth-store.ts`,
- * `CLIENT_PRINCIPAL_GRADE === 'device'`). So on today's builds every mint stamps
- * the same first admin, and the honest statement is "this instance has one
- * human, and their chat is bound to them" — not "chats are bound per person".
- * The server-side mint site calls `deviceGradeSoleOwner()` for exactly that
- * reason and `bun run audit:machine-grants` counts it; when per-user login lands
- * (POD-315) that module is deleted and the call site becomes a compile error.
- *
- * Nothing here needs to change when it does. The user is a parameter of the mint
- * on this side of the seam already.
+ * Per-account login exists (POD-1554), and client principals are user-grade.
+ * This model accepts the user as a mint parameter; it does not authenticate
+ * that parameter. A serving adapter must supply the authenticated caller's user,
+ * never a chat-supplied identity or a first-admin fallback. The redemption seam
+ * preserves the user stamped at mint time; it cannot repair incorrect attribution.
  */
 
 import { z } from 'zod'

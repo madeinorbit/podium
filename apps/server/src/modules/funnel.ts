@@ -115,13 +115,14 @@ export class WriteFunnel {
     // Enqueueing before the emit makes arrival order equal append order no
     // matter what a listener does.
     //
-    // THE PRINCIPAL, AND WHICH HALF OF SCOPING THIS SITE HAS (POD-1077). The
-    // Authority's feed is per-principal (ADR 2 Am1 D12), and this subscription
-    // names `DEVICE_GRADE_PRINCIPAL` because that is what this transport can
-    // honestly authenticate: `auth-store.ts` is one shared password and
-    // `gateway/client-principal.ts` still asserts `CLIENT_PRINCIPAL_GRADE ===
-    // 'device'`, so two connections presenting it are indistinguishable AS
-    // PERSONS. Per-connection principals arrive with per-user login.
+    // This is the legacy funnel's synthetic subscription, not the identity of
+    // a logged-in person. Authentication is user-grade (POD-1554). Production
+    // injects GrantEdgeVisibilityPolicy into the shared Authority; FeedServing
+    // separately subscribes each retained principal in retainPrincipal().
+    // The feed adapter explicitly admits this synthetic user in mayRead; this
+    // subscription remains a compatibility bypass, not a scoped user feed.
+    // Removing this compatibility subscription requires accounting for its bus
+    // and publication consumers, not waiting for per-user login.
     deps.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
       // BOTH ARMS ARE NOW EXPRESSIBLE, which is what the cutover bought.
       // POD-1077 had to THROW here on a `rescope`, because the pre-cutover wire

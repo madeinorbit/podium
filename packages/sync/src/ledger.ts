@@ -225,22 +225,12 @@ export class Ledger {
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
       ...(deps.applyCommit === undefined ? {} : { applyCommit: deps.applyCommit }),
-      // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
-      //
-      // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
-      // edges as model types, so a principal is finally EXPRESSIBLE. It did not
-      // land per-user login: `packages/runtime/src/auth-store.ts` is still one
-      // shared password and `apps/server/src/gateway/client-principal.ts` still
-      // asserts `CLIENT_PRINCIPAL_GRADE === 'device'`. Two connections presenting
-      // that password are indistinguishable AS PERSONS.
-      //
-      // A filter is only as correct as the authenticator naming the principal it
-      // filters for, so this composition root — the pre-cutover oplog facade —
-      // names the ONE policy that matches its transport, by an exported name that
-      // says what it is. `bun run audit:scoped-feed` holds the site list at
-      // exactly this one, so a second `DeviceGradeUnscopedPolicy` cannot appear
-      // quietly; when per-user login lands, deleting that export is what forces
-      // every site to name a real policy.
+      // Legacy compatibility defaults. Production relay.ts supplies the real
+      // GrantEdgeVisibilityPolicy and anchors; per-account login already exists.
+      // This fallback remains permissive for callers that omit those ports.
+      // audit:scoped-feed limits its constructor sites, not the callers of this
+      // optional constructor. Removing it requires migrating those callers and
+      // the legacy synthetic listener/catch-up paths together.
       visibility: deps.visibility ?? new DeviceGradeUnscopedPolicy(),
       anchors: deps.anchors ?? new DeviceGradeNoAnchors(),
     })

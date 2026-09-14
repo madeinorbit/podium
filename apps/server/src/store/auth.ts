@@ -13,13 +13,8 @@
  * THE AUTHENTICATOR. Password login verifies the RESOLVED MEMBER'S credential
  * before issuing a session, so "which device" and "who" are two answers in
  * storage AND two answers at the door, rather than one answer wearing both hats.
- * `CLIENT_PRINCIPAL_GRADE` stays `'device'`: what a session row records is still
- * a device that resolves to a user.
- *
- * (This paragraph previously said the login could not tell two people apart and
- * that every session belonged to the first admin. Corrected under the PDM-139
- * phase B review disposition, established by reading auth-route.ts rather than
- * the migration list.)
+ * `CLIENT_PRINCIPAL_GRADE` is 'user': the device binding and authenticated
+ * account are distinct parts of the principal.
  *
  * `createClientSession` takes the user as a REQUIRED parameter rather than
  * defaulting it here. A default would be the one place a future per-user login

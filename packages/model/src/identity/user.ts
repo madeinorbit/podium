@@ -54,12 +54,11 @@
  * WHAT IS DELIBERATELY NOT HERE
  * ---------------------------------------------------------------------------
  *
- * - **Login, sessions and enforcement.** Per-user authentication — replacing the
- *   one shared password with per-account credentials, and making the client
- *   principal name a person rather than a device — is Phase 3 (POD-315). This
- *   issue is the model and the schema; see `apps/server/src/gateway/
- *   client-principal.ts`, which still asserts `CLIENT_PRINCIPAL_GRADE = 'device'`
- *   because the transport still cannot tell two holders of one password apart.
+ * - **Login, sessions and enforcement.** These live outside this model.
+ *   POD-1554 supplies per-account credentials; password login binds sessions to
+ *   the resolved account, and gateway/client-principal.ts declares the principal
+ *   grade as 'user'. Model fields alone are not evidence of enforcement at any
+ *   particular serving boundary.
  * - **Invite / disable / remove COMMANDS.** The lifecycle FIELDS are here
  *   ({@link UserLifecycle}); the commands that move them are Phase 3's (POD-290).
  * - **Groups.** ADR 9 D2's rejected-alternatives table defers a group grantee as

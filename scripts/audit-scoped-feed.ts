@@ -58,20 +58,14 @@ const lineOf = (source: string, index: number): number => source.slice(0, index)
 // ---------------------------------------------------------------------------
 
 /**
- * `DeviceGradeUnscopedPolicy` says "everyone may see everything", which is the
- * honest answer for a transport that cannot tell two people apart
- * (`CLIENT_PRINCIPAL_GRADE === 'device'`). It is also, obviously, a hole if it
- * spreads: one `new DeviceGradeUnscopedPolicy()` at a new composition root turns
- * a scoped feed back into an unscoped one with no test failing, because every
- * scoped test constructs its own policy.
- *
- * So the site list is a RATCHET, not a rule of thumb. The allowlist is the file
- * that owns the pre-cutover oplog facade, and its own module.
+ * DeviceGradeUnscopedPolicy remains a permissive Ledger compatibility fallback.
+ * Authentication is user-grade and production relay.ts supplies the scoped
+ * policy. This ratchet limits constructor sites; it does not prove that every
+ * Ledger caller supplies a policy or that a served read uses a real principal.
+ * Remove the allowlist with the compatibility exports after migrating callers.
  */
 const UNSCOPED_POLICY_ALLOWLIST: ReadonlySet<string> = new Set([
-  // The definition itself, and the one composition root whose transport has a
-  // single principal. When per-user login lands, this list goes to zero and the
-  // export is deleted.
+  // The definition and legacy facade default, not an authentication boundary.
   'packages/sync/src/feed/visibility.ts',
   'packages/sync/src/ledger.ts',
 ])

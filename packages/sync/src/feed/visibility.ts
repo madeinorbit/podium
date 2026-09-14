@@ -471,54 +471,41 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
 }
 
 /**
- * THE ONE PRINCIPAL A DEVICE-GRADE AUTHENTICATOR CAN PRODUCE, and the policy that
- * goes with it — named, exported and greppable rather than implicit.
+ * Legacy synthetic principal retained for Ledger and WriteFunnel compatibility.
  *
- * ---------------------------------------------------------------------------
- * WHY A PERMISSIVE POLICY EXISTS AT ALL, WHICH IS THE HONEST HALF OF POD-1077
- * ---------------------------------------------------------------------------
+ * Human authentication is user-grade: POD-1554 added per-account credentials.
+ * This value is NOT an authenticated user and must not stand in for one.
+ * Production relay.ts injects GrantEdgeVisibilityPolicy and real anchor ports;
+ * FeedServing retains separate Authority subscriptions for connected principals.
+ * The server feed visibility adapter explicitly admits this synthetic user in
+ * mayRead; injecting the scoped policy does not scope this legacy identity.
  *
- * POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grants as
- * MODEL TYPES, so a principal is finally expressible. It did NOT land per-user
- * login: `packages/runtime/src/auth-store.ts` is still one shared password, and
- * `apps/server/src/gateway/client-principal.ts` still asserts
- * `CLIENT_PRINCIPAL_GRADE === 'device'`. Two connections presenting that password
- * are indistinguishable AS PERSONS.
- *
- * A filter is only as correct as the authenticator naming the principal it
- * filters for. Wiring the grant-edge policy onto a device-grade transport would
- * produce a system that LOOKS scoped and whose slices are decided by a credential
- * everyone shares — the worst of the two states, because it reads as privacy.
- *
- * So the mechanism ships filtering-and-watermarking together and complete, and
- * the one shipped composition root that has no person to filter for declares
- * THIS policy by name. `bun run audit:scoped-feed` holds the site list at exactly
- * the declared allowlist, so a second site cannot appear quietly; when per-user
- * login lands, deleting this export is what forces every site to name a real one.
+ * Keep these exports while the legacy facade's default policy, catch-up reads,
+ * synthetic listeners and their fixtures still depend on them. Deleting them
+ * requires migrating those callers and the audit allowlist together. Per-user
+ * login has already landed and is not a reason to defer that migration.
+ * The unscoped policy below is a compatibility fallback, not the production
+ * authentication model or a privacy guarantee. audit:scoped-feed limits its
+ * constructor sites; that structural check does not prove transport isolation.
  */
 export const DEVICE_GRADE_PRINCIPAL: Principal = {
   kind: 'user',
   user: asUserId('device:shared-instance-password'),
-  // `device` names the BINDING, not an identity (ADR 3 Am1 D14.1). There is one
-  // binding here by construction: that is what device-grade MEANS.
+  // A fixed legacy binding, not the device of a logged-in account.
   device: asDeviceId('device:shared-instance'),
-  // Opaque and never inspected — the ports carry it, nothing reads a scope out
-  // of it. Named rather than blank so it is greppable when login lands.
+  // Opaque legacy capability carrier; its spelling confers no rights.
   capability: asCapabilityRef('cap:device-grade'),
 }
 
 /**
- * "Everyone" — for a transport that cannot tell two people apart.
- *
- * Not a `FeedVisibilityPolicy` written to look ordinary: the class name says what
- * it is, the reason it reports is `substrate` (there is exactly one principal, so
- * the whole instance IS its tenant view), and it is refused everywhere except the
- * audited allowlist.
+ * Permissive compatibility policy: every row is visible to every supplied
+ * principal. It does not enforce per-account isolation. Production supplies
+ * GrantEdgeVisibilityPolicy; the constructor allowlist guards only spread of
+ * this fallback, not whether a served path actually uses the scoped policy.
  */
 export class DeviceGradeUnscopedPolicy implements FeedVisibilityPolicy {
-  /** One principal, so nothing is ever revoked from anybody: a wire with no way
-   *  to say `evict` is COMPLETE against this policy, and POD-376's gate lets a
-   *  legacy peer in. The day this export is deleted, that stops being true. */
+  /** This policy never revokes visibility, so it does not require evict frames.
+   *  That wire capability says nothing about user isolation. */
   readonly grade = 'device-unscoped' as const
 
   decide(): VisibilityDecision {
@@ -527,9 +514,8 @@ export class DeviceGradeUnscopedPolicy implements FeedVisibilityPolicy {
 }
 
 /**
- * The anchor port that goes with it: with one principal there is no share to
- * grant, so no durable row moves anyone's visibility and no anchored row is ever
- * derived.
+ * Legacy no-anchor port: it deliberately reports no visibility edges. It does
+ * not model the grants of authenticated users; production injects real anchors.
  *
  * Stated as a port implementation rather than as an optional dependency, because
  * "absent" and "declares that nothing is grantable here" are different claims and

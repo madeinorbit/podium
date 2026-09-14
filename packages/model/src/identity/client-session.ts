@@ -20,22 +20,14 @@
  * separable in storage.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS DOES NOT MAKE TRUE YET, STATED SO NOBODY READS IT AS DONE
+ * AUTHENTICATION NOW NAMES THE USER
  * ---------------------------------------------------------------------------
  *
- * A column that can name a person is not an authenticator that CAN name one.
- * There is still ONE shared password (`packages/runtime/src/auth-store.ts`), so
- * two connections presenting it are still indistinguishable AS PERSONS — the
- * `user` on every row an upgraded instance has is the first admin, because that
- * is the only true answer available. `apps/server/src/gateway/
- * client-principal.ts` therefore still asserts `CLIENT_PRINCIPAL_GRADE =
- * 'device'`, and it is correct to: promoting it before per-user credentials
- * exist would be a well-typed lie, and the assertion exists precisely so the
- * promotion is a visible edit rather than a silent one.
- *
- * Per-account credentials, per-user login, and the guarded reconnect-reclaim
- * POD-390 could not build under a device-grade principal are Phase 3 (POD-315).
- * This issue supplies the model and schema half that makes them expressible.
+ * POD-1554 added per-account credentials in user_credentials.password_hash.
+ * Password login verifies the resolved account and persists its userId in the
+ * client session. gateway/client-principal.ts declares CLIENT_PRINCIPAL_GRADE
+ * as 'user'. A session still represents a device binding; that does not make
+ * its authenticated principal device-grade.
  *
  * ---------------------------------------------------------------------------
  * THE TOKEN IS ABSENT, AND THAT IS THE SECRET RULE

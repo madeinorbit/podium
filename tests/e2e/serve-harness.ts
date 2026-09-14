@@ -318,24 +318,16 @@ if (!REAL_AGENTS) {
 /**
  * PODIUM_E2E_ACCOUNT_ROLE — drive the settings screens as a NON-ADMIN (POD-421).
  *
- * POD-421's acceptance criteria require runtime verification of the settings
- * screens "for both an admin and a non-admin principal". On this build a second
- * human cannot be authenticated at all: `CLIENT_PRINCIPAL_GRADE` is still
- * `device`, so `resolvePrincipal` returns `firstAdminMemberId()` for every
- * transport call and per-user login is POD-315's work.
+ * This flag overrides users.roleOf for every lookup. It exercises the settings
+ * screens with forced role responses through the real router and gate, but does
+ * not create or authenticate a second account.
  *
- * The alternative to a lever here would be to verify only the admin path and
- * assert the member path from unit tests — and an unverified refusing arm is
- * exactly how POD-391's CSWSH guard survived deletion with twenty green tests.
- * So the harness demotes the one account, through the ONE method the gate
- * consults for the account grade, and everything else stays the product: the
- * real router, the real derived procedures, the real gate, the real browser.
- *
- * It is a HARNESS flag and not a product one — nothing in `apps/server` reads
- * it, and it is opt-in and absent by default, so no ordinary run can be
- * silently demoted. Stated plainly so a green member run is not over-read: it
- * shows the SCREENS behave correctly when the server answers as it does for a
- * member. It does not show that a member can log in, because none can yet.
+ * Per-account credentials landed in POD-1554; CLIENT_PRINCIPAL_GRADE is 'user'.
+ * A real member can log in. Retaining this override leaves a coverage gap:
+ * these runs do not establish member login or isolation between two accounts.
+ * Replacing it requires seeding separate credentials and exercising the actual
+ * login flow, rather than treating a forced role as a second principal.
+ * The flag is harness-only, opt-in, and absent from ordinary server runs.
  */
 const E2E_ACCOUNT_ROLE = process.env.PODIUM_E2E_ACCOUNT_ROLE
 if (E2E_ACCOUNT_ROLE === 'member' || E2E_ACCOUNT_ROLE === 'none') {
