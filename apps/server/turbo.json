@@ -667,6 +667,7 @@
         "src/modules/sessions/session.ts",
         "src/modules/sessions/terminal-geometry-watchdog.test.ts",
         "src/modules/sessions/terminal-proof.ts",
+        "src/modules/sessions/terminal-reopen.test.ts",
         "src/modules/sessions/terminal.ts",
         "src/modules/sessions/turn-preview-flag.ts",
         "src/modules/sessions/turn-preview.ts",
