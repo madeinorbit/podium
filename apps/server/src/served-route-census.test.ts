@@ -56,6 +56,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WEBSOCKET_UPGRADE_PATHS } from './gateway/ws-server'
 import { noJanitorWorkerForTests } from './janitor-host'
+import type { SessionListCaller } from './modules/sessions/view'
+import {
+  buildSuperagentTools,
+  type SuperagentToolDeps,
+} from './modules/superagent/tools'
 import type { PodiumPlugin } from './plugins'
 import {
   RAW_ROUTE_POLICIES,
@@ -283,10 +288,15 @@ describe('every raw route this server serves is classified', () => {
   it('counts the routes that reach rows about people, and scopes all five', () => {
     const reads = RAW_ROUTE_POLICIES.filter((policy) => policy.kind === 'reads-stored-rows')
     // The interesting partition, stated as a number so it cannot drift
-    // unnoticed: FIVE raw routes reach rows this instance stores about people,
-    // and at this pin every one of them scopes the reader. A sixth arriving is a
-    // door that has to be argued for, and it reddens here before anyone has to
-    // notice it in a diff.
+    // unnoticed: FIVE raw routes of kind `reads-stored-rows` reach rows this
+    // instance stores about people, and at this pin every one of them scopes
+    // the reader. A sixth arriving is a door that has to be argued for, and it
+    // reddens here before anyone has to notice it in a diff.
+    //
+    // FIVE is this kind, not "every door that can return a stored row".
+    // POST /mcp is kind `bridge` and the belt's own tools do read stored rows;
+    // that population is classified on that row (see the MCP-door describe
+    // below), not absorbed into this count.
     expect(reads.map(routeKey).sort()).toEqual([
       'GET /auth/client-sessions',
       'GET /auth/members/list',
@@ -423,5 +433,73 @@ describe('the transports this census does not cover', () => {
     expect(pluginRoutes.map((route) => route.path)).not.toContain(PROBE_INTERCEPTED_PATH)
     expect(UNCENSUSED_TRANSPORTS.map((entry) => entry.name)).toEqual(['PodiumPlugin.onRequest'])
     for (const entry of UNCENSUSED_TRANSPORTS) expect(entry.why.length).toBeGreaterThan(80)
+  })
+})
+
+/**
+ * Own-tool names as the MCP path actually builds them: `issueBelt` off, so
+ * this set is the population `modules/issues/registry.ts` does not reach.
+ * Search stays on so `search_conversations` is in the set rather than being
+ * dropped by the index gate — the census has to classify the tool whether or
+ * not a given boot offers it.
+ */
+const ownBeltToolNames = async (): Promise<string[]> =>
+  (
+    await buildSuperagentTools(
+      {
+        modules: {} as SuperagentToolDeps['modules'],
+        repos: { list: async () => [] },
+        store: { searchIndexEnabled: true } as SuperagentToolDeps['store'],
+        waitPollMs: 1,
+      },
+      '',
+    )
+  ).map((tool) => tool.spec.name)
+
+describe('the MCP door covers both populations behind it', () => {
+  it('the belt has own tools that are not issue-registry commands', async () => {
+    // Derived from the builder, not retyped. A hand list here compared to
+    // the census would be two copies of the same assumption (catalogue shape 7).
+    const own = await ownBeltToolNames()
+    expect(own.length).toBeGreaterThan(15)
+    expect(own).toContain('list_sessions')
+    expect(own).toContain('search_conversations')
+    expect(own).toContain('read_session_transcript')
+    expect(own).toContain('recap_session')
+    expect(own.some((name) => name.startsWith('issue_'))).toBe(false)
+  })
+
+  it('the POST /mcp rationale names those own tools and what classifies them', async () => {
+    // Production change that would make this fail: restore the sentence that
+    // classified the whole door by `modules/issues/registry.ts` and said the
+    // belt "serves no projection of its own". That sentence is true of the
+    // bridged issue_* half and false of list_sessions.
+    const own = await ownBeltToolNames()
+    const policy = RAW_ROUTE_POLICIES.find((row) => routeKey(row) === 'POST /mcp')
+    expect(policy).toBeDefined()
+    expect(policy!.kind).toBe('bridge')
+    const rationale = policy!.rationale
+
+    // Bridged half — still true, still named.
+    expect(rationale).toMatch(/modules\/issues\/registry\.ts/)
+    expect(rationale).toMatch(/classification-totality\.test\.ts/)
+
+    // Own half — the hole this issue exists to close.
+    expect(rationale).toMatch(/modules\/superagent\/tools\.ts/)
+    expect(rationale).toContain('list_sessions')
+    expect(own.includes('list_sessions')).toBe(true)
+
+    // `listAllTool` is a SessionListCaller (perf), not a scope. Pin the type
+    // so a new meaning of the label is a type error here, not a silent
+    // rationale. Catalogue shape 19: pin the property next to the assertion.
+    const callers: SessionListCaller[] = ['bootstrap', 'rpc', 'listAllTool']
+    expect(callers).toContain('listAllTool')
+    expect(rationale).toMatch(/listAllTool/)
+    expect(rationale).toMatch(/SessionListCaller/)
+    expect(rationale).toMatch(/INTERNAL_PROJECTION_READ/)
+    expect(rationale).toMatch(/memoryReader/)
+
+    // The sentence that classified the whole door by the issue registry.
+    expect(rationale).not.toMatch(/serves no projection of its own/)
   })
 })

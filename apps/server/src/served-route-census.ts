@@ -492,7 +492,7 @@ export const RAW_ROUTE_POLICIES: readonly RawRoutePolicy[] = [
     guard:
       'a per-process UUID in `x-podium-mcp-token` (or bearer), plus an opaque per-thread token',
     rationale:
-      "Dispatches into the superagent's tool belt, which bridges the ISSUE COMMAND REGISTRY — the same definitions, carrying the same `authz`, that the `issues` tRPC family is excluded from the projection census for. It serves no projection of its own; classified by `modules/issues/registry.ts`, whose totality `classification-totality.test.ts` keeps.",
+      "Dispatches into the superagent's tool belt. Its issue_* tools bridge the ISSUE COMMAND REGISTRY — the same definitions, carrying the same `authz`, that the `issues` tRPC family is excluded from the projection census for — and that registry's totality is kept by `modules/issues/registry.ts` and `classification-totality.test.ts`. The hand-written belt is built in `modules/superagent/tools.ts`: `list_sessions` reads stored session rows through `listAllTool`, a `SessionListCaller` classified by `INTERNAL_PROJECTION_READ`, while transcript and search reads carry the thread-scoped `memoryReader`; this row covers both populations behind the door.",
   },
   {
     method: 'GET',
