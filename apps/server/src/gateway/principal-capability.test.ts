@@ -106,7 +106,7 @@ describe('capabilityFromPrincipal', () => {
 
   it("carries no scope from the principal: the scope is the policy layer's input", () => {
     // There is no parameter through which a frame-supplied scope could arrive, and
-    // the principal itself has none to copy (ADR 3 Am.1 D16.1).
+    // the principal itself has none to copy (ADR 3 Amendment 1 D16, item 1).
     expect(Object.keys(agentPrincipal)).not.toContain('scope')
     const narrow = capabilityFromPrincipal(agentPrincipal, {
       role: 'worker',

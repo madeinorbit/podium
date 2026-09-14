@@ -97,7 +97,7 @@ export interface UserCommandPrincipal {
  * `onBehalfOf` is resolved from the delegation record — never from payload,
  * where identity is inert (D7.1, strengthened by D14.3). `chain` is the
  * agent-session ancestry from this agent up to the root agent, nearest first; it
- * exists so the intersection of D16.2 is evaluated over the WHOLE chain rather
+ * exists so the intersection of ADR 3 Amendment 1 D16, items 1–2 is evaluated over the WHOLE chain rather
  * than over the leaf alone.
  */
 export interface AgentCommandPrincipal {
@@ -355,7 +355,7 @@ export interface AsyncDelegationIndex {
  * SCOPE (`scope.userId`). It stopped being invisible when sessions became
  * `private` targets: `authorize`'s private arm reads `cap.onBehalfOf`, so an
  * agent whose human came from the delegation index would have been refused its
- * own delegator's session — D16.2's "exactly ONE human, at the ROOT of the
+ * own delegator's session — ADR 3 Amendment 1 D16, item 2's "exactly ONE human, at the ROOT of the
  * chain" decided against a stale or absent copy of that fact.
  *
  * Reconciled HERE because this is where the root human is established, and
@@ -423,7 +423,7 @@ export function resolvePrincipal(
     chain.push(cursor)
     cursor = delegations.parentSessionOf(cursor)
   }
-  // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
+  // ADR 3 Amendment 1 D16, item 2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
   const root: SessionId = chain[chain.length - 1] ?? actorSessionId
   const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? capability.onBehalfOf

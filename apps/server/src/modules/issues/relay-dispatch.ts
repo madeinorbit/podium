@@ -84,7 +84,7 @@ export interface AgentRelayDispatchDeps {
   /** WHO IS CALLING, resolved the one sanctioned way (POD-3900). The relay's
    *  capability names an actor session; the private-session rule needs the
    *  HUMAN behind it, which is the owner of the ROOT of the delegation chain and
-   *  not the leaf's own `onBehalfOf` (ADR 3 D16.2 — reading it off the leaf lets
+   *  not the leaf's own `onBehalfOf` (ADR 3 Amendment 1 D16, item 2 — reading it off the leaf lets
    *  a sub-agent carry a delegator its parent does not have). The composition
    *  root already builds exactly this resolver for the workflow caller and the
    *  mail path; it is passed in rather than rebuilt so this arm cannot become a

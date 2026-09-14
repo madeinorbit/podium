@@ -1375,7 +1375,7 @@ describe('MachinesService parked frames and a machine that changes hands', () =>
     svc.toMachine(MACHINE, approvalExec)
 
     // T2 — the handover. `machine-access.ts` reads ownership LIVE precisely so
-    // that this takes effect "at the next decision" (D16.1).
+    // that this takes effect "at the next decision" (ADR 3 D8; ADR 9 D2 rule 4).
     await store.machines.setMachineOwner(MACHINE, asUserId('bob'))
 
     // T3 — the daemon attaches and the queue drains. This is the dispatch that

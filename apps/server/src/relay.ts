@@ -2509,7 +2509,7 @@ export class SessionRegistry {
        * `ownershipSnapshotFromMachines` is resolved HERE, per call, and not
        * hoisted: an approval may have waited days, and the point of this port is
        * that a machine handed over or a `use` grant revoked in the meantime takes
-       * effect at the next decision (D16.1). A snapshot taken at composition
+       * effect at the next decision (ADR 3 D8; ADR 9 D2 rule 4). A snapshot taken at composition
        * would freeze the fleet at boot, which is the defect with extra steps.
        *
        * The principal is minted from the RUN OWNER's account, so this asks

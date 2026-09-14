@@ -372,7 +372,7 @@ export class MachinesService {
    *
    * A FLUSH IS A DISPATCH, NOT A DECISION. `machine-access.ts` reads ownership
    * and grants live on every call so that "an owner change or a revoked share
-   * takes effect at the next decision" (D16.1) — but a parked frame replayed by
+   * takes effect at the next decision" (ADR 3 D8; ADR 9 D2 rule 4) — but a parked frame replayed by
    * {@link MachineService.flushQueued} re-enters no decision at all. B5
    * (PDM-137) closed the decision-time hole inside `ApprovalService.approve`;
    * this closes the dispatch-time one, for the queue rather than for approvals.
@@ -471,7 +471,7 @@ export class MachinesService {
     // THE OTHER HALF OF THE AUTHORITY EPOCH (PDM-401). A revoked `use` share
     // changes who may run on a machine without touching the machine row at all,
     // so the owner subscription above cannot see it. Grants deliberately bypass
-    // every cache (D16.1), and this subscribes to the same committed stream the
+    // every cache (ADR 9 D2 rule 4), and this subscribes to the same committed stream the
     // machines repository exposes rather than inventing a second notification.
     //
     // OPTIONAL because the socket-only fixtures in this module's tests supply a

@@ -248,7 +248,8 @@ export const machineUseAllowed = (machine: ResolvedMachine, subject: UserId | nu
  * ADR 3 Amendment 1 D14.2 requires it to be minted SERVER-SIDE.
  *
  * The agent variant takes ONLY the delegation reference: there is no parameter
- * through which a scope could be copied into the connection, which is D16.1
+ * through which a scope could be copied into the connection, which is ADR 3
+ * Amendment 1 D16, item 1
  * ("a capability frozen at spawn is never an input to an allow decision")
  * expressed as a type rather than as a comment.
  */

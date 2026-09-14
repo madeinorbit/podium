@@ -477,7 +477,7 @@ describe('apply-time re-authorization is a first-class rejection path (D8 / amen
     const [parked] = outbox.deadLetters()
     expect(parked?.reason).toEqual({ code: 'unauthorized' })
     expect(parked?.recovery.retry).toBe('rights-fix')
-    // Distinguishable from a conflict, which is the whole point of D16.4.
+    // Distinguishable from a conflict, which is the whole point of ADR 3 Amendment 1 D16, item 4.
     expect(parked?.reason.code).not.toBe('conflict')
     expect(types(events)).toContain('dead-lettered')
     // Zero automatic retries after the denial, and the work is still there.

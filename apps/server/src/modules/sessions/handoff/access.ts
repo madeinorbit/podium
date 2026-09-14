@@ -82,7 +82,7 @@ export const machineUseGateFor = (deps: {
  * The same gate from a transport capability — the shape the composition root
  * uses. `delegations` is POD-381's index: it walks `spawnedBy` from live rows, so
  * an agent's chain roots at exactly one human and a sub-agent cannot carry a
- * delegator its parent lacks (D16.2). Nothing is read from payload.
+ * delegator its parent lacks (ADR 3 Amendment 1 D16, item 2). Nothing is read from payload.
  */
 export const machineUseGateForCapability = (deps: {
   capability: Capability

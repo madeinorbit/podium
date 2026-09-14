@@ -102,7 +102,7 @@ export interface MachineOwnershipIndex {
    * when its delegation restricts them. `undefined` = no narrowing declared,
    * which is NOT the empty set — the empty set denies everything.
    *
-   * D16.2/D16.3: a sub-agent delegates from its parent and never widens, so
+   * ADR 3 Amendment 1 D16, item 2: a sub-agent delegates from its parent and never widens, so
    * every link's narrowing applies to the leaf.
    */
   delegatedMachines?(agentSessionId: SessionId): ReadonlySet<string> | undefined
@@ -167,7 +167,8 @@ const MACHINE_VERBS: readonly string[] = ['see', 'use', 'manage']
 /**
  * Ownership over the `machines` table and the `grants` edge table.
  *
- * Both reads are LIVE on every call. That is the D16.1 obligation stated as
+ * Both reads are LIVE on every call. That is the live-grant obligation in ADR 9
+ * D2 rule 4, stated as
  * code: an owner change or a revoked share takes effect at the next decision,
  * and there is no reaper to write and therefore none to forget. The machine
  * ROWS come through `MachinesService`, which caches them and invalidates on
@@ -274,7 +275,7 @@ const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<Mac
 
 /**
  * The verbs a principal currently holds on one machine — resolved live over the
- * delegation chain (D16.2).
+ * delegation chain (ADR 3 Amendment 1 D16, items 1–2).
  *
  * A system principal holds `see` and `use`. It is constructed in-process only
  * and is unreachable from every transport (D21.2), so it is not an escalation

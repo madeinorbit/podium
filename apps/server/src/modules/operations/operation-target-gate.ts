@@ -28,7 +28,7 @@
  *
  *   - `authorizingActor` — resolved from the CAPABILITY through `roleFloorDeps`,
  *     which walks live `spawnedBy` rows so a sub-agent's chain roots at exactly
- *     one human (D16.2). This is what the machine-verb decision reads, and it is
+ *     one human (ADR 3 Amendment 1 D16, item 2). This is what the machine-verb decision reads, and it is
  *     what `assertActionAuthorized` read before this file existed.
  *   - `dispatchActor` — the request context's own `ctx.principal`, FORWARDED
  *     into kind-specific `onAction` handlers (`kinds.ts`'s `onAction({operation,

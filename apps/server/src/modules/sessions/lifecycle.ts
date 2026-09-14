@@ -753,7 +753,7 @@ export class SessionLifecycle {
       principal: await resolvePrincipalAsync(caller.capability, {
         // POD-381's delegation index, read from live rows: an agent's chain is
         // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
-        // cannot carry a delegator its parent lacks (D16.2).
+        // cannot carry a delegator its parent lacks (ADR 3 Amendment 1 D16, item 2).
         // One parser for the `session:<id>` tag (POD-362): it brands what it
         // EXTRACTS while leaving the tag itself raw, which entities/session.ts
         // records as deliberate. This was the third hand-rolled copy of the slice.

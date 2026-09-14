@@ -10,9 +10,10 @@
  * transitively disable their agents with no reaper to write.
  *
  * The chain is resolved at handshake time only far enough to prove the reference
- * resolves to a live delegation with exactly one human at its root (D16.2) —
+ * resolves to a live delegation with exactly one human at its root (ADR 3
+ * Amendment 1 D16, item 2) —
  * enough to refuse a connection whose delegation is unresolvable, and not one
- * step further. Every apply re-resolves (ADR 3 D8/D16.1).
+ * step further. Every apply re-resolves (ADR 3 D8 / Amendment 1 D16, item 1).
  */
 
 import type { IssueId, SessionId } from '@podium/model'
@@ -27,7 +28,7 @@ export interface SpawnedForScope {
   readonly kind: 'spawned-for'
   readonly sessionId?: SessionId
   readonly issueId?: IssueId
-  /** The issue subtree the agent may reach; widening stays explicit (D16.3). */
+  /** The issue subtree the agent may reach; widening stays explicit (ADR 3 Amendment 1 D16, item 3). */
   readonly subtreeRootId?: string
 }
 
@@ -51,7 +52,7 @@ export const isBroadDelegation = (scope: DelegationScope): scope is HumanCeiling
 
 /**
  * One link of the chain. A sub-agent's `delegatedBy` is its PARENT AGENT; only
- * the root link names the human (D16.2).
+ * the root link names the human (ADR 3 Amendment 1 D16, item 2).
  */
 export interface DelegationLink {
   readonly ref: DelegationRef
@@ -61,7 +62,7 @@ export interface DelegationLink {
   readonly delegatedBy: DelegationRef | null
   /** Set ONLY on the root link: the one human the whole chain hangs from. */
   readonly rootUser: UserId | null
-  /** A revoked link collapses everything below it (D16.2). */
+  /** A revoked link collapses everything below it (ADR 3 Amendment 1 D16, item 2). */
   readonly revoked: boolean
 }
 
@@ -99,7 +100,7 @@ export type ChainFailure =
   | 'widening-delegation'
 
 /**
- * D16.3, as a predicate: "a sub-agent delegates from its parent agent, NEVER
+ * ADR 3 Amendment 1 D16, items 2–3, as a predicate: "a sub-agent delegates from its parent agent, NEVER
  * widening". Broadening from a task scope to the human ceiling is the sharp case
  * — that is how a task agent would silently acquire everything its human can
  * see — and a subtree that escapes its parent's subtree is the other.

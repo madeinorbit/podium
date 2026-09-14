@@ -727,7 +727,7 @@ export class Outbox {
 
   /** The Authority refused an envelope it had `accepted` — including the case the
    *  amendment cares most about: apply-time re-authorization denying a replay
-   *  whose delegator lost rights while the client was offline (D16.4). */
+   *  whose delegator lost rights while the client was offline (ADR 3 Amendment 1 D16, item 4). */
   async noteRejected(
     mutationId: MutationId,
     refusal: Parameters<typeof normalizeRefusal>[0],
@@ -841,7 +841,7 @@ export class Outbox {
    * precondition is satisfied. The precondition comes from the reason code
    * (`recoveryPlanFor`), and a mismatch is refused: an authorization denial
    * cannot be waved through with a rebase, which is precisely the distinction
-   * D16.4 requires the record to preserve.
+   * ADR 3 Amendment 1 D16, item 4 requires the record to preserve.
    */
   async retry(mutationId: MutationId, satisfaction: RetrySatisfaction): Promise<OutboxRecord> {
     const record = this.require(mutationId)

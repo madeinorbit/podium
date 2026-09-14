@@ -362,7 +362,7 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     const sub = resolvePrincipal(agentCapability(SUBAGENT_OF_OWNER), world.index)
     expect(sub.kind).toBe('agent')
     expect(onBehalfOfUser(sub)).toBe(OWNER)
-    // D16.2: exactly one human, at the root. Reading it off the leaf would let a
+    // ADR 3 Amendment 1 D16, item 2: exactly one human, at the root. Reading it off the leaf would let a
     // sub-agent carry a delegator its parent does not have — so the chain must
     // actually contain the parent.
     expect(sub.kind === 'agent' && sub.chain).toContain(AGENT_OF_OWNER)
@@ -415,10 +415,10 @@ describe('D16 — delegation resolves live over the whole chain', () => {
 })
 
 // ---------------------------------------------------------------------------
-// D8 / D16.4 — apply-time re-authorization, including the offline replay
+// D8 / ADR 3 Amendment 1 D16, item 4 — apply-time re-authorization, including the offline replay
 // ---------------------------------------------------------------------------
 
-describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offline do not apply on reconnect', () => {
+describe('D8 / ADR 3 Amendment 1 D16, item 4 — apply-time re-authorization: rights revoked while offline do not apply on reconnect', () => {
   /**
    * The central multi-user risk, and the case D8 was over-engineered for. The
    * test models the ACTUAL shape: the outbox entry carries no capability (POD-370
@@ -459,7 +459,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
   })
 
   it('re-authorization consults no stored allow bit — the capability carries no verdict', () => {
-    // D16.1's "no capability snapshot is ever an input to an allow decision",
+    // ADR 3 Amendment 1 D16, item 1's "no capability snapshot is ever an input to an allow decision",
     // asserted on the type that would have to carry one.
     const cap = agentCapability(AGENT_OF_OWNER)
     expect(Object.keys(cap).sort()).toEqual(['actorSessionId', 'onBehalfOf', 'role', 'scope'])

@@ -90,7 +90,7 @@ describe('agent relay strategy — delegated principal', () => {
     const outcome = authenticate(strategy, 'del-root')
     expect(outcome.ok).toBe(true)
     // The minter was handed the reference and nothing else — there is no
-    // parameter through which a scope could have been frozen (ADR 3 Am.1 D16.1).
+    // parameter through which a scope could have been frozen (ADR 3 Amendment 1 D16, item 1).
     expect(mint.minted).toEqual([{ kind: 'delegation', subject: 'del-root' }])
     // And the principal itself carries no scope to go stale.
     const principal = (outcome.ok ? outcome.principal : null) as Principal

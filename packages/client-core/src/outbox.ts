@@ -235,7 +235,7 @@ export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
   const code = data?.code
   const status = data?.httpStatus
   if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || status === 401 || status === 403) {
-    // D16.4 / property 15: rights denied, target invisible and target
+    // ADR 3 Amendment 1 D20.2/D20.3 / property 15: rights denied, target invisible and target
     // nonexistent are ONE code by the time anything durable or renderable sees
     // them. `normalizeRefusal` performs the merge; classifying `NOT_FOUND` into
     // the same arm here is what stops a 404-vs-403 split re-opening the

@@ -147,7 +147,7 @@ async function privateTarget(
 }
 
 /**
- * THE LIVE DELEGATION-CHAIN INTERSECTION (readiness §3.1.3 A1, ADR 3 D16.2).
+ * THE LIVE DELEGATION-CHAIN INTERSECTION (readiness §3.1.3 A1, ADR 3 Amendment 1 D16, item 1).
  *
  * An agent's effective rights are its own scope INTERSECTED with its delegating
  * human's CURRENT rights. Both halves are evaluated HERE, at apply time, against

@@ -61,7 +61,7 @@ export interface ApprovalServiceDeps {
    * request and the operator answering it, a machine's owner can change and a
    * `use` grant can be revoked; `machine-access.ts` reads both LIVE on every
    * call precisely so that "an owner change or a revoked share takes effect at
-   * the next decision" (D16.1). `approve` IS that next decision — it hands a
+   * the next decision" (ADR 3 D8; ADR 9 D2 rule 4). `approve` IS that next decision — it hands a
    * management operation to a daemon and that daemon runs it — and it was the
    * one execution door on this server that never asked.
    *

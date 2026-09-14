@@ -177,7 +177,7 @@ export function roleFloorFailure(
  *
  * The principal is resolved from the CAPABILITY, never from the input (ADR 3
  * D7), and `parentSessionOf` walks live `spawnedBy` rows so a sub-agent's
- * delegation chain roots at exactly one human (D16.2) — the identical
+ * delegation chain roots at exactly one human (ADR 3 Amendment 1 D16, item 2) — the identical
  * construction `fleetAuthzDeps` and `settingsAuthzDeps` use. A second answer to
  * "who is calling" is what D7 exists to prevent.
  *

@@ -13,7 +13,7 @@
  * inert because it must resolve to a durable record.
  *
  * What it may then address: its own scope INTERSECTED with its human's current
- * rights, resolved at EVERY apply (D16.1). Nothing is copied into the connection:
+ * rights, resolved at EVERY apply (ADR 3 Amendment 1 D16, item 1). Nothing is copied into the connection:
  * the principal carries the delegation REFERENCE, and `mint.forDelegation` takes
  * only that reference — there is no parameter through which a scope could be
  * frozen at handshake time.

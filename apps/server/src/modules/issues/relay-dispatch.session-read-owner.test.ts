@@ -240,7 +240,7 @@ describe('relay session reads are gated on the target owner', () => {
 
   it('lets a spawned session read ITSELF, whoever the task says owns it', async () => {
     // Not a redundant self-case. `principalForCapability` resolves the human at
-    // the ROOT of the delegation chain (D16.2), which for this child is Bob;
+    // the ROOT of the delegation chain (ADR 3 Amendment 1 D16, item 2), which for this child is Bob;
     // its own durable owner is Alice (see `CHILD`). So the two disagree, and
     // without the self arm a session could not read its own transcript.
     const dispatch = harness()

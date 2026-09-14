@@ -1,11 +1,11 @@
 import type { MutationId } from '@podium/model'
 /**
  * Rejection reason codes and the recovery affordances they license — ADR 3 D9
- * invariants 2 and 3, D10, and the amendment's D16.4 / property 15.
+ * invariants 2 and 3, D10, ADR 3 Amendment 1 D16, item 4 / D20.2–D20.3 / property 15.
  *
  * Two rules shape everything here:
  *
- * 1. **A rights denial must be distinguishable from a conflict** (D16.4): their
+ * 1. **A rights denial must be distinguishable from a conflict** (ADR 3 Amendment 1 D16, item 4): their
  *    recovery differs — a conflict can be rebased or edited and retried, an
  *    authorization denial can only be retried after a RIGHTS FIX. POD-316's
  *    reject-and-rebase UX consumes that distinction, and under multi-user it is
