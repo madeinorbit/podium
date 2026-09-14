@@ -37,10 +37,19 @@
  * `broadcastViewer()` and `issueOverlay` still reads that one map, so PDM-402
  * leaves this overlay single-viewer. It is the WRITE half.
  *
- * So this assertion would only become capable of failing under BOTH a
- * per-principal overlay AND a re-introduced per-viewer mint scope. Neither
- * exists, and no issue is named here as bringing them about — naming one is how
- * a comment ages into a promise nobody made.
+ * WHAT THE FIXTURE IS, AND ITS KNOWN LIMITATION, WITHOUT PREDICTING THE FUTURE.
+ * Ben's pin is written straight to the store; both creates are issued through one
+ * service that resolves one viewer. So the leg compares a minted key against
+ * stored pins the service can see, and Ben never asks for anything. The known
+ * limitation is exactly that: it does not exercise a second asking principal.
+ *
+ * An earlier version said the assertion "would only become capable of failing
+ * under BOTH a per-principal overlay AND a re-introduced per-viewer mint scope".
+ * THAT EXCLUSIVITY IS WITHDRAWN — neither this fixture nor the source reading
+ * behind it establishes the complete set of ways a future change could make this
+ * fail, and enumerating them was a prediction dressed as a bound. No issue is
+ * named as bringing any such state about either: naming one is how a comment ages
+ * into a promise nobody made.
  *
  * Ada is read out of the store rather than invented, for the reason
  * `issue-marks.viewer.test.ts` gives on PDM-402's branch: seeding a "first
