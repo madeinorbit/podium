@@ -98,7 +98,15 @@ import {
   SETTINGS_CONTRACTS,
   UNGOVERNED_PROJECTIONS,
 } from '@podium/commands'
-import { describe, expect, it } from 'vitest'
+import { asMachineId, asSessionId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
+import { describe, expect, it, vi } from 'vitest'
+import type { Capability } from './issue-authz'
+import { IssueCommandDispatcher } from './modules/issues/dispatcher'
+import type { IssueCommandDeps } from './modules/issues/command-ctx'
+import { makeAgentRelayDispatch, type AgentRelayDispatchDeps } from './modules/issues/relay-dispatch'
+import { AgentRelayGate } from './modules/issues/relay-gate'
+import { SpecsService } from './modules/specs/service'
 import { issueRegistry } from './modules/issues/registry'
 import { lockRegistry } from './modules/lock/registry'
 import { MAIL_COMMANDS } from './modules/messages/registry'
@@ -491,5 +499,84 @@ describe('the ungoverned list is a finding list, not a waiver', () => {
       (entry) => entry.severity === 'discloses-private-execution',
     ).map((entry) => entry.name)
     expect(disclosing).toEqual([])
+  })
+})
+
+
+// These are regression witnesses for the six instance-fact reads in PDM-363,
+// not a derivation of the entire relay surface. The real allowlist, dispatch
+// arm, specs membership/schema and repository dispatcher all execute. Only the
+// final data providers are substituted; a successful relay reply must carry
+// their value before its census tag is checked.
+const instanceRelayReads = [
+  ['features.state', {}],
+  ['quota.summary', {}],
+  ['specs.list', { repoPath: '/census-fixture' }],
+  ['specs.get', { repoPath: '/census-fixture', id: 'example' }],
+  ['specs.search', { repoPath: '/census-fixture', query: 'example' }],
+  ['repos.inferFromPath', { path: '/census-fixture' }],
+] as const
+
+function instanceReadRelay() {
+  const payload = { censusWitness: 'served by the data provider' }
+  const specs = new SpecsService({ repoRoots: () => [] })
+  // Keep has() and invoke() real: allowing specs.* alone is not service.
+  for (const method of ['list', 'get', 'search'] as const) {
+    vi.spyOn(specs, method).mockResolvedValue(payload as never)
+  }
+  const issueCommands = new IssueCommandDispatcher({
+    inferRepoFromPath: async () => '/census-fixture',
+  } as unknown as IssueCommandDeps)
+  const dispatch = makeAgentRelayDispatch({
+    featureStates: () => payload,
+    modules: () => ({ rpc: { agentQuotaAll: async () => payload } }),
+    specs,
+    issueCommands,
+  } as unknown as AgentRelayDispatchDeps)
+  const sent: ControlMessage[] = []
+  const gate = new AgentRelayGate({
+    dispatch,
+    capabilityForSession: () => ({}) as Capability,
+    toMachine: (_machine, message) => { sent.push(message) },
+  })
+  return {
+    payload,
+    async request(name: string, input: unknown) {
+      const [router, proc] = name.split('.') as [string, string]
+      await gate.run(asMachineId('census-machine'), {
+        type: 'agentRelayRequest', requestId: name,
+        sessionId: asSessionId('census-session'), router, proc, input,
+      })
+      expect(sent).toHaveLength(1)
+      return sent[0]
+    },
+  }
+}
+
+describe('instance read relay exposure regression', () => {
+  it.each(instanceRelayReads)('records both serving transports for %s', async (name, input) => {
+    const relay = instanceReadRelay()
+    expect(procedures[name]?._def?.type).toBe('query')
+    expect(await relay.request(name, input)).toMatchObject({
+      type: 'agentRelayResult', ok: true,
+      result: name === 'repos.inferFromPath' ? { repoPath: '/census-fixture' } : relay.payload,
+    })
+    expect(PROJECTION_POLICIES.find((policy) => policy.name === name)?.exposure)
+      .toEqual(['trpc', 'relay'])
+  })
+
+  it('does not mistake an allowlisted specs name for a serving arm', async () => {
+    const relay = instanceReadRelay()
+    expect(await relay.request('specs.censusMissingProcedure', {})).toMatchObject({
+      ok: false, error: 'no such procedure: specs.censusMissingProcedure',
+    })
+  })
+
+  it('does not count a tRPC-only quota read as relay-served', async () => {
+    const relay = instanceReadRelay()
+    expect(procedures['quota.history']?._def?.type).toBe('query')
+    expect(await relay.request('quota.history', {})).toMatchObject({
+      ok: false, error: 'quota.history is not permitted via relay',
+    })
   })
 })

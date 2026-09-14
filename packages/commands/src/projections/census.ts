@@ -470,7 +470,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'features.state',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'instance-wide',
     resource: 'global',
@@ -693,7 +693,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'repos.inferFromPath',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'none',
     resource: 'none',
@@ -779,7 +779,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'quota.summary',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'instance-wide',
     resource: 'global',
@@ -801,7 +801,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   // ---- specs ----------------------------------------------------------------
   p({
     name: 'specs.list',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'instance-wide',
     resource: 'repo',
@@ -811,7 +811,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'specs.get',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'instance-wide',
     resource: 'repo',
@@ -822,7 +822,7 @@ export const PROJECTION_POLICIES: readonly ProjectionPolicy[] = [
   }),
   p({
     name: 'specs.search',
-    exposure: TRPC,
+    exposure: TRPC_RELAY,
     roleFloor: 'member',
     rowScope: 'instance-wide',
     resource: 'repo',
