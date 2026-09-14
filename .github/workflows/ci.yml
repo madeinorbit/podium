@@ -71,6 +71,14 @@ jobs:
       - name: ambient-principal ratchet (multi-user)
         run: bun run audit:ambient-principals -- --require-base
 
+      # BLOCKING, its own step. These command-family audits read source text,
+      # run their planted --probe fixtures first, and need no database, server,
+      # or test install. The aggregate keeps the cheap family gates on every
+      # CI run; the two currently red family tasks document their manual-only
+      # status beside their package definitions until their findings are fixed.
+      - name: command-family source audits
+        run: bun run audit:families
+
       # BLOCKING, and deliberately its own step rather than folded into the
       # `bun run lint` bundle above: that one is continue-on-error while biome's
       # backlog is burned down (#30), and POD-744 is the cautionary tale — a
