@@ -361,33 +361,38 @@ export const owns = (
 })
 
 // ---------------------------------------------------------------------------
-// D2 — the five policy cells
+// D2 — the policy cells
 // ---------------------------------------------------------------------------
 
 /**
- * WHY THE FIVE CELLS HAVE TWO ROLE FLOORS.
+ * WHY THESE ISSUE DECLARATIONS ARE A POLICY RECORD, NOT AN ENFORCEMENT CLAIM.
  *
- * `roleFloor` is Amendment 1 D15's ACCOUNT GRADE — a floor on which commands a
- * principal may ATTEMPT, decided by the live account role. POD-1075 landed the
- * `users` table, per-user credentials and the user id on `client_sessions`; the
- * derived command builder now reads this declaration at apply time and refuses an
- * admin-floor command for a principal below it. The floor is therefore a real gate,
- * not a transport decoration or a fabricated identity.
+ * `roleFloor` is Amendment 1 D15's ACCOUNT GRADE — a proposed floor on which
+ * commands a principal may attempt, decided by the live account role. Account
+ * records now exist, so this table can record that policy choice. The issue
+ * command join in `modules/issues/registry.ts`, however, copies `action` and
+ * `target` only. The tRPC router and relay/MCP dispatcher then call
+ * `guardIssueCommand`/`checkIssueAccess`, which do not read `roleFloor`. The
+ * role-floor gate in `derivedFamilyProcedures` serves other families; it does not
+ * build the issue family. These values are therefore proposed declarations until
+ * an issue-route consumer is approved, not a claim that issue routes enforce them.
  *
  * Four cells remain at `member`: reading, marking one's own state, ordinary issue
  * writes, and additive/self-addressed commands are all actions a member account may
- * attempt. The `manage` cell is different: deleting, restoring, or replacing an
- * issue's labels is an admin-grade command and declares `admin` explicitly.
- * `policy.action` remains a separate capability-scope gate — an operator has
- * `all`, while an agent has `subtree` — so the floor answers WHO may attempt and
- * action answers WHICH rows the principal may reach.
+ * attempt. Deleting and restoring are separate lifecycle operations and are
+ * proposed as admin-grade human-account actions. `setLabels` remains at the
+ * member floor under D5's broad ordinary-property editing recommendation; its
+ * existing `manage` action is a separate capability gate and is not changed or
+ * treated as product approval here. Account policy, agent scope, and permanent
+ * purge policy are separate decisions.
  */
 const ROLE_FLOOR_RATIONALE =
-  'Account grades are live now: POD-1075 landed the users table, per-user credentials and the user id ' +
-  'on `client_sessions`, and the derived command builder reads `contract.policy.roleFloor` at apply ' +
-  'time. `member` is the floor for commands a member account may attempt; `admin` refuses a principal ' +
-  'below the admin grade. This account gate is separate from `action` against capability scope ' +
-  '(operator = `all`, agent = `subtree`), which answers which rows the principal may reach.'
+  'Account records now make a role-floor declaration meaningful, but the issue command join copies ' +
+  '`action` and `target` only. Issue tRPC and relay/MCP dispatch call `guardIssueCommand` and ' +
+  '`checkIssueAccess`; those consumers do not read `contract.policy.roleFloor`, and the ' +
+  '`derivedFamilyProcedures` role-floor gate does not build this family. This is therefore a proposed ' +
+  'account policy until an issue-route consumer is approved, separate from `action` capability scope ' +
+  '(operator = `all`, agent = `subtree`).'
 
 /**
  * READS ARE NEVER SUBTREE-GATED TODAY, and `resource: 'none'` is the faithful way to
@@ -455,17 +460,35 @@ export const WRITE_POLICY = {
     ROLE_FLOOR_RATIONALE,
 } as const
 
-/** `manage` — delete, restore, setLabels. These are admin-grade attempts, and the
- *  separate `action` gate still constrains the rows an admitted principal may reach. */
+/** `manage` — delete and restore. These are proposed admin-grade lifecycle attempts;
+ *  the separate `action` gate still constrains the rows an admitted principal may reach. */
 export const MANAGE_POLICY = {
   action: 'manage',
   roleFloor: 'admin',
   resource: 'issue',
   confirmation: 'confirm',
   rationale:
-    'Tombstoning an issue, restoring one, and rewriting its whole label set are `manage` on ' +
-    '`IssueAction`’s viewer/worker/admin ladder — above the worker grade an agent capability holds, ' +
-    'so operator-only in practice. That gate rides `action`, unchanged from the shipped table. ' +
+    'Tombstoning and restoring are reversible lifecycle operations, so this record proposes an ' +
+    'admin-grade human account floor for them. Permanent purge is a separate retention decision and ' +
+    'is not inferred here. The existing `manage` action remains the capability gate for agent scope; ' +
+    'that gate is unchanged. ' +
+    ROLE_FLOOR_RATIONALE,
+} as const
+
+/** `setLabels` stays in the existing `manage` action class, but not in the
+ *  destructive lifecycle role-floor cell. D5's ordinary-property recommendation
+ *  keeps its proposed human account floor at `member`; this does not change the
+ *  existing capability/action gate or approve that product recommendation. */
+export const LABELS_POLICY = {
+  action: 'manage',
+  roleFloor: 'member',
+  resource: 'issue',
+  confirmation: 'confirm',
+  rationale:
+    'D5 treats ordinary shared task properties as broad member editing, so labels are not made ' +
+    'admin-only merely because the existing action class is `manage`. The `roleFloor` here is a ' +
+    'proposed human account policy; the existing `manage` capability gate and agent scope remain ' +
+    'unchanged, and this declaration is not product approval. ' +
     ROLE_FLOOR_RATIONALE,
 } as const
 

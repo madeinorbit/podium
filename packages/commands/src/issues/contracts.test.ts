@@ -63,10 +63,11 @@ describe('the issue contract table', () => {
 })
 
 describe('issue command role floors', () => {
-  const ADMIN_COMMANDS = ['delete', 'restore', 'setLabels'] as const
+  const ADMIN_COMMANDS = ['delete', 'restore'] as const
+  const MEMBER_MANAGE_COMMANDS = ['setLabels'] as const
   const adminNames = ADMIN_COMMANDS.map((key) => `issues.${key}`)
 
-  it('declares admin only for the three manage commands', () => {
+  it('declares admin only for destructive lifecycle commands and keeps labels at member', () => {
     const declaredAdmin = ISSUE_COMMAND_NAMES.filter(
       (key) => ISSUE_CONTRACTS[key].policy.roleFloor === 'admin',
     ).map((key) => ISSUE_CONTRACTS[key].name)
@@ -74,10 +75,15 @@ describe('issue command role floors', () => {
       ISSUE_COMMAND_NAMES.map((key) => ISSUE_CONTRACTS[key].policy.roleFloor),
     )
 
-    // This exact partition is the decision: changing MANAGE_POLICY back to the
-    // old member default, or moving the floor to another cell, must name the
-    // affected command here rather than leaving a broad count green.
+    // This exact partition is the proposed account-policy decision: moving a
+    // floor to another cell must name the affected command rather than leaving a
+    // broad count green. The test does not witness runtime enforcement; issue
+    // routes currently consume action/target only.
     expect(declaredAdmin).toEqual(adminNames)
+    expect(
+      MEMBER_MANAGE_COMMANDS.map((key) => ISSUE_CONTRACTS[key].name),
+    ).toEqual(['issues.setLabels'])
+    expect(ISSUE_CONTRACTS.setLabels.policy.roleFloor).toBe('member')
     expect(declaredFloors).toEqual(new Set(['member', 'admin']))
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(
