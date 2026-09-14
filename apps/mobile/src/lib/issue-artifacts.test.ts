@@ -30,6 +30,7 @@ describe('issueArtifactHref', () => {
   it('prefers the permanent store when the artifact has an id', () => {
     const href = issueArtifactHref(issue(), shot, 'https://podium.local')
     expect(href).toContain('/files/artifact/')
+    expect(href).not.toContain('/workspace/')
     expect(href).toContain(encodeURIComponent('iss_art'))
     expect(href).toContain(encodeURIComponent('art_1'))
   })
@@ -45,6 +46,22 @@ describe('issueArtifactHref', () => {
   })
 })
 
+describe('workspace-scoped issueArtifactHref', () => {
+  it('keeps sibling assets in the selected workspace path', () => {
+    const href = issueArtifactHref(
+      issue(),
+      { ...shot, entry: 'site/index.html' },
+      'https://podium.local',
+      'ws_b',
+    )
+    expect(href).toBe(
+      'https://podium.local/files/artifact/workspace/ws_b/iss_art/art_1/site/index.html',
+    )
+    expect(new URL('image.png', href ?? '').pathname).toBe(
+      '/files/artifact/workspace/ws_b/iss_art/art_1/site/image.png',
+    )
+  })
+})
 describe('issueArtifactPreview', () => {
   it('classifies images, html concepts, and markdown for in-app viewing', () => {
     expect(issueArtifactPreview('a.png')).toBe('image')

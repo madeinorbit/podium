@@ -1,3 +1,4 @@
+import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { createElement } from 'react'
 
 export function ArtifactVideo({
@@ -6,6 +7,7 @@ export function ArtifactVideo({
 }: {
   url: string
   bearer: string | null
+  workspace?: WorkspaceSelector
   label: string
 }) {
   return createElement('video', {

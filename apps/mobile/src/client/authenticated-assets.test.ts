@@ -8,10 +8,10 @@ vi.mock('expo/fetch', () => ({ fetch: expoFetch }))
 vi.mock('react-native', () => ({ Platform: runtimePlatform }))
 
 import {
+  AUTHENTICATED_TEXT_PREVIEW_CAP,
   authenticatedAssetHeaders,
   authenticatedImageSource,
   authenticatedVideoSource,
-  AUTHENTICATED_TEXT_PREVIEW_CAP,
   fetchAuthenticatedAsset,
   readAuthenticatedTextPreview,
 } from './authenticated-assets'
@@ -31,6 +31,10 @@ describe('protected file transport', () => {
     expect(authenticatedAssetHeaders('phone-token')).toEqual({
       Authorization: 'Bearer phone-token',
     })
+    expect(authenticatedAssetHeaders('phone-token', { workspaceId: 'ws_b' })).toEqual({
+      Authorization: 'Bearer phone-token',
+      'Podium-Workspace-Id': 'ws_b',
+    })
     expect(
       authenticatedImageSource('https://podium.example/files/artifact', 'phone-token'),
     ).toEqual({
@@ -48,6 +52,9 @@ describe('protected file transport', () => {
   it('keeps web file requests cookie-only even if a token is supplied accidentally', () => {
     runtimePlatform.OS = 'web'
     expect(authenticatedAssetHeaders('must-not-leak')).toBeUndefined()
+    expect(authenticatedAssetHeaders('must-not-leak', { workspaceSlug: 'team-b' })).toEqual({
+      'Podium-Workspace': 'team-b',
+    })
     expect(authenticatedImageSource('/files/asset', 'must-not-leak')).toEqual({
       uri: '/files/asset',
     })
@@ -72,11 +79,12 @@ describe('protected file transport', () => {
     const fetched = await fetchAuthenticatedAsset(
       'https://podium.example/files/asset',
       'phone-token',
+      { workspaceId: 'ws_b' },
     )
     await expect(readAuthenticatedTextPreview(fetched, 16)).resolves.toBe('native')
     expect(expoFetch.mock.calls[0]?.[1]).toMatchObject({
       credentials: 'omit',
-      headers: { Authorization: 'Bearer phone-token' },
+      headers: { Authorization: 'Bearer phone-token', 'Podium-Workspace-Id': 'ws_b' },
     })
     expect(globalFetch).not.toHaveBeenCalled()
   })

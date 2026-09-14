@@ -1,4 +1,5 @@
-import { VideoView, useVideoPlayer } from 'expo-video'
+import type { WorkspaceSelector } from '@podium/client-core/transport'
+import { useVideoPlayer, VideoView } from 'expo-video'
 import type { ComponentProps } from 'react'
 import { StyleSheet } from 'react-native'
 import { authenticatedVideoSource } from '../client/authenticated-assets'
@@ -6,13 +7,15 @@ import { authenticatedVideoSource } from '../client/authenticated-assets'
 export function ArtifactVideo({
   url,
   bearer,
+  workspace,
   label,
 }: {
   url: string
   bearer: string | null
+  workspace?: WorkspaceSelector
   label: string
 }) {
-  const player = useVideoPlayer(authenticatedVideoSource(url, bearer), (instance) =>
+  const player = useVideoPlayer(authenticatedVideoSource(url, bearer, workspace), (instance) =>
     instance.play(),
   )
 

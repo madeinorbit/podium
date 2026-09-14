@@ -1,16 +1,18 @@
 import { relativeTime } from '@podium/client-core/focus'
+import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { artifactKind } from '@podium/client-core/viewmodels'
 import type { IssuePanelArtifact, IssueWire } from '@podium/model'
-import { FileText, Play } from '../icons'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../../client/authenticated-assets'
 import { useHttpOrigin } from '../../client/hooks'
 import { useServerProfile } from '../../client/ServerProfileGate'
+import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer } from '../ArtifactViewer'
 import { Icon } from '../Icon'
+import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
 
@@ -31,6 +33,15 @@ import { SectionHeading } from './chrome'
  */
 export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
   const httpOrigin = useHttpOrigin()
+  const profile = useOptionalServerProfile()
+  // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
+  // profiles scoped when an id is not available yet.
+  const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
+  const workspaceSelector: WorkspaceSelector | undefined = profile?.config.workspaceId
+    ? { workspaceId: profile.config.workspaceId }
+    : profile?.config.workspaceSlug
+      ? { workspaceSlug: profile.config.workspaceSlug }
+      : undefined
 
   const artifacts = issue.panel?.artifacts ?? []
   const deferred = issue.panel?.deferred ?? []
@@ -45,7 +56,8 @@ export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
             <ArtifactRow
               key={`${a.addedAt}:${a.path}`}
               artifact={a}
-              url={issueArtifactHref(issue, a, httpOrigin)}
+              url={issueArtifactHref(issue, a, httpOrigin, workspace)}
+              workspace={workspaceSelector}
             />
           ))}
         </View>
@@ -72,7 +84,15 @@ export function IssueAgentPanel({ issue }: { issue: IssueWire }) {
  * file row. A row with no reachable URL — a legacy path-only entry on a machine
  * this phone cannot reach — stays inert rather than offering a tap that fails.
  */
-function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
+function ArtifactRow({
+  artifact,
+  url,
+  workspace,
+}: {
+  artifact: IssuePanelArtifact
+  url: string | null
+  workspace?: WorkspaceSelector
+}) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
@@ -91,7 +111,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
           style={({ pressed }) => [styles.figure, pressed && styles.rowPressed]}
         >
           <Image
-            source={authenticatedImageSource(url, bearer)}
+            source={authenticatedImageSource(url, bearer, workspace)}
             style={styles.preview}
             resizeMode="cover"
             accessibilityLabel={label}

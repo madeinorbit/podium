@@ -1,6 +1,6 @@
+import type { WorkspaceSelector } from '@podium/client-core/transport'
 import type { IssuePanelArtifact } from '@podium/model'
-import { type ComponentType, createElement, useEffect, useState } from 'react'
-import { X } from './icons'
+import { type ComponentType, createElement, useEffect, useMemo, useState } from 'react'
 import {
   Image,
   Modal,
@@ -29,6 +29,7 @@ import {
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { ArtifactVideo } from './ArtifactVideo'
 import { Icon } from './Icon'
+import { X } from './icons'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 
@@ -112,14 +113,23 @@ function ArtifactBody({
   url: string | null
   label: string
 }) {
-  const { bearer } = useServerProfile()
+  const { bearer, config } = useServerProfile()
+  const workspace = useMemo<WorkspaceSelector | undefined>(
+    () =>
+      config.workspaceId
+        ? { workspaceId: config.workspaceId }
+        : config.workspaceSlug
+          ? { workspaceSlug: config.workspaceSlug }
+          : undefined,
+    [config.workspaceId, config.workspaceSlug],
+  )
   if (!url) {
     return <Text style={styles.note}>This file is not reachable from this phone.</Text>
   }
   if (preview === 'image') {
     return (
       <Image
-        source={authenticatedImageSource(url, bearer)}
+        source={authenticatedImageSource(url, bearer, workspace)}
         style={styles.media}
         resizeMode="contain"
         accessibilityLabel={label}
@@ -127,7 +137,7 @@ function ArtifactBody({
     )
   }
   if (preview === 'video') {
-    return <ArtifactVideo url={url} bearer={bearer} label={label} />
+    return <ArtifactVideo url={url} bearer={bearer} workspace={workspace} label={label} />
   }
   if (preview === 'html') {
     if (Platform.OS === 'web') {
@@ -143,11 +153,13 @@ function ArtifactBody({
         },
       })
     }
-    return <HtmlWebView url={url} bearer={bearer} />
+    return <HtmlWebView url={url} bearer={bearer} workspace={workspace} />
   }
-  if (preview === 'markdown') return <FetchedText url={url} asMarkdown bearer={bearer} />
-  if (preview === 'text') return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
-  return <FetchedText url={url} asMarkdown={false} bearer={bearer} />
+  if (preview === 'markdown')
+    return <FetchedText url={url} asMarkdown bearer={bearer} workspace={workspace} />
+  if (preview === 'text')
+    return <FetchedText url={url} asMarkdown={false} bearer={bearer} workspace={workspace} />
+  return <FetchedText url={url} asMarkdown={false} bearer={bearer} workspace={workspace} />
 }
 
 /**
@@ -162,7 +174,15 @@ function ArtifactBody({
  * that base and load wherever the deployment serves /files/* without login;
  * behind login they 404 into a still-readable page rather than a blank one.
  */
-function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
+function HtmlWebView({
+  url,
+  bearer,
+  workspace,
+}: {
+  url: string
+  bearer: string | null
+  workspace?: WorkspaceSelector
+}) {
   const [doc, setDoc] = useState<string | null>(null)
   const [clipped, setClipped] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -172,7 +192,7 @@ function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
     setDoc(null)
     setClipped(false)
     setError(null)
-    void fetchAuthenticatedAsset(url, bearer)
+    void fetchAuthenticatedAsset(url, bearer, workspace)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
         const buf = await res.arrayBuffer()
@@ -189,7 +209,7 @@ function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
     return () => {
       alive = false
     }
-  }, [bearer, url])
+  }, [bearer, url, workspace])
 
   const WebView = resolveDomWebView()
   // No webview in this binary: the source is still worth reading, but say why
@@ -201,6 +221,7 @@ function HtmlWebView({ url, bearer }: { url: string; bearer: string | null }) {
         url={url}
         asMarkdown={false}
         bearer={bearer}
+        workspace={workspace}
         note="This build has no web view, so the page is shown as source."
       />
     )
@@ -233,11 +254,13 @@ function FetchedText({
   url,
   asMarkdown,
   bearer,
+  workspace,
   note,
 }: {
   url: string
   asMarkdown: boolean
   bearer: string | null
+  workspace?: WorkspaceSelector
   /** Why this is source text rather than the rendered thing, when it is. */
   note?: string
 }) {
@@ -248,7 +271,7 @@ function FetchedText({
     let alive = true
     setText(null)
     setError(null)
-    void fetchAuthenticatedAsset(url, bearer)
+    void fetchAuthenticatedAsset(url, bearer, workspace)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Could not load (${res.status})`)
         const decoded = await readAuthenticatedTextPreview(res)
@@ -260,7 +283,7 @@ function FetchedText({
     return () => {
       alive = false
     }
-  }, [bearer, url])
+  }, [bearer, url, workspace])
 
   if (error) return <Text style={styles.note}>{error}</Text>
   if (text === null) return <Text style={styles.note}>Loading…</Text>

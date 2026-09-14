@@ -1,6 +1,7 @@
+import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { fetch as expoFetch } from 'expo/fetch'
 import type { VideoSource } from 'expo-video'
-import { Platform, type ImageSourcePropType } from 'react-native'
+import { type ImageSourcePropType, Platform } from 'react-native'
 
 export const AUTHENTICATED_TEXT_PREVIEW_CAP = 512 * 1024
 
@@ -83,12 +84,21 @@ export async function readAuthenticatedTextPreview(
  */
 export function authenticatedAssetHeaders(
   bearer: string | null,
+  workspace?: WorkspaceSelector,
 ): Record<string, string> | undefined {
-  return Platform.OS !== 'web' && bearer ? { Authorization: `Bearer ${bearer}` } : undefined
+  const headers: Record<string, string> = {}
+  if (Platform.OS !== 'web' && bearer) headers.Authorization = `Bearer ${bearer}`
+  if (workspace?.workspaceId) headers['Podium-Workspace-Id'] = workspace.workspaceId
+  else if (workspace?.workspaceSlug) headers['Podium-Workspace'] = workspace.workspaceSlug
+  return Object.keys(headers).length > 0 ? headers : undefined
 }
 
-export function authenticatedImageSource(url: string, bearer: string | null): ImageSourcePropType {
-  const headers = authenticatedAssetHeaders(bearer)
+export function authenticatedImageSource(
+  url: string,
+  bearer: string | null,
+  workspace?: WorkspaceSelector,
+): ImageSourcePropType {
+  const headers = authenticatedAssetHeaders(bearer, workspace)
   return headers ? { uri: url, headers } : { uri: url }
 }
 
@@ -96,18 +106,26 @@ export function authenticatedImageSource(url: string, bearer: string | null): Im
  * the bearer rather than relying on a fetch that only authenticates the first
  * response. Web keeps using the ambient session cookie and never sees the
  * native credential. */
-export function authenticatedVideoSource(url: string, bearer: string | null): VideoSource {
-  const headers = authenticatedAssetHeaders(bearer)
+export function authenticatedVideoSource(
+  url: string,
+  bearer: string | null,
+  workspace?: WorkspaceSelector,
+): VideoSource {
+  const headers = authenticatedAssetHeaders(bearer, workspace)
   return headers ? { uri: url, headers } : { uri: url }
 }
 
-export function fetchAuthenticatedAsset(url: string, bearer: string | null): Promise<Response> {
+export function fetchAuthenticatedAsset(
+  url: string,
+  bearer: string | null,
+  workspace?: WorkspaceSelector,
+): Promise<Response> {
   // Expo SDK 57's native response exposes a lazy stream. Importing it directly
   // keeps headerless and compressed previews bounded even if the global fetch
   // configuration changes.
   const fetchAsset = Platform.OS === 'web' ? globalThis.fetch : expoFetch
   return fetchAsset(url, {
     credentials: Platform.OS === 'web' ? 'include' : 'omit',
-    headers: authenticatedAssetHeaders(bearer),
+    headers: authenticatedAssetHeaders(bearer, workspace),
   })
 }

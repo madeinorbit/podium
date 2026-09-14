@@ -1,3 +1,4 @@
+import type { WorkspaceSelector } from '@podium/client-core/transport'
 import type { IssueWire, SessionOffer } from '@podium/model'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
@@ -47,7 +48,13 @@ export function OfferArtifactStrip({
   onShowAll?: () => void
 }) {
   const httpOrigin = useHttpOrigin()
-  const { bearer } = useServerProfile()
+  const { bearer, config } = useServerProfile()
+  const workspace = config?.workspaceId ?? config?.workspaceSlug
+  const workspaceSelector: WorkspaceSelector | undefined = config?.workspaceId
+    ? { workspaceId: config.workspaceId }
+    : config?.workspaceSlug
+      ? { workspaceSlug: config.workspaceSlug }
+      : undefined
   const [open, setOpen] = useState<OfferArtifactRow | null>(null)
   // Keyed, not a boolean: one unreachable thumbnail must not demote the others.
   const [broken, setBroken] = useState<readonly string[]>([])
@@ -56,6 +63,7 @@ export function OfferArtifactStrip({
     offer,
     issue,
     httpOrigin,
+    ...(workspace ? { workspace } : {}),
     ...(lastInputAt ? { lastInputAt } : {}),
   })
   // An empty strip renders NOTHING — no view, so no margin under the offer text.
@@ -82,7 +90,7 @@ export function OfferArtifactStrip({
           >
             {thumb && url ? (
               <Image
-                source={authenticatedImageSource(url, bearer)}
+                source={authenticatedImageSource(url, bearer, workspaceSelector)}
                 style={styles.thumbImage}
                 resizeMode="cover"
                 accessibilityLabel={row.label}
