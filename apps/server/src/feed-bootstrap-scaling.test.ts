@@ -439,7 +439,7 @@ describe('POD-3870 — feed passes read grants from the world index', () => {
       })
       // Attribution must be enabled before import. The focused acceptance run
       // enables it; ordinary suite runs retain the repository-call guard.
-      const budget = queryAttributionEnabled ? await statementBudget(publish) : null
+      const budget = queryAttributionEnabled() ? await statementBudget(publish) : null
       const reads = budget?.result ?? await publish()
       if (budget) {
         expect(budget.statements).toBeGreaterThan(0)

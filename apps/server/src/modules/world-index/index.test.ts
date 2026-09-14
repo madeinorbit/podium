@@ -159,7 +159,7 @@ describe('world index committed facts', () => {
     await store.messages.addMessage(message({ id: 'one' }))
     await store.messages.addMessage(message({ id: 'two' }))
     await store.messages.addMessage(message({ id: 'done', status: 'delivered' }))
-    const loading = queryAttributionEnabled
+    const loading = queryAttributionEnabled()
       ? await statementBudget(() => WorldIndex.load(store))
       : null
     const index = loading?.result ?? (await WorldIndex.load(store))
@@ -179,7 +179,7 @@ describe('world index committed facts', () => {
       expect(index.reader.machine(machine.id)?.name).toBe('First')
     }
     read()
-    if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
+    if (queryAttributionEnabled()) expect((await statementBudget(read)).statements).toBe(0)
     else
       await expect(statementBudget(read)).rejects.toThrow(
         'requires PODIUM_LOOP_PROFILE=attribution',
@@ -316,7 +316,7 @@ describe('world index committed facts', () => {
     try {
       expect(await service.machineName(machine.id)).toBe('First')
       await store.machines.renameMachine(machine.id, 'Fresh')
-      if (queryAttributionEnabled) {
+      if (queryAttributionEnabled()) {
         const read = await statementBudget(() => service.machineName(machine.id))
         expect(read.result).toBe('Fresh')
         expect(read.statements).toBe(0)
@@ -351,7 +351,7 @@ describe('world index committed facts', () => {
     const read = () => {
       for (let i = 0; i < 200; i++) expect(index.reader.issueForWorktree(`/tree/nested/src/${i}`)).toBe(narrow.id)
     }
-    if (queryAttributionEnabled) expect((await statementBudget(read)).statements).toBe(0)
+    if (queryAttributionEnabled()) expect((await statementBudget(read)).statements).toBe(0)
     else read()
     expect(scan).not.toHaveBeenCalled()
     await expect(store.transact(async () => {
@@ -539,7 +539,7 @@ describe('world index committed facts', () => {
         )
       }
     }
-    if (queryAttributionEnabled) {
+    if (queryAttributionEnabled()) {
       const budget = await statementBudget(() => store.messages.markCancelled('absent'))
       expect([...budget.byQuery.keys()].filter((sql) => /^select /i.test(sql))).toEqual([])
       expect([...budget.byQuery.keys()].filter((sql) => /^update /i.test(sql))).toHaveLength(1)
@@ -604,7 +604,7 @@ describe('pending message counter properties', () => {
     }
   })
 
-  it.skipIf(!queryAttributionEnabled)('200 delivery triggers execute zero SQL statements', async () => {
+  it.skipIf(!queryAttributionEnabled())('200 delivery triggers execute zero SQL statements', async () => {
     const store = await setup()
     await store.messages.addMessage(message({ id: 'pending' }))
     const index = await WorldIndex.load(store)

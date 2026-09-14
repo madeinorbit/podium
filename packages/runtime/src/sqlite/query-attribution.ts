@@ -30,7 +30,7 @@ export {
   resetQueryAttribution,
 } from '../query-attribution'
 
-import { queryAttributionEnabled as ENABLED } from '../query-attribution'
+import { queryAttributionEnabled } from '../query-attribution'
 
 /**
  * Wrap a database so every statement execution is attributed to its SQL.
@@ -43,7 +43,7 @@ import { queryAttributionEnabled as ENABLED } from '../query-attribution'
  * the SQL handed to `prepare`, so a statement prepared once and executed in a loop
  * still aggregates under the query that produced the rows.
  */
-export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): SqlDatabase {
+export function attributeQueries(db: SqlDatabase, enabled: boolean = queryAttributionEnabled()): SqlDatabase {
   if (!enabled) return db
   // Attributing an already-attributed handle is never what the caller wanted: it
   // records every execution once per layer. `openDatabase` decorates at open, so

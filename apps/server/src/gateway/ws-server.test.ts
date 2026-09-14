@@ -18,7 +18,7 @@ const SILENT_TIMERS = { setInterval: () => 0, clearInterval: () => {} }
 /**
  * The native handler under a STATED level.
  *
- * `measureTask` reads the level at IMPORT and a test run resolves `off`
+ * `measureTask` reads the level at FIRST USE and a test run resolves `off`
  * (POD-3827), so the level is stated and both modules re-imported — the gateway
  * for the seam, `loop-accounting` because `vi.resetModules` gives the fresh graph
  * its own bucket registry and a spy put into the old one is never called.

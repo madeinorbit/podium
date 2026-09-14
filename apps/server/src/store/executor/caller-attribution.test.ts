@@ -150,7 +150,7 @@ describe('caller attribution across the executor’s awaits', () => {
     try {
       const attribution = await import('@podium/runtime/query-attribution')
       const probed = await import('./statement-probe')
-      expect(attribution.queryCallerStacksEnabled).toBe(true)
+      expect(attribution.queryCallerStacksEnabled()).toBe(true)
       probed.queryAttributionProbe(observation)
       const samples = attribution.queryCallerStacks().get(attribution.queryKey(observation.sql))
       expect(samples?.[0]?.count).toBe(1)

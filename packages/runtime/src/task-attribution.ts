@@ -29,8 +29,10 @@
 import { attribute, type LoopBucket } from './loop-accounting'
 import { atLeast } from './loop-profile'
 
-const ENABLED = atLeast('attribution')
-export const taskAttributionEnabled = ENABLED
+let taskAttributionEnabledValue: boolean | undefined
+export function taskAttributionEnabled(): boolean {
+  return (taskAttributionEnabledValue ??= atLeast('attribution'))
+}
 
 /**
  * Creation-site labels, one level deeper than the callback name (the same thing
@@ -40,7 +42,10 @@ export const taskAttributionEnabled = ENABLED
  * on every hop. So it sits one level up, at `full`, and even then only the
  * first capture per callback identity is kept.
  */
-const STACKS = atLeast('full')
+let callerStacksEnabledValue: boolean | undefined
+function callerStacksEnabled(): boolean {
+  return (callerStacksEnabledValue ??= atLeast('full'))
+}
 
 export interface TaskCost {
   /** Callback invocations in the current window. */
@@ -68,7 +73,7 @@ const site = (fn: object, kind: string, delayMs?: number): string => {
   if (cached !== undefined) return cached
   const named = typeof fn === 'function' && fn.name ? fn.name : '<anonymous>'
   let label = delayMs === undefined ? `${kind} ${named}` : `${kind}(${delayMs}) ${named}`
-  if (STACKS && capturesLeft > 0) {
+  if (callerStacksEnabled() && capturesLeft > 0) {
     capturesLeft--
     const frame = (new Error().stack ?? '')
       .split('\n')
@@ -159,7 +164,7 @@ export function recordTask(label: string, wallMs: number): void {
  * per-resource cost across the whole process to rediscover it.
  */
 export function measureTask<T>(label: string, fn: () => T): T {
-  if (!ENABLED) return fn()
+  if (!taskAttributionEnabled()) return fn()
   const startedAt = performance.now()
   try {
     return fn()
@@ -225,7 +230,7 @@ type TimerFn = (...args: unknown[]) => void
  * closure serves every fire of that timer. The hot path a fire pays is two
  * `performance.now()` calls and a map update.
  */
-export function attributeTasks(enabled: boolean = ENABLED): () => void {
+export function attributeTasks(enabled: boolean = taskAttributionEnabled()): () => void {
   if (!enabled) return () => {}
   const g = globalThis as unknown as Record<string, unknown>
   const originals = {

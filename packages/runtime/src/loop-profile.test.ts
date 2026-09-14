@@ -166,7 +166,7 @@ describe('resolveLoopProfileLevel', () => {
 })
 
 /**
- * The module resolves at IMPORT, so each case re-imports it under a stated
+ * The module resolves at FIRST USE, so each case re-imports it under a stated
  * environment. `PODIUM_LOOP_PROFILE` is set in some shells on this host (the
  * live install's unit exports it), so every case states the variable rather
  * than inheriting whatever the runner happens to carry.
@@ -181,6 +181,7 @@ describe('@podium/runtime/loop-profile', () => {
       'PODIUM_STATE_DIR',
       'PODIUM_APP_VERSION',
       'PODIUM_UPDATE_CHANNEL',
+      'HOME',
     ]) {
       priorEnv[key] = process.env[key]
     }
@@ -198,10 +199,37 @@ describe('@podium/runtime/loop-profile', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  it('does not inspect config until the first profile query', async () => {
+    const emptyHome = mkdtempSync(join(tmpdir(), 'podium-loop-profile-home-'))
+    const observedStatPaths: string[] = []
+    const actualFs = await vi.importActual<typeof import('node:fs')>('node:fs')
+    vi.doMock('node:fs', () => ({
+      ...actualFs,
+      statSync: ((...args: any[]) => {
+        observedStatPaths.push(String(args[0]))
+        return (actualFs.statSync as (...inner: any[]) => unknown)(...args)
+      }) as typeof actualFs.statSync,
+    }))
+    delete process.env.PODIUM_STATE_DIR
+    process.env.HOME = emptyHome
+    vi.resetModules()
+    try {
+      const mod = await import('./loop-profile')
+      expect(observedStatPaths).toEqual([])
+
+      expect(mod.atLeast('off')).toBe(true)
+      expect(observedStatPaths).toContain(join(emptyHome, '.podium', 'config.json'))
+    } finally {
+      vi.doUnmock('node:fs')
+      vi.resetModules()
+      rmSync(emptyHome, { recursive: true, force: true })
+    }
+  })
+
   it('exports the resolved level and an ordered atLeast', async () => {
     process.env[LOOP_PROFILE_ENV] = 'attribution'
     const mod = await import('./loop-profile')
-    expect(mod.loopProfileLevel).toBe('attribution')
+    expect(mod.getLoopProfileLevel()).toBe('attribution')
     expect(mod.atLeast('off')).toBe(true)
     expect(mod.atLeast('accounting')).toBe(true)
     expect(mod.atLeast('attribution')).toBe(true)
@@ -214,7 +242,7 @@ describe('@podium/runtime/loop-profile', () => {
     delete process.env[LOOP_PROFILE_ENV]
     process.env.PODIUM_APP_VERSION = 'dev'
     const mod = await import('./loop-profile')
-    expect(mod.loopProfile).toEqual({ level: 'off', source: 'default' })
+    expect(mod.getLoopProfile()).toEqual({ level: 'off', source: 'default' })
     expect(mod.atLeast('accounting')).toBe(false)
   })
 
@@ -229,7 +257,7 @@ describe('@podium/runtime/loop-profile', () => {
     process.env[LOOP_PROFILE_ENV] = '1'
     const mod = await import('./loop-profile')
     // The refused value falls through to the packaged default.
-    expect(mod.loopProfileLevel).toBe('off')
+    expect(mod.getLoopProfileLevel()).toBe('off')
 
     const warn = vi.fn()
     expect(mod.reportLoopProfileWarning({ warn })).toContain(LOOP_PROFILE_ENV)

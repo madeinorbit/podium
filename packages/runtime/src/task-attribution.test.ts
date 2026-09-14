@@ -205,7 +205,7 @@ describe('bucket routing', () => {
   })
 
   it('bills a timed seam region exactly once', async () => {
-    // `measureTask` reads the level at IMPORT and a test run resolves `off`
+    // `measureTask` reads the level at first use and a test run resolves `off`
     // (POD-3827), so the level is STATED and the module re-imported.
     // `loop-accounting` comes along because the fresh graph carries its own
     // registry, and a spy registered in the old one would never be called.

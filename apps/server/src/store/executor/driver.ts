@@ -301,7 +301,7 @@ export interface QueryClient {
 export function queryClientOver(
   route: StatementRouter,
   routeBatch: BatchRouter,
-  captureIssueSites: boolean = queryCallerStacksEnabled,
+  captureIssueSites: boolean = queryCallerStacksEnabled(),
 ): QueryClient {
   // `{}` when off, so a statement carries no extra property and no Error is
   // built: below `full` this client costs exactly what it did before.

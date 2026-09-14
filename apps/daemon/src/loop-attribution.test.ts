@@ -16,7 +16,7 @@ describe('formatControlCosts', () => {
  * The attribution module under a STATED level.
  *
  * `timeTask`, `beginControlTurn` and the runtime's `measureTask` all read the
- * level at IMPORT, and a test run resolves `off` (POD-3827) — so reading whatever
+ * level at FIRST USE, and a test run resolves `off` (POD-3827) — so reading whatever
  * this runner happens to carry would assert the environment rather than the
  * wiring. `loop-accounting` is re-imported alongside, because `vi.resetModules`
  * gives the fresh graph its own bucket registry and a spy registered in the old

@@ -270,7 +270,7 @@ export function probeStatements(holder: StatementProbeHolder, probe: StatementPr
 export function installQueryAttributionProbe(hub: StatementProbeHub): void {
   if (attributionInstalled.has(hub)) return
   attributionInstalled.add(hub)
-  hub.attach(queryAttributionProbe, { wantsIssueSite: queryCallerStacksEnabled })
+  hub.attach(queryAttributionProbe, { wantsIssueSite: queryCallerStacksEnabled() })
 }
 
 /**

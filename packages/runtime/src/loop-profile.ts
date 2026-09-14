@@ -7,12 +7,13 @@
  * not disagree; four ordered levels can, and a server whose SQL seam thinks it
  * is profiling while its probe timer thinks it is off would produce records
  * that are wrong in a way nothing reports. So the resolution happens ONCE, at
- * this module's import, and every gate is `atLeast(...)` over that one value.
+ * the first profile query, and every gate is `atLeast(...)` over that one value.
  *
- * Import-time is deliberate: the gates it feeds are themselves module-level
- * constants (`query-attribution`, `task-attribution`), installed before the
- * subsystems they wrap schedule anything. The cost is one config read on a path
- * that already reads config at boot.
+ * The first query is deliberately later than import: importing a server/store
+ * module must not inspect the operator's config before the caller has asked to
+ * start or use the profiler. The gates that consume this module therefore call
+ * the accessors from their own runtime paths rather than resolving at module
+ * scope.
  */
 import { createLogger } from '@podium/logger'
 import {
@@ -22,11 +23,18 @@ import {
   resolveLoopProfileLevel,
 } from './config'
 
-/** The resolved level plus which layer decided it and any refused env value. */
-export const loopProfile: ResolvedLoopProfile = resolveLoopProfileLevel()
+/** The lazily resolved level plus which layer decided it and any refused env value. */
+let resolvedLoopProfile: ResolvedLoopProfile | undefined
+
+/** Resolve once, on first use, and return the level plus its provenance. */
+export function getLoopProfile(): ResolvedLoopProfile {
+  return (resolvedLoopProfile ??= resolveLoopProfileLevel())
+}
 
 /** The level itself — the value every gate below compares against. */
-export const loopProfileLevel: LoopProfileLevel = loopProfile.level
+export function getLoopProfileLevel(): LoopProfileLevel {
+  return getLoopProfile().level
+}
 
 /**
  * Is this process at `level` or stronger? The comparison is over
@@ -34,7 +42,7 @@ export const loopProfileLevel: LoopProfileLevel = loopProfile.level
  * installs what the weaker ones do and more.
  */
 export function atLeast(level: LoopProfileLevel): boolean {
-  return LOOP_PROFILE_LEVELS.indexOf(loopProfileLevel) >= LOOP_PROFILE_LEVELS.indexOf(level)
+  return LOOP_PROFILE_LEVELS.indexOf(getLoopProfileLevel()) >= LOOP_PROFILE_LEVELS.indexOf(level)
 }
 
 /** Just the one method this needs, so a test can hand it a spy. */
@@ -59,8 +67,9 @@ let warningReported = false
 export function reportLoopProfileWarning(
   log: LoopProfileWarnLog = createLogger('runtime:loop'),
 ): ResolvedLoopProfile['warning'] {
-  if (warningReported || !loopProfile.warning) return undefined
+  const profile = getLoopProfile()
+  if (warningReported || !profile.warning) return undefined
   warningReported = true
-  log.warn(loopProfile.warning, { level: loopProfileLevel, source: loopProfile.source })
-  return loopProfile.warning
+  log.warn(profile.warning, { level: profile.level, source: profile.source })
+  return profile.warning
 }

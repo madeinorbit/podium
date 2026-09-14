@@ -55,7 +55,7 @@ import {
   startLoopAccounting,
 } from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
-import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
+import { atLeast, getLoopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
   createProfileCapture,
   type LoopProfileCapture,
@@ -2181,7 +2181,7 @@ export async function startServer(
       const capture = atLeast('attribution')
         ? createProfileCapture({
             component: 'server',
-            level: loopProfileLevel,
+            level: getLoopProfileLevel(),
             dir: perfDir,
             onKeepClearCost: (ms) => loopAccounting?.noteProfilerCost(ms),
           })
@@ -2231,7 +2231,7 @@ export async function startServer(
       }
       loopAccounting = startLoopAccounting({
         component: 'server',
-        level: loopProfileLevel,
+        level: getLoopProfileLevel(),
         sink: loopSink,
         // The per-stall record is an ATTRIBUTION-level artifact. At `accounting`
         // the minute record already carries the stall count, max and

@@ -34,7 +34,7 @@ import {
   startLoopAccounting,
 } from '@podium/runtime/loop-accounting'
 import { createLoopMinuteSink, type LoopMinuteFileSink } from '@podium/runtime/loop-minute-sink'
-import { atLeast, loopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
+import { atLeast, getLoopProfileLevel, reportLoopProfileWarning } from '@podium/runtime/loop-profile'
 import {
   createProfileCapture,
   type LoopProfileCapture,
@@ -412,7 +412,7 @@ export async function createDaemonHostRuntime(args: {
     const capture = atLeast('attribution')
       ? createProfileCapture({
           component: 'daemon',
-          level: loopProfileLevel,
+          level: getLoopProfileLevel(),
           dir: perfDir,
           onKeepClearCost: (ms) => loopAccounting?.noteProfilerCost(ms),
         })
@@ -459,7 +459,7 @@ export async function createDaemonHostRuntime(args: {
     }
     loopAccounting = startLoopAccounting({
       component: 'daemon',
-      level: loopProfileLevel,
+      level: getLoopProfileLevel(),
       sink: loopMinuteSink,
       // The per-stall record is an ATTRIBUTION-level artifact: at `accounting`
       // the minute record already carries the stall counts and percentiles, and

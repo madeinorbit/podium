@@ -4783,7 +4783,7 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
       for (const s of sessions) await svc.onSessionEligibilityChanged(s.sessionId, s)
     }
     const before = listCalls.n
-    if (queryAttributionEnabled) {
+    if (queryAttributionEnabled()) {
       const budget = await statementBudget(run)
       // Membership and pending-mail counters both use committed indexes after
       // integration with POD-3871; all 200 events must remain SQL-free.

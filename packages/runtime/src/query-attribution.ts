@@ -29,8 +29,11 @@
 import { attribute } from './loop-accounting'
 import { atLeast } from './loop-profile'
 
-const ENABLED = atLeast('attribution')
-export const queryAttributionEnabled = ENABLED
+let queryAttributionEnabledValue: boolean | undefined
+/** Resolve only when a query seam asks for the default. */
+export function queryAttributionEnabled(): boolean {
+  return (queryAttributionEnabledValue ??= atLeast('attribution'))
+}
 
 export interface QueryCost {
   /** Statement executions in the current window. */
@@ -135,7 +138,7 @@ export function recordQuery(sql: string, wallMs: number, rows: number, issueStac
   // figure that counted it again would claim far more of the minute was
   // explained than any seam actually explains.
   attribute('sql', wallMs)
-  if (STACKS) recordCallerStack(key, issueStack)
+  if (queryCallerStacksEnabled()) recordCallerStack(key, issueStack)
 }
 
 /**
@@ -164,7 +167,6 @@ export function queryAttributionTotals(): ReadonlyMap<string, QueryCost> {
  * `full`, rather than riding along with attribution: this is a bench/repro
  * instrument, not something a live host should carry.
  */
-const STACKS = atLeast('full')
 
 /**
  * Whether caller stacks are being recorded, for the seams that have to CAPTURE
@@ -175,7 +177,10 @@ const STACKS = atLeast('full')
  * to ask the one resolved answer rather than re-reading the environment and
  * becoming a second source of truth for it.
  */
-export const queryCallerStacksEnabled = STACKS
+let queryCallerStacksEnabledValue: boolean | undefined
+export function queryCallerStacksEnabled(): boolean {
+  return (queryCallerStacksEnabledValue ??= atLeast('full'))
+}
 
 /**
  * Frames that belong to the PLUMBING between a caller and this recorder, never

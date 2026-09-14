@@ -12,8 +12,8 @@ export async function statementBudget<T>(fn: () => T | Promise<T>): Promise<{
   statements: number
   byQuery: ReadonlyMap<string, number>
 }> {
-  if (!queryAttributionEnabled)
-    throw new Error('statementBudget requires PODIUM_LOOP_PROFILE=attribution before module import')
+  if (!queryAttributionEnabled())
+    throw new Error('statementBudget requires PODIUM_LOOP_PROFILE=attribution before first use')
   // Snapshot values are mutable counter objects; copy the counts themselves.
   const before = new Map([...queryAttributionSnapshot()].map(([sql, cost]) => [sql, cost.count]))
   const result = await fn()

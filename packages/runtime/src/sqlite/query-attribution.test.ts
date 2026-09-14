@@ -107,7 +107,7 @@ describe('attributeQueries', () => {
 
 /**
  * The default `enabled` argument is the resolved profile level, which this
- * wrapper and `../query-attribution` both read at IMPORT — so each direction is
+ * wrapper and `../query-attribution` both read at FIRST USE — so each direction is
  * a re-import under a STATED environment. Reading whatever this runner carries
  * would assert the environment instead of the wiring: `PODIUM_LOOP_PROFILE` is
  * set in some shells on this host, and a test run that states nothing resolves

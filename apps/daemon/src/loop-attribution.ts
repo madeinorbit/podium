@@ -23,8 +23,9 @@ import {
 
 const log = createLogger('daemon:loop')
 
-const ENABLED = atLeast('attribution')
-export const loopProfileEnabled = ENABLED
+export function loopProfileEnabled(): boolean {
+  return atLeast('attribution')
+}
 
 const ctr = { frames: 0, frameBytes: 0, control: 0, tails: 0, worker: 0 }
 interface ControlCost {
@@ -45,7 +46,7 @@ const controlCosts = new Map<string, ControlCost>()
 const controlTotals = new Map<string, ControlCost>()
 
 export function countFrame(bytes: number): void {
-  if (ENABLED) {
+  if (loopProfileEnabled()) {
     ctr.frames++
     ctr.frameBytes += bytes
   }
@@ -56,7 +57,7 @@ export function countFrame(bytes: number): void {
  * Positive heap deltas are a deliberately cheap allocation-pressure proxy; a
  * GC during the turn contributes zero rather than hiding allocations elsewhere. */
 export function beginControlTurn(): (type: string) => void {
-  if (!ENABLED) return () => {}
+  if (!loopProfileEnabled()) return () => {}
   ctr.control++
   const startedAt = performance.now()
   const heapBefore = process.memoryUsage().heapUsed
@@ -79,10 +80,10 @@ export function beginControlTurn(): (type: string) => void {
   }
 }
 export function countTail(): void {
-  if (ENABLED) ctr.tails++
+  if (loopProfileEnabled()) ctr.tails++
 }
 export function countWorker(): void {
-  if (ENABLED) ctr.worker++
+  if (loopProfileEnabled()) ctr.worker++
 }
 
 /**
@@ -97,7 +98,7 @@ export function countWorker(): void {
  * control dispatch into something a log query can find.
  */
 export function timeTask<T>(label: string, fn: () => T, thresholdMs = 50): T {
-  if (!ENABLED) return fn()
+  if (!loopProfileEnabled()) return fn()
   const t = performance.now()
   try {
     return measureTask(label, fn)
@@ -120,7 +121,7 @@ export function reportLongTick(
   classification?: StallClassification,
   utilizationPct?: number,
 ): void {
-  if (!ENABLED) return
+  if (!loopProfileEnabled()) return
   const mu = process.memoryUsage()
   const controlDetail = formatControlCosts(controlCosts)
   // What the SCHEDULER patch saw, and how much of this stall it explains. Both
@@ -225,7 +226,7 @@ let resetTimer: ReturnType<typeof setInterval> | undefined
  * dumps (POD-3819 adds to that same handler). A leaf module that registered its
  * own would make the LAST one installed the only one a reader ever sees.
  */
-export function startLoopAttribution(enabled: boolean = ENABLED): () => void {
+export function startLoopAttribution(enabled: boolean = loopProfileEnabled()): () => void {
   if (!enabled || resetTimer) return () => {}
   const restoreSchedulers = attributeTasks(enabled)
   resetTimer = setInterval(() => {
