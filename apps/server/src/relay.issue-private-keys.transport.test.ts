@@ -623,6 +623,32 @@ describe('the snapshot and catch-up producers, executed [PDM-415]', () => {
  * what a real client actually received over the feed. Every supported key must
  * survive, and exactly the four private ones must not.
  */
+/**
+ * Supported keys whose VALUE differs between what the producer emitted and what
+ * the client received, as `key: produced -> received` [PDM-447].
+ *
+ * THE GAP THIS CLOSES: a set difference over KEY SETS catches a field that
+ * VANISHES and is blind to one that ARRIVES WITH THE WRONG VALUE. A mask that
+ * nulled or truncated a supported field would keep its key and pass `lost`
+ * entirely. Absence and corruption are different defects and only the first was
+ * being measured.
+ *
+ * Compared through `JSON.stringify` rather than by reference: it is stable for
+ * the nested objects on this payload, and it is what the wire would carry anyway.
+ * The limit of that choice, stated rather than hidden: it cannot distinguish an
+ * absent key from one explicitly set to `undefined`, which is why `lost` above
+ * keeps doing the presence half rather than being folded into this.
+ */
+const valueMismatches = (
+  produced: Record<string, unknown>,
+  received: Record<string, unknown>,
+): string[] =>
+  Object.keys(produced)
+    .filter((k) => !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k))
+    .filter((k) => Object.hasOwn(received, k))
+    .filter((k) => JSON.stringify(produced[k]) !== JSON.stringify(received[k]))
+    .map((k) => `${k}: ${JSON.stringify(produced[k])} -> ${JSON.stringify(received[k])}`)
+
 describe('what a real producer emits, reconciled with what the client receives [PDM-447]', () => {
   it('the shared rows lose EXACTLY the four private keys and no supported field', async () => {
     const store = await openTestStore(':memory:')
@@ -688,7 +714,22 @@ describe('what a real producer emits, reconciled with what the client receives [
       (ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
     )
     expect.soft(lost).toEqual([])
-    expect(leaked).toEqual([])
+    expect.soft(leaked).toEqual([])
+
+    // THE VALUE HALF [PDM-447]. `lost` and `leaked` are about PRESENCE; a mask
+    // that nulled or truncated a supported field keeps its key and satisfies both.
+    const receivedValue = (received?.value ?? {}) as Record<string, unknown>
+    // NON-VACUITY: the comparison must actually have populated fields to compare,
+    // or "no mismatches" is a statement about a set of undefineds.
+    const comparable = Object.keys(produced).filter(
+      (k) =>
+        !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k) &&
+        Object.hasOwn(receivedValue, k) &&
+        produced[k] !== undefined &&
+        produced[k] !== null,
+    )
+    expect.soft(comparable.length).toBeGreaterThan(10)
+    expect(valueMismatches(produced, receivedValue)).toEqual([])
   })
 
   it('the legacy issue wire loses EXACTLY the four as well', async () => {
@@ -734,7 +775,20 @@ describe('what a real producer emits, reconciled with what the client receives [
       (ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k),
     )
     expect.soft(lost).toEqual([])
-    expect(leaked).toEqual([])
+    expect.soft(leaked).toEqual([])
+
+    // The value half here too — the legacy producer is a hand-built literal, so
+    // a field copied wrong is exactly the defect a key-set diff cannot see.
+    const receivedValue = (received?.value ?? {}) as Record<string, unknown>
+    const comparable = Object.keys(produced).filter(
+      (k) =>
+        !(ISSUE_PRIVATE_EXECUTION_KEYS as readonly string[]).includes(k) &&
+        Object.hasOwn(receivedValue, k) &&
+        produced[k] !== undefined &&
+        produced[k] !== null,
+    )
+    expect.soft(comparable.length).toBeGreaterThan(10)
+    expect(valueMismatches(produced, receivedValue)).toEqual([])
   })
 })
 
