@@ -62,6 +62,31 @@ describe('the issue contract table', () => {
   })
 })
 
+describe('issue command role floors', () => {
+  const ADMIN_COMMANDS = ['delete', 'restore', 'setLabels'] as const
+  const adminNames = ADMIN_COMMANDS.map((key) => `issues.${key}`)
+
+  it('declares admin only for the three manage commands', () => {
+    const declaredAdmin = ISSUE_COMMAND_NAMES.filter(
+      (key) => ISSUE_CONTRACTS[key].policy.roleFloor === 'admin',
+    ).map((key) => ISSUE_CONTRACTS[key].name)
+    const declaredFloors = new Set(
+      ISSUE_COMMAND_NAMES.map((key) => ISSUE_CONTRACTS[key].policy.roleFloor),
+    )
+
+    // This exact partition is the decision: changing MANAGE_POLICY back to the
+    // old member default, or moving the floor to another cell, must name the
+    // affected command here rather than leaving a broad count green.
+    expect(declaredAdmin).toEqual(adminNames)
+    expect(declaredFloors).toEqual(new Set(['member', 'admin']))
+    for (const key of ISSUE_COMMAND_NAMES) {
+      expect(
+        ISSUE_CONTRACTS[key].policy.roleFloor,
+        key,
+      ).toBe(ADMIN_COMMANDS.includes(key as (typeof ADMIN_COMMANDS)[number]) ? 'admin' : 'member')
+    }
+  })
+})
 /**
  * VISIBILITY IS MEASURED OFF ADR 1, NOT CHOSEN HERE.
  *

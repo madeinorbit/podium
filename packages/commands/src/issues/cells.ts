@@ -365,29 +365,29 @@ export const owns = (
 // ---------------------------------------------------------------------------
 
 /**
- * WHY EVERY CELL BELOW SAYS `roleFloor: 'member'`, INCLUDING THE MANAGE ONE.
+ * WHY THE FIVE CELLS HAVE TWO ROLE FLOORS.
  *
  * `roleFloor` is Amendment 1 D15's ACCOUNT GRADE — a floor on which commands a
- * principal may ATTEMPT, decided by what kind of account they hold. Podium has no
- * account grades: POD-1075 has not landed, there is one shared password, and
- * `client_sessions` has no user column. Declaring `admin` on any of the sixty-eight
- * would name a gate no transport can evaluate, and the enforcement point would then
- * either ignore it (a decoration) or invent an answer (a fabricated identity). ADR 9
- * D5 A1's live-evaluation rule cuts the same way: a floor that cannot be resolved at
- * apply time is not a floor.
+ * principal may ATTEMPT, decided by the live account role. POD-1075 landed the
+ * `users` table, per-user credentials and the user id on `client_sessions`; the
+ * derived command builder now reads this declaration at apply time and refuses an
+ * admin-floor command for a principal below it. The floor is therefore a real gate,
+ * not a transport decoration or a fabricated identity.
  *
- * The gate that DOES exist is `policy.action` against the caller's capability scope,
- * which is `IssueAction`'s viewer/worker/admin ladder — the operator holds scope
- * `all`, an agent holds `subtree`. That ladder is carried faithfully: `manage`
- * commands are operator-only today and stay operator-only, and that fact rides
- * `action`, which is where the shipped code already reads it.
+ * Four cells remain at `member`: reading, marking one's own state, ordinary issue
+ * writes, and additive/self-addressed commands are all actions a member account may
+ * attempt. The `manage` cell is different: deleting, restoring, or replacing an
+ * issue's labels is an admin-grade command and declares `admin` explicitly.
+ * `policy.action` remains a separate capability-scope gate — an operator has
+ * `all`, while an agent has `subtree` — so the floor answers WHO may attempt and
+ * action answers WHICH rows the principal may reach.
  */
 const ROLE_FLOOR_RATIONALE =
-  'Role floor `member` throughout: POD-1075 has not landed, so there are no account grades to floor ' +
-  'against — one shared password, no user column on `client_sessions`. The gate that exists is ' +
-  '`action` against the caller’s capability scope (operator = `all`, agent = `subtree`), which is ' +
-  'where the shipped `checkIssueAccess` already reads it. An `admin` floor here would name a grade ' +
-  'no transport can authenticate.'
+  'Account grades are live now: POD-1075 landed the users table, per-user credentials and the user id ' +
+  'on `client_sessions`, and the derived command builder reads `contract.policy.roleFloor` at apply ' +
+  'time. `member` is the floor for commands a member account may attempt; `admin` refuses a principal ' +
+  'below the admin grade. This account gate is separate from `action` against capability scope ' +
+  '(operator = `all`, agent = `subtree`), which answers which rows the principal may reach.'
 
 /**
  * READS ARE NEVER SUBTREE-GATED TODAY, and `resource: 'none'` is the faithful way to
@@ -455,12 +455,11 @@ export const WRITE_POLICY = {
     ROLE_FLOOR_RATIONALE,
 } as const
 
-/** `manage` — delete, restore, setLabels. Operator-only in practice, because `manage`
- *  sits above `worker` on `IssueAction`'s ladder and an agent capability is a worker.
- *  The action carries that; the role floor cannot (see {@link READ_POLICY}). */
+/** `manage` — delete, restore, setLabels. These are admin-grade attempts, and the
+ *  separate `action` gate still constrains the rows an admitted principal may reach. */
 export const MANAGE_POLICY = {
   action: 'manage',
-  roleFloor: 'member',
+  roleFloor: 'admin',
   resource: 'issue',
   confirmation: 'confirm',
   rationale:
