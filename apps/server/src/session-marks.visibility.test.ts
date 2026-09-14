@@ -298,21 +298,20 @@ describe('session-read: the conjunction, and it is not user-match twice', () => 
     expect.soft((await recipients(policy, marksRef(owner, LIVE))).snapshot).toBe(owner)
   })
 
-  it('ADMITS a row whose session is SOFT-DELETED — observed, and not endorsed', async () => {
+  it('ADMITS a row whose session is SOFT-DELETED — PDM-459: leave it', async () => {
     // A SOFT-DELETED SESSION STILL RESOLVES. `getSessions` applies no
     // `deleted_at` filter and `maySeeSession` checks asked-for, then owner, then
     // grants — never the tombstone. So a marks row for a session the client has
     // been told to DROP is still admitted to its owner and to a surviving
     // grantee.
     //
-    // THIS IS RECORDED AS OBSERVED BEHAVIOUR, NOT AS A DECISION [review 2 item
-    // 3]. I previously wrote that marks "must NOT" be retracted on deletion
-    // because they would be gone on restore; that conflated two things. Client
-    // EVICTION and durable DESTRUCTION are different, and an evicted client row
-    // can be re-delivered when the session is restored. So whether a marks row
-    // SHOULD be admitted while its session is tombstoned is a live question this
-    // issue does not settle — what it does is pin the current answer so a change
-    // to it is visible rather than silent.
+    // PDM-459 ENDORSED THIS. The previous text called it observed-not-endorsed
+    // because client eviction and durable destruction are different, and an
+    // evicted row can be re-delivered on restore. That distinction stands; the
+    // decision is that we still ADMIT during the tombstone window, so a
+    // reconnecting client is served the same marks a held client kept. Tightening
+    // the gate to `deletedAt == null` would split those two answers. The PURGE
+    // case (`GHOST`, the test above) is the one that must stay refused.
     const { policy, grant } = await fixture()
     await grant(reader, DELETED)
 

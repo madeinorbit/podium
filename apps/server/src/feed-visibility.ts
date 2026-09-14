@@ -448,6 +448,17 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // because their branch reads a row that is gone, which is an accident
           // of which check fails first rather than a property of the gate.
           //
+          // GONE MEANS PURGED, NOT TOMBSTONED [PDM-459]. `getSessions` returns
+          // tombstones on purpose (delete-audience). A soft-deleted session still
+          // resolves here, so the holder's marks stay admitted through the window
+          // where the session itself is withheld from the feed (the change log's
+          // latest session op is `remove`; marks are not in that list). That is
+          // the restore path, not a hole: a reconnecting client is served the
+          // same marks a held client kept. Tightening this to `deletedAt == null`
+          // would split those two answers. The sentence above about "stale marks
+          // naming a session nobody can open" is the PURGE case — `undefined` —
+          // which this line still refuses.
+          //
           // NOT fixed inside `maySeeSession`: its other consumers — the `session`
           // arm and `pendingInteraction` — ask it about sessions they have their
           // own reasons to reach, and tightening it for all of them is a change
@@ -769,7 +780,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // The session going away is exactly that move, and it is
         // principal-INDEPENDENT, which is what lets it be decided here: this port
         // must not close over a principal. While the session still resolves, the
-        // read gate is the whole answer and no anchor is wanted.
+        // read gate is the whole answer and no anchor is wanted. "Still
+        // resolves" includes a tombstone [PDM-459]: a soft delete must not look
+        // like a purge here, or a held client would be evicted and a
+        // reconnecting client would not — two answers to the same question.
         // `getSessions` rather than a point read: the visibility store port
         // exposes the BATCHED reader and only that, and widening it for one
         // anchor would add a second door onto the same table.

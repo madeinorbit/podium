@@ -6599,23 +6599,25 @@ describe('a soft-deleted session keeps its marks, and a restore re-serves both',
     // attaching mid-deletion receives an ORPHAN: a marks row naming a session it
     // does not have and cannot open.
     //
-    // MECHANISM, READ FROM SOURCE RATHER THAN INFERRED FROM THIS RESULT. The two
-    // arms disagree about a tombstone. The `session` arm filters the deleted row
-    // out of the feed. The marks arm gates on
+    // MECHANISM, READ FROM SOURCE RATHER THAN INFERRED FROM THIS RESULT. Soft
+    // delete publishes `{ entity: 'session', op: 'remove' }` and nothing else, so
+    // bootstrap has no session upsert to serve. The marks row's latest change is
+    // still an upsert. The marks arm gates on
     // `prefetch.sessions.get(marks.sessionId) !== undefined`, and that map is
     // built from `store.sessions.getSessions([...])` (feed-visibility.ts:574),
     // whose query is `inArray(id)` with NO `isNull(deletedAt)` predicate
-    // (store/sessions.ts:156) — so a tombstoned row satisfies the gate.
+    // (store/sessions.ts:156) — so a tombstoned row satisfies the gate. The
+    // `session` arm of `mayRead` is not the filter: it never consults
+    // `deletedAt`. The session is withheld because it is not in the candidate
+    // set.
     //
-    // WHICH MAKES THE GATE'S OWN COMMENT WRONG ABOUT ITS PURPOSE. It says it is
-    // there so a previously admitted grantee does not "keep being SERVED stale
-    // marks naming a session nobody can open". For a PURGE it does that. For a
-    // SOFT DELETE — the reversible path, the one with a production caller — it
-    // does not, because the row is still there to be found.
-    //
-    // PINNED AS OBSERVED BEHAVIOUR, NOT ENDORSED. Filed separately; no repair
-    // here. The assertion exists so that a change to either arm has to come past
-    // it and make a decision, rather than drifting silently in either direction.
+    // PDM-459 ENDORSED THIS (option 2: leave it). The existence gate's comment
+    // is about a PURGE (`undefined`) and a surviving grant edge; that case still
+    // refuses. A tombstone is the reversible path, and admitting the holder's
+    // own marks through it is what makes a reconnecting client match a held
+    // one. Tightening the gate to require `deletedAt == null` would split those
+    // two answers. The assertion stays so a change to either arm has to come
+    // past a named case rather than drifting.
     expect.soft(marks).toContain(sessionMarksRowId(me, doomed))
     await reg.dispose()
   })

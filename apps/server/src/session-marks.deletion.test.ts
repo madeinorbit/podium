@@ -38,11 +38,11 @@
  * and retracted marks would be gone when it did". That conflates two things.
  * CLIENT EVICTION AND DURABLE DESTRUCTION ARE DIFFERENT: an evicted client row
  * can be re-delivered when the session is restored, so durable retention does not
- * settle what the wire should do. Whether a marks row should be ADMITTED while its
- * session is tombstoned is a live question, and this issue does not decide it —
- * `session-marks.visibility.test.ts` pins the CURRENT answer (it is admitted,
- * because `maySeeSession` never consults `deleted_at`) as observed behaviour so a
- * change to it is visible rather than silent.
+ * by itself settle what the wire should do. PDM-459 settled the wire: a marks
+ * row IS admitted while its session is tombstoned, so a reconnecting client is
+ * served the same marks a held client kept. `session-marks.visibility.test.ts`
+ * pins that admission (because `getSessions` returns the tombstone and
+ * `maySeeSession` never consults `deleted_at`). The PURGE case is still refused.
  *
  * What the cases below pin is narrower and is what I actually measured: the
  * durable rows SURVIVE a soft delete, no `sessionMarks` removal is published for
