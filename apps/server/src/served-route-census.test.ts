@@ -437,7 +437,7 @@ describe('the transports this census does not cover', () => {
 })
 
 /**
- * Own-tool names as the MCP path actually builds them: `issueBelt` off, so
+ * Own-tool names as the MCP path actually builds them: `issueBelt: false`, so
  * this set is the population `modules/issues/registry.ts` does not reach.
  * Search stays on so `search_conversations` is in the set rather than being
  * dropped by the index gate — the census has to classify the tool whether or
@@ -453,19 +453,59 @@ const ownBeltToolNames = async (): Promise<string[]> =>
         waitPollMs: 1,
       },
       '',
+      undefined,
+      { issueBelt: false },
     )
   ).map((tool) => tool.spec.name)
 
+const OWN_READ_TOOLS = [
+  'list_sessions',
+  'read_session_transcript',
+  'recap_session',
+  'search_conversations',
+  'search_all',
+] as const
+
+const MCP_CLASSIFICATION_WITNESSES = [
+  'issueBelt: false',
+  'searchIndexEnabled: true',
+  'SessionView.project',
+  'SessionStateService.visibleSessions',
+  'INTERNAL_PROJECTION_READ',
+  'SessionListCaller',
+  'listAllTool is a performance caller label, not a principal or authorization scope',
+  'issues.issueForCwd',
+  'issues.getMeta',
+  'read_session_transcript',
+  'answer_question',
+  'memoryReader',
+  'machines/rpc.ts',
+  'memory.canReadSession',
+  'MemoryVisibilityPolicy.mayReadSession',
+  'memory/visibility.ts',
+  'search_conversations',
+  'search_all',
+  'MemorySearchService',
+  'MemoryVisibilityPolicy',
+  'recap_session',
+  'SessionReadToolkit.recap',
+  'read-toolkit.ts',
+  'resolveVisible',
+  'relay.ts',
+  'ReaderRef',
+  'per-reader watermarks',
+  'system-bound transcript reader',
+  'caller-specific ownership for that direct path is not established here',
+  'Repository/git reads, control-tool existence reads, and indirect reads outside this bounded inventory remain unresolved',
+] as const
+
 describe('the MCP door covers both populations behind it', () => {
   it('the belt has own tools that are not issue-registry commands', async () => {
-    // Derived from the builder, not retyped. A hand list here compared to
-    // the census would be two copies of the same assumption (catalogue shape 7).
+    // Derived from the builder under the census configuration, not retyped.
+    // This checks names only; it executes no tool and proves no authorization.
     const own = await ownBeltToolNames()
     expect(own.length).toBeGreaterThan(15)
-    expect(own).toContain('list_sessions')
-    expect(own).toContain('search_conversations')
-    expect(own).toContain('read_session_transcript')
-    expect(own).toContain('recap_session')
+    expect(own).toEqual(expect.arrayContaining(OWN_READ_TOOLS))
     expect(own.some((name) => name.startsWith('issue_'))).toBe(false)
   })
 
@@ -484,20 +524,17 @@ describe('the MCP door covers both populations behind it', () => {
     expect(rationale).toMatch(/modules\/issues\/registry\.ts/)
     expect(rationale).toMatch(/classification-totality\.test\.ts/)
 
-    // Own half — the hole this issue exists to close.
+    // The builder-derived own population is bounded to the same configuration
+    // asserted above; the rationale must account for each data-returning path
+    // in that bounded inventory, not merely mention one tool and one file.
+    expect(own).toEqual(expect.arrayContaining(OWN_READ_TOOLS))
     expect(rationale).toMatch(/modules\/superagent\/tools\.ts/)
-    expect(rationale).toContain('list_sessions')
-    expect(own.includes('list_sessions')).toBe(true)
+    for (const marker of MCP_CLASSIFICATION_WITNESSES) expect(rationale).toContain(marker)
 
-    // `listAllTool` is a SessionListCaller (perf), not a scope. Pin the type
-    // so a new meaning of the label is a type error here, not a silent
-    // rationale. Catalogue shape 19: pin the property next to the assertion.
+    // This literal only establishes that the existing spelling is assignable to
+    // the existing perf-caller union. It is not an authorization witness.
     const callers: SessionListCaller[] = ['bootstrap', 'rpc', 'listAllTool']
     expect(callers).toContain('listAllTool')
-    expect(rationale).toMatch(/listAllTool/)
-    expect(rationale).toMatch(/SessionListCaller/)
-    expect(rationale).toMatch(/INTERNAL_PROJECTION_READ/)
-    expect(rationale).toMatch(/memoryReader/)
 
     // The sentence that classified the whole door by the issue registry.
     expect(rationale).not.toMatch(/serves no projection of its own/)
