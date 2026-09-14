@@ -106,6 +106,17 @@ describe('hand-rolled-procedure', () => {
       ]),
     ).toEqual([])
   })
+
+  it('does not classify the non-derived updates router as a derived arm', () => {
+    expect(
+      handRolledProcedures([
+        {
+          file: `${MODULES}/updates/trpc.ts`,
+          source: 'export const x = t.procedure.mutation(() => 1)\n',
+        },
+      ]),
+    ).toEqual([])
+  })
 })
 
 describe('subject-present', () => {

@@ -73,9 +73,8 @@ jobs:
 
       # BLOCKING, its own step. These command-family audits read source text,
       # run their planted --probe fixtures first, and need no database, server,
-      # or test install. The aggregate keeps the cheap family gates on every
-      # CI run; the two currently red family tasks document their manual-only
-      # status beside their package definitions until their findings are fixed.
+      # or test install. The aggregate keeps all nine source-text family gates
+      # on every CI run, with each gate's planted probe run before its verdict.
       - name: command-family source audits
         run: bun run audit:families
 

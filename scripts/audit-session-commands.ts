@@ -248,7 +248,10 @@ export function unkeyedPerUserAccessors(source: string, file: string): Finding[]
   const seen = new Set<string>()
   for (const [idx, line] of lines.entries()) {
     for (const accessor of PER_USER_ACCESSORS) {
-      const decl = new RegExp(`^\\s{2}${accessor}\\(([^)]*)`)
+      // Store accessors are async methods in the live source. Keep the
+      // declaration anchor strict while accepting that modifier, so the scan
+      // does not confuse a formatting shape with an unkeyed store.
+      const decl = new RegExp(`^\\s{2}(?:async\\s+)?${accessor}\\(([^)]*)`)
       const match = decl.exec(line)
       if (!match) continue
       seen.add(accessor)
@@ -427,13 +430,13 @@ export function probe(): Finding[] {
     'per-user-keying',
     unkeyedPerUserAccessors(
       [
-        '  setPin(kind: PinKind, id: string, pinned: boolean): void {',
-        '  listPins(userId: string): PinState {',
-        '  setSnooze(userId: string, sessionId: string, until: string | null): void {',
-        '  clearSnooze(userId: string, sessionId: string): void {',
-        '  listSnoozes(userId: string): SnoozeMap {',
-        '  setTabOrder(userId: string, worktree: string, ids: string[]): void {',
-        '  listTabOrders(userId: string): Record<string, string[]> {',
+        '  async setPin(kind: PinKind, id: string, pinned: boolean): void {',
+        '  async listPins(userId: string): PinState {',
+        '  async setSnooze(userId: string, sessionId: string, until: string | null): void {',
+        '  async clearSnooze(userId: string, sessionId: string): void {',
+        '  async listSnoozes(userId: string): SnoozeMap {',
+        '  async setTabOrder(userId: string, worktree: string, ids: string[]): void {',
+        '  async listTabOrders(userId: string): Record<string, string[]> {',
       ].join('\n'),
       '<probe>',
     ),

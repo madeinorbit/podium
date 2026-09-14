@@ -193,13 +193,21 @@ const PRE_EXISTING_ARMS = new Set([
   'automations',
   'lock',
 ])
+/**
+ * Not every module router is a derived family. `updates/trpc.ts` is the
+ * update-control router: it has no joined command table and intentionally
+ * builds its own procedures, so POD-314's derived-arm rule does not apply.
+ * Keep this exception explicit rather than letting a path pattern silence a
+ * future derived family.
+ */
+const NON_DERIVED_ARMS = new Set(['updates'])
 
 export function handRolledProcedures(files: { file: string; source: string }[]): Finding[] {
   const findings: Finding[] = []
   for (const { file, source } of files) {
     const m = file.match(new RegExp(`^${MODULES}/([^/]+)/trpc\\.ts$`))
     const family = m?.[1]
-    if (!family || PRE_EXISTING_ARMS.has(family)) continue
+    if (!family || PRE_EXISTING_ARMS.has(family) || NON_DERIVED_ARMS.has(family)) continue
     if (!/\bt\.procedure\b/.test(source)) continue
     findings.push({
       check: 'hand-rolled-procedure',
@@ -383,6 +391,16 @@ function probe(): Finding[] {
       },
     ]),
     'a pre-existing family arm',
+  )
+  no(
+    'hand-rolled-procedure',
+    handRolledProcedures([
+      {
+        file: `${MODULES}/updates/trpc.ts`,
+        source: 'export const x = t.procedure.mutation(() => 1)\n',
+      },
+    ]),
+    'a non-derived router',
   )
 
   no('subject-present', tablesExist(PROBE_GOVERNED, PROBE_DECLARED), 'a declared table')
