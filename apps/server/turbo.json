@@ -1018,6 +1018,7 @@
         "src/modules/memory/service.ts",
         "src/modules/memory/transcript-indexer.ts",
         "src/modules/memory/types.ts",
+        "src/modules/memory/visibility.test.ts",
         "src/modules/memory/visibility.ts",
         "src/modules/messages/authz.test.ts",
         "src/modules/messages/brakes.ts",
