@@ -154,6 +154,7 @@ export const DAEMON_FRAME_PORTS = {
    *  server re-reads after a stream gap (POD-2023). Same correlator, no new
    *  port. */
   runtimeSnapshotResult: ['rpc'],
+  runtimeHistoryResult: ['rpc'],
 
   // ---- headless-owned ----
   headlessTurnEvent: ['headless'],

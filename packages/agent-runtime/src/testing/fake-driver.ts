@@ -1,3 +1,4 @@
+import { pageHistory } from '../history'
 /**
  * THE IN-MEMORY REFERENCE DRIVER (POD-1761 W1).
  *
@@ -961,7 +962,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       },
 
       transcript: {
-        async history({ limit }) {
+        async history(range) {
           if (!transcriptHistory) {
             // REFUSED, NOT EMPTY. A declaration of "no history" that answers
             // with `[]` is indistinguishable from a conversation that is empty,
@@ -973,7 +974,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
               `${id} transcript.history`,
             )
           }
-          return core.items.slice(-limit)
+          return pageHistory(core.items, core.sessionId, range)
         },
       },
 

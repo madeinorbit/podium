@@ -1,3 +1,4 @@
+import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
 import {
@@ -145,8 +146,8 @@ export interface ClaudeSdkRuntimeHost {
     sessionId: SessionId
     workdir: string
     resumeValue: string
-    limit: number
-  }): Promise<readonly TranscriptItem[]>
+    range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] }
+  }): Promise<RuntimeHistoryPage>
   readArchive(input: {
     workdir: string
     resumeValue: string
@@ -998,14 +999,14 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         return core.state
       },
       transcript: {
-        async history({ limit }) {
+        async history(range) {
           const resume = core.binding.resume
-          if (!resume) return []
+          if (!resume) return { items: [], hasMore: false }
           return host.readTranscript({
             sessionId: core.sessionId,
             workdir: core.spec.workdir,
             resumeValue: resume.value,
-            limit,
+            range,
           })
         },
       },

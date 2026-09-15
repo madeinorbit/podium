@@ -1,3 +1,4 @@
+import { DriverRefusalError } from '@podium/agent-runtime'
 /**
  * THE DAEMON, AS THE TERMINAL DRIVER'S HOST (POD-1761 W3).
  *
@@ -74,6 +75,25 @@ export function daemonRuntimeHost(
         limit: range.limit,
       })
       return slice.items
+    },
+    readHistory: async (session, range) => {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError({ reason: 'invalid_value', detail: 'foreign history cursor' }, 'transcript.history')
+      }
+      const source = await sourceForRead(ctx, session)
+      const slice = await source.readSlice({
+        ...(range.from ? { anchor: range.from.pathHint } : {}),
+        direction: range.direction ?? 'before',
+        limit: range.limit,
+      })
+      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
+      return {
+        items: slice.items,
+        ...(slice.head ? { head: cursor(slice.head) } : {}),
+        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
+        hasMore: slice.hasMore,
+      }
     },
     archiveTranscript: (input) =>
       transcriptForExport({

@@ -1603,7 +1603,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           // and whose capability says otherwise is degrading, and it is the
           // cheapest way to get exempted from everything below.
           await expectTypedRefusal(
-            resumed.transcript.history({ limit: 100 }),
+            resumed.transcript.history({ limit: 100 }).then((page) => page.items),
             'unsupported',
             'transcript.history() on a driver that declares it has none',
           )
@@ -1619,7 +1619,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           await assertArchiveHonoursItsDeclaration(resumed, driver, witness)
           return
         }
-        const items = await resumed.transcript.history({ limit: 100 })
+        const items = await resumed.transcript.history({ limit: 100 }).then((page) => page.items)
         expect(
           items.some((item) => item.text.includes(witness)),
           `resume() returned a session whose transcript does not contain the turn that was in it before the kill (${witness}) — the ref came back, the conversation did not`,

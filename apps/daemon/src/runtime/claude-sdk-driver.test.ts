@@ -1,3 +1,4 @@
+import { pageHistory } from '@podium/agent-runtime'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -32,9 +33,9 @@ const WITNESS: TranscriptItem[] = [
 
 function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRuntimeHost {
   return {
-    readTranscript: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
+    readHistory: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
-      return WITNESS.slice(-range.limit)
+      return pageHistory(WITNESS, session.resume?.value ?? '', range)
     },
   } as unknown as TerminalRuntimeHost
 }
@@ -109,7 +110,7 @@ describe('Claude SDK daemon host adapter', () => {
       resume: RESUME,
       confidence: 'exact',
     })
-    await expect(handle.transcript.history({ limit: 10 })).resolves.toEqual(WITNESS)
+    await expect(handle.transcript.history({ limit: 10 }).then((page) => page.items)).resolves.toEqual(WITNESS)
     expect(reads).toEqual([{ resumeValue: RESUME.value, limit: 10 }])
 
     const receipt = await handle.send(

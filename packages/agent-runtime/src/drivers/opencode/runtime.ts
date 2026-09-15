@@ -1,3 +1,4 @@
+import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
@@ -1691,7 +1692,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       },
 
       transcript: {
-        async history(range): Promise<readonly TranscriptItem[]> {
+        async history(range) {
           const messages = await session.client.messages(session.opencodeSessionId)
           const items: TranscriptItem[] = []
           for (const message of messages) {
@@ -1699,26 +1700,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
               items.push(...partToItems(session.opencodeSessionId, message.info, part))
             }
           }
-          /**
-           * `before` is the newest window — the same default the on-switch read
-           * uses, and what a `history({ limit })` with no anchor means.
-           *
-           * THE ANCHOR IS A POSITION, NOT A STRING, because `ProviderCursor
-           * .components` is `Record<string, number>` by schema: there is
-           * nowhere in it to carry a transcript cursor string. opencode's parts
-           * are a BOUNDED, fully-ordered list (that is the argument
-           * `sliceItemsByAnchor` already makes for the sqlite source), so an
-           * index into that order is a real cursor rather than a stand-in — and
-           * `components.item` is where this driver puts it. A cursor from
-           * another session carries a different `segmentId` and is refused
-           * rather than compared, which is the whole reason the segment is on
-           * the cursor at all.
-           */
-          if (!range.from) return items.slice(-range.limit)
-          if (range.from.segmentId !== session.opencodeSessionId) return items.slice(-range.limit)
-          const anchor = range.from.components.item
-          if (anchor === undefined) return items.slice(-range.limit)
-          return items.slice(anchor + 1, anchor + 1 + range.limit)
+          return pageHistory(items, session.opencodeSessionId, range)
         },
       },
 

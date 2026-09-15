@@ -70,7 +70,7 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
       return { done, interrupt() {}, answerPermission() {}, dispose() {} }
     },
     async readTranscript() {
-      return []
+      return { items: [], hasMore: false }
     },
     async readArchive() {
       return undefined

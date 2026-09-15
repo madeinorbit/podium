@@ -19,12 +19,14 @@
  * warns about two directories away. So every path below ends in a send.
  */
 
+import { isDriverRefusal } from '@podium/agent-runtime'
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
 import type {
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeHistoryResultMessage,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
@@ -83,6 +85,7 @@ export const runtimeHandlers: Pick<
   | 'runtimeConfigureRequest'
   | 'runtimeDraftRequest'
   | 'runtimeSnapshotRequest'
+  | 'runtimeHistoryRequest'
   | 'runtimeQueueDrainAbandonedAck'
   | 'runtimeEventAck'
   | 'runtimeWatch'
@@ -391,6 +394,19 @@ export const runtimeHandlers: Pick<
         answer(await handle.draft.set(msg.operation.text))
       }
     }).catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
+  runtimeHistoryRequest: (ctx, msg) => {
+    const answer = (result: RuntimeHistoryResultMessage['result']): void => {
+      ctx.send({ type: 'runtimeHistoryResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+    }
+    const handle = handleFor(ctx, msg.sessionId)
+    if (!handle) {
+      answer({ reason: 'not_running' })
+      return
+    }
+    void Promise.resolve()
+      .then(() => handle.transcript.history(msg.range))
+      .then((page) => answer({ page }))
+      .catch((err: unknown) => answer(isDriverRefusal(err) ? err.refusal : { reason: 'not_running' }))
   },
 
   runtimeSnapshotRequest: (ctx, msg) => {

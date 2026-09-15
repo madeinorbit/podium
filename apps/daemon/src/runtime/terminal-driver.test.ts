@@ -1,3 +1,4 @@
+import { pageHistory } from '@podium/agent-runtime'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
  *
@@ -290,6 +291,7 @@ function makeWorld(
       if (bindOnLaunch) bindFrame(msg.sessionId)
     },
     readTranscript: options.readTranscript ?? (async () => []),
+    readHistory: async (session, range) => pageHistory(await (options.readTranscript ?? (async () => []))(session, { limit: 10000 }), session.sessionId, range),
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
     readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
     resources: () => ({ memoryBytes: 1024, oomKills: 0 }),

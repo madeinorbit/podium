@@ -1,3 +1,4 @@
+import { pageHistory } from '@podium/agent-runtime'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
  *
@@ -406,6 +407,7 @@ function makeWorld(options: WorldOptions = {}): {
         },
       })
     },
+    readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     readTranscript: async (session, range) =>
       // The harness's own file, read back — the one THIS process opened, not the
       // one the driver says it is on; see `transcriptFor`. Anchors are not

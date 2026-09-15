@@ -1,3 +1,4 @@
+import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
   prepareTerminalInstrumentation,
   type InstalledTerminalInstrumentation,
@@ -208,6 +209,10 @@ export interface TerminalRuntimeHost {
     session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
     range: { anchor?: string; limit: number },
   ): Promise<readonly TranscriptItem[]>
+  readHistory(
+    session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
+    range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] },
+  ): Promise<RuntimeHistoryPage>
   /** Locate the harness-native transcript for an archive, or throw with the
    *  harness's own reason when it declares none. */
   archiveTranscript(input: {
@@ -1730,17 +1735,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       transcript: {
         async history(range) {
           const reg = registration()
-          return host.readTranscript(
+          return host.readHistory(
             {
               sessionId: session.sessionId,
               agentKind: session.agentKind,
               cwd: reg?.cwd ?? session.cwd,
               ...(session.resume ? { resume: session.resume } : {}),
             },
-            {
-              ...(range.from?.pathHint ? { anchor: range.from.pathHint } : {}),
-              limit: range.limit,
-            },
+            range,
           )
         },
       },

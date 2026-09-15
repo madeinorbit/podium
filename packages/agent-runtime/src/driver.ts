@@ -1,8 +1,8 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { AgentRuntimeState, ResumeRef, TranscriptItem } from '@podium/model'
-import type { ProviderCursor } from '@podium/protocol'
+import type { AgentRuntimeState, ResumeRef } from '@podium/model'
+import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import type { AttachEndpoint, AttachRequest, SessionLease } from './attach.js'
 import type { SessionArchive, SessionBinding, SessionSnapshot } from './binding.js'
 import type {
@@ -90,7 +90,9 @@ export interface AgentSessionHandle {
 
   // ---- Transcript (CORE) ----
   readonly transcript: {
-    history(range: { from?: ProviderCursor; limit: number }): Promise<readonly TranscriptItem[]>
+    /** Live handle only; archive/lake reads are outside this contract. History
+     * cursors are opaque and distinct from observation cursors. */
+    history(range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] }): Promise<RuntimeHistoryPage>
   }
 
   // ---- Attach and lease (CORE) ----

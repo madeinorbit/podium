@@ -43,7 +43,7 @@ function hostWith(fail: (message: string) => Error): {
       }
     },
     async readTranscript() {
-      return []
+      return { items: [], hasMore: false }
     },
     async readArchive() {
       return undefined

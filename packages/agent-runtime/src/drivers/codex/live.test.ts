@@ -318,7 +318,7 @@ describeLive('a real subscription-authed session, end to end', () => {
     // THE CONVERSATION SURVIVED THE PROCESS, which is the whole basis of this
     // family's cheap parking — and, for this driver, of `adopt()` as well.
     expect(resumed.binding.resume?.value).toBe(resumeRef.value)
-    const history = await resumed.transcript.history({ limit: 50 })
+    const history = await resumed.transcript.history({ limit: 50 }).then((page) => page.items)
     expect(Array.isArray(history)).toBe(true)
     await resumed.kill()
   }, 240_000)

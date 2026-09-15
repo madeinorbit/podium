@@ -207,15 +207,15 @@ export function createDaemonClaudeSdkRuntime(deps: {
         dispose: child.dispose,
       }
     },
-    readTranscript: ({ sessionId, workdir, resumeValue, limit }) =>
-      deps.host.readTranscript(
+    readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
+      deps.host.readHistory(
         {
           sessionId,
           agentKind: 'claude-code',
           cwd: workdir,
           resume: { kind: 'claude-session', value: resumeValue },
         },
-        { limit },
+        range,
       ),
     async readArchive({ workdir, resumeValue }) {
       try {

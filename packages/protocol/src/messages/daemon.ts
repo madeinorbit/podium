@@ -56,6 +56,7 @@ import {
   RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeHistoryResultMessage,
 } from './runtime'
 import {
   AgentObservationMessage,
@@ -256,6 +257,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   // server holding a stream gap re-bootstraps through `runtimeSnapshotResult`.
   RuntimeInteractionAskedMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeHistoryResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
   /** The outcome of a sticky configure (POD-3081), appended at the END so the

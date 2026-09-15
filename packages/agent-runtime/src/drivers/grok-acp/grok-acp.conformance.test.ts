@@ -402,7 +402,7 @@ describe('grok-acp tool result transcript', () => {
       })
       await Promise.resolve()
 
-      let history = await handle.transcript.history({ limit: 20 })
+      let history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expectToolPair(history, 'completed', 'canonical completed output')
       expectToolPair(history, 'failed', 'command failed')
       expectToolPair(history, 'explicit-empty', '')
@@ -416,7 +416,7 @@ describe('grok-acp tool result transcript', () => {
         content: [{ type: 'text', text: '' }],
       })
       await Promise.resolve()
-      history = await handle.transcript.history({ limit: 20 })
+      history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expectToolPair(history, 'initially-absent', '')
     } finally {
       world.target.reset()
@@ -464,7 +464,7 @@ describe('grok-acp tool result transcript', () => {
       world.toolCall(sessionId, { toolCallId: 'duplicate-failed', kind: 'execute' })
       await handle.stop()
 
-      const history = await handle.transcript.history({ limit: 20 })
+      const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expectToolPair(history, 'duplicate-completed', 'first completed result')
       expectToolPair(history, 'duplicate-failed', 'first failed result')
       expect(
@@ -509,7 +509,7 @@ describe('grok-acp tool result transcript', () => {
       })
       await Promise.resolve()
       expect(
-        (await handle.transcript.history({ limit: 20 })).filter(
+        (await handle.transcript.history({ limit: 20 }).then((page) => page.items)).filter(
           (item) => item.toolResult !== undefined,
         ),
       ).toHaveLength(0)
@@ -525,7 +525,7 @@ describe('grok-acp tool result transcript', () => {
       })
       await Promise.resolve()
 
-      const liveHistory = await handle.transcript.history({ limit: 20 })
+      const liveHistory = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expectToolPair(liveHistory, 'out-of-order-completed', 'completed before call')
       expectToolPair(liveHistory, 'out-of-order-failed', 'failed before call')
       expectToolPair(liveHistory, 'ordinary', 'ordinary result')
@@ -536,7 +536,7 @@ describe('grok-acp tool result transcript', () => {
       if (!ref) return
       await handle.kill()
       const resumed = await driver.resume(ref, spec)
-      const replayedTools = (await resumed.transcript.history({ limit: 20 })).filter(
+      const replayedTools = (await resumed.transcript.history({ limit: 20 }).then((page) => page.items)).filter(
         (item) => item.role === 'tool',
       )
       expect(toolTranscriptShape(replayedTools)).toEqual(toolTranscriptShape(liveTools))
@@ -561,7 +561,7 @@ describe('grok-acp tool result transcript', () => {
       })
       await Promise.resolve()
       expectToolPair(
-        await resetHandle.transcript.history({ limit: 20 }),
+        await resetHandle.transcript.history({ limit: 20 }).then((page) => page.items),
         'out-of-order-completed',
         'fresh after reset',
       )
@@ -586,7 +586,7 @@ describe('grok-acp provider event identity', () => {
       for await (const event of handle.events('bootstrap')) {
         if (event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed')) break
       }
-      const history = await handle.transcript.history({ limit: 20 })
+      const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       const assistants = history.filter((item) => item.role === 'assistant')
       expect(assistants).toHaveLength(1)
       expect(assistants[0]?.text).toBe('samesame')
@@ -609,7 +609,7 @@ describe('grok-acp native controller sync', () => {
       await world.streamAssistantText(handle.binding.sessionId, ['headless answer'])
       world.completeProviderTurn(handle.binding.sessionId, 'refusal')
       await expect
-        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .poll(async () => await handle.transcript.history({ limit: 20 }).then((page) => page.items))
         .toContainEqual(expect.objectContaining({ role: 'assistant', text: 'headless answer' }))
 
       const holder = 'native-sync-test'
@@ -619,7 +619,7 @@ describe('grok-acp native controller sync', () => {
 
       world.appendNativeTurn(handle.binding.sessionId, 'native user prompt', 'native answer')
       const counts = async (): Promise<[number, number]> => {
-        const history = await handle.transcript.history({ limit: 20 })
+        const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
         return [
           history.filter((item) => item.role === 'user' && item.text === 'native user prompt')
             .length,
@@ -630,7 +630,7 @@ describe('grok-acp native controller sync', () => {
       await expect.poll(counts).toEqual([1, 1])
       await new Promise((resolve) => setTimeout(resolve, 20))
       await expect(counts()).resolves.toEqual([1, 1])
-      const history = await handle.transcript.history({ limit: 20 })
+      const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expect(
         history.filter((item) => item.role === 'assistant' && item.text === 'headless answer'),
       ).toHaveLength(1)
@@ -691,7 +691,7 @@ describe('grok-acp interrupt transcript marker', () => {
 
       // The notification was only a request. Until the pending prompt answers,
       // the turn is still open and its history must not claim it was stopped.
-      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
         expect.objectContaining({ event: 'interrupt' }),
       )
       await expect(handle.state()).resolves.toMatchObject({ phase: 'working' })
@@ -699,7 +699,7 @@ describe('grok-acp interrupt transcript marker', () => {
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
 
       await expect
-        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .poll(async () => await handle.transcript.history({ limit: 20 }).then((page) => page.items))
         .toContainEqual({
           id: 'grok-interrupt-1',
           role: 'user',
@@ -707,7 +707,7 @@ describe('grok-acp interrupt transcript marker', () => {
           ts: expect.any(String),
           event: 'interrupt',
         })
-      const history = await handle.transcript.history({ limit: 20 })
+      const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expect(history.filter((item) => item.event === 'interrupt')).toHaveLength(1)
       const emitted: RuntimeEvent[] = []
       for await (const event of handle.events('bootstrap')) {
@@ -815,7 +815,7 @@ describe('grok-acp interrupt transcript marker', () => {
         if (event.t === 'process' && event.ev.ev === 'adopted') break
       }
 
-      expect(await adopted.transcript.history({ limit: 20 })).toContainEqual(
+      expect(await adopted.transcript.history({ limit: 20 }).then((page) => page.items)).toContainEqual(
         expect.objectContaining({
           role: 'user',
           text: 'emit native output before the stop fence',
@@ -866,7 +866,7 @@ describe('grok-acp interrupt transcript marker', () => {
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
 
       await expect.poll(async () => (await handle.state()).phase).toBe('idle')
-      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
         expect.objectContaining({ event: 'interrupt' }),
       )
     } finally {
@@ -892,7 +892,7 @@ describe('grok-acp interrupt transcript marker', () => {
       await handle.interrupt()
 
       await expect.poll(async () => (await handle.state()).phase).toBe('idle')
-      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+      expect(await handle.transcript.history({ limit: 20 }).then((page) => page.items)).not.toContainEqual(
         expect.objectContaining({ event: 'interrupt' }),
       )
     } finally {
@@ -917,7 +917,7 @@ describe('grok-acp interrupt transcript marker', () => {
       world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
       await handle.stop()
 
-      const history = await handle.transcript.history({ limit: 20 })
+      const history = await handle.transcript.history({ limit: 20 }).then((page) => page.items)
       expect(history.filter((item) => item.event === 'interrupt')).toEqual([
         expect.objectContaining({
           id: 'grok-interrupt-1',

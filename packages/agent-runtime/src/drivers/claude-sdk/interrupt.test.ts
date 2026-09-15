@@ -87,7 +87,7 @@ function harness(options: {
       return handle
     },
     async readTranscript() {
-      return []
+      return { items: [], hasMore: false }
     },
     async readArchive() {
       return undefined

@@ -1,3 +1,4 @@
+import { pageHistory } from '../../history'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
@@ -95,8 +96,8 @@ function makeWorld(): {
         },
       }
     },
-    async readTranscript({ resumeValue, limit }) {
-      return (conversations.get(resumeValue) ?? []).slice(-limit)
+    async readTranscript({ resumeValue, range }) {
+      return pageHistory(conversations.get(resumeValue) ?? [], resumeValue, range)
     },
     async readArchive({ resumeValue }) {
       const items = conversations.get(resumeValue) ?? []
@@ -250,7 +251,7 @@ describe('claude-sdk conversation persistence', () => {
     )
     expect(resumed.binding.sessionId).toBe(session.binding.sessionId)
     expect(resumed.binding.resume).toEqual(resume)
-    const before = await resumed.transcript.history({ limit: 10 })
+    const before = await resumed.transcript.history({ limit: 10 }).then((page) => page.items)
     expect(before.map((item) => item.text)).toEqual([
       'first',
       'fixture reply',
@@ -263,7 +264,7 @@ describe('claude-sdk conversation persistence', () => {
     )
     await control.completeTurn(resumed.binding.sessionId)
     expect(local.starts.at(-1)).toBe(false)
-    const after = await resumed.transcript.history({ limit: 10 })
+    const after = await resumed.transcript.history({ limit: 10 }).then((page) => page.items)
     expect(after.map((item) => item.text)).toEqual([
       'first',
       'fixture reply',

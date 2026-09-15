@@ -1,3 +1,4 @@
+import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
@@ -1708,24 +1709,9 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       },
 
       transcript: {
-        async history(range): Promise<readonly TranscriptItem[]> {
+        async history(range) {
           const items = await readThreadItems(session)
-          /**
-           * `before` is the newest window — the same default the on-switch read
-           * uses, and what a `history({ limit })` with no anchor means.
-           *
-           * THE ANCHOR IS A POSITION, NOT A STRING, because `ProviderCursor
-           * .components` is `Record<string, number>` by schema. Codex's thread
-           * items are a BOUNDED, fully-ordered list, so an index into that order
-           * is a real cursor rather than a stand-in. A cursor from another
-           * thread carries a different `segmentId` and is refused rather than
-           * compared, which is the whole reason the segment is on the cursor.
-           */
-          if (!range.from) return items.slice(-range.limit)
-          if (range.from.segmentId !== session.threadId) return items.slice(-range.limit)
-          const anchor = range.from.components.item
-          if (anchor === undefined) return items.slice(-range.limit)
-          return items.slice(anchor + 1, anchor + 1 + range.limit)
+          return pageHistory(items, session.threadId, range)
         },
       },
 

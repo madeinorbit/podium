@@ -61,6 +61,8 @@ import type {
   RuntimeDraftResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeHistoryResultMessage,
+  RuntimeHistoryRange,
   RuntimeStageAttachmentResultMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
@@ -264,6 +266,7 @@ const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
 /** The observation bootstrap (POD-2023). Its result is the union the frame
  *  carries — a snapshot, or the typed refusal for a session that is not behind
  *  the contract. */
+const RUNTIME_HISTORY = daemonRequestKind<Payload<RuntimeHistoryResultMessage>>('rh')
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
 const RUNTIME_DRAFT = daemonRequestKind<Payload<RuntimeDraftResultMessage>>('rd')
 const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
@@ -394,6 +397,8 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(RUNTIME_LIFECYCLE, msg.requestId, machineId, payloadOf(msg)),
   runtimeAnswerResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_ANSWER, msg.requestId, machineId, msg.outcome),
+  runtimeHistoryResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_HISTORY, msg.requestId, machineId, payloadOf(msg)),
   runtimeSnapshotResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_SNAPSHOT, msg.requestId, machineId, payloadOf(msg)),
   runtimeDraftResult: (broker, machineId, msg) =>
@@ -886,6 +891,22 @@ export class DaemonRpcService {
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
       (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId, cancelRowId }),
+      machineId,
+    )
+  }
+
+  /** Live-handle history. Archive/lake and handle-free reads stay in readTranscript;
+   * their cursor namespace must not be mixed with runtime history cursors. */
+  async runtimeHistory(
+    sessionId: SessionId,
+    machineId: MachineId,
+    range: RuntimeHistoryRange,
+  ): Promise<Payload<RuntimeHistoryResultMessage>> {
+    return await this.request(
+      RUNTIME_HISTORY,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({ type: 'runtimeHistoryRequest', requestId, sessionId, range }),
       machineId,
     )
   }

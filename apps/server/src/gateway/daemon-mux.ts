@@ -237,6 +237,7 @@ const DISPATCH: Dispatcher = {
   runtimeConfigureResult: toRpc,
   runtimeAnswerResult: toRpc,
   runtimeSnapshotResult: toRpc,
+  runtimeHistoryResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),

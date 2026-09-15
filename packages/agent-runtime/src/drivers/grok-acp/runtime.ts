@@ -1,3 +1,4 @@
+import { pageHistory } from '../../history'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 /**
  * Grok as a real server-family session over `grok agent stdio` (ACP).
@@ -1717,13 +1718,8 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       transcript: {
-        async history(range): Promise<readonly TranscriptItem[]> {
-          if (!range.from || range.from.segmentId !== session.grokSessionId) {
-            return session.transcriptItems.slice(-range.limit)
-          }
-          const anchor = range.from.components.item
-          if (anchor === undefined) return session.transcriptItems.slice(-range.limit)
-          return session.transcriptItems.slice(anchor + 1, anchor + 1 + range.limit)
+        async history(range) {
+          return pageHistory(session.transcriptItems, session.grokSessionId, range)
         },
       },
 

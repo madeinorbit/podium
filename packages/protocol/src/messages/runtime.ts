@@ -533,6 +533,41 @@ export const SessionSnapshot = z.object({
 })
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>
 
+/** Live-handle history only. Offline/lake/predecessor-chain and handle-free
+ * archive reads remain transcriptRead responsibilities. These cursors belong to
+ * history, not the runtime event stream, and must not cross those boundaries.
+ * Both directions exclude the anchor and return items in chronological order.
+ * Without an anchor, before reads the newest window; after reads the oldest.
+ * head/tail identify the first/last returned item; hasMore is directional.
+ */
+export const RuntimeHistoryRange = z.object({
+  from: ProviderCursor.optional(),
+  direction: z.enum(['before', 'after']).default('before'),
+  limit: z.number().int().positive().max(10000),
+})
+export type RuntimeHistoryRange = z.infer<typeof RuntimeHistoryRange>
+export const RuntimeHistoryPage = z.object({
+  items: z.array(TranscriptItem).readonly(),
+  head: ProviderCursor.optional(),
+  tail: ProviderCursor.optional(),
+  hasMore: z.boolean(),
+})
+export type RuntimeHistoryPage = z.infer<typeof RuntimeHistoryPage>
+export const RuntimeHistoryRequestMessage = z.object({
+  type: z.literal('runtimeHistoryRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  range: RuntimeHistoryRange,
+})
+export type RuntimeHistoryRequestMessage = z.infer<typeof RuntimeHistoryRequestMessage>
+export const RuntimeHistoryResultMessage = z.object({
+  type: z.literal('runtimeHistoryResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  result: z.union([z.object({ page: RuntimeHistoryPage }), Refusal]),
+})
+export type RuntimeHistoryResultMessage = z.infer<typeof RuntimeHistoryResultMessage>
+
 /** server → daemon: give me this session's observation bootstrap, so I can
  *  resume the stream from its cursor rather than from nothing. */
 export const RuntimeSnapshotRequestMessage = z.object({
@@ -643,6 +678,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeAnswerRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeSnapshotRequestMessage,
+  RuntimeHistoryRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
   RuntimeWatchMessage,
@@ -851,6 +887,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   RuntimeAnswerResultMessage,
   RuntimeInteractionAskedMessage,
   RuntimeSnapshotResultMessage,
+  RuntimeHistoryResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
   // APPENDED for the same reason as the command union's last arm: the golden
@@ -884,6 +921,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeConfigureRequest',
   'runtimeDraftRequest',
   'runtimeSnapshotRequest',
+  'runtimeHistoryRequest',
   'runtimeQueueDrainAbandonedAck',
   'runtimeEventAck',
   'runtimeWatch',
@@ -896,6 +934,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
   'runtimeSnapshotResult',
+  'runtimeHistoryResult',
   'runtimeEvent',
   'runtimeFineEvent',
 ] as const satisfies readonly RuntimeMessage['type'][]

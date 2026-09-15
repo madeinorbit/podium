@@ -51,6 +51,7 @@ import {
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
   RuntimeSnapshotRequestMessage,
+  RuntimeHistoryRequestMessage,
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
   RuntimeWatchMessage,
@@ -174,6 +175,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RuntimeAnswerRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeSnapshotRequestMessage,
+  RuntimeHistoryRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
   RuntimeEventAckMessage,
   /** The desired watch level for a session's live observation (POD-2293).
