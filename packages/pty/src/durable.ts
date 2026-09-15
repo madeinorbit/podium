@@ -8,7 +8,31 @@
  * P2b narrows to `DurableProcess`. `createAltScreenStripper` lives here in source
  * but is exported from `./screen`: a title/alt-screen is output interpretation,
  * and P2c moves it there.
+ *
+ * SOLE ENTRY (P2b): production daemon code reaches a process ONLY through
+ * `DurableProcess` (`createDurableProcess` / `durableProcessFor`). The raw
+ * per-host functions below remain exported for tests and for the adapters
+ * themselves; `apps/daemon/src/durable-door.test.ts` forbids non-test daemon
+ * files from importing them.
  */
+
+// Sole entry — the only way production code spawns, locates, kills or lists.
+export {
+  type DurableBackend,
+  type DurableKind,
+  type DurableAttachOptions,
+  type DurableAttachment,
+  type DurableAdapter,
+  type DurableProcess,
+  type Durable as DurableLegacy,
+  abducoDurableAdapter,
+  hostDurableAdapter,
+  createDurableProcess,
+  createDurable,
+  sweepStaleDurableBindTemps,
+  durableProcessFor,
+  durableFor,
+} from './durable-process.js'
 
 export {
   abducoAttachArgv,
