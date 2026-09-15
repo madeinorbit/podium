@@ -49,10 +49,15 @@ export interface AgentSessionHandle {
    *  is data loss wearing a lifecycle verb's name. */
   hibernate(): Promise<Refusal | { ok: true }>
   kill(): Promise<void>
+  /** daemon-internal (POD-3990): no server-side frame, called only by
+   *  apps/daemon/src/runtime/machine-runtime.ts adoption/list
+   *  (`handle.health().alive`). */
   health(): Promise<SessionHealth>
 
   // ---- Identity (CORE) ----
   snapshot(): Promise<SessionSnapshot>
+  /** daemon-internal (POD-3990): no server-side frame, no prod caller today;
+   *  the implementations serve the claude-sdk archive path (native store). */
   export(): Promise<SessionArchive>
 
   // ---- Turns and control (CORE) ----
@@ -70,6 +75,7 @@ export interface AgentSessionHandle {
   ): Promise<InteractionAnswerOutcome>
 
   // ---- Interactions (CORE) ----
+  /** daemon-internal (POD-3990): no server-side frame, no prod caller today. */
   interactions(): Promise<readonly PendingInteraction[]>
 
   // ---- Observation (CORE) ----
@@ -88,7 +94,12 @@ export interface AgentSessionHandle {
   }
 
   // ---- Attach and lease (CORE) ----
+  /** daemon-internal (POD-3990): no server-side frame, called only by
+   *  apps/daemon/src/control/session.ts native-view path. */
   attach(req: AttachRequest): Promise<AttachEndpoint | Refusal>
+  /** daemon-internal (POD-3990): no server-side frame, called only by
+   *  apps/daemon/src/control/session.ts native-view path (release; acquire
+   *  via attach). Covers acquire/release/state. */
   readonly lease: {
     acquire(holder: string, kind: SessionLease['kind']): Promise<SessionLease | Refusal>
     release(holder: string): Promise<void>
@@ -101,6 +112,7 @@ export interface AgentSessionHandle {
     set(text: string): Promise<Refusal | { ok: true }>
   }
   configure(request: ConfigureRequest): Promise<Refusal | { ok: true }>
+  /** daemon-internal (POD-3990): no server-side frame, no prod caller today. */
   usage(): Promise<UsageSnapshot | Refusal>
 }
 
