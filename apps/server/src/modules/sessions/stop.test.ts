@@ -168,6 +168,32 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(after?.branch).toBe('issue/1-stop-target')
   })
 
+  it('POD-3989: tries lifecycle(stop) first and skips the kill frame when graceful settles', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    await bindLive(reg, sessionId, '/r')
+    const rpc = (reg.modules.sessions as unknown as {
+      rpc: { runtimeLifecycle: (input: never, machineId: never) => Promise<never> }
+    }).rpc
+    const lifecycleCalls: { sessionId: string; verb: string }[] = []
+    vi.spyOn(rpc, 'runtimeLifecycle').mockImplementation(async (input: {
+      sessionId: string
+      verb: 'stop' | 'hibernate' | 'kill'
+    }) => {
+      lifecycleCalls.push({ sessionId: input.sessionId, verb: input.verb })
+      return { sessionId: input.sessionId, result: { ok: true as const } } as never
+    })
+
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    expect(r.ok).toBe(true)
+    // Graceful first: one lifecycle(stop), no kill escalation when it settles.
+    expect(lifecycleCalls).toEqual([{ sessionId, verb: 'stop' }])
+    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
+  })
+
   it('refuses the stop when the durable parking write fails before killing the process', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
