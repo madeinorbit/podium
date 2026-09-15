@@ -33,6 +33,7 @@ import {
   type RuntimeEvent,
 } from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
+import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -774,6 +775,41 @@ describe('send receipts', () => {
     expect(world.written[1]).toBe('\x1b[200~stop and do this\x1b[201~')
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome === 'accepted') expect(resolved.deliveredAs).toBe('interrupt')
+  })
+
+  it('says once, out loud, when the hook channel never answered instead of downgrading silently', async () => {
+    // THE DEFECT, STATED AS A TEST. A Claude session whose per-session settings
+    // file never installed still boots: the driver arms a hook watch per send,
+    // no hook ever fires, and every send falls back to `unverified` with no
+    // reason named anywhere. The channel absence must be said once, loudly,
+    // rather than producing weaker receipts forever with no explanation.
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'pod-3983-silent-hook', write: (record) => records.push(record) })
+    try {
+      const driver = world.runtime.driverFor('claude-code', CLAUDE)
+      const session = await driver.create(SPEC)
+      // No hookOnSubmit and no echo: the instrumentation channel never answered.
+      const first = await session.send(
+        { text: 'first without a channel' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(first.outcome).toBe('unverified')
+      const warned = records.filter(
+        (record) => record.level === 'warn' && String(record.msg).includes('hook'),
+      )
+      expect(warned).toHaveLength(1)
+      // Said ONCE: the second silent downgrade adds no second line.
+      const second = await session.send(
+        { text: 'second without a channel' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(second.outcome).toBe('unverified')
+      expect(
+        records.filter((record) => record.level === 'warn' && String(record.msg).includes('hook')),
+      ).toHaveLength(1)
+    } finally {
+      dispose()
+    }
   })
 })
 
