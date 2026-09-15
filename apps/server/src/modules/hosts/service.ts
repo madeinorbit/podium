@@ -6,6 +6,7 @@ import type {
   MachineId,
   SessionId,
 } from '@podium/model'
+import type { DriverFamily } from '@podium/harness/metadata'
 import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
@@ -79,6 +80,14 @@ export interface HostSessionView {
   lastResumedAtMs: number
   lastInputAtMs: number
   lastOutputAtMs: number
+  /**
+   * Bound driver's family (POD-2290), projected by relay.ts. Absent = unknown:
+   * an unbound session, an older daemon, or an id no manifest claims — read as
+   * "assume a terminal", the same conservative default the client wire uses.
+   * The park gate reads it to decide whether terminal-quiet facts mean
+   * anything for this session (this issue).
+   */
+  driverFamily?: DriverFamily | undefined
   /**
    * Whether this session's issue is finished — done stage, an explicit close
    * reason, or deleted. Absent when the session has no issue at all.

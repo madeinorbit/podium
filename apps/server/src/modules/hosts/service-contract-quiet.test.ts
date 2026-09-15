@@ -220,3 +220,91 @@ describe('contract-session quiet-gate reachability (characterization)', () => {
     expect(sessions[0]?.status).toBe('live')
   })
 })
+
+/**
+ * THE FIX (this issue): the terminal-quiet overlay is a PTY-only rule, and a
+ * contract-backed session's quiet is read from contract-side facts (phase +
+ * event-time recency + resume) instead of never-moving terminal stamps.
+ *
+ * These fail before the fix (the gate folds PTY stamps for every session) and
+ * pass after (it branches on `driverFamily`, projected by relay.ts; absent
+ * means unknown and keeps the PTY rule). The two pins after them guard the
+ * demarcation: PTY behavior is unchanged, and the all-old contract shape keeps
+ * parking exactly as the characterization above documents.
+ */
+describe('contract facts gate (fix)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('ignores a fresh terminal stamp for an observed contract-backed session — the output-quiet overlay is PTY-only', async () => {
+    // Phase idle for an hour with a resume ref and valid proof: the only thing
+    // standing between this session and the park is a 10-second-old output
+    // stamp on a session with no terminal. A contract-backed session must not
+    // be kept alive by terminal bytes it can no longer produce.
+    const sessions = [
+      contractSession(asSessionId('contract-stale-stamp'), {
+        driverFamily: 'server',
+        lastOutputAtMs: NOW - 10_000,
+      }),
+    ]
+    const { service, parked } = harness({
+      sessions,
+      proven: new Set(['contract-stale-stamp']),
+    })
+
+    await service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual(['contract-stale-stamp'])
+  })
+
+  it('reads unobserved contract quiet from event-time recency, not terminal stamps', async () => {
+    // Last contract event five hours ago, but a 10-second-old output stamp
+    // (stale PTY past from before the contract bind). The 4 h floor must be
+    // measured against lastActiveAt — the contract-side recency fact — so this
+    // parks; folding the stamp would call a silent session busy.
+    const sessions = [
+      unobservedContract(asSessionId('contract-stale-stamp'), {
+        driverFamily: 'server',
+        lastOutputAtMs: NOW - 10_000,
+      }),
+    ]
+    const { service, parked } = harness({ sessions, proven: new Set() })
+
+    await service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual(['contract-stale-stamp'])
+  })
+
+  it('pin: a PTY-backed session with a fresh output stamp stays protected', async () => {
+    const sessions = [
+      unobservedContract(asSessionId('pty-busy'), {
+        driverFamily: 'terminal',
+        lastOutputAtMs: NOW - 10_000,
+      }),
+    ]
+    const { service, parked } = harness({ sessions, proven: new Set() })
+
+    await service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual([])
+    expect(sessions[0]?.status).toBe('live')
+  })
+
+  it('pin: an all-old contract-backed session keeps parking as characterized', async () => {
+    const sessions = [
+      unobservedContract(asSessionId('contract-old'), { driverFamily: 'server' }),
+    ]
+    const { service, parked } = harness({ sessions, proven: new Set() })
+
+    await service.onHostMetrics(asMachineId('local'), sample(10))
+
+    expect(parked).toEqual(['contract-old'])
+  })
+})
