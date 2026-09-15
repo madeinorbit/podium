@@ -1,6 +1,7 @@
 import { parseIssueEventRowId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { GrantEdgeVisibilityPolicy, NoDelegationsGranted, SyncRepository } from '@podium/sync/bootstrap-worker'
+import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
+import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { makeFeedVisibility } from '../feed-visibility'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import type { WorldIndexReader } from '../modules/world-index'
