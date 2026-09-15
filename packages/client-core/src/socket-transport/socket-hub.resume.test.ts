@@ -123,3 +123,28 @@ describe('a reconnecting hub presents the replica position', () => {
     expect(fields).toHaveBeenCalledTimes(1)
   })
 })
+
+
+it('advertises HTTP sync at attach and hello for the shared web/native hub', () => {
+  const socket = new FakeSocket()
+  const makeSocket = vi.fn((_url: string) => socket)
+  const hub = new SocketHub({
+    url: 'ws://x/client?v=3&workspace=blue',
+    makeSocket,
+    feed: {
+      syncHttp: true,
+      helloFields: () => POSITION,
+      connected() {}, disconnected() {}, frame() {},
+    },
+  })
+  try {
+    hub.connect()
+    const url = new URL(makeSocket.mock.calls[0]![0]!)
+    expect(url.searchParams.getAll('cap')).toContain('sync.http.v1')
+    expect(url.searchParams.get('workspace')).toBe('blue')
+    socket.open()
+    expect(socket.hello()?.caps).toContain('sync.http.v1')
+  } finally {
+    hub.dispose()
+  }
+})

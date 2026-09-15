@@ -8,7 +8,7 @@
  */
 
 import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
-import { versionSupport } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, versionSupport } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -497,6 +497,12 @@ export function attachWebSockets(
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
       if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {
         return new Response('Upgrade Required', { status: 426 })
+      }
+      // Capabilities must be advertised before upgrade as well as in hello:
+      // an HTTP 426 cannot be sent once the WebSocket has been accepted.
+      if (pathname === '/client' &&
+        !url.searchParams.getAll('cap').includes(CAP_SYNC_HTTP_V1)) {
+        return new Response('Upgrade Required: sync.http.v1', { status: 426 })
       }
       const origin = request.headers.get('origin')
       const originHost = request.headers.get('host')

@@ -109,6 +109,17 @@ export function runChecks(input: AuditInput): Finding[] {
     return findings
   }
 
+  // Wire 3 deliberately changes admission, while the daemon floor stays at 1.
+  // The wire-2 identity bridge must have its own mechanical retirement.
+  const edge = input.read('apps/server/src/gateway/wire-feed-edge.ts')
+  const wire = Number(versionSource?.match(/export const WIRE_VERSION\s*=\s*(\d+)/)?.[1] ?? 0)
+  if (wire >= 3 && min < 3 && edge !== null &&
+    !/version: 2,[\s\S]*expiresWhenMinSupportedReaches: 3/.test(edge)) {
+    findings.push({ check: 'wire-two-window-covered',
+      where: 'apps/server/src/gateway/wire-feed-edge.ts',
+      detail: 'The retained wire-2 frame dialect needs an expiring identity adapter after the HTTP cutover.' })
+  }
+
   const expiresAt = Number(adapterSource.match(EXPIRES_RE)?.[1] ?? Number.NaN)
   if (!Number.isInteger(expiresAt)) {
     findings.push({
@@ -264,6 +275,13 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
   })
   const adapter = base.read(ADAPTER_FILE) ?? ''
   return [
+    {
+      name: 'wire-2 support loses its expiry', expect: 'wire-two-window-covered',
+      input: overlay({
+        'apps/server/src/gateway/wire-feed-edge.ts':
+          (base.read('apps/server/src/gateway/wire-feed-edge.ts') ?? '').replace('expiresWhenMinSupportedReaches: 3', 'retireLater: true'),
+      }),
+    },
     {
       name: 'expired adapter still present',
       expect: 'expired-adapter-still-present',

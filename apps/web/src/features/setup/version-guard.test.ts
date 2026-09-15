@@ -1,3 +1,6 @@
+import { IDBFactory } from 'fake-indexeddb'
+import { actorUser, asUserId, asMutationId } from '@podium/model'
+import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -701,5 +704,53 @@ describe('checkServedAssets and pages this server did not serve', () => {
       'replaced',
     )
     expect(currentSkew()?.source).toBe('assets-replaced')
+  })
+})
+
+
+describe('HTTP cutover preserves queued work', () => {
+  it('reloads toward the enforcing wire, bounds stale-bundle retries, and reopens the unchanged outbox', async () => {
+    const factory = new IDBFactory()
+    vi.stubGlobal('indexedDB', factory)
+    const deleteDatabase = vi.spyOn(factory, 'deleteDatabase')
+    const principal = asUserId('cutover-user')
+    const entry = {
+      mutationId: asMutationId('queued-before-cutover'),
+      command: { name: 'issues.close', version: 1, delivery: 'offline-eligible' as const },
+      input: { entityId: 'keep-me' },
+      partitionKey: 'issue:keep-me',
+      attribution: { actor: actorUser(principal), onBehalfOf: principal },
+      state: 'queued' as const, queuedAt: 123, attempts: 0,
+    }
+    const open = () => IndexedDbSyncStore.open({ factory: factory as never, databaseName: 'cutover-outbox', onDegraded: error => { throw new Error(JSON.stringify(error)) } })
+    const db = await open()
+    expect(await db.viewFor(principal).outbox.apply({
+      put: [entry], expect: [{ mutationId: entry.mutationId, expect: 'absent' }],
+    })).toEqual({ ok: true })
+    db.close()
+    // Emulate a stale cached bundle: identical digest, next wire version.
+    // This is the precise cap-only rollout signal, independent of schema changes.
+    const fetch = vi.fn().mockResolvedValue(versionResponse({
+      wireVersion: WIRE_VERSION + 1, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
+    }))
+    vi.stubGlobal('fetch', fetch)
+    expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    expect(await checkServerVersion(ORIGIN)).toBe('blocked')
+    expect(reload).toHaveBeenCalledTimes(2)
+    expect(unregister).toHaveBeenCalledTimes(2)
+    // The matching bundle succeeds and clears the budget after the upgrade.
+    fetch.mockResolvedValue(versionResponse({
+      wireVersion: WIRE_VERSION, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
+    }))
+    expect(await checkServerVersion(ORIGIN)).toBe('ok')
+    expect(store.has(COUNTER_KEY)).toBe(false)
+    const reopened = await open()
+    try {
+      expect(await reopened.viewFor(principal).outbox.read()).toEqual([entry])
+      expect(deleteDatabase).not.toHaveBeenCalled()
+    } finally {
+      reopened.close()
+    }
   })
 })

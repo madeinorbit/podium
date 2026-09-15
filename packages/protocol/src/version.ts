@@ -47,7 +47,10 @@
  *  / `feedRescope` / `feedResyncRequired`, with the certified range and the
  *  retention floor REQUIRED on every frame that carries rows. WIRE 1 was the
  *  pre-rewrite `metadataDelta` + full-list-snapshot pipeline. */
-export const WIRE_VERSION = 2
+// HTTP sync enforcement is breaking even though its additive schemas do not
+// change the WS digest. /version must make cached wire-2 web bundles reload.
+// The daemon support floor remains 1; only the client plane requires the cap.
+export const WIRE_VERSION = 3
 
 /**
  * @deprecated Use {@link versionSupport}. This equality check is NOT what the

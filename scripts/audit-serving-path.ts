@@ -168,7 +168,6 @@ export function runChecks(input: AuditInput): Finding[] {
   // lines in the mux leaves every other check here perfectly green.
   const mux = input.read(MUX_FILE)
   for (const [what, pattern] of [
-    ['attach', /\bfeed\.attach\(/],
     ['detach', /\bfeed\.detach\(/],
     ['renegotiate at hello', /\bfeed\.renegotiate\(/],
   ] as const) {
@@ -181,6 +180,18 @@ export function runChecks(input: AuditInput): Finding[] {
         'admitted to the feed is a connection served nothing — and every absence check in this ' +
         'gate would still pass, which is exactly why this is checked positively.',
     })
+  }
+
+  // Enforcement must precede any entity admission; HTTP bootstrap records
+  // remain legal NDJSON even after the WebSocket push producer is removed.
+  if (mux !== null && /\bfeed\.attach\(/.test(code(mux))) {
+    findings.push({ check: 'no-pre-hello-feed', where: MUX_FILE,
+      detail: 'Admit only through capability-checked hello; pre-hello attach can push a legacy world.' })
+  }
+  const upgrade = input.read('apps/server/src/gateway/ws-server.ts')
+  if (upgrade !== null && !/pathname === '\/client'[\s\S]*getAll\('cap'\)\.includes\(CAP_SYNC_HTTP_V1\)/.test(upgrade)) {
+    findings.push({ check: 'http-cap-required-at-attach', where: 'apps/server/src/gateway/ws-server.ts',
+      detail: 'The client WebSocket attach must refuse peers without the HTTP sync capability.' })
   }
 
   // ---- 4. the funnel has ONE tail ---------------------------------------
@@ -310,6 +321,14 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     sources: () => [...base.sources(), ...extraSources],
   })
   return [
+    {
+      name: 'pre-hello feed admission returns', expect: 'no-pre-hello-feed',
+      input: overlay({ [MUX_FILE]: `${base.read(MUX_FILE)}\nfeed.attach(peer)` }),
+    },
+    {
+      name: 'HTTP capability attach enforcement disappears', expect: 'http-cap-required-at-attach',
+      input: overlay({ 'apps/server/src/gateway/ws-server.ts': '// no capability check' }),
+    },
     ...["import '../store'", "const store = await import('../store')", "const store = require('../store')"].map(source => ({
       name: `HTTP sync cannot load store via ${source}`,
       expect: 'sync-route-no-store-reads',

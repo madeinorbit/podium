@@ -87,3 +87,30 @@ describe('native message attribution', () => {
     expect(delivered).toEqual(['mystery'])
   })
 })
+
+
+describe('HTTP sync capability cutover', () => {
+  it('refuses cap-less client attaches with 426 and accepts the upgraded client', async () => {
+    const { attachWebSockets } = await import('./ws-server')
+    const handle = attachWebSockets({} as never, {}, { timers: SILENT_TIMERS })
+    const upgrade = vi.fn(() => true)
+    const server = { upgrade, port: 0, stop() {} }
+    try {
+      for (const query of ['', '?v=2', '?v=3', '?v=3&cap=other']) {
+        const response = await handle.handleRequest(new Request(`http://localhost/client${query}`), server)
+        expect(response?.status).toBe(426)
+      }
+      expect(upgrade).not.toHaveBeenCalled()
+      expect(await handle.handleRequest(
+        new Request('http://localhost/client?v=3&cap=sync.http.v1'), server,
+      )).toBeUndefined()
+      expect(upgrade).toHaveBeenCalledTimes(1)
+      for (const path of ['/daemon?v=1', '/machine?v=2']) {
+        expect(await handle.handleRequest(new Request(`http://localhost${path}`), server)).toBeUndefined()
+      }
+      expect(upgrade).toHaveBeenCalledTimes(3)
+    } finally {
+      await handle.close()
+    }
+  })
+})

@@ -12,6 +12,7 @@ import { attachTestClient } from '../test-support/client-transport'
 
 import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
 import {
+  CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CLIENT_PLANE_CLASS,
   type ClientMessage,
@@ -190,6 +191,7 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     // someone else must still be delivered as itself.
     h.mux.routeClientFrame(h.id, {
       type: 'hello',
+      caps: [CAP_SYNC_HTTP_V1],
       clientId: 'attacker',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -352,7 +354,7 @@ describe('the connection lifecycle', () => {
       type: 'hello' as const,
       clientId: 'forged-client-id',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: [CAP_TERMINAL_INPUT_BINARY_V1],
+      caps: [CAP_SYNC_HTTP_V1, CAP_TERMINAL_INPUT_BINARY_V1],
     }
 
     expect(h.mux.acceptsClientInputBinary(h.id)).toBe(false)
@@ -391,6 +393,7 @@ describe('the connection lifecycle', () => {
     const next = attachTestClient(h.mux, () => {})
     h.mux.routeClientFrame(next, {
       type: 'hello',
+      caps: [CAP_SYNC_HTTP_V1],
       clientId: h.id,
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -412,6 +415,7 @@ describe('the connection lifecycle', () => {
     })
     h.mux.routeClientFrame(next, {
       type: 'hello',
+      caps: [CAP_SYNC_HTTP_V1],
       clientId: h.id,
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -539,4 +543,19 @@ it('holds control and both input encodings behind a pending attach', async () =>
   attach.resolve()
   await Promise.all([attached, controlled, text, binary])
   expect(seen).toEqual(['attach', 'requestControl', 'input', 'binary'])
+})
+
+
+describe('HTTP sync hello enforcement', () => {
+  it('refuses a cap-less hello before dispatch and serves no feed', async () => {
+    const h = await harness()
+    const terminate = vi.fn()
+    h.registry.get(h.id)!.terminate = terminate
+    const dispatches = vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls.length
+    await h.mux.routeClientFrame(h.id, { type: 'hello' })
+    expect(terminate).toHaveBeenCalledOnce()
+    expect(h.registry.get(h.id)?.entityServingRefused).toBe(true)
+    expect(vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls).toHaveLength(dispatches)
+    expect(h.sent.some(frame => frame.type === 'feedBootstrap')).toBe(false)
+  })
 })

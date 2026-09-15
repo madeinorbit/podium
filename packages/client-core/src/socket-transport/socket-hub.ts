@@ -829,7 +829,9 @@ export class SocketHub {
 
     let socket: WebSocketLike
     try {
-      socket = this.makeSocket(this.serverUrl)
+      const attachUrl = new URL(this.serverUrl)
+      if (this.opts.feed?.syncHttp) attachUrl.searchParams.append('cap', CAP_SYNC_HTTP_V1)
+      socket = this.makeSocket(attachUrl.href)
     } catch (err) {
       // A constructor throw before first contact is a config problem (bad URL) —
       // surface it; once we have connected successfully, retry like any other drop.

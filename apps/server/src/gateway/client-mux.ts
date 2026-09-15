@@ -261,9 +261,8 @@ export class ClientMux {
     void this.deps.bootstrap(conn).catch((error: unknown) => {
       log.error('client non-session bootstrap failed', { clientId: id, error })
     })
-    // Start feed admission at wire 1, before hello can negotiate capabilities.
-    // This orders invocation only; it does not wait for either non-feed task.
-    this.deps.feed.attach(this.peerOf(conn), feedPrincipalOf(conn.principal), conn.principal)
+    // Feed admission waits for a capability-bearing hello. Even an unscoped
+    // authority must not push a world before the capability has been checked.
     return id
   }
 
@@ -346,6 +345,14 @@ export class ClientMux {
   routeClientFrame(id: string, msg: ClientMessage): Promise<void> {
     const conn = this.deps.registry.get(id)
     if (!conn) return Promise.resolve()
+    if (msg.type === 'hello' && !msg.caps?.includes(CAP_SYNC_HTTP_V1)) {
+      // The attach URL already returned 426 to ordinary old clients. Refuse a
+      // peer that advertised the cap there but omits it from the actual hello.
+      this.deps.feed.detach(conn.id)
+      conn.entityServingRefused = true
+      conn.terminate?.()
+      return Promise.resolve()
+    }
     if (clientPlaneClassFor(msg.type) === null || clientPortsFor(msg.type) === null) {
       log.warn('refused an unclassified client frame', { frameType: msg.type })
       return Promise.resolve()

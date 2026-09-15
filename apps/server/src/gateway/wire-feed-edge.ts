@@ -184,6 +184,19 @@ export class WireFeedEdge {
   constructor(private readonly deps: WireFeedEdgeDeps) {
     this.registry = new WireVersionAdapterRegistry<FeedFrame, ServerMessage, LegacyPeer>()
     this.register(new IdentityWireAdapter())
+    // Wire 3 changes client admission, not frame shapes. Preserve wire 2 in
+    // the shared window while the daemon minimum remains unchanged.
+    this.register({
+      version: 2,
+      name: 'identity-v2',
+      expressesEvict: true,
+      expiry: {
+        expiresWhenMinSupportedReaches: 3,
+        deleteByPhase: 'wire-2 support retirement',
+        rationale: 'HTTP capability enforcement changes admission, not feed framing',
+      },
+      translate: (frame) => [frame],
+    })
     // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
     // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails
     // while this registration exists.

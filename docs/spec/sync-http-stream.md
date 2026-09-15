@@ -123,3 +123,59 @@ Legacy push support remains only for clients without the capability until the pr
 native-build rollout condition is met. This additive feature does not change `WIRE_VERSION`.
 The HTTP schemas do not join the WebSocket `ServerMessage`/`ClientMessage` unions, so this
 addition does not change `wireSchemaDigest()` or trigger digest-skew reloads by itself.
+
+
+## Cutover
+
+Deployment order is mandatory across server, web, and native:
+
+1. Land the server endpoints, web client, and Expo bundle together, all advertising
+   `CAP_SYNC_HTTP_V1`. During this bridge release, cap-less clients still receive
+   the pushed world and tRPC catch-up. POD-3944 must land before bridge deletion.
+2. Cut the native build, bumping `ios.buildNumber` as described in
+   [the iOS release guide](../mobile-ios-release.md), and confirm installation on
+   controlled devices. Device verification is **NOT RUN** on this machine:
+   the human operator owns it in POD-4034; web evidence never establishes native success.
+3. Enforce HTTP sync on the client plane. Clients repeat `sync.http.v1` as a
+   `cap` WebSocket URL parameter so the attach can return HTTP **426 Upgrade Required**
+   before upgrade; the server also checks `hello.caps` and terminates a peer that
+   contradicts its URL advertisement. No feed admission occurs before that hello.
+   Both web and native use the shared SocketHub advertisement.
+4. Delete the WebSocket bootstrap and v2 tRPC catch-up bridge in the **same release**
+   as enforcement. Stage 1 is a reviewable preparation commit, not a deployable
+   intermediate rollout; Stage 2 starts only after the coordinator confirms
+   POD-3944 has landed.
+
+### Cached clients and the upgrade signal
+
+`version-guard.ts` acts on the `/version` wire version and schema digest, not on
+WebSocket HTTP 426 (browser WebSocket errors do not expose that response status).
+The additive HTTP schemas and capability alone change neither digest nor version.
+Therefore this enforcement deliberately bumps `WIRE_VERSION` from 2 to **3**:
+`classifySkew` classifies a cached wire-2 bundle as too old even though it remains
+inside the shared support window. The existing boot/reconnect version check evicts
+service workers and Cache Storage and reloads the document. It does not delete
+IndexedDB or the durable outbox. The guard permits at most `MAX_RELOADS = 2` attempts
+against one served build, then reports the exhausted budget instead of looping.
+Deploy matching server and client bundles so the reload resolves the disagreement.
+
+`MIN_SUPPORTED_VERSION` remains **1** for the daemon edge; `/daemon` and `/machine`
+do not require this client-only capability. Wire 3 does not change feed frame shapes,
+so the shared registry retains an identity adapter for wire 2 with mechanical expiry
+at minimum version 3. The v1 adapter keeps its existing expiry at minimum version 2.
+
+### v1 catch-up audit decision
+
+Retain `sync.changesSince` for this cutover. `engine/wiring.ts` still constructs
+`LegacyWireV1Feed` when no feed sink is supplied, and its `fetchChangesSince` hook
+calls that endpoint. The shared support floor also remains 1. This is a supported
+legacy-wire compatibility dependency, not the v2 `sync.feedChangesSince` bridge;
+removing it safely requires retiring its caller and support contract together.
+
+### Rollback cost
+
+Rolling the server back to a pre-cap build leaves new clients functional on the
+WebSocket resume path when their cursor is resumable. The HTTP endpoints return
+404, so a cold start or a gap requiring HTTP healing cannot recover: the replica's
+healing ladder reports `bootstrap-failed` after **3 attempts**. Rollback is therefore
+not a transparent cold-start recovery; restore the HTTP-capable server to heal.
