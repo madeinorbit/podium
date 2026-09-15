@@ -398,6 +398,7 @@
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
+        "@xterm/headless": "^5.5.0",
       },
       "devDependencies": {
         "tsup": "^8.5.1",

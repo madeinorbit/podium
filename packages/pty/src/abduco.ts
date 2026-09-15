@@ -35,6 +35,10 @@ import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './shell-quote.js'
+// Canonical home is `./alt-screen-stripper.js` (P2c: output interpretation
+// belongs in the screen door); re-exported here so the move changes no importer.
+export { createAltScreenStripper } from './alt-screen-stripper.js'
+import { createAltScreenStripper } from './alt-screen-stripper.js'
 
 const log = createLogger('pty:abduco')
 
@@ -839,40 +843,6 @@ export async function reapAbducoTestSessions(patterns: RegExp[]): Promise<string
     }
   }
   return reaped
-}
-
-const ATTACH_CHROME = Buffer.from('\x1b[?1049h\x1b[H', 'latin1')
-const EMPTY = new Uint8Array(0)
-
-/**
- * One-shot, split-safe strip of the alt-screen chrome the abduco client prints when
- * it attaches with a tty stdin. Forwarding it would push the whole session into
- * xterm.js's alternate buffer and kill scrollback — the exact bug class this module
- * exists to remove. Holds back at most ATTACH_CHROME.length bytes, only until the
- * first divergence, and is a pure passthrough afterward.
- */
-export function createAltScreenStripper(): (data: Uint8Array) => Uint8Array {
-  let held = Buffer.alloc(0)
-  let done = false
-  return (data: Uint8Array): Uint8Array => {
-    if (done) return data
-    held = Buffer.concat([held, Buffer.from(data)])
-    if (
-      held.length <= ATTACH_CHROME.length &&
-      ATTACH_CHROME.subarray(0, held.length).equals(held)
-    ) {
-      if (held.length === ATTACH_CHROME.length) {
-        done = true // full prefix seen — swallow it
-        return EMPTY
-      }
-      return EMPTY // still a plausible prefix — keep holding
-    }
-    done = true
-    return held.length >= ATTACH_CHROME.length &&
-      held.subarray(0, ATTACH_CHROME.length).equals(ATTACH_CHROME)
-      ? held.subarray(ATTACH_CHROME.length)
-      : held
-  }
 }
 
 /** Delegate PtyProcess whose onData passes through the one-time chrome stripper. */
