@@ -29,7 +29,7 @@ import {
   shellQuote,
 } from '@podium/process/screen'
 import { stateDir } from '@podium/runtime/config'
-import { createDurable, type Durable } from './control/durable.js'
+import { createDurableProcess, type DurableProcess } from '@podium/process/durable'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
@@ -610,7 +610,7 @@ export function runDurableHeadlessTurn(
   snapshot: ResolvedHarnessInventory,
   /** The daemon's durable host (SPEC-6): the shell running the harness lives under
    *  it. Defaults to abduco for callers that predate the object. */
-  durable: Durable = createDurable('abduco', { host: false, abduco: true }),
+  durable: DurableProcess = createDurableProcess('abduco', { host: false, abduco: true }),
 ): HeadlessTurnHandle {
   const identity: DurableIdentity = {
     sessionId,

@@ -58,7 +58,7 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame } from './applied-geometry'
-import { type Durable, type DurableAttachment, durableFor } from './durable'
+import { type DurableAttachment, type DurableProcess, durableProcessFor } from '@podium/process/durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -631,7 +631,7 @@ export function wireBridge(
     // reaps the socket as it lists, so a just-exited master reads as gone.)
     const label = durableLabel
     void (async () => {
-      if (await durableFor(ctx)?.has(label)) return
+      if (await durableProcessFor(ctx)?.has(label)) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -795,7 +795,7 @@ export async function launchSpawn(
       // environment" instead.
       stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
-    const durable = durableFor(ctx)
+    const durable = durableProcessFor(ctx)
     const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
     rememberDurableSeq(ctx, msg.sessionId, session)
     driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
@@ -835,7 +835,7 @@ export async function launchSpawn(
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
-        cmd: session.adopted ? (durable as Durable).primary.attachCommand(label) : cmd.cmd,
+        cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
         cwd: cmd.cwd,
         agentKind: msg.agentKind,
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
@@ -1970,7 +1970,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    const cmd = durableFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
+    const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
@@ -2076,7 +2076,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // size-neutral, so it repaints nothing on its own — the first viewport
     // request does — but a shell still gets this Ctrl-L, as it does today.
     let found: DurableAttachment | undefined
-    const durable = durableFor(ctx)
+    const durable = durableProcessFor(ctx)
     if (durable) {
       const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
       // HOST FIRST, THEN ABDUCO, whatever this daemon spawns with: a session
@@ -2296,7 +2296,7 @@ async function reapDurableHost(
   sessionId: SessionId,
   durableLabel: string,
 ): Promise<void> {
-  const durable = durableFor(ctx)
+  const durable = durableProcessFor(ctx)
   const stillRunning = async (): Promise<boolean> => (await durable?.has(durableLabel)) ?? false
   try {
     await durable?.kill(durableLabel)

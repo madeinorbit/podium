@@ -28,7 +28,7 @@ import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
 import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
-import { createDurable } from './durable'
+import { createDurable } from '@podium/process/durable'
 import { reconcileNativeClientTerminal, sessionHandlers } from './session'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')

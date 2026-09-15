@@ -116,10 +116,9 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import type { AbducoSpawnOptions } from '@podium/process/durable'
+import type { AbducoSpawnOptions, DurableProcess } from '@podium/process/durable'
 import type { AgentSession } from '@podium/process/screen'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
-import type { Durable } from '../control/durable'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -363,7 +362,7 @@ export interface OpencodeClientTerminalPorts {
    * production call site passes `ctx.durable`, and an omitted one used to fall
    * back to abduco silently (POD-3917).
    */
-  durable: Durable
+  durable: DurableProcess
   /** Injection seams over `durable`. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
@@ -476,7 +475,7 @@ interface Attachment {
  * not this daemon's to give.
  */
 export function createClientTerminalsFor(
-  durable: Durable | undefined,
+  durable: DurableProcess | undefined,
   ports: Omit<OpencodeClientTerminalPorts, 'durable'>,
 ): OpencodeClientTerminals | undefined {
   if (durable === undefined) return undefined

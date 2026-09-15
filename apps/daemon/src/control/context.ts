@@ -3,6 +3,7 @@ import type { AgentKind, MachineId, SessionId, UsageBucketWire } from '@podium/m
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/process/screen'
+import type { DurableBackend, DurableProcess } from '@podium/process/durable'
 import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -24,11 +25,12 @@ import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
 import type { SessionScreenState } from '../session-screens'
 import type { AppliedGeometryRecord } from './applied-geometry'
-import type { Durable } from './durable'
 
 /** What holds the agent's PTY across daemon restarts: our own podium-host, abduco,
- *  or `none` = bare Bun.Terminal. */
-export type DurableBackend = 'host' | 'abduco' | 'none'
+ *  or `none` = bare Bun.Terminal. Canonical definition lives in
+ *  `@podium/process/durable`; re-exported here so existing
+ *  `./control/context` importers keep working. */
+export type { DurableBackend } from '@podium/process/durable'
 
 /**
  * Everything a control-frame handler may touch, made explicit (#195). One
@@ -59,8 +61,8 @@ export interface DaemonContext {
   backend: DurableBackend
   /** The one object every durable-host call goes through (SPEC-6); absent when
    *  `backend` is `none`. Contexts built by hand may omit it and get one derived
-   *  from `backend` (see `durableFor`). */
-  durable?: Durable
+   *  from `backend` (see `durableProcessFor`). */
+  durable?: DurableProcess
   /** The seq after the last output byte this daemon saw per session, for the host
    *  backend's exact reattach replay. Read at reattach; `tail` when unknown. */
   durableSeqs: Map<SessionId, () => bigint | undefined>

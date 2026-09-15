@@ -16,7 +16,7 @@ import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } fr
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/process/screen'
-import { reapStaleAbducoBindTemps } from '@podium/process/durable'
+import { createDurableProcess, sweepStaleDurableBindTemps } from '@podium/process/durable'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -61,7 +61,6 @@ import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
-import { createDurable } from './control/durable'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import { rememberDurableSeq } from './control/session'
 import {
@@ -315,7 +314,7 @@ export async function createDaemonHostRuntime(args: {
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const { backend, available: durableAvailable } = selectDurableBackend(opts)
-  const durable = backend === 'none' ? undefined : createDurable(backend, durableAvailable)
+  const durable = backend === 'none' ? undefined : createDurableProcess(backend, durableAvailable)
   const identityStateDir = opts.identityDir ?? stateDir()
   const handedMachineId = process.env[SUPERVISOR_MACHINE_ID_ENV]
   const identity = handedMachineId
@@ -1444,7 +1443,7 @@ export async function createDaemonHostRuntime(args: {
       void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
       // Leftover `.abduco-<pid>` bind probes (killed spawn / crashed runner)
       // inflate every later socket readdir. Sweep before the reattach storm.
-      reapStaleAbducoBindTemps()
+      sweepStaleDurableBindTemps()
     }
     for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
     pushDurableSessionCensus()
