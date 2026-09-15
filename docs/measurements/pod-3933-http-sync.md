@@ -4,7 +4,11 @@ Status: **re-baseline required; heavy runs held for disk headroom**. Fresh paire
 
 The identity failure below is **pre-POD-3931 history**, not a defect removed by this programme. Commit `5133399843e` predates the send/drain fix `b6c4e9b2e`; the current old transport already contains that fix. The repetitive corpus achieved roughly **1,182× compression** (decoded JSON / Zstd envelope bytes), so all existing results here are pipeline-behaviour probes, not representative performance claims. They must not be compared to a production-like 6× corpus.
 
-POD-3933 has instructed this issue to use current `dev/mw` as the new baseline, retain every existing after run—including the coordinator's—as **historical JS-paced reads with socket backpressure unverified**, and hold large corpus generation until the coordinator confirms disk headroom. The observed baseline candidate on receipt was `d958a17c3c9e916d3bab9741422d92d049dcfa79`; its ancestry includes `b6c4e9b2e`. Pin and record the approved baseline SHA again before the resumed experiment; do not move `dev/mw` or this issue onto it.
+POD-3933 has instructed this issue to use current `dev/mw` as the new baseline, retain every existing after run—including the coordinator's—as **historical JS-paced reads with socket backpressure unverified**, and hold large corpus generation until the coordinator confirms disk headroom. The observed baseline candidate on receipt was `d958a17c3c9e916d3bab9741422d92d049dcfa79`; its ancestry includes `b6c4e9b2e`. POD-3933 subsequently pinned that exact SHA as the BEFORE arm. Use it rather than silently following later movement of dev/mw; record the current integration tip as the AFTER arm. Do not move dev/mw or this issue onto the baseline.
+
+## Comparison results
+
+**No eligible comparison results yet.** Every number published as a programme result must come from a fresh paired, interleaved experiment: BEFORE `d958a17c3c9e916d3bab9741422d92d049dcfa79`, AFTER the integration tip. Capture contemporaneous load and process inventory per sample, report achieved compression ratio beside each result, and establish that socket backpressure actually stalled progress. Historical observations are context only and must never populate this comparison section or serve as either arm.
 
 ## Commits, box, and scope
 
@@ -31,7 +35,7 @@ After the initial world, 20,000 updates cycle through those same keys. The retai
 - The slow consumer uses a paused Node `net.Socket`, reads at most 64 KiB every 500 ms, and stops after 30 seconds. It has no fetch/body handler draining native networking in the background. Node's readable buffer peaked at 127,104 bytes; kernel buffers provide additional bounded slack. This is a cancelled observation window, not a completed 50 MiB slow transfer.
 - Delta client memory includes a Node Map sink that validates page chaining and installs changes. It does **not** run the production Replica kernel or persistence adapter. Its peak RSS is sampled every 5 ms and at application boundaries; synchronous JSON parsing can hide a transient peak.
 
-## Historical pre-POD-3931 observations
+## History: pre-POD-3931 tree and unrealistic corpus
 
 All rows in the following tables have the baseline SHA, box, and scope stated above. Times are milliseconds. Load is 1/5/15-minute load average. Start times are UTC on 2026-09-15.
 
@@ -65,7 +69,7 @@ The apparently low 30-second-window p95 and busy ratio do not prove healthy tran
 
 The legacy tRPC path returned all **20,000 changes in one page**. First page reached the Node sink at **2,911.30 ms**; install completed at **2,922.47 ms**. Initial client RSS was **66,363,392 bytes** and sampled peak client RSS was **599,203,840 bytes** (571.45 MiB). The sink retained 5,120 keys after applying repeated updates. This is a transport-plus-Map heal, not production-kernel end-to-end acceptance.
 
-## Historical after observations from POD-3938
+## History: POD-3938 JS-paced reads, backpressure unverified
 
 These are reproduced as historical evidence, as requested. The artifact's revised account states that the implementation/corpus were unchanged, while the integration base and dependency graph changed. Hostname and contemporaneous load were not recorded in that artifact. Its two runs cannot be retrospectively interleaved with the new baseline. Host contention is plausible but is not an established cause of the difference.
 
@@ -140,4 +144,4 @@ Measure WAL size and append counts while a confirmed snapshot remains open durin
 
 ### Resume conditions
 
-POD-3933 must first confirm reclaimed disk headroom. Then finish the above harness revisions, pin the corrected baseline and integration SHAs, run a tiny smoke, and capture the fresh paired experiment under the lease. The issue remains in progress. The prior lean gate belongs to the historical checkpoint; this documentation-only correction does not change runtime and does not require another test run.
+POD-3933 must first confirm reclaimed disk headroom. Then finish the above harness revisions, use the pinned baseline `d958a17c3c9e916d3bab9741422d92d049dcfa79` and record the integration SHA, run a tiny smoke, and capture the fresh paired experiment under the lease. The issue remains in progress. The prior lean gate belongs to the historical checkpoint; this documentation-only correction does not change runtime and does not require another test run.
