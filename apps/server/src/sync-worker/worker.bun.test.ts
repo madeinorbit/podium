@@ -255,3 +255,34 @@ it.each([
     await f.close()
   }
 }, 30_000)
+
+it.each(['identity', 'gzip', 'zstd'] as const)('pins delta rows and floor to its snapshot with %s', async encoding => {
+  const f = await fixture()
+  try {
+    for (let i = 0; i < 100; i++) append(f.writer, `delta-${i}`, 'x'.repeat(4096))
+    const transfer = f.client.delta({ ...job('delta-snapshot'), mode: 'delta', from: 0, pageRows: 10, encoding })
+    expect(await transfer.meta).toMatchObject({ mode: 'delta', fromSeq: 0, seq: 100, minAvailableSeq: 1 })
+    append(f.writer, 'later')
+    f.writer.exec('DELETE FROM changes WHERE seq < 50')
+    let bytes = Buffer.from(await new Response(transfer.body).arrayBuffer())
+    if (encoding === 'gzip') bytes = gunzipSync(bytes)
+    if (encoding === 'zstd') bytes = zstdDecompressSync(bytes)
+    const lines = bytes.toString().trim().split('\n').map(line => JSON.parse(line))
+    const pages = lines.filter(line => line.type === 'feedDelta')
+    expect(pages.flatMap(page => page.changes).length).toBe(100)
+    expect(pages.every(page => page.minAvailableSeq === 1)).toBe(true)
+    expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', seq: 100, rows: 100, records: 10 })
+    await transfer.completed
+    await checkpoint(f.writer)
+    const refused = f.client.delta({ ...job('delta-compacted'), mode: 'delta', from: 0 })
+    await expect(refused.meta).rejects.toMatchObject({ reason: 'compacted-or-unknown' })
+    await refused.completed
+    const future = f.client.delta({ ...job('delta-future'), mode: 'delta', from: 200 })
+    await expect(future.meta).rejects.toMatchObject({ reason: 'future-cursor' })
+    await future.completed
+    const empty = f.client.delta({ ...job('delta-empty'), mode: 'delta', from: 101 })
+    const emptyRows = (await text(empty.body)).trim().split('\n').map(line => JSON.parse(line))
+    expect(emptyRows[1]).toMatchObject({ type: 'feedDelta', fromSeq: 101, seq: 101, changes: [] })
+    await empty.completed
+  } finally { await f.close() }
+}, 30_000)

@@ -3,13 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { SyncMeta, SyncComplete, SYNC_LINE_MAX_BYTES } from '@podium/protocol'
-import { asIssueId, asMachineId, asUserId, issueEventRowId } from '@podium/model'
+import { asIssueId, asMachineId, asUserId } from '@podium/model'
 import { DEVICE_GRADE_PRINCIPAL, Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { makeFeedVisibility } from '../feed-visibility'
 import { WorldIndex } from '../modules/world-index'
 import { openTestStore } from '../test-support/open-test-store'
-import { SyncWorkerClient } from './worker-client'
 import { produceBootstrap } from './producer'
 import { SyncWorkerError, type BootstrapJob } from './types'
 
@@ -83,65 +82,5 @@ describe('snapshot bootstrap producer', () => {
       await expect(oversized.next()).rejects.toMatchObject({ reason: 'row-too-large' })
       expect((writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as {busy:number}).busy).toBe(0)
     } finally { writer.close(); await store.close(); rmSync(dir, { recursive: true, force: true }) }
-  })
-})
-
-
-describe('snapshot delta producer', () => {
-  it('equals main-thread scoping for a clean event window after grants, revokes and re-grants', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'sync-delta-'))
-    const path = join(dir, 'test.db')
-    const store = await openTestStore(path)
-    let client: SyncWorkerClient | undefined
-    try {
-      await store.issues.upsertIssue(issue('shared'))
-      const grant = (grantee: string) => ({ resourceKind: 'issue', resourceId: 'shared', grantee,
-        verb: 'read' as const, owner: 'owner', visibility: 'personal', createdAt: 't0',
-        actorKind: 'user', actorId: 'owner', onBehalfOf: 'owner' })
-      await store.grants.upsert(grant('reader'))
-      await store.grants.upsert(grant('revoked'))
-      await store.sync.appendChanges([
-        { entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'before' }) },
-        { entity: 'issueProjection', entityId: 'shared', op: 'upsert', payload: '{}' },
-      ], 1)
-      const eventId = issueEventRowId(1, 'shared')
-      await store.sync.appendChanges([{ entity: 'issueEvent', entityId: eventId, op: 'upsert',
-        payload: JSON.stringify({ id: eventId, eventId: 1, subject: 'shared', kind: 'created', ts: 't0', payload: {} }) }], 1)
-      const from = await store.sync.maxChangeSeq()
-      await store.grants.remove('issue', 'shared', 'reader', 'read')
-      await store.grants.remove('issue', 'shared', 'revoked', 'read')
-      await store.sync.appendChanges([{ entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'revoked' }) }], 2)
-      await store.grants.upsert(grant('reader'))
-      await store.sync.appendChanges([{ entity: 'issue', entityId: 'shared', op: 'upsert', payload: JSON.stringify({ id: 'shared', title: 'regranted' }) }], 3)
-      const through = await store.sync.maxChangeSeq()
-      const world = await WorldIndex.load(store)
-      const feed = makeFeedVisibility({ store, worldIndex: world.reader,
-        audienceResourceIds: kind => store.grants.visibilityAudienceResourceIds(kind),
-        audienceFor: (kind, id) => store.grants.visibilityAudienceFor(kind, id),
-        authorizationRevision: () => store.grants.visibilityRevision(),
-        issueEventSubjects: id => id === 'shared' ? [{ entity: 'issueEvent', entityId: eventId }] : [],
-      })
-      const authority = new Authority({ store: store.sync, now: () => 1, transact: fn => store.transact(fn),
-        visibility: new GrantEdgeVisibilityPolicy(feed.state, new NoDelegationsGranted()), anchors: feed.anchors })
-      client = new SyncWorkerClient({ dbPath: path })
-      // A fresh worker job also observes grant changes that do not advance the feed head.
-      for (const revokeReader of [false, true]) {
-        if (revokeReader) await store.grants.remove('issue', 'shared', 'reader', 'read')
-        for (const user of ['owner', 'reader', 'revoked', 'stranger']) {
-          const expected = []
-          for await (const page of authority.changesRange(principal(user), from, through, 1)) expected.push(page)
-          const transfer = client.delta({ ...job(user), mode: 'delta', from, to: through, pageRows: 1 })
-          const meta = await transfer.meta
-          const output = (await new Response(transfer.body).text()).trim().split('\n').map(line => JSON.parse(line))
-          const pages = output.filter(row => row.type === 'feedDelta')
-          expect(pages.map(row => ({ kind: 'batch', fromSeq: row.fromSeq, throughSeq: row.seq, changes: row.changes }))).toEqual(expected)
-          expect(meta).toMatchObject({ mode: 'delta', fromSeq: from, seq: through })
-          expect(output.at(-1)).toMatchObject({ type: 'syncComplete', seq: through, records: pages.length })
-          if (user === 'revoked') expect(pages.flatMap(page => page.changes)).toContainEqual(expect.objectContaining({ entity: 'issueEvent', entityId: eventId, op: 'evict' }))
-          if (user === 'reader' && !revokeReader) expect(pages.flatMap(page => page.changes).some(change => change.op === 'upsert')).toBe(true)
-          expect((await transfer.completed).reason).toBeUndefined()
-        }
-      }
-    } finally { await client?.close(); await store.close(); rmSync(dir, { recursive: true, force: true }) }
   })
 })

@@ -13,7 +13,7 @@ function fixture() {
     body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
     completed: Promise.resolve({}),
   }))
-  const forbidden = vi.fn(async (): Promise<never> => { throw new Error('main-thread data read') })
+  const forbidden = vi.fn((): never => { throw new Error('main-thread data read') })
   const deps: SyncRouteDeps = {
     principal: vi.fn(async () => DEVICE_GRADE_PRINCIPAL),
     authority: { captureHead: forbidden, changesRange: forbidden },
@@ -43,7 +43,7 @@ describe('worker delta route', () => {
     const f = fixture()
     const response = await f.request('feedId=f&epoch=e&from=2&to=6', coding)
     expect(response.status).toBe(200)
-    expect(response.headers.get('content-encoding')).toBe(coding)
+    expect(response.headers.get('content-encoding')).toBe(coding === 'identity' ? null : coding)
     expect(response.headers.get('podium-transfer-id')).toBeTruthy()
     expect(await response.text()).toBe('opaque worker bytes\n')
     expect(f.delta).toHaveBeenCalledWith(expect.objectContaining({ mode: 'delta', from: 2, to: 6,

@@ -1,9 +1,11 @@
 import subprocess, os, time, json, urllib.request, pathlib, shutil
-root=os.getcwd(); bun='/tmp/pod-3953-toolchain/bun'; results=[]
+root=os.getcwd(); bun=os.environ.get('POD3953_BUN', '/tmp/pod-3953-toolchain/bun'); results=[]
+pathlib.Path('.evidence').mkdir(exist_ok=True)
+assert subprocess.check_output([bun, '--version'], text=True).strip() == '1.4.2', 'Both arms require Bun 1.4.2'
 for arm in ['before','after']:
     folder=pathlib.Path('/tmp/pod-3953-measure-'+arm); folder.mkdir(exist_ok=False)
     ready=folder/'ready.json'; log=open(folder/'server.log','w')
-    env={k:v for k,v in os.environ.items() if not k.startswith('PODIUM_')}; env['PATH']='/tmp/pod-3953-toolchain:'+env['PATH']
+    env={k:v for k,v in os.environ.items() if not k.startswith('PODIUM_')}; env['PATH']=str(pathlib.Path(bun).parent)+':'+env['PATH']
     args=[bun,'--conditions=@podium/source','scripts/sync-measurements/delta-worker.mjs',str(folder/'db.sqlite'),str(ready)]
     if arm=='before': args+=['apps/server/src/sync/delta-baseline.measurement.ts']
     proc=subprocess.Popen(args,stdout=log,stderr=log,env=env)
@@ -32,6 +34,6 @@ for arm in ['before','after']:
         try: proc.wait(timeout=30)
         except subprocess.TimeoutExpired: proc.kill();proc.wait()
         log.close()
-        shutil.copyfile(folder/'server.log',root+'/.evidence/'+arm+'-server.log')
-        shutil.rmtree(folder)
+        try: shutil.copyfile(folder/'server.log',root+'/.evidence/'+arm+'-server.log')
+        finally: shutil.rmtree(folder)
 pathlib.Path('.evidence/delta-worker-measurement.json').write_text(json.dumps(results,indent=2))
