@@ -5,9 +5,10 @@
  * build pipeline, the podium-host adapter with its own build pipeline, and the
  * systemd scope argv that places a master outside the daemon's cgroup. Importing
  * this subpath means driving a real durable process — it is the auditable door
- * P2b narrows to `DurableProcess`. `createAltScreenStripper` lives here in source
- * but is exported from `./screen`: a title/alt-screen is output interpretation,
- * and P2c moves it there.
+ * P2b narrows to `DurableProcess`. `createAltScreenStripper` lives in
+ * `./alt-screen-stripper.js` and is exported from `./screen`: a title/alt-screen
+ * is output interpretation, and P2c moved it there (`abduco.ts` keeps a
+ * re-export so no importer changes).
  *
  * SOLE ENTRY (P2b): production daemon code reaches a process ONLY through
  * `DurableProcess` (`createDurableProcess` / `durableProcessFor`). The raw

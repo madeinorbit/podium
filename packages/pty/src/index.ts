@@ -69,4 +69,4 @@ export {
   readCgroupPressure,
 } from './cgroup.js'
 export { shellQuote } from './shell-quote.js'
-export { createAltScreenStripper } from './abduco.js'
+export { createAltScreenStripper } from './alt-screen-stripper.js'
