@@ -309,6 +309,18 @@ interface DriverSession {
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
   hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
   /**
+   * Whether ANY `UserPromptSubmit` hook payload has reached this session.
+   *
+   * THE CHANNEL-ANSWERED FLAG (POD-3983). The hook is installed by a per-session
+   * settings file nothing verifies, so a Claude session whose install silently
+   * failed still boots and every send degrades to `unverified` with no reason
+   * named. This flips on the first causal payload — waiter or none — so the
+   * first silent downgrade can say the channel never answered, once, loudly.
+   */
+  hookSeen: boolean
+  /** The absence warning has been said. It is said ONCE per session, never per send. */
+  hookAbsenceWarned: boolean
+  /**
    * USER turns in the harness's own transcript — the submit-verify baseline, and
    * the one number a receipt's `transcript-echo` proof rests on.
    *
@@ -1105,8 +1117,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    */
   function onHookPayload(sessionId: SessionId, payload: unknown): void {
     const session = sessions.get(sessionId)
-    if (!session || session.hookWaiters.size === 0) return
+    if (!session) return
     if (!isPromptSubmitHook(payload)) return
+    // THE CHANNEL ANSWERED, whether or not a send was waiting on it. A payload
+    // with no open waiter still proves the per-session settings file installed
+    // and Claude is calling back — which is the fact the absence warning below
+    // is about.
+    session.hookSeen = true
+    if (session.hookWaiters.size === 0) return
     // THE HARNESS'S OWN FINGERPRINT, not a comparison invented here. It handles
     // the shapes a `UserPromptSubmit` prompt actually takes — a plain string, and
     // an ARRAY of content blocks where the visible text has to be pulled out of
@@ -1281,6 +1299,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       transcriptVersions: new Map(),
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
+      hookSeen: false,
+      hookAbsenceWarned: false,
       userTurns: 0,
       alive: true,
       // STARTS FALSE EVEN ON AN ADOPT. The `bind` frame is what says the CLI is
@@ -1304,6 +1324,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const profile = profiles.get(session.sessionId)
     const refuse = (reason: Refusal['reason'], detail?: string): Refusal =>
       detail === undefined ? { reason } : { reason, detail }
+    /**
+     * THE ABSENT-CHANNEL WARNING (POD-3983), SAID ONCE PER SESSION.
+     *
+     * A hook-expecting session whose instrumentation channel never answered
+     * degrades every send to `unverified` — the honest receipt, but one that
+     * names no reason. The first such downgrade says the reason out loud: the
+     * per-session hook install did not take, so Claude is not calling back.
+     * Later sends stay `unverified` without a second line. Verified receipts
+     * are untouched — this changes what an absent channel costs, not what a
+     * proof means.
+     */
+    const reportHookAbsenceOnce = (receipt: TurnReceipt): TurnReceipt => {
+      if (receipt.outcome !== 'unverified') return receipt
+      if (!profile?.hookAnchoredAccept) return receipt
+      if (session.hookSeen || session.hookAbsenceWarned) return receipt
+      session.hookAbsenceWarned = true
+      log.warn('hook instrumentation channel never reported; sends degrade to unverified', {
+        sessionId: session.sessionId,
+        harness: session.agentKind,
+      })
+      return receipt
+    }
     const registration = (): TerminalSessionRegistration | undefined =>
       registrations.get(session.sessionId)
 
@@ -1525,18 +1567,22 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           await new Promise<void>((resolve) => {
             host.setTimer(resolve, SUBMIT_CR_DELAY_MS)
           })
-          return session.injection.deliver(text, {
-            origin: options.origin,
-            delivery: 'interrupt',
-            afterEsc: true,
-          })
+          return reportHookAbsenceOnce(
+            await session.injection.deliver(text, {
+              origin: options.origin,
+              delivery: 'interrupt',
+              afterEsc: true,
+            }),
+          )
         }
 
-        return session.injection.deliver(text, {
-          origin: options.origin,
-          delivery: 'when-ready',
-          signal: options.signal,
-        })
+        return reportHookAbsenceOnce(
+          await session.injection.deliver(text, {
+            origin: options.origin,
+            delivery: 'when-ready',
+            signal: options.signal,
+          }),
+        )
       },
 
       async stageAttachment(source) {
