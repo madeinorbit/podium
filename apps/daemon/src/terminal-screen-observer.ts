@@ -13,7 +13,9 @@ import type {
   ProviderAgentStateEvent,
 } from '@podium/harness'
 import type { Geometry } from '@podium/model'
-import { createHeadlessScreen, type ScreenReader } from './composer-sync'
+// P2c: the screen model is owned by @podium/process/screen. Readers import the
+// type from there; only TerminalScreen constructs one.
+import { createHeadlessScreen, type ScreenReader } from '@podium/process/screen'
 
 export const TERMINAL_SCREEN_COALESCE_MS = 60
 
