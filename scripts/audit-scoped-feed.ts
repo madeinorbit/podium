@@ -40,6 +40,8 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { ChangeLogReadRow } from '../packages/sync/src/authority/change-lifecycle'
+import type { ChangeLogStore } from '../packages/sync/src/change-log'
 
 export interface Finding {
   /** Which obligation failed — the acceptance criterion, in one token. */
@@ -360,11 +362,12 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
 
   const { Authority, FeedPublisher, FeedIdentityRegistry, GrantEdgeVisibilityPolicy } = kernel
 
-  type Row = { seq: number; entity: string; entityId: string; op: string; payload: string | null }
-  const rows: Row[] = []
+  const rows: ChangeLogReadRow[] = []
   let nextSeq = 1
-  const store = {
-    appendChanges(batch: readonly Omit<Row, 'seq'>[]) {
+  // Type-only imports preserve the standalone source audit while making port drift
+  // a typecheck failure instead of disabling the running instrument.
+  const store: ChangeLogStore = {
+    async appendChanges(batch) {
       const seqs: number[] = []
       for (const r of batch) {
         rows.push({ seq: nextSeq, ...r })
@@ -373,18 +376,22 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
       }
       return seqs
     },
-    maxChangeSeq: () => nextSeq - 1,
-    minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor: number) => rows.filter((r) => r.seq > cursor),
-    planChangePrune: () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: () => 0,
+    maxChangeSeq: async () => nextSeq - 1,
+    minChangeSeq: async () => rows[0]?.seq ?? null,
+    changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    // Appends keep seq order; match the real store's exclusive/inclusive bounds
+    // and page limit so a kernel cannot read past its certified range.
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
+    planChangePrune: async () => ({ thresholdSeq: 0 }),
+    pruneChangeBatch: async () => 0,
     // Latest per (entity, id) — the port's contract, and what the sqlite
     // adapter's GROUP BY returns. A fake that hands back the whole table reads
     // every historical write as part of the current world.
-    latestChangeStates: () => {
+    latestChangeStates: async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
+      return [...latest.values()].filter((r) => r.op === 'upsert')
     },
   }
 
