@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
-import { openTestStore } from '../test-support/open-test-store'
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync/bootstrap-worker'
+import { applyBaselineSchema } from '../migrations'
 import { SyncWorkerClient } from './worker-client'
 import type { BootstrapJob } from './types'
 
@@ -13,9 +13,8 @@ const job = (id: string, deadlineMs?: number): BootstrapJob => ({ transferId: id
 async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'sync-worker-'))
   const path = join(dir, 'test.db')
-  const store = await openTestStore(path)
-  await store.close()
   const writer = openDatabase(path)
+  applyBaselineSchema(writer)
   writer.exec('PRAGMA journal_mode=WAL')
   const client = new SyncWorkerClient({ dbPath: path })
   return { path, writer, client, async close() { await client.close(); writer.close(); rmSync(dir, { recursive: true, force: true }) } }
@@ -69,6 +68,8 @@ describe('real sync worker boundary', () => {
       const first=f.client.bootstrap(job('abort'),abort.signal)
       const reader=first.body.getReader()
       await reader.read(); await reader.read()
+      append(f.writer, 'after-capture')
+      expect((f.writer.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as {busy:number}).busy).toBe(1)
       abort.abort()
       await expect(reader.read()).rejects.toMatchObject({reason:'cancelled'})
       expect(f.client.activeJobCount()).toBe(0)

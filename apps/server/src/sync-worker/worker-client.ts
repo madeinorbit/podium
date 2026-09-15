@@ -66,7 +66,10 @@ export class SyncWorkerClient {
       worker.on('exit', () => this.fail(worker))
     } catch { this.restart() }
   }
-  private send(message: ToWorker) { this.worker?.postMessage(message) }
+  private send(message: ToWorker) {
+    const worker = this.worker
+    try { worker?.postMessage(message) } catch { if (worker) this.fail(worker) }
+  }
   private end(id: string, error?: SyncWorkerError, cancelled = false) {
     const job = this.jobs.get(id)
     if (!job) return
@@ -131,7 +134,7 @@ export class SyncWorkerClient {
     clearInterval(this.monitorTimer); clearTimeout(this.restartTimer)
     for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('shutdown'))
     const worker = this.worker; this.worker = undefined
-    if (worker) { worker.postMessage({ type: 'stop' }); this.terminate(worker) }
+    if (worker) { try { worker.postMessage({ type: 'stop' }) } finally { this.terminate(worker) } }
     return this.closing = Promise.all([...this.terminations]).then(() => undefined)
   }
 }

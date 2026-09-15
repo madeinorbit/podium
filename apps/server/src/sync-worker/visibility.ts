@@ -1,5 +1,5 @@
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { GrantEdgeVisibilityPolicy, NoDelegationsGranted, SyncRepository } from '@podium/sync'
+import { GrantEdgeVisibilityPolicy, NoDelegationsGranted, SyncRepository } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import type { WorldIndexReader } from '../modules/world-index'
@@ -16,6 +16,7 @@ const key = (kind: string, id: string) => JSON.stringify([kind, id])
 /** Construct only query repositories: no SessionStore, migrations, authority or publication. */
 export async function bootstrapVisibility(database: SqlDatabase) {
   const executor = createBunStoreExecutor({ database })
+  try {
   const q = executor.queries
   const grants = new GrantsRepository(q)
   const byResource = new Map<string, GrantRow[]>()
@@ -43,4 +44,5 @@ export async function bootstrapVisibility(database: SqlDatabase) {
     issueEventSubjects: () => [], authorizationRevision: async () => 0,
   })
   return { policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()), executor }
+  } catch (error) { await executor.close(); throw error }
 }

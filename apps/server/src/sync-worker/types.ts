@@ -1,4 +1,4 @@
-import type { Principal } from '@podium/protocol'
+import type { Principal, SyncMeta } from '@podium/protocol'
 
 export const SYNC_WORKER_MAX_JOBS = 2
 export const SYNC_WORKER_QUEUE_DEPTH = 8
@@ -14,15 +14,7 @@ export interface BootstrapJob {
   /** Absolute epoch milliseconds; omitted means ten minutes from admission. */
   deadlineMs?: number
 }
-export interface SyncMetaSummary {
-  type: 'syncMeta'
-  transferId: string
-  feedId: string
-  epoch: string
-  seq: number
-  minAvailableSeq: number
-  totalRows: number
-}
+export type SyncMetaSummary = SyncMeta & { totalRows: number }
 export type SyncFailureReason = 'queue-full' | 'cancelled' | 'deadline' | 'worker-crashed' | 'shutdown' | 'row-too-large' | 'producer-failed' | 'unavailable'
 export class SyncWorkerError extends Error {
   constructor(readonly reason: SyncFailureReason) { super(`Sync bootstrap failed: ${reason}`); this.name = 'SyncWorkerError' }

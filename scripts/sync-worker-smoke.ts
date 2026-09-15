@@ -1,5 +1,5 @@
 import { SyncWorkerClient } from '../apps/server/src/sync-worker/worker-client'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL } from '../packages/sync/src/bootstrap-worker'
 const client = new SyncWorkerClient({ dbPath: process.argv[2]! })
 try {
   const { meta, body } = client.bootstrap({ transferId: 'compiled', principal: DEVICE_GRADE_PRINCIPAL, feedId: 'feed', epoch: 'epoch', encoding: 'identity', deadlineMs: Date.now() + 10_000 })

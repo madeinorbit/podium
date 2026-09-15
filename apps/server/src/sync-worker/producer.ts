@@ -1,6 +1,6 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
 import type { EntityRef } from '@podium/sync'
 import { createLogger } from '@podium/logger'
 import { perf } from '../modules/perf/registry'
@@ -8,10 +8,6 @@ import { perfPrincipal } from '../modules/perf/principal'
 import { bootstrapVisibility } from './visibility'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary, type BootstrapMetrics } from './types'
 
-// Replaced with the A1 protocol exports when that independent branch lands.
-const SYNC_BATCH_TARGET_BYTES = 1024 * 1024
-const SYNC_BATCH_MAX_ROWS = 500
-const SYNC_LINE_MAX_BYTES = 16 * 1024 * 1024
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
 interface RefRow { seq: number; entity: EntityRef['entity']; entity_id: string }
@@ -97,8 +93,8 @@ export async function* produceBootstrap(
     heapAfterPrefetch = process.memoryUsage().heapUsed
     const totalRows = visible.size
     phase('pass1', pass1)
-    const meta = { type: 'syncMeta' as const, transferId: job.transferId, feedId: job.feedId, epoch: job.epoch, seq, minAvailableSeq, totalRows }
-    const metaBytes = line({ ...meta, formatVersion: 1, mode: 'snapshot', wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() })
+    const meta: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId, feedId: job.feedId, epoch: job.epoch, seq, minAvailableSeq, totalRows }
+    const metaBytes = line(meta)
     // Copy fields from the serialized first line, never a second world read.
     onMeta(JSON.parse(new TextDecoder().decode(metaBytes)) as SyncMetaSummary)
     yield metaBytes
@@ -106,13 +102,14 @@ export async function* produceBootstrap(
     const pass2 = performance.now()
     let batch: unknown[] = [], batchBytes = 0
     const frame = (changes: unknown[], last: boolean) => ({ type: 'feedBootstrap', ...range, changes, last, totalRows })
+    const batchOverhead = utf8.encode(JSON.stringify(frame([], false)) + '\n').byteLength
     for (const row of iterate<PayloadRow>(db, 'SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq')) {
       check()
       if (!visible.has(key({ entity: row.entity, entityId: row.entity_id }))) continue
       const change = { seq: row.seq, entity: row.entity, entityId: row.entity_id, op: 'upsert', value: JSON.parse(row.payload) }
       const size = utf8.encode(JSON.stringify(change)).byteLength
       if (utf8.encode(JSON.stringify(frame([change], false)) + '\n').byteLength > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
-      if (batch.length && (batch.length >= SYNC_BATCH_MAX_ROWS || batchBytes + size > SYNC_BATCH_TARGET_BYTES)) {
+      if (batch.length && (batch.length >= SYNC_BATCH_MAX_ROWS || batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)) {
         yield line(frame(batch, false)); batch = []; batchBytes = 0
         await yieldLoop(); check()
       }
@@ -121,7 +118,7 @@ export async function* produceBootstrap(
     yield line(frame(batch, true))
     phase('pass2', pass2)
     check()
-    yield line({ type: 'syncComplete', transferId: job.transferId, seq, records: records - 1, rows })
+    yield line({ type: 'syncComplete', transferId: job.transferId, seq, records: records - 1, rows } satisfies SyncComplete)
     outcome = 'complete'
   } catch (error) {
     const reason = error instanceof SyncWorkerError ? error.reason : signal.aborted ? 'cancelled' : 'producer-failed'

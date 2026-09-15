@@ -2,7 +2,7 @@
   "name": "@podium/sync",
   "version": "0.0.0",
   "private": true,
-  "description": "The sync kernel: the Authority write funnel, the metadata oplog (durable changes feed + outbox drain), the Replica and Outbox roles, feed identity, the instantiation-parameterized conformance suite, and the transcript-lake mirror (MirrorService). Depends only on @podium/protocol and @podium/runtime — never apps/*.",
+  "description": "The sync kernel: the Authority write funnel, the metadata oplog (durable changes feed + outbox drain), the Replica and Outbox roles, feed identity, the instantiation-parameterized conformance suite, and the transcript-lake mirror (MirrorService). Depends only on @podium/protocol and @podium/runtime \u2014 never apps/*.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -40,6 +40,11 @@
       "@podium/source": "./src/adapters/mobile-sqlite/index.ts",
       "types": "./src/adapters/mobile-sqlite/index.ts",
       "import": "./src/adapters/mobile-sqlite/index.ts"
+    },
+    "./bootstrap-worker": {
+      "@podium/source": "./src/bootstrap-worker.ts",
+      "types": "./src/bootstrap-worker.ts",
+      "import": "./src/bootstrap-worker.ts"
     }
   },
   "scripts": {

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
+import { SyncMeta, SyncComplete, SYNC_LINE_MAX_BYTES } from '@podium/protocol'
 import { asIssueId, asMachineId, asUserId } from '@podium/model'
 import { DEVICE_GRADE_PRINCIPAL, Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -51,6 +52,10 @@ describe('snapshot bootstrap producer', () => {
         const output = await records(produceBootstrap(path, job(user), new AbortController().signal, value => { meta = value }))
         const rows = output.filter(r => r.type === 'feedBootstrap').flatMap(r => r.changes)
         expect(rows).toEqual(expected.changes)
+        expect(SyncMeta.safeParse(output[0]).success).toBe(true)
+        expect(SyncComplete.safeParse(output.at(-1)).success).toBe(true)
+        expect(output.at(-1).records).toBe(output.filter(r => r.type === 'feedBootstrap').length)
+        expect(output.at(-1).rows).toBe(rows.length)
         expect(output[0]).toEqual(meta)
         expect(output[0].totalRows).toBe(rows.length)
         expect(output.at(-1).seq).toBe(output[0].seq)
@@ -63,7 +68,7 @@ describe('snapshot bootstrap producer', () => {
     const store = await openTestStore(path)
     const writer = openDatabase(path)
     try {
-      await store.sync.appendChanges([{ entity: 'repo', entityId: '/r', op: 'upsert', payload: JSON.stringify({ text: 'x'.repeat(17 * 1024 * 1024) }) }], 1)
+      await store.sync.appendChanges([{ entity: 'repo', entityId: '/r', op: 'upsert', payload: JSON.stringify({ text: 'x'.repeat(SYNC_LINE_MAX_BYTES + 1) }) }], 1)
       const abort = new AbortController()
       const producer = produceBootstrap(path, job('owner'), abort.signal, () => {})
       expect((await producer.next()).done).toBe(false)
