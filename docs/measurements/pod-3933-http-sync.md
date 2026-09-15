@@ -1,6 +1,6 @@
 # HTTP sync: fresh paired measurements
 
-**Acceptance remains blocked.** Fresh paired bootstrap and production Replica observations are available. POD-4022 tracks substantially longer HTTP bootstrap completion; POD-4023 blocks admission cancellation cleanup. POD-4025 records a failed HTTP producer-backpressure proof despite confirmed TCP receive-window restriction. Bounded native response memory remains unestablished; no review-ready claim is made.
+**Confirmed backpressure regression; acceptance remains blocked.** The current WebSocket sender pauses behind a closed receive window and resumes at the imposed rate. The HTTP producer completes the entire world despite that same TCP restriction. This programme regresses a backpressure property already provided by POD-3931; matching the baseline pause/resume behavior is a remediation requirement. Fresh paired bootstrap and production Replica observations are available. POD-4022 tracks substantially longer HTTP bootstrap completion; POD-4023 blocks admission cancellation cleanup. POD-4025 records a failed HTTP producer-backpressure proof despite confirmed TCP receive-window restriction. Bounded native response memory remains unestablished; no review-ready claim is made.
 
 ## Experiment and provenance
 
@@ -93,7 +93,7 @@ UTC on 2026-09-15. Load is 1/5/15-minute average. Space is available GiB before 
 
 ## Admission and socket-backpressure failures
 
-A fresh admission pair used the absent legacy HTTP route as an explicit 404 control, followed by twelve distinct HTTP bootstrap users with raw sockets that did not consume bodies. In the after pre-abort checkpoint, four had 200 headers, six remained pending, and two had **503 with Retry-After: 5**. Eight worker-client jobs remained; two prior workers had already emitted **52,943,466 bytes each and completed while readers were stopped**. All requests negotiated identity (ratio 1×). This is capacity/failure evidence at `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2` on ludovico, not a successful cleanup or sustained-backpressure claim.
+A fresh admission pair used the absent legacy HTTP route as an explicit 404 control, followed by twelve distinct HTTP bootstrap users with raw sockets that did not consume bodies. In the after pre-abort checkpoint, four had 200 headers, six remained pending, and two had **503 with Retry-After: 5**. Eight worker-client jobs remained; two prior workers had already emitted **52,943,466 bytes each and completed while readers were stopped**. **The producer emitted the entire world twice over with the consumers reading no application body bytes.** All requests negotiated identity (ratio 1×). This is capacity/failure evidence at `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2` on ludovico, not a successful cleanup or sustained-backpressure claim.
 
 Destroying the sockets then terminated the Bun host with `SyncWorkerError: cancelled` from worker-client.ts. POD-4023 blocks cleanup acceptance. The admission checkpoint preserves source SHA, contemporaneous load/process inventory, statuses and passive worker counters; failed-run disk snapshots and server diagnostics are retained. No post-crash RSS/CPU number is manufactured.
 
@@ -120,6 +120,28 @@ WAL began at zero in each arm. BEFORE applied 90 fixture updates during the stal
 
 Further heavy runs stopped after the failed proof. Each run database/WAL was removed and the sync-gate lease released.
 
+## Coarse completion diagnostic — existing paired Zstd sample
+
+This diagnostic uses the same fresh after Zstd sample above: ludovico, source `e79b8c766f3b2dfc83c49ebeff609bebd6a883fc`, achieved ratio 6.194156×, start/end load 19.88/17.11/15.82 and 21.08/17.46/15.94. It is not an additional run. The paired baseline completed in 495.272 ms; after completed in 8,698.031 ms.
+
+| Recorded scope | Time |
+| --- | ---: |
+| Worker admission queue wait | 0.377 ms |
+| Worker pipeline elapsed, including waits | 5,106.893 ms |
+| Capture snapshot phase | 11.444 ms |
+| First visibility/prefetch pass | 115.102 ms |
+| Second payload pass, including generator suspension | 4,849.082 ms |
+| Explicit record JSON/UTF-8 encoding calls | 125.404 ms |
+| Main-side job start to worker completion message | 5,119.989 ms |
+| Worker OS-thread CPU over the full probe | 1,440 ms |
+| Main OS-thread CPU over the full probe | 1,240 ms |
+
+These scopes overlap. The compression counter (5,106.882 ms) measures the streaming pipeline lifetime, including waits, **not codec CPU**. The second pass includes yield/credit/consumer waits, parsing and size estimation; the explicit encoding counter does not count every JSON operation. Do not add these phase values or subtract CPU measured over the full probe to manufacture an exact wait duration.
+
+The coarse result localizes roughly 5.1 seconds inside the worker pipeline; the approximately 3.58-second difference between client completion and main-side job duration remains outside that measured job interval, including request setup, downstream delivery and client processing. Those intervals lack synchronized boundary timestamps, so that residual is not a socket-wait measurement. Admission queueing and explicit record encoding alone do not explain the delay. Equal achieved compression ratios rule out a material compression-size penalty in this pair, but do not rule out codec or per-chunk overhead.
+
+**Bridge waits versus socket waits are not separately instrumented.** This evidence narrows the question but cannot assign the 8.2-second paired completion gap among those causes. POD-4022 owns that remaining diagnosis; no tuning or new heavy experiment was attempted after the confirmed backpressure failure.
+
 ## Memory attribution and thread evidence
 
 The raw 50 ms timeline names each OS TID. In the after single-bootstrap samples, the unique Worker thread consumed 950 ms (identity), 1,400 ms (gzip), and 1,440 ms (Zstd); corresponding full-stream ratios were 1×, 6.039× and 6.194×. The worker's production phase metrics show capture, visibility pass, serialization and compression work. Phase durations overlap and are not additive; compression/transfer timing includes waits. The observations establish worker activity, not zero main-thread relay cost.
@@ -144,10 +166,12 @@ bun scripts/sync-measurements/run.mjs <reference-copy> . <fresh-output-directory
 
 Modes include bootstrap, delta, admission, concurrent and rate-control. The runner records df before and after, removes each temporary database/WAL before the next arm, refuses overwrites and enforces the disk floor/stop rule. A known cancellation or proof failure stops that invocation; do not treat it as a green result.
 
-Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. Rebased checkpoint `20897623a` onto integration `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. The final `bun run test` was lean gate green: 26 typecheck tasks (25 cached), span-effect lint green, and 126 tests in 4 of 1,338 collected Node files. This is boot/wiring evidence, not a suite run or a passing benchmark acceptance claim. No specialized test lane was requested for these benchmark-only scripts; their smoke and fresh experiments are described above. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
+Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. Rebased checkpoint `20897623a` onto integration `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. The final `bun run test` was lean gate green: 26 typecheck tasks (25 cached), span-effect lint green, and 126 tests in 4 of 1,338 collected Node files. This is boot/wiring evidence, not a suite run or a passing benchmark acceptance claim. No specialized test lane was requested for these benchmark-only scripts; their smoke and fresh experiments are described above. The final coordinator-requested wording and coarse diagnostic are documentation-only changes; the lean gate was not repeated for them. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
 
 ## History — excluded from every comparison
 
 - The first reference-commit probe used `5133399843e81b7c6a7b4ebac51ed9d45bf0a045`, before POD-3931. Its identity transfer failed before the last record. That ceiling was already fixed by `b6c4e9b2e`, so this programme gets no credit for removing it. Independently, the prototype lacked production NativeGatewaySocket drain forwarding and lazy sendSequence wiring; simply updating its source SHA would not have made it a faithful comparator.
 - That first corpus repeated one payload and achieved about 1,182× Zstd compression. Its 455 ms Zstd completion and 2.92 s Map-sink delta heal on ludovico are historical pipeline probes, not performance arms. The delta sink was not the production Replica kernel. Original raw evidence remains on the issue.
 - POD-3938's two historical identity observations (source commits `548d7c94b` and `55740153f`) used JS-paced body reads inside the server process. Their health p95 values were 22.97/42.57 ms, ping p95 8.78/23.21 ms, and main busy fractions 37.43/42.83%. Socket backpressure was unverified; hostname and contemporaneous load were not recorded in the source artifact. The coordinator's own verification run has the same JS-paced-read limitation. None is an after arm here.
+
+- POD-3937 pipe backpressure tests used a JavaScript consumer, rather than closing a TCP receive window. Those tests could validate the pipe boundary but could not detect the Bun HTTP/socket boundary regression established here. Together with the historical JS-paced responsiveness probes, their green outcomes were insufficient evidence for end-to-end socket backpressure.
