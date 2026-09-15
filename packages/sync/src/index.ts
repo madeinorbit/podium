@@ -1,11 +1,12 @@
 /**
  * @podium/sync — the sync kernel: the Authority write funnel, the durable metadata
  * change log + outbox write path (SyncRepository, Ledger), the Replica and Outbox
- * roles, feed identity, the parameterized conformance suite, and the transcript-lake
+ * roles, feed identity, and the transcript-lake
  * mirror (MirrorService). Depends only on @podium/protocol and
  * @podium/runtime — never apps/*; apps/server injects its store repositories
  * through the narrow interfaces each class declares. The change-log internals
- * (./change-log.ts) are private to the package.
+ * (./change-log.ts) are private to the package. Test-only conformance helpers
+ * are available through `@podium/sync/testing`.
  */
 /**
  * ADR 2 D10's unit of work has ONE definition site: `./span` (POD-1146).
@@ -26,14 +27,6 @@
  * for one type is how the drift starts again.
  */
 export * from './span'
-/**
- * The cross-hop conformance suite (POD-373). Exported from the package because it is
- * PARAMETERIZED BY INSTANTIATION: POD-307, POD-308, POD-309, POD-374 and POD-375 each
- * supply a `SyncInstantiation` and call `describeSyncConformance(it)`, and none of them
- * may edit the suite to be admitted.
- */
-export * from './conformance/index'
-
 /**
  * The AUTHORITY role (POD-305, 2.1) — the write funnel and the Ledger, joined.
  * `./ledger` remains exported beside it during the cutover: POD-306 and POD-308
@@ -134,7 +127,7 @@ export * from './adapters/indexeddb/store'
 // RETIRED at POD-309: `./upstream` (UpstreamSync — the node→hub dialer) and
 // `./upstream-forwarder` (UpstreamForwarder — the node→hub issue write path) were
 // exported here. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1), and
-// the SEAM that keeps it possible is exported ABOVE this line rather than by them:
-// `./conformance/index` (parameterized by instantiation, S5), `./authority/index` and
+// the SEAM that keeps it possible is exported by `@podium/sync/testing`
+// (parameterized conformance, S5) and ABOVE this line: `./authority/index` and
 // `./feed/visibility` (authority + feed identity, S1), and `./outbox` + `./replica/index`
 // (kernel ports with no transport or storage baked in, S4).

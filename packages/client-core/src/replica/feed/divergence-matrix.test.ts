@@ -37,7 +37,11 @@
  * should be read as the second-account check.
  */
 
-import { ConformanceAuthority, type ConformancePrincipal, conformanceUser } from '@podium/sync'
+import {
+  ConformanceAuthority,
+  type ConformancePrincipal,
+  conformanceUser,
+} from '@podium/sync/testing'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type BootstrapChunk,
@@ -184,8 +188,8 @@ describe('POD-376 divergence matrix', () => {
       authority: new FeedAuthorityClient({
         fetchChangesSince: async (cursor) => {
           const range = await port.changesRange(cursor)
-        const reply: import('@podium/sync/replica').ChangesSinceReply =
-          'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
+          const reply: import('@podium/sync/replica').ChangesSinceReply =
+            'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
           if (reply.kind === 'bootstrap-required') {
             return {
               kind: 'bootstrap-required',

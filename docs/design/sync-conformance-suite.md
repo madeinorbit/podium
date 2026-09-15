@@ -13,7 +13,7 @@ Three lines. Nothing in `suite.ts` may be edited to admit a hop, and nothing in 
 assume the in-memory instantiation.
 
 ```ts
-import { describeSyncConformance } from '@podium/sync'
+import { describeSyncConformance } from '@podium/sync/testing'
 import { indexedDbInstantiation } from './conformance-instantiation'
 
 describeSyncConformance(indexedDbInstantiation)

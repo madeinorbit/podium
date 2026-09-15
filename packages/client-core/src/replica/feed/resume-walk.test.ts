@@ -25,7 +25,11 @@
  * frames are handed to the sink in the order a server would send them.
  */
 
-import { ConformanceAuthority, type ConformancePrincipal, conformanceUser } from '@podium/sync'
+import {
+  ConformanceAuthority,
+  type ConformancePrincipal,
+  conformanceUser,
+} from '@podium/sync/testing'
 import {
   type BootstrapChunk,
   InMemoryReplicaStore,

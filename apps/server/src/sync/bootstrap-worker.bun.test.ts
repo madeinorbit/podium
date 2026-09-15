@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,10 +9,6 @@ import { asIssueId, asMachineId, asUserId } from '@podium/model'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
 
-// POD-4005: the runtime sync barrel re-exports unused Vitest conformance suites.
-// Bind only their test-framework imports to this runner; no production module is
-// mocked. Dynamic imports below ensure the compatibility binding is installed.
-mock.module('vitest', () => ({ afterAll, beforeEach, describe, expect, it }))
 const { Authority, DEVICE_GRADE_PRINCIPAL, GrantEdgeVisibilityPolicy, NoDelegationsGranted } =
   await import('@podium/sync')
 const { makeFeedVisibility } = await import('../feed-visibility')

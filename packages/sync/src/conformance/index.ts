@@ -3,7 +3,7 @@
  *
  * A later hop's test file is three lines:
  *
- *     import { describeSyncConformance } from '@podium/sync'
+ *     import { describeSyncConformance } from '@podium/sync/testing'
  *     import { indexedDbInstantiation } from './conformance-instantiation'
  *     describeSyncConformance(indexedDbInstantiation)
  *

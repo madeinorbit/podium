@@ -76,7 +76,7 @@ import {
   type ConformancePrincipal,
   conformanceUser,
   requireHuman,
-} from '@podium/sync'
+} from '@podium/sync/testing'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   type SqlDatabaseLike,

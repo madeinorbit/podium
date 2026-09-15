@@ -11,6 +11,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
+    "./testing": {
+      "@podium/source": "./src/conformance/index.ts",
+      "types": "./src/conformance/index.ts",
+      "import": "./src/conformance/index.ts"
+    },
     "./replica": {
       "@podium/source": "./src/replica/index.ts",
       "types": "./src/replica/index.ts",
