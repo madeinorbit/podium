@@ -19,9 +19,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          # Pinned: ConPTY support needs >= 1.3.14, and a '1.3' range has been seen
+          # Pinned: ConPTY support needs >= 1.4.2, and a '1.3' range has been seen
           # resolving to 1.3.0 (release.yml pins for the same reason).
-          bun-version: '1.3.14'
+          bun-version: '1.4.2'
       # Bun's global virtual store is not a directory of its own: it is `links/` INSIDE the
       # install cache, and every node_modules/.bun/<pkg> entry is a symlink into it. On
       # windows-latest the cache defaults to C:\Users\runneradmin\.bun\install\cache while the
