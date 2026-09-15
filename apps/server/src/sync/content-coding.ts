@@ -69,10 +69,11 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
         compressor.end()
       })
     },
-    cancel(reason) {
+    cancel(reason: unknown) {
       compressor.destroy(reason instanceof Error ? reason : new Error(String(reason)))
     },
-  }, { highWaterMark: 1 }, { highWaterMark: 0 })
+  } satisfies Transformer<Uint8Array, Uint8Array> & { cancel(reason: unknown): void },
+  { highWaterMark: 1 }, { highWaterMark: 0 })
 }
 
 export function syncResponseHeaders(coding: ContentCoding): Headers {

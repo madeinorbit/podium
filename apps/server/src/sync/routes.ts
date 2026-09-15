@@ -1,40 +1,47 @@
-import { createLogger } from '@podium/logger'
 import { randomUUID } from 'node:crypto'
 import { setImmediate } from 'node:timers/promises'
-import { parseSyncDeltaQuery, WIRE_VERSION, wireSchemaDigest, type Principal, type SyncRecord, type SyncBootstrapRequiredReason } from '@podium/protocol'
+import { parseSyncDeltaQuery, principalRoutingId, WIRE_VERSION, wireSchemaDigest, type Principal, type SyncRecord, type SyncBootstrapRequiredReason } from '@podium/protocol'
 import { ChangeRangeBootstrapRequired, type AuthorityPort } from '@podium/sync'
 import type { Hono } from 'hono'
 import { toFeedChange } from '../gateway/feed-serving'
 import { NdjsonEncoder, RowTooLarge } from './ndjson-encoder'
 import { pipeSyncBody } from './pipe-sync-body'
-import { negotiateContentCoding, syncResponseHeaders } from './content-coding'
-
-const log = createLogger('sync-delta')
-
-import type { SyncDeltaPorts } from './route-support'
+import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
 
 export interface SyncRouteDeps extends SyncDeltaPorts {
   principal(request: Request): Promise<Principal | undefined>
   pageRows?: number
 }
 
-/** Auth/readiness/CORS middleware is installed by the composition root. */
+/**
+ * Shared HTTP sync registration. Bootstrap adds its handler here in POD-3938;
+ * there is deliberately no placeholder endpoint. The composition root mounts
+ * CORS, readiness and clientAuthGuard BEFORE calling this function.
+ *
+ * Authority retains TWO bounded source pages (including its final-page
+ * lookahead). We pass 500 rows per page: half the legacy funnel's 1,000-row
+ * page, bounding each main-thread scoping/serialization turn more tightly.
+ * Payload bytes vary; 1,000 source rows is not a fixed byte/RSS limit.
+ * Separately, encoding stages one record (16 MiB line limit) and the pipe
+ * slices into 64 KiB chunks with bounded codec/queue state. No range collection.
+ */
 export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
   let active = 0
   app.get('/sync/delta', async (c) => {
     const principal = await deps.principal(c.req.raw)
-    if (!principal) return c.json({ error: 'authenticated feed principal required' }, 403)
+    if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
     const query = parseSyncDeltaQuery(new URL(c.req.url).searchParams)
     if (!query.success) return c.json({ error: 'invalid delta range' }, 400)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
     if (coding === 'not-acceptable') return c.body(null, 406)
-    if (active >= 4) return c.json({ error: 'delta capacity exhausted' }, 503, { 'Retry-After': '5' })
+    if (active >= 4) return syncRefusal('admissionFull', 'delta capacity exhausted')
+    const startedAt = performance.now()
     active++
     let released = false
     const release = () => { if (!released) { released = true; active-- } }
     const refuse = (reason: SyncBootstrapRequiredReason) => {
       release()
-      return c.json({ kind: 'bootstrap-required' as const, reason }, 409)
+      return syncRefusal('bootstrapRequired', reason)
     }
     const signal = c.req.raw.signal
     let iterator: ReturnType<AuthorityPort['changesRange']> extends AsyncIterable<infer T> ? AsyncIterator<T> : never
@@ -55,8 +62,17 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
         return refuse('rescope')
       }
       const transferId = randomUUID()
+      const metrics: SyncTransferMetrics = {
+        transferId, principal: String(principalRoutingId(principal)), coding, startedAt,
+        captureMs: performance.now() - startedAt, bytesIn: 0, bytesOut: 0,
+        rows: 0, records: 0, outcome: 'running',
+      }
       const encoder = new NdjsonEncoder()
-      const encode = (record: SyncRecord) => encoder.push(record) ?? encoder.flush()!
+      const encode = (record: SyncRecord) => {
+        const bytes = encoder.push(record) ?? encoder.flush()!
+        metrics.bytesIn += bytes.byteLength
+        return bytes
+      }
       let stopped = false
       const abort = () => {
         stopped = true
@@ -80,6 +96,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
             while (!next.done && !stopped) {
               const delivery = next.value
               if (delivery.kind === 'rescope') {
+                metrics.outcome = 'authorization-changed'
                 yield encode({ type: 'syncError', transferId, reason: 'authorization-changed' })
                 return
               }
@@ -89,14 +106,20 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
               previous = delivery.throughSeq
               records++
               rows += delivery.changes.length
+              metrics.records = records
+              metrics.rows = rows
               yield bytes
               await setImmediate()
               if (stopped) return
               next = await iterator.next()
             }
-            if (!stopped) yield encode({ type: 'syncComplete', transferId, seq: target, records, rows })
+            if (!stopped) {
+              metrics.outcome = 'complete'
+              yield encode({ type: 'syncComplete', transferId, seq: target, records, rows })
+            }
           } catch (error) {
-            log.warn('delta stream failed', { transferId, err: error })
+            metrics.err = error
+            metrics.outcome = error instanceof RowTooLarge ? 'row-too-large' : 'read-failed'
             if (!stopped) yield encode({ type: 'syncError', transferId,
               reason: error instanceof RowTooLarge ? 'row-too-large' : 'read-failed' })
           } finally {
@@ -104,7 +127,9 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           }
         },
       }
-      return new Response(pipeSyncBody(source, coding, signal), { headers: syncResponseHeaders(coding) })
+      const headers = syncResponseHeaders(coding)
+      headers.set('Podium-Transfer-Id', transferId)
+      return new Response(observeSyncTransfer(pipeSyncBody(source, coding, signal), metrics), { headers })
     } catch (error) {
       release()
       if (error instanceof ChangeRangeBootstrapRequired) return refuse(error.reason)

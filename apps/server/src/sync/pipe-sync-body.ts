@@ -77,6 +77,6 @@ export function pipeSyncBody(
     highWaterMark: SYNC_BODY_HIGH_WATER_MARK,
     // Charge a full slot even for highly compressed bytes: a stalled reader
     // must not turn a small output queue into unbounded source read-ahead.
-    size: (chunk) => Math.max(chunk.byteLength, SYNC_BODY_HIGH_WATER_MARK),
+    size: (chunk) => Math.max(chunk?.byteLength ?? 0, SYNC_BODY_HIGH_WATER_MARK),
   })
 }

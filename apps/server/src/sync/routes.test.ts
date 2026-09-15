@@ -155,7 +155,7 @@ it('bounds read-ahead and admits only four stalled streams; cancellation release
 // Exercise the shipped reader, including its lookahead and policy filtering.
 it.each([false, true])('real bounded range includes late rows only within H; invisible=%s', async (invisible) => {
   const f = fixture()
-  const row = (seq: number) => ({ seq, entity: 'issue' as const, entityId: `i${seq}`, op: 'delete' as const, payload: null })
+  const row = (seq: number) => ({ seq, entity: 'issue' as const, entityId: `i${seq}`, op: 'remove' as const, payload: null })
   const rows = [1, 2, 3, 4, 5, 7, 8].map(row)
   let reads = 0
   const store: AuthorityDeps['store'] = {
@@ -181,4 +181,38 @@ it.each([false, true])('real bounded range includes late rows only within H; inv
   const deltas = lines.filter((line) => line.type === 'feedDelta')
   expect(deltas.at(-1)?.seq).toBe(8)
   expect(deltas.flatMap((line) => line.changes.map((change) => change.seq))).toEqual(invisible ? [] : [1, 2, 3, 4, 5, 6, 7, 8])
+})
+
+it('returns the transfer header and releases admission on request abort', async () => {
+  const f = fixture()
+  f.deps.authority.captureHead = async () => 100000
+  const controllers = Array.from({ length: 4 }, () => new AbortController())
+  const responses = await Promise.all(controllers.map((controller) => f.request(undefined, 'identity', controller.signal)))
+  try {
+    expect(responses[0]!.headers.get('podium-transfer-id')).toBeTruthy()
+    controllers[0]!.abort()
+    await setImmediate()
+    const replacement = await f.request()
+    expect(replacement.status).toBe(200)
+    await replacement.body!.cancel()
+  } finally {
+    await Promise.all(responses.map((response) => response.body!.cancel().catch(() => {})))
+  }
+})
+
+it('refuses a rescope found during preflight and emits read-failed for a later corrupt page', async () => {
+  const f = fixture()
+  f.changesRange.mockImplementation(async function* () {
+    yield { kind: 'rescope', fromSeq: 0, throughSeq: 8, reason: 'test' }
+  })
+  const refused = await f.request()
+  expect(refused.status).toBe(409)
+  expect(await refused.json()).toEqual({ kind: 'bootstrap-required', reason: 'rescope' })
+  f.changesRange.mockImplementation(async function* () {
+    yield { kind: 'batch', fromSeq: 0, throughSeq: 3, changes: [] }
+    throw new ChangeRangeBootstrapRequired('corrupt-payload')
+  })
+  const lines = await records(await f.request())
+  expect(lines.at(-1)).toMatchObject({ type: 'syncError', reason: 'read-failed' })
+  expect(lines.some((line) => line.type === 'syncComplete')).toBe(false)
 })

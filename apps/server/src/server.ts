@@ -1979,8 +1979,7 @@ export async function startServer(
           const response = await app.fetch(observedRequest)
           // Sync owns its streaming content coding, including identity.
           if (new URL(request.url).pathname.startsWith('/sync/')) return response
-          return new URL(request.url).pathname.startsWith('/sync/')
-            ? response : await compressHttpResponse(request, response)
+          return await compressHttpResponse(request, response)
         },
       })
       startDeferredSourceMovePoll()
