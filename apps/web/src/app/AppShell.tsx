@@ -45,7 +45,6 @@ import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
-import type { KernelAssembly } from '@/lib/kernelReplica'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
@@ -77,7 +76,7 @@ import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
-import { SyncLoader } from './SyncLoader'
+import { SyncLoader, WarmSyncStatus } from './SyncLoader'
 import {
   CLOSE_RIGHT_PANEL,
   isOverlayView,
@@ -195,24 +194,9 @@ function SheetFallback({
   )
 }
 
-/**
- * Attach the engine's hub to the kernel assembly (POD-1223).
- *
- * A re-bootstrap is a reconnect, so `PushedBootstrapSource` needs the hub — and
- * the hub is built by the engine FROM the assembly, so it cannot be handed over
- * at construction. This runs inside the provider, where the hub exists.
- */
-function KernelHubAttach({
-  assembly,
-  httpOrigin,
-}: {
-  assembly: KernelAssembly
-  httpOrigin: string
-}): null {
+/** Observe socket build skew; HTTP bootstrap has no hub attachment cycle. */
+function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
   const hub = useStoreSelector((s) => s.hub)
-  useEffect(() => {
-    assembly.attachHub(hub)
-  }, [assembly, hub])
   // The transport's ground truth about build skew (POD-1610): rows or whole
   // frames this build could not read. Routed to the module-level notice rather
   // than to local state so the banner can live OUTSIDE this subtree — the failure
@@ -273,7 +257,7 @@ function ReplicaReadyPodiumLinkHost({
     <PodiumLinkHost
       initialHref={initialHref}
       onInitialHrefConsumed={onInitialHrefConsumed}
-      replicaReady={!sync.firstSync || sync.phase === 'ready'}
+      replicaReady={!sync.firstSync || sync.hasInstalled || sync.phase === 'ready'}
     />
   )
 }
@@ -379,7 +363,7 @@ export function AppShell({
                   window.location.replace(claim.toString())
                 }}
               >
-                <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
                   initialHref={pendingInitialPodiumHref.current}
@@ -885,7 +869,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // cold launch therefore also waits for the bootstrap to INSTALL, and shows the
   // detailed sync screen instead of the splash; warm launches keep the splash
   // for the enrichment beat exactly as before.
-  const firstSyncPending = sync.firstSync && sync.phase !== 'ready'
+  const firstSyncPending = sync.firstSync && !sync.hasInstalled && sync.phase !== 'ready'
   if (!reposLoaded || firstSyncPending) {
     return (
       <>
@@ -967,6 +951,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
           style={issueStyle}
         >
           <TopBar revealing={revealingChrome} />
+          <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {/* The work list is persistent chrome: it stays mounted in every mode,
               so switching modes swaps the CONTENT REGION rather than the window

@@ -583,6 +583,16 @@ export function LoginGate({
   const [deniedReason, setDeniedReason] = useState<string>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
+  const [authAttempt, setAuthAttempt] = useState(0)
+  useEffect(() => {
+    const expired = () => {
+      setAuth(undefined)
+      setPhase('loading')
+      setAuthAttempt((n) => n + 1)
+    }
+    window.addEventListener('podium:sync-auth-expired', expired)
+    return () => window.removeEventListener('podium:sync-auth-expired', expired)
+  }, [])
   const httpOrigin = serverConfig(window.location).httpOrigin
 
   useEffect(() => {
@@ -603,7 +613,7 @@ export function LoginGate({
     return () => {
       alive = false
     }
-  }, [httpOrigin, inviteToken])
+  }, [httpOrigin, inviteToken, authAttempt])
 
   useEffect(() => {
     if (phase === 'success') {
@@ -633,8 +643,7 @@ export function LoginGate({
   const app = auth === undefined ? null : typeof children === 'function' ? children(auth) : children
   if (phase === 'ready') return <>{app}</>
 
-  if (mode === 'cloud')
-    return <CloudLoginView signInUrl={signInUrl} deniedReason={deniedReason} />
+  if (mode === 'cloud') return <CloudLoginView signInUrl={signInUrl} deniedReason={deniedReason} />
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
   const blurred = phase === 'success' && !reduced

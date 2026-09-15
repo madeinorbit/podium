@@ -250,6 +250,7 @@ export function useKernelReplica(args: {
         let notice: string | undefined
         const assembly = await openAssembly({
           trpc,
+          httpOrigin,
           principal,
           evidence: recordIdentityEvidence(principal),
           onDegraded: (detail) => {

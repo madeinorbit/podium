@@ -1,3 +1,4 @@
+import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -55,11 +56,20 @@ describe('kernel replica cross-tab convergence', () => {
   beforeEach(() => {
     localStorage.clear()
     FakeBroadcastChannel.groups.clear()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const params = new URL(url, 'http://localhost').searchParams
+        const seq = Number(params.get('from') ?? 0)
+        return syncResponse(seq, [], 'delta')
+      }),
+    )
   })
 
   afterEach(async () => {
     await first?.dispose()
     await second?.dispose()
+    vi.unstubAllGlobals()
   })
 
   it('relays a socket frame into a second assembly that shares the browser client', async () => {
@@ -150,43 +160,6 @@ describe('kernel replica cross-tab convergence', () => {
     }
     first = await openKernelAssembly(options)
     second = await openKernelAssembly(options)
-    let firstFreshWorldRequests = 0
-    let secondFreshWorldRequests = 0
-    const pushWorld = (
-      assembly: KernelAssembly,
-      seq: number,
-      changes: Array<{
-        seq: number
-        entity: string
-        entityId: string
-        op: 'upsert'
-        value: Record<string, unknown>
-      }>,
-    ) => {
-      assembly.feed.frame({
-        type: 'feedBootstrap',
-        feedId: 'feed-1',
-        epoch: 'epoch-1',
-        fromSeq: 0,
-        seq,
-        minAvailableSeq: 0,
-        changes,
-        last: true,
-      })
-    }
-    first.attachHub({
-      requestFreshWorld: () => {
-        firstFreshWorldRequests += 1
-        queueMicrotask(() => pushWorld(first as KernelAssembly, 2, []))
-      },
-    } as never)
-    second.attachHub({
-      requestFreshWorld: () => {
-        secondFreshWorldRequests += 1
-        queueMicrotask(() => pushWorld(second as KernelAssembly, 2, []))
-      },
-    } as never)
-
     const initiallyVisible = [
       {
         seq: 1,
@@ -196,10 +169,16 @@ describe('kernel replica cross-tab convergence', () => {
         value: { id: 'revoked-issue', title: 'visible before rescope' },
       },
     ]
-    first.feed.connected(true)
-    second.feed.connected(true)
-    pushWorld(first, 1, initiallyVisible)
-    pushWorld(second, 1, initiallyVisible)
+    let requests = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        requests += 1
+        return syncResponse(requests <= 2 ? 1 : 2, requests <= 2 ? initiallyVisible : [])
+      }),
+    )
+    first.feed.connected(false)
+    second.feed.connected(false)
 
     const firstObserver = first.createReplicaFn(asClientPrincipal(asUserId('alice')))
     const secondObserver = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
@@ -221,8 +200,7 @@ describe('kernel replica cross-tab convergence', () => {
     await vi.waitFor(() => {
       expect(firstObserver.rows('issues')).toEqual([])
       expect(secondObserver.rows('issues')).toEqual([])
-      expect(firstFreshWorldRequests).toBe(1)
-      expect(secondFreshWorldRequests).toBe(1)
+      expect(requests).toBe(4)
     })
     await Promise.all([first.store.settled(), second.store.settled()])
 
@@ -232,8 +210,54 @@ describe('kernel replica cross-tab convergence', () => {
     second.feed.frame(frame)
     await second.store.settled()
     expect(changed).toHaveBeenCalledTimes(notifications)
-    expect(secondFreshWorldRequests).toBe(1)
+    expect(requests).toBe(4)
 
     unsubscribe()
   })
 })
+
+function syncResponse(
+  seq: number,
+  changes: unknown[],
+  mode: 'snapshot' | 'delta' = 'snapshot',
+): Response {
+  const values = [
+    {
+      type: 'syncMeta',
+      formatVersion: 1,
+      mode,
+      transferId: 'test',
+      feedId: 'feed-1',
+      epoch: 'epoch-1',
+      seq,
+      minAvailableSeq: 0,
+      wireVersion: WIRE_VERSION,
+      wireSchemaDigest: wireSchemaDigest(),
+      ...(mode === 'snapshot' ? { totalRows: changes.length } : { fromSeq: seq }),
+    },
+    ...(mode === 'snapshot'
+      ? [
+          {
+            type: 'feedBootstrap',
+            feedId: 'feed-1',
+            epoch: 'epoch-1',
+            fromSeq: 0,
+            seq,
+            minAvailableSeq: 0,
+            changes,
+            last: true,
+          },
+        ]
+      : []),
+    {
+      type: 'syncComplete',
+      transferId: 'test',
+      seq,
+      records: mode === 'snapshot' ? 1 : 0,
+      rows: changes.length,
+    },
+  ]
+  return new Response(values.map((v) => JSON.stringify(v) + '\n').join(''), {
+    headers: { 'content-type': 'application/x-ndjson' },
+  })
+}

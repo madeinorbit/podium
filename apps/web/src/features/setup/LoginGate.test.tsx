@@ -269,30 +269,30 @@ describe('LoginGate success reveal', () => {
 })
 
 describe('cloud login gate', () => {
-  it.each(['not a member of this workspace', 'Server-supplied admission reason'])(
-    'shows the provider refusal verbatim: %s',
-    async (deniedReason) => {
-      const fetchMock = statusFetch({
-        needsAuth: true,
-        authed: false,
-        mode: 'cloud',
-        providerSignedIn: true,
-        deniedReason,
-      })
-      vi.stubGlobal('fetch', fetchMock)
-      const renderApp = vi.fn(() => child)
-      render(<LoginGate>{renderApp}</LoginGate>)
-      expect((await screen.findByRole('alert')).textContent).toBe(deniedReason)
-      expect(screen.queryByRole('link')).toBeNull()
-      expect(screen.queryByLabelText(/password/i)).toBeNull()
-      expect(renderApp).not.toHaveBeenCalled()
-      expect(fetchMock).toHaveBeenCalledOnce()
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringMatching(/\/auth\/status$/),
-        expect.objectContaining({ credentials: 'include' }),
-      )
-    },
-  )
+  it.each([
+    'not a member of this workspace',
+    'Server-supplied admission reason',
+  ])('shows the provider refusal verbatim: %s', async (deniedReason) => {
+    const fetchMock = statusFetch({
+      needsAuth: true,
+      authed: false,
+      mode: 'cloud',
+      providerSignedIn: true,
+      deniedReason,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const renderApp = vi.fn(() => child)
+    render(<LoginGate>{renderApp}</LoginGate>)
+    expect((await screen.findByRole('alert')).textContent).toBe(deniedReason)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByLabelText(/password/i)).toBeNull()
+    expect(renderApp).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/status$/),
+      expect.objectContaining({ credentials: 'include' }),
+    )
+  })
 
   it.each([
     { providerSignedIn: false, deniedReason: 'not a member of this workspace' },
@@ -441,8 +441,25 @@ function handoffFetch(status: Parameters<typeof statusFetch>[0]) {
   return vi.fn((url: RequestInfo | URL, options?: RequestInit) => {
     if (String(url).endsWith('/platform/auth/handoff/begin')) {
       expect(options).toMatchObject({ method: 'POST', credentials: 'include' })
-      return Promise.resolve(new Response(JSON.stringify({ challenge: 'a'.repeat(64) }), { status: 200 }))
+      return Promise.resolve(
+        new Response(JSON.stringify({ challenge: 'a'.repeat(64) }), { status: 200 }),
+      )
     }
     return fallback(url, options)
   })
 }
+
+it('returns to the existing sign-in flow when HTTP sync reports expired auth', async () => {
+  const fetchMock = statusFetch({ needsAuth: true, authed: true, userId: 'alice' })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<LoginGate>{child}</LoginGate>)
+  expect(await screen.findByText('APP-READY')).toBeTruthy()
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ needsAuth: true, authed: false }),
+  })
+  fireEvent(window, new Event('podium:sync-auth-expired'))
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+  expect(screen.queryByText('APP-READY')).toBeNull()
+})

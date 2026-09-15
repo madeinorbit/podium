@@ -18,13 +18,6 @@
  * reason (`useDesktopReplica`); this follows that precedent rather than inventing
  * a second one.
  *
- * WHY THE HUB IS ATTACHED AFTERWARDS. A re-bootstrap is a RECONNECT — the server
- * pushes worlds and cannot be asked for one — so `PushedBootstrapSource` needs
- * `hub.requestFreshWorld()`, and the hub does not exist until the engine builds
- * it FROM this assembly. The cycle is broken with a late binding plus a pending
- * flag: a request that arrives before the hub is attached is remembered and
- * replayed on attach, because dropping it would strand the replica in
- * `bootstrapping` with nothing coming.
  */
 
 import {
@@ -37,12 +30,10 @@ import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/pri
 import {
   createKernelReplica,
   createSideCache,
-  FeedAuthorityClient,
   FeedSink,
-  PushedBootstrapSource,
   preparePrincipalNamespace,
 } from '@podium/client-core/replica'
-import type { FeedServerFrame, FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
 import { createLogger } from '@podium/logger'
 import { actorUser, asUserId } from '@podium/model/browser'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -60,6 +51,14 @@ import type { OutboxAttribution } from '@podium/sync/outbox'
 import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { SyncProgressStore } from './sync-progress'
+import {
+  HttpBootstrapSource,
+  HttpDeltaSource,
+  SyncAuthExpiredError,
+  SyncCancelledError,
+  SyncNetworkError,
+} from '@podium/client-core/sync-stream'
+import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:kernel-replica')
 
@@ -91,12 +90,8 @@ export interface KernelAssembly {
   /** Real kernel Outbox over this assembly's IndexedDB store. */
   readonly createOutboxFn: CreateEngineOutbox
   readonly store: IndexedDbSyncStore
-  /** First-sync progress, counted at this assembly's own frame relay and the
-   *  kernel's install event (POD-1249). The loading screen subscribes; nothing
-   *  else should — re-bootstraps behind a live UI are deliberately invisible. */
+  /** HTTP receive counts and durable replica events, observed by cold and warm UI. */
   readonly progress: SyncProgressStore
-  /** Call once the engine's hub exists. Idempotent. */
-  attachHub(hub: SocketHub): void
   /** Fail-closed sign-out: erase this principal's IDB and side-cache namespace. */
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
@@ -104,6 +99,7 @@ export interface KernelAssembly {
 
 export interface OpenKernelAssemblyOptions {
   readonly trpc: Trpc
+  readonly httpOrigin?: string
   readonly databaseName?: string
   readonly principal: string
   /** Injected by tests (fake-indexeddb); defaults to the browser's. */
@@ -389,18 +385,6 @@ export async function openKernelAssembly(
     options.onDegraded?.({ kind: 'legacy-outbox-migrated', ...migration })
   }
 
-  let hub: SocketHub | undefined
-  let freshWorldPending = false
-  const bootstraps = new PushedBootstrapSource({
-    requestFreshWorld: () => {
-      if (hub === undefined) {
-        freshWorldPending = true
-        return
-      }
-      hub.requestFreshWorld()
-    },
-  })
-
   const createOutboxFn = await openKernelEngineOutbox({
     store: view.outbox,
     principal: options.principal,
@@ -439,17 +423,76 @@ export async function openKernelAssembly(
   })
 
   const progress = new SyncProgressStore()
+  let stopped = false
+  const reportFailure = (error: unknown): void => {
+    if (error instanceof SyncCancelledError || stopped) return
+    const kind =
+      error instanceof SyncAuthExpiredError
+        ? 'auth'
+        : error instanceof SyncNetworkError
+          ? 'network'
+          : 'format'
+    progress.noteError(kind)
+    if (kind !== 'network') {
+      stopped = true
+      kernel.disconnect()
+    }
+    if (kind === 'auth') window.dispatchEvent(new Event('podium:sync-auth-expired'))
+  }
+  const sourceDeps = {
+    origin: options.httpOrigin ?? '',
+    streamingFetch: { fetch: workspaceFetch, credentials: 'include' as const },
+    onMeta: (totalRows: number | undefined) => progress.noteMeta(totalRows),
+    onChunk: (rows: number, bytes: number) => progress.noteReceived(rows, bytes),
+  }
+  const bootstraps = new HttpBootstrapSource(sourceDeps)
+  const deltas = new HttpDeltaSource(sourceDeps)
+  progress.retry = () => {
+    stopped = false
+    kernel.connect()
+  }
   const kernel = new KernelReplica({
     store: view.cache,
-    authority: new FeedAuthorityClient({
-      fetchChangesSince: async (cursor) =>
-        (await trpc.sync.feedChangesSince.query({ cursor })) as never,
-      bootstraps,
-    }),
+    authority: {
+      async *bootstrap(signal) {
+        progress.beginAttempt()
+        try {
+          for await (const chunk of bootstraps.bootstrap(signal)) {
+            if (chunk.last) progress.noteSaving()
+            yield chunk
+          }
+        } catch (error) {
+          reportFailure(error)
+          throw error
+        }
+      },
+      async changesRange(cursor, signal, onTarget) {
+        progress.beginAttempt()
+        try {
+          const range = await deltas.changesRange(cursor, signal, onTarget)
+          if ('kind' in range) return range
+          return (async function* () {
+            try {
+              yield* range
+            } catch (error) {
+              reportFailure(error)
+              throw error
+            }
+          })()
+        } catch (error) {
+          reportFailure(error)
+          throw error
+        }
+      },
+    },
     onEvent: (event) => {
       // The install is the ONE moment the first sync becomes durable and
       // renderable; the loading screen keys off it (POD-1249).
-      if (event.type === 'bootstrap-installed') progress.noteInstalled()
+      if (event.type === 'bootstrap-installed') progress.noteInstalled(event.entityCount)
+      if (event.type === 'heal-progress')
+        progress.noteCommitted(event.framesCommitted, event.seq, event.targetSeq)
+      if (event.type === 'posture' && event.posture === 'live') progress.noteReady()
+      if (event.type === 'bootstrap-failed') progress.noteError('network')
       facade.onKernelEvent(event)
     },
     // ONE DRAIN PER FRAME. The kernel emits one event per change (and one
@@ -482,13 +525,12 @@ export async function openKernelAssembly(
     return true
   }
   const relayFrame = (frame: FeedServerFrame, fromSocket: boolean): void => {
-    // Bootstrap and resync frames belong to this exact socket's state-machine
-    // walk. Ordered deltas and rescopes are the shared client-install
+    // HTTP snapshots never enter this relay. Socket bootstrap and resync
+    // frames belong to this exact tab's state-machine walk. Ordered deltas and rescopes are the shared client-install
     // convergence path: either can advance the durable cursor before another
     // tab's socket delivery reaches its in-memory replica.
     if (frame.type !== 'feedDelta' && frame.type !== 'feedRescope') {
       if (fromSocket) {
-        if (frame.type === 'feedBootstrap') progress.noteBootstrapFrame(frame)
         sink.frame(frame)
       }
       return
@@ -515,10 +557,18 @@ export async function openKernelAssembly(
     // reports back what that bought (POD-2061), and this assembly has no
     // business between the two — a cursor rewritten here would be a position
     // nothing in the replica holds.
+    syncHttp: true,
+    requestFreshWorld: () => {
+      if (!stopped) sink.requestFreshWorld()
+    },
     helloFields: () => sink.helloFields(),
-    connected: (worldPromised) => sink.connected(worldPromised),
+    connected: (worldPromised) => {
+      if (!stopped) sink.connected(worldPromised)
+    },
     disconnected: () => sink.disconnected(),
-    frame: (frame) => relayFrame(frame, true),
+    frame: (frame) => {
+      if (!stopped) relayFrame(frame, true)
+    },
   }
 
   return {
@@ -536,19 +586,14 @@ export async function openKernelAssembly(
     createOutboxFn,
     store,
     progress,
-    attachHub: (attached) => {
-      hub = attached
-      if (freshWorldPending) {
-        freshWorldPending = false
-        attached.requestFreshWorld()
-      }
-    },
     erasePrincipalData: async () => {
       side.dispose()
       namespace.erase()
       await store.erasePrincipal(options.principal)
     },
     dispose: async () => {
+      stopped = true
+      kernel.disconnect()
       crossTab?.close()
       side.dispose()
       await store.settled()

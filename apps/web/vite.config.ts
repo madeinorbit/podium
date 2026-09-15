@@ -45,6 +45,7 @@ const proxy = {
   '/version': { target: BACKEND, changeOrigin: true },
   '/podium-build.json': { target: BACKEND, changeOrigin: true },
   '/trpc': { target: BACKEND, changeOrigin: true },
+  '/sync': { target: BACKEND, changeOrigin: true },
   // Backend HTTP route that streams sandboxed file bytes (e.g. markdown-preview
   // relative images). Same-origin from the browser, so it must reach the backend.
   '/files': { target: BACKEND, changeOrigin: true },

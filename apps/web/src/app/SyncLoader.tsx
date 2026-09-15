@@ -32,11 +32,25 @@ function SyncDefs(): JSX.Element {
   return (
     <svg width="0" height="0" className="sync-loader-defs" aria-hidden="true">
       <defs>
-        <linearGradient id="podsync-ground" x1="12" y1="4" x2="90" y2="98" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="podsync-ground"
+          x1="12"
+          y1="4"
+          x2="90"
+          y2="98"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop stopColor="#232019" />
           <stop offset="1" stopColor="#0b0a08" />
         </linearGradient>
-        <linearGradient id="podsync-charge" x1="0" y1="0" x2="0" y2="106" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="podsync-charge"
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="106"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop stopColor="#ffe0a8" />
           <stop offset=".08" stopColor="var(--sync-acc, #d9b477)" />
           <stop offset="1" stopColor="var(--sync-acc, #d9b477)" stopOpacity=".72" />
@@ -88,10 +102,21 @@ function HeroTile(): JSX.Element {
 /** The 'P' filling with accent — the ledger's "in progress" glyph. */
 function ChargeGlyph(): JSX.Element {
   return (
-    <svg viewBox="0 0 100 100" width="14" height="14" className="sync-loader-row-icon" aria-hidden="true">
+    <svg
+      viewBox="0 0 100 100"
+      width="14"
+      height="14"
+      className="sync-loader-row-icon"
+      aria-hidden="true"
+    >
       <g mask="url(#podsync-letter)">
         <rect width="100" height="100" fill="var(--sync-glyph-well)" />
-        <rect className="sync-loader-charge-fill" width="100" height="106" fill="url(#podsync-charge)" />
+        <rect
+          className="sync-loader-charge-fill"
+          width="100"
+          height="106"
+          fill="url(#podsync-charge)"
+        />
       </g>
     </svg>
   )
@@ -123,23 +148,6 @@ function LedgerRow({
 
 const count = (n: number): string => n.toLocaleString('en-US')
 
-/** "n / total" while arriving, plain totals when landed, 'queued' before. */
-function entityRow(
-  snapshot: SyncProgressSnapshot,
-  entity: 'issue' | 'session',
-): { state: RowState; value: string } {
-  const seen = snapshot.seenByEntity[entity] ?? 0
-  const total = snapshot.totalsByEntity?.[entity] ?? null
-  if (snapshot.phase === 'connecting') return { state: 'queued', value: 'queued' }
-  if (snapshot.phase === 'downloading') {
-    return {
-      state: 'active',
-      value: total === null ? count(seen) : `${count(seen)} / ${count(total)}`,
-    }
-  }
-  return { state: 'done', value: count(total ?? seen) }
-}
-
 export interface SyncLoaderProps {
   readonly store: SyncProgressStore
   /** The enrichment axis: repos/worktrees arrive over tRPC, not the feed. */
@@ -164,39 +172,19 @@ export function SyncLoader({
     return () => clearInterval(id)
   }, [snapshot.startedAt])
 
-  const issuesSeen = snapshot.seenByEntity.issue ?? 0
-  const issuesTotal = snapshot.totalsByEntity?.issue ?? null
   const pct =
     snapshot.totalRows !== null && snapshot.totalRows > 0
       ? Math.min(100, Math.round((snapshot.rowsSeen / snapshot.totalRows) * 100))
       : null
-
-  const headline =
-    snapshot.phase === 'connecting' ? (
-      <span>connecting…</span>
-    ) : issuesTotal === null ? (
-      <span>
-        <span className="sync-loader-meta-strong">{count(issuesSeen)}</span> issues
-      </span>
-    ) : (
-      <span>
-        <span className="sync-loader-meta-strong">{count(issuesSeen)}</span> of{' '}
-        {count(issuesTotal)} issues
-      </span>
-    )
-  const metaRight =
-    snapshot.phase === 'saving'
-      ? 'saving…'
-      : snapshot.phase === 'ready'
-        ? '100%'
-        : pct === null
-          ? ''
-          : `${pct}%`
-  const barDone = snapshot.phase === 'saving' || snapshot.phase === 'ready'
-  const indeterminate = pct === null && snapshot.phase === 'downloading'
-
-  const issues = entityRow(snapshot, 'issue')
-  const sessions = entityRow(snapshot, 'session')
+  const headline = (
+    <span>
+      {count(snapshot.rowsSeen)}
+      {snapshot.totalRows === null ? '' : ` of ${count(snapshot.totalRows)}`} rows received
+    </span>
+  )
+  const metaRight = snapshot.phase === 'saving' ? 'saving…' : pct === null ? '' : `${pct}% received`
+  const barDone = snapshot.phase === 'ready'
+  const indeterminate = pct === null && snapshot.phase !== 'error'
   const clock = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`
 
   return (
@@ -225,14 +213,23 @@ export function SyncLoader({
           />
         </div>
 
+        <SyncFailure store={store} snapshot={snapshot} />
         <div className="sync-loader-ledger">
           <LedgerRow
             state={reposLoaded ? 'done' : 'active'}
             label="Repositories"
             value={reposLoaded ? count(repoCount) : 'loading'}
           />
-          <LedgerRow state={issues.state} label="Issues and tasks" value={issues.value} />
-          <LedgerRow state={sessions.state} label="Agent sessions" value={sessions.value} />
+          <LedgerRow
+            state={snapshot.phase === 'ready' ? 'done' : 'active'}
+            label="Received (decoded)"
+            value={`${count(snapshot.bytesSeen)} bytes`}
+          />
+          <LedgerRow
+            state={snapshot.phase === 'ready' ? 'done' : 'queued'}
+            label="Committed locally"
+            value={`${count(snapshot.rowsCommitted)} rows`}
+          />
           <LedgerRow
             state={reposLoaded ? 'done' : 'queued'}
             label="Worktrees"
@@ -247,6 +244,49 @@ export function SyncLoader({
         </div>
       </div>
       <span className="sr-only">Syncing your workspace for the first time…</span>
+    </div>
+  )
+}
+
+function SyncFailure({
+  store,
+  snapshot,
+}: {
+  store: SyncProgressStore
+  snapshot: SyncProgressSnapshot
+}): JSX.Element | null {
+  if (snapshot.error === null) return null
+  return (
+    <div role="alert">
+      <p>
+        {snapshot.error === 'auth'
+          ? 'Your session expired. Opening sign-in…'
+          : snapshot.error === 'format'
+            ? 'The sync response could not be read safely. Retry to download it again.'
+            : 'The connection interrupted sync. Retry to continue.'}
+      </p>
+      {snapshot.error !== 'auth' && (
+        <button type="button" onClick={() => store.retry()}>
+          Retry sync
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** A heal never replaces the workspace the user is already working in. */
+export function WarmSyncStatus({ store }: { store: SyncProgressStore }): JSX.Element | null {
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  if (snapshot.phase === 'ready' || snapshot.attempt === 0) return null
+  return (
+    <div role="status" className="px-3 py-1 text-sm">
+      <SyncFailure store={store} snapshot={snapshot} />
+      {snapshot.error === null && (
+        <span>
+          Updating cached workspace · {count(snapshot.rowsSeen)} rows received ·{' '}
+          {count(snapshot.framesCommitted)} change batches committed
+        </span>
+      )}
     </div>
   )
 }
