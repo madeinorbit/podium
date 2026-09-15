@@ -66,6 +66,7 @@
  */
 
 import type { encodeDaemonMessage as encodeFn } from '@podium/protocol/daemon'
+import type { SendOutcome, SendSequenceSource } from './ordered-client-send'
 import {
   type SendSocket,
   safeSend,
@@ -96,6 +97,12 @@ export interface PlaneSink {
   sendBinary(bytes: Uint8Array): void
   /** Send one already-framed binary message through the lossy stream budget. */
   sendBinaryLossy(bytes: Uint8Array): boolean
+  /**
+   * Send an ordered sequence LAZILY, pulled as the socket drains (POD-3931).
+   * Later `send` calls wait behind it. Absent on a sink that cannot push back,
+   * whose caller then iterates the source eagerly.
+   */
+  sendSequence?(source: SendSequenceSource): Promise<SendOutcome>
 }
 
 /**

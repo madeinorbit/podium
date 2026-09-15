@@ -22,7 +22,7 @@ const bootstrap = (seq = 1) => ({
 function setup(
   compress = compressBootstrap,
   budget = new BootstrapCompressionBudget(),
-  maxBytes?: number,
+  maxQueuedBytes?: number,
 ) {
   const sent: Array<{ data: string | Uint8Array; compress: boolean | undefined }> = []
   const ws: SendSocket = {
@@ -32,7 +32,7 @@ function setup(
     sendBinary: (data, compress) => sent.push({ data, compress }),
     terminate: vi.fn(),
   }
-  const sink = new OrderedClientSend(ws, limits, compress, budget, maxBytes)
+  const sink = new OrderedClientSend(ws, limits, compress, budget, { maxQueuedBytes })
   sink.enableBootstrapCompression(true)
   return { sink, sent, ws, budget }
 }
@@ -181,10 +181,11 @@ describe('ordered bootstrap compression', () => {
     expect(ws.terminate).not.toHaveBeenCalled()
   })
 
-  it('enforces the shared byte budget and rechecks socket pressure before sending', async () => {
+  it('enforces the shared byte budget and pauses on socket pressure before sending', async () => {
     const tooSmall = setup(compressBootstrap, new BootstrapCompressionBudget(1))
     tooSmall.sink.send(bootstrap())
     expect(tooSmall.ws.terminate).toHaveBeenCalledOnce()
+    expect(tooSmall.sink.stats().failure).toBe('shared-memory-limit')
     let finish!: (bytes: Uint8Array) => void
     const { sink, ws, sent } = setup(
       () =>
@@ -197,7 +198,9 @@ describe('ordered bootstrap compression', () => {
     ws.bufferedAmount = limits.sendBufferLimitBytes + 1
     finish(Uint8Array.of(1))
     await tick()
-    expect(ws.terminate).toHaveBeenCalledOnce()
+    // A native backlog at the mark is a PAUSE, not a fault (POD-3931).
+    expect(ws.terminate).not.toHaveBeenCalled()
     expect(sent).toEqual([])
+    expect(sink.stats().paused).toBe(true)
   })
 })

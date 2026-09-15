@@ -65,6 +65,7 @@ import {
 } from '@podium/protocol'
 import type { FeedScopingGrade } from '@podium/sync'
 import { LegacyWireV1Adapter } from './legacy-wire-v1-adapter'
+import type { SendOutcome, SendSequenceSource } from './ordered-client-send'
 
 const log = createLogger('server:gateway')
 
@@ -159,6 +160,8 @@ export interface EdgePeer {
   readonly wireVersion: number
   readonly acceptsDelta: boolean
   send(message: ServerMessage): void
+  /** Lazy ordered delivery; absent peers are served eagerly through `send`. */
+  sendSequence?(source: SendSequenceSource<ServerMessage>): Promise<SendOutcome>
 }
 
 export class WireFeedEdge {
@@ -273,6 +276,52 @@ export class WireFeedEdge {
       return
     }
     for (const message of translated) peer.send(message)
+  }
+
+  /**
+   * Serve ONE peer a sequence of frames LAZILY (POD-3931): each frame is
+   * translated only when the peer's socket has room for it, so a world of any
+   * size is never serialized further ahead of the client than the sender's
+   * prepare window. Ordering with later `publishTo` calls is the sink's: what
+   * is offered after this waits behind it.
+   *
+   * The returned promise settles when the transfer has been handed to the
+   * socket in full, or with the reason it could not be. An adapter refusing a
+   * frame ends the sequence the way `publishTo` would: the peer is dropped.
+   */
+  publishSequenceTo(peer: EdgePeer, frames: Iterator<FeedFrame>): Promise<SendOutcome> {
+    const adapter = this.registry.resolve(peer.wireVersion)
+    if (isUpgradeRequired(adapter)) return Promise.resolve({ ok: true })
+    let buffered: ServerMessage[] = []
+    let done = false
+    const source: SendSequenceSource<ServerMessage> = {
+      next: () => {
+        while (buffered.length === 0 && !done) {
+          const step = frames.next()
+          if (step.done) {
+            done = true
+            break
+          }
+          try {
+            buffered = [...adapter.translate(step.value, { acceptsDelta: peer.acceptsDelta })]
+          } catch (error) {
+            log.error('adapter refused a frame — dropping the peer', {
+              peer: peer.id,
+              wireVersion: peer.wireVersion,
+              err: error,
+            })
+            this.detach(peer.id)
+            done = true
+          }
+        }
+        return buffered.shift()
+      },
+    }
+    if (peer.sendSequence) return peer.sendSequence(source)
+    for (let message = source.next(); message !== undefined; message = source.next()) {
+      peer.send(message)
+    }
+    return Promise.resolve({ ok: true })
   }
 
   /**

@@ -22,6 +22,7 @@ interface NativeServerWebSocket<T> {
   data: T
   readonly readyState: number
   getBufferedAmount(): number
+  /** Bun's send status: positive bytes written, -1 buffered, 0 not accepted. */
   sendText(data: string, compress?: boolean): number
   sendBinary(data: Uint8Array, compress?: boolean): number
   ping(): number
@@ -39,6 +40,8 @@ export interface NativeWebSocketHandler<T> {
   open(socket: NativeServerWebSocket<T>): void
   message(socket: NativeServerWebSocket<T>, message: string | Buffer): void
   pong(socket: NativeServerWebSocket<T>): void
+  /** Bun's buffer for this socket shrank; a paused sender may try again. */
+  drain(socket: NativeServerWebSocket<T>): void
   close(socket: NativeServerWebSocket<T>): void
 }
 
@@ -100,6 +103,10 @@ export interface WsAuthOptions {
   ) => WsClientPrincipal | undefined | Promise<WsClientPrincipal | undefined>
   maintainClientCredential?: (credentialId: string) => Promise<boolean>
 }
+
+/** Bun's own buffer limit: the application mark plus the largest single frame. */
+export const NATIVE_BACKPRESSURE_LIMIT_BYTES =
+  CLIENT_PLANE_LIVENESS.sendBufferLimitBytes + WS_MAX_PAYLOAD_BYTES
 
 /** Credential validity fails closed if its heartbeat refresh is older than two ticks. */
 export const CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS = CLIENT_PLANE_LIVENESS.heartbeatIntervalMs * 2
@@ -193,10 +200,14 @@ interface SocketData {
   socket?: NativeGatewaySocket
 }
 
-type SocketEvent = 'message' | 'close' | 'pong'
+type SocketEvent = 'message' | 'close' | 'pong' | 'drain'
 type SocketListener = (...args: never[]) => void
 
-class NativeGatewaySocket implements GatewaySocket {
+/**
+ * The evented adapter over one native Bun socket. Exported for the real
+ * transport test, which drives it through a genuine `Bun.serve` (POD-3931).
+ */
+export class NativeGatewaySocket implements GatewaySocket {
   private readonly listeners = new Map<SocketEvent, SocketListener[]>()
 
   constructor(private readonly native: NativeServerWebSocket<SocketData>) {}
@@ -211,6 +222,17 @@ class NativeGatewaySocket implements GatewaySocket {
 
   send(data: string, compress = shouldCompressWebSocketFrame(data)): number {
     return this.native.sendText(data, compress)
+  }
+
+  /** The native `drain` for THIS socket, routed by the handler below. */
+  onDrain(listener: () => void): () => void {
+    this.on('drain', listener)
+    return () => {
+      const current = this.listeners.get('drain')
+      if (!current) return
+      const index = current.indexOf(listener)
+      if (index !== -1) current.splice(index, 1)
+    }
   }
 
   sendBinary(data: Uint8Array, compress = shouldCompressWebSocketFrame(data)): number {
@@ -228,6 +250,7 @@ class NativeGatewaySocket implements GatewaySocket {
   on(event: 'message', listener: (raw: string | Buffer) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'pong', listener: () => void): this
+  on(event: 'drain', listener: () => void): this
   on(event: SocketEvent, listener: SocketListener): this {
     const current = this.listeners.get(event)
     if (current) current.push(listener)
@@ -346,7 +369,13 @@ export function attachWebSockets(
     data: {} as SocketData,
     perMessageDeflate: { compress: '3KB', decompress: '3KB' },
     maxPayloadLength: WS_MAX_PAYLOAD_BYTES,
-    backpressureLimit: CLIENT_PLANE_LIVENESS.sendBufferLimitBytes,
+    // THE NATIVE LIMIT SITS ABOVE THE APPLICATION MARK, BY ONE FRAME (POD-3931).
+    // The sender pauses on `-1` and whenever Bun's buffer is at the plane's
+    // 16 MB mark, so its buffer can exceed the mark by at most one frame. Bun
+    // returns 0 — and DROPS the frame — once its buffer passes this limit, so
+    // the limit must leave room for that one frame or ordinary backpressure
+    // reads as a fatal overflow. This is a safety net, not the mechanism.
+    backpressureLimit: NATIVE_BACKPRESSURE_LIMIT_BYTES,
     closeOnBackpressureLimit: false,
     idleTimeout: 0,
     sendPings: false,
@@ -403,6 +432,9 @@ export function attachWebSockets(
       measureTask(`ws.message.${native.data.kind ?? 'unknown'}`, () =>
         native.data.socket?.emit('message', message),
       )
+    },
+    drain(native) {
+      native.data.socket?.emit('drain')
     },
     pong(native) {
       const socket = native.data.socket

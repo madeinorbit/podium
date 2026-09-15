@@ -515,20 +515,22 @@ export class FeedServing {
     // to be declared `void`, which threw it away silently at 0 typecheck errors
     // (rule 56). The widening is the load-bearing half: an await added under the
     // old `void` port typechecked identically with or without it.
+    // THE TRANSFER IS AWAITED OUTSIDE THE SCOPE (POD-3931). The scope's job is
+    // one consistent read-and-install; the transfer that follows can take
+    // minutes on a slow client and needs none of the scope's caches alive.
     return withReadScope(async () => {
       if (resumeFrom === undefined) {
-        await this.serveWorld(peer, principal, routingPrincipal, cause)
-        return
+        return this.serveWorld(peer, principal, routingPrincipal, cause)
       }
       if (!await this.canResume(peer, resumeFrom)) {
         // NAMED, so the traces can tell a client that could not be resumed from one
         // that never asked. A rising `cursor-rejected` rate is a retention or epoch
         // problem; a rising `hello` rate is just cold clients.
-        await this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
-        return
+        return this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
       }
       await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
-    })
+      return undefined
+    }).then((transferred) => transferred?.())
   }
 
   /**
@@ -615,13 +617,14 @@ export class FeedServing {
   }
 
   /** Read the world, send it, and start framing from the position it was read
-   *  at. The one place a connection acquires a position. */
+   *  at. The one place a connection acquires a position. Resolves once the
+   *  position is installed, with a continuation that waits for the transfer. */
   private async serveWorld(
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
     cause: BootstrapCause,
-  ): Promise<void> {
+  ): Promise<(() => Promise<void>) | undefined> {
     // ONE synchronous pass: the world, and the position it was read at.
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
@@ -656,26 +659,29 @@ export class FeedServing {
       countsByEntity[change.entity] = (countsByEntity[change.entity] ?? 0) + 1
     }
     const minAvailableSeq = (await this.deps.retention.minAvailableSeq()) ?? 0
-    if (this.abandoned(peer)) return
-    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-      const start = chunkIndex * chunkRows
-      const bootstrap: FeedBootstrapMessage = {
-        type: 'feedBootstrap',
-        feedId: identity.feedId,
-        epoch: identity.epoch,
-        // A bootstrap certifies `(0, seq]` — everything up to the snapshot point.
-        // Spelling it the same way a delta does is what lets a replica hold ONE
-        // acceptance rule instead of two.
-        fromSeq: 0,
-        seq: world.throughSeq,
-        minAvailableSeq,
-        changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
-        last: chunkIndex === chunkCount - 1,
-        totalRows: world.changes.length,
-        countsByEntity,
-      }
-      this.edge.publishTo(peer, bootstrap)
-    }
+    if (this.abandoned(peer)) return undefined
+    // THE HANDOFF, AND WHY NOTHING BELOW YIELDS UNTIL THE POSITION IS INSTALLED
+    // (POD-3931). The world is a stable array captured at `throughSeq`; the
+    // chunks are produced LAZILY from it, pulled by the peer's sender only as
+    // its socket drains, so a 50 MB world is never serialized ahead of the
+    // client by more than the sender's prepare window. What must not yield is
+    // the reservation of ORDER: the sequence is offered to the sink first, and
+    // the publisher is connected/re-armed at `throughSeq` in the same
+    // synchronous stretch. Every delta the publisher frames from here on is
+    // offered to the same sink AFTER the sequence and waits behind it, so a
+    // change committed while the transfer is still running reaches the client
+    // after the last chunk and chains onto exactly the position the chunks
+    // describe. The retained change log is what bounds the tail the publisher
+    // holds (D9 demotes past `FEED_SEND_QUEUE_MAX_BYTES`); the sender's own
+    // application queue limit bounds what it holds behind the sequence.
+    //
+    // No store lease is held across the transfer: `withReadScope` memoizes
+    // reads, it does not open a SQLite snapshot (see `read-scope.ts`), the
+    // wait itself happens outside the scope (see `admit`), and the array being
+    // iterated is the retained world, not a cursor.
+    const chunks = bootstrapChunks(world, identity, minAvailableSeq, chunkRows, countsByEntity)
+    const transferStartedAt = performance.now()
+    const transfer = this.edge.publishSequenceTo(peer, chunks)
     this.servedVersion.set(peer.id, peer.wireVersion)
     const existing = this.connections.get(peer.id)
     if (existing === undefined) {
@@ -699,6 +705,39 @@ export class FeedServing {
       rows: world.changes.length,
       durationMs,
     })
+    // The transfer outlives the admission's synchronous part. The admission
+    // awaits it (outside the read scope) so the slot stays held — a second
+    // `hello` cannot start a second world mid-transfer — and the outcome has
+    // one place to be recorded. A failure is the sender's to act on: it has
+    // already terminated the socket with a named reason, so this only records
+    // it and never throws.
+    return async () => {
+      const outcome = await transfer
+      const transferMs = performance.now() - transferStartedAt
+      perf.record('phase', 'feedBootstrap.transfer', transferMs, perfKey)
+      traceFeedPeer({
+        event: 'bootstrap-transferred',
+        peerId: peer.id,
+        cause,
+        wireVersion: peer.wireVersion,
+        throughSeq: world.throughSeq,
+        rows: world.changes.length,
+        chunks: chunkCount,
+        ok: outcome.ok,
+        ...(outcome.ok ? {} : { reason: outcome.reason }),
+        transferMs,
+      })
+      if (!outcome.ok && outcome.reason !== 'socket-closed') {
+        log.warn('a bootstrap transfer failed', {
+          peer: peer.id,
+          cause,
+          reason: outcome.reason,
+          rows: world.changes.length,
+          chunks: chunkCount,
+          transferMs,
+        })
+      }
+    }
   }
 
   /**
@@ -885,9 +924,9 @@ export class FeedServing {
     // promise exactly as {@link admit} did, and for the same reason: the caller
     // is `ClientMux.renegotiate`, which is synchronous.
     this.defer(peer.id, () =>
-      withReadScope(async () => {
-        await this.serveWorld(peer, principal, routingPrincipal, 'version-change')
-      }),
+      withReadScope(() =>
+        this.serveWorld(peer, principal, routingPrincipal, 'version-change'),
+      ).then((transferred) => transferred?.()),
     )
     return null
   }
@@ -1059,6 +1098,43 @@ export class FeedServing {
       for (const frame of await connection.drain() as readonly ServerFrame[]) {
         this.edge.publishTo(peer, toWireFrame(frame, atSeq))
       }
+    }
+  }
+}
+
+/**
+ * The bootstrap, one chunk at a time, produced only when asked (POD-3931).
+ *
+ * `world.changes` is the retained snapshot — a stable array the cache never
+ * mutates in place (`advanceCachedWorld` replaces entries in the map and drops
+ * the materialized array; it never writes into one it handed out). Each chunk
+ * is built and serialized when the sender pulls it, so the memory added by a
+ * transfer is the sender's prepare window, not the world again.
+ */
+function* bootstrapChunks(
+  world: Awaited<ReturnType<AuthorityPort['bootstrap']>>,
+  identity: { readonly feedId: string; readonly epoch: string },
+  minAvailableSeq: number,
+  chunkRows: number,
+  countsByEntity: Record<string, number>,
+): Generator<FeedBootstrapMessage, void, undefined> {
+  const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
+  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+    const start = chunkIndex * chunkRows
+    yield {
+      type: 'feedBootstrap',
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      // A bootstrap certifies `(0, seq]` — everything up to the snapshot point.
+      // Spelling it the same way a delta does is what lets a replica hold ONE
+      // acceptance rule instead of two.
+      fromSeq: 0,
+      seq: world.throughSeq,
+      minAvailableSeq,
+      changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
+      last: chunkIndex === chunkCount - 1,
+      totalRows: world.changes.length,
+      countsByEntity,
     }
   }
 }

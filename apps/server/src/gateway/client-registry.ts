@@ -34,6 +34,7 @@
 import type { Geometry, SessionId } from '@podium/model'
 import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
+import type { SendOutcome, SendSequenceSource } from './ordered-client-send'
 import type { ClientPrincipal } from './client-principal'
 
 /**
@@ -60,6 +61,8 @@ export interface ClientConn {
   sendBinary?: (bytes: Uint8Array) => void
   /** Lossy binary stream sink. False means the frame was dropped under pressure. */
   sendBinaryStream?: (bytes: Uint8Array) => boolean
+  /** Lazy ordered sink, pulled as the socket drains; absent on in-process peers. */
+  sendSequence?: (source: SendSequenceSource<ServerMessage>) => Promise<SendOutcome>
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one
@@ -178,6 +181,20 @@ export class ClientRegistry {
    *  through, so a later scoped feed has exactly one place to gate. */
   deliver(conn: ClientConn, msg: ServerMessage): void {
     conn.send(msg)
+  }
+
+  /**
+   * An ordered sequence to ONE connection, pulled as its socket drains
+   * (POD-3931). A peer with no lazy sink is served eagerly through `deliver`,
+   * which is exactly what every bootstrap was before this existed.
+   */
+  deliverSequence(
+    conn: ClientConn,
+    source: SendSequenceSource<ServerMessage>,
+  ): Promise<SendOutcome> {
+    if (conn.sendSequence) return conn.sendSequence(source)
+    for (let msg = source.next(); msg !== undefined; msg = source.next()) this.deliver(conn, msg)
+    return Promise.resolve({ ok: true })
   }
 
   deliverStream(subscriberId: string, msg: ServerMessage): boolean {

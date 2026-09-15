@@ -18,13 +18,27 @@ import {
 
 const log = createLogger('server:gateway')
 
+/**
+ * Bun's answer to one `send` (POD-3931): positive is bytes written, `-1` is
+ * accepted into Bun's own buffer (stop until `drain`), `0` is NOT accepted.
+ * A socket adapter that cannot report (an in-process fake) returns a positive
+ * number so the pump treats it as written.
+ */
+export type SendStatus = number
+
 /** Minimal slice of a gateway socket {@link safeSend} needs (kept tiny for tests). */
 export interface SendSocket {
   readyState: number
   bufferedAmount: number
-  send(data: string, compress?: boolean): unknown
-  sendBinary?(data: Uint8Array, compress?: boolean): unknown
+  send(data: string, compress?: boolean): SendStatus
+  sendBinary?(data: Uint8Array, compress?: boolean): SendStatus
   terminate(): void
+  /**
+   * Native `drain` for THIS socket: Bun's buffer shrank, another send may be
+   * attempted. Not an acknowledgement of anything the client read. Absent on a
+   * socket that cannot push back, which then never pauses.
+   */
+  onDrain?(listener: () => void): () => void
 }
 
 export interface GatewaySocket extends SendSocket {

@@ -50,6 +50,22 @@ export type FeedPeerTraceEvent =
       readonly durationMs: number
     }
   | {
+      /** The bootstrap's TRANSFER settled (POD-3931): every chunk handed to the
+       *  socket, or the reason the sender gave up. `bootstrap` above records
+       *  when the world was captured and the position installed; this is when
+       *  the last byte left the process, which on a slow client is minutes later. */
+      readonly event: 'bootstrap-transferred'
+      readonly peerId: string
+      readonly cause: 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
+      readonly wireVersion: number
+      readonly throughSeq: number
+      readonly rows: number
+      readonly chunks: number
+      readonly ok: boolean
+      readonly reason?: string
+      readonly transferMs: number
+    }
+  | {
       readonly event: 'reclaim'
       readonly peerId: string
       readonly priorPeerId: string

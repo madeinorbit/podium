@@ -25,8 +25,8 @@ function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } =
   return {
     readyState: over.readyState ?? 1,
     bufferedAmount: over.bufferedAmount ?? 0,
-    send: vi.fn<(data: string, compress?: boolean) => void>(),
-    sendBinary: vi.fn<(data: Uint8Array, compress?: boolean) => void>(),
+    send: vi.fn<(data: string, compress?: boolean) => number>(() => 1),
+    sendBinary: vi.fn<(data: Uint8Array, compress?: boolean) => number>(() => 1),
     terminate: vi.fn<() => void>(),
   }
 }

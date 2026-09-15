@@ -81,10 +81,12 @@ export function wireClientSocket(
     sendStream: sink.sendLossy,
     sendBinary: sink.sendBinary,
     sendBinaryStream: sink.sendBinaryLossy,
+    sendSequence: sink.sendSequence,
     userId: auth.userId,
     userRole: auth.userRole,
     machines: auth.machines ?? [],
   })
+  sink.describe(id)
   let failed = false
   ws.on('message', (raw) => {
     if (failed) return

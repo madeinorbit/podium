@@ -131,6 +131,8 @@ export interface ClientTransport {
   sendBinary?: ClientConn['sendBinary']
   /** Lower-budget binary sink for live terminal output. */
   sendBinaryStream?: ClientConn['sendBinaryStream']
+  /** Lazy ordered sink for long transfers (the bootstrap). */
+  sendSequence?: ClientConn['sendSequence']
 }
 
 /**
@@ -203,6 +205,7 @@ export class ClientMux {
       ...(transport.terminate ? { terminate: transport.terminate } : {}),
       ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
       ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
+      ...(transport.sendSequence ? { sendSequence: transport.sendSequence } : {}),
       sendStream:
         transport.sendStream ??
         ((message) => {
@@ -465,6 +468,8 @@ export class ClientMux {
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
       send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>
         this.deps.registry.deliver(conn, msg),
+      sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>
+        this.deps.registry.deliverSequence(conn, source),
     }
   }
 
