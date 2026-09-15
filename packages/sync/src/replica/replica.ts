@@ -323,6 +323,22 @@ export class Replica {
   // ─── Inputs ───────────────────────────────────────────────────────────────
 
   /** Come online. From `cold` this bootstraps; from `stale` it RESUMES from the cursor. */
+  private transportGap = false
+
+  /** A socket drop cannot cancel an independently owned HTTP snapshot. */
+  transportDisconnected(): void {
+    if (this.state !== 'bootstrapping') {
+      this.disconnect()
+      return
+    }
+    this.buffer = []
+    this.transportGap = true
+  }
+
+  requestRebootstrap(): void {
+    this.startRebootstrap('resync-required')
+  }
+
   connect(): TransitionOutcome {
     const from = this.state
     if (this.cursorValue === null) {
@@ -404,6 +420,11 @@ export class Replica {
       if (this.rejects(frame) !== null) {
         this.startRebootstrap('malformed')
         return this.outcome('D7-3-MALFORMED', from)
+      }
+      if (this.buffer.length >= DRAIN_BUFFER_LIMIT) {
+        this.buffer = []
+        this.startRebootstrap('resync-required')
+        return this.outcome('D7-2-RESYNC', from)
       }
       this.buffer.push(frame)
       return this.outcome('D6-BUFFER', from)
@@ -1082,7 +1103,8 @@ export class Replica {
         }
 
         this.setPosture('live')
-        if (gapAt >= 0) {
+        if (gapAt >= 0 || this.transportGap) {
+          this.transportGap = false;
       // DISCARD the unchainable remainder rather than re-buffering it. Keeping it
       // is an infinite ladder: the frame demands a fromSeq the fresh snapshot
       // cannot satisfy, so install -> heal -> (authority says re-bootstrap) ->

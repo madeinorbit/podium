@@ -34,6 +34,7 @@ class Peer implements EdgePeer {
     readonly id: string,
     readonly wireVersion: number = WIRE_VERSION,
     readonly acceptsDelta = true,
+    readonly syncHttp = false,
   ) {}
   send(message: ServerMessage): void {
     this.received.push(message)
@@ -230,5 +231,50 @@ describe('the transfer a reconnect actually costs', () => {
     expect(rows(cold)).toBe(50)
     expect(rows(resumed)).toBe(0)
     expect(bytes(resumed)).toBeLessThan(bytes(cold) / 10)
+  })
+})
+
+
+describe('HTTP bootstrap capability', () => {
+  it('grants the head to a cold peer and resumes three reconnects without a world', async () => {
+    const ctx = await servedOnce()
+    for (let i = 0; i < 4; i++) {
+      const peer = new Peer(`http-${i}`, WIRE_VERSION, true, true)
+      ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), i === 0 ? undefined : ctx.held)
+      await ctx.p.serving.admissionSettled()
+      expect(peer.types()).toEqual(['feedResume'])
+      expect(peer.of('feedResume')[0]?.seq).toBe(ctx.held.seq)
+      ctx.p.serving.detach(peer.id)
+    }
+  })
+
+  it('uses the HTTP rule when an already admitted peer changes wire version', async () => {
+    const ctx = await servedOnce()
+    const peer = new Peer('version-http', 1)
+    ctx.p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id))
+    await ctx.p.serving.admissionSettled()
+    const upgraded = new Peer(peer.id, WIRE_VERSION, true, true)
+    ctx.p.serving.renegotiate(upgraded, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id))
+    await ctx.p.serving.admissionSettled()
+    expect(upgraded.types()).toEqual(['feedResume'])
+  })
+
+  it.each(['feed', 'epoch', 'future', 'retention'])('refuses a %s cursor with resync and retains live delivery', async (reason) => {
+    const ctx = await servedOnce({ retention: { minAvailableSeq: async () => 2 } })
+    const cursor = { ...ctx.held }
+    if (reason === 'feed') cursor.feedId = 'foreign'
+    if (reason === 'epoch') cursor.epoch = 'foreign'
+    if (reason === 'future') cursor.seq += 100
+    if (reason === 'retention') cursor.seq = 0
+    const peer = new Peer('http-refused', WIRE_VERSION, true, true)
+    ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), cursor)
+    await ctx.p.serving.admissionSettled()
+    expect(peer.types()).toEqual(['feedResyncRequired'])
+    await commit(ctx.p, 's3')
+    const delivery = await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
+    if (delivery === null) throw new Error('missing range')
+    await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+    expect(peer.of('feedDelta')[0]?.fromSeq).toBe(ctx.held.seq)
+    expect(peer.of('feedBootstrap')).toHaveLength(0)
   })
 })

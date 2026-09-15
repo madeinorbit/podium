@@ -100,6 +100,27 @@ function zstdBootstrap(raw: string): Uint8Array {
 }
 
 describe('SocketHub', () => {
+  it('advertises HTTP bootstrap and requests a fresh world without closing the socket', () => {
+    const socket = new FakeSocket()
+    const close = vi.spyOn(socket, 'close')
+    const connected = vi.fn()
+    const fresh = vi.fn()
+    const makeSocket = vi.fn(() => socket)
+    const hub = new SocketHub({
+      url: 'ws://x', makeSocket,
+      feed: { syncHttp: true, requestFreshWorld: fresh, helloFields: () => null, connected, disconnected() {}, frame() {} },
+    })
+    hub.connect()
+    socket.open()
+    expect(socket.parsed().find(msg => msg.type === 'hello')?.caps).toContain('sync.http.v1')
+    expect(connected).toHaveBeenCalledWith(false)
+    hub.requestFreshWorld()
+    expect(fresh).toHaveBeenCalledTimes(1)
+    expect(makeSocket).toHaveBeenCalledTimes(1)
+    expect(close).not.toHaveBeenCalled()
+    hub.dispose()
+  })
+
   it('negotiates compression only with a binary transport and feed consumer', () => {
     for (const socket of [new FakeSocket(), new BrowserSocket()]) {
       const hub = new SocketHub({
@@ -508,6 +529,25 @@ describe('SocketHub', () => {
 
     expect(frames).toEqual([])
     expect(hub.feedBudget().tasks).toBe(0)
+    hub.dispose()
+  })
+
+  it('recovers an HTTP delta backlog without a socket cycle', () => {
+    const sock = new FakeSocket()
+    const close = vi.spyOn(sock, 'close')
+    const fresh = vi.fn()
+    const hub = new SocketHub({ url: 'ws://x', makeSocket: () => sock,
+      scheduleFeedTask: () => {},
+      feed: { syncHttp: true, requestFreshWorld: fresh, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
+    })
+    hub.connect()
+    sock.open()
+    for (let seq = 1; seq <= FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; seq++) {
+      sock.recv({ type: 'feedDelta', feedId: 'f', epoch: 'e', fromSeq: seq - 1, seq, minAvailableSeq: 0, changes: [] })
+    }
+    expect(fresh).toHaveBeenCalledTimes(1)
+    expect(close).not.toHaveBeenCalled()
+    expect(hub.feedBudget().backlogResyncs).toBe(1)
     hub.dispose()
   })
 

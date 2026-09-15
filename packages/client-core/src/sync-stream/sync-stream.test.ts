@@ -1,3 +1,5 @@
+import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
+import { FeedSink } from '../replica/feed/sink'
 import { describe, expect, it, vi } from 'vitest'
 import { FeedAuthorityClient } from '../replica/feed/authority-client'
 import { SYNC_LINE_MAX_BYTES, WIRE_VERSION } from '@podium/protocol'
@@ -200,3 +202,74 @@ async function collectRange(pending: ReturnType<HttpDeltaSource['changesRange']>
   for await (const frame of range) frames.push(frame)
   return frames
 }
+
+
+describe('HTTP bootstrap with a live socket', () => {
+  it('bounds live frames during an HTTP walk and starts a replacement transfer on overflow', async () => {
+    const signals: Array<AbortSignal | null | undefined> = []
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      signals.push(init.signal)
+      return new Response(new ReadableStream<Uint8Array>(), { headers: { 'content-type': 'application/x-ndjson' } })
+    })
+    const bootstraps = new HttpBootstrapSource({ origin: 'https://example.test', streamingFetch: { fetch } })
+    const store = new InMemoryReplicaStore()
+    const replica = new Replica({ store: store.viewFor('default').cache,
+      authority: { bootstrap: signal => bootstraps.bootstrap(signal), changesRange: async () => ({ kind: 'bootstrap-required' }) } })
+    const sink = new FeedSink({ replica, bootstraps })
+    sink.connected(false)
+    for (let seq = 1; seq <= 10_001; seq++) {
+      await replica.receive({ kind: 'delta', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: seq - 1, seq, minAvailableSeq: 0, changes: [] })
+    }
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[1]?.aborted).toBe(false)
+    replica.disconnect()
+    await replica.settled()
+  })
+
+  it.each([false, true])('folds live frames once and preserves the HTTP walk across a socket drop: %s', async (dropDuringWalk) => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    let signal: AbortSignal | null | undefined
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      signal = init.signal
+      return new Response(new ReadableStream<Uint8Array>({ start(c) { controller = c } }), {
+        headers: { 'content-type': 'application/x-ndjson' },
+      })
+    })
+    const bootstraps = new HttpBootstrapSource({ origin: 'https://example.test', streamingFetch: { fetch } })
+    const changesRange = vi.fn(async function* (from: { seq: number }) {
+      yield { kind: 'delta' as const, feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: from.seq, seq: 13, minAvailableSeq: 0,
+        changes: [11, 12, 13].filter(seq => seq > from.seq).map(seq => ({ seq, entity: 'future-kind', entityId: String(seq), op: 'upsert' as const, payload: { seq } })) }
+    })
+    const store = new InMemoryReplicaStore()
+    const replica = new Replica({ store: store.viewFor('default').cache, authority: { bootstrap: signal => bootstraps.bootstrap(signal), changesRange } })
+    const sink = new FeedSink({ replica, bootstraps })
+    sink.connected(false)
+    await vi.waitFor(() => expect(controller).toBeDefined())
+    for (const value of [meta, chunk]) controller.enqueue(encoder.encode(JSON.stringify(value) + '\n'))
+    for (const seq of [11, 12, 13]) {
+      sink.frame({ type: 'feedDelta', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: seq - 1, seq, minAvailableSeq: 0,
+        changes: [{ seq, entity: 'future-kind', entityId: String(seq), op: 'upsert', value: { seq } }] })
+    }
+    if (dropDuringWalk) {
+      sink.disconnected()
+      expect(signal?.aborted).toBe(false)
+      expect(replica.posture).toBe('bootstrapping')
+      sink.connected(false)
+    }
+    controller.enqueue(encoder.encode(JSON.stringify(complete) + '\n'))
+    controller.close()
+    await replica.settled()
+    expect(replica.cursor?.seq).toBe(13)
+    expect(replica.entities().map(row => row.entityId).sort()).toEqual(['11', '12', '13', 'one'])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(changesRange).toHaveBeenCalledTimes(dropDuringWalk ? 1 : 0)
+    sink.disconnected()
+    expect(sink.helloFields()?.feedCursor.seq).toBe(13)
+    sink.connected(false)
+    sink.frame({ type: 'feedResume', feedId: cursor.feedId, epoch: cursor.epoch, seq: 13 })
+    await replica.settled()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(replica.cursor?.seq).toBe(13)
+  })
+})

@@ -25,6 +25,7 @@ import {
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
+  CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_FEED_BOOTSTRAP_ZSTD_V1,
@@ -364,6 +365,8 @@ export interface FeedSinkPort {
    * WHETHER to ask (see `requestFreshWorld`) and spreads what it gets. A hub
    * that read `.seq` here would be the second place the D7 ladder lives.
    */
+  readonly syncHttp?: boolean
+  requestFreshWorld?(): void
   helloFields(): FeedHelloFields | null
   /**
    * The socket is open and `hello` has advertised the wire version.
@@ -877,9 +880,10 @@ export class SocketHub {
         // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
+        ...(this.opts.feed?.syncHttp || this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
           ? {
               caps: [
+                ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
                 ...(this.legacyFeed
                   ? [
                       CAP_METADATA_DELTA,
@@ -917,7 +921,7 @@ export class SocketHub {
       // A world is promised iff this connection presented nothing to resume from:
       // the server serves such a connection its world unconditionally, and that
       // promise is what a cold walk waits on instead of cycling the socket.
-      this.opts.feed?.connected(helloFields === null)
+      this.opts.feed?.connected(!this.opts.feed.syncHttp && helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
       this.legacyFeed?.connected()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
@@ -1211,6 +1215,10 @@ export class SocketHub {
    * the intentional-shutdown path, or nothing would reopen.
    */
   requestFreshWorld(): void {
+    if (this.opts.feed?.syncHttp) {
+      this.opts.feed.requestFreshWorld?.()
+      return
+    }
     // BEFORE the guard, deliberately. The flag says what the NEXT connection must
     // ask for, and a caller that asked while the socket was already gone wants
     // exactly the same thing from the reconnect that is already scheduled.

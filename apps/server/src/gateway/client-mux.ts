@@ -41,6 +41,7 @@ import { createLogger } from '@podium/logger'
 import type { MachineWire, SessionId, UserId, UserRole } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
+  CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   type ClientMessage,
   type FeedCursorField,
@@ -466,6 +467,7 @@ export class ClientMux {
       ...(conn.terminate ? { terminate: conn.terminate } : {}),
       wireVersion: conn.wireVersion,
       acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
+      syncHttp: conn.caps.has(CAP_SYNC_HTTP_V1),
       send: (msg: Parameters<ClientRegistry['deliver']>[1]) =>
         this.deps.registry.deliver(conn, msg),
       sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>

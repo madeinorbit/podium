@@ -202,6 +202,7 @@ interface CachedWorld {
 
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
+  readonly syncHttp?: boolean
   /** End a failed admission's transport; absent for in-process sinks. */
   terminate?(): void
 }
@@ -519,6 +520,12 @@ export class FeedServing {
     // one consistent read-and-install; the transfer that follows can take
     // minutes on a slow client and needs none of the scope's caches alive.
     return withReadScope(async () => {
+      if (peer.syncHttp && resumeFrom === undefined) {
+        await this.deps.identity.resolve()
+        const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
+        await this.serveResume(peer, principal, routingPrincipal, cursor)
+        return undefined
+      }
       if (resumeFrom === undefined) {
         return this.serveWorld(peer, principal, routingPrincipal, cause)
       }
@@ -526,6 +533,13 @@ export class FeedServing {
         // NAMED, so the traces can tell a client that could not be resumed from one
         // that never asked. A rising `cursor-rejected` rate is a retention or epoch
         // problem; a rising `hello` rate is just cold clients.
+        if (peer.syncHttp) {
+          await this.deps.identity.resolve()
+          if (this.abandoned(peer)) return undefined
+          const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
+          await this.serveResume(peer, principal, routingPrincipal, cursor, true)
+          return undefined
+        }
         return this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
       }
       await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
@@ -585,6 +599,7 @@ export class FeedServing {
     principal: Principal,
     routingPrincipal: Principal,
     cursor: FeedCursorField,
+    resyncRequired = false,
   ): Promise<void> {
     const t0 = performance.now()
     const perfKey = perfPrincipal(principal)
@@ -597,7 +612,13 @@ export class FeedServing {
       epoch: identity.epoch,
       seq: cursor.seq,
     }
-    this.edge.publishTo(peer, resume)
+    this.edge.publishTo(peer, resyncRequired ? {
+      type: 'feedResyncRequired',
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      cause: 'authority-shed-load',
+      reason: 'cursor-rejected',
+    } : resume)
     this.servedVersion.set(peer.id, peer.wireVersion)
     this.connections.set(peer.id, this.publisher.connect(peer.id, cursor.seq, principal))
     this.retainPrincipal(peer.id, principal, routingPrincipal)
@@ -911,6 +932,13 @@ export class FeedServing {
     // be done instead is bootstrapping only at `hello`, which withholds the
     // world from every peer that never sends one — the pre-cutover bug.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
+    if (peer.syncHttp) {
+      this.connections.get(peer.id)?.disconnect()
+      this.connections.delete(peer.id)
+      this.releasePrincipal(peer.id)
+      this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'version-change', resumeFrom))
+      return null
+    }
     // NO RESUME ON THIS ARM, cursor or not: the connection already HAS a position
     // — the one its v1 world was served at — and the thing that is wrong with it
     // is the dialect, not the seq. Honouring a cursor here would move a

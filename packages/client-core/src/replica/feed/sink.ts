@@ -19,6 +19,7 @@
 import { createLogger } from '@podium/logger'
 import type { Replica as KernelReplica } from '@podium/sync/replica'
 import type { FeedHelloFields, FeedServerFrame, FeedSinkPort } from '../../socket-transport'
+import type { HttpBootstrapSource } from '../../sync-stream/http-sources'
 import type { PushedBootstrapSource } from './bootstrap-source'
 import { toBootstrapChunk, toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 
@@ -26,7 +27,7 @@ const log = createLogger('client:feed-sink')
 
 export interface FeedSinkDeps {
   readonly replica: KernelReplica
-  readonly bootstraps: PushedBootstrapSource
+  readonly bootstraps: PushedBootstrapSource | HttpBootstrapSource
   /** Observability seam. Every frame passes through it, including the ignored
    *  ones — an ignored frame nobody can count is indistinguishable from one that
    *  never arrived. */
@@ -48,6 +49,12 @@ export class FeedSink implements FeedSinkPort {
   private awaitingCursorVerdict = false
 
   constructor(private readonly deps: FeedSinkDeps) {}
+
+  get syncHttp(): boolean { return !('expectWorld' in this.deps.bootstraps) }
+
+  requestFreshWorld(): void {
+    this.deps.replica.requestRebootstrap()
+  }
 
   /**
    * Where this replica stands, as `hello` carries it (POD-2061).
@@ -74,6 +81,10 @@ export class FeedSink implements FeedSinkPort {
    * ladder from outside the state machine that owns it.
    */
   connected(worldPromised: boolean): void {
+    if (!('expectWorld' in this.deps.bootstraps)) {
+      if (this.deps.replica.posture !== 'bootstrapping') this.deps.replica.connect()
+      return
+    }
     this.awaitingCursorVerdict = !worldPromised
     // A PROMISED WORLD IS ARMED HERE, AND ONLY A PROMISED ONE. Such a socket is
     // served one initial world unconditionally, so telling the push/pull seam
@@ -111,6 +122,10 @@ export class FeedSink implements FeedSinkPort {
   disconnected(): void {
     // The verdict, if it was ever coming, is not coming on this socket.
     this.awaitingCursorVerdict = false
+    if (!('expectWorld' in this.deps.bootstraps)) {
+      this.deps.replica.transportDisconnected()
+      return
+    }
     const requestedByBootstrap = this.deps.bootstraps.reset('socket closed')
     // A bootstrap obtains a fresh world by deliberately replacing the socket.
     // That close belongs to the in-flight walk: disconnecting the Replica would
@@ -122,6 +137,7 @@ export class FeedSink implements FeedSinkPort {
   frame(frame: FeedServerFrame): void {
     switch (frame.type) {
       case 'feedBootstrap':
+        if (!('expectWorld' in this.deps.bootstraps)) return
         this.deps.onFrame?.(frame.type, frame.seq)
         // THE CURSOR WAS REFUSED, and this frame IS the refusal (POD-2061). The
         // server had two answers available and chose the world, so the world is
