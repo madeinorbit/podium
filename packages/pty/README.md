@@ -1,4 +1,4 @@
-# @podium/pty
+# @podium/process
 
 The PTY kernel (L2). Everything between a child process's pseudo-terminal and the
 bytes a client renders — and nothing about *which* agent is being run.
