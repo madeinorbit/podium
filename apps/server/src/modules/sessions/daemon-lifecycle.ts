@@ -292,6 +292,12 @@ export class SessionDaemonLifecycle {
     }
   }
 
+  private runtimeOwnsState(session: Session): boolean {
+    // Negotiated authority is independent of durable checkpoint readiness.
+    // Do not populate the gate's persisted-head set at bind time (POD-3791).
+    return session.runtimeContract || this.ports.runtimeEvents?.ready(session.sessionId) === true
+  }
+
   /**
    * A new turn began: does it retire the session's standing offer
    * [spec:SP-c7f1]? Only when the USER opened it — a turn forced by a
@@ -307,12 +313,6 @@ export class SessionDaemonLifecycle {
    * Both call sites route through here so the two branches cannot drift apart
    * again — the drift is what left the offer standing in the first place.
    */
-  private runtimeOwnsState(session: Session): boolean {
-    // Negotiated authority is independent of durable checkpoint readiness.
-    // Do not populate the gate's persisted-head set at bind time (POD-3791).
-    return session.runtimeContract || this.ports.runtimeEvents?.ready(session.sessionId) === true
-  }
-
   private userOpenedTurn(
     session: Session,
     offerCreatedAt: string,
