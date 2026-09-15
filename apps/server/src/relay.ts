@@ -3294,6 +3294,7 @@ export class SessionRegistry {
       capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // Self-stop kill only after agentRelayResult is on the wire [spec:SP-9904].
+      // POD-3989: graceful lifecycle(stop) first, kill frame as escalation.
       afterSuccessfulReply: (msg, result) => {
         if (!result || typeof result !== 'object') return
         if ((result as { deferredKill?: boolean }).deferredKill !== true) return
@@ -3301,7 +3302,7 @@ export class SessionRegistry {
           (msg.router === 'sessions' && msg.proc === 'stop') ||
           (msg.router === 'issues' && msg.proc === 'stop')
         ) {
-          sessionsSvc.finalizeDeferredStopKill(msg.sessionId)
+          void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
         }
       },
     })

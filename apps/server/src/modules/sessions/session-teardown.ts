@@ -367,7 +367,7 @@ export class SessionTeardown {
         )
         if (!freed.ok) {
           if ((wasRunning || input.reapParked === true) && !input.selfStop)
-            this.killStoppedSession(session)
+            await this.gracefulStopThenKill(session)
           return {
             ok: true,
             reason: `session stopped but worktree not freed: ${freed.output}`,
@@ -380,10 +380,11 @@ export class SessionTeardown {
       }
     }
 
-    // Peer/operator: kill now. Self-stop: hold the kill until the relay has
-    // delivered agentRelayResult (finalizeDeferredStopKill) [spec:SP-9904].
+    // Peer/operator: graceful stop now, kill only as escalation. Self-stop:
+    // hold both until the relay has delivered agentRelayResult
+    // (finalizeDeferredStopKill) [spec:SP-9904].
     if ((wasRunning || input.reapParked === true) && !input.selfStop)
-      this.killStoppedSession(session)
+      await this.gracefulStopThenKill(session)
 
     return {
       ok: true,
@@ -402,16 +403,48 @@ export class SessionTeardown {
   }
 
   /**
+   * POD-3989: graceful stop first, legacy kill frame only as escalation.
+   *
+   * `runtimeLifecycle(stop)` reaches the driver's `handle.stop()` on the
+   * daemon (handlers.ts); the kill frame reaches `handle.kill()` /
+   * `beginServerDriverReap(retire:true)`. A settled `{ok:true}` means the
+   * driver took the graceful path, so no kill follows. Any refusal
+   * (`not_running` — including the RPC timeout, which surfaces as
+   * `not_running` — or a throw) escalates to the legacy kill frame, which is
+   * also the path for sessions never behind the contract (terminal family).
+   *
+   * ESCALATION TIMEOUT: none of its own — it is `RUNTIME_VERB_TIMEOUT_MS`
+   * (10s, machines/rpc.ts) owned by `DaemonRpcService.runtimeLifecycle`. Stop
+   * is a local driver op like the other verbs sharing that timeout (no
+   * verification window to wait out, unlike `runtimeSend`'s 12s), long enough
+   * for a slow driver to settle and bounded so a lost daemon cannot stall the
+   * stop UI past 10s before the kill escalation fires.
+   */
+  private async gracefulStopThenKill(session: Session): Promise<void> {
+    try {
+      const res = await this.ports.rpc.runtimeLifecycle(
+        { sessionId: session.sessionId, verb: 'stop' },
+        session.machineId,
+      )
+      if (res?.result && 'ok' in res.result && res.result.ok) return
+    } catch {
+      // Fall through to the kill escalation below.
+    }
+    this.killStoppedSession(session)
+  }
+
+  /**
    * Arm the process kill for a self-stop AFTER the relay reply has been sent
    * [spec:SP-9904]. Called from AgentRelayGate once agentRelayResult is on the
-   * wire — not a fixed timer.
+   * wire — not a fixed timer. Graceful first, same escalation as the
+   * peer/operator path above.
    */
-  finalizeDeferredStopKill(sessionId: SessionId): void {
+  async finalizeDeferredStopKill(sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     // Only kill if still parked from stop (hibernated/exited) — never a live row.
     if (session.status !== 'hibernated' && session.status !== 'exited') return
-    this.killStoppedSession(session)
+    await this.gracefulStopThenKill(session)
   }
 
   /**

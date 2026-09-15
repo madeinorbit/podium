@@ -692,8 +692,8 @@ export class SessionLifecycle {
   }> {
     return await this.sessionTeardown.stopSession(input, issues)
   }
-  finalizeDeferredStopKill(sessionId: SessionId): void {
-    this.sessionTeardown.finalizeDeferredStopKill(sessionId)
+  finalizeDeferredStopKill(sessionId: SessionId): Promise<void> {
+    return this.sessionTeardown.finalizeDeferredStopKill(sessionId)
   }
   async stopIssue(
     input: {

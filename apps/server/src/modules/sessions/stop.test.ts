@@ -60,7 +60,15 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
-  const rpc = (reg.modules.sessions as unknown as { rpc: { repoOp: RepoOpStub } }).rpc
+  const rpc = (reg.modules.sessions as unknown as {
+    rpc: {
+      repoOp: RepoOpStub
+      runtimeLifecycle: (
+        input: { sessionId: string; verb: 'stop' | 'hibernate' | 'kill' },
+        machineId: string,
+      ) => Promise<{ sessionId: string; result: { ok: true } | { reason: string } }>
+    }
+  }).rpc
   // The path `status` was last asked about IS the worktree the free path is
   // inspecting — `freeWorktreeKeepBranch` calls `status(worktreePath)` and then
   // `worktreeList(repoPath)` — so the git registry answer is built from it
@@ -95,6 +103,13 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
     return answer
   }
   rpc.repoOp = (op, cwd, args, machineId) => impl(op, cwd, args, machineId)
+  // POD-3989: the fixture daemon is legacy — it answers lifecycle(stop) with an
+  // immediate `not_running` so stop escalates to the kill frame without waiting
+  // out the 10s RPC timeout. Tests pinning the graceful path override this stub.
+  rpc.runtimeLifecycle = async (input) => ({
+    sessionId: input.sessionId,
+    result: { reason: 'not_running' },
+  })
   return {
     reg,
     daemon,
@@ -192,6 +207,20 @@ describe('stopSession [spec:SP-9904]', () => {
     // Graceful first: one lifecycle(stop), no kill escalation when it settles.
     expect(lifecycleCalls).toEqual([{ sessionId, verb: 'stop' }])
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
+  })
+
+  it('POD-3989: escalates to the kill frame when lifecycle(stop) refuses', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    await bindLive(reg, sessionId, '/r')
+    // Fixture default is already `not_running`; assert the escalation explicitly:
+    // graceful attempted once, legacy kill still sent.
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    expect(r.ok).toBe(true)
+    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
   })
 
   it('refuses the stop when the durable parking write fails before killing the process', async () => {
@@ -297,7 +326,7 @@ describe('stopSession [spec:SP-9904]', () => {
     ).toBe('self')
     // No timer — kill is not sent until the relay replies.
     expect(daemon.some((m) => m.type === 'kill')).toBe(false)
-    reg.modules.sessions.finalizeDeferredStopKill(sessionId)
+    await reg.modules.sessions.finalizeDeferredStopKill(sessionId)
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
   })
 
