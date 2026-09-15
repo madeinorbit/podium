@@ -1676,7 +1676,7 @@ describe('InteractionService — a contract session answers through its driver (
     })
     await svc.onTurnEvent({
       sessionId: S,
-      ev: { ev: 'failed', reason: 'context-overflow', disposition: 'needs-human' },
+      ev: { ev: 'failed', turnEpoch: 1, reason: 'context-overflow', disposition: 'needs-human' },
       at: '2026-09-15T00:00:00.000Z',
     })
     const [row] = await svc.listOpen(S)

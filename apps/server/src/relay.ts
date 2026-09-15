@@ -3131,7 +3131,12 @@ export class SessionRegistry {
        * which is the behaviour that was there before this port existed.
        */
       contractRouted: async (sessionId) => {
-        const session = await sessionsSvc.sessionById(sessionId)
+        // THE INTERNAL LIVE SESSION, not `sessionById`. The public projection
+        // deliberately omits `runtimeContract` (POD-3739), so the predicate read
+        // through it would be permanently false and this port would never route
+        // anything — a silent no-op the type checker caught and the focused
+        // tests could not, because they stub this port.
+        const session = sessionsSvc.sessions.get(sessionId)
         return session !== undefined && contractDeliveryRequested(session)
       },
       deliverStructured: async (input) =>
