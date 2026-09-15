@@ -1,4 +1,9 @@
-import { encodePairingEnvelope, type MobilePairingEnvelope } from '@podium/protocol'
+import {
+  encodePairingEnvelope,
+  MIN_SUPPORTED_VERSION,
+  type MobilePairingEnvelope,
+  WIRE_VERSION,
+} from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const cryptoMock = vi.hoisted(() => ({
@@ -91,6 +96,8 @@ describe('mobile pairing links', () => {
   })
 })
 
+// Compatible server fixtures track the same constants as the real /version route.
+// Literal versions below are intentional incompatibility cases.
 describe('server preflight', () => {
   it('fails closed on native LAN HTTP before making a request', async () => {
     const fetchMock = vi.fn()
@@ -115,8 +122,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: 2,
-            minSupportedVersion: 1,
+            wireVersion: WIRE_VERSION,
+            minSupportedVersion: MIN_SUPPORTED_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -134,6 +141,14 @@ describe('server preflight', () => {
       mode: 'open',
       transport: 'insecure-lan',
     })
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://localhost:18790/version',
+      'http://localhost:18790/auth/status',
+    ])
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('omit')
+      expect(new Headers(init.headers).has('Authorization')).toBe(false)
+    }
   })
 
   it('keeps a DEV build failing closed on a protected LAN server', async () => {
@@ -143,8 +158,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: 2,
-            minSupportedVersion: 1,
+            wireVersion: WIRE_VERSION,
+            minSupportedVersion: MIN_SUPPORTED_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -160,7 +175,33 @@ describe('server preflight', () => {
     await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
       ok: false,
       kind: 'cleartext-blocked',
+      title: 'Secure sign-in required',
+      transport: 'insecure-lan',
     })
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://localhost:18790/version',
+      'http://localhost:18790/auth/status',
+    ])
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('omit')
+      expect(new Headers(init.headers).has('Authorization')).toBe(false)
+    }
+  })
+
+  it('rejects a pre-HTTP-sync wire-2 LAN server before probing authentication', async () => {
+    vi.stubGlobal('__DEV__', true)
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ wireVersion: 2, minSupportedVersion: 1, instanceId: 'old' })),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
+      ok: false,
+      kind: 'version-mismatch',
+      title: 'Update the server',
+      transport: 'insecure-lan',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:18790/version')
   })
 
   it('allows an open HTTP origin only when web-mobile is already in the browser policy', async () => {
@@ -170,8 +211,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: 2,
-            minSupportedVersion: 1,
+            wireVersion: WIRE_VERSION,
+            minSupportedVersion: MIN_SUPPORTED_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -257,7 +298,11 @@ describe('server preflight', () => {
       .fn()
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ wireVersion: 2, minSupportedVersion: 1, instanceId: 'podium' }),
+          JSON.stringify({
+            wireVersion: WIRE_VERSION,
+            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            instanceId: 'podium',
+          }),
           { status: 200 },
         ),
       )
@@ -330,8 +375,8 @@ describe('workspace preflight routing', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: 2,
-            minSupportedVersion: 1,
+            wireVersion: WIRE_VERSION,
+            minSupportedVersion: MIN_SUPPORTED_VERSION,
             instanceId: 'cloud',
             workspaceId: 'ws_blue',
             appVersion: 'dev',
