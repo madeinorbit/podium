@@ -55,7 +55,7 @@ describe('mobile HTTP sync fetch port', () => {
     expect(expired).toHaveBeenCalledExactlyOnceWith(expect.any(MobileAuthExpiredError))
   })
 
-  it.each([{}, { 'content-length': String(MOBILE_SYNC_BUFFER_CAP + 1) },
+  it.each<HeadersInit>([{}, { 'content-length': String(MOBILE_SYNC_BUFFER_CAP + 1) },
     { 'content-length': '-1' }, { 'content-length': 'invalid' },
     { 'content-length': '3', 'content-encoding': 'gzip' }])('refuses unsafe non-streaming response %j before reading', async (headers) => {
     const response = buffered(headers)
