@@ -14,6 +14,7 @@ import {
 } from './abduco.js'
 import {
   type HostAgentSession,
+  attachHostAgent,
   hostHasSession,
   hostSocketPath,
   killHostSession,
