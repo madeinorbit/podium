@@ -95,8 +95,9 @@ function lintFile(path: string): Violation[] {
   const rel = relative(join(HERE, '..', '..'), path)
   const violations: Violation[] = []
   // import ... from '...' | export ... from '...' (multiline), type-only or not.
+  // The clause excludes braces so one match can never span two statements.
   const statement =
-    /(import|export)\s+(type\s+)?(?:\{([\s\S]*?)\}\s*from\s*|([\w*$][\w*\s,]*?)\s+from\s*)(['"])(@podium\/process(?:\/[a-z]+)?)\5/g
+    /(import|export)\s+(type\s+)?(?:\{([^{}]*?)\}\s*from\s*|([\w*$][\w*\s,]*?)\s+from\s*)(['"])(@podium\/process(?:\/[a-z]+)?)\5/g
   for (const match of text.matchAll(statement)) {
     const [, kind, typeKeyword, named, , , from] = match
     if (from !== '@podium/process/durable' && from !== '@podium/process/pty' && from !== '@podium/process')
