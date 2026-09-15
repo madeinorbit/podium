@@ -444,12 +444,6 @@ async function delta() {
     bootstrap: async function* () {
       throw new Error('unexpected bootstrap during retained heal')
     },
-    changesSince: async () => {
-      const result = (await json('/trpc/feedChangesSince')).result.data
-      if (result.kind !== 'delta') throw new Error(JSON.stringify(result))
-      bytesDecoded = Buffer.byteLength(JSON.stringify(result))
-      return frame(result)
-    },
     changesRange: async (_cursor, _signal, onTarget) => {
       const response = await request(
         `/sync/delta?feedId=measurement-feed&epoch=measurement-epoch&from=${manifest.from}&to=${manifest.through}`,

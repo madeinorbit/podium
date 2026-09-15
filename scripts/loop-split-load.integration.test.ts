@@ -121,7 +121,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         })
         const id = registry.clientGateway.attachClient({
           send: (message) => {
-            if (message.type === 'feedBootstrap' || message.type === 'feedDelta') {
+            if (message.type === 'feedResume' || message.type === 'feedDelta') {
               publications.push(JSON.stringify(message))
             }
           },
@@ -134,7 +134,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
           wireVersion: WIRE_VERSION,
-          caps: ['metadataDelta'],
+          caps: ['metadataDelta', 'sync.http.v1'],
         })
       }
       await until(() => clients.every((client) => client.publications.length > 0), 15_000)

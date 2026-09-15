@@ -32,14 +32,13 @@ const rawBootstrap = (
   changes: ReadonlyArray<Record<string, unknown>> = [],
 ): string =>
   JSON.stringify({
-    type: 'feedBootstrap',
+    type: 'feedDelta',
     feedId: 'feed-1',
     epoch: 'e1',
     fromSeq: 0,
     seq: changes.length === 0 ? 0 : 2,
     minAvailableSeq: 0,
     changes,
-    last,
   })
 
 const rawDelta = (seq: number): string =>
@@ -110,8 +109,8 @@ describe('SocketHub feed ingress drain', () => {
     await macrotaskTurns(2)
 
     expect(frames).toMatchObject([
-      { type: 'feedBootstrap', changes: [{ entityId: 'first' }], last: false },
-      { type: 'feedBootstrap', changes: [{ entityId: 'last' }], last: true },
+      { type: 'feedDelta', changes: [{ entityId: 'first' }] },
+      { type: 'feedDelta', changes: [{ entityId: 'last' }] },
     ])
     expect(hub.feedBudget()).toMatchObject({ tasks: 2, yieldedTasks: 2 })
     hub.dispose()
@@ -150,84 +149,31 @@ describe('SocketHub feed ingress drain', () => {
 
     expect(hub.clientId).toBe('replacement')
     expect(frames).toEqual([
-      expect.objectContaining({ type: 'feedBootstrap', changes: [], last: true }),
+      expect.objectContaining({ type: 'feedDelta', changes: [] }),
     ])
     expect(hub.feedBudget()).toMatchObject({ tasks: 1, yieldedTasks: 1 })
     hub.dispose()
   })
 
-  /**
-   * WHERE THE QUEUE CEILING IS TESTED, AND WHY MOST OF IT IS NOT HERE.
-   *
-   * POD-2058 shipped this file with its own ceiling — `FEED_INGRESS_QUEUE_LIMIT`,
-   * 2000 frames of ANY kind, counter `queueOverflows` — and the same recovery was
-   * built independently on main as `FEED_DELTA_RESYNC_QUEUE_DEPTH`: 256 frames,
-   * counting DELTAS only. Only one bound may own this queue, and main's is the
-   * one that survived the rebase, because counting every frame kind is a defect
-   * rather than a preference: a large world legitimately arrives as an
-   * arbitrarily long run of `feedBootstrap` chunks, so a whole-queue bound
-   * abandons the download and asks for another world, forever.
-   *
-   * `socket-hub.test.ts` therefore owns the bound's two cases (deltas trip it,
-   * bootstrap chunks do not). What stays here is the assertion that pair does not
-   * make: after the cycle, the reconnect presents NO position, so the server owes
-   * it a whole world — the thing that makes "nothing was dropped" true.
-   */
-  it('reconnects with no position after a runaway backlog, so the server owes it a world', () => {
-    vi.useFakeTimers()
-    const sockets: FakeSocket[] = []
-    const helloFieldsCalls: number[] = []
-    const disconnects: number[] = []
-    const starved: Array<() => void> = []
+  it('requests HTTP recovery for a runaway backlog without closing or losing the resume cursor', () => {
+    const sock = new FakeSocket()
+    const recovery = vi.fn()
     const hub = new SocketHub({
-      url: 'ws://x',
-      makeSocket: () => {
-        const sock = new FakeSocket()
-        sockets.push(sock)
-        return sock
-      },
-      feed: {
-        helloFields: () => {
-          helloFieldsCalls.push(1)
-          return { feedId: 'feed-1', epoch: 'e1', seq: 7 } as never
-        },
-        connected: () => {},
-        disconnected: () => disconnects.push(1),
-        frame: () => {},
-      },
-      // The drain never runs: the wedged main thread this guard exists for.
-      scheduleFeedTask: (task) => starved.push(task),
+      url: 'ws://x', makeSocket: () => sock, scheduleFeedTask: () => {},
+      feed: { syncHttp: true, requestRebootstrap: recovery,
+        helloFields: () => ({ feedCursor: { feedId: 'feed-1', epoch: 'e1', seq: 7 } }),
+        connected() {}, disconnected() {}, frame() {} },
     })
     hub.connect()
-    sockets[0]?.open()
-    expect(helloFieldsCalls).toHaveLength(1)
-
-    for (let seq = 1; seq <= FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; seq += 1) {
-      sockets[0]?.deliver(rawDelta(seq))
-    }
-
-    // The socket was cycled rather than the queue left to grow.
+    sock.open()
+    for (let seq = 1; seq <= FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; seq++) sock.deliver(rawDelta(seq))
+    expect(recovery).toHaveBeenCalledOnce()
+    expect(sock.closed).toBe(false)
+    expect(hub.connected).toBe(true)
+    expect(sock.parsed().find(frame => frame.type === 'hello')).toMatchObject({
+      feedCursor: { feedId: 'feed-1', epoch: 'e1', seq: 7 },
+    })
     expect(hub.feedBudget().backlogResyncs).toBe(1)
-    expect(sockets[0]?.closed).toBe(true)
-    expect(disconnects).toHaveLength(1)
-    expect(hub.connected).toBe(false)
-
-    // …and the reconnect presents no position, so the server owes it a world.
-    // Nothing was dropped: the world supersedes every frame the queue held.
-    vi.advanceTimersByTime(30_000)
-    sockets[1]?.open()
-    expect(sockets).toHaveLength(2)
-    expect(helloFieldsCalls).toHaveLength(1)
-    const hello = sockets[1]?.parsed().find((frame) => frame.type === 'hello')
-    expect(hello).toBeDefined()
-    expect(hello).not.toHaveProperty('feedId')
-
-    // The new connection queues from empty — the backlog went with the old
-    // socket rather than carrying over and tripping the bound again at once.
-    sockets[1]?.deliver(rawDelta(1))
-    sockets[1]?.deliver(rawDelta(2))
-    expect(hub.feedBudget().backlogResyncs).toBe(1)
-
     hub.dispose()
   })
 })

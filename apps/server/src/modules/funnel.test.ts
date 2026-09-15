@@ -432,20 +432,3 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     expect(serving.published).toHaveLength(1)
   })
 })
-
-
-describe('catch-up failure reasons', () => {
-  it.each(['corrupt-payload', 'compacted-or-unknown'] as const)(
-    'preserves %s so operators can distinguish corruption from retention',
-    async (reason) => {
-      const { ledger, funnel } = await makeFunnel()
-      vi.spyOn(ledger.authority, 'changesRange').mockImplementation(async function* () {
-        throw new ChangeRangeBootstrapRequired(reason)
-      })
-      expect(await funnel.feedChangesSince(
-        { feedId: 'feed-test', epoch: 'epoch-test', seq: 0 },
-        DEVICE_GRADE_PRINCIPAL,
-      )).toEqual({ kind: 'bootstrap-required', reason })
-    },
-  )
-})

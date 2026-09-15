@@ -20,15 +20,11 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import net from 'node:net'
 import {
-  BootstrapZstdMetadata,
-  decodeBinaryEnvelope,
-  type FeedBootstrapMessage,
+  type FeedDeltaMessage,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { decodeBootstrapZstd } from '../../../../packages/client-core/src/socket-transport/bootstrap-zstd'
 import {
-  BootstrapCompressionBudget,
-  compressBootstrap,
+  OrderedSendBudget,
   OrderedClientSend,
   type OrderedSendOptions,
   type OrderedSendStats,
@@ -285,23 +281,19 @@ function bootstrapSource(minBytes: number, rowsPerChunk = 200) {
         op: 'upsert' as const,
         value: rowValue(seq),
       }))
-      const msg: FeedBootstrapMessage = {
-        type: 'feedBootstrap',
+      const msg: FeedDeltaMessage = {
+        type: 'feedDelta',
         feedId: 'feed',
         epoch: 'epoch',
         fromSeq: 0,
         seq: 1_000_000,
         minAvailableSeq: 0,
-        changes: changes as unknown as FeedBootstrapMessage['changes'],
-        last: false,
-        totalRows: 0,
-        countsByEntity: {},
+        changes: changes as unknown as FeedDeltaMessage['changes'],
       }
       const encoded = JSON.stringify(msg)
       bytes += encoded.length
       produced += 1
       chunks.push(`chunk-${produced - 1}-row-0`)
-      if (bytes >= minBytes) msg.last = true
       return msg
     },
   }
@@ -309,16 +301,7 @@ function bootstrapSource(minBytes: number, rowsPerChunk = 200) {
 }
 
 function firstEntityId(frame: Frame, decode: boolean): string {
-  let json: string
-  if (decode && frame.opcode === 2) {
-    const decoded = decodeBinaryEnvelope(new Uint8Array(frame.payload), BootstrapZstdMetadata)
-    json = decodeBootstrapZstd({
-      payload: decoded.payload,
-      uncompressedBytes: decoded.metadata.uncompressedBytes,
-    })
-  } else {
-    json = frame.payload.toString('utf8')
-  }
+  const json = frame.payload.toString('utf8')
   // Cheap positional read; parsing 50 MB of JSON per case would dominate the run.
   const match = /"entityId":"([^"]+)"/.exec(json)
   return match?.[1] ?? '<none>'
@@ -327,11 +310,11 @@ function firstEntityId(frame: Frame, decode: boolean): string {
 /** Peak socket bytes, peak application bytes and the shared budget, separately.
  * Also appended to `PODIUM_TRANSPORT_TEST_REPORT` when set, because the
  * reporter elides console output of passing tests. */
-function report(name: string, stats: OrderedSendStats, budget: BootstrapCompressionBudget, extra: Record<string, unknown> = {}) {
+function report(name: string, stats: OrderedSendStats, budget: OrderedSendBudget, extra: Record<string, unknown> = {}) {
   const line =
     `[transport] ${name}: sentFrames=${stats.sentFrames} sentBytes=${stats.sentBytes} pauses=${stats.pauses} ` +
     `peakSocketBufferedBytes=${stats.peakSocketBufferedBytes} peakQueuedBytes=${stats.peakQueuedBytes} ` +
-    `sharedBudgetBytes=${budget.bytes} activeJobs=${budget.activeJobs} ` +
+    `sharedBudgetBytes=${budget.bytes} ` +
     Object.entries(extra)
       .map(([k, v]) => `${k}=${String(v)}`)
       .join(' ')
@@ -350,7 +333,7 @@ describe('send pump over a real Bun socket', () => {
 
   async function connect(
     options: OrderedSendOptions = {},
-    budget = new BootstrapCompressionBudget(),
+    budget = new OrderedSendBudget(),
     throttle = THROTTLE,
   ) {
     const server = serve()
@@ -361,7 +344,7 @@ describe('send pump over a real Bun socket', () => {
     if (process.env.PODIUM_TRANSPORT_TEST_TRACE === '1') process.stderr.write('[trace] awaiting open\n')
     const connection = await pending
     if (process.env.PODIUM_TRANSPORT_TEST_TRACE === '1') process.stderr.write('[trace] open\n')
-    const sink = new OrderedClientSend(connection.socket, LIMITS, compressBootstrap, budget, {
+    const sink = new OrderedClientSend(connection.socket, LIMITS, budget, {
       noProgressTimeoutMs: 20_000,
       ...options,
     })
@@ -395,22 +378,6 @@ describe('send pump over a real Bun socket', () => {
     // ... and the application never held more than the prepare window.
     expect(stats.peakQueuedBytes).toBeLessThan(3 * 8 * MiB)
     expect(stats.queuedBytes).toBe(0)
-    expect(budget.bytes).toBe(0)
-  }, 120_000)
-
-  it('the same transfer with negotiated Zstd decodes chunk for chunk', async () => {
-    const { client, sink, budget } = await connect()
-    sink.enableBootstrapCompression(true)
-    const world = worldOf(50)
-    const outcome = await sink.sendSequence(world.source)
-    expect(outcome).toEqual({ ok: true })
-    await client.waitForFrames(world.count())
-    const stats = sink.stats()
-    report('zstd-50MB', stats, budget, { chunks: world.count(), bytes: world.bytes() })
-    expect(client.frames.every((f) => f.opcode === 2)).toBe(true)
-    expect(client.frames.map((f) => firstEntityId(f, true))).toEqual(world.chunks)
-    expect(stats.sentBytes).toBeLessThan(world.bytes())
-    expect(stats.activeCompression).toBe(0)
     expect(budget.bytes).toBe(0)
   }, 120_000)
 
@@ -459,16 +426,14 @@ describe('send pump over a real Bun socket', () => {
     report('lossy-pressure', sink.stats(), budget, { admitted, refused })
     expect(refused).toBeGreaterThan(0)
     expect(sink.stats().failure).toBeUndefined()
-    const bootstraps = client.frames.filter((f) => f.payload.subarray(0, 24).toString().includes('feedBootstrap'))
+    const bootstraps = client.frames.filter((f) => f.payload.subarray(0, 24).toString().includes('feedDelta'))
     expect(bootstraps.map((f) => firstEntityId(f, false))).toEqual(world.chunks)
   }, 60_000)
 
   it('two clients exhaust a small shared budget and both still finish', async () => {
-    const budget = new BootstrapCompressionBudget(6 * MiB, 1)
+    const budget = new OrderedSendBudget(6 * MiB)
     const a = await connect({ prepareAheadBytes: 4 * MiB }, budget)
     const b = await connect({ prepareAheadBytes: 4 * MiB }, budget)
-    a.sink.enableBootstrapCompression(true)
-    b.sink.enableBootstrapCompression(true)
     const worldA = worldOf(10)
     const worldB = worldOf(10)
     let peakBudget = 0
@@ -494,7 +459,7 @@ describe('send pump over a real Bun socket', () => {
 
   it('a fast client stays responsive while a slow one receives 50 MB', async () => {
     const slow = await connect()
-    const fast = await connect({}, new BootstrapCompressionBudget(), { readMs: 1000, gapMs: 0 })
+    const fast = await connect({}, new OrderedSendBudget(), { readMs: 1000, gapMs: 0 })
     const world = worldOf(50)
     const outcome = slow.sink.sendSequence(world.source)
     let worst = 0

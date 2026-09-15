@@ -170,7 +170,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
   }
 }
 
-const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA]): ClientMessage => ({
+const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA, 'sync.http.v1']): ClientMessage => ({
   type: 'hello',
   clientId,
   viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -200,7 +200,7 @@ async function settle(g: Awaited<ReturnType<typeof gateway>>) {
   await vi.waitFor(() => {
     for (const socket of g.sockets) {
       if (!g.registry.get(socket.id)) continue
-      expect(certifiedFrames(socket).some((frame) => frame.seq >= head)).toBe(true)
+      expect(socket.received.some((frame) => (frame.type === 'feedDelta' || frame.type === 'feedResume') && frame.seq >= head)).toBe(true)
     }
   })
 }
@@ -208,7 +208,7 @@ async function settle(g: Awaited<ReturnType<typeof gateway>>) {
 /** Every change row this socket was ever sent, across bootstrap and delta frames. */
 function changesOn(socket: Socket): { seq: number; entityId: string; op: string }[] {
   return socket.received.flatMap((msg) =>
-    msg.type === 'feedBootstrap' || msg.type === 'feedDelta'
+    msg.type === 'feedDelta'
       ? (msg.changes as { seq: number; entityId: string; op: string }[])
       : [],
   )
@@ -314,47 +314,28 @@ describe("a connection's feed is scoped to the user its TRANSPORT authenticated"
     ).toEqual(['upsert'])
   })
 
-  it('invalidates a cached world when grant visibility changes without moving the feed head', async () => {
+  it('never reads or caches a pushed world across visibility changes', async () => {
     const owners = new Map([['issue-shared', ALICE]])
     const grants = new Map([['issue-shared', [BOB]]])
     const g = await gateway(owners, grants)
     await commitIssue(g.plumbing, 'issue-shared', { id: 'issue-shared', title: 'ours' })
     const head = await g.plumbing.authority.cursor()
     const bootstrap = vi.spyOn(g.plumbing.authority, 'bootstrap')
-
-    const first = await g.signIn(BOB)
-    expect(leakedTo(first, 'issue-shared')).toBe(true)
-    expect(bootstrap).toHaveBeenCalledTimes(1)
-    g.mux.detachClient(first.id)
-
-    // AUTHORITY CHANGES, FEED HEAD DOES NOT. This is the same-timestamp
-    // persistWith shape: the issue upsert can deduplicate while the grant delete
-    // still changes who may see the row.
-    g.changeVisibility(() => grants.set('issue-shared', []))
-    expect(await g.plumbing.authority.cursor()).toBe(head)
-
-    const afterRevoke = await g.signIn(BOB)
-    expect(bootstrap).toHaveBeenCalledTimes(2)
-    expect(leakedTo(afterRevoke, 'issue-shared')).toBe(false)
-
-    const principal = g.mux.principalOf(afterRevoke.id)
-    expect(principal).toBeDefined()
-    if (principal === undefined) throw new Error('Bob connection lost its authenticated principal')
-    const uncached = await g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
-    const served = afterRevoke.received.find(
-      (message): message is Extract<ServerMessage, { type: 'feedBootstrap' }> =>
-        message.type === 'feedBootstrap',
-    )
-    expect(served?.changes.map((change) => [change.entity, change.entityId])).toEqual(
-      uncached.changes.map((change) => [change.entity, change.entityId]),
-    )
-
-    g.mux.detachClient(afterRevoke.id)
-    g.changeVisibility(() => grants.set('issue-shared', [BOB]))
-    expect(await g.plumbing.authority.cursor()).toBe(head)
-    const afterGrant = await g.signIn(BOB)
-    expect(bootstrap).toHaveBeenCalledTimes(4) // includes the direct uncached comparison
-    expect(leakedTo(afterGrant, 'issue-shared')).toBe(true)
+    for (const visible of [true, false, true]) {
+      g.changeVisibility(() => grants.set('issue-shared', visible ? [BOB] : []))
+      expect(await g.plumbing.authority.cursor()).toBe(head)
+      const socket = await g.signIn(BOB)
+      expect(socket.received.filter(m => m.type === 'feedResume')).toHaveLength(1)
+      expect(socket.received.filter(m => ['feedBootstrap', 'issuesChanged'].includes(m.type))).toEqual([])
+      expect(bootstrap).not.toHaveBeenCalled()
+      const principal = g.mux.principalOf(socket.id)
+      if (!principal) throw new Error('missing authenticated principal')
+      // A fresh authority read (the HTTP producer's source) evaluates current grants.
+      const world = await g.plumbing.authority.bootstrap(feedPrincipalOf(principal))
+      expect(world.changes.some(c => c.entityId === 'issue-shared')).toBe(visible)
+      bootstrap.mockClear()
+      g.mux.detachClient(socket.id)
+    }
   })
 
   it("a forged hello.clientId naming another user's connection does not move the scope", async () => {

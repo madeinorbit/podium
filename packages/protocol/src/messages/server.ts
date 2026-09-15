@@ -10,7 +10,6 @@ import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './autom
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
 import {
-  FeedBootstrapMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
   FeedResumeMessage,
@@ -95,7 +94,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   IssueUpdatedMessage,
   MetadataDeltaMessage,
   FeedDeltaMessage,
-  FeedBootstrapMessage,
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
   FeedResumeMessage,

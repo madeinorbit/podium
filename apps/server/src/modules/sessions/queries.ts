@@ -145,38 +145,6 @@ export const SYNC_QUERIES = {
     ),
   ),
   /**
-   * WIRE v2 CATCH-UP (POD-376) — rung 1 of the kernel Replica's D7 ladder.
-   *
-   * A SIBLING OF `changesSince`, NOT A REPLACEMENT, for the length of the
-   * rollout window: the two serve the two wire versions, and both read the same
-   * Authority through the same principal, so neither can see rows the other
-   * cannot. `changesSince` disappears with the v1 edge adapter it serves.
-   *
-   * The cursor is the D1 TRIPLE and not a bare integer. That is the difference
-   * that makes this query answerable at all — a `seq` alone names a position on
-   * an unnamed number line, and the honest answer to a cursor from another feed
-   * is "re-bootstrap", which this shape can express and the v1 one cannot.
-   */
-  feedChangesSince: q(
-    z.object({
-      cursor: z
-        .object({
-          feedId: z.string().min(1),
-          epoch: z.string().min(1),
-          seq: z.number().int().nonnegative(),
-        })
-        .nullable(),
-    }),
-    async (s, input) =>
-      await s.modules.funnel.feedChangesSince(
-        input.cursor,
-        s.feedPrincipal ??
-          (() => {
-            throw new Error('authenticated feed principal required')
-          })(),
-      ),
-  ),
-  /**
    * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
    *
    * A DIAGNOSTIC READ, and the third snapshot of the shadow comparison. It exists

@@ -207,7 +207,7 @@ async function runArm(label: string): Promise<ArmReport> {
     const publications: string[] = []
     const clientId = registry.clientGateway.attachClient({
       send: (message) => {
-        if (message.type === 'feedBootstrap' || message.type === 'feedDelta') {
+        if (message.type === 'feedResume' || message.type === 'feedDelta') {
           publications.push(JSON.stringify(message))
         }
       },
@@ -218,7 +218,7 @@ async function runArm(label: string): Promise<ArmReport> {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['metadataDelta'],
+      caps: ['metadataDelta', 'sync.http.v1'],
     })
     await until(() => publications.length > 0)
     await new Promise((resolve) => setTimeout(resolve, 250))
@@ -240,7 +240,7 @@ async function runArm(label: string): Promise<ArmReport> {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['metadataDelta'],
+      caps: ['metadataDelta', 'sync.http.v1'],
     })
 
     const interactionMs: number[] = []

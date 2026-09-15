@@ -1,3 +1,4 @@
+import { feedPrincipalOf } from './gateway/client-principal'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
@@ -180,9 +181,9 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
     wireVersion: WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
-    ...(caps ? { caps } : {}),
+    caps: ['sync.http.v1', ...(caps ?? [])],
   })
-  await expect.poll(() => inbox.some((message) => message.type === 'feedBootstrap')).toBe(true)
+  await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
   return id
 }
 
@@ -376,16 +377,18 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
+      caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
     await registry.modules.sessions.flushBroadcasts()
     // Feed admission is independent of the hello handler; observe its delivered outcome.
-    await expect.poll(() => inbox.some((message) => message.type === 'feedBootstrap')).toBe(true)
-    const painted = inbox.find((message) => message.type === 'feedBootstrap')
-    expect(painted).toBeDefined()
-    if (!painted || painted.type !== 'feedBootstrap') return
+    await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
+    expect(inbox.filter(message => ['feedBootstrap', 'issuesChanged'].includes(message.type))).toEqual([])
+    const principal = registry.clientGateway.principalOf(id)
+    if (!principal) throw new Error('missing authenticated principal')
+    const painted = await registry.syncDelta.authority.bootstrap(feedPrincipalOf(principal))
     const issues = painted.changes
       .filter((change) => change.entity === 'issue' && change.op === 'upsert')
       .map((change) => change.value as Record<string, unknown>)

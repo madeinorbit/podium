@@ -29,7 +29,7 @@ export const SYNC_REFUSAL_STATUS = {
 } as const
 export const SYNC_RETRY_AFTER_HEADER = 'Retry-After'
 
-// FeedChangesSinceReply currently permits any reason string; keep its existing
+// The recovery protocol permits any reason string; keep its existing
 // spellings here while closing the vocabulary for the HTTP endpoint.
 export const SyncBootstrapRequiredReason = z.enum([
   'feed-identity-mismatch', 'compacted-or-unknown', 'corrupt-payload', 'rescope', 'future-cursor', 'invalid-target',

@@ -93,7 +93,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     // The counterfactual, in the same test: the cold peer that was admitted
     // WITHOUT a cursor received the world, so "no bootstrap" below is a property
     // of the cursor and not of an empty server.
-    expect(ctx.cold.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
+    expect(ctx.cold.types()).toEqual(['feedResume'])
 
     const peer = await reconnect(ctx, ctx.held)
 
@@ -131,7 +131,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     await commit(ctx.p, 's3')
     const peer = await reconnect(ctx, ctx.held)
 
-    // Still nothing but the grant. `(cursor, head]` is `sync.feedChangesSince`'s
+    // Still nothing but the grant. `(cursor, head]` is `/sync/delta`'s
     // — the read this client performs on every reconnect anyway — and a server
     // that ALSO streamed it would be the duplicate transfer this issue removes,
     // arriving as a delta instead of a world.
@@ -140,13 +140,13 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
   })
 })
 
-describe('a cursor the log cannot serve is refused, and the refusal is the world', () => {
+describe('a cursor the log cannot serve is refused, and the refusal requests HTTP recovery', () => {
   it('refuses a cursor from a foreign feed', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, { ...ctx.held, feedId: 'someone-elses-feed' })
 
     expect(peer.types()).not.toContain('feedResume')
-    expect(peer.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
+    expect(peer.types()).toEqual(['feedResyncRequired'])
   })
 
   it('refuses a cursor presented against a rolled epoch', async () => {
@@ -154,7 +154,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     const peer = await reconnect(ctx, { ...ctx.held, epoch: 'epoch-from-before-the-reset' })
 
     expect(peer.types()).not.toContain('feedResume')
-    expect(peer.of('feedBootstrap')).not.toHaveLength(0)
+    expect(peer.types()).toEqual(['feedResyncRequired'])
   })
 
   it('refuses a cursor from the future — the database was restored behind it', async () => {
@@ -162,7 +162,7 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     const peer = await reconnect(ctx, { ...ctx.held, seq: ctx.held.seq + 1 })
 
     expect(peer.types()).not.toContain('feedResume')
-    expect(peer.of('feedBootstrap')).not.toHaveLength(0)
+    expect(peer.types()).toEqual(['feedResyncRequired'])
   })
 
   it('refuses a cursor below the retained floor, and serves it at the exact boundary', async () => {
@@ -183,57 +183,14 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     ])
   })
 
-  it('refuses a cursor from a wire that cannot be told it was accepted', async () => {
-    const ctx = await servedOnce()
-    const peer = await reconnect(ctx, ctx.held, 1)
-
-    // A v1 peer cannot send a cursor and its adapter has nothing to translate a
-    // grant into, so a cursor arriving on one is answered the way it was before
-    // anyone thought to ask: with the world, folded into v1's own messages.
-    expect(peer.types()).not.toContain('feedResume')
-    expect(peer.types()).toContain('sessionsChanged')
-  })
-
-  it('serves the world to a hello that presents nothing — the pre-POD-2061 client', async () => {
+  it('grants the head to a cold HTTP hello that presents no cursor', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, undefined)
 
-    expect(peer.types()).not.toContain('feedResume')
-    expect(peer.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
+    expect(peer.types()).toEqual(['feedResume'])
+    expect(peer.types()).toEqual(['feedResyncRequired'])
   })
 })
-
-describe('the transfer a reconnect actually costs', () => {
-  it('is O(delta) at an unchanged head, where it was O(world)', async () => {
-    const p = await feedTestPlumbing()
-    for (let i = 0; i < 50; i += 1) await commit(p, `s${i}`)
-
-    const cold = new Peer('cold')
-    p.serving.attach(cold, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(cold.id))
-    await p.serving.admissionSettled()
-    const identity = await p.serving.identity()
-    const resumed = new Peer('resumed')
-    p.serving.renegotiate(resumed, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(resumed.id), {
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      seq: await p.authority.cursor(),
-    })
-    await p.serving.admissionSettled()
-
-    // Counted in ROWS and in BYTES, because the point of the finding was both: a
-    // world is read, serialized and transferred, and the resumed peer pays for
-    // none of it.
-    const rows = (peer: Peer) =>
-      peer.of('feedBootstrap').reduce((n, frame) => n + frame.changes.length, 0)
-    const bytes = (peer: Peer) =>
-      peer.received.reduce((n, message) => n + JSON.stringify(message).length, 0)
-
-    expect(rows(cold)).toBe(50)
-    expect(rows(resumed)).toBe(0)
-    expect(bytes(resumed)).toBeLessThan(bytes(cold) / 10)
-  })
-})
-
 
 describe('HTTP bootstrap capability', () => {
   it('grants the head to a cold peer and resumes three reconnects without a world', async () => {
@@ -271,7 +228,7 @@ describe('HTTP bootstrap capability', () => {
     if (delivery === null) throw new Error('missing range')
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     expect(peer.of('feedDelta')[0]?.seq).toBe(ctx.held.seq + 1)
-    expect(peer.of('feedBootstrap')).toHaveLength(0)
+    expect(peer.types().filter(type => type === 'feedBootstrap')).toHaveLength(0)
   })
 
   it.each(['feed', 'epoch', 'future', 'retention'])('refuses a %s cursor with resync and retains live delivery', async (reason) => {
@@ -290,6 +247,6 @@ describe('HTTP bootstrap capability', () => {
     if (delivery === null) throw new Error('missing range')
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     expect(peer.of('feedDelta')[0]?.fromSeq).toBe(ctx.held.seq)
-    expect(peer.of('feedBootstrap')).toHaveLength(0)
+    expect(peer.types().filter(type => type === 'feedBootstrap')).toHaveLength(0)
   })
 })

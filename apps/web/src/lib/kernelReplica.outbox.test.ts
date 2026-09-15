@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openKernelAssembly } from './kernelReplica'
 
 const trpc = {
-  sync: { feedChangesSince: { query: async () => ({ changes: [] }) } },
+
 } as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
 const entry = { mutationId: asMutationId('m1'), kind: 'rename', input: {}, queuedAt: 1 }

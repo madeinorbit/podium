@@ -503,7 +503,7 @@ export async function openKernelAssembly(
     batchEvents: (emitAll) => facade.batch(emitAll),
   })
 
-  const sink = new FeedSink({ replica: kernel, bootstraps })
+  const sink = new FeedSink({ replica: kernel })
   // Cold = no persisted cursor = this launch is the machine's first sync. The
   // posture is decided synchronously in the Replica's constructor, so reading
   // it here (before any frame can arrive) races nothing.
@@ -558,12 +558,12 @@ export async function openKernelAssembly(
     // business between the two — a cursor rewritten here would be a position
     // nothing in the replica holds.
     syncHttp: true,
-    requestFreshWorld: () => {
-      if (!stopped) sink.requestFreshWorld()
+    requestRebootstrap: () => {
+      if (!stopped) sink.requestRebootstrap()
     },
     helloFields: () => sink.helloFields(),
     connected: (worldPromised) => {
-      if (!stopped) sink.connected(worldPromised)
+      if (!stopped) sink.connected()
     },
     disconnected: () => sink.disconnected(),
     frame: (frame) => {

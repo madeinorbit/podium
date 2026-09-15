@@ -26,7 +26,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { KERNEL_SIDE_CACHE_PREFIX, openKernelAssembly } from './kernelReplica'
 
 const trpc = {
-  sync: { feedChangesSince: { query: async () => ({ changes: [] }) } },
+
   pins: { set: { mutate: async () => ({}) } },
 } as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 

@@ -558,7 +558,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         now: () => 1,
         transact: queries.createOrJoinTransaction,
       })
-      return new FeedServing({
+      const serving = new FeedServing({
         authority: ledger.authority,
         identity: new FeedIdentityRegistry(
           {
@@ -569,9 +569,9 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         ),
         retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
         subscriptions: new SubscriptionRegistry(),
-        authorizationRevision: async () => 0,
         diagnostics: () => [],
       })
+      return { serving, authority: ledger.authority }
     }
     const connect = async (
       serving: FeedServing,
@@ -598,14 +598,13 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     }
     // This client has consumed the old owner at the current head.
     const before = makeServing()
-    const cold = await connect(before, 'cold')
-    expect(
-      cold
-        .filter((frame) => frame.type === 'feedBootstrap')
-        .flatMap((frame) => frame.changes)
-        .map((change) => change.value),
-    ).toEqual([{ sessionId: 'sess-1', ownerUserId: RETIRED }])
-    const held = { ...(await before.identity()), seq: await repo.maxChangeSeq() }
+    const cold = await connect(before.serving, 'cold')
+    expect(cold.map(frame => frame.type)).toEqual(['feedResume'])
+    const oldWorld = await before.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    expect(oldWorld.changes.map(change => change.value)).toEqual([
+      { sessionId: 'sess-1', ownerUserId: RETIRED },
+    ])
+    const held = { ...(await before.serving.identity()), seq: await repo.maxChangeSeq() }
     const oldPayload = JSON.parse(
       (db.prepare('SELECT payload FROM change_latest').get() as { payload: string }).payload,
     )
@@ -615,12 +614,12 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
     const after = makeServing() // boot reads the committed generation afresh
-    expect((await after.identity()).feedId).toBe(held.feedId)
-    expect((await after.identity()).epoch).not.toBe(held.epoch)
-    const received = await connect(after, 'reconnected', held)
-    expect(received.some((frame) => frame.type === 'feedResume')).toBe(false)
-    const bootstrap = received.filter((frame) => frame.type === 'feedBootstrap')
-    expect(bootstrap.flatMap((frame) => frame.changes).map((change) => change.value)).toEqual([
+    expect((await after.serving.identity()).feedId).toBe(held.feedId)
+    expect((await after.serving.identity()).epoch).not.toBe(held.epoch)
+    const received = await connect(after.serving, 'reconnected', held)
+    expect(received.map(frame => frame.type)).toEqual(['feedResyncRequired'])
+    const bootstrap = await after.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    expect(bootstrap.changes.map(change => change.value)).toEqual([
       { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
     ])
     expect((db.prepare('SELECT seq FROM change_latest').get() as { seq: number }).seq).toBe(

@@ -1049,9 +1049,6 @@ export class SessionRegistry {
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       authority: ledger.authority,
-      onBootstrapReadStart: feedVisibility.beginBootstrapRead,
-      onBootstrapReadEnd: (principal) => feedVisibility.finishBootstrapRead(principal),
-      authorizationRevision: feedVisibility.authorizationRevision,
       identity: new FeedIdentityRegistry(
         {
           readIdentity: async () => await this.store.sync.readFeedIdentity(),

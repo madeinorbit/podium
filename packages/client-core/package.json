@@ -145,7 +145,6 @@
     "@tanstack/db": "^0.6.16",
     "@tanstack/db-sqlite-persistence-core": "^0.2.8",
     "@tanstack/react-db": "^0.1.94",
-    "fzstd": "0.1.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {

@@ -122,6 +122,30 @@ const constructionOf = (message: string) => new RegExp(`type:\\s*'${message}'`)
 export function runChecks(input: AuditInput): Finding[] {
   const findings: Finding[] = []
 
+  const deletedFiles = [
+    'packages/client-core/src/replica/feed/bootstrap-source.ts',
+    'packages/client-core/src/replica/feed/authority-client.ts',
+    'packages/client-core/src/socket-transport/bootstrap-zstd.ts',
+  ]
+  for (const path of deletedFiles) {
+    if (input.read(path) !== null) findings.push({ check: 'http-cutover-files-absent', where: path,
+      detail: 'The legacy push/catch-up module must stay deleted.' })
+  }
+  const legacyCode = /\b(?:serveWorld|PushedBootstrapSource|FeedAuthorityClient|BootstrapCompressionBudget|CAP_FEED_BOOTSTRAP_ZSTD_V1|FEED_BOOTSTRAP_CHUNK_ROWS|requestFreshWorld|feedChangesSince)\b/
+  for (const path of input.sources()) {
+    if (!/^(apps|packages)\//.test(path) || /\.test\./.test(path)) continue
+    const source = input.read(path)
+    if (source !== null && legacyCode.test(code(source))) findings.push({
+      check: 'http-cutover-no-legacy-code', where: path,
+      detail: 'Legacy WebSocket bootstrap or v2 tRPC catch-up code has returned.',
+    })
+  }
+  const schema = input.read('packages/protocol/src/messages/feed.ts')
+  if (schema === null || !/export const FeedBootstrapMessage =/.test(schema)) findings.push({
+    check: 'http-bootstrap-schema-kept', where: 'packages/protocol/src/messages/feed.ts',
+    detail: 'FeedBootstrapMessage is the HTTP NDJSON row-batch schema and must remain.',
+  })
+
   // ---- 1. the deleted tail stays deleted --------------------------------
   for (const path of input.sources()) {
     if (!path.startsWith('apps/server/src/')) continue
@@ -210,7 +234,7 @@ export function runChecks(input: AuditInput): Finding[] {
   // producers above; these are transports of the same authorized feed world.
   for (const path of input.sources()) {
     if (!path.startsWith('apps/server/src/') || path.endsWith('.test.ts')) continue
-    if ([SERVING_FILE, ...SYNC_FEED_PRODUCERS].includes(path)) continue
+    if (SYNC_FEED_PRODUCERS.includes(path)) continue
     const source = input.read(path)
     if (source && /type:\s*['"]feedBootstrap['"]/.test(code(source))) {
       findings.push({ check: 'bootstrap-producers-allowlisted', where: path,
@@ -321,6 +345,18 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     sources: () => [...base.sources(), ...extraSources],
   })
   return [
+    {
+      name: 'deleted pushed source returns', expect: 'http-cutover-files-absent',
+      input: overlay({ 'packages/client-core/src/replica/feed/bootstrap-source.ts': 'export class Restored {}' }),
+    },
+    {
+      name: 'legacy catch-up returns under a new module', expect: 'http-cutover-no-legacy-code',
+      input: overlay({ 'apps/server/src/revived.ts': 'const feedChangesSince = () => {}' }, ['apps/server/src/revived.ts']),
+    },
+    {
+      name: 'HTTP line schema is deleted with the push', expect: 'http-bootstrap-schema-kept',
+      input: overlay({ 'packages/protocol/src/messages/feed.ts': '' }),
+    },
     {
       name: 'pre-hello feed admission returns', expect: 'no-pre-hello-feed',
       input: overlay({ [MUX_FILE]: `${base.read(MUX_FILE)}\nfeed.attach(peer)` }),

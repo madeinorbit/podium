@@ -58,10 +58,11 @@ async function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage
   let bootstrapped = false
   const id = attachTestClient(reg.clientGateway, (message) => {
     send(message)
-    if (message.type === 'feedBootstrap' && message.last) bootstrapped = true
+    if (message.type === 'feedResume') bootstrapped = true
   })
   await reg.clientGateway.routeClientFrame(id, {
     type: 'hello',
+    caps: ['sync.http.v1'],
     clientId: id,
     viewport: { cols: 80, rows: 24, dpr: 1 },
     wireVersion: WIRE_VERSION,
@@ -73,7 +74,7 @@ async function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage
 function feedValues(sent: ServerMessage[], entity: string): unknown[] {
   return sent
     .flatMap((message) =>
-      message.type === 'feedBootstrap' || message.type === 'feedDelta' ? message.changes : [],
+      message.type === 'feedDelta' ? message.changes : [],
     )
     .filter((change) => change.entity === entity && change.op === 'upsert')
     .map((change) => change.value)
@@ -854,7 +855,7 @@ describe('SessionRegistry', () => {
     await expect(attachCurrent(reg, (m) => sent.push(m))).resolves.toBeTypeOf('string')
     reg.modules.funnel.flushDeltas()
     expect(sent.some((m) => m.type === 'welcome')).toBe(true)
-    expect(sent.some((m) => m.type === 'feedBootstrap')).toBe(true)
+    expect(sent.some((m) => m.type === 'feedResume')).toBe(true)
   })
 
   it('a throwing issues projection degrades to an empty list and logs', async () => {
@@ -5297,7 +5298,8 @@ describe('reconnect identity (hello reclaim)', () => {
     // then re-attaches the way the client does on reconnect.
     const b = sink()
     const idB = attachTestClient(reg.clientGateway, b.send)
-    await reg.clientGateway.routeClientFrame(idB, { type: 'hello', clientId: idA, viewport: VP })
+    await reg.clientGateway.routeClientFrame(idB, { type: 'hello',
+    caps: ['sync.http.v1'], clientId: idA, viewport: VP })
     await reg.clientGateway.routeClientFrame(idB, { type: 'attach', sessionId: s1 })
 
     daemon.length = 0
@@ -5326,6 +5328,7 @@ describe('reconnect identity (hello reclaim)', () => {
     await expect(
       reg.clientGateway.routeClientFrame(id, {
         type: 'hello',
+    caps: ['sync.http.v1'],
         clientId: 'c-stale-gone',
         viewport: VP,
       }),

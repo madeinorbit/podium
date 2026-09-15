@@ -144,22 +144,6 @@ if (arm === 'after') {
     },
   })
 }
-// Exercise the actual legacy funnel through a minimal tRPC router. Authentication
-// is fixed by this loopback-only fixture; app routing/auth overhead is out of scope.
-const { initTRPC } = require('@trpc/server')
-const { fetchRequestHandler } = require('@trpc/server/adapters/fetch')
-const t = initTRPC.create()
-const router = t.router({
-  feedChangesSince: t.procedure.query(() =>
-    funnel.feedChangesSince(
-      { ...identity, seq: manifest.from },
-      userClientPrincipal('delta', 'measurement-reader', 'member'),
-    ),
-  ),
-})
-app.all('/trpc/*', (c) =>
-  fetchRequestHandler({ endpoint: '/trpc', req: c.req.raw, router, createContext: () => ({}) }),
-)
 app.get('/metrics', (c) =>
   c.json({
     senders: Object.fromEntries(Object.entries(senders).map(([id, sink]) => [id, sink.stats()])),
@@ -214,7 +198,6 @@ const server = Bun.serve({
       ws.data.native = native
       const sink = new OrderedClientSend(native, CLIENT_PLANE_LIVENESS)
       senders[ws.data.id] = sink
-      sink.enableBootstrapCompression(ws.data.coding === 'zstd')
       ws.data.sink = sink
       const principal = userClientPrincipal(
         ws.data.id,

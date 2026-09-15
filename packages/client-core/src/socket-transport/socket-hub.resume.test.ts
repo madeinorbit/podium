@@ -80,36 +80,7 @@ describe('a reconnecting hub presents the replica position', () => {
     expect(promised).toEqual([true])
   })
 
-  it('does not present a position on the socket a re-bootstrap asked for', () => {
-    vi.useFakeTimers()
-    try {
-      const { hub, sockets, promised } = setup(() => POSITION)
-      hub.connect()
-      sockets[0]?.open()
-      expect(promised).toEqual([false])
 
-      // The walk asks for a world; the transport delivers one by cycling the
-      // socket. Presenting the cursor on the replacement would earn a resume
-      // grant — and the walk waiting for that world would time out.
-      hub.requestFreshWorld()
-      vi.advanceTimersByTime(1_000)
-      sockets[1]?.open()
-
-      expect(sockets[1]?.hello()).not.toHaveProperty('feedCursor')
-      expect(promised).toEqual([false, true])
-
-      // AND THE LATCH IS SPENT. The next drop is an ordinary one, so the next
-      // connection resumes again rather than paying for a world nobody asked for.
-      sockets[1]?.close()
-      vi.advanceTimersByTime(1_000)
-      sockets[2]?.open()
-
-      expect(sockets[2]?.hello()).toMatchObject({ feedCursor: POSITION.feedCursor })
-      expect(promised).toEqual([false, true, false])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
 
   it('reads the position once per connection', () => {
     const fields = vi.fn(() => POSITION)

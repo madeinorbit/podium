@@ -2,13 +2,11 @@ import { randomBytes } from 'node:crypto'
 import { request } from 'node:http'
 import { firstAdminMemberId } from '@podium/model'
 import {
-  BootstrapZstdMetadata,
-  CAP_FEED_BOOTSTRAP_ZSTD_V1,
   decodeBinaryEnvelope,
   type ServerMessage,
   WIRE_VERSION,
+  CAP_SYNC_HTTP_V1,
 } from '@podium/protocol'
-import { decodeBootstrapZstd } from '../../../packages/client-core/src/socket-transport/bootstrap-zstd'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -78,7 +76,7 @@ async function start(
       return result === null ? new Response('not found', { status: 404 }) : result
     },
   })
-  return `ws://127.0.0.1:${server.port}/client`
+  return `ws://127.0.0.1:${server.port}/client?cap=sync.http.v1`
 }
 
 async function startNotReady() {
@@ -102,7 +100,7 @@ async function startNotReady() {
       return result === null ? new Response('not found', { status: 404 }) : result
     },
   })
-  return `ws://127.0.0.1:${server.port}/client`
+  return `ws://127.0.0.1:${server.port}/client?cap=sync.http.v1`
 }
 
 function attempt(url: string, headers?: Record<string, string>): Promise<'open' | 'rejected'> {
@@ -174,7 +172,7 @@ async function connectDeltaClient(url: string) {
           type: 'hello',
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
-          caps: ['metadataDelta'],
+          caps: ['metadataDelta', 'sync.http.v1'],
           wireVersion: WIRE_VERSION,
         }),
       )
@@ -362,65 +360,6 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url, { origin: 'https://evil.example' })).toBe('open')
     expect(await attempt(url)).toBe('open')
   })
-  test('negotiates compressed bootstrap over a native socket before subsequent deltas', async () => {
-    const url = await start(() => true)
-    if (!registry) throw new Error('missing test registry')
-    const sessionId = (
-      await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/zstd-feed' })
-    ).sessionId
-    registry.modules.sessions.flushBroadcasts()
-    const ws = new WebSocket(url)
-    const frames: Array<{ binary: boolean; message: ServerMessage }> = []
-    const errors: unknown[] = []
-    ws.on('message', (data, binary) => {
-      try {
-        const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
-        let raw = bytes.toString()
-        if (binary) {
-          const decoded = decodeBinaryEnvelope(bytes, BootstrapZstdMetadata)
-          raw = decodeBootstrapZstd({
-            payload: decoded.payload,
-            uncompressedBytes: decoded.metadata.uncompressedBytes,
-          })
-        }
-        frames.push({ binary, message: JSON.parse(raw) as ServerMessage })
-      } catch (error) {
-        errors.push(error)
-      }
-    })
-    try {
-      await new Promise<void>((resolve, reject) => {
-        ws.once('open', resolve)
-        ws.once('error', reject)
-      })
-      ws.send(
-        JSON.stringify({
-          type: 'hello',
-          clientId: '',
-          viewport: { cols: 80, rows: 24, dpr: 1 },
-          wireVersion: WIRE_VERSION,
-          caps: [CAP_FEED_BOOTSTRAP_ZSTD_V1],
-        }),
-      )
-      await until(() => errors.length > 0 || frames.some((f) => f.message.type === 'feedBootstrap'))
-      expect(errors).toEqual([])
-      const bootstrapIndex = frames.findIndex((f) => f.message.type === 'feedBootstrap')
-      expect(frames[bootstrapIndex]).toMatchObject({
-        binary: true,
-        message: { changes: [{ entity: 'session', entityId: sessionId }] },
-      })
-      await registry.modules.sessions.renameSession({ sessionId, name: 'zstd-renamed' })
-      registry.modules.sessions.flushBroadcasts()
-      await until(() => frames.some((f) => f.message.type === 'feedDelta'))
-      const deltaIndex = frames.findIndex((f) => f.message.type === 'feedDelta')
-      expect(deltaIndex).toBeGreaterThan(bootstrapIndex)
-      expect(frames[deltaIndex]?.binary).toBe(false)
-      expect(errors).toEqual([])
-    } finally {
-      ws.close()
-    }
-  })
-
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
     if (!registry) throw new Error('missing test registry')
@@ -433,18 +372,15 @@ describe('/client WS auth gate', () => {
     registry.modules.sessions.flushBroadcasts()
 
     const client = await connectDeltaClient(url)
-    await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedBootstrap'))
+    await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedResume'))
     await registry.modules.sessions.renameSession({ sessionId, name: 'feed-only-renamed' })
     registry.modules.sessions.flushBroadcasts()
     await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedDelta'))
 
     const entityFrames = client.frames.map((raw) => JSON.parse(raw) as ServerMessage)
-    const bootstrap = entityFrames.find((message) => message.type === 'feedBootstrap')
-    const delta = entityFrames.find((message) => message.type === 'feedDelta')
-    expect(bootstrap).toMatchObject({
-      type: 'feedBootstrap',
-      changes: [{ entity: 'session', entityId: sessionId, op: 'upsert' }],
-    })
+    expect(entityFrames.map(message => message.type)).not.toContain('feedBootstrap')
+    expect(entityFrames.map(message => message.type)).toContain('feedResume')
+    const delta = entityFrames.find(message => message.type === 'feedDelta')
     expect(delta).toMatchObject({
       type: 'feedDelta',
       changes: [{ entity: 'session', entityId: sessionId, op: 'upsert' }],

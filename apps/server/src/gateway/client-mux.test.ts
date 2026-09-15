@@ -12,6 +12,7 @@ import { attachTestClient } from '../test-support/client-transport'
 
 import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
 import {
+  WIRE_VERSION,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CLIENT_PLANE_CLASS,
@@ -286,7 +287,11 @@ describe('the connection lifecycle', () => {
       A_ROUTABLE_FRAME,
     )
     await h.feed.admissionSettled()
-    expect(sent.some((msg) => msg.type === 'sessionsChanged')).toBe(true)
+    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
+    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
+    await h.feed.admissionSettled()
+    expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
+    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
     expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
     expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)
     const feedEnd = sent.length
@@ -322,7 +327,11 @@ describe('the connection lifecycle', () => {
       await h.feed.admissionSettled()
       expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
       expect(sent).toContainEqual({ type: 'pong' })
-      expect(sent.some((msg) => msg.type === 'sessionsChanged')).toBe(true)
+      expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
+    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
+    await h.feed.admissionSettled()
+    expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
+    expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
       expect(logs.at('error')).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -552,10 +561,10 @@ describe('HTTP sync hello enforcement', () => {
     const terminate = vi.fn()
     h.registry.get(h.id)!.terminate = terminate
     const dispatches = vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls.length
-    await h.mux.routeClientFrame(h.id, { type: 'hello' })
+    await h.mux.routeClientFrame(h.id, { type: 'hello', clientId: h.id, viewport: { cols: 80, rows: 24, dpr: 1 } })
     expect(terminate).toHaveBeenCalledOnce()
     expect(h.registry.get(h.id)?.entityServingRefused).toBe(true)
     expect(vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls).toHaveLength(dispatches)
-    expect(h.sent.some(frame => frame.type === 'feedBootstrap')).toBe(false)
+    expect(h.sent.some(frame => ['feedBootstrap', 'feedResume', 'feedDelta'].includes(frame.type))).toBe(false)
   })
 })

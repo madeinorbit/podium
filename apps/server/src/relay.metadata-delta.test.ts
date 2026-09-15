@@ -35,9 +35,9 @@ describe('SessionRegistry metadata deltas', () => {
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      ...(caps ? { caps } : {}),
+      caps: ['sync.http.v1', ...(caps ?? [])],
     })
-    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
+    await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
     return { inbox }
   }
 
@@ -245,7 +245,7 @@ describe('SessionRegistry metadata deltas', () => {
     // Attachment still sends control-plane snapshots asynchronously.
     await expect.poll(() => inbox.some((m) => m.type === 'approvalsChanged')
       && inbox.some((m) => m.type === 'machinesChanged')).toBe(true)
-    expect(inbox.some((message) => message.type === 'feedBootstrap')).toBe(false)
+    expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
     const before = inbox.length
     await registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     flush(registry)
@@ -263,10 +263,10 @@ async function readyClient(registry: SessionRegistry, caps: string[]) {
     clientId: '',
     wireVersion: 2,
     viewport: { cols: 80, rows: 24, dpr: 1 },
-    caps,
+    caps: ['sync.http.v1', ...caps],
   })
   await vi.waitFor(() => {
-    expect(inbox.some((message) => message.type === 'feedBootstrap' && message.last)).toBe(true)
+    expect(inbox.some((message) => message.type === 'feedResume')).toBe(true)
   })
   return { inbox }
 }

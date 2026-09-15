@@ -135,7 +135,7 @@ class IdentityWireAdapter implements FeedWireAdapter {
    *  removal union, so the identity path expresses it by not touching it. */
   readonly expressesEvict = true
   translate(frame: FeedFrame): readonly ServerMessage[] {
-    return [frame]
+    return frame.type === 'feedBootstrap' ? [] : [frame]
   }
 }
 
@@ -195,7 +195,7 @@ export class WireFeedEdge {
         deleteByPhase: 'wire-2 support retirement',
         rationale: 'HTTP capability enforcement changes admission, not feed framing',
       },
-      translate: (frame) => [frame],
+      translate: (frame) => frame.type === 'feedBootstrap' ? [] : [frame],
     })
     // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
     // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails

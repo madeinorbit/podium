@@ -15,6 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { WriteFunnel } from '../apps/server/src/modules/funnel'
 import { SessionLifecycle } from '../apps/server/src/modules/sessions/lifecycle'
@@ -38,7 +39,7 @@ describe('the shipped objects have one serving tail', () => {
     expect(SessionLifecycle.prototype).not.toHaveProperty('sendMetadataDelta')
   })
 
-  it('a REAL edge serves a v1 peer from the feed, with no list builder in reach', async () => {
+  it('a REAL edge grants HTTP resume without constructing a pushed world', async () => {
     const plumbing = await feedTestPlumbing()
     await plumbing.ledger.commit({
       write: async () => {},
@@ -48,7 +49,7 @@ describe('the shipped objects have one serving tail', () => {
     const refusal = plumbing.serving.attach(
       {
         id: 'peer',
-        wireVersion: 1,
+        wireVersion: WIRE_VERSION,
         acceptsDelta: false,
         send: (message) => received.push(message),
       },
@@ -64,7 +65,7 @@ describe('the shipped objects have one serving tail', () => {
     // The ONLY input was a ledger commit. There is no feature, no publisher and
     // no list builder in this object graph, so an `issuesChanged` here can only
     // have been folded out of the feed.
-    expect(received.map((m) => m.type)).toContain('issuesChanged')
+    expect(received.map((m) => m.type)).toEqual(['feedResume'])
   })
 })
 

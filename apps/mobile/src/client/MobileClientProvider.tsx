@@ -5,7 +5,7 @@
  * reads, outboxed optimistic mutations), so a cold offline start paints from
  * local data and offline writes replay on reconnect.
  *
- * READ PATH (POD-1241): KernelReplica + FeedAuthorityClient over the v2 feed,
+ * READ PATH (POD-1241): KernelReplica + HTTP sources and the live WebSocket feed,
  * with entity rows in SqliteSyncStore. WRITE PATH (POD-1220 durable, POD-2073
  * kernel-driven): the queue's rows have been in SQLite since POD-1220, and the
  * state machine over them is now the kernel `Outbox` the web app runs — see
@@ -47,19 +47,16 @@ import {
   createKernelReplica,
   createReplica,
   createSideCache,
-  FeedAuthorityClient,
   FeedSink,
   isTranscriptWindowStorageKey,
-  PushedBootstrapSource,
   preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
+import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId, type SessionId } from '@podium/model'
-import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -69,7 +66,6 @@ import {
 } from '@podium/sync/adapters/legacy-replica'
 import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
 import {
-  type Cursor,
   Replica as KernelReplica,
   type ReplicaCacheStore,
   type ReplicaEvent,
@@ -235,9 +231,8 @@ export interface MobileReplicaDeps {
    * Production HTTP sources. The optional legacy read below keeps the pushed
    * feed test fixtures intact until the programme cutover removes that path.
    */
-  readonly httpSync?: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
-  /** Transitional pushed-feed fixtures only; production injects httpSync. */
-  readonly fetchChangesSince?: (cursor: Cursor) => Promise<FeedChangesSinceReplyLenient>
+  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string) => void
   readonly now?: () => number
@@ -268,12 +263,6 @@ export interface MobileReplica {
   readonly clientPrincipal: string
   /** Drain entity storage and the debounced AsyncStorage side cache. */
   settled(): Promise<void>
-  /**
-   * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
-   * `PushedBootstrapSource` needs `hub.requestFreshWorld()`, and the hub is
-   * built FROM this assembly — late binding breaks the cycle.
-   */
-  attachHub(hub: SocketHub): void
   /** Fail-closed sign-out: erase AsyncStorage and SQLite for this principal. */
   erase(): Promise<void>
 }
@@ -297,7 +286,7 @@ async function eraseLocalPrincipal(args: {
  *
  * POD-1220 landed the durable half: SqliteSyncStore, migrateLegacyReplica, and
  * the SQLite outbox binding. This issue (POD-1241) lands the READ half: the
- * kernel Replica, FeedAuthorityClient, FeedSink, and the facade that projects
+ * kernel Replica, HTTP sources, FeedSink, and the facade that projects
  * entity rows into the engine's Replica interface.
  *
  * THE HAZARD THIS ASSEMBLY EXISTS TO CLOSE. Before the wire cutover, pointing
@@ -457,29 +446,17 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   })
 
   // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------
-  let hub: SocketHub | undefined
-  let freshWorldPending = false
-  const pushedBootstraps = new PushedBootstrapSource({
-    requestFreshWorld: () => {
-      if (hub === undefined) {
-        freshWorldPending = true
-        return
-      }
-      hub.requestFreshWorld()
-    },
-  })
-
   const syncProgress = new MobileSyncProgressStore()
-  const sourceDeps = deps.httpSync && {
+  const sourceDeps = {
     ...deps.httpSync,
     onMeta: (totalRows: number | undefined) => syncProgress.noteMeta(totalRows),
     onChunk: (rows: number) => syncProgress.noteReceived(rows),
   }
-  const bootstraps = sourceDeps ? new HttpBootstrapSource(sourceDeps) : pushedBootstraps
-  const deltas = sourceDeps ? new HttpDeltaSource(sourceDeps) : undefined
+  const bootstraps = new HttpBootstrapSource(sourceDeps)
+  const deltas = new HttpDeltaSource(sourceDeps)
   const kernel = new KernelReplica({
     store: view.cache,
-    authority: deltas ? {
+    authority: {
       async *bootstrap(signal) {
         syncProgress.beginAttempt()
         for await (const chunk of bootstraps.bootstrap(signal)) {
@@ -491,10 +468,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
         syncProgress.beginAttempt()
         return deltas.changesRange(cursor, signal, onTarget)
       },
-    } : new FeedAuthorityClient({
-      fetchChangesSince: deps.fetchChangesSince ?? (() => { throw new Error('Mobile sync source missing') }),
-      bootstraps,
-    }),
+    },
     onEvent: (event: ReplicaEvent) => {
       syncProgress.noteEvent(event)
       facade.onKernelEvent(event)
@@ -510,15 +484,14 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   // the UI can distinguish a truly empty cold start from a stale-visible warm
   // catch-up before the first network frame arrives.
   syncProgress.begin(kernel.posture)
-  const sink = new FeedSink({ replica: kernel, bootstraps })
+  const sink = new FeedSink({ replica: kernel })
   const feed: FeedSinkPort = {
     syncHttp: sink.syncHttp,
-    requestFreshWorld: () => sink.requestFreshWorld(),
+    requestRebootstrap: () => sink.requestRebootstrap(),
     helloFields: () => sink.helloFields(),
-    connected: (worldPromised) => sink.connected(worldPromised),
+    connected: () => sink.connected(),
     disconnected: () => sink.disconnected(),
     frame: (frame) => {
-      if (!sink.syncHttp && frame.type === 'feedBootstrap') syncProgress.noteBootstrapFrame(frame)
       sink.frame(frame)
     },
   }
@@ -534,13 +507,6 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     clientPrincipal,
     settled: async () => {
       await Promise.all([store.settled(), deps.flushStorage?.() ?? Promise.resolve()])
-    },
-    attachHub: (attached) => {
-      hub = attached
-      if (freshWorldPending) {
-        freshWorldPending = false
-        attached.requestFreshWorld()
-      }
     },
     erase: async () => {
       side.dispose()
@@ -683,48 +649,19 @@ function demoTrpc(): MobileTrpc {
   } as unknown as MobileTrpc
 }
 
-/**
- * Attach the engine's hub to the mobile assembly (POD-1241) and, on a phone, to
- * the platform connectivity controller (POD-2055).
- *
- * A re-bootstrap is a reconnect, so `PushedBootstrapSource` needs the hub — and
- * the hub is built by the engine FROM the assembly, so it cannot be handed over
- * at construction. This runs inside the provider, where the hub exists. The
- * AppState/NetInfo controller has the same shape of need: it commands the
- * transport (`suspend` on background, `connectNow` on foreground and on network
- * restore), and the transport does not exist until the store does.
- */
+/** Bind native foreground/network lifecycle to the engine's existing hub. */
 function MobileHubAttach({
-  attachHub,
   connectivity,
   networkEnabled,
   onDisconnected,
 }: {
-  attachHub: (hub: SocketHub) => void
   connectivity: NativeConnectivity | undefined
   networkEnabled: boolean
   onDisconnected: () => void
 }): null {
   const { hub } = useStore()
   useEffect(() => {
-    attachHub(hub)
-    if (!networkEnabled) {
-      const retryTrust = (): void => {
-        if (
-          (connectivity === undefined || connectivity.isOnline()) &&
-          (connectivity === undefined || connectivity.visibility.isVisible())
-        ) {
-          onDisconnected()
-        }
-      }
-      const timer = setInterval(retryTrust, 10_000)
-      connectivity?.onlineEvents.add(retryTrust)
-      retryTrust()
-      return () => {
-        clearInterval(timer)
-        connectivity?.onlineEvents.remove(retryTrust)
-      }
-    }
+
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it
     // needs the hub the same way the bootstrap source does. `undefined` on web,
@@ -770,7 +707,7 @@ function MobileHubAttach({
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
-  }, [attachHub, connectivity, hub, networkEnabled, onDisconnected])
+  }, [connectivity, hub, networkEnabled, onDisconnected])
   return null
 }
 
@@ -1098,7 +1035,6 @@ function LiveProvider({ children }: { children: ReactNode }) {
       {...transportSeams}
     >
       <MobileHubAttach
-        attachHub={openedReplica.attachHub}
         connectivity={connectivity}
         networkEnabled={networkEnabled}
         onDisconnected={verifyLiveCredential}

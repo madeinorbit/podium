@@ -60,12 +60,13 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
       ...(caps.length ? { caps } : {}),
     })
-    await expect.poll(() => inbox.some((message) => message.type === 'feedBootstrap')).toBe(true)
+    await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
     return { inbox }
   }
 

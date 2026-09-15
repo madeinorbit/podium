@@ -23,7 +23,7 @@ import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
 
 /** The gate runs before any row is read, so nothing here needs a live server. */
 const trpc = {
-  sync: { feedChangesSince: { query: async () => ({ changes: [] }) } },
+
 } as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
 let dbSeq = 0

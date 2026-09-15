@@ -1,7 +1,6 @@
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { FeedSink } from '../replica/feed/sink'
 import { describe, expect, it, vi } from 'vitest'
-import { FeedAuthorityClient } from '../replica/feed/authority-client'
 import { SYNC_LINE_MAX_BYTES, WIRE_VERSION } from '@podium/protocol'
 import { HttpBootstrapSource, HttpDeltaSource, NdjsonLineReader, readSyncStream, SyncAuthExpiredError, SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncLineTooLargeError, SyncNetworkError, SyncStreamFailed } from './index'
 
@@ -140,8 +139,7 @@ describe('HTTP sources', () => {
     const body = new ReadableStream<Uint8Array>({ cancel }, { highWaterMark: 0 })
     const source = sources(() => new Response(body, { headers: { 'content-type': 'application/x-ndjson' } }))
     const controller = new AbortController()
-    const authority = new FeedAuthorityClient({ bootstraps: source.bootstrap, fetchChangesSince: async () => ({ kind: 'bootstrap-required' }) })
-    const pending = authority.bootstrap(controller.signal)[Symbol.asyncIterator]().next()
+    const pending = source.bootstrap.bootstrap(controller.signal)[Symbol.asyncIterator]().next()
     // Wait for fetch admission without a timer or transport read-ahead.
     await vi.waitFor(() => expect(body.locked).toBe(true))
     controller.abort()
@@ -215,7 +213,7 @@ describe('HTTP bootstrap with a live socket', () => {
     const store = new InMemoryReplicaStore()
     const replica = new Replica({ store: store.viewFor('default').cache,
       authority: { bootstrap: signal => bootstraps.bootstrap(signal), changesRange: async () => ({ kind: 'bootstrap-required' }) } })
-    const sink = new FeedSink({ replica, bootstraps })
+    const sink = new FeedSink({ replica })
     sink.connected(false)
     for (let seq = 1; seq <= 10_001; seq++) {
       await replica.receive({ kind: 'delta', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: seq - 1, seq, minAvailableSeq: 0, changes: [] })
@@ -243,7 +241,7 @@ describe('HTTP bootstrap with a live socket', () => {
     })())
     const store = new InMemoryReplicaStore()
     const replica = new Replica({ store: store.viewFor('default').cache, authority: { bootstrap: signal => bootstraps.bootstrap(signal), changesRange } })
-    const sink = new FeedSink({ replica, bootstraps })
+    const sink = new FeedSink({ replica })
     sink.connected(false)
     await vi.waitFor(() => expect(controller).toBeDefined())
     for (const value of [meta, chunk]) controller.enqueue(encoder.encode(JSON.stringify(value) + '\n'))

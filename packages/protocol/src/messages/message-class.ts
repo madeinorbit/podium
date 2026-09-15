@@ -69,7 +69,6 @@ export const SERVER_PLANE_CLASS = {
   // watermark is a permanent invisible gap, which is the failure ADR 2 D2
   // documents and ADR 7 Amendment 1 D16.3 classifies against.
   feedDelta: 'control.entity',
-  feedBootstrap: 'control.entity',
   feedRescope: 'control.entity',
   feedResyncRequired: 'control.entity',
   // POD-2061's resume grant. Connection-scoped like `welcome`, and classified

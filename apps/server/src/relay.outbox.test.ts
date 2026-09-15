@@ -633,7 +633,7 @@ describe('queueText (durable outbox sends)', () => {
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
     })
-    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
+    await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
     const before = inbox.length
 
     await reg.modules.sessions.queueText({

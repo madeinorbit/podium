@@ -1543,33 +1543,32 @@ describe('parseServerMessageLenient (wire v2 feed frames)', () => {
     op: 'upsert',
     value: { userId: 'user:sole', streamId: 'issueEvents', lastEventId: 8 },
   })
-  const bootstrap = (changes: unknown[]) =>
+  const delta = (changes: unknown[]) =>
     JSON.stringify({
-      type: 'feedBootstrap',
+      type: 'feedDelta',
       feedId: 'feed-01J',
       epoch: 'epoch-01J',
       fromSeq: 0,
       seq: 9,
       minAvailableSeq: 0,
-      last: true,
       changes,
     })
 
   it('keeps the frame — and the rows beside it — when a row has no strict arm', () => {
-    const { message, dropped } = parseServerMessageLenient(bootstrap([unarmedRow(8), repoRow(9)]))
+    const { message, dropped } = parseServerMessageLenient(delta([unarmedRow(8), repoRow(9)]))
     expect(dropped).toBe(0)
-    expect(message?.type).toBe('feedBootstrap')
+    expect(message?.type).toBe('feedDelta')
     // The un-armed row RIDES ALONG rather than being quarantined: dropping it
     // would be an invisible cursor gap, which is the heal-loop D4 forbids.
-    expect(message?.type === 'feedBootstrap' && message.changes).toHaveLength(2)
+    expect(message?.type === 'feedDelta' && message.changes).toHaveLength(2)
   })
 
   it('quarantines only the invalid row of an ARMED kind — it can still say NO', () => {
     const { message, dropped } = parseServerMessageLenient(
-      bootstrap([{ ...repoRow(8), value: { id: 7 } }, repoRow(9)]),
+      delta([{ ...repoRow(8), value: { id: 7 } }, repoRow(9)]),
     )
     expect(dropped).toBe(1)
-    expect(message?.type === 'feedBootstrap' && message.changes).toHaveLength(1)
+    expect(message?.type === 'feedDelta' && message.changes).toHaveLength(1)
   })
 
   it('applies the same tolerance to feedDelta', () => {
@@ -1592,7 +1591,7 @@ describe('parseServerMessageLenient (wire v2 feed frames)', () => {
     // is the defect the v2 wire exists to make unrepresentable.
     expect(() =>
       parseServerMessageLenient(
-        JSON.stringify({ type: 'feedBootstrap', feedId: 'f', epoch: 'e', changes: [], last: true }),
+        JSON.stringify({ type: 'feedDelta', feedId: 'f', epoch: 'e', changes: [], last: true }),
       ),
     ).toThrow()
   })

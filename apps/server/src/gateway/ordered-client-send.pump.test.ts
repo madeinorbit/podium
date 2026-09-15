@@ -13,7 +13,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import {
-  BootstrapCompressionBudget,
+  OrderedSendBudget,
   OrderedClientSend,
   type SendSequenceSource,
 } from './ordered-client-send'
@@ -154,8 +154,8 @@ describe('send pump: native results and drain', () => {
 
   it('late and repeated drains after dispose do nothing and release nothing twice', async () => {
     const { ws, sent, drains } = scriptedSocket([-1])
-    const budget = new BootstrapCompressionBudget()
-    const sink = new OrderedClientSend(ws, limits, undefined, budget)
+    const budget = new OrderedSendBudget()
+    const sink = new OrderedClientSend(ws, limits, budget)
     sink.send(welcome('a'))
     sink.send(welcome('b'))
     sink.dispose()
@@ -182,7 +182,7 @@ describe('send pump: native results and drain', () => {
 describe('send pump: lazy sequences', () => {
   it('pulls only as far ahead as the prepare bound while paused', async () => {
     const { ws, sent } = scriptedSocket([-1])
-    const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+    const sink = new OrderedClientSend(ws, limits, undefined, {
       prepareAheadCount: 2,
     })
     const source = sequenceOf(Array.from({ length: 10 }, (_, i) => welcome(`s${i}`)))
@@ -203,7 +203,7 @@ describe('send pump: lazy sequences', () => {
 
   it('bounds prepared bytes as well as prepared count', () => {
     const { ws, sent } = scriptedSocket([-1])
-    const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+    const sink = new OrderedClientSend(ws, limits, undefined, {
       prepareAheadCount: 100,
       prepareAheadBytes: 64,
     })
@@ -228,7 +228,7 @@ describe('send pump: lazy sequences', () => {
   it('yields between turns so one sequence cannot monopolise the loop', async () => {
     const { ws, sent } = scriptedSocket()
     const yields: Array<() => void> = []
-    const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+    const sink = new OrderedClientSend(ws, limits, undefined, {
       turnBudgetBytes: 100,
       timers: {
         setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -250,7 +250,7 @@ describe('send pump: lazy sequences', () => {
     vi.useFakeTimers()
     try {
       const { ws, sent } = scriptedSocket([-1])
-      const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+      const sink = new OrderedClientSend(ws, limits, undefined, {
         noProgressTimeoutMs: 1000,
       })
       sink.send(welcome('a'))
@@ -274,7 +274,7 @@ describe('send pump: lazy sequences', () => {
     vi.useFakeTimers()
     try {
       const { ws } = scriptedSocket([-1])
-      const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+      const sink = new OrderedClientSend(ws, limits, undefined, {
         noProgressTimeoutMs: 1000,
       })
       sink.send(welcome('a'))
@@ -287,7 +287,7 @@ describe('send pump: lazy sequences', () => {
 
   it('a sequence larger than the application queue limit is not eagerly materialised', async () => {
     const { ws, sent } = scriptedSocket()
-    const sink = new OrderedClientSend(ws, limits, undefined, undefined, {
+    const sink = new OrderedClientSend(ws, limits, undefined, {
       maxQueuedBytes: 200,
       prepareAheadCount: 1,
     })
@@ -300,7 +300,7 @@ describe('send pump: lazy sequences', () => {
 
   it('an immediate reliable send over the application queue limit fails with a reason', () => {
     const { ws } = scriptedSocket([-1])
-    const sink = new OrderedClientSend(ws, limits, undefined, undefined, { maxQueuedBytes: 100 })
+    const sink = new OrderedClientSend(ws, limits, undefined, { maxQueuedBytes: 100 })
     sink.send(welcome('a'))
     sink.send(welcome('x'.repeat(200)))
     expect(ws.terminate).toHaveBeenCalledOnce()
@@ -308,14 +308,14 @@ describe('send pump: lazy sequences', () => {
   })
 
   it('waits for shared-budget capacity instead of failing a lazy sequence', async () => {
-    const budget = new BootstrapCompressionBudget(150, 1)
+    const budget = new OrderedSendBudget(150)
     const { ws, sent } = scriptedSocket()
-    const other = new OrderedClientSend(scriptedSocket([-1]).ws, limits, undefined, budget)
+    const other = new OrderedClientSend(scriptedSocket([-1]).ws, limits, budget)
     other.send(welcome('a'))
     other.send(welcome('hold-the-budget-hold-the-budget'))
     const held = budget.bytes
     expect(held).toBeGreaterThan(100)
-    const sink = new OrderedClientSend(ws, limits, undefined, budget)
+    const sink = new OrderedClientSend(ws, limits, budget)
     const outcome = sink.sendSequence(sequenceOf([welcome('s0'), welcome('s1')]))
     await tick()
     expect(sent).toEqual([])

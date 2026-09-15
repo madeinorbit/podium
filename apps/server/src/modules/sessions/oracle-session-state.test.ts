@@ -54,7 +54,7 @@ const spawnFrames = (daemon: ControlMessage[], sessionId: SessionId) =>
 
 const sessionChanges = (client: ServerMessage[], sessionId: string) =>
   client.flatMap((message) =>
-    message.type === 'feedDelta' || message.type === 'feedBootstrap'
+    message.type === 'feedDelta' || message.type === 'feedResume'
       ? message.changes.filter(
           (change) => change.entity === 'session' && change.entityId === sessionId,
         )
@@ -208,6 +208,7 @@ describe('oracle: read state', () => {
     const secondId = attachTestClient(o.reg.clientGateway, (m) => second.push(m))
     await o.reg.clientGateway.routeClientFrame(secondId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -432,6 +433,7 @@ describe('oracle: composer drafts', () => {
     const watcher: ServerMessage[] = []
     await o.reg.clientGateway.routeClientFrame(authorId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -439,6 +441,7 @@ describe('oracle: composer drafts', () => {
     const watcherId = attachTestClient(o.reg.clientGateway, (m) => watcher.push(m))
     await o.reg.clientGateway.routeClientFrame(watcherId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },

@@ -59,11 +59,12 @@ describe('bind-storm regression', () => {
     const clientId = attachTestClient(registry.clientGateway, (m) => inbox.push(m))
     await registry.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    await expect.poll(() => inbox.some((m) => m.type === 'feedBootstrap' && m.last)).toBe(true)
+    await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
     inbox.length = 0
     return { registry, store, bound, inbox }
   }

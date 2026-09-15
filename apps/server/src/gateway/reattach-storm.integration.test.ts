@@ -8,7 +8,7 @@
  * systemd watchdog window. `relay.bind-storm.test.ts` pins the pipeline fixes at
  * the REGISTRY level, against a plain function sink. This file pins the property
  * one layer out, where the incident was actually observed: a REAL server, a real
- * HTTP surface, real `/client` WebSockets receiving the fan-out, and the storm
+ * HTTP surface, real `/client?cap=sync.http.v1` WebSockets receiving the fan-out, and the storm
  * driven through the real gateway.
  *
  * ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ describe('a daemon reattach storm', () => {
   /** Connect a real /client socket and collect its frames. Resolves once open. */
   async function connectClient(port: number) {
     const frames: ServerMessage[] = []
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/client`)
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/client?cap=sync.http.v1`)
     ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
     let closedWith: number | undefined
     ws.on('close', (code) => {
@@ -127,14 +127,14 @@ describe('a daemon reattach storm', () => {
         type: 'hello',
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
-        caps: [CAP_METADATA_DELTA],
+        caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
         wireVersion: WIRE_VERSION,
       }),
     )
     await new Promise<void>((resolve, reject) => {
       const onMessage = (raw: import('ws').RawData): void => {
         const message = JSON.parse(raw.toString()) as ServerMessage
-        if (message.type !== 'feedBootstrap') return
+        if (message.type !== 'feedResume') return
         ws.off('message', onMessage)
         resolve()
       }

@@ -32,12 +32,13 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))
     await reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
     await reg.modules.sessions.flushBroadcasts()
-    await vi.waitFor(() => expect(inbox.some((m) => m.type === 'feedBootstrap')).toBe(true))
+    await vi.waitFor(() => expect(inbox.some((m) => m.type === 'feedResume')).toBe(true))
     // Clear the bootstrap traffic; from here on we watch only what our churn emits.
     inbox.length = 0
     return { reg, s1, clientId, inbox }

@@ -28,7 +28,6 @@ import {
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
-  CAP_FEED_BOOTSTRAP_ZSTD_V1,
   ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
   createDispatcher,
@@ -55,7 +54,6 @@ import {
   WIRE_VERSION,
   type PendingInteractionWire,
 } from '@podium/protocol'
-import { decodeBootstrapZstd, type CompressedBootstrap } from './bootstrap-zstd'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
@@ -123,7 +121,6 @@ export type SocketCloseCause =
   | { cause: 'close-event'; code: number; reason: string; wasClean: boolean }
   | { cause: 'heartbeat-timeout'; silentForMs: number }
   | { cause: 'wake' }
-  | { cause: 'fresh-world' }
   | { cause: 'server-relocation' }
   | { cause: 'suspend' }
 
@@ -278,31 +275,15 @@ export interface SocketHubOptions {
  *  the whole frame. */
 export type FeedServerFrame = Extract<
   ServerMessageLenient,
-  { type: 'feedDelta' | 'feedBootstrap' | 'feedRescope' | 'feedResyncRequired' | 'feedResume' }
+  { type: 'feedDelta' | 'feedRescope' | 'feedResyncRequired' | 'feedResume' }
 >
 
 /** Main-thread budgets for the safe, pre-worker feed boundary. */
 export const FEED_TASK_BUDGET_MS = 16.7
 export const FEED_INTERACTABILITY_BUDGET_MS = 50
 
-/**
- * The queued-DELTA backlog above which replay is abandoned for a snapshot resync.
- *
- * The ingress queue drains one envelope per macrotask, so a backlog of D deltas
- * costs at BEST D × FEED_TASK_BUDGET_MS of degraded interactivity before the
- * client is current again — at 256 that is ~4.3 seconds even when every task
- * makes budget, and a client that queued 256 deltas faster than it applied them
- * is not briefly behind, it is losing. Past that point the recovery the protocol
- * already owns is cheaper: `requestFreshWorld()` cycles the socket, the fresh
- * admission serves one world at its head, and the whole backlog is replaced by
- * ONE install instead of replayed frame by frame.
- *
- * Counted over `feedDelta` frames ONLY, deliberately: a bootstrap world
- * legitimately arrives as an arbitrarily long run of `feedBootstrap` chunks, and
- * a bound that counted those would abandon every large world mid-download and
- * request another — a resync loop that never converges. Rescope/resync frames
- * are rare singles and already trigger their own recovery.
- */
+/** Beyond this live-delta backlog, ask the kernel for one HTTP snapshot.
+ * The existing socket stays connected and can resume live framing after install. */
 export const FEED_DELTA_RESYNC_QUEUE_DEPTH = 256
 
 export interface FeedTaskTiming {
@@ -336,7 +317,7 @@ export interface FeedBudgetSnapshot {
  */
 function feedFrameTypeHint(raw: string): FeedServerFrame['type'] | null {
   const match =
-    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedBootstrap|feedRescope|feedResyncRequired|feedResume)"/.exec(
+    /^\s*\{\s*"type"\s*:\s*"(feedDelta|feedRescope|feedResyncRequired|feedResume)"/.exec(
       raw,
     )
   return (match?.[1] as FeedServerFrame['type'] | undefined) ?? null
@@ -362,11 +343,11 @@ export interface FeedSinkPort {
    * what a feed position is — `boundary.test.ts` asserts that as a source
    * property, and it is the same rule the two lifecycle calls below already
    * obey. So the sink names the wire field and fills it; this class only decides
-   * WHETHER to ask (see `requestFreshWorld`) and spreads what it gets. A hub
+   * WHETHER to ask (see `requestRebootstrap`) and spreads what it gets. A hub
    * that read `.seq` here would be the second place the D7 ladder lives.
    */
   readonly syncHttp?: boolean
-  requestFreshWorld?(): void
+  requestRebootstrap?(): void
   helloFields(): FeedHelloFields | null
   /**
    * The socket is open and `hello` has advertised the wire version.
@@ -612,11 +593,10 @@ export class SocketHub {
   private ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
-    raw: string | CompressedBootstrap
+    raw: string
     socket: WebSocketLike
     kind: FeedServerFrame['type']
   }> = []
-  private compressedIngressBytes = 0
   private feedIngressScheduled = false
   private feedIngressGeneration = 0
   /** Running count of `feedDelta` entries in `feedIngressQueue` — the number the
@@ -670,19 +650,6 @@ export class SocketHub {
   /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
   private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
-  /**
-   * A world was ASKED FOR, so the next `hello` must not resume (POD-2061).
-   *
-   * Set by {@link requestFreshWorld} and consumed by the next `onopen`. Without
-   * it the socket that a re-bootstrap replaces would present a position, the
-   * server would answer "resumed, no world", and the walk that asked for the
-   * world would wait out its timeout — the one posture ADR 2 D7 never permits,
-   * reintroduced by the optimisation that is supposed to be invisible to it.
-   *
-   * A LATCH AND NOT A COUNTER: two requests before one socket opens still mean
-   * one world, and the walk consumes exactly one.
-   */
-  private wantWorld = false
   /**
    * THE CLOSE THAT IS NOT MEANT TO COME BACK.
    *
@@ -870,8 +837,7 @@ export class SocketHub {
       // twice below: once as the fields it carries, once as what the sink is told
       // it bought. Reading it twice could not stay consistent — `wantWorld` is
       // consumed here, so a second read would see a different answer.
-      const helloFields = this.wantWorld ? null : (this.opts.feed?.helloFields() ?? null)
-      this.wantWorld = false
+      const helloFields = this.opts.feed?.helloFields() ?? null
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
@@ -894,7 +860,6 @@ export class SocketHub {
                     ]
                   : []),
                 ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
-                ...(acceptsBinaryOutput && this.opts.feed ? [CAP_FEED_BOOTSTRAP_ZSTD_V1] : []),
                 ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
               ],
             }
@@ -977,16 +942,7 @@ export class SocketHub {
             throw new Error('unnegotiated or non-ArrayBuffer binary server frame')
           }
           const { metadata, payload } = decodeBinaryEnvelope(ev.data, ClientOutputBinaryMetadata)
-          if (metadata.type === 'feedBootstrapZstd') {
-            if (!this.opts.feed) throw new Error('unnegotiated bootstrap compression')
-            this.enqueueFeedFrame(
-              { payload, uncompressedBytes: metadata.uncompressedBytes },
-              socket,
-              'feedBootstrap',
-            )
-          } else {
-            this.forwardBinaryOutput(metadata, payload)
-          }
+          this.forwardBinaryOutput(metadata, payload)
         } catch (err) {
           this.rejectBinaryFrame(socket, err)
         }
@@ -1198,39 +1154,6 @@ export class SocketHub {
   }
 
   /**
-   * Ask the server for a fresh world, by ending this socket (POD-376).
-   *
-   * THE SERVER PUSHES BOOTSTRAPS AND THE CLIENT CANNOT REQUEST ONE. That is
-   * `FeedServing`'s design and it is right — a connection acquires its position in
-   * one synchronous pass at admission, and a client-requested world would have to
-   * be read at some other moment, which is the window the pre-cutover bootstrap
-   * covered "by hope". But the kernel Replica PULLS: every rung of D7's ladder
-   * that terminates at re-bootstrap calls `AuthorityReadPort.bootstrap()`, and
-   * something has to make a world arrive.
-   *
-   * Reconnecting is that something, and it is not a workaround: a fresh socket is
-   * admitted, served its world at `throughSeq`, and framed from exactly there —
-   * the same one-pass guarantee, obtained the only way the protocol offers it. The
-   * cost is one socket cycle per re-bootstrap, which is already the rare path.
-   *
-   * `forceClose` rather than `close`: this must land in the RECONNECT path, not
-   * the intentional-shutdown path, or nothing would reopen.
-   */
-  requestFreshWorld(): void {
-    if (this.opts.feed?.syncHttp) {
-      this.opts.feed.requestFreshWorld?.()
-      return
-    }
-    // BEFORE the guard, deliberately. The flag says what the NEXT connection must
-    // ask for, and a caller that asked while the socket was already gone wants
-    // exactly the same thing from the reconnect that is already scheduled.
-    this.wantWorld = true
-    if (this.socket === undefined) return
-    this.forceClose({ cause: 'fresh-world' })
-    this.scheduleReconnect()
-  }
-
-  /**
    * THE APP LEFT THE FOREGROUND (POD-2055 WP-C3). Stop being a client until it
    * comes back: heartbeat off, reconnect timer cleared, socket closed on
    * purpose.
@@ -1244,6 +1167,10 @@ export class SocketHub {
    * what un-suppresses ntfy/Telegram push for this person — must be sent before
    * this runs, because this closes the socket those frames would have left on.
    */
+  rebootstrap(): void {
+    this.opts.feed?.requestRebootstrap?.()
+  }
+
   suspend(): void {
     this.intentionalClose = true
     if (this.reconnectTimer !== undefined) {
@@ -1856,21 +1783,10 @@ export class SocketHub {
   }
 
   private enqueueFeedFrame(
-    raw: string | CompressedBootstrap,
+    raw: string,
     socket: WebSocketLike,
     kind: FeedServerFrame['type'],
   ): void {
-    if (typeof raw !== 'string') {
-      const charge = raw.payload.byteLength + raw.uncompressedBytes
-      if (
-        this.compressedIngressBytes + charge > 128 * 1024 * 1024 ||
-        this.feedIngressQueue.length >= 8192
-      ) {
-        this.rejectBinaryFrame(socket, new RangeError('compressed bootstrap queue exceeds budget'))
-        return
-      }
-      this.compressedIngressBytes += charge
-    }
     this.feedIngressQueue.push({ raw, socket, kind })
     if (kind === 'feedDelta') this.feedDeltaQueueDepth += 1
     this.feedBudgetStats.maxQueueDepth = Math.max(
@@ -1878,8 +1794,8 @@ export class SocketHub {
       this.feedIngressQueue.length,
     )
     // A backlog past the bound is terminal under replay (see the constant's
-    // header): drop it and let the reconnect's pushed world replace it with one
-    // install. Feed-mode only — the legacy sink has no `requestFreshWorld`
+    // header): drop it and let an HTTP snapshot replace it with one
+    // install. Feed-mode only — the legacy sink has no `requestRebootstrap`
     // contract, and a v1 hub never receives these frames anyway.
     if (this.opts.feed !== undefined && this.feedDeltaQueueDepth > FEED_DELTA_RESYNC_QUEUE_DEPTH) {
       this.feedBudgetStats.backlogResyncs += 1
@@ -1889,7 +1805,7 @@ export class SocketHub {
         bound: FEED_DELTA_RESYNC_QUEUE_DEPTH,
       })
       this.clearFeedIngress()
-      this.requestFreshWorld()
+      this.opts.feed?.requestRebootstrap?.()
       return
     }
     if (this.feedIngressScheduled) return
@@ -1903,7 +1819,6 @@ export class SocketHub {
    *  what is queued would be wrong. */
   private clearFeedIngress(): void {
     this.feedIngressQueue.length = 0
-    this.compressedIngressBytes = 0
     this.feedDeltaQueueDepth = 0
     this.feedIngressScheduled = false
     this.feedIngressGeneration += 1
@@ -1920,23 +1835,11 @@ export class SocketHub {
     const entry = this.feedIngressQueue.shift()
     if (entry === undefined) return
     if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
-    if (typeof entry.raw !== 'string')
-      this.compressedIngressBytes -= entry.raw.payload.byteLength + entry.raw.uncompressedBytes
 
     if (this.socket === entry.socket && !this.invalidSockets.has(entry.socket)) {
       const startedAt = interactionNow()
       try {
-        if (typeof entry.raw === 'string') this.route(entry.raw)
-        else {
-          try {
-            const raw = decodeBootstrapZstd(entry.raw)
-            if (feedFrameTypeHint(raw) !== 'feedBootstrap')
-              throw new Error('compressed payload is not a bootstrap')
-            this.route(raw)
-          } catch (err) {
-            this.rejectBinaryFrame(entry.socket, err)
-          }
-        }
+        this.route(entry.raw)
       } finally {
         const durationMs = Math.max(0, interactionNow() - startedAt)
         const overTaskBudget = durationMs > FEED_TASK_BUDGET_MS
@@ -2090,9 +1993,6 @@ export class SocketHub {
     // separately deployable because the sink is optional — a build that ships it
     // with the flag off is byte-for-byte a v1 peer.
     feedDelta: (msg) => {
-      this.opts.feed?.frame(msg)
-    },
-    feedBootstrap: (msg) => {
       this.opts.feed?.frame(msg)
     },
     feedRescope: (msg) => {

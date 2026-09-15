@@ -12,21 +12,7 @@ import {
   openKernelAssembly,
 } from './kernelReplica'
 
-const trpc = {
-  sync: {
-    feedChangesSince: {
-      query: async ({ cursor }: { cursor: { feedId: string; epoch: string; seq: number } }) => ({
-        kind: 'delta',
-        feedId: cursor.feedId,
-        epoch: cursor.epoch,
-        fromSeq: cursor.seq,
-        seq: cursor.seq,
-        minAvailableSeq: 0,
-        changes: [],
-      }),
-    },
-  },
-} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
+const trpc = {} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
 class FakeBroadcastChannel implements KernelBroadcastChannel {
   static readonly groups = new Map<string, Set<FakeBroadcastChannel>>()

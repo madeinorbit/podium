@@ -82,7 +82,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       caps: ['metadataDelta'],
     })
     await vi.waitFor(() => {
-      expect(inbox.some((message) => message.type === 'feedBootstrap' && message.last)).toBe(true)
+      expect(inbox.some((message) => message.type === 'feedResume')).toBe(true)
     })
     return { inbox }
   }
@@ -1069,10 +1069,10 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
       clientId: '',
       wireVersion: WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps,
+      caps: ['sync.http.v1', ...caps],
     })
     await vi.waitFor(() => {
-      expect(inbox.some((message) => message.type === 'feedBootstrap' && message.last)).toBe(true)
+      expect(inbox.some((message) => message.type === 'feedResume')).toBe(true)
     })
     return { inbox }
   }

@@ -104,7 +104,6 @@ export async function feedTestPlumbing(
     ),
     retention: opts.retention ?? { minAvailableSeq: async () => await store.sync.minChangeSeq() },
     subscriptions,
-    authorizationRevision: opts.authorizationRevision ?? (async () => await store.grants.visibilityRevision()),
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })

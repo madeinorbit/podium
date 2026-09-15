@@ -28,11 +28,11 @@ import { z } from 'zod'
 import { ScopedChangeOp } from '../planes/scoped-feed'
 import { changeRowArm } from './change-row'
 import { parseServerMessageLenient } from './codec'
-import { FEED_ENTITY_KINDS, FeedBootstrapMessageLenient, FeedChange } from './feed'
+import { FEED_ENTITY_KINDS, FeedDeltaMessageLenient, FeedChange } from './feed'
 import { ServerMessage } from './server'
 import { MetadataEntityKind } from './sync'
 
-const frame = (changes: unknown[], type = 'feedBootstrap') => ({
+const frame = (changes: unknown[], type = 'feedDelta') => ({
   type,
   feedId: 'feed-01J',
   epoch: 'epoch-01J',
@@ -93,8 +93,8 @@ describe('a kind the union has no arm for', () => {
       JSON.stringify(frame([rowOfKind('issue', 6), rowOfKind(armless[0] as string, 7)])),
     )
     expect(parsed.dropped).toBe(0)
-    expect(parsed.message?.type).toBe('feedBootstrap')
-    expect(FeedBootstrapMessageLenient.parse(parsed.message).changes).toHaveLength(2)
+    expect(parsed.message?.type).toBe('feedDelta')
+    expect(FeedDeltaMessageLenient.parse(parsed.message).changes).toHaveLength(2)
   })
 
   it('still refuses a kind that HAS an arm but a bad row — no sneaking through', () => {
@@ -103,7 +103,7 @@ describe('a kind the union has no arm for', () => {
     const bad = { seq: 8, entity: 'issue', entityId: 'iss_1', op: 'nonsense' }
     const parsed = parseServerMessageLenient(JSON.stringify(frame([bad])))
     expect(parsed.dropped).toBe(1)
-    expect(FeedBootstrapMessageLenient.parse(parsed.message).changes).toHaveLength(0)
+    expect(FeedDeltaMessageLenient.parse(parsed.message).changes).toHaveLength(0)
   })
 })
 
@@ -126,7 +126,7 @@ describe('a known kind whose payload this build cannot read', () => {
       JSON.stringify(frame([rowOfKind('session', 8), unreadable, rowOfKind('repo', 10)])),
     )
     expect(parsed.dropped).toBe(1)
-    const kept = FeedBootstrapMessageLenient.parse(parsed.message)
+    const kept = FeedDeltaMessageLenient.parse(parsed.message)
     expect(kept.changes.map((c) => c.entityId)).toEqual(['session_1', 'repo_1'])
     // The certified range is untouched: the frame still says what it covered, so
     // the replica advances rather than heal-looping over a row it cannot read.
@@ -147,6 +147,6 @@ describe('a known kind whose payload this build cannot read', () => {
       JSON.stringify(frame([rowOfKind('session', 8), rowOfKind('issue', 9)])),
     )
     expect(parsed.dropped).toBe(0)
-    expect(FeedBootstrapMessageLenient.parse(parsed.message).changes).toHaveLength(2)
+    expect(FeedDeltaMessageLenient.parse(parsed.message).changes).toHaveLength(2)
   })
 })

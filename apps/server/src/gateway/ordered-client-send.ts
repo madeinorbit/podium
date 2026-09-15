@@ -44,35 +44,18 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { BOOTSTRAP_ZSTD_MAX_BYTES, encodeBinaryEnvelope } from '@podium/protocol'
 import { encodeDaemonMessage } from '@podium/protocol/daemon'
 import type { PlaneSink } from './plane-liveness'
 import { type SendSocket, shouldCompressWebSocketFrame } from './ws-send'
 
 const log = createLogger('server:gateway')
-type Compressor = (json: string) => Promise<Uint8Array>
 type Message = Parameters<PlaneSink['send']>[0]
 
-/** Bun 1.3.14 JSZstd.ZstdJob dispatches with jsc.WorkPool.schedule;
- * serialization stays on this loop. See src/runtime/api/BunObject.zig in Bun. */
-export const compressBootstrap: Compressor = (json) => {
-  const runtime = globalThis as typeof globalThis & {
-    Bun: { zstdCompress(input: string, options: { level: number }): Promise<Uint8Array> }
-  }
-  return runtime.Bun.zstdCompress(json, { level: 3 })
-}
-
-/** One shared admission budget, including input still owned by an active native job. */
-export class BootstrapCompressionBudget {
+/** Shared queued-byte accounting for all client traffic, without compression jobs. */
+export class OrderedSendBudget {
   bytes = 0
-  private active = 0
-  private readonly waiting = new Set<() => void>()
-  private readonly releaseListeners = new Set<() => void>()
-  constructor(
-    readonly maxBytes = 256 * 1024 * 1024,
-    readonly concurrency = 2,
-  ) {}
-
+  private readonly listeners = new Set<() => void>()
+  constructor(readonly maxBytes = 256 * 1024 * 1024) {}
   reserve(bytes: number): boolean {
     if (this.bytes + bytes > this.maxBytes) return false
     this.bytes += bytes
@@ -80,51 +63,14 @@ export class BootstrapCompressionBudget {
   }
   release(bytes: number): void {
     this.bytes -= bytes
-    if (this.releaseListeners.size === 0) return
-    for (const listener of [...this.releaseListeners]) listener()
+    for (const listener of [...this.listeners]) listener()
   }
-  /** Told once capacity may have returned; the caller re-tries its reserve. */
   onRelease(listener: () => void): () => void {
-    this.releaseListeners.add(listener)
-    return () => this.releaseListeners.delete(listener)
-  }
-  /** Active native jobs across every socket. Diagnostics. */
-  get activeJobs(): number {
-    return this.active
-  }
-
-  async run(work: () => Promise<Uint8Array>, signal: AbortSignal): Promise<Uint8Array> {
-    if (signal.aborted) throw new Error('socket closed')
-    await new Promise<void>((resolve, reject) => {
-      const abort = () => {
-        this.waiting.delete(start)
-        reject(new Error('socket closed'))
-      }
-      const start = () => {
-        signal.removeEventListener('abort', abort)
-        this.active += 1
-        resolve()
-      }
-      if (this.active < this.concurrency) start()
-      else {
-        this.waiting.add(start)
-        signal.addEventListener('abort', abort, { once: true })
-      }
-    })
-    try {
-      if (signal.aborted) throw new Error('socket closed')
-      return await work()
-    } finally {
-      this.active -= 1
-      const next = this.waiting.values().next().value
-      if (next) {
-        this.waiting.delete(next)
-        next()
-      }
-    }
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 }
-const sharedBudget = new BootstrapCompressionBudget()
+const sharedBudget = new OrderedSendBudget()
 
 export type SendFailureReason =
   | 'send-not-accepted'
@@ -170,16 +116,13 @@ export interface OrderedSendOptions {
 export interface OrderedSendStats {
   readonly label: string | undefined
   readonly paused: boolean
-  readonly compression: 'zstd' | 'json'
   /** Charge of everything admitted and not yet handed to the socket. */
   readonly queuedBytes: number
   readonly queuedFrames: number
   /** Prepared (encoded, compressed) output waiting for the socket. */
   readonly readyBytes: number
   readonly socketBufferedBytes: number
-  readonly activeCompression: 0 | 1
   readonly sharedBudgetBytes: number
-  readonly sharedActiveJobs: number
   readonly sentFrames: number
   readonly sentBytes: number
   readonly pauses: number
@@ -210,7 +153,6 @@ interface Frame {
   /** Reserved against the shared budget and the queue limit; JS-side cost. */
   charge: number
   compress: boolean
-  zstd: boolean
   lossy: boolean
   sequence?: Sequence
   /** Set when the frame leaves the pump: written, or dropped as lossy. */
@@ -238,7 +180,6 @@ export class OrderedClientSend implements PlaneSink {
   private readonly queue: Item[] = []
   /** Prepared, in application order, waiting for the socket. */
   private readonly ready: Frame[] = []
-  private readonly abort = new AbortController()
   private readonly sequences = new Set<Sequence>()
   private readonly opts: Required<Omit<OrderedSendOptions, 'timers'>> & {
     timers: OrderedSendTimers
@@ -246,7 +187,6 @@ export class OrderedClientSend implements PlaneSink {
   private queuedBytes = 0
   private queuedFrames = 0
   private readyBytes = 0
-  private compressing: Frame | undefined
   /** A sequence frame pulled but not yet admitted to the shared budget. */
   private stalled: Frame | undefined
   private budgetWait: (() => void) | undefined
@@ -258,7 +198,6 @@ export class OrderedClientSend implements PlaneSink {
   private paused = false
   private pumping = false
   private rerun = false
-  private enabled = false
   private stopped = false
   private failure: SendFailureReason | undefined
   private label: string | undefined
@@ -271,7 +210,6 @@ export class OrderedClientSend implements PlaneSink {
   constructor(
     private readonly ws: SendSocket,
     private readonly limits: { sendBufferLimitBytes: number; lossySendBufferLimitBytes: number },
-    private readonly compress: Compressor = compressBootstrap,
     private readonly budget = sharedBudget,
     options: OrderedSendOptions = {},
   ) {
@@ -292,22 +230,15 @@ export class OrderedClientSend implements PlaneSink {
     this.label = label
   }
 
-  enableBootstrapCompression(enabled: boolean): void {
-    this.enabled = enabled && this.ws.sendBinary !== undefined
-  }
-
   stats(): OrderedSendStats {
     return {
       label: this.label,
       paused: this.paused,
-      compression: this.enabled ? 'zstd' : 'json',
       queuedBytes: this.queuedBytes,
       queuedFrames: this.queuedFrames,
       readyBytes: this.readyBytes,
       socketBufferedBytes: this.stopped ? 0 : this.ws.bufferedAmount,
-      activeCompression: this.compressing ? 1 : 0,
       sharedBudgetBytes: this.budget.bytes,
-      sharedActiveJobs: this.budget.activeJobs,
       sentFrames: this.sentFrames,
       sentBytes: this.sentBytes,
       pauses: this.pauses,
@@ -365,17 +296,11 @@ export class OrderedClientSend implements PlaneSink {
   private encode(msg: Message, lossy: boolean): Frame | undefined {
     try {
       const data = encodeDaemonMessage(msg)
-      const zstd = !lossy && this.enabled && msg.type === 'feedBootstrap'
-      if (zstd && Buffer.byteLength(data) > BOOTSTRAP_ZSTD_MAX_BYTES) {
-        this.fail('frame-too-large')
-        return undefined
-      }
       return {
         kind: 'frame',
         data,
         charge: Math.max(data.length * 2, Buffer.byteLength(data)),
         compress: shouldCompressWebSocketFrame(data, msg),
-        zstd,
         lossy,
       }
     } catch {
@@ -392,13 +317,12 @@ export class OrderedClientSend implements PlaneSink {
       return false
     }
     // A queued producer may reuse its buffer after this call returns.
-    const queued = this.queue.length > 0 || this.ready.length > 0 || this.compressing
+    const queued = this.queue.length > 0 || this.ready.length > 0
     return this.enqueue({
       kind: 'frame',
       data: queued ? bytes.slice() : bytes,
       charge: bytes.byteLength,
       compress: shouldCompressWebSocketFrame(bytes),
-      zstd: false,
       lossy,
     })
   }
@@ -486,7 +410,6 @@ export class OrderedClientSend implements PlaneSink {
   private canPrepare(): boolean {
     return (
       !this.stopped &&
-      this.compressing === undefined &&
       this.budgetWait === undefined &&
       this.ready.length < this.opts.prepareAheadCount &&
       this.readyBytes < this.opts.prepareAheadBytes
@@ -562,43 +485,8 @@ export class OrderedClientSend implements PlaneSink {
   }
 
   private stage(frame: Frame): void {
-    if (!frame.zstd || typeof frame.data !== 'string') {
-      this.ready.push(frame)
-      this.readyBytes += frame.charge
-      return
-    }
-    this.compressing = frame
-    const json = frame.data
-    void this.budget
-      .run(() => this.compress(json), this.abort.signal)
-      .then((compressed) => {
-        if (this.stopped) return
-        // Explicitly bypass native synchronous WebSocket deflate.
-        frame.data = encodeBinaryEnvelope(
-          { v: 1, type: 'feedBootstrapZstd', uncompressedBytes: Buffer.byteLength(json) },
-          compressed,
-        )
-        frame.compress = false
-      })
-      .catch((error: unknown) => {
-        if (this.stopped) return
-        log.warn('bootstrap compression failed; sending ordered JSON fallback', {
-          label: this.label,
-          error,
-        })
-        frame.zstd = false
-      })
-      .finally(() => {
-        this.compressing = undefined
-        if (this.stopped) {
-          // Active input is accounted until the native job actually releases it.
-          this.release(frame)
-          return
-        }
-        this.ready.push(frame)
-        this.readyBytes += frame.charge
-        this.pump()
-      })
+    this.ready.push(frame)
+    this.readyBytes += frame.charge
   }
 
   /** Hand prepared frames to the socket until it pushes back. */
@@ -712,7 +600,6 @@ export class OrderedClientSend implements PlaneSink {
   private reliablePending(): boolean {
     return (
       this.queue.length > 0 ||
-      this.compressing !== undefined ||
       this.stalled !== undefined ||
       this.ready.some((frame) => !frame.lossy)
     )
@@ -756,7 +643,6 @@ export class OrderedClientSend implements PlaneSink {
   dispose(): void {
     if (this.stopped) return
     this.stopped = true
-    this.abort.abort()
     this.progress()
     this.drainOff?.()
     this.drainOff = undefined

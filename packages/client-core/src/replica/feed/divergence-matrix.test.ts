@@ -52,8 +52,6 @@ import {
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../../socket-transport'
-import { FeedAuthorityClient } from './authority-client'
-import { PushedBootstrapSource } from './bootstrap-source'
 import { FeedSink } from './sink'
 
 const ALICE: ConformancePrincipal = conformanceUser('user:alice')
@@ -101,24 +99,6 @@ function asWireDelta(frame: DeltaFrame): FeedServerFrame {
  * different answer, and building one out of a log replay would have installed a
  * world containing a row the principal can no longer see.
  */
-function asWireBootstrap(chunk: BootstrapChunk): FeedServerFrame {
-  return {
-    type: 'feedBootstrap',
-    feedId: chunk.feedId,
-    epoch: chunk.epoch,
-    fromSeq: 0,
-    seq: chunk.snapshotSeq,
-    minAvailableSeq: 0,
-    changes: chunk.changes.map((change) => ({
-      seq: change.seq,
-      entity: change.entity,
-      entityId: change.entityId,
-      op: 'upsert',
-      value: change.payload,
-    })),
-    last: chunk.last,
-  } as FeedServerFrame
-}
 
 interface Client {
   readonly replica: Replica
@@ -126,12 +106,11 @@ interface Client {
   readonly store: IndexedDbSyncStore
   readonly events: ReplicaEvent[]
   /** Feed the world the server would push at this moment. */
-  pushWorld(): void
   /** Feed the certified range `(from, head]`. */
   pushDelta(from: number, upTo?: number): void
   /** `(entity, entityId)` keys the client holds, sorted. The comparison snapshot. */
   keys(): string[]
-  freshWorldRequests: number
+  bootstrapRequests: number
   /** Surfaced storage degradations (D4.4). Asserted empty — see `online`. */
   readonly degradations: unknown[]
 }
@@ -169,86 +148,36 @@ describe('POD-376 divergence matrix', () => {
     })
     const view = store.viewFor('default')
     const events: ReplicaEvent[] = []
-    let freshWorldRequests = 0
-    const bootstraps = new PushedBootstrapSource({
-      requestFreshWorld: () => {
-        freshWorldRequests += 1
-        // The transport would reconnect and the server would push. Here the push
-        // is explicit, so a case that forgets it FAILS on the bootstrap timeout
-        // rather than silently reading a stale slot.
-        client.pushWorld()
-      },
-    })
-    const port = authority.portFor(principal)
+    let bootstrapRequests = 0
+  const port = authority.portFor(principal)
     const replica = new Replica({
       store: view.cache,
       // The heal half is the CONFORMANCE authority's own port — the same
       // `changesSince` the suite uses — because rung 1 is not what this issue
       // changed. The bootstrap half is the pushed seam, which is.
-      authority: new FeedAuthorityClient({
-        fetchChangesSince: async (cursor) => {
-          const range = await port.changesRange(cursor)
-          const reply: import('@podium/sync/replica').ChangesSinceReply =
-            'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
-          if (reply.kind === 'bootstrap-required') {
-            return {
-              kind: 'bootstrap-required',
-              ...(reply.reason === undefined ? {} : { reason: reply.reason }),
-            }
-          }
-          return {
-            kind: 'delta',
-            feedId: reply.feedId,
-            epoch: reply.epoch,
-            fromSeq: reply.fromSeq,
-            seq: reply.seq,
-            minAvailableSeq: reply.minAvailableSeq,
-            changes: reply.changes.map((change) =>
-              change.op === 'upsert'
-                ? {
-                    seq: change.seq,
-                    entity: change.entity,
-                    entityId: change.entityId,
-                    op: 'upsert' as const,
-                    value: change.payload,
-                  }
-                : {
-                    seq: change.seq,
-                    entity: change.entity,
-                    entityId: change.entityId,
-                    op: change.op,
-                  },
-            ),
-          }
+      authority: {
+        changesRange: (cursor, signal, target) => port.changesRange(cursor, signal, target),
+        bootstrap: (signal) => {
+          bootstrapRequests += 1
+          return port.bootstrap(signal)
         },
-        bootstraps,
-      }),
+      },
       onEvent: (event) => events.push(event),
     })
-    const sink = new FeedSink({ replica, bootstraps })
+    const sink = new FeedSink({ replica })
     const client: Client = {
       replica,
       sink,
       store,
       events,
-      pushWorld: () => {
-        // ASYNCHRONOUS, like the real one: the server pushes after a reconnect,
-        // and the source's waiter is registered before the request is made
-        // precisely so both timings work. Multi-chunk by default (the fixture's
-        // chunkSize is 2), so this also walks the source's chunk loop rather than
-        // only its first-chunk path.
-        void (async () => {
-          for await (const chunk of port.bootstrap()) sink.frame(asWireBootstrap(chunk))
-        })()
-      },
       pushDelta: (from, upTo) => sink.frame(asWireDelta(authority.frameFor(principal, from, upTo))),
       keys: () =>
         replica
           .entities()
           .map((row) => `${row.entity}:${row.entityId}`)
           .sort(),
-      get freshWorldRequests() {
-        return freshWorldRequests
+      get bootstrapRequests() {
+        return bootstrapRequests
       },
       degradations,
     }
@@ -263,7 +192,6 @@ describe('POD-376 divergence matrix', () => {
     // waiting for a client request. Model that contract explicitly: the cold
     // ladder must consume this in-flight world without replacing the socket to
     // ask for a duplicate.
-    client.pushWorld()
     await client.replica.settled()
     await client.store.settled()
     // The storage stayed DURABLE through the bootstrap. Every case below asserts
@@ -457,7 +385,7 @@ describe('POD-376 divergence matrix', () => {
     const alice = await openClient(ALICE)
     await online(alice)
     expect(alice.keys()).toEqual(['session:a', 'session:b'])
-    const requestsBefore = alice.freshWorldRequests
+    const requestsBefore = alice.bootstrapRequests
 
     // The rights moved by more than it is worth enumerating. The replica must
     // discard and re-bootstrap SCOPED — and the world it re-installs is the one
@@ -476,7 +404,7 @@ describe('POD-376 divergence matrix', () => {
     // The re-bootstrap went through the PUSH/PULL seam rather than some other
     // route: the source had no fresh world, so it asked for one. Without this the
     // case would pass against a client that re-read its own cache.
-    expect(alice.freshWorldRequests).toBe(requestsBefore + 1)
+    expect(alice.bootstrapRequests).toBe(requestsBefore + 1)
   })
 
   it('case 7b · a rescope keeps the OUTBOX — the cache port structurally cannot reach it', async () => {

@@ -51,7 +51,7 @@ const confirmUserTurn = (
 const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
   client.some(
     (message) =>
-      (message.type === 'feedDelta' || message.type === 'feedBootstrap') &&
+      (message.type === 'feedDelta' || message.type === 'feedResume') &&
       message.changes.some(
         (change) =>
           change.entity === 'session' && change.entityId === sessionId && change.op === 'remove',
@@ -662,6 +662,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     const controllerId = attachTestClient(o.reg.clientGateway, () => {})
     await o.reg.clientGateway.routeClientFrame(controllerId, {
       type: 'hello',
+    caps: ['sync.http.v1'],
       wireVersion: WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },

@@ -1,30 +1,4 @@
-/**
- * WHAT A RESUMING CONNECTION COSTS WHEN THE SERVER SAYS NO (POD-2061).
- *
- * ---------------------------------------------------------------------------
- * THE FAILURE THIS FILE EXISTS TO CATCH
- * ---------------------------------------------------------------------------
- *
- * Presenting a cursor makes the initial world CONDITIONAL, and the conditional
- * branch — the server refuses the cursor and pushes the world anyway — is where
- * the cost of the whole feature can quietly land. `PushedBootstrapSource` only
- * hands a walk a world that was offered AFTER the walk began; on this path the
- * world arrives FIRST (at admission) and the walk begins later (when the heal
- * comes back `bootstrap-required`). If the seam does not recognise that world as
- * one this connection was owed, the walk drops it and calls `requestFreshWorld`,
- * which is a SOCKET CYCLE — the client tears down a healthy connection to fetch a
- * world already sitting in its own slot, and every refused cursor now costs more
- * than the full-world push it replaced.
- *
- * So the assertion that matters here is `freshWorldRequests === 0`. It is not an
- * optimisation check: `requestFreshWorld` rides the reconnect backoff, and the
- * seam's own comments record a live heal-loop from exactly this area.
- *
- * Everything under test is real — the shipped `Replica`, `PushedBootstrapSource`,
- * `FeedSink` and `ConformanceAuthority`. The only thing modelled is the socket:
- * frames are handed to the sink in the order a server would send them.
- */
-
+/** Kernel pull recovery across resume and retention loss; no pushed bootstrap fixture. */
 import {
   ConformanceAuthority,
   type ConformancePrincipal,
@@ -38,106 +12,40 @@ import {
 } from '@podium/sync/replica'
 import { describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../../socket-transport'
-import { FeedAuthorityClient } from './authority-client'
-import { PushedBootstrapSource } from './bootstrap-source'
 import { FeedSink } from './sink'
 
 const ALICE: ConformancePrincipal = conformanceUser('user:alice')
 
-function asWireBootstrap(chunk: BootstrapChunk): FeedServerFrame {
-  return {
-    type: 'feedBootstrap',
-    feedId: chunk.feedId,
-    epoch: chunk.epoch,
-    fromSeq: 0,
-    seq: chunk.snapshotSeq,
-    minAvailableSeq: 0,
-    changes: chunk.changes.map((change) => ({
-      seq: change.seq,
-      entity: change.entity,
-      entityId: change.entityId,
-      op: 'upsert',
-      value: change.payload,
-    })),
-    last: chunk.last,
-  } as FeedServerFrame
-}
 
 function openClient(authority: ConformanceAuthority) {
   const store = new InMemoryReplicaStore()
   const view = store.viewFor('default')
   const events: ReplicaEvent[] = []
-  let freshWorldRequests = 0
-  const bootstraps = new PushedBootstrapSource({
-    requestFreshWorld: () => {
-      freshWorldRequests += 1
-      // The transport would cycle the socket and the server would push. Modelled
-      // so a case that DOES cycle still completes and fails on the counter,
-      // rather than hanging until the 30 s chunk timeout and failing on time.
-      pushWorld()
-    },
-  })
-  const port = authority.portFor(ALICE)
+  let bootstrapRequests = 0
+const port = authority.portFor(ALICE)
   const replica = new Replica({
     store: view.cache,
-    authority: new FeedAuthorityClient({
-      fetchChangesSince: async (cursor) => {
-        const range = await port.changesRange(cursor)
-        const reply: import('@podium/sync/replica').ChangesSinceReply =
-          'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
-        if (reply.kind === 'bootstrap-required') {
-          return {
-            kind: 'bootstrap-required',
-            ...(reply.reason === undefined ? {} : { reason: reply.reason }),
-          }
-        }
-        return {
-          kind: 'delta',
-          feedId: reply.feedId,
-          epoch: reply.epoch,
-          fromSeq: reply.fromSeq,
-          seq: reply.seq,
-          minAvailableSeq: reply.minAvailableSeq,
-          changes: reply.changes.map((change) =>
-            change.op === 'upsert'
-              ? {
-                  seq: change.seq,
-                  entity: change.entity,
-                  entityId: change.entityId,
-                  op: 'upsert' as const,
-                  value: change.payload,
-                }
-              : {
-                  seq: change.seq,
-                  entity: change.entity,
-                  entityId: change.entityId,
-                  op: change.op,
-                },
-          ),
-        }
+    authority: {
+        changesRange: (cursor, signal, target) => port.changesRange(cursor, signal, target),
+        bootstrap: (signal) => {
+          bootstrapRequests += 1
+          return port.bootstrap(signal)
+        },
       },
-      bootstraps,
-    }),
-    onEvent: (event) => events.push(event),
+      onEvent: (event) => events.push(event),
   })
-  const sink = new FeedSink({ replica, bootstraps })
-  const pushWorld = (): void => {
-    void (async () => {
-      for await (const chunk of port.bootstrap()) sink.frame(asWireBootstrap(chunk))
-    })()
-  }
+  const sink = new FeedSink({ replica })
   return {
     replica,
     sink,
     events,
-    pushWorld,
     keys: () =>
       replica
         .entities()
         .map((row) => `${row.entity}:${row.entityId}`)
         .sort(),
-    get freshWorldRequests() {
-      return freshWorldRequests
+    get bootstrapRequests() {
+      return bootstrapRequests
     },
   }
 }
@@ -151,7 +59,7 @@ function commit(authority: ConformanceAuthority, id: string): void {
 }
 
 describe('a connection that presented a cursor', () => {
-  it('completes a refused-cursor walk from the pushed world, without a socket cycle', async () => {
+  it('pulls a fresh snapshot when the resume cursor was compacted', async () => {
     const authority = new ConformanceAuthority()
     await authority.resolveIdentity()
     commit(authority, 's1')
@@ -160,7 +68,6 @@ describe('a connection that presented a cursor', () => {
     // A first, ordinary admission: no position to present, so a world is promised
     // and delivered. This is what gives the client the cursor it will present.
     client.sink.connected(true)
-    client.pushWorld()
     await client.replica.settled()
     expect(client.replica.cursor).not.toBeNull()
 
@@ -177,11 +84,10 @@ describe('a connection that presented a cursor', () => {
     // refused it, and the world it sent instead arrives before the client's heal
     // has come back.
     client.sink.connected(false)
-    client.pushWorld()
     await client.replica.settled()
 
     expect(client.keys()).toEqual(['session:s1', 'session:s2', 'session:s3'])
-    expect(client.freshWorldRequests).toBe(0)
+    expect(client.bootstrapRequests).toBe(2)
   })
 
   it('resumes from its own cursor when the server sends only a grant', async () => {
@@ -190,7 +96,6 @@ describe('a connection that presented a cursor', () => {
     commit(authority, 's1')
     const client = openClient(authority)
     client.sink.connected(true)
-    client.pushWorld()
     await client.replica.settled()
     const held = client.replica.cursor
     if (held === null) throw new Error('the first admission left no cursor')
@@ -211,7 +116,7 @@ describe('a connection that presented a cursor', () => {
     await client.replica.settled()
 
     expect(client.keys()).toEqual(['session:s1', 'session:s2'])
-    expect(client.freshWorldRequests).toBe(0)
+    expect(client.bootstrapRequests).toBe(1)
     // No world was installed, and nothing asked for one: the whole point is that
     // the bytes never left the server.
     expect(client.events.filter((event) => event.type === 'heal')).not.toHaveLength(0)

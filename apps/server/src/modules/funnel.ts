@@ -1,19 +1,16 @@
 import { createLogger } from '@podium/logger'
 import type {
-  FeedChangesSinceReply,
-  FeedCursorField,
   MetadataChange,
   Principal,
 } from '@podium/protocol'
 import {
   type AuthorityPort,
-  ChangeRangeBootstrapRequired,
   DEVICE_GRADE_PRINCIPAL,
   type FeedScopingGrade,
   type ScopedChange,
   type ScopedDelivery,
 } from '@podium/sync'
-import { type OnPublicationIdle, scheduleFeedFlush, toFeedChange } from '../gateway/feed-serving'
+import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
@@ -207,74 +204,6 @@ export class WriteFunnel {
   /** The published retention horizon (ADR 2 D5), from that same source. */
   async minAvailableSeq(): Promise<number> {
     return await this.deps.serving.retentionFloor()
-  }
-
-  /**
-   * WIRE v2 CATCH-UP — the pull half of the kernel Replica's D7 ladder (POD-376).
-   *
-   * The push path carries a replica from frame to frame. Rung 1 is the other
-   * half: a replica that detects a gap, or comes back from `stale`, asks for the
-   * range it missed, and the answer must be CERTIFIED — `fromSeq`, `seq` and
-   * `minAvailableSeq` together — or a scoped reply is a filter without a
-   * watermark, which is the protocol break ADR 2 Am1 D13 exists to prevent.
-   *
-   * SAME AUTHORITY CALL AS EVERY OTHER READ. `changesSince(cursor, principal)`
-   * with the principal this transport can name; there is no second filter here,
-   * so a row suppressed on the live path is suppressed here identically.
-   *
-   * FEED IDENTITY IS CHECKED BEFORE THE RANGE, and a mismatch answers
-   * `bootstrap-required` rather than an empty delta. D1 compares epochs by
-   * EQUALITY ONLY, and a cursor from another feed names a `seq` that means
-   * nothing here — serving a range against it would be arithmetic on two
-   * different number lines. The replica's own rung 4 would catch it on the next
-   * frame; catching it here means the wrong answer is never produced.
-   */
-  async feedChangesSince(
-    cursor: FeedCursorField | null,
-    principal: import('@podium/protocol').Principal,
-  ): Promise<FeedChangesSinceReply> {
-    const identity = await this.deps.serving.identity()
-    if (cursor !== null && (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)) {
-      return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
-    }
-    const from = cursor?.seq ?? null
-    if (from === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
-    const through = await this.deps.authority.captureHead()
-    const changes: ScopedChange[] = []
-    try {
-      for await (const delivery of this.deps.authority.changesRange(
-        principal,
-        from,
-        through,
-        1_000,
-      )) {
-        if (delivery.kind === 'rescope') return { kind: 'bootstrap-required', reason: 'rescope' }
-        changes.push(...delivery.changes)
-      }
-    } catch (error) {
-      if (error instanceof ChangeRangeBootstrapRequired) {
-        return { kind: 'bootstrap-required', reason: error.reason }
-      }
-      throw error
-    }
-    return {
-      kind: 'delta',
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      fromSeq: from ?? 0,
-      seq: through,
-      minAvailableSeq: await this.deps.serving.retentionFloor(),
-      // NOT `toBusChange`, and this cost a live-server debugging session: that
-      // helper produces the v1 `MetadataChange`, whose target field is `id`. The
-      // v2 row's is `entityId`, so every healed row reached the replica with
-      // `entityId: undefined` and installed as `issue:undefined` — silent
-      // corruption on the RARE path (rung 1), invisible to any test exercising
-      // only the push path. `toBusChange` stays where it belongs, on the v1 pipe.
-      //
-      // The mapping itself is `toFeedChange`, shared with the bootstrap the
-      // serving edge builds, so a catch-up row and a pushed row cannot differ.
-      changes: changes.map(toFeedChange),
-    }
   }
 
   /**

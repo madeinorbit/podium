@@ -94,8 +94,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../socket-transport'
 import { type ReferentState, resolveReferent } from '../viewmodels/session-ownership'
 import type { Replica as ClientReplica } from './contract'
-import { FeedAuthorityClient } from './feed/authority-client'
-import { PushedBootstrapSource } from './feed/bootstrap-source'
 import { FeedSink } from './feed/sink'
 import { createKernelReplica, createSideCache, type KernelCacheRead } from './kernel'
 import { memoryStorage } from './replica'
@@ -174,24 +172,6 @@ function asWireDelta(frame: DeltaFrame): FeedServerFrame {
   } as FeedServerFrame
 }
 
-function asWireBootstrap(chunk: BootstrapChunk): FeedServerFrame {
-  return {
-    type: 'feedBootstrap',
-    feedId: chunk.feedId,
-    epoch: chunk.epoch,
-    fromSeq: 0,
-    seq: chunk.snapshotSeq,
-    minAvailableSeq: 0,
-    changes: chunk.changes.map((change) => ({
-      seq: change.seq,
-      entity: change.entity,
-      entityId: change.entityId,
-      op: 'upsert',
-      value: change.payload,
-    })),
-    last: chunk.last,
-  } as FeedServerFrame
-}
 
 /**
  * The two shipped client storage backends, behind one seam.
@@ -317,7 +297,6 @@ interface Client {
    * where the thing genuinely never happened.
    */
   since(mark: number, type: ReplicaEvent['type']): ReplicaEvent[]
-  pushWorld(): void
   pushDelta(from: number, upTo?: number): void
   /** `entity:entityId` keys currently held, sorted. */
   keys(): string[]
@@ -346,15 +325,7 @@ describe.each(
   async function openClient(principal: ConformancePrincipal, id: string): Promise<Client> {
     const opened = await backend.open(id)
     const events: ReplicaEvent[] = []
-    const bootstraps = new PushedBootstrapSource({
-      requestFreshWorld: () => {
-        // The transport would reconnect and the server would push. Explicit
-        // here, so a case that needs one and does not get it FAILS on the
-        // bootstrap timeout rather than silently reading a stale slot.
-        client.pushWorld()
-      },
-    })
-    const port = authority.portFor(principal)
+  const port = authority.portFor(principal)
     // Assembled in the SAME ORDER as the two shipped composition roots
     // (`apps/web/src/lib/kernelReplica.ts`, `apps/mobile`): the facade comes
     // first because the kernel Replica needs its `onKernelEvent`, so the facade
@@ -368,44 +339,13 @@ describe.each(
     })
     const replica = new Replica({
       store: opened.cache as never,
-      authority: new FeedAuthorityClient({
-        fetchChangesSince: async (cursor) => {
-          const range = await port.changesRange(cursor)
-          const reply: import('@podium/sync/replica').ChangesSinceReply =
-            'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
-          if (reply.kind === 'bootstrap-required') {
-            return {
-              kind: 'bootstrap-required',
-              ...(reply.reason === undefined ? {} : { reason: reply.reason }),
-            }
-          }
-          return {
-            kind: 'delta',
-            feedId: reply.feedId,
-            epoch: reply.epoch,
-            fromSeq: reply.fromSeq,
-            seq: reply.seq,
-            minAvailableSeq: reply.minAvailableSeq,
-            changes: reply.changes.map((change) =>
-              change.op === 'upsert'
-                ? {
-                    seq: change.seq,
-                    entity: change.entity,
-                    entityId: change.entityId,
-                    op: 'upsert' as const,
-                    value: change.payload,
-                  }
-                : {
-                    seq: change.seq,
-                    entity: change.entity,
-                    entityId: change.entityId,
-                    op: change.op,
-                  },
-            ),
-          }
+      authority: {
+        changesRange: (cursor, signal, target) => port.changesRange(cursor, signal, target),
+        bootstrap: (signal) => {
+
+          return port.bootstrap(signal)
         },
-        bootstraps,
-      }),
+      },
       onEvent: (event) => {
         events.push(event)
         facade.onKernelEvent(event)
@@ -416,7 +356,7 @@ describe.each(
       // the product actually ships.
       batchEvents: (emitAll) => facade.batch(emitAll),
     })
-    const sink = new FeedSink({ replica, bootstraps })
+    const sink = new FeedSink({ replica })
     const client: Client = {
       id,
       replica,
@@ -424,11 +364,6 @@ describe.each(
       sink,
       events,
       since: (mark, type) => events.slice(mark).filter((event) => event.type === type),
-      pushWorld: () => {
-        void (async () => {
-          for await (const chunk of port.bootstrap()) sink.frame(asWireBootstrap(chunk))
-        })()
-      },
       pushDelta: (from, upTo) => sink.frame(asWireDelta(authority.frameFor(principal, from, upTo))),
       keys: () =>
         replica
@@ -442,7 +377,6 @@ describe.each(
 
   async function online(client: Client): Promise<void> {
     client.sink.connected(true)
-    client.pushWorld()
     await client.replica.settled()
   }
 

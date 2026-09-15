@@ -2,7 +2,7 @@
  * THE ATTRIBUTION GATE + v2 FEED ASSEMBLY, ON MOBILE (POD-1220 + POD-1241).
  *
  * POD-1220: the gate has a caller and an effect on the durable outbox.
- * POD-1241: the composition root assembles KernelReplica + FeedAuthorityClient
+ * POD-1241: the composition root assembles KernelReplica + HTTP sources
  * so entity rows land in SQLite and paint on cold start.
  *
  * WHY EVERY CASE RUNS OVER A REAL SQLITE FILE. The property is durability across a
@@ -45,7 +45,6 @@ import {
   type StorageApi,
 } from '@podium/client-core/replica'
 import { asMutationId, asSessionId } from '@podium/model'
-import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import {
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
@@ -79,10 +78,7 @@ import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvid
  * An authority that delivers NOTHING. Used so a cold-start paint assertion can
  * only pass if the durable store is wired — a live feed cannot rescue it.
  */
-const SILENT_AUTHORITY = async (): Promise<FeedChangesSinceReplyLenient> => ({
-  kind: 'bootstrap-required',
-  reason: 'silent-test-authority',
-})
+
 
 // ---------------------------------------------------------------------------
 // A REAL ENGINE, OR NOTHING
@@ -311,7 +307,6 @@ async function open(args: {
   principal?: string
   /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
   httpSync?: MobileReplicaDeps['httpSync']
-  fetchChangesSince?: () => Promise<FeedChangesSinceReplyLenient>
   pendingPrincipalCleanups?: readonly {
     principal: string
     complete(): Promise<void>
@@ -319,6 +314,24 @@ async function open(args: {
   flushStorage?: () => Promise<void>
 }) {
   const degradations: string[] = []
+  let snapshot: ReturnType<typeof bootstrapFrame> | undefined
+  const fixtureHttp: MobileReplicaDeps['httpSync'] = {
+    origin: 'https://fixture.test',
+    streamingFetch: { fetch: async () => {
+      if (!snapshot) throw new Error('silent test authority')
+      const records = [
+        { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 'fixture',
+          feedId: snapshot.feedId, epoch: snapshot.epoch, seq: snapshot.seq,
+          minAvailableSeq: 0, wireVersion: WIRE_VERSION, wireSchemaDigest: '0123456789abcdef',
+          totalRows: snapshot.changes.length },
+        snapshot,
+        { type: 'syncComplete', transferId: 'fixture', seq: snapshot.seq, records: 1, rows: snapshot.changes.length },
+      ]
+      return new Response(records.map(record => JSON.stringify(record)).join('\n') + '\n', {
+        headers: { 'content-type': 'application/x-ndjson' },
+      })
+    } },
+  }
   const opened = await openMobileReplica({
     api: STUB_API,
     openStore: async () => {
@@ -340,12 +353,11 @@ async function open(args: {
       : {}),
     ...(args.flushStorage !== undefined ? { flushStorage: args.flushStorage } : {}),
     evidence: args.evidence ?? SINGLE_ACCOUNT,
-    ...(args.httpSync ? { httpSync: args.httpSync } : {}),
-    fetchChangesSince: args.fetchChangesSince ?? SILENT_AUTHORITY,
+    httpSync: args.httpSync ?? fixtureHttp,
     onDegraded: (message) => degradations.push(message),
     now: () => 1_700_000_009_000,
   })
-  return { ...opened, degradations }
+  return { ...opened, degradations, setSnapshot: (frame: ReturnType<typeof bootstrapFrame>) => { snapshot = frame } }
 }
 
 /** Seed one issue into the durable entity cache of an already-opened store. */
@@ -673,11 +685,11 @@ describe('the mobile replica composition root', () => {
 
   it('exposes a v2 feed sink so the hub advertises wire 2', async () => {
     const file = freshDatabaseFile()
-    const { feed, attachHub } = await open({ file, storage: legacyDevice({}) })
+    const { feed } = await open({ file, storage: legacyDevice({}) })
     expect(typeof feed.connected).toBe('function')
     expect(typeof feed.disconnected).toBe('function')
     expect(typeof feed.frame).toBe('function')
-    expect(typeof attachHub).toBe('function')
+    expect(feed.syncHttp).toBe(true)
   })
 })
 
@@ -704,7 +716,6 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     const cold = await open({
       file,
       storage: legacyDevice({}),
-      fetchChangesSince: SILENT_AUTHORITY,
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issues).toMatchObject([{ id: 'i-cold', title: 'from disk' }])
@@ -722,7 +733,6 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     const cold = await open({
       file,
       storage: legacyDevice({}),
-      fetchChangesSince: SILENT_AUTHORITY,
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issues).toEqual([])
@@ -776,28 +786,13 @@ function bootstrapFrame(args: {
   }
 }
 
-/** Bring the assembled sink online and serve the socket's mandatory initial world. */
+/** Supply a finite HTTP response before connecting the shared replica. */
 function onlineWithBootstrap(
   opened: Awaited<ReturnType<typeof open>>,
   frame: ReturnType<typeof bootstrapFrame>,
 ): void {
-  let delivered = false
-  const deliver = () => {
-    if (delivered) return
-    delivered = true
-    // Asynchronous, like the real server push after socket admission.
-    void Promise.resolve().then(() => {
-      opened.feed.frame(frame as never)
-    })
-  }
-  opened.attachHub({
-    requestFreshWorld: deliver,
-  } as never)
-  // A world IS promised here: this helper models the admission of a connection
-  // that presented no position (POD-2061), which is the contract the pushed
-  // world below belongs to.
-  opened.feed.connected(true)
-  deliver()
+  opened.setSnapshot(frame)
+  opened.feed.connected(false)
 }
 
 describe('feed delivery through the assembled sink (POD-1241)', () => {
@@ -958,7 +953,6 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     const cold = await open({
       file,
       storage: legacyDevice({}),
-      fetchChangesSince: SILENT_AUTHORITY,
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issues).toMatchObject([{ id: 'i-offline', title: 'must survive reload' }])

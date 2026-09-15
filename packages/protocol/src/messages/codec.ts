@@ -10,8 +10,6 @@ import type { z } from 'zod'
 import { ApprovalWire } from './approvals'
 import { ClientMessage } from './client'
 import {
-  type FeedBootstrapMessage,
-  FeedBootstrapMessageLenient,
   FeedChangeLenient,
   type FeedDeltaMessage,
   FeedDeltaMessageLenient,
@@ -86,11 +84,7 @@ const QUARANTINABLE: Record<
     envelope: MetadataDeltaMessageLenient,
   },
   feedDelta: { key: 'changes', element: FeedChangeLenient, envelope: FeedDeltaMessageLenient },
-  feedBootstrap: {
-    key: 'changes',
-    element: FeedChangeLenient,
-    envelope: FeedBootstrapMessageLenient,
-  },
+
 }
 
 /** What {@link parseServerMessageLenient} yields: the strict union, except the
@@ -98,10 +92,9 @@ const QUARANTINABLE: Record<
  *  NEWER server may stream entity kinds this build doesn't know; consumers
  *  ignore those rows but must still see them to advance the cursor). */
 export type ServerMessageLenient =
-  | Exclude<ServerMessage, MetadataDeltaMessage | FeedDeltaMessage | FeedBootstrapMessage>
+  | Exclude<ServerMessage, MetadataDeltaMessage | FeedDeltaMessage>
   | MetadataDeltaMessageLenient
   | FeedDeltaMessageLenient
-  | FeedBootstrapMessageLenient
 
 export interface LenientServerMessage {
   /** The parsed message, or null only if the structural envelope was invalid. */

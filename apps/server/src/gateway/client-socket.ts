@@ -24,7 +24,6 @@
 import { createLogger } from '@podium/logger'
 import type { MachineWire, UserId, UserRole } from '@podium/model'
 import {
-  CAP_FEED_BOOTSTRAP_ZSTD_V1,
   ClientPtyInputMetadata,
   decodeBinaryEnvelope,
   parseClientMessage,
@@ -151,9 +150,6 @@ export function wireClientSocket(
       // costs it. Parse is timed apart from routing because the two fail
       // differently: a slow parse is frame SIZE, a slow route is the handler.
       const parsed = measureTask('ws.client.parse', () => parseClientMessage(raw))
-      if (parsed.type === 'hello') {
-        sink.enableBootstrapCompression(parsed.caps?.includes(CAP_FEED_BOOTSTRAP_ZSTD_V1) ?? false)
-      }
       measureTask(`ws.client.${parsed.type}`, () =>
         registry.clientGateway.routeClientFrame(id, parsed),
       )

@@ -1,127 +1,9 @@
-/**
- * THE SERVING PATH — one feed, framed once, translated per connection (POD-1203).
- *
- * ---------------------------------------------------------------------------
- * WHAT THIS IS, IN ONE PARAGRAPH
- * ---------------------------------------------------------------------------
- *
- * POD-308 built the two ends and left the middle for this issue: the v2 frame
- * family and the version-adapter registry at the wire, the Authority's scoped
- * feed and `FeedPublisher` at the kernel. This module is the composition that
- * joins them, and joining them is what lets the SECOND serving path —
- * `funnel.publishComputed` and `SessionLifecycle.fanOutSnapshot`, thirteen call
- * sites across five features, each rebuilding its own full list — be deleted
- * outright rather than kept "for legacy clients". Legacy clients still receive
- * `sessionsChanged` / `issuesChanged` / …; they are now a TRANSLATION of this
- * feed, built in `legacy-wire-v1-adapter.ts`, and they cease to exist when it
- * does.
- *
- * ---------------------------------------------------------------------------
- * THE THREE ROLES, AND WHY NONE OF THEM IS THIS FILE'S
- * ---------------------------------------------------------------------------
- *
- *   DECIDE   `@podium/sync` Authority — who may see which rows, and over what
- *            range (ADR 2 Am1 D12.7). Not here: a second filter would be a
- *            second answer to a question with one answer.
- *   FRAME    `@podium/sync` FeedPublisher — per-connection `fromSeq`, watermark
- *            coalescing, the bounded queue and demotion (D13/D9). Not here:
- *            re-deriving certified ranges at the transport is exactly the
- *            "two definitions of now" this run keeps paying for.
- *   TRANSLATE `WireFeedEdge` — the negotiated wire version's adapter.
- *
- * What IS this file's: holding those three together per connection, and the
- * ORDER in which a connection is admitted (below).
- *
- * ---------------------------------------------------------------------------
- * ATTACH ORDER IS THE CONTIGUITY ARGUMENT, AND ITS ENTRY POINTS ARE SYNCHRONOUS
- * ---------------------------------------------------------------------------
- *
- * A connection is admitted in one read scope: read the world at the head, send
- * it as `feedBootstrap`, then attach the publisher AT THAT SAME `seq`. The
- * Authority appends only inside `commit`, so nothing can land between the read
- * and the attach — the first delta a connection receives certifies from exactly
- * where its bootstrap stopped. The pre-cutover bootstrap could not make that
- * claim: it was a set of lists with no position in them, so a client had to spend
- * a `sync.changesSince` round trip to find out where it stood and the window
- * between the two was covered by hope.
- *
- * THAT PASS USED TO BE SYNCHRONOUS AND NO LONGER IS (POD-3523). The world read
- * is async after the store flip, while {@link attach} and {@link renegotiate}
- * are reached only from Bun's `websocket.open` / `websocket.message` callbacks
- * — synchronous transport handlers that cannot yield (rule 51 case 2; the full
- * caller census is `docs/internal/pod-3523-attach-caller-census.md`). So the
- * admission is DEFERRED rather than awaited, and the deferral is a contract
- * this file states rather than an omission it hides:
- *
- *   - {@link defer} is the ONE place an admission is started without being
- *     awaited. It holds the promise in {@link FeedServing.admissions}, reports a
- *     rejection instead of leaking an unhandled one, and clears the slot on
- *     settle.
- *   - While an admission is in flight the peer counts as ADMITTED, so a second
- *     entry cannot start a second one. Without that, a `hello` arriving inside
- *     the window served the peer two worlds — measured, not argued.
- *   - A peer that detaches inside the window is ABANDONED at the first check
- *     after the read, so a socket that is already gone is neither framed nor
- *     re-registered.
- *   - {@link admissionSettled} is how an observer waits for the deferred work.
- *     Nothing in production calls it; it exists because a deferral no caller can
- *     see is a deferral no test can hold to its contract.
- *
- * ---------------------------------------------------------------------------
- * A REPLICA THAT ALREADY HAS THE WORLD IS NOT SENT ANOTHER (POD-2061)
- * ---------------------------------------------------------------------------
- *
- * Until POD-2061 the paragraph above described EVERY admission, including the
- * one that happens after a Wi-Fi flap on a client whose cache is seconds old:
- * the whole visible world, read and serialized and transferred, so that a
- * replica could throw away a copy it already held. The reconnect review measured
- * that as the single largest bandwidth and CPU cost on this server, and worst on
- * the clients that reconnect most.
- *
- * So a `hello` may now present `feedCursor` — the position the replica holds —
- * and {@link FeedServing.admit} answers it with `feedResume` and a publisher
- * framed from there, no world at all. The one-pass argument above is unchanged
- * where it still applies (a rejected cursor takes exactly the old path); what
- * replaces it on the resume path is the replica's own rung-1 heal, which covers
- * `(cursor, head]` over `sync.feedChangesSince` and is a read every reconnecting
- * client was already performing. The server's half of the contract is only that
- * the publisher starts framing from the position it granted, so the first live
- * delta chains onto what the replica holds rather than onto a head it has never
- * seen.
- *
- * ---------------------------------------------------------------------------
- * A PEER'S VERSION IS KNOWN AT `hello`, NOT AT SOCKET ATTACH
- * ---------------------------------------------------------------------------
- *
- * `attachClient` runs before any client frame arrives, so at that moment the
- * server knows neither the peer's wire version nor its capabilities. That is not
- * new and the pre-cutover code stated the same rule ("no caps until hello — a
- * pre-hello client is treated as legacy"): a socket that has said nothing gets
- * the OLDEST thing that is certainly understood. So a peer is admitted at wire 1
- * without the delta capability, receives its world as v1 full lists exactly as
- * `onClientAttached` sent them, and {@link renegotiate} then moves it to the
- * version and capabilities its `hello` announced — WITHOUT re-bootstrapping,
- * because its position is already correct.
- *
- * A version-window 426 therefore fires at `hello` and not before, which is the
- * only place it can: a version nobody announced cannot be refused.
- *
- * ON A PER-PRINCIPAL SERVER THE PRE-HELLO ATTACH SERVES NOTHING, which is the
- * paragraph above's real behaviour on every deployment `relay.ts` builds, and
- * worth stating because reading only the paragraph above is what produced
- * POD-1625. The SCOPING refusal is not the version-window refusal and does not
- * wait for `hello`: `WireFeedEdge.attach` refuses at attach, on the spot, when
- * the authority's grade is `per-principal` and the offered wire cannot express
- * `evict`. Wire 1 cannot. So the wire-1 attach is refused, no world is read, and
- * `hello` performs the first and only bootstrap of the connection. See
- * {@link renegotiate}.
- */
+/** Live WebSocket feed admission and publication. Snapshots and catch-up are HTTP reads. */
 
 import { createLogger } from '@podium/logger'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import {
   asSubscriberId,
-  type FeedBootstrapMessage,
   type FeedChange,
   type FeedCursorField,
   type FeedDeltaMessage,
@@ -168,19 +50,8 @@ import {
  */
 export const FEED_SEND_QUEUE_MAX_BYTES = 8 * 1024 * 1024
 
-/**
- * Keep one bootstrap envelope below the client feed task budget. This matches
- * the replica's existing batch size and bounds parsing, validation, mapping and
- * synchronous sink work while `last` keeps installation atomic across a stream.
- */
-export const FEED_BOOTSTRAP_CHUNK_ROWS = 200
-
-/** Bound retained principal worlds: reuse is a latency optimisation, never authority. */
-const FEED_WORLD_CACHE_MAX_PRINCIPALS = 8
-
 const log = createLogger('server:gateway')
 
-type BootstrapCause = 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
 
 /**
  * The minimum wire version a resume grant may be given at (POD-2061).
@@ -192,13 +63,6 @@ type BootstrapCause = 'attach' | 'hello' | 'version-change' | 'cursor-rejected'
  * anyone thought to ask.
  */
 const MIN_RESUME_WIRE_VERSION = 2
-
-interface CachedWorld {
-  throughSeq: number
-  authorizationRevision: number
-  readonly changesByRef: Map<string, ScopedChange>
-  materialized: readonly ScopedChange[] | undefined
-}
 
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
@@ -268,13 +132,7 @@ export interface FeedServingDeps {
   readonly onPublicationIdle?: OnPublicationIdle
   /** The kernel role. Both reads come from it, which is the whole point. */
   readonly authority: AuthorityPort
-  /** Optional composition-root hooks for attributing the synchronous bootstrap read. */
-  readonly onBootstrapReadStart?: () => void
-  readonly onBootstrapReadEnd?: (principal: Principal, durationMs: number) => void
-  /** Monotonic authority signal for visibility changes that need not append a
-   * change row. A scoped cache is reusable only when both this and the feed head
-   * still match. */
-  readonly authorizationRevision?: () => number | Promise<number>
+
   /** Persisted `(feedId, epoch)` — ADR 2 D1. */
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
@@ -302,7 +160,7 @@ export class FeedServing {
    *
    * A peer is in here from the moment {@link defer} starts its admission until
    * that admission settles; it is in {@link connections} only once the admission
-   * has installed a position, which is the LAST thing {@link serveWorld} does.
+   * has installed a position, which is the LAST thing resume admission does.
    * Between the flip and POD-3523 `connections` was the whole guard, so it
    * answered "not yet admitted" for the entire duration of an async world read
    * and a second entry in that window started a second admission.
@@ -329,7 +187,6 @@ export class FeedServing {
     string,
     { principal: Principal; deliveries: ScopedDelivery[] }
   >()
-  private readonly latestWorldByPrincipal = new Map<string, CachedWorld>()
   private cancelScheduledFlush: (() => void) | undefined
   private pendingFlush: Promise<void> = Promise.resolve()
 
@@ -373,7 +230,7 @@ export class FeedServing {
     if (refusal !== null) return refusal
     this.peers.set(peer.id, peer)
     if (this.connections.has(peer.id)) return null
-    this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'attach', resumeFrom))
+    this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, resumeFrom))
     return null
   }
 
@@ -489,62 +346,19 @@ export class FeedServing {
     peer: FeedPeer,
     principal: Principal,
     routingPrincipal: Principal,
-    cause: BootstrapCause,
     resumeFrom: FeedCursorField | undefined,
   ): Promise<void> {
-    // ONE READ SCOPE OVER THE WHOLE ADMISSION [POD-3261, spec §3.5].
-    //
-    // Admission is a read followed by a registration that CLAIMS the position
-    // that read was taken at: the world (or the resumability of the cursor the
-    // client brought), then `publisher.connect`/`rearm` and `retainPrincipal`.
-    // The two are one decision, and today they are indivisible only because
-    // nothing between them yields. After the flip they are not: a commit landing
-    // in the gap would leave the connection framed from a seq that is no longer
-    // the position the rows it was just sent describe — a contiguity break the
-    // replica can only answer by healing, forever.
-    //
-    // So the scope goes around the whole thing rather than around the read. It
-    // also takes in `canResume`, whose `authority.cursor()` and
-    // `retention.minAvailableSeq()` are inputs to the same decision: a cursor
-    // judged resumable against one head and then framed against another is the
-    // same defect wearing the resume path's clothes.
-    //
-    // `worldFor` reads the authorization revision inside this scope for the same
-    // reason — it is the other half of what the cached world is validated on.
-    // RETURNED, NOT DROPPED [POD-3523]. `withReadScope` is `<T>(fn: (scope) => T): T`,
-    // so with an async `fn` it hands back a `Promise<void>` — and this method used
-    // to be declared `void`, which threw it away silently at 0 typecheck errors
-    // (rule 56). The widening is the load-bearing half: an await added under the
-    // old `void` port typechecked identically with or without it.
-    // THE TRANSFER IS AWAITED OUTSIDE THE SCOPE (POD-3931). The scope's job is
-    // one consistent read-and-install; the transfer that follows can take
-    // minutes on a slow client and needs none of the scope's caches alive.
+    // Capture the resume decision and install publication position in one read scope.
     return withReadScope(async () => {
-      if (peer.syncHttp && resumeFrom === undefined) {
-        await this.deps.identity.resolve()
-        const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
-        await this.serveResume(peer, principal, routingPrincipal, cursor)
-        return undefined
+      if (resumeFrom !== undefined && await this.canResume(peer, resumeFrom)) {
+        await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
+        return
       }
-      if (resumeFrom === undefined) {
-        return this.serveWorld(peer, principal, routingPrincipal, cause)
-      }
-      if (!await this.canResume(peer, resumeFrom)) {
-        // NAMED, so the traces can tell a client that could not be resumed from one
-        // that never asked. A rising `cursor-rejected` rate is a retention or epoch
-        // problem; a rising `hello` rate is just cold clients.
-        if (peer.syncHttp) {
-          await this.deps.identity.resolve()
-          if (this.abandoned(peer)) return undefined
-          const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
-          await this.serveResume(peer, principal, routingPrincipal, cursor, true)
-          return undefined
-        }
-        return this.serveWorld(peer, principal, routingPrincipal, 'cursor-rejected')
-      }
-      await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
-      return undefined
-    }).then((transferred) => transferred?.())
+      await this.deps.identity.resolve()
+      if (this.abandoned(peer)) return
+      const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
+      await this.serveResume(peer, principal, routingPrincipal, cursor, resumeFrom !== undefined)
+    })
   }
 
   /**
@@ -582,7 +396,7 @@ export class FeedServing {
    *
    * NO WORLD, AND NO GAP FILL EITHER. The rows in `(cursor, head]` are not
    * streamed here, and that is the division of labour this whole path is for: the
-   * replica heals that range over `sync.feedChangesSince` — the rung-1 read it
+   * replica heals that range over `/sync/delta` — the rung-1 read it
    * already performs on every reconnect — while this server does the one thing
    * only it can do, which is to start framing live deliveries from a position the
    * replica can chain onto.
@@ -635,214 +449,6 @@ export class FeedServing {
       headSeq: await this.deps.authority.cursor(),
       durationMs,
     })
-  }
-
-  /** Read the world, send it, and start framing from the position it was read
-   *  at. The one place a connection acquires a position. Resolves once the
-   *  position is installed, with a continuation that waits for the transfer. */
-  private async serveWorld(
-    peer: FeedPeer,
-    principal: Principal,
-    routingPrincipal: Principal,
-    cause: BootstrapCause,
-  ): Promise<(() => Promise<void>) | undefined> {
-    // ONE synchronous pass: the world, and the position it was read at.
-    const t0 = performance.now()
-    const perfKey = perfPrincipal(principal)
-    const { world, reused, readMs } = await this.worldFor(principal)
-    // THE SLICE SIZE, measured at the ONE point the whole visible world is
-    // enumerated [POD-736]. A delta batch's `changes.length` is churn and would
-    // read as a shrinking working set on a quiet server; a bootstrap is the
-    // principal's world, which is the number an A/B has to control for.
-    perf.observeSliceSize(perfKey, world.changes.length)
-    perf.record('phase', reused ? 'feedBootstrap.reuse' : 'feedBootstrap.read', readMs, perfKey)
-    perf.record('phase', `feedBootstrap.cause.${cause}`, 0, perfKey)
-    await this.deps.identity.resolve()
-    const identity = this.deps.identity.current()
-    // Wire 1 is kept as one legacy snapshot because its adapter emits lists
-    // only at the end of a bootstrap. Current wire peers receive a real stream;
-    // every frame repeats the same cursor and identity, and `last` is the only
-    // install boundary.
-    // This exception belongs specifically to wire v1's expiring adapter, not
-    // to "anything older than current". When wire v3 opens the next rollout
-    // window, v2 still speaks chunked bootstraps and must not silently fall back
-    // to a monolith just because WIRE_VERSION moved.
-    const chunkRows =
-      peer.wireVersion === 1
-        ? Math.max(world.changes.length, 1)
-        : FEED_BOOTSTRAP_CHUNK_ROWS
-    const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
-    // Stamped on EVERY chunk, not just the first: the client reads whichever
-    // chunk it sees first, and repeating ~a dozen small integers per frame is
-    // cheaper than making frame one special [POD-1249].
-    const countsByEntity: Record<string, number> = {}
-    for (const change of world.changes) {
-      countsByEntity[change.entity] = (countsByEntity[change.entity] ?? 0) + 1
-    }
-    const minAvailableSeq = (await this.deps.retention.minAvailableSeq()) ?? 0
-    if (this.abandoned(peer)) return undefined
-    // THE HANDOFF, AND WHY NOTHING BELOW YIELDS UNTIL THE POSITION IS INSTALLED
-    // (POD-3931). The world is a stable array captured at `throughSeq`; the
-    // chunks are produced LAZILY from it, pulled by the peer's sender only as
-    // its socket drains, so a 50 MB world is never serialized ahead of the
-    // client by more than the sender's prepare window. What must not yield is
-    // the reservation of ORDER: the sequence is offered to the sink first, and
-    // the publisher is connected/re-armed at `throughSeq` in the same
-    // synchronous stretch. Every delta the publisher frames from here on is
-    // offered to the same sink AFTER the sequence and waits behind it, so a
-    // change committed while the transfer is still running reaches the client
-    // after the last chunk and chains onto exactly the position the chunks
-    // describe. The retained change log is what bounds the tail the publisher
-    // holds (D9 demotes past `FEED_SEND_QUEUE_MAX_BYTES`); the sender's own
-    // application queue limit bounds what it holds behind the sequence.
-    //
-    // No store lease is held across the transfer: `withReadScope` memoizes
-    // reads, it does not open a SQLite snapshot (see `read-scope.ts`), the
-    // wait itself happens outside the scope (see `admit`), and the array being
-    // iterated is the retained world, not a cursor.
-    const chunks = bootstrapChunks(world, identity, minAvailableSeq, chunkRows, countsByEntity)
-    const transferStartedAt = performance.now()
-    const transfer = this.edge.publishSequenceTo(peer, chunks)
-    this.servedVersion.set(peer.id, peer.wireVersion)
-    const existing = this.connections.get(peer.id)
-    if (existing === undefined) {
-      this.connections.set(peer.id, this.publisher.connect(peer.id, world.throughSeq, principal))
-    } else {
-      // A RE-SERVE. `rearm` is the publisher's own "this replica has just
-      // re-bootstrapped, resume from here" — the same call a demoted connection
-      // takes back. Reusing it keeps ONE way for a position to be set.
-      existing.rearm(world.throughSeq)
-    }
-    this.retainPrincipal(peer.id, principal, routingPrincipal)
-    const durationMs = performance.now() - t0
-    perf.record('phase', 'feedBootstrap.total', durationMs, perfKey)
-    traceFeedPeer({
-      event: 'bootstrap',
-      peerId: peer.id,
-      cause,
-      wireVersion: peer.wireVersion,
-      reused,
-      throughSeq: world.throughSeq,
-      rows: world.changes.length,
-      durationMs,
-    })
-    // The transfer outlives the admission's synchronous part. The admission
-    // awaits it (outside the read scope) so the slot stays held — a second
-    // `hello` cannot start a second world mid-transfer — and the outcome has
-    // one place to be recorded. A failure is the sender's to act on: it has
-    // already terminated the socket with a named reason, so this only records
-    // it and never throws.
-    return async () => {
-      const outcome = await transfer
-      const transferMs = performance.now() - transferStartedAt
-      perf.record('phase', 'feedBootstrap.transfer', transferMs, perfKey)
-      traceFeedPeer({
-        event: 'bootstrap-transferred',
-        peerId: peer.id,
-        cause,
-        wireVersion: peer.wireVersion,
-        throughSeq: world.throughSeq,
-        rows: world.changes.length,
-        chunks: chunkCount,
-        ok: outcome.ok,
-        ...(outcome.ok ? {} : { reason: outcome.reason }),
-        transferMs,
-      })
-      if (!outcome.ok && outcome.reason !== 'socket-closed') {
-        log.warn('a bootstrap transfer failed', {
-          peer: peer.id,
-          cause,
-          reason: outcome.reason,
-          rows: world.changes.length,
-          chunks: chunkCount,
-          transferMs,
-        })
-      }
-    }
-  }
-
-  /**
-   * Latest installed world for one principal.
-   *
-   * The first connection performs the Authority fold. While any connection for
-   * that principal is subscribed, {@link queue} advances this cache from the
-   * same scoped deliveries sent to replicas. A reconnect at the same head can
-   * therefore reuse the exact authoritative world instead of parsing and
-   * re-scoping every retained row again. If the cache missed any head movement,
-   * it is discarded and rebuilt; reuse never guesses across a gap.
-   */
-  private async worldFor(principal: Principal): Promise<{
-    world: Awaited<ReturnType<AuthorityPort['bootstrap']>>
-    reused: boolean
-    readMs: number
-  }> {
-    const key = principalRoutingId(principal)
-    const cached = this.latestWorldByPrincipal.get(key)
-    const authorizationRevision = (await this.deps.authorizationRevision?.()) ?? 0
-    const startedAt = performance.now()
-    if (
-      cached !== undefined &&
-      cached.throughSeq === await this.deps.authority.cursor() &&
-      cached.authorizationRevision === authorizationRevision
-    ) {
-      if (cached.materialized === undefined) {
-        cached.materialized = [...cached.changesByRef.values()]
-      }
-      return {
-        world: { throughSeq: cached.throughSeq, changes: cached.materialized },
-        reused: true,
-        readMs: performance.now() - startedAt,
-      }
-    }
-
-    this.deps.onBootstrapReadStart?.()
-    let world: Awaited<ReturnType<AuthorityPort['bootstrap']>>
-    try {
-      world = await this.deps.authority.bootstrap(principal)
-    } finally {
-      this.deps.onBootstrapReadEnd?.(principal, performance.now() - startedAt)
-    }
-    const changesByRef = new Map<string, ScopedChange>()
-    for (const change of world.changes) changesByRef.set(changeRef(change), change)
-    this.latestWorldByPrincipal.delete(key)
-    this.latestWorldByPrincipal.set(key, {
-      throughSeq: world.throughSeq,
-      authorizationRevision,
-      changesByRef,
-      materialized: world.changes,
-    })
-    while (this.latestWorldByPrincipal.size > FEED_WORLD_CACHE_MAX_PRINCIPALS) {
-      const oldest = this.latestWorldByPrincipal.keys().next().value
-      if (oldest === undefined) break
-      this.latestWorldByPrincipal.delete(oldest)
-    }
-    return { world, reused: false, readMs: performance.now() - startedAt }
-  }
-
-  /** Advance a cached positive-state world from the Authority's scoped delivery. */
-  private advanceCachedWorld(principal: Principal, delivery: ScopedDelivery): void {
-    const key = principalRoutingId(principal)
-    if (delivery.kind === 'rescope') {
-      this.latestWorldByPrincipal.delete(key)
-      return
-    }
-    const cached = this.latestWorldByPrincipal.get(key)
-    if (cached === undefined || delivery.throughSeq <= cached.throughSeq) return
-    let changed = false
-    for (const change of delivery.changes) {
-      if (change.seq <= cached.throughSeq) continue
-      const ref = changeRef(change)
-      changed = cached.changesByRef.delete(ref) || changed
-      if (change.op === 'upsert') {
-        cached.changesByRef.set(ref, change)
-        changed = true
-      }
-    }
-    cached.throughSeq = delivery.throughSeq
-    // Preserve the revision that certified the whole cached world. A scoped
-    // delivery only advances its changed rows; worldFor re-reads the revision
-    // under the admission read scope and rebuilds if visibility has changed.
-    if (changed) cached.materialized = undefined
   }
 
   private retainPrincipal(peerId: string, principal: Principal, routingPrincipal: Principal): void {
@@ -901,61 +507,14 @@ export class FeedServing {
       // client that sends two `hello` frames (a retry, a reclaim) arrives here
       // twice and the second lands inside the first's world read. {@link defer} is
       // where that is refused, for every entry point at once.
-      this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'hello', resumeFrom))
+      this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, resumeFrom))
       return null
     }
-    // THE VERSION IT ACTUALLY SPEAKS, OR NOTHING. A connection is admitted at
-    // wire 1 before it says anything, so its world went out as v1 full lists. If
-    // `hello` then announces a different version, that world was expressed in a
-    // dialect this peer never advertised — so it is served again, in the version
-    // it named, and the publisher is re-armed at the new position.
-    //
-    // THE DUPLICATE WORLD THIS IMPLIES IS UNREACHABLE ON A SCOPED SERVER, and
-    // POD-1625 was filed on the belief that it was not. This comment used to
-    // accept "one duplicated world per non-v1 connection, bounded and
-    // self-cancelling the day MIN_SUPPORTED_VERSION reaches 2" — and at live
-    // corpus size that read as a second multi-megabyte frame and a second
-    // synchronous read of the whole visible world, on every connection.
-    //
-    // It is not what happens. `relay.ts` installs `GrantEdgeVisibilityPolicy`
-    // unconditionally, so `visibilityGrade()` is `per-principal`, and
-    // `WireFeedEdge.attach` refuses any wire that cannot express `evict` —
-    // wire 1 cannot. The pre-hello attach is therefore refused with a 426
-    // (`scoping-requires-eviction`) and serves NOTHING, so `hello` performs the
-    // first and only world read. Verified end to end over a real socket in
-    // `sync-e2e.test.ts`.
-    //
-    // The path below is kept because it is not dead by construction, only by
-    // policy: a device-unscoped authority (the audited allowlist — the oracle
-    // harness and fixtures) does admit a v1 peer at attach, and for that peer
-    // re-serving at its announced version is the correct answer. What must NOT
-    // be done instead is bootstrapping only at `hello`, which withholds the
-    // world from every peer that never sends one — the pre-cutover bug.
     if (this.servedVersion.get(peer.id) === peer.wireVersion) return null
-    if (peer.syncHttp) {
-      this.connections.get(peer.id)?.disconnect()
-      this.connections.delete(peer.id)
-      this.releasePrincipal(peer.id)
-      this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, 'version-change', resumeFrom))
-      return null
-    }
-    // NO RESUME ON THIS ARM, cursor or not: the connection already HAS a position
-    // — the one its v1 world was served at — and the thing that is wrong with it
-    // is the dialect, not the seq. Honouring a cursor here would move a
-    // connection's position for a reason that has nothing to do with where it is.
-    //
-    // The SECOND admission site, and it takes the same scope as {@link admit}
-    // for the same reason: this one also reads a world and then installs the
-    // position it was read at.
-    //
-    // DEFERRED THROUGH THE SAME ONE PLACE [POD-3523]. This site dropped its
-    // promise exactly as {@link admit} did, and for the same reason: the caller
-    // is `ClientMux.renegotiate`, which is synchronous.
-    this.defer(peer.id, () =>
-      withReadScope(() =>
-        this.serveWorld(peer, principal, routingPrincipal, 'version-change'),
-      ).then((transferred) => transferred?.()),
-    )
+    this.connections.get(peer.id)?.disconnect()
+    this.connections.delete(peer.id)
+    this.releasePrincipal(peer.id)
+    this.defer(peer.id, () => this.admit(peer, principal, routingPrincipal, resumeFrom))
     return null
   }
 
@@ -973,7 +532,6 @@ export class FeedServing {
   }
 
   private queue(principal: Principal, delivery: ScopedDelivery): void {
-    this.advanceCachedWorld(principal, delivery)
     const key = principalRoutingId(principal)
     const pending = this.pendingByPrincipal.get(key) ?? { principal, deliveries: [] }
     pending.deliveries.push(delivery)
@@ -1025,7 +583,6 @@ export class FeedServing {
    * about, and there is no other tick in this server that would come back for it.
    */
   async publish(principal: Principal, delivery: ScopedDelivery): Promise<void> {
-    this.advanceCachedWorld(principal, delivery)
     const totalStartedAt = performance.now()
     const perfKey = perfPrincipal(principal)
     // Scoping has already been evaluated by Authority for this principal. Record
@@ -1127,53 +684,12 @@ export class FeedServing {
         this.edge.publishTo(peer, toWireFrame(frame, atSeq))
         // HTTP recovery keeps this socket. Resume bounded live framing from the
         // shed range; the in-flight snapshot covers it or heals the gap at install.
-        if (peer.syncHttp && (frame.kind === 'resync-required' || frame.kind === 'rescope')) {
+        if (frame.kind === 'resync-required' || frame.kind === 'rescope') {
           connection.rearm(atSeq)
         }
       }
     }
   }
-}
-
-/**
- * The bootstrap, one chunk at a time, produced only when asked (POD-3931).
- *
- * `world.changes` is the retained snapshot — a stable array the cache never
- * mutates in place (`advanceCachedWorld` replaces entries in the map and drops
- * the materialized array; it never writes into one it handed out). Each chunk
- * is built and serialized when the sender pulls it, so the memory added by a
- * transfer is the sender's prepare window, not the world again.
- */
-function* bootstrapChunks(
-  world: Awaited<ReturnType<AuthorityPort['bootstrap']>>,
-  identity: { readonly feedId: string; readonly epoch: string },
-  minAvailableSeq: number,
-  chunkRows: number,
-  countsByEntity: Record<string, number>,
-): Generator<FeedBootstrapMessage, void, undefined> {
-  const chunkCount = Math.max(1, Math.ceil(world.changes.length / chunkRows))
-  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-    const start = chunkIndex * chunkRows
-    yield {
-      type: 'feedBootstrap',
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      // A bootstrap certifies `(0, seq]` — everything up to the snapshot point.
-      // Spelling it the same way a delta does is what lets a replica hold ONE
-      // acceptance rule instead of two.
-      fromSeq: 0,
-      seq: world.throughSeq,
-      minAvailableSeq,
-      changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
-      last: chunkIndex === chunkCount - 1,
-      totalRows: world.changes.length,
-      countsByEntity,
-    }
-  }
-}
-
-function changeRef(change: Pick<ScopedChange, 'entity' | 'entityId'>): string {
-  return `${change.entity}\0${change.entityId}`
 }
 
 function coalesceScopedDeliveries(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {
@@ -1250,7 +766,7 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
 /**
  * A bootstrap row, in the wire's spelling.
  *
- * SHARED WITH THE CATCH-UP READ (POD-376). `WriteFunnel.feedChangesSince` maps
+ * SHARED WITH THE CATCH-UP READ (POD-376). `HTTP delta production` maps
  * its rows through this same function, so a row served over HTTP and the same row
  * pushed as a frame cannot differ — which is not hypothetical: the first draft of
  * that read used the V1 mapper and shipped every healed row with an undefined

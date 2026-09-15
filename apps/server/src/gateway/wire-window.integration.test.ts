@@ -18,7 +18,7 @@
  * AUTHENTICATION IS NOT OPTIONAL (POD-317 / POD-1356 / this issue)
  * ---------------------------------------------------------------------------
  *
- * Every real `/client` upgrade is refused unless the handshake carries a
+ * Every real `/client?cap=sync.http.v1` upgrade is refused unless the handshake carries a
  * session cookie minted through the real login route. An unauthenticated
  * socket never reaches version negotiation — it dies at the cookie gate
  * (`client-socket.ts`), and waiting for frames from it is a 20s false positive
@@ -117,10 +117,10 @@ describe('the wire window, over real sockets', () => {
     rmSync(stateDir, { recursive: true, force: true })
   })
 
-  /** A real `/client` socket that announces itself the way a build does. */
+  /** A real `/client?cap=sync.http.v1` socket that announces itself the way a build does. */
   async function connect(hello: Record<string, unknown>) {
     const frames: ServerMessage[] = []
-    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client`, {
+    const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client?cap=sync.http.v1`, {
       headers: { Cookie: cookieHeader },
     })
     ws.on('message', (raw) => frames.push(JSON.parse(raw.toString()) as ServerMessage))
@@ -161,11 +161,11 @@ describe('the wire window, over real sockets', () => {
   it('serves a current build; refuses wire-1 under per-principal scoping and peers beyond the window', async () => {
     // 1. THE STALE PWA — no `wireVersion` in its hello. Under production
     //    `GrantEdgeVisibilityPolicy` this is refused at admission (see header).
-    const stale = await connect({ caps: [CAP_METADATA_DELTA] })
+    const stale = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'] })
     // 2. THE CURRENT BUILD.
-    const current = await connect({ caps: [CAP_METADATA_DELTA], wireVersion: WIRE_VERSION })
+    const current = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: WIRE_VERSION })
     // 3. BEYOND THE WINDOW.
-    const beyond = await connect({ caps: [CAP_METADATA_DELTA], wireVersion: WIRE_VERSION + 1 })
+    const beyond = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: WIRE_VERSION + 1 })
 
     // Control plane works for every admitted socket (auth + welcome), including
     // the two peers the entity plane will refuse. Wait on current's world first
@@ -177,23 +177,16 @@ describe('the wire window, over real sockets', () => {
       beyond.nextMatching((m) => m.type === 'welcome'),
     ])
 
-    // THE CURRENT BUILD IS SERVED ITS WORLD IN ITS OWN VERSION. It was admitted
-    // at wire 1 before it said anything — the only honest default for a socket
-    // that has not spoken — but against a per-principal authority that pre-hello
-    // attach is itself refused (wire 1 cannot express `evict`). Its `hello` then
-    // announces wire 2 and the world is served as a `feedBootstrap`. A world
-    // expressed in a dialect the peer never advertised is exactly what the window
-    // exists to prevent.
-    const currentWorld = (await current.nextMatching((m) => m.type === 'feedBootstrap')) as {
-      seq: number
-      changes: { entity: string; value?: { cwd?: string } | null }[]
-    }
-    expect(currentWorld.changes.some((c) => c.entity === 'session')).toBe(true)
-    expect(
-      currentWorld.changes.some(
-        (c) => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy',
-      ),
-    ).toBe(true)
+    const admitted = await current.nextMatching((m) => m.type === 'feedResume')
+    expect(admitted.type).toBe('feedResume')
+    // Initial rows are fetched through HTTP, independently of live-feed admission.
+    const response = await fetch(`http://127.0.0.1:${handle.port}/sync/bootstrap`, {
+      headers: { Cookie: cookieHeader },
+    })
+    expect(response.status).toBe(200)
+    const records = (await response.text()).trim().split('\n').map(line => JSON.parse(line))
+    const changes = records.filter(record => record.type === 'feedBootstrap').flatMap(record => record.changes)
+    expect(changes.some(c => c.entity === 'session' && c.value?.cwd === '/repo/before-the-deploy')).toBe(true)
 
     // Snapshot refused peers AFTER the admitted peer has been fully served: by
     // then their hellos have been processed (connect order is stale → current →

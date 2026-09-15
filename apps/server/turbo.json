@@ -22,7 +22,6 @@
     "test:contracts": {
       "dependsOn": [],
       "inputs": [
-        "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -65,7 +64,6 @@
         "src/gateway/legacy-wire-v1-adapter.blocked-by.test.ts",
         "src/gateway/legacy-wire-v1-adapter.ts",
         "src/gateway/ordered-client-send.pump.test.ts",
-        "src/gateway/ordered-client-send.test.ts",
         "src/gateway/ordered-client-send.ts",
         "src/gateway/plane-liveness.ts",
         "src/gateway/principal-capability.test.ts",
@@ -328,7 +326,6 @@
         "src/gateway/feed-serving.principal-wiring.test.ts",
         "src/gateway/feed-serving.resume.test.ts",
         "src/gateway/feed-serving.test.ts",
-        "src/gateway/feed-serving.transfer.test.ts",
         "src/gateway/feed-serving.ts",
         "src/gateway/feed-test-plumbing.ts",
         "src/gateway/legacy-wire-v1-adapter.ts",
