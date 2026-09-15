@@ -25,5 +25,6 @@ The hub drops a backlog exceeding 256 deltas and asks the replica to rebootstrap
 without closing the socket. During a walk/heal the replica holds at most 10,000 live frames;
 an overflow discards the buffer and restarts the bounded bootstrap ladder. The server's
 existing D9 send-queue bound sheds slow peers with `feedResyncRequired`, which takes the
-same HTTP recovery path. These bounds do not accumulate an unbounded world or delta queue
+same HTTP recovery path. After delivering the control frame, HTTP peers rearm live
+framing at the shed range head; the snapshot or its install-time heal covers that range. These bounds do not accumulate an unbounded world or delta queue
 on the server. The snapshot staging map remains proportional to the scoped world.

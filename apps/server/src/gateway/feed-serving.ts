@@ -1125,6 +1125,11 @@ export class FeedServing {
       if (peer === undefined) continue
       for (const frame of await connection.drain() as readonly ServerFrame[]) {
         this.edge.publishTo(peer, toWireFrame(frame, atSeq))
+        // HTTP recovery keeps this socket. Resume bounded live framing from the
+        // shed range; the in-flight snapshot covers it or heals the gap at install.
+        if (peer.syncHttp && (frame.kind === 'resync-required' || frame.kind === 'rescope')) {
+          connection.rearm(atSeq)
+        }
       }
     }
   }

@@ -259,6 +259,21 @@ describe('HTTP bootstrap capability', () => {
     expect(upgraded.types()).toEqual(['feedResume'])
   })
 
+  it('keeps live delivery after epoch demotion without another socket or world', async () => {
+    const ctx = await servedOnce()
+    const peer = new Peer('http-epoch', WIRE_VERSION, true, true)
+    ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), ctx.held)
+    await ctx.p.serving.admissionSettled()
+    await ctx.p.serving.bumpEpoch('restore')
+    expect(peer.types()).toEqual(['feedResume', 'feedResyncRequired'])
+    await commit(ctx.p, 's3')
+    const delivery = await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
+    if (delivery === null) throw new Error('missing range')
+    await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
+    expect(peer.of('feedDelta')[0]?.seq).toBe(ctx.held.seq + 1)
+    expect(peer.of('feedBootstrap')).toHaveLength(0)
+  })
+
   it.each(['feed', 'epoch', 'future', 'retention'])('refuses a %s cursor with resync and retains live delivery', async (reason) => {
     const ctx = await servedOnce({ retention: { minAvailableSeq: async () => 2 } })
     const cursor = { ...ctx.held }

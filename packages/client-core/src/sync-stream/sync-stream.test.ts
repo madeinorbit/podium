@@ -237,10 +237,10 @@ describe('HTTP bootstrap with a live socket', () => {
       })
     })
     const bootstraps = new HttpBootstrapSource({ origin: 'https://example.test', streamingFetch: { fetch } })
-    const changesRange = vi.fn(async function* (from: { seq: number }) {
+    const changesRange = vi.fn(async (from: { seq: number }) => (async function* () {
       yield { kind: 'delta' as const, feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: from.seq, seq: 13, minAvailableSeq: 0,
         changes: [11, 12, 13].filter(seq => seq > from.seq).map(seq => ({ seq, entity: 'future-kind', entityId: String(seq), op: 'upsert' as const, payload: { seq } })) }
-    })
+    })())
     const store = new InMemoryReplicaStore()
     const replica = new Replica({ store: store.viewFor('default').cache, authority: { bootstrap: signal => bootstraps.bootstrap(signal), changesRange } })
     const sink = new FeedSink({ replica, bootstraps })
