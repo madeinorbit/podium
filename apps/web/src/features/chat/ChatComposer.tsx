@@ -3,6 +3,7 @@ import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { usePanelVisible } from '@/app/panel-visible'
 import { useReplicaIssues } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -221,6 +222,7 @@ export function ChatComposer({
     taRef.current?.focus()
   }, [taRef])
   useComposerChord(rootEl, focusField)
+  const panelVisible = usePanelVisible()
   /** The main chat's auto-grow memory: the field's line box (fixed for this
    *  mount) and the last height it wrote. See the effect below. */
   const growCache = useRef<{ oneLine: number; lastTarget: number | null } | null>(null)
@@ -272,9 +274,10 @@ export function ChatComposer({
   //                 move — there is nothing to interpolate from otherwise.
   //
   // The measurement itself stays: reading the content height IS the feature.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on draft changes and warm-panel reveal
   useEffect(() => {
-    if (compact) return
+    // Warm panels remain mounted under display:none; their layout is not measurable.
+    if (compact || !panelVisible) return
     const ta = taRef.current
     if (!ta) return
     let cache = growCache.current
@@ -287,6 +290,8 @@ export function ChatComposer({
           Number.parseFloat(cs.paddingBottom),
         lastTarget: null,
       }
+      // Do not cache an unavailable line box (for example before styles resolve).
+      if (!Number.isFinite(cache.oneLine) || cache.oneLine <= 0) return
       growCache.current = cache
     }
     // Measure the content height at height:auto. Cap in px (matching
@@ -295,7 +300,14 @@ export function ChatComposer({
     // includes the (possibly wrapped) placeholder — size to one line instead.
     const prev = ta.style.height
     ta.style.height = 'auto'
-    const target = ta.value ? Math.min(ta.scrollHeight, 150) : cache.oneLine
+    const contentHeight = ta.scrollHeight
+    if (contentHeight <= 0) {
+      // Another hidden ancestor can also remove layout. Keep the last usable
+      // height without poisoning the target cache with a zero measurement.
+      ta.style.height = prev || `${cache.oneLine}px`
+      return
+    }
+    const target = ta.value ? Math.max(cache.oneLine, Math.min(contentHeight, 150)) : cache.oneLine
     if (Number.isFinite(target) && target === cache.lastTarget) {
       // Same height as last time. Put back what was there and stop: no
       // transition to pin, so no second forced layout.
@@ -310,7 +322,7 @@ export function ChatComposer({
     ta.style.height = prev || `${target}px`
     void ta.offsetHeight
     ta.style.height = `${target}px`
-  }, [draft, compact])
+  }, [draft, compact, panelVisible])
 
   // ---- @ context: issues from the replica, files from the session's checkout ----
   // Both lists are capped: the menu is a shortlist, and a menu long enough to
@@ -333,9 +345,7 @@ export function ChatComposer({
   const mention = useAtMenu({ trigger, taRef, value: draft, onChange: onDraftChange, options })
 
   const sendDisabled =
-    !deliverable ||
-    (!draft.trim() && attachments.attachments.length === 0) ||
-    attachments.uploading
+    !deliverable || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
   // The keyboard's send. The textarea is never disabled, so Enter reaches this
   // handler in every state and the send gate has to be applied here — the
   // button gets it for free from its `disabled` attribute.
@@ -686,7 +696,7 @@ export function ChatComposer({
                     // to do that centring is gone. What remains is a plain
                     // 14/24 line box: the same reading size as the transcript
                     // above it, so what you type looks like what you sent.
-                    'block max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
+                    'block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
               onChange={(e) => {

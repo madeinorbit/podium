@@ -3,6 +3,7 @@ import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
+import { PanelVisible } from '@/app/panel-visible'
 import { ChatComposer } from './ChatComposer'
 import type { UseAttachmentsResult } from './use-attachments'
 
@@ -27,6 +28,7 @@ vi.mock('@/app/store', () => ({
 
 let container: HTMLDivElement
 let root: Root
+let sizingStyles: HTMLStyleElement
 
 const noopAttachments: UseAttachmentsResult = {
   attachments: [],
@@ -53,6 +55,7 @@ const silentVoice = {
 async function mount(
   opts: {
     compact: boolean
+    visible?: boolean
     draft?: string
     onSend?: () => void
     attachments?: UseAttachmentsResult
@@ -69,31 +72,33 @@ async function mount(
   const taRef = createRef<HTMLTextAreaElement>()
   act(() => {
     root.render(
-      <ChatComposer
-        taRef={taRef}
-        draft={opts.draft ?? ''}
-        onDraftChange={opts.onDraftChange ?? (() => {})}
-        deliverable={opts.deliverable ?? true}
-        placeholder="Ask across all tasks…"
-        compact={opts.compact}
-        isMobile={false}
-        onSend={opts.onSend ?? (() => {})}
-        voice={silentVoice}
-        attachments={opts.attachments ?? noopAttachments}
-        turnRunning={opts.turnRunning ?? false}
-        canInterrupt={opts.canInterrupt ?? false}
-        onInterrupt={opts.onInterrupt ?? (() => {})}
-        interruptError={opts.interruptError ?? null}
-        offer={null}
-        onOfferAction={async () => {}}
-        onOfferDismiss={async () => {}}
-        session={undefined}
-        turnError={opts.turnError ?? null}
-        transcriptFreshness={opts.transcriptFreshness ?? null}
-        offlineAsOf={null}
-        autoFocusKey="s1"
-        transcriptSettled
-      />,
+      <PanelVisible visible={opts.visible ?? true}>
+        <ChatComposer
+          taRef={taRef}
+          draft={opts.draft ?? ''}
+          onDraftChange={opts.onDraftChange ?? (() => {})}
+          deliverable={opts.deliverable ?? true}
+          placeholder="Ask across all tasks…"
+          compact={opts.compact}
+          isMobile={false}
+          onSend={opts.onSend ?? (() => {})}
+          voice={silentVoice}
+          attachments={opts.attachments ?? noopAttachments}
+          turnRunning={opts.turnRunning ?? false}
+          canInterrupt={opts.canInterrupt ?? false}
+          onInterrupt={opts.onInterrupt ?? (() => {})}
+          interruptError={opts.interruptError ?? null}
+          offer={null}
+          onOfferAction={async () => {}}
+          onOfferDismiss={async () => {}}
+          session={undefined}
+          turnError={opts.turnError ?? null}
+          transcriptFreshness={opts.transcriptFreshness ?? null}
+          offlineAsOf={null}
+          autoFocusKey="s1"
+          transcriptSettled
+        />
+      </PanelVisible>,
     )
   })
   return { ta: container.querySelector('textarea') as HTMLTextAreaElement }
@@ -107,6 +112,9 @@ const sendButton = () =>
   container.querySelector('button[title="Send (Enter)"]') as HTMLButtonElement
 
 beforeEach(() => {
+  sizingStyles = document.createElement('style')
+  sizingStyles.textContent = 'textarea { line-height: 24px; padding: 0px; }'
+  document.head.appendChild(sizingStyles)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -115,6 +123,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  sizingStyles.remove()
+  vi.restoreAllMocks()
 })
 
 describe('ChatComposer, compact (the Superagent box)', () => {
@@ -201,9 +211,7 @@ describe('ChatComposer, non-compact (the main chat)', () => {
       ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     })
     act(() => {
-      ta.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }),
-      )
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }))
     })
     expect(onSend).not.toHaveBeenCalled()
     // And the same keystroke sends once delivery is possible again.
@@ -240,6 +248,7 @@ describe('ChatComposer, non-compact (the main chat)', () => {
   // computed-style parse, on the ~95% of keystrokes where the height does not
   // change at all. What is left is the one measurement the feature IS.
   it('measures its line box once, not once per keystroke', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(24)
     const spy = vi.spyOn(window, 'getComputedStyle')
     try {
       const { ta } = await mount({ compact: false, draft: 'a' })
@@ -258,6 +267,7 @@ describe('ChatComposer, non-compact (the main chat)', () => {
   })
 
   it('does not force a reflow when the height did not change', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(24)
     const { ta } = await mount({ compact: false, draft: 'a' })
     let reflows = 0
     // The transition-pinning read. It exists to give the height animation a
@@ -473,5 +483,59 @@ describe('ChatComposer backend rail', () => {
     expect(rail).not.toBeNull()
     const model = container.querySelector('[aria-label="Model"]') as HTMLButtonElement
     expect(model.textContent).toContain('Auto')
+  })
+})
+
+describe('ChatComposer height across warm-panel visibility', () => {
+  let contentHeight: number
+
+  beforeEach(() => {
+    contentHeight = 48
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(() => contentHeight)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('preserves a draft height while hidden and measures the same draft on reveal', async () => {
+    const { ta } = await mount({ compact: false, draft: 'saved draft' })
+    expect(ta.style.height).toBe('48px')
+    contentHeight = 0
+    await mount({ compact: false, draft: 'updated while hidden', visible: false })
+    expect(ta.style.height).toBe('48px')
+    contentHeight = 96
+    await mount({ compact: false, draft: 'updated while hidden', visible: true })
+    expect(ta.style.height).toBe('96px')
+    expect(ta.value).toBe('updated while hidden')
+  })
+
+  it('measures a populated draft first mounted in a hidden panel when revealed', async () => {
+    contentHeight = 0
+    const { ta } = await mount({ compact: false, draft: 'saved draft', visible: false })
+    expect(ta.style.height).not.toBe('0px')
+    expect(ta.className).toContain('min-h-[1lh]')
+    contentHeight = 72
+    await mount({ compact: false, draft: 'saved draft', visible: true })
+    expect(ta.style.height).toBe('72px')
+  })
+
+  it('rejects zero measurements even outside a hidden deck panel', async () => {
+    const { ta } = await mount({ compact: false, draft: 'a' })
+    contentHeight = 0
+    await mount({ compact: false, draft: 'ab' })
+    expect(ta.style.height).toBe('48px')
+    contentHeight = 48
+    await mount({ compact: false, draft: 'abc' })
+    expect(ta.style.height).toBe('48px')
+  })
+
+  it('keeps one line available and caps long drafts while allowing shrink', async () => {
+    contentHeight = 1
+    const { ta } = await mount({ compact: false, draft: 'short' })
+    expect(ta.style.height).toBe('24px')
+    contentHeight = 300
+    await mount({ compact: false, draft: 'long' })
+    expect(ta.style.height).toBe('150px')
+    await mount({ compact: false, draft: '' })
+    expect(ta.style.height).toBe('24px')
   })
 })
