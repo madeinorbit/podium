@@ -2111,3 +2111,227 @@ describe('capabilities', () => {
     expect(caps.draft.supported && caps.draft.value.write).toBe(false)
   })
 })
+
+/**
+ * THE CONTRACT MENU SCRIPT, PORTED (POD-3982).
+ *
+ * The driver's `answer()` typed a single index, allow/deny and skip; every
+ * richer typed form — multi-select, preview, free text, several questions in
+ * one ask — refused, and only the server's legacy keystroke script covered
+ * them. Each test below answers with the TYPED contract value
+ * (`{kind:'question', selections}`) and pins the exact bytes the PTY must see,
+ * mirroring `answerAskUserQuestion`'s script key for key.
+ */
+describe('contract menu answers beyond a single index (POD-3982)', () => {
+  /** One virtual-timer pump: every spaced keystroke is a microtask, so one
+   *  macrotask flushes the whole script. */
+  const flushKeys = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  interface InterviewOption {
+    label: string
+    description?: string
+    preview?: string
+  }
+
+  interface InterviewQuestion {
+    question: string
+    header?: string
+    multiSelect?: boolean
+    options: InterviewOption[]
+  }
+
+  const openQuestion = async (questions: InterviewQuestion[]) => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.observe(sessionId, {
+      transitionKind: 'needs_user',
+      nextPhase: 'needs_user',
+      state: {
+        phase: 'needs_user',
+        since: '2026-08-14T00:00:00.000Z',
+        nativeSubagentCount: 0,
+        need: {
+          kind: 'question',
+          summary: questions[0]?.question ?? 'Which?',
+          interview: { questions },
+        },
+      },
+    })
+    const ask = (await session.interactions())[0] as PendingInteraction
+    return { world, session, ask }
+  }
+
+  it('carries the observed menu shape on the ask instead of an option-less prompt', async () => {
+    const { ask } = await openQuestion([
+      { question: 'Which database?', multiSelect: false, options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+    ])
+    expect(ask.kind).toBe('question')
+    if (ask.kind !== 'question') throw new Error('narrowing')
+    expect(ask.payload.questions).toEqual([
+      {
+        question: 'Which database?',
+        multiSelect: false,
+        otherIndex: 3,
+        previewLayout: false,
+        options: [{ label: 'Postgres' }, { label: 'SQLite' }],
+      },
+    ])
+  })
+
+  it('types a typed single-index answer with no closing CR', async () => {
+    const { world, session, ask } = await openQuestion([
+      { question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [2] }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    // A lone single-select commits on the digit; a blind CR would land in the composer.
+    expect(world.written).toEqual(['2'])
+  })
+
+  it('types a multi-select as digits plus Tab plus a closing CR', async () => {
+    const { world, session, ask } = await openQuestion([
+      {
+        question: 'Which databases?',
+        multiSelect: true,
+        options: [{ label: 'Postgres' }, { label: 'SQLite' }, { label: 'DuckDB' }],
+      },
+    ])
+    if (ask.kind !== 'question') throw new Error('narrowing')
+    expect(ask.payload.questions[0]?.multiSelect).toBe(true)
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [1, 3] }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    expect(world.written).toEqual(['1', '3', '\t', '\r'])
+  })
+
+  it('types several questions in one ask with one closing CR', async () => {
+    const { world, session, ask } = await openQuestion([
+      { question: 'First?', options: [{ label: 'A' }, { label: 'B' }] },
+      { question: 'Second?', options: [{ label: 'C' }, { label: 'D' }] },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [1] }, { optionIndices: [2] }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    expect(world.written).toEqual(['1', '2', '\r'])
+  })
+
+  it('selects in a preview layout with digit plus CR and no extra commit', async () => {
+    const { world, session, ask } = await openQuestion([
+      {
+        question: 'Which plan?',
+        options: [
+          { label: 'Expand', preview: 'adds a node' },
+          { label: 'Rebuild', preview: 'from scratch' },
+        ],
+      },
+    ])
+    if (ask.kind !== 'question') throw new Error('narrowing')
+    // The side-by-side dialog: a digit only moves the highlight.
+    expect(ask.payload.questions[0]?.previewLayout).toBe(true)
+    expect(ask.payload.questions[0]).not.toHaveProperty('otherIndex')
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [1] }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    // The CR selects the highlighted row; the lone-question auto-submit means no second CR.
+    expect(world.written).toEqual(['1', '\r'])
+  })
+
+  it('types free text through the classic Other row', async () => {
+    const { world, session, ask } = await openQuestion([
+      { question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [3], text: 'DuckDB' }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    expect(world.written).toEqual(['3', 'DuckDB', '\r'])
+  })
+
+  it('types free text into a preview dialog through its Notes field', async () => {
+    const { world, session, ask } = await openQuestion([
+      {
+        question: 'Which plan?',
+        options: [
+          { label: 'Expand', preview: 'adds a node' },
+          { label: 'Rebuild', preview: 'from scratch' },
+        ],
+      },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [], text: 'neither, do both' }],
+    })
+    expect(outcome).toEqual({ ok: true })
+    await flushKeys()
+    // No Other row exists here; `n` focuses Notes and the CR commits with no option selected.
+    expect(world.written).toEqual(['n', 'neither, do both', '\r'])
+  })
+
+  it('refuses several picks on a preview question and types nothing', async () => {
+    const { world, session, ask } = await openQuestion([
+      {
+        question: 'Which plan?',
+        options: [
+          { label: 'Expand', preview: 'adds a node' },
+          { label: 'Rebuild', preview: 'from scratch' },
+        ],
+      },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [1, 2] }],
+    })
+    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    await flushKeys()
+    expect(world.written).toEqual([])
+    expect(await session.interactions()).toHaveLength(1)
+  })
+
+  it('refuses a partial answer covering one of two prompts and types nothing', async () => {
+    const { world, session, ask } = await openQuestion([
+      { question: 'First?', options: [{ label: 'A' }, { label: 'B' }] },
+      { question: 'Second?', options: [{ label: 'C' }, { label: 'D' }] },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [1] }],
+    })
+    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    await flushKeys()
+    expect(world.written).toEqual([])
+    expect(await session.interactions()).toHaveLength(1)
+  })
+
+  it('refuses an index past the options on screen and types nothing', async () => {
+    const { world, session, ask } = await openQuestion([
+      { question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+    ])
+    const outcome = await session.answer(ask.id, {
+      kind: 'question',
+      selections: [{ optionIndices: [9] }],
+    })
+    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    await flushKeys()
+    expect(world.written).toEqual([])
+    expect(await session.interactions()).toHaveLength(1)
+  })
+})
