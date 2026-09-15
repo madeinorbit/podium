@@ -57,7 +57,6 @@ describe('websocket compression eligibility', () => {
   it('keeps reconnect bootstraps and multi-megabyte work off the event loop', () => {
     const eligible = 'x'.repeat(WS_COMPRESSION_MAX_BYTES)
     expect(shouldCompressWebSocketFrame(eligible, { type: 'feedDelta' })).toBe(true)
-    expect(shouldCompressWebSocketFrame(eligible, { type: 'feedBootstrap' })).toBe(false)
     expect(shouldCompressWebSocketFrame(`${eligible}x`, { type: 'feedDelta' })).toBe(false)
   })
 })

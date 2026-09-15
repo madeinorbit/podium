@@ -59,10 +59,6 @@ const PRECOMPRESSED_MIME =
 function mustStayIdentity(msg: unknown): boolean {
   if (!msg || typeof msg !== 'object') return false
   const frame = msg as { type?: unknown; contentType?: unknown }
-  // A whole visible world can be tens of MiB. Native Bun compression happens
-  // synchronously in send(), so deflating a reconnect bootstrap stalls every
-  // client on the server even when the world was already cached.
-  if (frame.type === 'feedBootstrap') return true
   if (frame.type === 'imageUploadRequest') return true
   return (
     frame.type === 'fileAssetResult' &&

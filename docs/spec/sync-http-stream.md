@@ -129,6 +129,10 @@ addition does not change `wireSchemaDigest()` or trigger digest-skew reloads by 
 
 Deployment order is mandatory across server, web, and native:
 
+0. **Establish the rollback floor.** Ship a server that accepts wire 3
+   (`WIRE_VERSION = 3`, `MIN_SUPPORTED_VERSION = 1`) with **no capability enforcement**.
+   Widen acceptance before clients advertise the new version. No specific build is
+   designated: deployment must establish this Step 0 build before proceeding.
 1. Land the server endpoints, web client, and Expo bundle together, all advertising
    `CAP_SYNC_HTTP_V1`. During this bridge release, cap-less clients still receive
    the pushed world and tRPC catch-up. POD-3944 must land before bridge deletion.
@@ -174,8 +178,17 @@ removing it safely requires retiring its caller and support contract together.
 
 ### Rollback cost
 
-Rolling the server back to a pre-cap build leaves new clients functional on the
-WebSocket resume path when their cursor is resumable. The HTTP endpoints return
-404, so a cold start or a gap requiring HTTP healing cannot recover: the replica's
-healing ladder reports `bootstrap-failed` after **3 attempts**. Rollback is therefore
-not a transparent cold-start recovery; restore the HTTP-capable server to heal.
+Rollback is safe only to a build at or after **Step 0**. Rolling back further to a
+wire-2 server refuses wire-3 clients at attach with HTTP **426**; those clients do
+not keep working over WebSocket resume. The refusal is the protocol upgrade
+backstop, not a graceful upgrade path: wire-3 clients are hard-stopped and told
+to update the **server**. They cannot self-heal by reloading and remain stopped
+until the server rolls forward. Step 0 is an operational requirement.
+The web version guard checks `/version` rather than the WebSocket status;
+a server-behind-client result requires restoring a compatible server, and cannot
+be repaired by repeatedly reloading the same newer client bundle.
+
+A Step 0-compatible server can still grant WebSocket resume for a valid cursor.
+On a pre-cutover server without the HTTP endpoints, those endpoints return **404**:
+a cold start or gap requiring HTTP healing reports `bootstrap-failed` after
+**3 attempts**. Restore the HTTP-capable server to recover that client.

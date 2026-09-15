@@ -835,8 +835,7 @@ export class SocketHub {
       this.startHeartbeat()
       // WHAT THIS CONNECTION ASKS FOR, decided before `hello` is built and used
       // twice below: once as the fields it carries, once as what the sink is told
-      // it bought. Reading it twice could not stay consistent — `wantWorld` is
-      // consumed here, so a second read would see a different answer.
+      // it bought. Read the opaque fields once for a consistent hello.
       const helloFields = this.opts.feed?.helloFields() ?? null
       this.sendRaw({
         type: 'hello',

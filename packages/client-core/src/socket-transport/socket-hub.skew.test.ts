@@ -48,13 +48,12 @@ function setup() {
 
 const bootstrap = (changes: unknown[]) =>
   JSON.stringify({
-    type: 'feedBootstrap',
+    type: 'feedDelta',
     feedId: 'feed-1',
     epoch: 'e1',
     fromSeq: 0,
     seq: 4,
     minAvailableSeq: 0,
-    last: true,
     changes,
   })
 
@@ -82,7 +81,7 @@ describe('the hub records what it could not read', () => {
   it('counts a REFUSED frame separately — the severe case', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { sock, hub } = setup()
-    sock.raw('{"type":"feedBootstrap","feedId":"f"}') // envelope itself fails
+    sock.raw('{"type":"feedDelta","feedId":"f"}') // envelope itself fails
     expect(hub.wireSkew()).toMatchObject({ refusedFrames: 1, quarantined: 0 })
     // The parser's own words, kept for a bug report — not for the UI.
     expect(hub.wireSkew()?.firstError).toBeTypeOf('string')

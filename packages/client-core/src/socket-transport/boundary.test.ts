@@ -54,15 +54,14 @@ describe('transport ownership boundary', () => {
    * a check that only fires on the honest spellings is not a check.
    */
   it('spreads the feed sink hello fields without reading them', () => {
-    expect(executable).toMatch(/const helloFields = this\.wantWorld\s*\?\s*null\s*:/)
+    expect(executable).toMatch(/const helloFields = this\.opts\.feed\?\.helloFields\(\) \?\? null/)
     expect(executable).toMatch(/\.\.\.\(helloFields \?\? \{\}\)/)
     // What the sink is told it bought is a boolean derived from PRESENCE alone.
-    expect(executable).toMatch(/this\.opts\.feed\?\.connected\(helloFields === null\)/)
+    expect(executable).toMatch(/this\.opts\.feed\?\.connected\(!this\.opts\.feed\.syncHttp && helloFields === null\)/)
   })
 
   it.each([
     'feedDelta',
-    'feedBootstrap',
     'feedRescope',
     'feedResyncRequired',
     'feedResume',

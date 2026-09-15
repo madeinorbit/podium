@@ -53,15 +53,14 @@ const upsert = (seq: number, entity: string, entityId: string, value: unknown) =
   value,
 })
 
-const bootstrap = (changes: unknown[], seq = 1): FeedFrame =>
+const initialDelta = (changes: unknown[], seq = 1): FeedFrame =>
   ({
-    type: 'feedBootstrap',
+    type: 'feedDelta',
     ...FEED,
     fromSeq: 0,
     seq,
     minAvailableSeq: 0,
     changes,
-    last: true,
   }) as FeedFrame
 
 const delta = (fromSeq: number, seq: number, changes: unknown[]): FeedFrame =>
@@ -105,7 +104,7 @@ describe('v1 peers keep reading blockedBy after the POD-1530 rename', () => {
     const peer = new Peer('v1-snapshot', 1)
     expect(subject.attach(peer)).toBeNull()
 
-    subject.publish(bootstrap([upsert(1, 'issue', 'i1', issueV2('i1'))]))
+    subject.publish(initialDelta([upsert(1, 'issue', 'i1', issueV2('i1'))]))
 
     const [issue] = issuesFrom(peer)
     expect(issue, 'a v1 snapshot peer was served no issue at all').toBeDefined()
@@ -122,7 +121,7 @@ describe('v1 peers keep reading blockedBy after the POD-1530 rename', () => {
     expect(subject.attach(peer)).toBeNull()
 
     // Bootstrap first so the peer has a position, then move the notes.
-    subject.publish(bootstrap([upsert(1, 'issue', 'i1', issueV2('i1'))]))
+    subject.publish(initialDelta([upsert(1, 'issue', 'i1', issueV2('i1'))]))
     subject.publish(delta(1, 2, [upsert(2, 'issue', 'i1', issueV2('i1'))]))
 
     const values = deltaIssuesFrom(peer)
@@ -138,7 +137,7 @@ describe('v1 peers keep reading blockedBy after the POD-1530 rename', () => {
     const peer = new Peer('v2', WIRE_VERSION)
     expect(subject.attach(peer)).toBeNull()
 
-    const frame = bootstrap([upsert(1, 'issue', 'i1', issueV2('i1'))])
+    const frame = initialDelta([upsert(1, 'issue', 'i1', issueV2('i1'))])
     subject.publish(frame)
 
     // v2 is the identity path: the frame arrives exactly as published, which is
@@ -155,7 +154,7 @@ describe('v1 peers keep reading blockedBy after the POD-1530 rename', () => {
     const peer = new Peer('v1-empty', 1)
     expect(subject.attach(peer)).toBeNull()
 
-    subject.publish(bootstrap([upsert(1, 'issue', 'i1', { id: 'i1', title: 'i1' } as unknown)]))
+    subject.publish(initialDelta([upsert(1, 'issue', 'i1', { id: 'i1', title: 'i1' } as unknown)]))
 
     const [issue] = issuesFrom(peer)
     expect(issue).toBeDefined()

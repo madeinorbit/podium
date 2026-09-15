@@ -44,7 +44,7 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
-import { asMutationId, asSessionId } from '@podium/model'
+import { asMutationId, asSessionId, IssueWire } from '@podium/model'
 import {
   LEGACY_STANDALONE_OUTBOX_KEY,
   type LegacyIdentityEvidence,
@@ -781,7 +781,14 @@ function bootstrapFrame(args: {
       entity: c.entity,
       entityId: c.entityId,
       op: 'upsert' as const,
-      value: c.value,
+      value: c.entity === 'issue' ? IssueWire.parse({
+        repoPath: '/fixture', seq: c.seq, description: '', stage: 'backlog',
+        defaultAgent: 'codex', priority: 2, type: 'task', pinned: false,
+        needsHuman: false, labels: [], deps: [], dependents: [], ready: true,
+        blocked: false, deferred: false, childCount: 0, childDoneCount: 0,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+        archived: false, ...c.value,
+      }) : c.value,
     })),
   }
 }

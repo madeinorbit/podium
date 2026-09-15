@@ -21,15 +21,14 @@ const FEED = { feedId: 'feed-01J', epoch: 'epoch-01J' } as const
 const session = (id: string) => ({ sessionId: id, title: id }) as unknown
 const issue = (id: string) => ({ id, title: id }) as unknown
 
-const bootstrap = (changes: unknown[], seq = 2): FeedFrame =>
+const initialDelta = (changes: unknown[], seq = 2): FeedFrame =>
   ({
-    type: 'feedBootstrap',
+    type: 'feedDelta',
     ...FEED,
     fromSeq: 0,
     seq,
     minAvailableSeq: 0,
     changes,
-    last: true,
   }) as FeedFrame
 
 const delta = (fromSeq: number, seq: number, changes: unknown[]): FeedFrame =>
@@ -83,22 +82,13 @@ describe('every peer is served from the one feed', () => {
     const peer = new Peer('v1-legacy', 1, false)
     subject.attach(peer)
     subject.publish(
-      bootstrap([
+      initialDelta([
         upsert(1, 'session', 's1', session('s1')),
         upsert(2, 'issue', 'i1', issue('i1')),
       ]),
     )
-    // The pre-cutover message SET and ORDER, byte-shape unchanged — synthesised
-    // at the boundary. Nothing here read a session list from a feature. All five
-    // lists go out on a bootstrap exactly as `onClientAttached` sent them, so a
-    // v1 client that clears-and-replaces on each is unaffected by the cutover.
-    expect(peer.types()).toEqual([
-      'sessionsChanged',
-      'issuesChanged',
-      'automationsChanged',
-      'automationRunsChanged',
-      'conversationsChanged',
-    ])
+    // Initial rows exercise the same delta translation as later changes.
+    expect(peer.types()).toEqual(['sessionsChanged', 'issuesChanged'])
     expect(peer.received[0]).toEqual({ type: 'sessionsChanged', sessions: [session('s1')] })
   })
 
@@ -119,7 +109,7 @@ describe('every peer is served from the one feed', () => {
   it('re-sends only the kinds a delta touched, not all five lists', () => {
     const peer = new Peer('v1-legacy', 1, false)
     subject.attach(peer)
-    subject.publish(bootstrap([upsert(1, 'session', 's1', session('s1'))], 1))
+    subject.publish(initialDelta([upsert(1, 'session', 's1', session('s1'))], 1))
     peer.received.length = 0
     subject.publish(delta(1, 2, [upsert(2, 'issue', 'i1', issue('i1'))]))
     expect(peer.types()).toEqual(['issuesChanged'])
@@ -129,7 +119,7 @@ describe('every peer is served from the one feed', () => {
     const peer = new Peer('v1-legacy', 1, false)
     subject.attach(peer)
     subject.publish(
-      bootstrap([
+      initialDelta([
         upsert(1, 'session', 's1', session('s1')),
         upsert(2, 'session', 's2', session('s2')),
       ]),
@@ -143,7 +133,7 @@ describe('every peer is served from the one feed', () => {
     const b = new Peer('b', 1, false)
     subject.attach(a)
     subject.attach(b)
-    subject.publish(bootstrap([upsert(1, 'session', 's1', session('s1'))], 1))
+    subject.publish(initialDelta([upsert(1, 'session', 's1', session('s1'))], 1))
     subject.publish(delta(1, 2, [{ seq: 2, entity: 'session', entityId: 's1', op: 'remove' }]))
     // A second application of the same frame would be harmless here, but a
     // projection that re-applied a stale frame after a later one would not be —
@@ -169,7 +159,7 @@ describe('every peer is served from the one feed', () => {
   it('heals a v1 peer by full replacement when the feed says rescope', () => {
     const peer = new Peer('v1', 1, true)
     subject.attach(peer)
-    subject.publish(bootstrap([upsert(1, 'session', 's1', session('s1'))], 1))
+    subject.publish(initialDelta([upsert(1, 'session', 's1', session('s1'))], 1))
     peer.received.length = 0
     subject.publish({
       type: 'feedRescope',
@@ -309,7 +299,7 @@ describe('POD-376 · a scoped authority refuses a wire that cannot express evict
     const subject = edge('per-principal')
     const peer = new Peer('legacy-pwa', 1)
     expect(subject.attach(peer)).not.toBeNull()
-    subject.publish(bootstrap([upsert(1, 'session', 's1', session('s1'))]))
+    subject.publish(initialDelta([upsert(1, 'session', 's1', session('s1'))]))
     subject.publish(delta(1, 2, [upsert(2, 'issue', 'i1', issue('i1'))]))
     expect(peer.received).toEqual([])
     expect(subject.versions().totalPeers).toBe(0)

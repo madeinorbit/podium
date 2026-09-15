@@ -21,16 +21,11 @@
  * feed folded up.
  *
  * ---------------------------------------------------------------------------
- * BOOTSTRAP IS A FEED FEATURE, NOT A PARALLEL MECHANISM
+ * BOOTSTRAP IS READ OVER HTTP
  * ---------------------------------------------------------------------------
  *
- * {@link publishBootstrap} sends a `feedBootstrap` frame carrying the cursor
- * triple it was read at. That is the difference from the snapshot fan-out it
- * replaces: the old bootstrap was a set of lists with no position in them, so a
- * client had to spend a `sync.changesSince` round trip to find out where it
- * stood, and the window between the two was covered by hope. A bootstrap that
- * carries `(feedId, epoch, seq)` makes the delta that follows contiguous by
- * construction.
+ * This edge publishes live deltas and resume/rescope control frames. Snapshot
+ * rows use the HTTP NDJSON stream and never enter the WebSocket message union.
  *
  * ---------------------------------------------------------------------------
  * THE COMPILE-TIME GATE STILL HOLDS
@@ -45,7 +40,6 @@
 import { createLogger } from '@podium/logger'
 import type { ConversationDiagnosticWire } from '@podium/model'
 import type {
-  FeedBootstrapMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
   FeedResumeMessage,
@@ -73,7 +67,6 @@ const log = createLogger('server:gateway')
  *  translation of something else, or there would be two definitions of "now". */
 export type FeedFrame =
   | FeedDeltaMessage
-  | FeedBootstrapMessage
   | FeedRescopeMessage
   | FeedResyncRequiredMessage
   | FeedResumeMessage
@@ -135,7 +128,7 @@ class IdentityWireAdapter implements FeedWireAdapter {
    *  removal union, so the identity path expresses it by not touching it. */
   readonly expressesEvict = true
   translate(frame: FeedFrame): readonly ServerMessage[] {
-    return frame.type === 'feedBootstrap' ? [] : [frame]
+    return [frame]
   }
 }
 
@@ -195,7 +188,7 @@ export class WireFeedEdge {
         deleteByPhase: 'wire-2 support retirement',
         rationale: 'HTTP capability enforcement changes admission, not feed framing',
       },
-      translate: (frame) => frame.type === 'feedBootstrap' ? [] : [frame],
+      translate: (frame) => [frame],
     })
     // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
     // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails

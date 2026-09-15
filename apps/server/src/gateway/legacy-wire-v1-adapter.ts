@@ -180,13 +180,6 @@ export class LegacyWireV1Adapter
     }
 
     const touched = this.apply(frame)
-    if (frame.type === 'feedBootstrap') {
-      // A bootstrap installs a whole world. v1 has no partial bootstrap, so a
-      // non-final chunk produces nothing and the last one produces everything —
-      // the client sees exactly the message set it saw before the cutover.
-      return frame.last ? this.snapshotsFor(peer, LEGACY_KINDS) : []
-    }
-
     if (peer.acceptsDelta) {
       const changes = frame.changes.map(toV1Change)
       if (changes.length === 0) {

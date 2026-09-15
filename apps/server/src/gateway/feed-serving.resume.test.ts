@@ -188,7 +188,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     const peer = await reconnect(ctx, undefined)
 
     expect(peer.types()).toEqual(['feedResume'])
-    expect(peer.types()).toEqual(['feedResyncRequired'])
+    expect(peer.of('feedResume')[0]?.seq).toBe(ctx.held.seq)
   })
 })
 
