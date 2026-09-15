@@ -30,6 +30,7 @@ import type { SessionStateService } from './session-state/service'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
+import { contractDeliveryRequested } from './contract-delivery'
 
 export interface SessionMetaOpsPorts {
   broadcastSessions(): void
@@ -46,6 +47,14 @@ export interface SessionMetaOpsPorts {
   state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts' | 'invalidateAllOverlays'>
   store: SessionStore
   toPtyInput: MachinesService['toPtyInput']
+  /**
+   * Deliver a contract-routed continue (server-family, no PTY) through the
+   * driver contract. Optional only as a fixture affordance, and the missing
+   * case REFUSES rather than confirming — the same rule as the inbox's
+   * contract ports, for the same reason: a continue that cannot be delivered
+   * must say so.
+   */
+  sendContinueViaContract?: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
   view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'>
 }
 
@@ -309,7 +318,7 @@ export class SessionMetaOps {
     return this.ports.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
-  continueSession({ sessionId }: { sessionId: SessionId }): { ok: boolean } {
+  async continueSession({ sessionId }: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false }
     // Status gate as well as phase: a session can read 'errored' while its
@@ -317,6 +326,18 @@ export class SessionMetaOps {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
+    // A server-family session has no PTY bridge: the daemon discards typed
+    // bytes without an error, so the 'continue\r' below would be bytes into
+    // nothing answered ok:true. Route the continue through the contract port
+    // instead, exactly as interruptText does for its stop.
+    if (contractDeliveryRequested(session)) {
+      session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
+      const send = this.ports.sendContinueViaContract
+      if (!send) return { ok: false }
+      const result = await send(sessionId)
+      if (result.ok) return { ok: true }
+      return { ok: false, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
+    }
     session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
     this.ports.toPtyInput(session.machineId, {
       sessionId,

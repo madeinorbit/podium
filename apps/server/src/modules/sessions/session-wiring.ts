@@ -598,7 +598,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     isEnabled: async () =>
       (await store.settings.getSettingsFor((await bag.settingsViewer()))).autoContinue.enabled,
     sendContinue: (sessionId) => {
-      bag.continueSession({ sessionId })
+      void bag.continueSession({ sessionId })
     },
     getSession: (sessionId) => {
       // The controller re-arms off fresh agentState events, so overnight recovery
@@ -976,6 +976,17 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     store,
     toPtyInput: (mid: string, input: unknown) => bag.toPtyInput(mid, input),
+    // A server-family session has no PTY bridge, so its continue rides the
+    // same receipt seam as every other send: 'now' goes when-ready through the
+    // driver, joining the durable queue only when older work is ahead of it,
+    // and allowErrored crosses the errored-phase gate this retry exists for.
+    sendContinueViaContract: (sessionId: SessionId) =>
+      bag.receiptSender.send('now', {
+        sessionId,
+        text: 'continue',
+        inputOrigin: 'auto_continue',
+        allowErrored: true,
+      }),
     view: bag.view,
   })
   // Revival needs sessionStart.spawn, workspace, repository, launchConfig,
