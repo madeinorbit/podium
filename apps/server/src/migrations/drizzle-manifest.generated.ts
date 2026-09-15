@@ -106,6 +106,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260911120440_member-login-email", sql: "ALTER TABLE `users` ADD `email` text;--> statement-breakpoint\nCREATE UNIQUE INDEX `users_email_unique` ON `users` (lower(\"email\"));" },
   { name: "20260911124346_member-invites", sql: "CREATE TABLE `member_invites` (\n\t`id` text PRIMARY KEY,\n\t`token_hash` text NOT NULL UNIQUE,\n\t`member_id` text,\n\t`email` text,\n\t`role` text NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`created_by` text NOT NULL,\n\t`created_at` text NOT NULL\n);\n--> statement-breakpoint\nALTER TABLE `users` ADD `account_id` text;--> statement-breakpoint\nCREATE UNIQUE INDEX `users_account_id_unique` ON `users` (`account_id`);" },
   { name: "20260911133929_member-avatar", sql: "ALTER TABLE `users` ADD `avatar` text;" },
+  { name: "20260915174007_durable-grant-audiences", sql: "CREATE TABLE `grant_audiences` (\n\t`resource_kind` text NOT NULL,\n\t`resource_id` text NOT NULL,\n\t`grantee` text NOT NULL,\n\tCONSTRAINT `grant_audiences_pk` PRIMARY KEY(`resource_kind`, `resource_id`, `grantee`)\n);\n--> statement-breakpoint\n-- Existing live edges seed the durable history. Already revoked pre-upgrade\n-- readers existed only in process memory and cannot be recovered after restart.\nINSERT OR IGNORE INTO grant_audiences (resource_kind, resource_id, grantee)\nSELECT resource_kind, resource_id, grantee FROM grants;\n" },
 ]
 
 /**

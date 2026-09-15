@@ -45,6 +45,7 @@
  * chose, and `authority.scoped.test.ts` asserts the absence of any other route.
  */
 
+import { readChangesRange, type ChangeLogStore } from '../change-log'
 import { type Principal } from '@podium/protocol'
 import type {
   EntityRef,
@@ -317,4 +318,31 @@ function anchorFor(
     if (currentValue !== undefined) return { ...base, op: 'upsert', value: currentValue }
   }
   return { ...base, op: 'evict' }
+}
+
+/** Shared bounded range semantics for the live authority and a worker snapshot. */
+export async function* scopeChangesRange(
+  store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
+  deps: ScopingDeps,
+  principal: Principal,
+  from: number,
+  through: number,
+  pageRows: number,
+): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }> {
+  let pending: SequencedChange[] | undefined
+  let previous = from
+  for await (const page of readChangesRange(store, from, through, pageRows)) {
+    if (pending) {
+      const end = pending[pending.length - 1]!.seq
+      const delivery = await scopeBatch(deps, principal, pending, end)
+      yield { ...delivery, fromSeq: previous }
+      if (delivery.kind === 'rescope') return
+      previous = end
+    }
+    pending = page.map(change => {
+      const base = { seq: change.seq, entity: change.entity, entityId: change.id, op: change.op }
+      return change.op === 'upsert' ? { ...base, value: change.value } : base
+    })
+  }
+  yield { ...await scopeBatch(deps, principal, pending ?? [], through), fromSeq: previous }
 }

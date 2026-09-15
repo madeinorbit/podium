@@ -150,3 +150,15 @@ describe('the grant edge table', () => {
     expect((await store.grants.listForKind('machine')).map((g) => g.resourceId)).toEqual(['laptop'])
   })
 })
+
+
+it('rolls historical audiences back with the enclosing grant transaction', async () => {
+  await expect(store.transact(async () => {
+    await store.grants.upsert({ resourceKind: 'issue', resourceId: 'rollback', grantee: 'reader',
+      verb: 'read', owner: 'owner', visibility: 'personal', createdAt: 't0', actorKind: 'user', actorId: 'owner', onBehalfOf: 'owner' })
+    expect(await store.grants.visibilityAudienceFor('issue', 'rollback')).toEqual(['reader'])
+    throw new Error('rollback')
+  })).rejects.toThrow('rollback')
+  expect(await store.grants.visibilityAudienceFor('issue', 'rollback')).toEqual([])
+  expect(await store.grants.visibilityAudienceResourceIds('issue')).not.toContain('rollback')
+})

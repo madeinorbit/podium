@@ -10,7 +10,7 @@ import { CommittedRows } from './committed-rows'
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, inArray } from 'drizzle-orm'
-import { grants } from '../migrations/schema'
+import { grantAudiences, grants } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
@@ -71,7 +71,6 @@ export function grantFromRow(r: GrantSelection): GrantRow | undefined {
 export class GrantsRepository {
   readonly committed: CommittedRows<typeof grants.$inferSelect>
 
-  private readonly visibilityAudiences = new Map<string, Set<string>>()
   /**
    * Process-local authority generation for caches that retain a scoped answer.
    *
@@ -87,34 +86,21 @@ export class GrantsRepository {
   }
 
   async visibilityAudienceFor(resourceKind: string, resourceId: string): Promise<readonly string[]> {
-    return [...(this.visibilityAudiences.get(resourceKind + ':' + resourceId) ?? [])]
+    const rows = await this.db.select({ grantee: grantAudiences.grantee }).from(grantAudiences)
+      .where(and(eq(grantAudiences.resourceKind, resourceKind), eq(grantAudiences.resourceId, resourceId)))
+      .orderBy(asc(grantAudiences.grantee)).all()
+    return rows.map(row => row.grantee)
   }
 
-  /**
-   * The resource ids of one kind that this process has noted an audience for
-   * [POD-3261].
-   *
-   * The set {@link visibilityAudienceFor} can answer non-empty for, enumerated
-   * — which is what lets a caller that would otherwise ask per resource ask
-   * once. It reads the same in-memory map and takes no query, so a caller may
-   * use it to SIZE a batched read; it is not itself an authorization answer and
-   * nothing may be decided from membership in it. `visibilityAudienceFor`
-   * remains the only door to the audience.
-   */
+  /** Historical resource ids, including resources whose last grant was revoked. */
   async visibilityAudienceResourceIds(resourceKind: string): Promise<string[]> {
-    const prefix = `${resourceKind}:`
-    const ids: string[] = []
-    for (const key of this.visibilityAudiences.keys()) {
-      if (key.startsWith(prefix)) ids.push(key.slice(prefix.length))
-    }
-    return ids
+    const rows = await this.db.selectDistinct({ resourceId: grantAudiences.resourceId }).from(grantAudiences)
+      .where(eq(grantAudiences.resourceKind, resourceKind)).orderBy(asc(grantAudiences.resourceId)).all()
+    return rows.map(row => row.resourceId)
   }
 
   private async noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): Promise<void> {
-    const key = resourceKind + ':' + resourceId
-    const audience = this.visibilityAudiences.get(key) ?? new Set<string>()
-    audience.add(grantee)
-    this.visibilityAudiences.set(key, audience)
+    await this.db.insert(grantAudiences).values({ resourceKind, resourceId, grantee }).onConflictDoNothing().run()
   }
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -224,11 +210,12 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   async upsert(row: GrantRow): Promise<void> {
-    await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
     // `grants` carries its four-column primary key and NO second uniqueness
     // constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly
     // (checklist item 1, as amended: every column is named).
-    ;await this.committed.write(async () => (this.db
+    ;await this.committed.write(async () => {
+      await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
+      return (this.db
       .insert(grants)
       .values({
         resourceKind: row.resourceKind,
@@ -252,7 +239,8 @@ export class GrantsRepository {
           actorId: row.actorId,
           onBehalfOf: row.onBehalfOf,
         },
-      }).returning().all(), 'upsert')
+      }).returning().all()
+    }, 'upsert')
     this.visibilityRevisionValue += 1
   }
 
@@ -260,7 +248,6 @@ export class GrantsRepository {
    *  caller can tell "revoked" from "there was nothing to revoke" without a
    *  second read that could race the delete. */
   async remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): Promise<boolean> {
-    await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
     const match = and(
       eq(grants.resourceKind, resourceKind),
       eq(grants.resourceId, resourceId),
@@ -268,7 +255,10 @@ export class GrantsRepository {
       eq(grants.verb, verb),
     )
     const before = await this.db.select({ n: count() }).from(grants).where(match).get()
-    await this.committed.write(async () => this.db.delete(grants).where(match).returning().all(), 'delete')
+    await this.committed.write(async () => {
+      await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
+      return this.db.delete(grants).where(match).returning().all()
+    }, 'delete')
     const removed = (before?.n ?? 0) > 0
     if (removed) this.visibilityRevisionValue += 1
     return removed

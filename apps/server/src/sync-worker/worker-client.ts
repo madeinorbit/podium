@@ -11,6 +11,8 @@ import { Worker } from 'node:worker_threads'
 import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker-embed'
 import {
   type BootstrapJob,
+  type DeltaJob,
+  type SyncJob,
   type FromWorker,
   SYNC_JOB_DEADLINE_MS,
   type SyncMetaSummary,
@@ -196,8 +198,14 @@ export class SyncWorkerClient {
     }, delay)
     this.restartTimer.unref()
   }
-  bootstrap(
-    input: BootstrapJob,
+  bootstrap(input: BootstrapJob, signal?: AbortSignal) {
+    return this.start(input, signal)
+  }
+  delta(input: DeltaJob, signal?: AbortSignal) {
+    return this.start(input, signal)
+  }
+  private start(
+    input: SyncJob,
     signal?: AbortSignal,
   ): {
     meta: Promise<SyncMetaSummary>

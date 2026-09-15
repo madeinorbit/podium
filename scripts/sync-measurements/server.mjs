@@ -121,6 +121,7 @@ if (arm === 'after') {
     }
   })
   const measuredWorker = {
+    delta(input, signal) { return worker.delta(input, signal) },
     bootstrap(input, signal) {
       relays[input.transferId] = {
         principal: input.principal.user,

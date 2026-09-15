@@ -932,6 +932,17 @@ export const userCredentials = sqliteTable('user_credentials', {
 // The table exists and nothing writes it yet: share / unshare are Phase 3
 // commands (POD-290). Landing the shape here is the point of Phase 1 — the
 // alternative is a table migration after the POD-308 wire cutover.
+/** Historical readers survive revocation and change-log retention. Server-owned. */
+export const grantAudiences = sqliteTable(
+  'grant_audiences',
+  {
+    resourceKind: text('resource_kind').notNull(),
+    resourceId: text('resource_id').notNull(),
+    grantee: text().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.resourceKind, table.resourceId, table.grantee], name: 'grant_audiences_pk' })],
+)
+
 export const grants = sqliteTable(
   'grants',
   {

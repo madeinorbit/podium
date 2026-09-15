@@ -82,14 +82,13 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import type { MetadataEntityKind } from '@podium/protocol'
 import { type Principal, principalRoutingId } from '@podium/protocol'
 import {
   type BaselineFold,
   ChangeBaseline,
   type ChangeLogStore,
   detectionKey,
-  readChangesRange,
   ChangeRangeBootstrapRequired,
 } from '../change-log'
 import type {
@@ -116,6 +115,7 @@ import {
   type PreparedBatch,
   prepareBatch,
   scopeBatch,
+  scopeChangesRange,
   scopeBootstrap,
   type ScopingDeps,
 } from './scoping'
@@ -352,21 +352,7 @@ export class Authority implements AuthorityPort {
     pageRows: number,
   ): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }> {
     await this.ready
-    // One-page lookahead identifies the final page without collecting the range.
-    let pending: MetadataChange[] | undefined
-    let previous = from
-    for await (const page of readChangesRange(this.deps.store, from, through, pageRows)) {
-      if (pending) {
-        const end = pending[pending.length - 1]!.seq
-        const delivery = await this.scope(principal, pending.map(fromWire), end)
-        yield { ...delivery, fromSeq: previous }
-        if (delivery.kind === 'rescope') return
-        previous = end
-      }
-      pending = page
-    }
-    const delivery = await this.scope(principal, (pending ?? []).map(fromWire), through)
-    yield { ...delivery, fromSeq: previous }
+    yield* scopeChangesRange(this.deps.store, this.scopingDeps(), principal, from, through, pageRows)
   }
 
   async cursor(): Promise<number> {
@@ -656,10 +642,4 @@ export class Authority implements AuthorityPort {
     this.broadcastTail = delivery.catch(() => undefined)
     await delivery
   }
-}
-
-/** The stored/wire row as a sequenced kernel change. */
-function fromWire(change: MetadataChange): SequencedChange {
-  const base = { seq: change.seq, entity: change.entity, entityId: change.id, op: change.op }
-  return change.op === 'upsert' ? { ...base, value: change.value } : base
 }

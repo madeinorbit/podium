@@ -1,13 +1,14 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
+import { scopeChangesRange, DEFAULT_RESCOPE_THRESHOLD, ChangeRangeBootstrapRequired } from '@podium/sync/bootstrap-worker'
 import type { EntityRef } from '@podium/sync'
 import { createLogger } from '@podium/logger'
 import { perf } from '../modules/perf/registry'
 import { perfPrincipal } from '../modules/perf/principal'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { bootstrapVisibility } from './visibility'
-import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary, type BootstrapMetrics } from './types'
+import { SyncWorkerError, type SyncJob, type SyncMetaSummary, type BootstrapMetrics } from './types'
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
@@ -32,7 +33,7 @@ function* iterate<T>(db: SqlDatabase, sql: string): Generator<T> {
  */
 async function* produceRecords(
   dbPath: string,
-  job: BootstrapJob,
+  job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
@@ -78,6 +79,48 @@ async function* produceRecords(
     const seq = (db.prepare("SELECT seq FROM sqlite_sequence WHERE name='changes'").get() as {seq:number} | undefined)?.seq ?? 0
     const minAvailableSeq = (db.prepare('SELECT min(seq) AS seq FROM changes').get() as {seq:number | null}).seq ?? seq + 1
     phase('capture', capture)
+    if ('mode' in job && job.mode === 'delta') {
+      const target = job.to ?? seq
+      if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
+      if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
+      bundle = bootstrapVisibility(db)
+      const { policy, anchors, sync } = await bundle.context
+      const iterator = scopeChangesRange(sync, { policy, anchors, rescopeThreshold: DEFAULT_RESCOPE_THRESHOLD },
+        job.principal, job.from, target, job.pageRows ?? 500)[Symbol.asyncIterator]()
+      try {
+        let next = await iterator.next()
+        if (!next.done && next.value.kind === 'rescope') throw new SyncWorkerError('rescope')
+        const meta: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'delta',
+          wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId,
+          feedId: job.feedId, epoch: job.epoch, seq: target, fromSeq: job.from, minAvailableSeq }
+        const bytes = line(meta)
+        onMeta(meta)
+        yield bytes
+        while (!next.done) {
+          check()
+          const delivery = next.value
+          if (delivery.kind === 'rescope') {
+            outcome = 'authorization-changed'
+            yield line({ type: 'syncError', transferId: job.transferId, reason: 'authorization-changed' })
+            return
+          }
+          rows += delivery.changes.length
+          yield line({ type: 'feedDelta', feedId: job.feedId, epoch: job.epoch,
+            fromSeq: delivery.fromSeq, seq: delivery.throughSeq, minAvailableSeq, changes: delivery.changes })
+          await yieldLoop()
+          check()
+          try { next = await iterator.next() }
+          catch {
+            outcome = 'read-failed'
+            yield line({ type: 'syncError', transferId: job.transferId, reason: 'read-failed' })
+            return
+          }
+        }
+        yield line({ type: 'syncComplete', transferId: job.transferId, seq: target, records: records - 1, rows } satisfies SyncComplete)
+        outcome = 'complete'
+        return
+      } finally { await iterator.return?.() }
+    }
     const pass1 = performance.now()
     const refs: EntityRef[] = []
     for (const row of iterate<RefRow>(db, 'SELECT seq, entity, entity_id FROM change_latest ORDER BY seq')) {
@@ -125,7 +168,7 @@ async function* produceRecords(
     yield line({ type: 'syncComplete', transferId: job.transferId, seq, records: records - 1, rows } satisfies SyncComplete)
     outcome = 'complete'
   } catch (error) {
-    const reason = error instanceof SyncWorkerError ? error.reason : signal.aborted ? 'cancelled' : 'producer-failed'
+    const reason = error instanceof SyncWorkerError || error instanceof ChangeRangeBootstrapRequired ? error.reason : signal.aborted ? 'cancelled' : 'producer-failed'
     outcome = reason
     if (reason === 'row-too-large') {
       yield line({ type: 'syncError', transferId: job.transferId, reason })
@@ -147,7 +190,7 @@ async function* produceRecords(
 /** The entire content-coding pipeline stays in this worker, including codec flushing. */
 export async function* produceBootstrap(
   dbPath: string,
-  job: BootstrapJob,
+  job: SyncJob,
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
@@ -191,7 +234,7 @@ export async function* produceBootstrap(
     if (metrics) {
       metrics.outcome = !finished && outcome === 'complete'
         ? lifetime.signal.reason instanceof SyncWorkerError ? lifetime.signal.reason.reason : 'cancelled'
-        : outcome
+        : finished ? metrics.outcome : outcome
       metrics.bytesAfter = bytesAfter
       // Wall time of the streaming coding pipeline, including its backpressure.
       metrics.phases.compress = { ms: job.encoding === 'identity' ? 0 : performance.now() - started, bytes: bytesAfter }

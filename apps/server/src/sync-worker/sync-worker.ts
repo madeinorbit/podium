@@ -1,10 +1,10 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { createLogger } from '@podium/logger'
 import { produceBootstrap } from './producer'
-import { SYNC_CHUNK_BYTES, SYNC_JOB_DEADLINE_MS, SYNC_WORKER_MAX_JOBS, SYNC_WORKER_QUEUE_DEPTH, SyncWorkerError, type BootstrapJob, type FromWorker, type ToWorker } from './types'
+import { SYNC_CHUNK_BYTES, SYNC_JOB_DEADLINE_MS, SYNC_WORKER_MAX_JOBS, SYNC_WORKER_QUEUE_DEPTH, SyncWorkerError, type SyncJob, type FromWorker, type ToWorker } from './types'
 
 interface Work {
-  job: BootstrapJob
+  job: SyncJob
   abort: AbortController
   credits: number
   wake?: () => void
