@@ -149,6 +149,7 @@ function commit(authority: ConformanceAuthority, id: string): void {
 describe('a connection that presented a cursor', () => {
   it('completes a refused-cursor walk from the pushed world, without a socket cycle', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     commit(authority, 's1')
     const client = openClient(authority)
 
@@ -181,6 +182,7 @@ describe('a connection that presented a cursor', () => {
 
   it('resumes from its own cursor when the server sends only a grant', async () => {
     const authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     commit(authority, 's1')
     const client = openClient(authority)
     client.sink.connected(true)

@@ -137,9 +137,10 @@ describe('POD-376 divergence matrix', () => {
   let authority: ConformanceAuthority
   let clients: Client[]
 
-  beforeEach(() => {
+  beforeEach(async () => {
     factory = new IDBFactory() as unknown as IdbFactoryLike
     authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     clients = []
   })
 

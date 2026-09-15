@@ -330,9 +330,10 @@ describe.each(
   let authority: ConformanceAuthority
   let clients: Client[]
 
-  beforeEach(() => {
+  beforeEach(async () => {
     backend = makeBackend()
     authority = new ConformanceAuthority()
+    await authority.resolveIdentity()
     clients = []
   })
 
