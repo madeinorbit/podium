@@ -73,9 +73,16 @@ vi.mock('@podium/process/durable', () => ({
   waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
 }))
 
-vi.mock('@podium/process/screen', () => ({
-  spawnAgent: () => stub.session,
-}))
+vi.mock('@podium/process/screen', async (importOriginal) => {
+  // Spread the real door and stub only the spawn: the reattach handler under
+  // test reaches TerminalScreen (P2c) through session-screens, and a
+  // whole-module stub would hide it (see spawn-strip-env.test.ts).
+  const actual = await importOriginal<typeof import('@podium/process/screen')>()
+  return {
+    ...actual,
+    spawnAgent: () => stub.session,
+  }
+})
 
 const { sessionHandlers } = await import('./session')
 
