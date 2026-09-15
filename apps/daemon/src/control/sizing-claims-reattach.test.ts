@@ -2,7 +2,8 @@
  * SIZING PLAN ASSUMPTION TESTS — C16, daemon half (POD-3235, SPEC-0b.md rev 2;
  * rewritten for POD-3279's rule 1 rev 4).
  *
- * Its own file because it must mock `@podium/pty` at module scope: the claim is
+ * Its own file because it must mock `@podium/process/durable` and
+ * `@podium/process/screen` at module scope: the claim is
  * about what the reattach handler does AROUND the durable attach, so the attach
  * itself is stubbed and the real handler runs. The abduco half of C16
  * (`repaintOnAttach` defaulting to true) is executed for real against a vendored
@@ -23,7 +24,7 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
-import type { AgentSession } from '@podium/pty'
+import type { AgentSession } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
 
@@ -59,7 +60,7 @@ const stub = vi.hoisted(() => {
   return { state, session }
 })
 
-vi.mock('@podium/pty', () => ({
+vi.mock('@podium/process/durable', () => ({
   abducoHasSession: async () => true,
   abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
   attachAbducoAgent: (opts: unknown) => {
@@ -69,8 +70,11 @@ vi.mock('@podium/pty', () => ({
   killAbducoSession: async () => {},
   reapStaleAbducoBindTemps: () => {},
   spawnAbducoAgent: async () => stub.session,
-  spawnAgent: () => stub.session,
   waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
+}))
+
+vi.mock('@podium/process/screen', () => ({
+  spawnAgent: () => stub.session,
 }))
 
 const { sessionHandlers } = await import('./session')

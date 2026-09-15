@@ -37,7 +37,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SpawnOptions } from '@podium/pty'
+import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
 
@@ -47,8 +47,8 @@ afterAll(() => rmSync(settingsDir, { recursive: true, force: true }))
 
 let captured: SpawnOptions | undefined
 
-vi.mock('@podium/pty', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/pty')>()
+vi.mock('@podium/process/screen', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/process/screen')>()
   return {
     ...actual,
     spawnAgent: (opts: SpawnOptions) => {

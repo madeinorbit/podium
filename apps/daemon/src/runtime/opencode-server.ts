@@ -72,7 +72,7 @@ import {
   scopeReclaimArgvs,
   scopeUnitName,
   systemdScopeArgv,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'

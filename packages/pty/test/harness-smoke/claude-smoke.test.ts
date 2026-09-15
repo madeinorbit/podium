@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { bunTerminalBackend, spawnAgent } from '@podium/pty'
+import { bunTerminalBackend } from '@podium/process/pty'
+import { spawnAgent } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: needed to strip ANSI escapes

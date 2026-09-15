@@ -683,7 +683,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     {
       id: 'R2',
       what: 'borrower of a lent requirer, naming no capability token',
-      code: `import { lentReq } from '@podium/pty/backends/node-pty-backend'\nconst m = lentReq('${SPEC}')`,
+      code: `import { lentReq } from '@podium/process/pty'\nconst m = lentReq('${SPEC}')`,
     },
     {
       id: 'F1',

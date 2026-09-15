@@ -13,7 +13,7 @@
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "@podium/pty": "workspace:*",
+    "@podium/process": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/server": "workspace:*",
     "@podium/sync": "workspace:*",

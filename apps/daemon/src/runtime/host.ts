@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AttachmentStager } from '@podium/agent-runtime'
-import { scopeUnitName } from '@podium/pty'
+import { scopeUnitName } from '@podium/process/durable'
 import { durableFor } from '../control/durable'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
-import { bunTerminalBackend } from '@podium/pty'
+import { bunTerminalBackend } from '@podium/process/pty'
 import { describe, expect, it } from 'vitest'
 import { ComposerSyncEngine } from './composer-sync'
 

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
-import { bunTerminalBackend, spawnAgent } from '@podium/pty'
+import { bunTerminalBackend } from '@podium/process/pty'
+import { spawnAgent } from '@podium/process/screen'
 
 const CLI = fileURLToPath(new URL('../src/cli.tsx', import.meta.url))
 const PKG_DIR = fileURLToPath(new URL('..', import.meta.url))

@@ -47,7 +47,7 @@ import {
   sessionScopeCgroupPath,
   sliceChainPath,
   userManagerCgroupBase,
-} from '@podium/pty'
+} from '@podium/process/screen'
 import { instanceSessionSliceName } from '@podium/runtime/instance'
 
 const log = createLogger('daemon:scope-monitor')

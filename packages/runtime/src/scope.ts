@@ -4,9 +4,9 @@
  *
  * It lives in `@podium/runtime` because it has TWO consumers on opposite sides
  * of a dependency boundary: the daemon scopes agent sessions through
- * `@podium/pty`, and the server scopes development builds
+ * `@podium/process`, and the server scopes development builds
  * (`apps/server/src/modules/updates/build-scope.ts`). `check-boundaries.ts`
- * rule 2 keeps `@podium/pty` out of the server — reasonably, since importing it
+ * rule 2 keeps `@podium/process` out of the server — reasonably, since importing it
  * means driving real PTYs — so a home inside pty would have left the server
  * writing a SECOND resource policy. Two policies drift; one does not.
  *

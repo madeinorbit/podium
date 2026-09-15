@@ -38,7 +38,7 @@ import {
   killAbducoSession,
   resolveAbducoBin,
   spawnAbducoAgent,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,

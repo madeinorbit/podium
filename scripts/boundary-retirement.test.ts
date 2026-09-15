@@ -272,8 +272,8 @@ describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
     ).toEqual([])
   })
 
-  it('refuses @podium/pty from a server file — it declares NO open surface', () => {
-    expect(rulesFor('apps/server/src/x.ts', `import { spawnPty } from '@podium/pty'`)).toEqual([
+  it('refuses @podium/process from a server file — it declares NO open surface', () => {
+    expect(rulesFor('apps/server/src/x.ts', `import { spawnPty } from '@podium/process'`)).toEqual([
       'manifest-consumers',
     ])
   })

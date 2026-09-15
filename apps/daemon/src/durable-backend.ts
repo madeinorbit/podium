@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import { isAbducoAvailable, isHostAvailable } from '@podium/pty'
+import { isAbducoAvailable, isHostAvailable } from '@podium/process/durable'
 import type { DurableBackend } from './control/context'
 import type { DaemonOptions } from './daemon-options'
 

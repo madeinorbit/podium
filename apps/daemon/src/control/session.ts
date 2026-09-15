@@ -24,7 +24,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentSession,
   spawnAgent,
-} from '@podium/pty'
+} from '@podium/process/screen'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { measureTask } from '@podium/runtime/task-attribution'
 import { countFrame } from '../loop-attribution'

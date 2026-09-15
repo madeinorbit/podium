@@ -21,7 +21,7 @@
     "react": "^19.0.0"
   },
   "devDependencies": {
-    "@podium/pty": "workspace:*",
+    "@podium/process": "workspace:*",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "tsx": "^4.22.4",

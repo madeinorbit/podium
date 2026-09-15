@@ -43,7 +43,7 @@ import {
   killHostSession,
   listLiveHostLabels,
   reapAbducoTestSessions,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

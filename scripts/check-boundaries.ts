@@ -6,7 +6,7 @@
  *
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
- *  2. `@podium/harness`, `@podium/pty` and `@podium/harness` may only be
+ *  2. `@podium/harness`, `@podium/process` and `@podium/harness` may only be
  *     imported by `apps/daemon`, `scripts/`, and their own packages (including
  *     their tests); agent-bridge may also reach pty and harness. Importing any of
  *     them means driving real agent processes / PTYs, which is a host capability.

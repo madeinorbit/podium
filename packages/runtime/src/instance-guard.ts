@@ -225,7 +225,7 @@ export function writerLiveness(
  * logout and the tree cannot outlive a boot — a guard that survived a reboot
  * would be a lie by construction. A SYSTEM service with `User=` never receives
  * that variable, so the fixed logind path is the fallback, exactly as
- * `userRuntimeDir()` in `@podium/pty` does it and for the same reason.
+ * `userRuntimeDir()` in `@podium/process` does it and for the same reason.
  *
  * `machineWide: false` says the guard could not be placed anywhere two
  * different state roots would both find it, so the copied-root check below is

@@ -139,9 +139,18 @@ export const sharedVitestConfig = {
         find: /^@podium\/sync$/,
         replacement: fileURLToPath(new URL('./packages/sync/src/index.ts', import.meta.url)),
       },
+      // Anchored pair for the renamed process package (P2a, in packages/pty,
+      // with ./pty ./durable ./screen doors).
+      // Bare-string form would prefix-match the subpaths and rewrite
+      // '@podium/process/durable' to '<index.ts>/durable' — the exact hazard
+      // the runtime entries above anchor against. `$1` keeps the subpath.
       {
-        find: '@podium/pty',
+        find: /^@podium\/process$/,
         replacement: fileURLToPath(new URL('./packages/pty/src/index.ts', import.meta.url)),
+      },
+      {
+        find: /^@podium\/process\/(.*)$/,
+        replacement: `${fileURLToPath(new URL('./packages/pty/src/', import.meta.url))}$1`,
       },
       // Leaving runtime to the exports map resolved it by walking *up* the filesystem
       // out of the checkout, and a walk-up can land in a sibling checkout's

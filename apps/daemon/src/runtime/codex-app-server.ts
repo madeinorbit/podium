@@ -55,7 +55,7 @@ import {
   scopeReclaimArgvs,
   scopeUnitName,
   systemdScopeArgv,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import {
   ABDUCO_SUN_PATH_MAX,
   instanceRuntimeSocketRoot,

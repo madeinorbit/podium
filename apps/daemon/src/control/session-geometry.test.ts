@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
-import type { AgentSession } from '@podium/pty'
+import type { AgentSession } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { harnessCompatEnv, sessionHandlers, wireBridge } from './session'

@@ -15,8 +15,8 @@ import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentSession } from '@podium/pty'
-import { reapStaleAbducoBindTemps } from '@podium/pty'
+import type { AgentSession } from '@podium/process/screen'
+import { reapStaleAbducoBindTemps } from '@podium/process/durable'
 import {
   loadConfig,
   resolveAgentHomeDir,

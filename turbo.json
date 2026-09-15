@@ -386,7 +386,7 @@
       ],
       "outputs": []
     },
-    "@podium/pty#test": {
+    "@podium/process#test": {
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",

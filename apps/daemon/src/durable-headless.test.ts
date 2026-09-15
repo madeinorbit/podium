@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asAccountId, asSessionId } from '@podium/model'
-import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/pty'
+import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/process/durable'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeDurableHeadlessTurn,

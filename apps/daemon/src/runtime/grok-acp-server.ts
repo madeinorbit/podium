@@ -38,7 +38,7 @@ import {
   scopeReclaimArgvs,
   scopeUnitName,
   systemdScopeArgv,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import { SERVER_GRACEFUL_EXIT_MS, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'

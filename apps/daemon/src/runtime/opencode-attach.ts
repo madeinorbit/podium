@@ -116,7 +116,8 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import type { AbducoSpawnOptions, AgentSession } from '@podium/pty'
+import type { AbducoSpawnOptions } from '@podium/process/durable'
+import type { AgentSession } from '@podium/process/screen'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import type { Durable } from '../control/durable'
 import {

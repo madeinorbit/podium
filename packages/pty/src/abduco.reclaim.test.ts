@@ -7,7 +7,7 @@ import { resolveAbducoBin } from './abduco-bin.js'
 
 /**
  * Ported from main's packages/agent-bridge/src/abduco.reclaim.test.ts (114fb1f0)
- * after the rewrite moved abduco into @podium/pty and made reclaimStaleScope async.
+ * after the rewrite moved abduco into @podium/process and made reclaimStaleScope async.
  *
  * The property under test is an ABSENCE — "never runs a global abduco inventory" —
  * so it must not be able to pass vacuously. Two things make it able to say no:

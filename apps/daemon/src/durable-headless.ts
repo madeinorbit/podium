@@ -27,7 +27,7 @@ import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
   type AgentSession,
   shellQuote,
-} from '@podium/pty'
+} from '@podium/process/screen'
 import { stateDir } from '@podium/runtime/config'
 import { createDurable, type Durable } from './control/durable.js'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'

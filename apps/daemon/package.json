@@ -12,7 +12,7 @@
     "@podium/harness": "workspace:*",
     "@podium/composer": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "@podium/pty": "workspace:*",
+    "@podium/process": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/transcript": "workspace:*",

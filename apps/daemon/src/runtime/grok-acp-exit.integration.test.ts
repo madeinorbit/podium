@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // machine-level systemd housekeeping. The fake systemd-run below still starts
 // a real child and waits for that child, so the transport observes the same
 // wrapper -> ACP process exit boundary without depending on a user manager.
-vi.mock('@podium/pty', async () => {
-  const actual = await vi.importActual<typeof import('@podium/pty')>('@podium/pty')
+vi.mock('@podium/process/durable', async () => {
+  const actual = await vi.importActual<typeof import('@podium/process/durable')>('@podium/process/durable')
   return {
     ...actual,
     applySessionsSliceBudget: async () => {},

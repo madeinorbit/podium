@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
 import type { Geometry } from '@podium/model'
+import type { AgentSession } from '@podium/process/screen'
 import {
   type AbducoSpawnOptions,
   abducoHasSession,
   abducoSocketPath,
-  type AgentSession,
   attachAbducoAgent,
   attachHostAgent,
   type HostAgentSession,
@@ -20,7 +20,7 @@ import {
   spawnHostAgent,
   waitForAbducoSocket,
   waitForHostSocket,
-} from '@podium/pty'
+} from '@podium/process/durable'
 import type { DurableBackend } from './context'
 
 /**

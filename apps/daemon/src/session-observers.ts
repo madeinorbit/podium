@@ -28,7 +28,7 @@ import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { AgentSession } from '@podium/pty'
+import type { AgentSession } from '@podium/process/screen'
 import {
   createSharedStatTick,
   type StatTick,
