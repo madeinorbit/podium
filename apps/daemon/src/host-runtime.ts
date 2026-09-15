@@ -57,7 +57,6 @@ import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
-import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
@@ -78,7 +77,6 @@ import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
-import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -645,24 +643,6 @@ export async function createDaemonHostRuntime(args: {
       observers.onHookPayload(sessionId, payload)
     },
   })
-
-  if (opts.installCodexHooks) {
-    void ensurePodiumCodexHooks({
-      ...(homeDir ? { homeDir } : {}),
-      onDegraded: (diagnostic) => send({ type: 'machineDiagnostic', ...diagnostic }),
-    })
-      .then((result) => {
-        if (result.changed) log.info('codex hooks installed or refreshed')
-      })
-      .catch((error) => log.warn('codex hooks install failed', { err: error }))
-  }
-  if (opts.installGrokHooks) {
-    void ensurePodiumGrokHooks({ ...(homeDir ? { homeDir } : {}) })
-      .then((result) => {
-        if (result.changed) log.info('grok hooks installed or refreshed')
-      })
-      .catch((error) => log.warn('grok hooks install failed', { err: error }))
-  }
 
   const agentRelay = await startAgentRelayServer({
     port: opts.agentRelay?.port ?? resolveAgentRelayPort(config),

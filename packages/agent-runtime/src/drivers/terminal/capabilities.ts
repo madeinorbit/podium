@@ -25,6 +25,7 @@ export const RAW_FIRST_TURN_ATTACHMENT_REFUSAL =
   'raw-first-turn harnesses cannot consume an atomic attachment path prompt'
 
 export interface TerminalCapabilityInput {
+  instrumentationRequired: boolean
   driverId: DriverId
   /** The harness's declared proof order, from `runtime.terminal.sendProof`. */
   sendProof: readonly SendProof[]
@@ -60,6 +61,7 @@ export interface TerminalCapabilityInput {
  */
 export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapabilities {
   return {
+    instrumentation: input.instrumentationRequired ? 'required' : 'none',
     // ---- CORE ----
     send: {
       // `steer` is ABSENT, and its absence is the point: a TUI has no way to

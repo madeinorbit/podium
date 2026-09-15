@@ -42,7 +42,9 @@ export interface DaemonOptions {
   serverUrl: string
   /** Immutable hosted workspace target; omitted for self-hosted servers. */
   workspaceId?: string
+  /** @deprecated Terminal creation now installs required instrumentation. */
   installCodexHooks?: boolean
+  /** @deprecated Terminal creation now installs required instrumentation. */
   installGrokHooks?: boolean
   /** Local machine secret (`daemonSecret` credential), never ambient trust. */
   bootstrapToken?: string

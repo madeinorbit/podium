@@ -66,6 +66,7 @@ const PROFILE: TerminalHarnessProfile = {
   driverId: 'generic-pty',
   sendProof: ['transcript-echo'],
   hookAnchoredAccept: false,
+  instrumentationRequired: false,
   needsSubmitVerification: true,
   usesRawFirstTurn: true,
   archivable: false,
@@ -299,6 +300,7 @@ function makeWorld(options: WorldOptions = {}): {
   }
 
   const host: TerminalRuntimeHost = {
+    installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++nextId
       return {
@@ -533,6 +535,7 @@ function makeWorld(options: WorldOptions = {}): {
         harness: 'grok',
         selection: { auth: 'subscription', platform: 'linux', available: ['generic-pty'] },
         workdir: '/tmp/conformance',
+        instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
         model: {},
         instructions: { supported: false, reason: 'fixture' },
         mcpServers: { supported: false, reason: 'fixture' },

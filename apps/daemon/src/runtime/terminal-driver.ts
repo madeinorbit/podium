@@ -1,3 +1,7 @@
+import {
+  prepareTerminalInstrumentation,
+  type InstalledTerminalInstrumentation,
+} from './terminal-instrumentation'
 import { withDeliveryQueue } from '@podium/agent-runtime'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
@@ -185,7 +189,11 @@ export interface TerminalRuntimeHost {
   /** The existing spawn path. `create()`/`resume()` go through it rather than
    *  around it, which is what keeps a contract-driven session byte-identical to
    *  a server-spawned one. */
-  launch(msg: SpawnControl): Promise<void>
+  installInstrumentation(
+    sessionId: SessionId,
+    spec: SessionSpec,
+  ): Promise<InstalledTerminalInstrumentation>
+  launch(msg: SpawnControl, instrumentation?: InstalledTerminalInstrumentation): Promise<void>
   /** A cursor-anchored transcript slice, via the same source layer the
    *  `transcriptRead` frame uses. */
   readTranscript(
@@ -336,6 +344,7 @@ interface DriverSession {
  *  `AgentManifest.runtime.terminal` (POD-2019) so nothing here is a second list
  *  of per-harness behaviour. */
 export interface TerminalHarnessProfile {
+  instrumentationRequired: boolean
   driverId: DriverId
   sendProof: DriverCapabilities['send']['proof']
   /** Claude's `UserPromptSubmit` is the only causal accept in the fleet today. */
@@ -465,6 +474,15 @@ export interface TerminalRuntime {
    * session usually keeps serving. Whether it died is `exited`'s business.
    */
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void
+
+  /** Creation with a server-assigned identity and the existing launch frame. */
+  createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+    profile: TerminalHarnessProfile,
+    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
+    resume?: ResumeRef,
+  ): Promise<AgentSessionHandle>
 
   /** A driver for one harness kind. */
   driverFor(harness: AgentKind, profile: TerminalHarnessProfile): RuntimeDriver
@@ -1708,12 +1726,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
     let liveAt: number | undefined
     let baseOutput = 0
-    return withDeliveryQueue(handle, (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'), () => {
-      if (!session.live || !session.alive) { liveAt = undefined; return false }
-      const now = host.now()
-      if (liveAt === undefined) { liveAt = now; baseOutput = session.lastOutputAtMs }
-      return now - liveAt >= 6000 || (session.lastOutputAtMs > baseOutput && now - liveAt >= 800 && now - session.lastOutputAtMs >= 600)
-    }, () => !session.disposed)
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
+      () => {
+        if (!session.live || !session.alive) {
+          liveAt = undefined
+          return false
+        }
+        const now = host.now()
+        if (liveAt === undefined) {
+          liveAt = now
+          baseOutput = session.lastOutputAtMs
+        }
+        return (
+          now - liveAt >= 6000 ||
+          (session.lastOutputAtMs > baseOutput &&
+            now - liveAt >= 800 &&
+            now - session.lastOutputAtMs >= 600)
+        )
+      },
+      () => !session.disposed,
+    )
   }
 
   // -- registration + drivers ----------------------------------------------
@@ -1826,7 +1860,41 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     },
   }
 
+  async function createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+    profile: TerminalHarnessProfile,
+    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
+    resume?: ResumeRef,
+  ): Promise<AgentSessionHandle> {
+    profiles.set(sessionId, profile)
+    // Claim before installation/launch: initial frames can arrive during either await.
+    try {
+      return await claiming(sessionId, async () => {
+        const instrumentation = await prepareTerminalInstrumentation(
+          capabilitiesFor(profile),
+          spec,
+          () => host.installInstrumentation(sessionId, spec),
+        )
+        await launch(instrumentation)
+        return registerOrReuse(
+          {
+            sessionId,
+            agentKind: spec.harness as AgentKind,
+            cwd: spec.workdir,
+            resume: resume ?? null,
+          },
+          profile,
+        )
+      })
+    } catch (error) {
+      if (!handles.has(sessionId)) profiles.delete(sessionId)
+      throw error
+    }
+  }
+
   return {
+    createWithId,
     register,
     handleFor: (sessionId) => handles.get(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
@@ -1857,29 +1925,24 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
         async create(spec: SessionSpec): Promise<AgentSessionHandle> {
           const sessionId = asSessionId(randomUUID())
-          profiles.set(sessionId, profile)
-          // CLAIMED BEFORE THE AWAIT (POD-2107). The daemon's own launch path
-          // reaches `bind` while this promise is still pending — see
-          // `pendingFrames` for what dropping that frame costs.
-          return claiming(sessionId, async () => {
-            await host.launch(spawnControlFor(sessionId, harness, spec))
-            return registerOrReuse(
-              { sessionId, agentKind: harness, cwd: spec.workdir, resume: null },
-              profile,
-            )
-          })
+          return createWithId(sessionId, spec, profile, (instrumentation) =>
+            host.launch(spawnControlFor(sessionId, harness, spec), instrumentation),
+          )
         },
 
         async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
           const sessionId = asSessionId(randomUUID())
-          profiles.set(sessionId, profile)
-          return claiming(sessionId, async () => {
-            await host.launch({ ...spawnControlFor(sessionId, harness, spec), resume: ref })
-            return registerOrReuse(
-              { sessionId, agentKind: harness, cwd: spec.workdir, resume: ref },
-              profile,
-            )
-          })
+          return createWithId(
+            sessionId,
+            spec,
+            profile,
+            (instrumentation) =>
+              host.launch(
+                { ...spawnControlFor(sessionId, harness, spec), resume: ref },
+                instrumentation,
+              ),
+            ref,
+          )
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
@@ -1941,6 +2004,7 @@ const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>(
 function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCapabilities {
   const resolved: TerminalHarnessProfile = profile ?? {
     driverId: 'generic-pty',
+    instrumentationRequired: false,
     sendProof: ['transcript-echo'],
     hookAnchoredAccept: false,
     needsSubmitVerification: true,
@@ -1952,6 +2016,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
   if (cached) return cached
   const built = terminalCapabilities({
     driverId: resolved.driverId,
+    instrumentationRequired: resolved.instrumentationRequired,
     sendProof: resolved.sendProof,
     interactionsFromHooks: resolved.hookAnchoredAccept,
     usesRawFirstTurn: resolved.usesRawFirstTurn,

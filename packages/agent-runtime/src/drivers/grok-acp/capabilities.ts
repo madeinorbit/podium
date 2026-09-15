@@ -31,6 +31,7 @@ export function grokAcpCapabilities(): DriverCapabilities {
     archive: supported({ formatVersion: 1, byteFaithful: true }),
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
+    instrumentation: 'none',
 
     draft: supported({ read: true, write: true }),
     /**

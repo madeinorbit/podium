@@ -493,6 +493,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
         ),
     resumeRefTiming,
     placement: 'dedicated',
+    instrumentation: 'none',
     draft: supported({ read: true, write: true }),
     /**
      * `permissionMode` USED TO BE DECLARED HERE AND IS GONE (POD-3081).

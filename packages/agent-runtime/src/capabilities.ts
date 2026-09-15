@@ -234,6 +234,9 @@ export type ResumeRefTiming = 'spawn' | 'first-turn' | 'never'
  */
 export interface DriverCapabilities {
   // ---- CORE ----
+  /** Harness-side callback instrumentation must be installed before launch.
+   * This declares a creation requirement, not a public hook control API. */
+  instrumentation: 'required' | 'none'
   send: SendCapability
   interrupt: InterruptCapability
   interactions: Declared<InteractionCapability>

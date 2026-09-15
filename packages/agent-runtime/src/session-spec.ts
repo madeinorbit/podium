@@ -77,6 +77,13 @@ export interface SessionSpec {
   roleProfile?: RoleProfile
   instructions: Declared<InstructionChannel>
   mcpServers: McpServers
+  /** Per-session callback destination, required when the driver declares instrumentation.
+   * The host owns the listener; create/resume own installing its harness wiring. */
+  instrumentation?: {
+    endpointUrl: string
+    socketPath?: string
+    seedTheme?: boolean
+  }
   env?: Readonly<Record<string, string>>
   /** A first prompt delivered as part of the spawn where the harness accepts one. */
   initialPrompt?: string

@@ -1,3 +1,8 @@
+import {
+  installTerminalInstrumentation,
+  prepareTerminalInstrumentation,
+  type InstalledTerminalInstrumentation,
+} from '../runtime/terminal-instrumentation'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -21,10 +26,7 @@ import {
   type SessionId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import {
-  type AgentSession,
-  spawnAgent,
-} from '@podium/process/screen'
+import { type AgentSession, spawnAgent } from '@podium/process/screen'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { measureTask } from '@podium/runtime/task-attribution'
 import { countFrame } from '../loop-attribution'
@@ -58,7 +60,11 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame } from './applied-geometry'
-import { type DurableAttachment, type DurableProcess, durableProcessFor } from '@podium/process/durable'
+import {
+  type DurableAttachment,
+  type DurableProcess,
+  durableProcessFor,
+} from '@podium/process/durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -518,7 +524,11 @@ const HOST_REPLAY_TAIL_BYTES = 256 * 1024
  * that never becomes a bridge. It reports through a port, wired in
  * `host-runtime.ts`, because that module owns no context to write to.
  */
-export function rememberDurableSeq(ctx: DaemonContext, sessionId: SessionId, session: AgentSession): void {
+export function rememberDurableSeq(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  session: AgentSession,
+): void {
   const conn = (session as { connection?: { lastSeq?: bigint } }).connection
   if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
 }
@@ -662,6 +672,8 @@ export async function launchSpawn(
   ctx: DaemonContext,
   msg: SpawnControl,
   runtimeSelection: { requestedDriverId?: string } = {},
+  installedInstrumentation?: InstalledTerminalInstrumentation,
+  propagateFailure = false,
 ): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
@@ -732,140 +744,177 @@ export async function launchSpawn(
     }
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
-    let extraArgs: string[] = []
-    let instrumentationEnv: Record<string, string> = {}
-    if (provider) {
-      mkdirSync(ctx.settingsDir, { recursive: true })
-      const instr = provider.instrumentation({
-        endpointUrl: ctx.hookEndpointFor(msg.sessionId),
-        settingsPath: join(ctx.settingsDir, `${msg.sessionId}.json`),
-        // Absent = the setting default (on); older servers still get [spec:SP-a04d].
-        seedTheme: msg.seedCliTheme ?? true,
-        ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
+    const profile = terminalProfileFor(msg.agentKind)
+    const spec: SessionSpec = {
+      harness: msg.agentKind,
+      selection: {
+        auth: 'unknown',
+        platform: process.platform,
+        available: profile ? [profile.driverId] : [],
+      },
+      workdir: msg.cwd,
+      model: {},
+      instructions: { supported: false, reason: 'launch command carries instructions' },
+      mcpServers: { supported: false, reason: 'terminal harness owns its native config' },
+      instrumentation:
+        profile?.instrumentationRequired && !msg.loginHarness
+          ? {
+              endpointUrl: ctx.hookEndpointFor(msg.sessionId),
+              seedTheme: msg.seedCliTheme ?? true,
+              ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
+            }
+          : undefined,
+      env: { ...msg.env, ...cmd.env },
+    }
+    const launch = async (instrumentation: InstalledTerminalInstrumentation) => {
+      const spawnOpts = {
+        label,
+        cmd: cmd.cmd,
+        args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
+        cwd: cmd.cwd,
+        cols: msg.geometry.cols,
+        rows: msg.geometry.rows,
+        env: spawnEnv({
+          // Server-resolved managed credential / environment (SP-6454, #216).
+          sessionEnv: msg.env,
+          harnessEnv: cmd.env,
+          podiumEnv: {
+            // Bind the loopback session relay + session id into every session's env so its
+            // `podium` CLI can reach the daemon for this exact session. The agent-IDENTITY
+            // half rides along only for harness kinds — a shell is the operator [POD-1375].
+            ...sessionRelayEnv(
+              msg.sessionId,
+              ctx.agentRelayEndpointFor(msg.sessionId),
+              ctx.instanceId,
+              msg.agentKind,
+              ctx.instanceUuid,
+            ),
+            ...browserOpenEnv(ctx.settingsDir),
+            ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+            ...harnessInstanceEnv(msg.loginHarness ?? msg.agentKind, ctx.homeDir),
+            // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+            ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
+            // Globally-installed hooks are env-gated per session by their adapter.
+            // Commands exit immediately when absent, so non-Podium runs are untouched.
+            ...instrumentation.env,
+            // Terminal-protocol compatibility for this harness (see above).
+            ...harnessCompatEnv(msg.agentKind),
+          },
+        }),
+        // The session's account is the one its HOME is logged into — which is only
+        // true if this harness's own credential vars cannot reach it by inheritance
+        // from the daemon (POD-2296). `env` above cannot express that: unsetting a
+        // credential is a delete, not an empty string.
+        //
+        // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
+        // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
+        // exactly the kind this rule exempts. Read the other way round, the one pane
+        // whose whole purpose is to establish an account would be the one pane that
+        // let an inherited key outrank it — `claude login` under a stray
+        // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
+        // environment" instead.
+        stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
+      }
+      const durable = durableProcessFor(ctx)
+      const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
+      rememberDurableSeq(ctx, msg.sessionId, session)
+      driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
+        adopted: session.adopted,
       })
-      if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
-      extraArgs = instr.args
-      instrumentationEnv = instr.env ?? {}
+      const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
+      // Stand up the agent-state tracker, harness observer, resume transcript tail
+      // and seeded phase. The frame tap buffers the bounded gap between bridge
+      // wiring and this setup so screen-derived state still sees the first screen.
+      ctx.observers.initSessionObservers(msg, session, provider, {
+        seedOnFrame: true,
+        startedAtMs: spawnStartedAt,
+        ...(newSessionId ? { newSessionId } : {}),
+      })
+      ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
+      await bindRuntimeContract(ctx, msg, false)
+      const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+      // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
+      // session. attach() is a no-op for harnesses without a driver. Reads the
+      // session's one TerminalScreen model (P2c) instead of a second emulator.
+      if (msg.draftSync) {
+        ctx.composerEngine.attach(
+          msg.sessionId,
+          msg.agentKind,
+          geometry.cols,
+          geometry.rows,
+          terminalScreenFor(ctx, msg.sessionId).model,
+        )
+      }
+      // An adopted spawn started nothing: the durable master for this label was still
+      // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
+      // "address already in use" instead). Report it as the attach it is, so the row
+      // does not claim a fresh launch that never happened.
+      if (session.adopted) {
+        log.info('spawn adopted the live durable session for this label', {
+          sessionId: msg.sessionId,
+          label,
+        })
+      }
+      // THE ONE BUILDER (POD-3290). It reads this daemon's applied-size record and
+      // is the only thing in the tree that may write `geometry` into a bind, so
+      // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
+      // — the pty's birth size, or the held resize it dispatched instead.
+      ctx.send(
+        bindFrame(appliedGeometryFor(ctx), {
+          sessionId: msg.sessionId,
+          cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
+          cwd: cmd.cwd,
+          agentKind: msg.agentKind,
+          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4). The
+          // server records it and W4's senders branch on it — see BindMessage.
+          // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+          // one would report `false` for a server-family session and route its
+          // sends down the legacy PTY path, for a session that has no PTY.
+          ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(runtimeSelection.requestedDriverId
+            ? { requestedDriverId: runtimeSelection.requestedDriverId }
+            : {}),
+        }),
+      )
+      const handle = handleFor(ctx, msg.sessionId)
+      if (handle) driverTiming.sessionReady(handle.binding)
     }
-    const spawnOpts = {
-      label,
-      cmd: cmd.cmd,
-      args: instrumentedLaunchArgs(cmd.args, extraArgs),
-      cwd: cmd.cwd,
-      cols: msg.geometry.cols,
-      rows: msg.geometry.rows,
-      env: spawnEnv({
-        // Server-resolved managed credential / environment (SP-6454, #216).
-        sessionEnv: msg.env,
-        harnessEnv: cmd.env,
-        podiumEnv: {
-          // Bind the loopback session relay + session id into every session's env so its
-          // `podium` CLI can reach the daemon for this exact session. The agent-IDENTITY
-          // half rides along only for harness kinds — a shell is the operator [POD-1375].
-          ...sessionRelayEnv(
-            msg.sessionId,
-            ctx.agentRelayEndpointFor(msg.sessionId),
-            ctx.instanceId,
-            msg.agentKind,
-            ctx.instanceUuid,
-          ),
-          ...browserOpenEnv(ctx.settingsDir),
-          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-          ...harnessInstanceEnv(msg.loginHarness ?? msg.agentKind, ctx.homeDir),
-          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-          ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-          // Globally-installed hooks are env-gated per session by their adapter.
-          // Commands exit immediately when absent, so non-Podium runs are untouched.
-          ...instrumentationEnv,
-          // Terminal-protocol compatibility for this harness (see above).
-          ...harnessCompatEnv(msg.agentKind),
-        },
-      }),
-      // The session's account is the one its HOME is logged into — which is only
-      // true if this harness's own credential vars cannot reach it by inheritance
-      // from the daemon (POD-2296). `env` above cannot express that: unsetting a
-      // credential is a delete, not an empty string.
-      //
-      // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
-      // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
-      // exactly the kind this rule exempts. Read the other way round, the one pane
-      // whose whole purpose is to establish an account would be the one pane that
-      // let an inherited key outrank it — `claude login` under a stray
-      // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
-      // environment" instead.
-      stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
-    }
-    const durable = durableProcessFor(ctx)
-    const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
-    rememberDurableSeq(ctx, msg.sessionId, session)
-    driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
-      adopted: session.adopted,
-    })
-    const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
-    // Stand up the agent-state tracker, harness observer, resume transcript tail
-    // and seeded phase. The frame tap buffers the bounded gap between bridge
-    // wiring and this setup so screen-derived state still sees the first screen.
-    ctx.observers.initSessionObservers(msg, session, provider, {
-      seedOnFrame: true,
-      startedAtMs: spawnStartedAt,
-      ...(newSessionId ? { newSessionId } : {}),
-    })
-    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
-    await bindRuntimeContract(ctx, msg, false)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
-    // session. attach() is a no-op for harnesses without a driver. Reads the
-    // session's one TerminalScreen model (P2c) instead of a second emulator.
-    if (msg.draftSync) {
-      ctx.composerEngine.attach(
-        msg.sessionId,
-        msg.agentKind,
-        geometry.cols,
-        geometry.rows,
-        terminalScreenFor(ctx, msg.sessionId).model,
+    if (installedInstrumentation) {
+      await launch(installedInstrumentation)
+    } else if (
+      profile &&
+      ctx.agentRuntime &&
+      !msg.loginHarness &&
+      runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)
+    ) {
+      await ctx.agentRuntime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+    } else {
+      // Shell/login and injected legacy hosts have no runtime session to create.
+      await launch(
+        await prepareTerminalInstrumentation(
+          {
+            instrumentation:
+              !msg.loginHarness && profile?.instrumentationRequired ? 'required' : 'none',
+          },
+          spec,
+          () =>
+            installTerminalInstrumentation({
+              sessionId: msg.sessionId,
+              spec,
+              settingsDir: ctx.settingsDir,
+              ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+            }),
+        ),
       )
     }
-    // An adopted spawn started nothing: the durable master for this label was still
-    // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
-    // "address already in use" instead). Report it as the attach it is, so the row
-    // does not claim a fresh launch that never happened.
-    if (session.adopted) {
-      log.info('spawn adopted the live durable session for this label', {
-        sessionId: msg.sessionId,
-        label,
-      })
-    }
-    // THE ONE BUILDER (POD-3290). It reads this daemon's applied-size record and
-    // is the only thing in the tree that may write `geometry` into a bind, so
-    // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
-    // — the pty's birth size, or the held resize it dispatched instead.
-    ctx.send(
-      bindFrame(appliedGeometryFor(ctx), {
-        sessionId: msg.sessionId,
-        cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
-        cwd: cmd.cwd,
-        agentKind: msg.agentKind,
-        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4). The
-        // server records it and W4's senders branch on it — see BindMessage.
-        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-        // one would report `false` for a server-family session and route its
-        // sends down the legacy PTY path, for a session that has no PTY.
-        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
-        ...(driverId
-          ? {
-              driverId,
-              configureFields: [...configureFieldsForDriver(driverId)],
-              attachKinds: [...attachKindsForDriver(driverId)],
-            }
-          : {}),
-        ...(runtimeSelection.requestedDriverId
-          ? { requestedDriverId: runtimeSelection.requestedDriverId }
-          : {}),
-      }),
-    )
-    const handle = handleFor(ctx, msg.sessionId)
-    if (handle) driverTiming.sessionReady(handle.binding)
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
@@ -877,6 +926,7 @@ export async function launchSpawn(
       message: err instanceof Error ? err.message : String(err),
     })
     driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
+    if (propagateFailure) throw err
   }
 }
 export const MISSING_SESSION_BINDING_MESSAGE =
@@ -2102,7 +2152,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
               : {}),
           })
         } catch (err) {
-          log.warn('durable reattach failed', { err, sessionId: msg.sessionId, label: msg.durableLabel })
+          log.warn('durable reattach failed', {
+            err,
+            sessionId: msg.sessionId,
+            label: msg.durableLabel,
+          })
         }
       }
     }
@@ -2555,7 +2609,9 @@ export const sessionHandlers: Pick<
           // The program is at the acknowledged size now: the model follows it.
           trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
         })
-        .catch((err) => log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }))
+        .catch((err) =>
+          log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
+        )
     } else {
       record.apply(msg.sessionId, answer.cols, answer.rows)
       // The program is at the answered size now: the model follows it.
@@ -2575,7 +2631,8 @@ export const sessionHandlers: Pick<
     // WHAT they decide.
     const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
     const record = appliedGeometryFor(ctx)
-    const viewer = ctx.pendingResizes.get(msg.sessionId) ?? record.applied(msg.sessionId) ?? undefined
+    const viewer =
+      ctx.pendingResizes.get(msg.sessionId) ?? record.applied(msg.sessionId) ?? undefined
     const bridge = ctx.bridges.get(msg.sessionId)
     const decision = decideReopenScreen({
       mode: screen?.mode ?? 'normal',

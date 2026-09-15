@@ -35,7 +35,9 @@ import type {
  *
  * Every verb here is either a WRITE that returns a receipt or a typed refusal
  * (rule 3), or a READ that is causally enveloped (rule 4). Nothing on this
- * interface exposes a mechanism: there is no `pty`, no `socket`, no `hooks`.
+ * interface exposes a control mechanism: there is no `pty`, no `socket`, no `hooks`.
+ * Harness instrumentation is a declared creation requirement with a per-session
+ * destination in SessionSpec; drivers install it before launching the harness.
  */
 export interface AgentSessionHandle {
   readonly binding: SessionBinding

@@ -23,6 +23,7 @@ import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
 import type { TerminalRuntimeHost } from './terminal-driver'
+import { installTerminalInstrumentation } from './terminal-instrumentation'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -49,7 +50,14 @@ export function daemonRuntimeHost(
     scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
     durableHostAlive: async (label) => (await durableProcessFor(ctx)?.has(label)) ?? false,
     stopSession: (input) => stopSessionProcess(ctx, input),
-    launch: (msg) => launchSpawn(ctx, msg),
+    installInstrumentation: (sessionId, spec) =>
+      installTerminalInstrumentation({
+        sessionId,
+        spec,
+        settingsDir: ctx.settingsDir,
+        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+      }),
+    launch: (msg, instrumentation) => launchSpawn(ctx, msg, {}, instrumentation, true),
     readTranscript: async (session, range) => {
       const source = await sourceForRead(ctx, {
         sessionId: session.sessionId,

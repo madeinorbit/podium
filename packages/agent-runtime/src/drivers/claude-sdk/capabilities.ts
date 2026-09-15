@@ -25,6 +25,7 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     archive: supported({ formatVersion: 1, byteFaithful: true }),
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
+    instrumentation: 'none',
     draft: unsupported('the embedded SDK has no harness-owned composer'),
     /**
      * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081). Each turn opens

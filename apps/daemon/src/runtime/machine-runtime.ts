@@ -58,6 +58,7 @@ export type DaemonDriverResolution =
   | { ok: true; driverId: DriverId; capabilities: DriverCapabilities }
 
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
+  createTerminal: TerminalRuntime['createWithId']
   /** The live driver's declaration for one session, read off its BINDING — see
    *  `capabilitiesFor` below for why the binding and not a family guess. The
    *  configure handler reports `configure.effective` from it (POD-3081). */
@@ -277,6 +278,7 @@ export function createDaemonMachineRuntime(input: {
 
   return {
     ...runtime,
+    createTerminal: (...args) => input.terminal.createWithId(...args),
     capabilitiesFor,
     observe(message) {
       input.terminal.observe(message)

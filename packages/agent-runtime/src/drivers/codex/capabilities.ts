@@ -186,6 +186,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
      *  therefore never has to refuse. */
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
+    instrumentation: 'none',
 
     // ---- EXTENDED ----
     /** Read AND write: it is our own state, held beside the binding journal, so

@@ -61,6 +61,7 @@ const CLAUDE: TerminalHarnessProfile = {
   // echo as the fallback, `unverified` when neither lands.
   sendProof: ['hook', 'transcript-echo'],
   hookAnchoredAccept: true,
+  instrumentationRequired: true,
   needsSubmitVerification: false,
   usesRawFirstTurn: false,
   archivable: true,
@@ -71,6 +72,7 @@ const GROK: TerminalHarnessProfile = {
   driverId: 'generic-pty',
   sendProof: ['transcript-echo'],
   hookAnchoredAccept: false,
+  instrumentationRequired: false,
   needsSubmitVerification: true,
   usesRawFirstTurn: false,
   archivable: false,
@@ -208,6 +210,7 @@ function makeWorld(
   }
 
   const host: TerminalRuntimeHost = {
+    installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => ({
       id: 'attachment-1',
       path: '/tmp/attachment-1-' + source.filename,
@@ -379,6 +382,7 @@ const answeredEvents = (world: World): Array<{ id: string; answeredBy: string }>
   )
 
 const SPEC = {
+  instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
   harness: 'claude-code',
   selection: { auth: 'subscription' as const, platform: 'linux' as NodeJS.Platform, available: [] },
   workdir: '/tmp/w3',
@@ -388,6 +392,87 @@ const SPEC = {
 }
 
 // ---------------------------------------------------------------------------
+
+describe('instrumented terminal creation', () => {
+  it('awaits installation before launch and forwards the installed wiring', async () => {
+    const world = makeWorld()
+    const launch = vi.spyOn(world.host, 'launch')
+    let finish!: (value: { args: string[]; env: Record<string, string> }) => void
+    world.host.installInstrumentation = vi.fn(
+      () =>
+        new Promise<{ args: string[]; env: Record<string, string> }>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const pending = driver.create(SPEC)
+    expect(launch).not.toHaveBeenCalled()
+    const wiring = {
+      args: ['--settings', '/session/hooks.json'],
+      env: { CALLBACK: SPEC.instrumentation.endpointUrl },
+    }
+    finish(wiring)
+    const handle = await pending
+    expect(world.host.installInstrumentation).toHaveBeenCalledWith(handle.binding.sessionId, SPEC)
+    expect(launch.mock.calls[0]?.[1]).toEqual(wiring)
+    world.runtime.dispose()
+  })
+
+  it('refuses a missing channel before installing or starting a process', async () => {
+    const world = makeWorld()
+    const install = vi.spyOn(world.host, 'installInstrumentation')
+    const launch = vi.spyOn(world.host, 'launch')
+    await expect(
+      world.runtime
+        .driverFor('claude-code', CLAUDE)
+        .create({ ...SPEC, instrumentation: undefined }),
+    ).rejects.toThrow('per-session instrumentation endpoint')
+    expect(install).not.toHaveBeenCalled()
+    expect(launch).not.toHaveBeenCalled()
+    expect(world.runtime.bindings()).toEqual([])
+    world.runtime.dispose()
+  })
+
+  it('propagates installer failure without launching and permits a later retry', async () => {
+    const world = makeWorld()
+    const launch = vi.spyOn(world.host, 'launch')
+    world.host.installInstrumentation = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('unreadable hooks.json'))
+      .mockResolvedValue({ args: [] })
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    await expect(driver.create(SPEC)).rejects.toThrow('unreadable hooks.json')
+    expect(launch).not.toHaveBeenCalled()
+    expect(world.runtime.bindings()).toEqual([])
+    await driver.create(SPEC)
+    expect(launch).toHaveBeenCalledTimes(1)
+    world.runtime.dispose()
+  })
+
+  it('installs on resume and on creation with a server-assigned identity', async () => {
+    const world = makeWorld()
+    const install = vi.spyOn(world.host, 'installInstrumentation')
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    await driver.resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
+    const sessionId = 'server-session' as SessionId
+    const launch = vi.fn(async () => {})
+    await world.runtime.createWithId(sessionId, SPEC, CLAUDE, launch)
+    expect(install).toHaveBeenLastCalledWith(sessionId, SPEC)
+    expect(launch).toHaveBeenCalledWith({ args: [] })
+    expect(install).toHaveBeenCalledTimes(2)
+    world.runtime.dispose()
+  })
+
+  it('does not install for a driver without instrumentation', async () => {
+    const world = makeWorld()
+    const install = vi.spyOn(world.host, 'installInstrumentation')
+    await world.runtime
+      .driverFor('grok', GROK)
+      .create({ ...SPEC, harness: 'grok', instrumentation: undefined })
+    expect(install).not.toHaveBeenCalled()
+    world.runtime.dispose()
+  })
+})
 
 describe('attachment path prompts', () => {
   const source = {

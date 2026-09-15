@@ -174,10 +174,11 @@ function upsertHooksJson(doc: Record<string, unknown>): {
  */
 export async function ensurePodiumCodexHooks(opts?: {
   homeDir?: string
+  codexHome?: string
   versionProbe?: CodexVersionProbe
   onDegraded?: (diagnostic: CodexHookDiagnostic) => void
 }): Promise<{ installed: boolean; changed: boolean; degraded?: boolean; reason?: string }> {
-  const codexHome = join(opts?.homeDir ?? homedir(), '.codex')
+  const codexHome = opts?.codexHome ?? join(opts?.homeDir ?? homedir(), '.codex')
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
   const hooksJsonPath = join(codexHome, 'hooks.json')
 
