@@ -96,13 +96,19 @@
     "@podium/scripts#lint:span-effects": {
       "dependsOn": [],
       "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/*/src/**",
-        "$TURBO_ROOT$/apps/*/tsconfig*.json",
-        "$TURBO_ROOT$/apps/*/package.json",
+        "lint-span-effects.ts",
+        "check-span-effects.ts",
+        "span-effect-graph.ts",
+        "shared-cache-dir.ts",
+        "package.json",
+        "tsconfig.json",
+        "$TURBO_ROOT$/apps/server/src/**",
+        "$TURBO_ROOT$/apps/server/tsconfig*.json",
+        "$TURBO_ROOT$/apps/server/package.json",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/packages/*/tsconfig*.json",
-        "$TURBO_ROOT$/packages/*/package.json"
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/tooling/tsconfig/*.json"
       ],
       "outputs": []
     },
