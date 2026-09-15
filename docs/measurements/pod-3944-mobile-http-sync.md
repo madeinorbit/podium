@@ -56,3 +56,14 @@ heal, and revoked bearer recovery. Compare peak JS heap on the same device and
 omits Accept-Encoding (server defaults to zstd), or buffers gzip until completion,
 report the finding to POD-3933 rather than adding a native zstd decoder or presenting
 completion-only progress as streaming.
+
+## Pre-existing mobile lane failure
+
+The terminal confirmed-session remount assertion in
+`apps/mobile/src/terminal/terminal-pane.test.tsx:238` expects `lastMountOpts.gridMode`
+to be `server-grid`, but receives undefined. POD-3933 independently reproduced it
+without this integration on the integration tip `f99b25a80` and clean `dev/mw`
+`1b62bbcd9` (`dirty=0`). The file is also flaky: the coordinator observed two failures
+on one clean-tree run and one on an immediate rerun of the same tree. This programme
+does not change terminal files. The finding remains Proposed as POD-4036; no fix,
+workaround, or staffing is part of this integration.
