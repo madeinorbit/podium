@@ -37,6 +37,8 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AGENT_MANIFESTS } from '@podium/harness'
+import { terminalProfileFor } from './registry'
 import {
   RUNTIME_CONTRACT_ENV,
   runtimeContractEnabledByEnv,
@@ -2346,4 +2348,18 @@ describe('contract menu answers beyond a single index (POD-3982)', () => {
     expect(world.written).toEqual([])
     expect(await session.interactions()).toHaveLength(1)
   })
+
+describe('declared send readiness', () => {
+  it.each(['claude-code', 'grok', 'codex', 'opencode', 'pi', 'cursor'] as const)(
+    '%s exposes its manifest composer policy through the driver contract',
+    (harness) => {
+      const world = makeWorld()
+      const profile = terminalProfileFor(harness)!
+      const capabilities = world.runtime.driverFor(harness, profile).capabilities()
+      expect(capabilities.send.readiness).toEqual({
+        kind: 'terminal-composer',
+        composer: AGENT_MANIFESTS[harness].capabilities.composerReadiness,
+      })
+    },
+  )
 })
