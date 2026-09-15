@@ -94,7 +94,9 @@ and `SYNC_RETRY_AFTER_HEADER`.
 
 409 body: `{ "kind": "bootstrap-required", "reason": REASON }`, validated by
 `SyncBootstrapRequired`. Closed reasons are `feed-identity-mismatch`,
-`compacted-or-unknown`, `rescope`, `future-cursor`, and `invalid-target`.
+`compacted-or-unknown`, `corrupt-payload`, `rescope`, `future-cursor`, and `invalid-target`.
+`corrupt-payload` preserves the distinction between an unreadable retained row and a
+retention miss; both require bootstrap recovery.
 These retain the existing catch-up reason spellings; `FeedChangesSinceReply` itself
 currently permits an optional free-form string and is unchanged. Malformed query input
 is rejected before streaming; the endpoint owns its ordinary bad-request response.

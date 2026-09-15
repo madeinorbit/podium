@@ -52,7 +52,9 @@ describe('HTTP sync records', () => {
   it('closes error and bootstrap refusal vocabularies', () => {
     for (const reason of SyncErrorReason.options) expect(SyncRecord.safeParse({ type: 'syncError', transferId: 't', reason }).success).toBe(true)
     expect(SyncRecord.safeParse({ type: 'syncError', transferId: 't', reason: 'other' }).success).toBe(false)
-    expect(SyncBootstrapRequired.safeParse({ kind: 'bootstrap-required', reason: 'future-cursor' }).success).toBe(true)
+    for (const reason of ['feed-identity-mismatch', 'compacted-or-unknown', 'corrupt-payload', 'rescope', 'future-cursor', 'invalid-target']) {
+      expect(SyncBootstrapRequired.parse({ kind: 'bootstrap-required', reason })).toEqual({ kind: 'bootstrap-required', reason })
+    }
     expect(SyncBootstrapRequired.safeParse({ kind: 'bootstrap-required', reason: 'other' }).success).toBe(false)
   })
 })
