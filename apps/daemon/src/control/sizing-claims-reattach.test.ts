@@ -2,8 +2,8 @@
  * SIZING PLAN ASSUMPTION TESTS — C16, daemon half (POD-3235, SPEC-0b.md rev 2;
  * rewritten for POD-3279's rule 1 rev 4).
  *
- * Its own file because it must mock `@podium/process/durable` and
- * `@podium/process/screen` at module scope: the claim is
+ * Its own file because it must mock `@podium/process/durable`,
+ * `@podium/process/abduco` and `@podium/process/screen` at module scope: the claim is
  * about what the reattach handler does AROUND the durable attach, so the attach
  * itself is stubbed and the real handler runs. The abduco half of C16
  * (`repaintOnAttach` defaulting to true) is executed for real against a vendored
@@ -60,18 +60,54 @@ const stub = vi.hoisted(() => {
   return { state, session }
 })
 
-vi.mock('@podium/process/durable', () => ({
-  abducoHasSession: async () => true,
-  abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
-  attachAbducoAgent: (opts: unknown) => {
-    stub.state.attachedAt.push(opts)
-    return stub.session
-  },
-  killAbducoSession: async () => {},
-  reapStaleAbducoBindTemps: () => {},
-  spawnAbducoAgent: async () => stub.session,
-  waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
-}))
+vi.mock('@podium/process/durable', async (importOriginal) => {
+  // Spread the real door so durableProcessFor, createDurableProcess and the
+  // adapters stay REAL: the claim is about what the reattach handler does
+  // AROUND the durable attach, so only the leaf functions below are stubbed. A
+  // whole-module stub hides durableProcessFor, the handler finds no durable
+  // process and answers reattachFailed without ever building the bind frame.
+  const actual = await importOriginal<typeof import('@podium/process/durable')>()
+  return {
+    ...actual,
+    abducoHasSession: async () => true,
+    abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
+    attachAbducoAgent: (opts: unknown) => {
+      stub.state.attachedAt.push(opts)
+      return stub.session
+    },
+    killAbducoSession: async () => {},
+    reapStaleAbducoBindTemps: () => {},
+    spawnAbducoAgent: async () => stub.session,
+    waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
+  }
+})
+
+// The REAL abduco adapter kept real by the spread above reaches its leaves
+// through `./abduco.js`, not through the door — `@podium/process/*` resolves to
+// `packages/pty/src/*.ts`, so this is the same module record the adapter
+// imports. Stubbing the door alone leaves the real locate() probing the real
+// filesystem, finding nothing at the fake socket path and failing the reattach
+// (POD-4008). The same leaf stubs here let locate() hit the stubbed socket
+// path, the real adapter then adds sizeNeutral/fallbackGeometry itself on its
+// way down to the stubbed attachAbducoAgent, and redrawOnReattach stays the
+// adapter's own `true` — which is why the stub lives at the LEAF, not at
+// adapter.attach.
+vi.mock('@podium/process/abduco', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/process/durable')>()
+  return {
+    ...actual,
+    abducoHasSession: async () => true,
+    abducoSocketPath: () => '/tmp/podium-sizing-claims-reattach.sock',
+    attachAbducoAgent: (opts: unknown) => {
+      stub.state.attachedAt.push(opts)
+      return stub.session
+    },
+    killAbducoSession: async () => {},
+    reapStaleAbducoBindTemps: () => {},
+    spawnAbducoAgent: async () => stub.session,
+    waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
+  }
+})
 
 vi.mock('@podium/process/screen', async (importOriginal) => {
   // Spread the real door and stub only the spawn: the reattach handler under
