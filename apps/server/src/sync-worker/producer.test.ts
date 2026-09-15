@@ -16,7 +16,7 @@ const principal = (user: string) => ({ ...DEVICE_GRADE_PRINCIPAL, user: asUserId
 const job = (user: string): BootstrapJob => ({ transferId: user, principal: principal(user), feedId: 'feed', epoch: 'epoch', encoding: 'identity', deadlineMs: Date.now() + 60_000 })
 const issue = (id: string) => ({
   id: asIssueId(id), repoPath: '/r', seq: 1, title: 'Issue', description: '',
-  ownerUserId: asUserId('owner'), visibility: 'personal' as const, createdByActor: 'owner', createdByOnBehalfOf: 'owner',
+  ownerUserId: asUserId('owner'), visibility: 'personal' as const, createdByActor: 'owner', createdByOnBehalfOf: asUserId('owner'),
   stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto', machineId: asMachineId('machine'),
   linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [] as string[], dependencyNote: null,
   prUrl: null, priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null, notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null,

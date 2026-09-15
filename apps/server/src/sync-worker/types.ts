@@ -25,7 +25,8 @@ export type ToWorker =
   | { type: 'cancel'; transferId: string; reason?: SyncFailureReason }
   | { type: 'stop' }
 export type FromWorker =
-  | { type: 'ready' | 'heartbeat' }
+  | { type: 'ready' }
+  | { type: 'heartbeat' }
   | { type: 'meta'; transferId: string; meta: SyncMetaSummary }
   | { type: 'bytes'; transferId: string; chunk: ArrayBuffer }
   | { type: 'metrics'; transferId: string; metrics: BootstrapMetrics }

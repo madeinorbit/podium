@@ -14,9 +14,9 @@ const unsupported = (): never => { throw new Error('bootstrap cannot use writer 
 const key = (kind: string, id: string) => JSON.stringify([kind, id])
 
 /** Construct only query repositories: no SessionStore, migrations, authority or publication. */
-export async function bootstrapVisibility(database: SqlDatabase) {
+export function bootstrapVisibility(database: SqlDatabase) {
   const executor = createBunStoreExecutor({ database })
-  try {
+  const policy = (async () => {
   const q = executor.queries
   const grants = new GrantsRepository(q)
   const byResource = new Map<string, GrantRow[]>()
@@ -43,6 +43,8 @@ export async function bootstrapVisibility(database: SqlDatabase) {
     audienceResourceIds: async () => [], audienceFor: async () => [],
     issueEventSubjects: () => [], authorizationRevision: async () => 0,
   })
-  return { policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()), executor }
-  } catch (error) { await executor.close(); throw error }
+  return new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted())
+  })()
+  // Return ownership before the first async read can fail, so the caller always closes it.
+  return { policy, executor }
 }

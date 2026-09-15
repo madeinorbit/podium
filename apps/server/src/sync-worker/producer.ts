@@ -80,8 +80,8 @@ export async function* produceBootstrap(
       refs.push({ entity: row.entity, entityId: row.entity_id })
       if (refs.length % 256 === 0) { await yieldLoop(); check() }
     }
-    bundle = await bootstrapVisibility(db)
-    const policy = await bundle.policy.forBootstrap(refs)
+    bundle = bootstrapVisibility(db)
+    const policy = await (await bundle.policy).forBootstrap(refs)
     check()
     const visible = new Set<string>()
     for (let i = 0; i < refs.length; i++) {

@@ -1,4 +1,5 @@
 {
   "extends": "../../tooling/tsconfig/node.json",
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.bun.test.ts"]
 }

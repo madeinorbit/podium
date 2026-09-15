@@ -134,7 +134,7 @@ export class SyncWorkerClient {
     clearInterval(this.monitorTimer); clearTimeout(this.restartTimer)
     for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('shutdown'))
     const worker = this.worker; this.worker = undefined
-    if (worker) { try { worker.postMessage({ type: 'stop' }) } finally { this.terminate(worker) } }
+    if (worker) { try { worker.postMessage({ type: 'stop' }) } catch {} finally { this.terminate(worker) } }
     return this.closing = Promise.all([...this.terminations]).then(() => undefined)
   }
 }
