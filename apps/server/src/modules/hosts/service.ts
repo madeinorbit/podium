@@ -593,9 +593,9 @@ export class HostsService {
         if (session.agentKind !== 'shell') return false
         if (session.autoHibernateProtected) return false
         if (failed.has(session.sessionId)) return false
-        return this.fullyQuietSinceMs(session) <= cutoff
+        return this.quietSinceMs(session) <= cutoff
       })
-      .sort((a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b))[0]
+      .sort((a, b) => this.quietSinceMs(a) - this.quietSinceMs(b))[0]
     if (!target) return
     const result = await this.deps.parkShellSession({ sessionId: target.sessionId })
     if (!result.ok) {
@@ -628,14 +628,14 @@ export class HostsService {
         session.status === 'live' &&
         !failed.has(session.sessionId) &&
         !session.autoHibernateProtected &&
-        this.fullyQuietSinceMs(session) <= cutoff,
+        this.quietSinceMs(session) <= cutoff,
     )
     const unscheduled: HostSessionView[] = []
     for (const session of quiet) {
       if (!(await this.deps.hasScheduledWakeup(session.sessionId, now))) unscheduled.push(session)
     }
     const target = unscheduled.sort(
-      (a, b) => this.fullyQuietSinceMs(a) - this.fullyQuietSinceMs(b),
+      (a, b) => this.quietSinceMs(a) - this.quietSinceMs(b),
     )[0]
     if (!target) return
     const result =
@@ -739,11 +739,20 @@ export class HostsService {
 
       const phase = session.agentState?.phase
       if (phase === 'idle' || phase === 'ended') {
+        // THE TERMINAL-QUIET OVERLAY IS A PTY-ONLY RULE (this issue). A
+        // foreground turn can end while a background task keeps painting its
+        // TUI, so a full quiet minute keeps that work protected — but a
+        // contract-backed session has no PTY: lastOutputAtMs never moves, and
+        // the check would pass on epoch stamps without measuring anything.
+        // Its contract-side facts on this branch are phase, event-time
+        // recency (effectiveIdleSinceMs reads lastActiveAt, which runtime and
+        // state event-time advance) and the resume ref checked above. The
+        // revalidated terminal proof below still applies — and a contract
+        // session never holds one, so this branch stays closed for it in
+        // production; the unobserved branch below is its live path.
         const phaseEligible =
           this.effectiveIdleSinceMs(session) <= idleCutoff &&
-          // A foreground turn can end while a background task keeps painting its
-          // TUI. A full quiet minute keeps that work protected.
-          now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
+          (this.isContractBacked(session) || now - session.lastOutputAtMs >= OUTPUT_QUIET_MS)
         if (!phaseEligible) continue
         if (await this.deps.hasValidTerminalProof(session.sessionId)) {
           this.missingProofLogged.delete(session.sessionId)
@@ -904,13 +913,44 @@ export class HostsService {
     return phase === undefined || phase === 'unknown'
   }
 
+  /**
+   * Whether this session runs behind the driver contract with no PTY (server
+   * or embedded family — the registry notes embedded has no PTY either).
+   * Unknown (field absent: unbound, older daemon, unclaimed id) reads as
+   * PTY-backed — "assume a terminal", the same conservative default as the
+   * client wire — so the quiet rules below only relax for a KNOWN
+   * contract-backed session.
+   */
+  private isContractBacked(session: HostSessionView): boolean {
+    return session.driverFamily === 'server' || session.driverFamily === 'embedded'
+  }
+
   private unknownQuietWindowMs(idleMinutes: number): number {
     return Math.max(idleMinutes * 60_000, UNKNOWN_PHASE_MIN_QUIET_MS)
   }
 
   private isFullyQuietFor(session: HostSessionView, windowMs: number, now: number): boolean {
-    const since = this.fullyQuietSinceMs(session)
+    const since = this.quietSinceMs(session)
     return Number.isFinite(since) && now - since >= windowMs
+  }
+
+  /**
+   * When the session last went quiet, in the vocabulary its family owns — the
+   * single place the terminal-quiet overlay is declared PTY-only.
+   *
+   * PTY-backed: the max over event-time and terminal stamps (unchanged).
+   * Contract-backed: event-time recency ONLY. The terminal stamps never move
+   * without a PTY, so folding them would call every old session quiet on
+   * evidence that measures nothing, and honor stale stamps from before the
+   * contract bind as protection. lastActiveAt is the contract-side fact: the
+   * drivers' state folds advance it with event-time (setAgentState /
+   * recordRuntimeActivity), so for these sessions the unobserved floor
+   * measures "no contract event for four hours".
+   */
+  private quietSinceMs(session: HostSessionView): number {
+    if (!this.isContractBacked(session)) return this.fullyQuietSinceMs(session)
+    const at = Date.parse(session.lastActiveAt)
+    return Number.isFinite(at) ? at : Number.POSITIVE_INFINITY
   }
 
   private fullyQuietSinceMs(session: HostSessionView): number {

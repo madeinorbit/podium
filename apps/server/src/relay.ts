@@ -74,6 +74,7 @@ import { ClientRegistry } from './gateway/client-registry'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { PresenceRouting } from './gateway/presence-routing'
+import { driverFamilyForId } from './harness-manifest'
 import { checkIssueAccess } from './issue-authz'
 import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
@@ -1586,24 +1587,34 @@ export class SessionRegistry {
           // live on every call, which is what the re-read after a hibernate
           // attempt depends on.
           const closed = await closedIssueIdsInScope()
-          return [...liveSessions.values()].map((session) => ({
-            sessionId: session.sessionId,
-            machineId: session.machineId,
-            status: session.status,
-            agentKind: session.agentKind,
-            autoHibernateProtected: session.loginHarness !== undefined,
-            resume: session.resume,
-            agentState: session.agentState,
-            lastActiveAt: session.lastActiveAt,
-            lastResumedAtMs: session.terminal.lastResumedAtMs,
-            lastInputAtMs: session.terminal.lastInputAtMs,
-            lastOutputAtMs: session.terminal.lastOutputAtMs,
-            // Bound issue only. A session whose cwd merely sits INSIDE some
-            // issue's worktree resolves through `issueForCwd`, which is a
-            // per-session durable read; it would land in the no-issue tier,
-            // which is already above open work and below closed work.
-            ...(session.issueId != null ? { issueClosed: closed.has(session.issueId) } : {}),
-          }))
+          return [...liveSessions.values()].map((session) => {
+            // The bound driver's FAMILY, so the park gate can tell a terminal
+            // it may read quiet off from a contract it must not (this issue).
+            // Same lookup as the client wire (session.ts toMeta): bound wins
+            // over selected, absent means unknown and the gate keeps PTY rules.
+            const driverFamily = driverFamilyForId(
+              session.driverId ?? session.selectedDriverId ?? '',
+            )
+            return {
+              sessionId: session.sessionId,
+              machineId: session.machineId,
+              status: session.status,
+              agentKind: session.agentKind,
+              autoHibernateProtected: session.loginHarness !== undefined,
+              resume: session.resume,
+              agentState: session.agentState,
+              lastActiveAt: session.lastActiveAt,
+              lastResumedAtMs: session.terminal.lastResumedAtMs,
+              lastInputAtMs: session.terminal.lastInputAtMs,
+              lastOutputAtMs: session.terminal.lastOutputAtMs,
+              ...(driverFamily ? { driverFamily } : {}),
+              // Bound issue only. A session whose cwd merely sits INSIDE some
+              // issue's worktree resolves through `issueForCwd`, which is a
+              // per-session durable read; it would land in the no-issue tier,
+              // which is already above open work and below closed work.
+              ...(session.issueId != null ? { issueClosed: closed.has(session.issueId) } : {}),
+            }
+          })
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
