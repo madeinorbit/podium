@@ -34,7 +34,7 @@
  */
 
 import type { PendingInteraction } from '@podium/agent-runtime'
-import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
+import { ESC, TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
 import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
 import {
   assertArchiveHonoursItsDeclaration,
@@ -71,6 +71,9 @@ const PROFILE: TerminalHarnessProfile = {
   usesRawFirstTurn: true,
   archivable: false,
   reportsContextPercent: false,
+  // The manifest's own answer for a generic PTY harness (esc, never quits).
+  interruptBytes: ESC,
+  interruptQuitsWhenIdle: false,
 }
 
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are

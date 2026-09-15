@@ -357,6 +357,22 @@ export interface TerminalHarnessProfile {
   usesRawFirstTurn: boolean
   archivable: boolean
   reportsContextPercent: boolean
+  /**
+   * THE MANIFEST'S INTERRUPT KEY, AS BYTES (POD-3981).
+   *
+   * Read from `harnessInterrupt(kind)` in `terminalProfileFor`, never a
+   * constant here: there is no universal abort key, and the injection machine
+   * writes exactly these bytes. Every terminal harness ships esc today, so
+   * every profile in the tree reads `'\x1b'` — the field exists for the day
+   * one of them does not.
+   */
+  interruptBytes: string
+  /**
+   * Whether pressing the key while NO turn is running exits the CLI. The
+   * injection machine withholds the key while idle when true — the contract
+   * half of the legacy `abortKeyFor` guard.
+   */
+  interruptQuitsWhenIdle: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,63 +1155,75 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
   function injectionFor(session: DriverSession): TerminalInjectionMachine {
     const profile = profiles.get(session.sessionId)
-    return createTerminalInjection({
-      write: (text) => {
-        host.bridge(session.sessionId)?.write(Buffer.from(text, 'utf8').toString('base64'))
+    return createTerminalInjection(
+      {
+        write: (text) => {
+          host.bridge(session.sessionId)?.write(Buffer.from(text, 'utf8').toString('base64'))
+        },
+        running: () => session.alive && host.bridge(session.sessionId) !== undefined,
+        live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
+        phase: () => host.trackedState(session.sessionId)?.phase,
+        userTurnCount: () => session.userTurns,
+        lastOutputAtMs: () => session.lastOutputAtMs,
+        now: host.now,
+        setTimer: host.setTimer,
+        clearTimer: host.clearTimer,
+        ...(profile?.hookAnchoredAccept ? { hookAccept: hookAcceptFor(session) } : {}),
+        // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
+        // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
+        // transcript has ANY user turn, so an adopted session whose driver-local
+        // history happened to be empty must not be told to type raw keystrokes
+        // into a grok that is long past its first turn.
+        rawFirstTurn: () => (profile?.usesRawFirstTurn ?? false) && session.userTurns === 0,
+        needsSubmitVerification: () => profile?.needsSubmitVerification ?? false,
+        observedTurnEpoch: () => session.turnEpoch,
+        /**
+         * THE ABANDONED-QUEUE REPORT (POD-2107, POD-2202), and it is
+         * UNCONDITIONAL.
+         *
+         * A drain that gave up because the session never went live and a teardown
+         * that discards its queue used to make no sound: the caller held a
+         * `queued` receipt and nothing anywhere said the words were never typed.
+         * One line naming the session, reason and turns is the least this can cost,
+         * and it is the difference between a bug someone can find and a session
+         * that quietly answers nothing.
+         *
+         * NOT EMITTED AS A `turn` EVENT, deliberately. A turn event on this stream
+         * is a PROVIDER-CONFIRMED FENCE — the corpus pins that the driver emits
+         * none of its own, because a consumer told a turn failed believes a turn
+         * ran. These turns never started. Correcting the SENDER's receipt is a
+         * server-side surface (the durable FIFO is the server's), reached through
+         * `host.onDrainAbandoned` and its dedicated daemon frame.
+         */
+        onDrainAbandoned: (turns, reason) => {
+          log.warn('queued turns were never delivered', {
+            sessionId: session.sessionId,
+            reason,
+            turns: turns.length,
+            turnIds: turns.map((turn) => turn.id),
+          })
+          host.onDrainAbandoned?.({ sessionId: session.sessionId, turns, reason })
+        },
+        ...(host.authorizeAtDrain
+          ? {
+              authorizeAtDrain: (turn: QueuedTurn) =>
+                host.authorizeAtDrain?.({ sessionId: session.sessionId, turn }) ?? { ok: true },
+              onDrainRejected: (turn: QueuedTurn, reason: string) =>
+                host.onDrainRejected?.({ sessionId: session.sessionId, turn, reason }),
+            }
+          : {}),
       },
-      running: () => session.alive && host.bridge(session.sessionId) !== undefined,
-      live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
-      phase: () => host.trackedState(session.sessionId)?.phase,
-      userTurnCount: () => session.userTurns,
-      lastOutputAtMs: () => session.lastOutputAtMs,
-      now: host.now,
-      setTimer: host.setTimer,
-      clearTimer: host.clearTimer,
-      ...(profile?.hookAnchoredAccept ? { hookAccept: hookAcceptFor(session) } : {}),
-      // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
-      // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
-      // transcript has ANY user turn, so an adopted session whose driver-local
-      // history happened to be empty must not be told to type raw keystrokes
-      // into a grok that is long past its first turn.
-      rawFirstTurn: () => (profile?.usesRawFirstTurn ?? false) && session.userTurns === 0,
-      needsSubmitVerification: () => profile?.needsSubmitVerification ?? false,
-      observedTurnEpoch: () => session.turnEpoch,
-      /**
-       * THE ABANDONED-QUEUE REPORT (POD-2107, POD-2202), and it is
-       * UNCONDITIONAL.
-       *
-       * A drain that gave up because the session never went live and a teardown
-       * that discards its queue used to make no sound: the caller held a
-       * `queued` receipt and nothing anywhere said the words were never typed.
-       * One line naming the session, reason and turns is the least this can cost,
-       * and it is the difference between a bug someone can find and a session
-       * that quietly answers nothing.
-       *
-       * NOT EMITTED AS A `turn` EVENT, deliberately. A turn event on this stream
-       * is a PROVIDER-CONFIRMED FENCE — the corpus pins that the driver emits
-       * none of its own, because a consumer told a turn failed believes a turn
-       * ran. These turns never started. Correcting the SENDER's receipt is a
-       * server-side surface (the durable FIFO is the server's), reached through
-       * `host.onDrainAbandoned` and its dedicated daemon frame.
-       */
-      onDrainAbandoned: (turns, reason) => {
-        log.warn('queued turns were never delivered', {
-          sessionId: session.sessionId,
-          reason,
-          turns: turns.length,
-          turnIds: turns.map((turn) => turn.id),
-        })
-        host.onDrainAbandoned?.({ sessionId: session.sessionId, turns, reason })
-      },
-      ...(host.authorizeAtDrain
-        ? {
-            authorizeAtDrain: (turn: QueuedTurn) =>
-              host.authorizeAtDrain?.({ sessionId: session.sessionId, turn }) ?? { ok: true },
-            onDrainRejected: (turn: QueuedTurn, reason: string) =>
-              host.onDrainRejected?.({ sessionId: session.sessionId, turn, reason }),
-          }
-        : {}),
-    })
+      // THE MANIFEST'S interrupt key and idle guard (POD-3981). The profile
+      // carries what the harness manifest declares, read once in
+      // `terminalProfileFor`; the injection machine writes exactly these
+      // bytes and withholds them while idle when the guard says so — the
+      // contract half of the legacy `abortKeyFor` answer. Undefined when
+      // the session registered with no profile, and the machine’s own
+      // esc-without-a-guard default — today’s whole fleet — covers that.
+      profile
+        ? { bytes: profile.interruptBytes, quitsWhenIdle: profile.interruptQuitsWhenIdle }
+        : undefined,
+    )
   }
 
   function openSession(
@@ -1490,9 +1518,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (requested === 'steer' || requested === 'queue') return enqueue()
 
         if (requested === 'interrupt') {
-          // ESC first, then the replacement prompt one CR-delay later — the exact
-          // shape of `interruptText`, whose gap is what lets the CLI dismiss its
-          // prompt before the paste lands.
+          // The manifest key first, then the replacement prompt one CR-delay
+          // later — the exact shape of `interruptText`, whose gap is what lets
+          // the CLI dismiss its prompt before the paste lands.
           session.injection.interrupt()
           await new Promise<void>((resolve) => {
             host.setTimer(resolve, SUBMIT_CR_DELAY_MS)
@@ -2011,6 +2039,10 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     usesRawFirstTurn: false,
     archivable: false,
     reportsContextPercent: false,
+    // No profile means no manifest to ask — the conservative guess, matching
+    // `harnessInterrupt`'s unknown-harness answer: esc, and never fatal.
+    interruptBytes: '\x1b',
+    interruptQuitsWhenIdle: false,
   }
   const cached = capabilityCache.get(resolved)
   if (cached) return cached

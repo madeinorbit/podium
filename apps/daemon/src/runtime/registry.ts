@@ -23,6 +23,7 @@ import {
   AGENT_MANIFESTS,
   type DriverId,
   declaredValue,
+  harnessInterrupt,
   harnessLoginNeedsInteractive,
   harnessNeedsSubmitVerification,
   harnessUsesRawFirstTurn,
@@ -46,6 +47,11 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
   const manifest = manifestFor(agentKind)
   if (!manifest) return undefined
   const terminal = manifest.runtime.terminal
+  // THE MANIFEST'S INTERRUPT ANSWER (POD-3981), read through the same
+  // `harnessInterrupt` the legacy `abortKeyFor` path asks — so the day a
+  // manifest declares a non-ESC key, or a key that quits when idle, both
+  // paths agree without a second edit here.
+  const interrupt = harnessInterrupt(agentKind)
   return {
     driverId: terminal.driverId,
     instrumentationRequired: manifest.capabilities.hookInstall !== 'none',
@@ -63,6 +69,8 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     // verb refuses — rather than shipping an archive that cannot be imported.
     archivable: declaredValue(manifest.handoffTranscript) !== undefined,
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
+    interruptBytes: interrupt.bytes,
+    interruptQuitsWhenIdle: interrupt.quitsWhenIdle,
   }
 }
 

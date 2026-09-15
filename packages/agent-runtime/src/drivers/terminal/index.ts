@@ -33,6 +33,7 @@ export {
 } from './envelope.js'
 export {
   createTerminalInjection,
+  DEFAULT_TERMINAL_INTERRUPT,
   type DeliverOptions,
   ESC,
   type HookAcceptPort,
@@ -50,6 +51,7 @@ export {
   SUBMIT_VERIFY_DELAY_MS,
   type TerminalInjectionMachine,
   type TerminalInjectionPorts,
+  type TerminalInterruptConfig,
   type TimerHandle,
   VERIFICATION_WINDOW_MS,
 } from './injection.js'

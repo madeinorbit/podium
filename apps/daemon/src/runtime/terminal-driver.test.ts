@@ -66,6 +66,9 @@ const CLAUDE: TerminalHarnessProfile = {
   usesRawFirstTurn: false,
   archivable: true,
   reportsContextPercent: true,
+  // The manifest's own answer for Claude (esc, never quits when idle).
+  interruptBytes: ESC,
+  interruptQuitsWhenIdle: false,
 }
 
 const GROK: TerminalHarnessProfile = {
@@ -77,6 +80,9 @@ const GROK: TerminalHarnessProfile = {
   usesRawFirstTurn: false,
   archivable: false,
   reportsContextPercent: false,
+  // The manifest's own answer for grok (esc, never quits when idle).
+  interruptBytes: ESC,
+  interruptQuitsWhenIdle: false,
 }
 
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are

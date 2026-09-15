@@ -105,6 +105,34 @@ export const VERIFICATION_WINDOW_MS = SUBMIT_VERIFY_DELAY_MS * (SUBMIT_MAX_RETRI
  */
 export const ESC = '\x1b'
 
+/**
+ * WHAT KEY INTERRUPTS THIS HARNESS, AND WHAT IT COSTS WHEN IDLE (POD-3981).
+ *
+ * There is no universal abort key, and the same byte can be harmless in one
+ * CLI and terminal in another — so both halves come from the harness manifest
+ * (via the daemon's `TerminalHarnessProfile`), never from a constant here.
+ * The shape mirrors the legacy answer exactly: `SessionInbox.abortKeyFor`
+ * sends `harnessInterrupt(kind).bytes`, and sends NOTHING when
+ * `quitsWhenIdle` meets a session that is not computing.
+ */
+export interface TerminalInterruptConfig {
+  /** The exact bytes the harness's manifest declares as its interrupt key. */
+  bytes: string
+  /** Whether pressing the key while NO turn is running exits the CLI. */
+  quitsWhenIdle: boolean
+}
+
+/**
+ * The fleet as it ships today: every terminal harness declares esc with
+ * quits-when-idle false, so a caller that names no harness still interrupts
+ * exactly as before. The default is spelled out rather than reached for
+ * because the day a manifest says otherwise the call site must say so too.
+ */
+export const DEFAULT_TERMINAL_INTERRUPT: TerminalInterruptConfig = {
+  bytes: ESC,
+  quitsWhenIdle: false,
+}
+
 // ---------------------------------------------------------------------------
 // Ports
 // ---------------------------------------------------------------------------
@@ -257,8 +285,8 @@ export interface DeliverOptions {
   /** `when-ready` and `interrupt` reach here; `queue` is the queue below and
    *  `steer` has already been downgraded to it by the caller. */
   delivery: Extract<TurnDelivery, 'when-ready' | 'interrupt'>
-  /** Set by the interrupt path: an ESC already went out, so the `needs_user`
-   *  refusal below does not apply (the ESC is what clears the prompt). */
+  /** Set by the interrupt path: the manifest key already went out, so the `needs_user`
+   *  refusal below does not apply (the key is what clears the prompt). */
   afterEsc?: boolean
 }
 
@@ -283,8 +311,9 @@ export interface TerminalInjectionMachine {
     text: string,
     options: { origin: InputOrigin; id: string; principal?: ActingPrincipal },
   ): TurnReceipt
-  /** REQUEST a fence: one ESC, and nothing else. The fence itself only ever
-   *  arrives as a provider-confirmed terminal event on the causal stream. */
+  /** REQUEST a fence: the manifest's interrupt key, and nothing else. The fence
+   *  itself only ever arrives as a provider-confirmed terminal event on the
+   *  causal stream. */
   interrupt(): void
   /** Open queue depth, for `snapshot()` and diagnostics. */
   queueDepth(): number
@@ -292,7 +321,10 @@ export interface TerminalInjectionMachine {
   dispose(): void
 }
 
-export function createTerminalInjection(ports: TerminalInjectionPorts): TerminalInjectionMachine {
+export function createTerminalInjection(
+  ports: TerminalInjectionPorts,
+  interrupt: TerminalInterruptConfig = DEFAULT_TERMINAL_INTERRUPT,
+): TerminalInjectionMachine {
   const queue: QueuedTurn[] = []
   const timers = new Set<TimerHandle>()
   let draining = false
@@ -380,7 +412,7 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
     }
     // ONE OF EXACTLY TWO REFUSALS THE TERMINAL PATH HAS TODAY (inbox.ts ~713).
     // An open native prompt swallows a paste, so typing into it is not delivery.
-    // The interrupt path is exempt because its ESC is what dismisses the prompt.
+    // The interrupt path is exempt because its key is what dismisses the prompt.
     if (!options.afterEsc && ports.phase() === 'needs_user') {
       return {
         outcome: 'refused',
@@ -556,7 +588,15 @@ export function createTerminalInjection(ports: TerminalInjectionPorts): Terminal
     },
     interrupt() {
       if (!ports.running()) return
-      ports.write(ESC)
+      // THE MANIFEST'S IDLE GUARD, ported from `SessionInbox.abortKeyFor`
+      // (POD-1214): a key that quits an idle CLI must never be the thing that
+      // kills the session, so with nothing to stop there is nothing to send.
+      // `working` AND `compacting` count as computing — the same two
+      // `isAgentComputing` counts — so a stop is withheld exactly when there
+      // is no turn to stop, and never while one is running.
+      const phase = ports.phase()
+      if (interrupt.quitsWhenIdle && phase !== 'working' && phase !== 'compacting') return
+      ports.write(interrupt.bytes)
     },
     queueDepth: () => queue.length,
     dispose() {
