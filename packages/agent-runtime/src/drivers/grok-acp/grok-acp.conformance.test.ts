@@ -641,7 +641,7 @@ describe('grok-acp native controller sync', () => {
   })
 })
 function expectToolPair(
-  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>,
+  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>['items'],
   toolUseId: string,
   toolResult: string,
 ): void {
@@ -662,7 +662,7 @@ function expectToolPair(
 }
 
 function toolTranscriptShape(
-  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>,
+  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>['items'],
 ): unknown[] {
   return items.map((item) => ({
     id: item.id,
