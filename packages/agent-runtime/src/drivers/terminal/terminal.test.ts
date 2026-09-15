@@ -427,6 +427,39 @@ describe('the paste boundary', () => {
   })
 })
 
+describe('the manifest-driven interrupt (POD-3981)', () => {
+  // CHARACTERIZATION, and deliberately synthetic: no shipped harness declares
+  // anything but esc/false today, so this profile cannot come from a real
+  // manifest — it is what a future harness's manifest WOULD say, and the
+  // legacy `abortKeyFor` behaviour it pins is the spec the contract path must
+  // match before that path is deleted. A non-ESC key proves the bytes come
+  // from the profile rather than a hardcoded ESC; quits-when-idle TRUE proves
+  // the idle guard does too.
+  const CTRL_C = '\x03'
+  const NON_ESC_QUITS_WHEN_IDLE = { bytes: CTRL_C, quitsWhenIdle: true }
+
+  it.each(['working', 'compacting'] as const)(
+    'writes the manifest key, not ESC, while the agent is %s',
+    (phase) => {
+      // `working` AND `compacting`: the legacy guard is `isAgentComputing`,
+      // which counts both, so an interrupt withheld during compaction would be
+      // a stop refused exactly when there is a turn to stop.
+      const { ports, written } = terminal({ phase: () => phase })
+      createTerminalInjection(ports, NON_ESC_QUITS_WHEN_IDLE).interrupt()
+      expect(written).toEqual([CTRL_C])
+    },
+  )
+
+  it('withholds a quits-when-idle key while the agent is idle', () => {
+    // The legacy path returns NO bytes here rather than refusing: pressing
+    // this harness's key at an idle prompt would quit the CLI, so an
+    // interrupt-urgency send must never be the thing that kills the session.
+    const { ports, written } = terminal({ phase: () => 'idle' })
+    createTerminalInjection(ports, NON_ESC_QUITS_WHEN_IDLE).interrupt()
+    expect(written).toEqual([])
+  })
+})
+
 describe('row cancellation at the terminal submit boundary', () => {
   it('fences the delayed Enter and confirmation nudges after cancellation', async () => {
     const abort = new AbortController()
