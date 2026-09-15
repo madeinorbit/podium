@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { brotliCompressSync, brotliDecompressSync, gunzipSync } from 'node:zlib'
+import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from 'node:zlib'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
@@ -30,6 +30,9 @@ describe('registerWebStatic', () => {
     writeFileSync(join(dir, 'assets', 'index-RR9HhGf3.js'), BIG_JS)
     writeFileSync(join(dir, 'assets', 'pre.js'), 'pre-compressed at build time')
     writeFileSync(join(dir, 'assets', 'pre.js.br'), PRE_BR)
+    writeFileSync(join(dir, 'assets', 'ranked.js'), BIG_JS)
+    writeFileSync(join(dir, 'assets', 'ranked.js.br'), brotliCompressSync(Buffer.from(BIG_JS)))
+    writeFileSync(join(dir, 'assets', 'ranked.js.gz'), gzipSync(Buffer.from(BIG_JS)))
     writeFileSync(join(dir, 'assets', 'logo.png'), Buffer.alloc(4096, 7))
     writeFileSync(join(dir, 'apple-touch-icon-180x180.png'), APPLE_ICON)
     registerWebStatic(app, dir)
@@ -137,6 +140,67 @@ describe('registerWebStatic', () => {
       headers: { 'accept-encoding': 'gzip;q=0, br;q=0' },
     })
     expect(res.headers.get('content-encoding')).toBe(null)
+  })
+  it.each([
+    '0',
+    '0.',
+    '0.0',
+    '0.00',
+    '0.000',
+  ])('keeps an explicit q=%s refusal ahead of wildcard acceptance', async (q) => {
+    for (const header of [`br;q=${q}, *;q=1`, `*;q=1, br;q=${q}`]) {
+      const res = await app.request('/assets/big.js', {
+        headers: { 'accept-encoding': header },
+      })
+      expect(res.headers.get('content-encoding')).toBe('gzip')
+      expect(gunzipSync(new Uint8Array(await res.arrayBuffer())).toString()).toBe(BIG_JS)
+    }
+  })
+  it.each([
+    ['br;q=0.1, gzip;q=0.9', 'gzip'],
+    ['gzip;q=0.9, br;q=0.1', 'gzip'],
+    ['gzip;q=0.125, br;q=0.126', 'br'],
+    ['br;q=0.5, *;q=0.9', 'gzip'],
+    ['*;q=0, gzip;q=0.5', 'gzip'],
+    ['gzip;q=0.5, br;q=0.5', 'br'],
+    ['BR; Q = 0.100, GZIP; Q = 1.000', 'gzip'],
+    ['br;q=0, br;q=1, gzip', 'gzip'],
+    ['br;q=1, br;q=0, gzip', 'gzip'],
+  ])('ranks %s by quality', async (header, encoding) => {
+    const res = await app.request('/assets/big.js', {
+      headers: { 'accept-encoding': header },
+    })
+    expect(res.headers.get('content-encoding')).toBe(encoding)
+    const decode = encoding === 'br' ? brotliDecompressSync : gunzipSync
+    expect(decode(new Uint8Array(await res.arrayBuffer())).toString()).toBe(BIG_JS)
+  })
+  it.each([
+    '1.001',
+    '0.0001',
+    '-1',
+    '2',
+    '.5',
+    'nope',
+    '0.5;q=1',
+  ])('refuses a malformed quality %s even with a wildcard', async (q) => {
+    const res = await app.request('/assets/big.js', {
+      headers: { 'accept-encoding': `br;q=${q}, *;q=1` },
+    })
+    expect(res.headers.get('content-encoding')).toBe('gzip')
+  })
+  it('ranks precompressed siblings by their non-zero quality values', async () => {
+    const res = await app.request('/assets/ranked.js', {
+      headers: { 'accept-encoding': 'br;q=0.1, gzip;q=0.9' },
+    })
+    expect(res.headers.get('content-encoding')).toBe('gzip')
+    expect(gunzipSync(new Uint8Array(await res.arrayBuffer())).toString()).toBe(BIG_JS)
+  })
+  it('does not serve a precompressed sibling explicitly refused against a wildcard', async () => {
+    const res = await app.request('/assets/pre.js', {
+      headers: { 'accept-encoding': 'br;q=0.000, *;q=1' },
+    })
+    expect(res.headers.get('content-encoding')).toBe(null)
+    expect(await res.text()).toBe('pre-compressed at build time')
   })
   it('serves a build-time .br sibling verbatim rather than recompressing', async () => {
     const res = await app.request('/assets/pre.js', { headers: { 'accept-encoding': 'br' } })

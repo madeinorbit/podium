@@ -202,23 +202,30 @@ function cacheCompressed(key: string, buf: Buffer): void {
 type Encoding = 'br' | 'gzip'
 
 /**
- * Encodings the client will accept, best first. Brotli wins when offered: it is
- * ~15% smaller than gzip on JS and every browser that speaks it over http/https
- * advertises it. `identity` is implicit; an explicit `;q=0` opts an encoding out.
+ * RFC 9110 weights, best first; Brotli wins ties. Explicit tokens override the
+ * wildcard. Invalid weights refuse that token; duplicates use the strictest
+ * weight, matching the sync negotiator without depending on the sync pipeline.
+ * An absent/empty header retains this server's uncompressed default.
  */
 function acceptedEncodings(header: string | undefined): Encoding[] {
   if (!header) return []
-  const accepted: Encoding[] = []
-  const entries = header.split(',').map((part) => part.trim().toLowerCase())
-  const wants = (name: string): boolean =>
-    entries.some((entry) => {
-      const [token, ...params] = entry.split(';').map((p) => p.trim())
-      if (token !== name && token !== '*') return false
-      return !params.some((p) => p.replace(/\s/g, '') === 'q=0' || p.replace(/\s/g, '') === 'q=0.0')
-    })
-  if (wants('br')) accepted.push('br')
-  if (wants('gzip')) accepted.push('gzip')
-  return accepted
+  const weights = new Map<string, number>()
+  for (const item of header.split(',')) {
+    const [name, ...params] = item.trim().toLowerCase().split(';')
+    const token = name?.trim()
+    if (!token || !/^[!#$%&'*+.^_`|~a-z0-9-]+$/.test(token)) continue
+    let q = 1
+    if (params.length) {
+      const match =
+        params.length === 1 && /^\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)\s*$/.exec(params[0]!)
+      q = match ? Number(match[1]) : 0
+    }
+    weights.set(token, Math.min(weights.get(token) ?? 1, q))
+  }
+  const quality = (encoding: Encoding): number => weights.get(encoding) ?? weights.get('*') ?? 0
+  return (['br', 'gzip'] as const)
+    .filter((encoding) => quality(encoding) > 0)
+    .sort((a, b) => quality(b) - quality(a))
 }
 
 function compress(buf: Buffer, encoding: Encoding): Promise<Buffer> {
