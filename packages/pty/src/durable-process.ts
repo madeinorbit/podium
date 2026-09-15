@@ -119,7 +119,6 @@ export interface DurableProcess {
 
 /** Backwards-compatible alias: the daemon predates the `DurableProcess` name. */
 export type Durable = DurableProcess
-export type DurableAttachmentAlias = DurableAttachment
 
 export function abducoDurableAdapter(): DurableAdapter {
   return {
@@ -264,15 +263,15 @@ export function sweepStaleDurableBindTemps(env: NodeJS.ProcessEnv = process.env)
  * that can answer — so this helper names no SessionId, no protocol frame and
  * no daemon context.
  */
-export function durableProcessFor(ctx: {
+export function durableProcessFor(holder: {
   backend: DurableBackend
   durable?: DurableProcess | undefined
 }): DurableProcess | undefined {
-  if (ctx.durable) return ctx.durable
-  if (ctx.backend === 'none') return undefined
-  return createDurableProcess(ctx.backend, {
-    host: ctx.backend === 'host',
-    abduco: ctx.backend === 'abduco',
+  if (holder.durable) return holder.durable
+  if (holder.backend === 'none') return undefined
+  return createDurableProcess(holder.backend, {
+    host: holder.backend === 'host',
+    abduco: holder.backend === 'abduco',
   })
 }
 
