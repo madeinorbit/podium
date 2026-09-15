@@ -1,3 +1,4 @@
+import { gunzipSync, zstdDecompressSync } from 'node:zlib'
 import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -39,6 +40,22 @@ async function checkpoint(writer: SqlDatabase) {
 async function text(body: ReadableStream<Uint8Array>) { return await new Response(body).text() }
 
 describe('real sync worker boundary', () => {
+  it.each(['gzip', 'zstd'] as const)('produces complete %s bytes in the worker', async (encoding) => {
+    const f = await fixture()
+    try {
+      for (let i = 0; i < 300; i++) append(f.writer, String(i), 'x'.repeat(4096))
+      const transfer = f.client.bootstrap({ ...job(encoding), encoding })
+      const encoded = Buffer.from(await new Response(transfer.body).arrayBuffer())
+      const decoded = (encoding === 'gzip' ? gunzipSync(encoded) : zstdDecompressSync(encoded)).toString()
+      const lines = decoded.trim().split('\n').map(line => JSON.parse(line))
+      expect(lines[0]).toEqual(await transfer.meta)
+      expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', rows: 300 })
+      expect(lines.filter(row => row.type === 'feedBootstrap').flatMap(row => row.changes)).toHaveLength(300)
+      expect(encoded.byteLength).toBeLessThan(decoded.length / 10)
+      await checkpoint(f.writer)
+    } finally { await f.close() }
+  }, 30_000)
+
   it('holds a consistent head and complete row set during concurrent appends', async () => {
     const f = await fixture()
     let timer: ReturnType<typeof setInterval> | undefined

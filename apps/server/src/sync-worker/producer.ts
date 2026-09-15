@@ -5,6 +5,7 @@ import type { EntityRef } from '@podium/sync'
 import { createLogger } from '@podium/logger'
 import { perf } from '../modules/perf/registry'
 import { perfPrincipal } from '../modules/perf/principal'
+import { pipeSyncBody } from '../sync/pipe-sync-body'
 import { bootstrapVisibility } from './visibility'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary, type BootstrapMetrics } from './types'
 
@@ -24,7 +25,7 @@ function* iterate<T>(db: SqlDatabase, sql: string): Generator<T> {
  * for a transfer prevents checkpointing past its snapshot until completion/cancel;
  * the ten-minute admission deadline bounds this window (and consequent WAL growth).
  */
-export async function* produceBootstrap(
+async function* produceRecords(
   dbPath: string,
   job: BootstrapJob,
   signal: AbortSignal,
@@ -49,8 +50,6 @@ export async function* produceBootstrap(
     if (Date.now() >= (job.deadlineMs ?? Infinity)) throw new SyncWorkerError('deadline')
   }
   check()
-  // TODO(A4): run these identity bytes through the shared streaming content encoder.
-  if (job.encoding !== 'identity') throw new SyncWorkerError('unavailable')
   const db = openDatabase(dbPath, { readOnly: true })
   let bundle: Awaited<ReturnType<typeof bootstrapVisibility>> | undefined
   let transaction = false
@@ -60,7 +59,7 @@ export async function* produceBootstrap(
     const t = performance.now()
     const bytes = utf8.encode(JSON.stringify(record) + '\n')
     phase('encode', t, bytes.byteLength)
-    if (bytes.byteLength > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
+    if (bytes.byteLength - 1 > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
     bytesBefore += bytes.byteLength
     bytesAfter += bytes.byteLength
     records++
@@ -108,7 +107,7 @@ export async function* produceBootstrap(
       if (!visible.has(key({ entity: row.entity, entityId: row.entity_id }))) continue
       const change = { seq: row.seq, entity: row.entity, entityId: row.entity_id, op: 'upsert', value: JSON.parse(row.payload) }
       const size = utf8.encode(JSON.stringify(change)).byteLength
-      if (utf8.encode(JSON.stringify(frame([change], false)) + '\n').byteLength > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
+      if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES) throw new SyncWorkerError('row-too-large')
       if (batch.length && (batch.length >= SYNC_BATCH_MAX_ROWS || batchOverhead + batchBytes + size + batch.length > SYNC_BATCH_TARGET_BYTES)) {
         yield line(frame(batch, false)); batch = []; batchBytes = 0
         await yieldLoop(); check()
@@ -123,7 +122,10 @@ export async function* produceBootstrap(
   } catch (error) {
     const reason = error instanceof SyncWorkerError ? error.reason : signal.aborted ? 'cancelled' : 'producer-failed'
     outcome = reason
-    if (reason === 'row-too-large') yield line({ type: 'syncError', transferId: job.transferId, reason })
+    if (reason === 'row-too-large') {
+      yield line({ type: 'syncError', transferId: job.transferId, reason })
+      return // Let the content encoder finish its trailer before reporting the typed failure.
+    }
     throw error instanceof SyncWorkerError ? error : new SyncWorkerError(reason)
   } finally {
     try { if (transaction) db.exec('ROLLBACK') }
@@ -132,6 +134,63 @@ export async function* produceBootstrap(
     perf.record('phase', 'syncBootstrap.compress', 0, attribution, bytesAfter)
     phase('transfer', started, bytesAfter)
     onMetrics?.({ transferId: job.transferId, phases, rows, refs: refCount, records, bytesBefore, bytesAfter, queueWaitMs: 0, outcome, peakProcessRss, heapBefore, heapAfterPrefetch })
-    log.info('bootstrap finished', { transferId: job.transferId, rows, records, bytesBefore, bytesAfter, outcome })
+
+  }
+}
+
+
+/** The entire content-coding pipeline stays in this worker, including codec flushing. */
+export async function* produceBootstrap(
+  dbPath: string,
+  job: BootstrapJob,
+  signal: AbortSignal,
+  onMeta: (meta: SyncMetaSummary) => void,
+  onMetrics?: (metrics: BootstrapMetrics) => void,
+): AsyncGenerator<Uint8Array> {
+  const lifetime = new AbortController()
+  const abort = () => lifetime.abort(signal.reason)
+  signal.addEventListener('abort', abort, { once: true })
+  if (signal.aborted) abort()
+  const telemetry: { metrics?: BootstrapMetrics } = {}
+  const records = produceRecords(dbPath, job, lifetime.signal, onMeta, value => { telemetry.metrics = value })
+  const source = {
+    [Symbol.asyncIterator]: () => records,
+    abort: (reason: unknown) => lifetime.abort(reason),
+  }
+  const started = performance.now()
+  const reader = pipeSyncBody(source, job.encoding, lifetime.signal).getReader()
+  let bytesAfter = 0, finished = false, outcome = 'complete'
+  try {
+    while (true) {
+      const next = await reader.read()
+      if (next.done) { finished = true; break }
+      bytesAfter += next.value.byteLength
+      yield next.value
+    }
+    if (telemetry.metrics?.outcome === 'row-too-large') throw new SyncWorkerError('row-too-large')
+  } catch (error) {
+    const failure = error instanceof SyncWorkerError ? error : new SyncWorkerError(signal.aborted ? 'cancelled' : 'producer-failed')
+    outcome = failure.reason
+    throw failure
+  } finally {
+    signal.removeEventListener('abort', abort)
+    if (!finished) {
+      lifetime.abort(new SyncWorkerError('cancelled'))
+      await reader.cancel(lifetime.signal.reason).catch(() => {})
+    }
+    // pipeSyncBody requests return on abort; await it here before releasing the
+    // worker's job slot so no replacement job can overlap an unclosed reader.
+    await records.return(undefined).catch(() => {})
+    reader.releaseLock()
+    const metrics = telemetry.metrics
+    if (metrics) {
+      metrics.outcome = !finished && outcome === 'complete' ? 'cancelled' : outcome
+      metrics.bytesAfter = bytesAfter
+      // Wall time of the streaming coding pipeline, including its backpressure.
+      metrics.phases.compress = { ms: job.encoding === 'identity' ? 0 : performance.now() - started, bytes: bytesAfter }
+      metrics.phases.transfer = { ms: performance.now() - started, bytes: bytesAfter }
+      onMetrics?.(metrics)
+      log.info('bootstrap finished', { transferId: job.transferId, rows: metrics.rows, records: metrics.records, bytesBefore: metrics.bytesBefore, bytesAfter, outcome: metrics.outcome })
+    }
   }
 }

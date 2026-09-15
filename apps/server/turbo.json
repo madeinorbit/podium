@@ -894,6 +894,8 @@
         "src/sync-worker/producer.ts",
         "src/sync-worker/types.ts",
         "src/sync-worker/visibility.ts",
+        "src/sync/content-coding.ts",
+        "src/sync/pipe-sync-body.ts",
         "src/telemetry.test.ts",
         "src/telemetry.ts",
         "src/test-support/**",
