@@ -271,7 +271,7 @@ export class FeedServing {
    * handler async and let frame N+1 begin before frame N finished — the wall
    * POD-3499 hit with `runStep` and POD-3505 hit with `apply()`.
    *
-   * The await cannot move EARLIER either: `worldFor` is keyed by the principal
+   * The await cannot move EARLIER either: the admission is keyed by the principal
    * minted inside `attachClient`, and §3.5 requires it to be read inside this
    * admission's scope, not before it.
    *
@@ -332,7 +332,7 @@ export class FeedServing {
 
   /**
    * Give a connection its position — by resuming the one it brought, or by
-   * serving it the world (POD-2061).
+   * granting the current head for independent HTTP bootstrap.
    *
    * THE ONE PLACE THE CHOICE IS MADE, and it is made where the world would
    * otherwise have been read. Both entry points ({@link attach} and {@link

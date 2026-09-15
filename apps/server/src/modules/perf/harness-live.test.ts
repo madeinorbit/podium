@@ -65,8 +65,9 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
     wireVersion: 2,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
-    caps: ['metadataDelta'],
+    caps: ['metadataDelta', 'sync.http.v1'],
   })
+  await expect.poll(() => inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
   // A real write through the real funnel, then the deterministic flush seam.
   await registry.issues.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
   registry.modules.funnel.flushDeltas()
@@ -87,16 +88,11 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     return () => registry.dispose()
   })
 
-  it('records a bootstrap phase when a connection is served its world', () => {
-    // Control: the connection really was served something. Without this, an
-    // attach that silently did nothing would satisfy the phase assertion only by
-    // way of a bug elsewhere, and the failure would read as a perf regression.
-    expect(inbox.length).toBeGreaterThan(0)
-    // FAILS IF: `serveWorld` stops calling `perf.record`, or the attach path
-    // stops going through `FeedServing` at all — which is the cutover-drift this
-    // whole issue exists to catch.
-    expect(perf.snapshot().phases['feedBootstrap.total']?.count).toBeGreaterThan(0)
-    expect(perf.snapshot().phases['feedBootstrap.read']?.count).toBeGreaterThan(0)
+  it('records admission without reading a pushed bootstrap', () => {
+    expect(inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
+    expect(perf.snapshot().phases['feedResume.total']?.count).toBeGreaterThan(0)
+    expect(perf.snapshot().phases['feedBootstrap.total']).toBeUndefined()
+    expect(perf.snapshot().phases['feedBootstrap.read']).toBeUndefined()
   })
 
   it('records the publish phases when a write reaches the feed', () => {
@@ -127,7 +123,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     }
   })
 
-  it('attributes those samples to the real feed principal, with its slice size', () => {
+  it('attributes live-feed samples without inventing an HTTP snapshot size', () => {
     const snap = perf.snapshot()
     const slice = snap.byPrincipal[LIVE.digest]
     // FAILS IF: a site passes DEPLOYMENT where it has a real principal, or
@@ -150,10 +146,9 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // …and the aggregate really had those phases, so the loop above is not
     // iterating over an empty list.
     expect(Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.')).length).toBe(4)
-    // The slice size was MEASURED, not defaulted. `samples: 0` would mean the
-    // bootstrap never reported one, and `last` would then be a 0 that reads as
-    // an empty world — the exact ambiguity `PerfSliceSize.samples` exists for.
-    expect(slice?.sliceSize.samples).toBeGreaterThan(0)
+    // Admission does not read an HTTP snapshot. Zero samples means unmeasured,
+    // not an empty world; a pushed bootstrap would wrongly populate this metric.
+    expect(slice?.sliceSize.samples).toBe(0)
   })
 
   it('a same-principal comparison is available WITHOUT reading the deployment-wide aggregate', () => {

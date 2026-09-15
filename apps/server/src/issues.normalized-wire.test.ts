@@ -388,10 +388,15 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     expect(inbox.filter(message => ['feedBootstrap', 'issuesChanged'].includes(message.type))).toEqual([])
     const principal = registry.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
-    const painted = await registry.syncDelta.authority.bootstrap(feedPrincipalOf(principal))
-    const issues = painted.changes
-      .filter((change) => change.entity === 'issue' && change.op === 'upsert')
-      .map((change) => change.value as Record<string, unknown>)
+    const authority = registry.syncDelta.authority
+    const rows = new Map<string, Record<string, unknown>>()
+    for await (const page of authority.changesRange(feedPrincipalOf(principal), 0, await authority.captureHead(), 100)) {
+      if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
+      for (const change of page.changes) {
+        if (change.entity === 'issue' && change.op === 'upsert') rows.set(change.entityId, change.value as Record<string, unknown>)
+      }
+    }
+    const issues = [...rows.values()]
     expect(issues).toHaveLength(3)
     expect(issues[0]).not.toHaveProperty('sessions')
     expect(issues[0]).not.toHaveProperty('sessionSummary')

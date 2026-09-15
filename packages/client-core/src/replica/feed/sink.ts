@@ -44,8 +44,7 @@ export class FeedSink implements FeedSinkPort {
    * Where this replica stands, as `hello` carries it (POD-2061).
    *
    * `null` for a replica with no cursor — a cold client has nothing to resume
-   * from and must be served a world, which is exactly what an absent field asks
-   * for. The Replica's cursor is the ONE position on this side (ADR 2 D10 commits
+   * from and pulls its snapshot over HTTP. The Replica's cursor is the ONE position on this side (ADR 2 D10 commits
    * it with the rows it certifies), so this reads it rather than tracking a
    * second copy that could disagree with the store by one frame.
    */

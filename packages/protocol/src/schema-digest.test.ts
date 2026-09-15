@@ -27,7 +27,8 @@ describe('the wire digest', () => {
 
   it('covers what a client parses AND what it sends', () => {
     const text = wireSchemaSignature()
-    expect(text).toContain('feedBootstrap')
+    expect(text).toContain('feedDelta')
+    expect(text).not.toContain('feedBootstrap')
     expect(text.startsWith('S=')).toBe(true)
     expect(text).toContain('\nC=')
   })

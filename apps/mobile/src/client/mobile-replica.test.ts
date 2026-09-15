@@ -783,6 +783,7 @@ function bootstrapFrame(args: {
       op: 'upsert' as const,
       value: c.entity === 'issue' ? IssueWire.parse({
         repoPath: '/fixture', seq: c.seq, description: '', stage: 'backlog',
+        worktreePath: '', branch: '', parentBranch: '', defaultModel: 'auto', defaultEffort: 'auto',
         defaultAgent: 'codex', priority: 2, type: 'task', pinned: false,
         needsHuman: false, labels: [], deps: [], dependents: [], ready: true,
         blocked: false, deferred: false, childCount: 0, childDoneCount: 0,

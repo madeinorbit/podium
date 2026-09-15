@@ -179,6 +179,7 @@ describe('the wire window, over real sockets', () => {
 
     const admitted = await current.nextMatching((m) => m.type === 'feedResume')
     expect(admitted.type).toBe('feedResume')
+    if (admitted.type !== 'feedResume') throw new Error('missing resume grant')
     // Initial rows are fetched through HTTP, independently of live-feed admission.
     const response = await fetch(`http://127.0.0.1:${handle.port}/sync/bootstrap`, {
       headers: { Cookie: cookieHeader },
@@ -209,7 +210,7 @@ describe('the wire window, over real sockets', () => {
       minAvailableSeq: number
       changes: { entity: string; value?: { cwd?: string } | null }[]
     }
-    expect(currentDelta.fromSeq).toBe(currentWorld.seq)
+    expect(currentDelta.fromSeq).toBe(admitted.seq)
     expect(currentDelta.minAvailableSeq).toBeGreaterThanOrEqual(0)
     expect(
       currentDelta.changes.some(

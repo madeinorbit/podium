@@ -5,12 +5,12 @@ export const SYNC_WIRE_FIXTURES: WireFixture[] = [
   { name: 'sync.meta.snapshot', schema: SyncRecord, value: {
     type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 'transfer-1',
     feedId: 'feed-1', epoch: 'epoch-1', seq: 10, minAvailableSeq: 0,
-    wireVersion: 2, wireSchemaDigest: '0123456789abcdef', totalRows: 0,
+    wireVersion: 3, wireSchemaDigest: '0123456789abcdef', totalRows: 0,
   } },
   { name: 'sync.meta.delta', schema: SyncRecord, value: {
     type: 'syncMeta', formatVersion: 1, mode: 'delta', transferId: 'transfer-1',
     feedId: 'feed-1', epoch: 'epoch-1', seq: 10, fromSeq: 5, minAvailableSeq: 0,
-    wireVersion: 2, wireSchemaDigest: '0123456789abcdef',
+    wireVersion: 3, wireSchemaDigest: '0123456789abcdef',
   } },
   { name: 'sync.bootstrap', schema: SyncRecord, value: {
     type: 'feedBootstrap', feedId: 'feed-1', epoch: 'epoch-1', fromSeq: 0,

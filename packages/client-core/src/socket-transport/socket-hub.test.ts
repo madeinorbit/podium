@@ -418,7 +418,7 @@ describe('SocketHub', () => {
     // replay can drain them, the queue only grows, and the main thread never
     // catches up. Past the bound the queue is dropped and the socket cycled —
     // the fresh admission's pushed world replaces the whole backlog with ONE
-    // install (`requestFreshWorld`).
+    // install through HTTP recovery.
     const sock = new FakeSocket()
     const tasks: Array<() => void> = []
     const frames: unknown[] = []

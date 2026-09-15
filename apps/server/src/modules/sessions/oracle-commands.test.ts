@@ -51,7 +51,7 @@ const confirmUserTurn = (
 const hasSessionDelete = (client: ServerMessage[], sessionId: SessionId) =>
   client.some(
     (message) =>
-      (message.type === 'feedDelta' || message.type === 'feedResume') &&
+      message.type === 'feedDelta' &&
       message.changes.some(
         (change) =>
           change.entity === 'session' && change.entityId === sessionId && change.op === 'remove',

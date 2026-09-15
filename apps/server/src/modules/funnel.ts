@@ -211,9 +211,12 @@ export class WriteFunnel {
    *
    * The third snapshot of the shadow comparison — see
    * `docs/agents/pod-376-shadow-comparison-basis.md` §2.1. It is NOT a fourth
-   * opinion about visibility: it is `AuthorityPort.bootstrap`, the same call
-   * `FeedServing.serveWorld` makes, through the same policy object. That identity
-   * is the whole reason the comparison can classify an absence rather than
+   * opinion about visibility: `AuthorityPort.bootstrap` applies the authority
+   * visibility policy. The HTTP equivalent is `sync-worker/producer.ts`, whose
+   * `bootstrapVisibility` composition in `sync-worker/visibility.ts` constructs
+   * that same GrantEdgeVisibilityPolicy over the worker snapshot. Both call
+   * `forBootstrap` and `decide` for the authenticated principal; they do not
+   * maintain separate visibility rules. That shared policy is the reason the comparison can classify an absence rather than
    * suppress it — a harness that computed its own expectation of the slice would
    * be grading the cutover against a second implementation of the thing under
    * test.

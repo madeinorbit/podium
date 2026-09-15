@@ -127,8 +127,8 @@ export function toResyncFrame(
  * A `feedBootstrap` chunk.
  *
  * `snapshotSeq` comes from the frame's `seq`, which is the position the world was
- * read at — `FeedServing.serveWorld` sets it from `world.throughSeq` in the same
- * synchronous pass as the rows. `fromSeq` is 0 on every bootstrap chunk and has
+ * read at — `sync-worker/producer.ts` captures it in the same SQLite read
+ * transaction as the HTTP snapshot rows. `fromSeq` is 0 on every bootstrap chunk and has
  * no kernel counterpart; the kernel's `BootstrapChunk` states the same claim by
  * being a bootstrap.
  */

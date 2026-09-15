@@ -54,7 +54,7 @@ const spawnFrames = (daemon: ControlMessage[], sessionId: SessionId) =>
 
 const sessionChanges = (client: ServerMessage[], sessionId: string) =>
   client.flatMap((message) =>
-    message.type === 'feedDelta' || message.type === 'feedResume'
+    message.type === 'feedDelta'
       ? message.changes.filter(
           (change) => change.entity === 'session' && change.entityId === sessionId,
         )

@@ -341,9 +341,9 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
     try {
       // (1) FEED BOOTSTRAP. The window is the whole request a fresh connection
       // makes — attach plus `hello` — because that is what one client costs the
-      // database, and `serveWorld` is only its tail. The FIRST connection for a
-      // principal is the one that pays: `worldFor` caches the installed world,
-      // so a second attach at the same head is a reuse and would report ~0.
+      // database. After the HTTP cutover this measures live-feed admission only;
+      // HTTP snapshot work runs separately in sync-worker/producer.ts. The
+      // historical bootstrap metric label below is not an HTTP transfer measurement.
       const bootstrapInbox: ServerMessage[] = []
       probe.reset()
       attachClient(fixture, (message) => bootstrapInbox.push(message))

@@ -226,8 +226,10 @@ export class WireFeedEdge {
    *
    * TWO REFUSALS, NOT ONE (POD-376). The first is the rollout window. The second
    * is the scoping gate: against a `per-principal` authority, a version whose
-   * adapter cannot express `evict` is refused HERE, before {@link
-   * FeedServing.serveWorld} reads a single row for it. The alternative was
+   * adapter cannot express `evict` is refused HERE, before any live row is
+   * published to it. HTTP snapshots are separately admitted by
+   * `sync/routes.ts` and scoped in `sync-worker/producer.ts` through
+   * `bootstrapVisibility(...).forBootstrap(refs)` before rows are emitted. The alternative was
    * already in the tree and is not a fallback — `publishTo` catches the v1
    * adapter refusing an `evict` and drops the peer, which means the peer has by
    * then rendered a row it may no longer see and experiences the withdrawal as a
