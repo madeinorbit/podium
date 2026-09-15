@@ -1,6 +1,6 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { Ledger } from '@podium/sync'
+import { ChangeRangeBootstrapRequired, DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
 import { openTestStore } from '../test-support/open-test-store'
@@ -431,4 +431,21 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     funnel.flushDeltas() // second flush: nothing pending
     expect(serving.published).toHaveLength(1)
   })
+})
+
+
+describe('catch-up failure reasons', () => {
+  it.each(['corrupt-payload', 'compacted-or-unknown'] as const)(
+    'preserves %s so operators can distinguish corruption from retention',
+    async (reason) => {
+      const { ledger, funnel } = await makeFunnel()
+      vi.spyOn(ledger.authority, 'changesRange').mockImplementation(async function* () {
+        throw new ChangeRangeBootstrapRequired(reason)
+      })
+      expect(await funnel.feedChangesSince(
+        { feedId: 'feed-test', epoch: 'epoch-test', seq: 0 },
+        DEVICE_GRADE_PRINCIPAL,
+      )).toEqual({ kind: 'bootstrap-required', reason })
+    },
+  )
 })

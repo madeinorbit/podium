@@ -253,7 +253,7 @@ export class WriteFunnel {
       }
     } catch (error) {
       if (error instanceof ChangeRangeBootstrapRequired) {
-        return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
+        return { kind: 'bootstrap-required', reason: error.reason }
       }
       throw error
     }
