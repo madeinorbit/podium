@@ -1,3 +1,4 @@
+import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 /**
  * Golden wire fixtures for the entity schemas relocated to `@podium/model`
  * (POD-300) and for the frames that carry them.
@@ -605,6 +606,7 @@ const HANDOFF_MANIFEST_MINIMAL = {
 // ---------------------------------------------------------------------------
 
 export const WIRE_FIXTURES: WireFixture[] = [
+  ...SYNC_WIRE_FIXTURES,
   // ---- session vocabulary + aggregate (runtime-state.ts / terminal.ts) ----
   { name: 'agentKind', schema: AgentKind, value: 'claude-code' },
   { name: 'geometry', schema: Geometry, value: { cols: 120, rows: 40 } },

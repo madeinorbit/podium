@@ -1,4 +1,10 @@
 {
+  "sync.meta.snapshot": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"snapshot\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"minAvailableSeq\":0,\"wireVersion\":2,\"wireSchemaDigest\":\"0123456789abcdef\",\"totalRows\":0}",
+  "sync.meta.delta": "{\"type\":\"syncMeta\",\"formatVersion\":1,\"mode\":\"delta\",\"transferId\":\"transfer-1\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"seq\":10,\"fromSeq\":5,\"minAvailableSeq\":0,\"wireVersion\":2,\"wireSchemaDigest\":\"0123456789abcdef\"}",
+  "sync.bootstrap": "{\"type\":\"feedBootstrap\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":0,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[],\"last\":true}",
+  "sync.delta": "{\"type\":\"feedDelta\",\"feedId\":\"feed-1\",\"epoch\":\"epoch-1\",\"fromSeq\":5,\"seq\":10,\"minAvailableSeq\":0,\"changes\":[{\"seq\":8,\"entity\":\"issue\",\"entityId\":\"issue-1\",\"op\":\"evict\"}]}",
+  "sync.complete": "{\"type\":\"syncComplete\",\"transferId\":\"transfer-1\",\"seq\":10,\"records\":1,\"rows\":1}",
+  "sync.error": "{\"type\":\"syncError\",\"transferId\":\"transfer-1\",\"reason\":\"read-failed\"}",
   "agentKind": "\"claude-code\"",
   "geometry": "{\"cols\":120,\"rows\":40}",
   "resumeRef": "{\"kind\":\"claude-session\",\"value\":\"uuid-1\"}",

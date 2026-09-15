@@ -152,3 +152,6 @@ export function decodeBinaryEnvelope<Schema extends z.ZodTypeAny>(
   const metadata = schema.parse(candidate) as z.output<Schema> & BinaryEnvelopeHeader
   return { metadata, payload: bytes.subarray(payloadOffset) }
 }
+
+/** HTTP bootstrap/delta adoption: peers advertising this never receive a pushed world. */
+export const CAP_SYNC_HTTP_V1 = 'sync.http.v1'
