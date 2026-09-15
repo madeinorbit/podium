@@ -88,7 +88,7 @@ function terminalItemEvent(input: {
   }
 }
 
-async function bindContract(registry: SessionRegistry, store: SessionStore) {
+async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true) {
   registry.gateway.attachDaemon(store.hostMachineId, () => {})
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'codex',
@@ -101,7 +101,7 @@ async function bindContract(registry: SessionRegistry, store: SessionStore) {
     cwd: '/project',
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
-    runtimeContract: true,
+    runtimeContract,
     driverId: 'codex-app-server',
   })
   await bindCompletion
@@ -109,6 +109,58 @@ async function bindContract(registry: SessionRegistry, store: SessionStore) {
 }
 
 describe('durable runtime observation gate', () => {
+  it('keeps legacy-only bindings authoritative without a runtime checkpoint', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store, false)
+      const initial = await registry.modules.sessions.sessionById(sessionId)
+      const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
+      const effects: string[] = []
+      registry.bus.on('issue.sessionDerived', (event) => effects.push(event.kind))
+      for (const phase of ['working', 'needs_user'] as const) {
+        await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'agentState', sessionId,
+          state: { phase, since: at, nativeSubagentCount: 0 },
+        })
+      }
+      expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(at)
+      expect(effects).toEqual(['activity', 'activity', 'turnEnd', 'attention'])
+      expect(registry.modules.sessions.runtimeGateway.ready(sessionId)).toBe(false)
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
+
+  it('commits causal working totals without accepting the parallel daemon counter', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store)
+      const initial = await registry.modules.sessions.sessionById(sessionId)
+      const start = Date.parse(initial?.lastActiveAt ?? '') + 1_000
+      for (const [index, kind] of ['prompt_submitted', 'turn_completed', 'prompt_submitted', 'turn_completed'].entries()) {
+        const at = new Date(start + index * 1_000).toISOString()
+        await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'agentState', sessionId,
+          state: { phase: 'working', since: at, nativeSubagentCount: 0, workingMsTotal: 999_999 },
+        })
+        await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent', sessionId, deliveryId: `counter-${index}`,
+          event: stateEvent({ at, seq: index + 1, observerGeneration: 1, change: { kind } }),
+        })
+      }
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject({
+        phase: 'idle', workingMsTotal: 2_000,
+      })
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
+
   it('accepts a generation-one live event after an empty bootstrap snapshot', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -473,7 +525,7 @@ describe('durable runtime observation gate', () => {
     await store.close()
   })
 
-  it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
+  it('owns recency/board from contract bind and enforces restart, segment, epoch, and terminal fences', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
@@ -485,8 +537,8 @@ describe('durable runtime observation gate', () => {
     registry.bus.on('issue.runtimeDerived', (event) => runtimeBoard.push(event.kind))
     registry.bus.on('issue.sessionDerived', (event) => legacyBoard.push(event.kind))
 
-    // A bind flag alone is not a cutover. Mixed-version legacy facts remain the
-    // fallback until the first coarse event has committed its restart head.
+    // Contract negotiation owns the cutover even before a durable restart head.
+    // Checkpoint readiness remains false until a coarse event commits.
     const agentStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'agentState',
       sessionId,
@@ -497,8 +549,8 @@ describe('durable runtime observation gate', () => {
       },
     })
     await agentStateCompletion
-    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(legacyAt)
-    expect(legacyBoard).toEqual(['activity'])
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(initial?.lastActiveAt)
+    expect(legacyBoard).toEqual([])
 
     expect(registry.modules.sessions.runtimeGateway.ready(sessionId)).toBe(false)
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
@@ -509,13 +561,13 @@ describe('durable runtime observation gate', () => {
         phase: 'needs_user',
         since: legacyAt,
         nativeSubagentCount: 0,
-        needsUser: { kind: 'question' },
+        need: { kind: 'question' },
       },
     })
-    expect(legacyBoard).toEqual(['activity', 'activity', 'turnEnd', 'attention'])
-    // This second compatibility frame also ran before any durable runtime head.
+    expect(legacyBoard).toEqual([])
+    expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toEqual(initial?.agentState)
+    // This second compatibility frame also arrived before any durable runtime head.
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
-    legacyBoard.splice(1)
 
     const bootstrap1Completion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
@@ -548,8 +600,8 @@ describe('durable runtime observation gate', () => {
     })
     expect(runtimeBoard).toEqual([])
 
-    // After readiness, compatibility state still feeds its unmigrated consumers
-    // but can no longer own board or recency.
+    // After readiness, compatibility state remains ignored; the contract
+    // projection alone feeds state consumers, board and recency.
     const ignoredLegacyAt = new Date(Date.parse(firstAt) + 1_000).toISOString()
     const agentStateCompletion2: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'agentState',
@@ -563,7 +615,7 @@ describe('durable runtime observation gate', () => {
     })
     await agentStateCompletion2
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(firstAt)
-    expect(legacyBoard).toEqual(['activity', 'activity', 'activity'])
+    expect(legacyBoard).toEqual(['activity'])
 
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     await registry.dispose()

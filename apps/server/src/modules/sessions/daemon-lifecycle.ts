@@ -307,6 +307,12 @@ export class SessionDaemonLifecycle {
    * Both call sites route through here so the two branches cannot drift apart
    * again — the drift is what left the offer standing in the first place.
    */
+  private runtimeOwnsState(session: Session): boolean {
+    // Negotiated authority is independent of durable checkpoint readiness.
+    // Do not populate the gate's persisted-head set at bind time (POD-3791).
+    return session.runtimeContract || this.ports.runtimeEvents?.ready(session.sessionId) === true
+  }
+
   private userOpenedTurn(
     session: Session,
     offerCreatedAt: string,
@@ -759,7 +765,7 @@ export class SessionDaemonLifecycle {
         const draft = this.draft(session)
         session.applyObservationCheckpoint(
           outcome.checkpoint,
-          !this.ports.runtimeEvents?.ready(session.sessionId),
+          !this.runtimeOwnsState(session),
           draft,
         )
         const acceptedLive =
@@ -822,7 +828,7 @@ export class SessionDaemonLifecycle {
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (
-          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !this.runtimeOwnsState(session) &&
           prev?.phase === 'working' &&
           next.phase !== 'working'
         ) {
@@ -838,7 +844,7 @@ export class SessionDaemonLifecycle {
           await this.state.clearAllSnoozes(session.sessionId)
         }
         if (
-          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !this.runtimeOwnsState(session) &&
           !isAttentionPhase(prev) &&
           isAttentionPhase(next)
         ) {
@@ -890,9 +896,10 @@ export class SessionDaemonLifecycle {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
-        // Mixed deployment: legacy remains visible until the first v1
-        // checkpoint. It can never downgrade or overwrite causal truth.
-        if (this.observationLeases.hasCheckpoint(msg.sessionId)) {
+        // A contract bind selects causal state before its first durable event.
+        // Legacy-only sessions retain compatibility; durable heads also fence
+        // late frames during server restart, before a daemon binds again.
+        if (this.runtimeOwnsState(session) || this.observationLeases.hasCheckpoint(msg.sessionId)) {
           log.warn('rejected a legacy unfenced observation', { sessionId: msg.sessionId })
           break
         }
@@ -906,7 +913,7 @@ export class SessionDaemonLifecycle {
         // top of the previous one, so it is exactly the write a second writer
         // must not be able to capture half-finished.
         const draft = this.draft(session)
-        session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId), draft)
+        session.setAgentState(msg.state, !this.runtimeOwnsState(session), draft)
         const next = draft.agentState ?? msg.state
         await this.persistDraft(session, draft)
         await this.autoContinue.onStateChange(msg.sessionId, next)
@@ -925,7 +932,7 @@ export class SessionDaemonLifecycle {
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
         if (
-          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !this.runtimeOwnsState(session) &&
           prev?.phase === 'working' &&
           next.phase !== 'working'
         ) {
@@ -940,7 +947,7 @@ export class SessionDaemonLifecycle {
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
         if (
-          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !this.runtimeOwnsState(session) &&
           !isAttentionPhase(prev) &&
           isAttentionPhase(next)
         ) {

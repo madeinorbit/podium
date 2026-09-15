@@ -193,7 +193,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.daemonProjection = new SessionDaemonProjection({
     sessions: bag.sessions,
     recordSessionGitActivity: (sessionId, input) => {
-      if (runtimeEventGate?.ready(sessionId) === true) return
+      if (bag.sessions.get(sessionId)?.runtimeContract || runtimeEventGate?.ready(sessionId) === true) return
       bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
     },
     binding: bag.bindingReceipts,
@@ -717,18 +717,24 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const session = bag.sessions.get(sessionId)
       if (!session) return undefined
       const prev = draft.agentState
-      const base = prev ?? initialAgentState(at)
+      const base = prev ?? { ...initialAgentState(at), workingMsTotal: draft.workingMsTotal ?? 0 }
       const next = reduceAgentState(base, change as AgentStateEvent, at)
       if (next === base) return undefined
-      // Keep the legacy accumulator rules for workingMsTotal, but do not let
-      // this causal projection advance recency: recordRuntimeActivity already
-      // owns that fact for the same event envelope.
-      session.setAgentState(next, false, draft)
+      // The reducer starts from our durable total: it is not a resettable
+      // daemon counter. Commit it directly on the transaction's session draft.
+      // recordRuntimeActivity owns recency for this same event envelope.
+      draft.agentState = next
+      draft.workingMsTotal = next.workingMsTotal
+      draft.incomingWorkingMsTotal = undefined
       return { prev, next: draft.agentState ?? next }
     },
     stateChanged: async ({ sessionId, prev, next }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return
+      const offer = session.offer
+      const retireOffer = offer !== undefined && prev?.phase !== 'working' &&
+        next.phase === 'working' && Date.parse(next.since) > Date.parse(offer.createdAt) &&
+        session.terminal.lastUserInputAtMs > Date.parse(offer.createdAt)
       await bag.autoContinue.onStateChange(sessionId, next)
       bag.broadcastToClients({
         type: 'sessionAgentStateChanged',
@@ -740,6 +746,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       // this callback only publishes its committed projection.
       bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId })
       await inbox.stateChanged({ sessionId, prev, next })
+      if (retireOffer && session.offer?.createdAt === offer?.createdAt) {
+        await life.clearOffer(sessionId)
+      }
       if (prev?.phase === 'needs_user' || prev?.phase === 'errored') {
         if (next.phase !== 'needs_user' && next.phase !== 'errored') {
           await bag.state.clearAllSnoozes(sessionId)
