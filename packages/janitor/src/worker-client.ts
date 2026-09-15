@@ -47,7 +47,11 @@ interface ProbeWaiters {
 }
 
 function workerTarget(): URL | string {
-  if (isCompiledBunfsUrl(import.meta.url)) return janitorWorkerEmbeddedTarget()
+  if (isCompiledBunfsUrl(import.meta.url)) {
+    const target = janitorWorkerEmbeddedTarget()
+    // Bun 1.4 requires URL objects for file URLs; Windows embedded paths must stay strings.
+    return target.startsWith('file://') ? new URL(target) : target
+  }
   return new URL('./janitor-worker.ts', import.meta.url)
 }
 

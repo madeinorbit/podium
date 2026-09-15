@@ -1,11 +1,22 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { JanitorWorkerClient } from '../packages/janitor/src/worker-client.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-worker-smoke-'))
 const dbPath = join(dir, 'podium.db')
-writeFileSync(dbPath, '')
+// This smoke verifies worker readiness with the maintenance server deliberately offline.
+// Boot still requires an active admin; no maintenance tables are read without a handshake.
+const db = openDatabase(dbPath)
+try {
+  db.exec(`
+    CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT, disabled_at TEXT, created_at TEXT);
+    INSERT INTO users VALUES ('compiled-smoke-admin', 'admin', NULL, '2026-01-01T00:00:00Z');
+  `)
+} finally {
+  db.close()
+}
 
 const client = new JanitorWorkerClient({
   serverUrl: 'http://127.0.0.1:1',

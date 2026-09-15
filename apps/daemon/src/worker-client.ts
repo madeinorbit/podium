@@ -27,7 +27,11 @@ function workerUrl(): URL | string {
   // via its virtual-root module identity and spawn the worker from its embedded target (URL on
   // POSIX, plain path on Windows). Running from source (bun run host / bun test) we spawn the
   // sibling `.ts` on disk instead.
-  if (isCompiledBunfsUrl(import.meta.url)) return discoveryWorkerEmbeddedTarget()
+  if (isCompiledBunfsUrl(import.meta.url)) {
+    const target = discoveryWorkerEmbeddedTarget()
+    // Bun 1.4 requires URL objects for file URLs; Windows embedded paths must stay strings.
+    return target.startsWith('file://') ? new URL(target) : target
+  }
   return new URL('./discovery-worker.ts', import.meta.url)
 }
 
