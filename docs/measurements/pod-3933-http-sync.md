@@ -1,147 +1,153 @@
-# HTTP sync measurements: historical probes and revised plan
+# HTTP sync: fresh paired measurements
 
-Status: **re-baseline required; heavy runs held for disk headroom**. Fresh paired arms are approved by POD-3933. No after/before speedup, responsiveness improvement, or bounded-producer-memory claim is established by this document.
+**Acceptance remains blocked.** Fresh paired bootstrap and production Replica observations are available. POD-4022 tracks substantially longer HTTP bootstrap completion; POD-4023 blocks admission cancellation cleanup. POD-4025 records a failed HTTP producer-backpressure proof despite confirmed TCP receive-window restriction. Bounded native response memory remains unestablished; no review-ready claim is made.
 
-The identity failure below is **pre-POD-3931 history**, not a defect removed by this programme. Commit `5133399843e` predates the send/drain fix `b6c4e9b2e`; the current old transport already contains that fix. The repetitive corpus achieved roughly **1,182× compression** (decoded JSON / Zstd envelope bytes), so all existing results here are pipeline-behaviour probes, not representative performance claims. They must not be compared to a production-like 6× corpus.
+## Experiment and provenance
 
-POD-3933 has instructed this issue to use current `dev/mw` as the new baseline, retain every existing after run—including the coordinator's—as **historical JS-paced reads with socket backpressure unverified**, and hold large corpus generation until the coordinator confirms disk headroom. The observed baseline candidate on receipt was `d958a17c3c9e916d3bab9741422d92d049dcfa79`; its ancestry includes `b6c4e9b2e`. POD-3933 subsequently pinned that exact SHA as the BEFORE arm. Use it rather than silently following later movement of dev/mw; record the current integration tip as the AFTER arm. Do not move dev/mw or this issue onto the baseline.
+All comparison rows below come from fresh sequential before/after pairs on **ludovico**, Linux, Bun 1.3.14 and a separate Node v22.22.2 client. BEFORE is `d958a17c3c9e916d3bab9741422d92d049dcfa79` and includes POD-3931. AFTER is the integration tip recorded in each row; the runner refuses a production-tree difference between its checkout and that tip. Integration advanced from `e79b8c766f3b2dfc83c49ebeff609bebd6a883fc` to `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2` between modes; each actual SHA is preserved. Only one heavy run ran at a time under `sync-gate`.
 
-## Comparison results
+These are **single pairs per mode/coding**, not repeated statistical estimates. Load was high and variable. Per-sample UTC time, load averages, process inventory, disk snapshots, raw thread counters and manifests are attached as **Fresh paired bootstrap and Replica samples** and **Raw paired samples and admission failure**. Interleaving limits time drift; it does not isolate code from scheduler contention. No causal attribution follows from these observations alone.
 
-**No eligible comparison results yet.** Every number published as a programme result must come from a fresh paired, interleaved experiment: BEFORE `d958a17c3c9e916d3bab9741422d92d049dcfa79`, AFTER the integration tip. Capture contemporaneous load and process inventory per sample, report achieved compression ratio beside each result, and establish that socket backpressure actually stalled progress. Historical observations are context only and must never populate this comparison section or serve as either arm.
+The fixture host uses production Authority/visibility, FeedServing, NativeGatewaySocket, native drain forwarding and OrderedClientSend.sendSequence for the legacy arm; HTTP routes and the real SyncWorkerClient for the after arm. Worker-channel telemetry is passive: it does not replace a stream or reader or issue credits. The host provides loopback health and native WebSocket control ping/pong. Authentication is fixed to fixture users. Production auth, daemon assembly, proxies, TLS, browser and desktop behavior are outside this scope.
 
-## Commits, box, and scope
+### Corpus
 
-New baseline runs use source commit `5133399843e81b7c6a7b4ebac51ed9d45bf0a045`, exported without moving a branch. All baseline numbers below were measured on **ludovico**, Linux, Bun 1.3.14, with a separate Node v22.22.2 client. Initial checkout/integration HEAD was `55740153f95cc897ddc3470f67f1dc46aba04ad2` and its ancestry check passed.
+The store harness creates **5,120 public repo rows** with 10 KiB text payloads, visible to one ordinary user. A fixed xorshift seed supplies 2,200 row-specific base64-alphabet symbols per payload, followed by repeated text. Payload JSON totals **52,485,120 bytes**; actual decoded transport JSON is about 52.94 MB, above 50 MiB. Full-stream Zstd ratios are **6.195× before and 6.194× after**, meeting the predeclared 5–7× band. Gzip achieved 6.039×. These are synthetic content ratios resembling the supplied production target, not a production ownership/grant distribution.
 
-The `sync-gate` lease covered the full-size baseline runs. It coordinates participating sessions; it does not suspend unrelated host work. Initial host preflight reported load 12.19/12.07/14.12 and 6.5 GiB available on a 99%-used filesystem. Per-run contemporaneous load and process inventories are in the baseline evidence artifact. The highest CPU entries included unrelated `podium-cli` processes and agent processes; no causal load attribution is made.
+The next **20,000 appended updates** cycle through those same keys, retaining `(5120,25120]` while keeping the latest world at 5,120 keys. Payload bytes for that range total 205,020,000; wire JSON is about 206.77 MB. Manifests record seed, entropy fraction and payload SHA-256. Fixture generation is outside transfer timing. Concurrent connections use distinct users with the same public slice, avoiding HTTP per-user supersession and matching legacy cache placement.
 
-The server is a loopback Bun host using production `Authority`, visibility policy, `FeedServing`, `OrderedClientSend`, and the legacy `WriteFunnel.feedChangesSince` through a minimal tRPC router. It uses the reference's 16 MiB socket send limit. It excludes production authentication, proxying, daemon assembly, desktop shells, and browsers. Health and WebSocket control ping/pong use this same Bun server.
+### What each number counts
 
-## Corpus
+- Bootstrap first record: request initiation to first fully decoded record. Completion: initiation through complete decoded bootstrap delivery. HTTP includes meta/complete records; WebSocket uses its final bootstrap record. Decoded bytes count protocol JSON; coded bytes count HTTP body bytes or WebSocket binary-envelope payloads, excluding TCP/HTTP/WS framing. Ratio is decoded / coded bytes.
+- The legacy path has no gzip bootstrap representation. The gzip pair deliberately compares a **fresh legacy identity run** with HTTP gzip. It is labelled as such, never as legacy gzip.
+- Main CPU is `/proc/<pid>/task/<pid>/stat` utime+stime, with `getconf CLK_TCK`. Busy fraction divides that CPU by the whole probe window, including probe settlement. Server probe handling is included; external client CPU is excluded. Absolute main CPU is shown alongside the fraction because a longer denominator can make a slower transfer look better.
+- The producer CPU column counts the unique OS thread named `Worker` in the after host. GC, JIT and Bun pool threads are preserved individually in the raw evidence and excluded from that column. No ELU, Bun loop-delay histogram, JSC sampling profiler or perf capture was used.
+- Server RSS is sampled externally every 50 ms; a shorter peak can be missed. It includes store/index state, worker memory, transfer/native buffers and allocator retention. Per-job worker heap and metadata-phase RSS are separate quantities, not an exact RSS allocation split.
+- Health/ping loops wait 25 ms after each response. Percentiles use nearest rank and include sample counts. Short fast runs have very few samples; their p95 is descriptive, not a robust budget test. The long slow-reader window must not conceal the initial overlap of the four fast bootstraps.
+- Delta uses each source tree's **production Replica**, **InMemoryReplicaStore**, unit-of-work boundary, and production wire mapper under Node. It starts with the full fixture world/cursor, invokes the real heal port, and verifies live posture, final cursor and key count. No disk persistence is measured. Internal RSS sampling is supplemented by external client process-lifetime high-water RSS; that latter number includes module loading and seeding.
 
-`scripts/sync-measurements/corpus.mjs` uses `openTestStore` and the same append seam used by `feed-bootstrap-scaling.test.ts`. It creates 5,120 publicly visible repo rows. Each payload is a JSON object containing 10 KiB of repeated ASCII `x`, totaling **52,485,120 payload bytes**, before transport fields. One ordinary user can see the entire world. This is a payload-scaling corpus, not a realistic ownership/grant distribution or compression-ratio estimate.
+## Fresh paired bootstrap observations
 
-After the initial world, 20,000 updates cycle through those same keys. The retained range is `(5120, 25120]`; its payload total is 205,020,000 bytes. The latest world remains 5,120 keys. The generator verifies the range length and latest payload size and writes a manifest next to the database. Fixture generation and dependency installation are outside measurement windows.
+Milliseconds except bytes/ratio. Source aliases: B=`d958a17c3c9e916d3bab9741422d92d049dcfa79`; H=`e79b8c766f3b2dfc83c49ebeff609bebd6a883fc`. Every row is scoped to one complete fixture transfer on ludovico.
 
-## Methodology and definitions
+| Pair | Arm / actual coding | SHA | First record ms | Completion ms | Decoded bytes | Coded bytes | Achieved ratio |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| identity | before / identity | B | 129.12 | 444.42 | 52,939,691 | 52,939,691 | 1.000× |
+| identity | after / identity | H | 339.56 | 2407.73 | 52,943,466 | 52,943,466 | 1.000× |
+| gzip | before / identity | B | 107.23 | 574.62 | 52,939,691 | 52,939,691 | 1.000× |
+| gzip | after / gzip | H | 251.79 | 8375.27 | 52,943,466 | 8,766,768 | 6.039× |
+| zstd | before / zstd | B | 215.62 | 495.27 | 52,939,691 | 8,545,281 | 6.195× |
+| zstd | after / zstd | H | 324.97 | 8698.03 | 52,943,466 | 8,547,325 | 6.194× |
 
-- Fresh server and fixture for each measured mode/coding. The corpus is highly compressible by construction.
-- Bootstrap first-record latency counts request initiation to the first completely decoded record. Completion counts initiation to the final decoded bootstrap record, including Node parsing. Failed transfers have no completion latency.
-- Bytes count message/envelope payloads for WebSocket and HTTP body bytes for HTTP, excluding transport headers and TCP framing. Decoded bytes count JSON text, including protocol fields.
-- Main CPU counts Linux `/proc/<pid>/task/<pid>/stat` fields 14+15, divided by `getconf CLK_TCK`. Busy percentage is main CPU / wall over the **probe window**, which includes opening the ping socket and finishing outstanding probes. It is not precisely the body-transfer window. Client CPU is excluded; serving the probes is included.
-- RSS is sampled externally every 20 ms. It includes the store, indexes, allocator retention, worker/native allocations, and transfer storage. Peaks shorter than the sampling period can be missed. Process high-water RSS includes fixture generation and is not used as transfer peak.
-- Each health/ping probe waits for its preceding result and then waits 10 ms. Percentiles use nearest rank. Short transfers produce very few samples, explicitly reported below; these p95 values are descriptive, not statistically robust budget evidence.
-- The slow consumer uses a paused Node `net.Socket`, reads at most 64 KiB every 500 ms, and stops after 30 seconds. It has no fetch/body handler draining native networking in the background. Node's readable buffer peaked at 127,104 bytes; kernel buffers provide additional bounded slack. This is a cancelled observation window, not a completed 50 MiB slow transfer.
-- Delta client memory includes a Node Map sink that validates page chaining and installs changes. It does **not** run the production Replica kernel or persistence adapter. Its peak RSS is sampled every 5 ms and at application boundaries; synchronous JSON parsing can hide a transient peak.
+| Pair / arm | Probe wall ms | Main CPU ms | Main busy % | Producer CPU ms | Server peak RSS MiB | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| identity / before | 485.20 | 290 | 59.77 | N/A | 437.77 | 1.000× |
+| identity / after | 2443.67 | 620 | 25.37 | 950 | 451.62 | 1.000× |
+| gzip / before | 615.86 | 310 | 50.34 | N/A | 459.05 | 1.000× |
+| gzip / after | 8385.99 | 1130 | 13.47 | 1400 | 410.54 | 6.039× |
+| zstd / before | 499.04 | 180 | 36.07 | N/A | 427.75 | 6.195× |
+| zstd / after | 8728.59 | 1240 | 14.21 | 1440 | 400.59 | 6.194× |
 
-## History: pre-POD-3931 tree and unrealistic corpus
+Both current identity arms completed. This corrects the obsolete baseline story: the current WebSocket path does not exhibit the historical cutoff in this fixture. HTTP's busy fraction was lower, but its absolute main CPU and completion time were higher. Zstd completion was about 17.6× longer in this pair, despite near-identical compression ratios; POD-4022 owns follow-up, not a tuning change here.
 
-All rows in the following tables have the baseline SHA, box, and scope stated above. Times are milliseconds. Load is 1/5/15-minute load average. Start times are UTC on 2026-09-15.
+## Fresh paired production Replica heal
 
-| Mode | Start UTC | Start load | End load | Outcome |
-| --- | --- | --- | --- | --- |
-| bootstrap/identity | 15:09:02.720 | 10.11/13.25/14.12 | 10.11/13.25/14.12 | failed before final record |
-| bootstrap/zstd | 15:09:15.569 | 11.27/13.34/14.13 | 11.27/13.34/14.13 | complete |
-| concurrent/identity | 15:09:26.635 | 10.77/13.17/14.07 | 13.14/13.41/14.11 | 4 fast transfers failed; slow reader cancelled |
-| delta/identity | 15:10:20.259 | 15.71/13.97/14.28 | 15.71/13.97/14.28 | complete |
+Both identity-coded runs applied 20,000 rows to a seeded 5,120-key world and ended live at seq 25120. Ratio is 1× for each. BEFORE uses B above; AFTER uses `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. Scope is the in-memory production Replica path on ludovico.
 
-| Mode | Probe wall ms | Main CPU ms | Main busy % | Sampled server peak RSS MiB | Health n / p50 / p95 ms | Ping n / p50 / p95 ms |
-| --- | ---: | ---: | ---: | ---: | --- | --- |
-| bootstrap/identity | 266.29 | 170 | 63.84 | 492.58 | 2 / 22.31 / 123.03 | 2 / 4.57 / 139.67 |
-| bootstrap/zstd | 483.45 | 170 | 35.16 | 451.59 | 5 / 58.34 / 129.30 | 5 / 65.40 / 140.90 |
-| concurrent/identity | 30478.60 | 5840 | 19.16 | 548.98 | 1612 / 2.71 / 21.30 | 1611 / 1.91 / 18.49 |
-| delta/identity | 2960.75 | 1340 | 45.26 | 1267.48 | 21 / 11.20 / 505.52 | 21 / 22.38 / 506.13 |
+| Arm | First page ms | Complete heal ms | Pages | Decoded bytes | Internal sampled client peak MiB | External lifetime client peak MiB | Server peak MiB | Ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 7237.51 | 7294.01 | 1 | 206,770,812 | 840.95 | 1035.36 | 1153.94 | 1× |
+| after | 494.88 | 17195.58 | 40 | 206,776,518 | 481.06 | 482.68 | 802.80 | 1× |
 
-### Bootstrap
+Paging materially advanced first-page delivery and reduced memory in this pair; total heal time increased. The legacy byte count is reserialized reply JSON excluding the tRPC envelope, while HTTP counts its NDJSON body; this small framing difference is explicitly outside an exact wire-byte comparison.
 
-Identity closed before the last record at the reference production limits. The harness did not retain partial-record counters for this first baseline, so first-record latency and partial body bytes are unavailable. A failed transfer's elapsed window must not be presented as a faster completion.
+## Responsiveness during the measured windows
 
-Zstd delivered all 5,120 rows in 26 records: first record **227.75 ms**, completion **455.06 ms**, **52,939,691 decoded JSON bytes**, **44,800 binary-envelope bytes**. Legacy WebSocket bootstrap has no gzip representation; a gzip baseline is **not applicable**, not zero.
+Each row uses its transfer's SHA above, ludovico, and its contemporaneous conditions below. H/P mean health/ping; values are sample count / p50 / p95 in milliseconds. These are transfer-window observations; the concurrent slow-reader acceptance is separate.
 
-### Concurrent readers
+| Mode / pair / arm | H n / p50 / p95 | P n / p50 / p95 | Main CPU ms / busy % | Ratio |
+| --- | --- | --- | --- | ---: |
+| bootstrap / identity / before | 7 / 21.00 / 65.94 | 7 / 20.43 / 92.40 | 290 / 59.77% | 1.000× |
+| bootstrap / identity / after | 46 / 7.85 / 66.30 | 47 / 6.58 / 65.94 | 620 / 25.37% | 1.000× |
+| bootstrap / gzip / before | 7 / 40.30 / 145.79 | 7 / 30.51 / 101.82 | 310 / 50.34% | 1.000× |
+| bootstrap / gzip / after | 229 / 4.82 / 30.89 | 231 / 3.81 / 24.93 | 1130 / 13.47% | 6.039× |
+| bootstrap / zstd / before | 4 / 42.92 / 135.53 | 4 / 42.52 / 132.39 | 180 / 36.07% | 6.195× |
+| bootstrap / zstd / after | 239 / 4.30 / 32.02 | 239 / 3.72 / 24.91 | 1240 / 14.21% | 6.194× |
+| delta / identity / before | 18 / 11.69 / 4933.94 | 18 / 11.34 / 4943.13 | 2280 / 29.16% | 1.000× |
+| delta / identity / after | 40 / 259.34 / 538.11 | 40 / 261.47 / 527.99 | 2720 / 15.40% | 1.000× |
 
-The baseline opened four fast identity bootstrap clients and one raw slow reader. All fast transfers closed before completion. The slow reader consumed **2,944,256 bytes including headers/framing** over its observation window. Those baseline connections shared the same user principal and could reuse the principal world cache. The current runner assigns distinct users with the same public slice because the HTTP endpoint supersedes concurrent requests for the same user. A fresh pair must use identical principal placement; these first concurrency observations cannot serve as that pair.
+## Conditions and disk discipline
 
-The apparently low 30-second-window p95 and busy ratio do not prove healthy transfer responsiveness: the fast transfers failed early, leaving much of the window dominated by probes and slow-reader waiting.
+UTC on 2026-09-15. Load is 1/5/15-minute average. Space is available GiB before fixture generation, at run end before cleanup, and after database/WAL cleanup. Negative net consumption can reflect unrelated reclaim and is not attributed to this runner. All full runs required at least 3 GiB before starting and stopped on net consumption above 1 GiB. Full per-sample process inventories are in the attached JSON.
 
-### Delta
+| Mode / coding / arm | UTC start | Load start → end | Free GiB start / end / cleaned | Ratio |
+| --- | --- | --- | --- | ---: |
+| bootstrap / identity / before | 15:41:31.155 | 13.05/15.73/15.29 → 13.05/15.73/15.29 | 4.79/4.46/4.82 | 1.000× |
+| bootstrap / identity / after | 15:41:44.796 | 12.33/15.49/15.22 → 13.27/15.63/15.27 | 4.82/4.46/4.82 | 1.000× |
+| bootstrap / gzip / before | 15:42:09.075 | 13.83/15.62/15.27 → 13.83/15.62/15.27 | 4.82/4.46/4.82 | 1.000× |
+| bootstrap / gzip / after | 15:42:27.294 | 17.81/16.34/15.51 → 18.73/16.58/15.60 | 4.82/5.28/5.63 | 6.039× |
+| bootstrap / zstd / before | 15:42:53.829 | 19.26/16.79/15.69 → 19.26/16.79/15.69 | 5.63/5.27/5.63 | 6.195× |
+| bootstrap / zstd / after | 15:43:14.708 | 19.88/17.11/15.82 → 21.08/17.46/15.94 | 5.63/5.27/5.62 | 6.194× |
+| delta / identity / before | 15:44:19.666 | 18.40/17.35/16.00 → 18.41/17.40/16.03 | 5.61/5.26/5.61 | 1.000× |
+| delta / identity / after | 15:44:42.538 | 19.12/17.61/16.12 → 18.79/17.66/16.17 | 5.61/5.25/5.61 | 1.000× |
 
-The legacy tRPC path returned all **20,000 changes in one page**. First page reached the Node sink at **2,911.30 ms**; install completed at **2,922.47 ms**. Initial client RSS was **66,363,392 bytes** and sampled peak client RSS was **599,203,840 bytes** (571.45 MiB). The sink retained 5,120 keys after applying repeated updates. This is a transport-plus-Map heal, not production-kernel end-to-end acceptance.
+## Admission and socket-backpressure failures
 
-## History: POD-3938 JS-paced reads, backpressure unverified
+A fresh admission pair used the absent legacy HTTP route as an explicit 404 control, followed by twelve distinct HTTP bootstrap users with raw sockets that did not consume bodies. In the after pre-abort checkpoint, four had 200 headers, six remained pending, and two had **503 with Retry-After: 5**. Eight worker-client jobs remained; two prior workers had already emitted **52,943,466 bytes each and completed while readers were stopped**. All requests negotiated identity (ratio 1×). This is capacity/failure evidence at `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2` on ludovico, not a successful cleanup or sustained-backpressure claim.
 
-These are reproduced as historical evidence, as requested. The artifact's revised account states that the implementation/corpus were unchanged, while the integration base and dependency graph changed. Hostname and contemporaneous load were not recorded in that artifact. Its two runs cannot be retrospectively interleaved with the new baseline. Host contention is plausible but is not an established cause of the difference.
+Destroying the sockets then terminated the Bun host with `SyncWorkerError: cancelled` from worker-client.ts. POD-4023 blocks cleanup acceptance. The admission checkpoint preserves source SHA, contemporaneous load/process inventory, statuses and passive worker counters; failed-run disk snapshots and server diagnostics are retained. No post-crash RSS/CPU number is manufactured.
 
-| Source SHA | Enclosing runner start (Europe/Berlin) | Body bytes | Probe wall ms | Main CPU ms / busy % | Health n / p95 ms | Ping n / p95 ms | Box / load |
-| --- | --- | ---: | ---: | --- | --- | --- | --- |
-| `548d7c94b` | 2026-09-15 16:17:34 | 52,875,330 | 1,923.85 | 720 / 37.43% | 142 / 22.97 | 199 / 8.78 | not recorded |
-| `55740153f` | 2026-09-15 16:28:08 | 52,875,330 | 3,338.52 | 1,430 / 42.83% | 161 / 42.57 | 215 / 23.21 | not recorded |
+The fresh concurrent pair ran on ludovico with identity coding (achieved wire ratio **1×** in both arms), four fast readers and one stopped raw TCP reader. BEFORE source was `d958a17c3c9e916d3bab9741422d92d049dcfa79`; AFTER source was `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. These are failure-mechanism observations, not a successful slow-reader performance comparison. Attached `socket-proof.json` carries source, load, TCP diagnostics and per-reader observations; the raw bundle carries contemporaneous process and disk snapshots.
 
-Historical scope: one identity HTTP bootstrap, a real worker, health/ping probes, and the consumer **inside the same Bun process**. The consumer slept 2 ms after each body read. Main CPU therefore includes client/probe work, unlike the new baseline. There were no four concurrent bootstraps and no demonstrated socket backpressure. These p95 values met that probe's 100 ms budget, but they do not satisfy the requested concurrent slow-socket acceptance.
+| Observation and scope | BEFORE | AFTER |
+| --- | ---: | ---: |
+| TCP stopped-reader connection receive-window limitation | 100%, 4,443 ms | 100%, 4,710 ms |
+| Producer while application body reads stopped | Paused; stable 4,135,994 sent bytes | All 52,943,466 bytes emitted; worker complete |
+| Full slow-reader completion | 409,535.859 ms | Not measured: proof failed |
+| Paced reading / ideal at 64 KiB each 500 ms | 404,001.260 / 403,901.039 ms | Not measured |
+| Whole probe duration | 409,832.405 ms | 9,064.486 ms |
+| Whole probe main-thread CPU / wall | 14.391% | 20.740% |
+| Whole probe health / WS ping p95 | 32.926 / 30.094 ms | 92.674 / 92.695 ms |
+| Whole probe peak server RSS | 827.027 MiB | 480.547 MiB |
+| Start load average (1/5/15 min) | 25.25 / 22.28 / 18.82 | 19.40 / 22.09 / 20.06 |
+| End load average (1/5/15 min) | 20.64 / 22.46 / 20.14 | 21.06 / 22.37 / 20.17 |
 
-## Thread accounting and trace
+BEFORE's scheduled reading duration matched the imposed rate within 0.025%. The production sender remained paused with unchanged counters during the stop, then completed all 5,120 records. Its peak application queue was 8,271,988 bytes and finished empty. AFTER's worker completed in approximately 2.986 seconds while the application had consumed no body bytes; TCP still showed a closed-window-limited connection with approximately 2.85 MB unsent. This proves that TCP pressure did not constrain this producer. It does **not** establish an asymptotic native-memory bound or identify exactly which downstream layer held each byte. POD-4025 blocks acceptance; a second rate-control run would not repair this failed mechanism.
 
-The baseline artifact contains 20 ms `/proc` timelines, per-TID names/ticks, and start/end thread accounting. No Bun loop-delay histogram, ELU, JSC sampling profiler, or perf capture was used. Zstd's baseline main thread consumed 170 ms; its named Bun pool threads consumed 10 ms in total over the observed window. Other TIDs include GC/JIT work and are reported separately, not mislabeled as producer CPU. Threads that exit between samples may be missed.
+The whole-window CPU ratios and responsiveness quantiles above have different scopes: the legacy window is mostly the slow reader alone after four fast transfers finish, whereas the failed HTTP window ends after roughly nine seconds. Do not interpret their difference as an improvement or regression. Per-probe timestamps were not retained, so an equal-duration overlap-only responsiveness comparison cannot be reconstructed from these samples.
 
-No full-size after trace has been captured, so this evidence does not yet demonstrate the after pipeline running off the main thread. RSS cannot honestly be partitioned into prefetch maps and transfer buffers from `/proc` alone. The worker exposes heap-before/heap-after-prefetch counters and total process RSS; those are different quantities and must not be subtracted into a purported RSS allocation breakdown.
+WAL began at zero in each arm. BEFORE applied 90 fixture updates during the stalled/paced transfer; WAL peaked at 3,881,072 bytes and final TRUNCATE returned it to zero. Its initial ten-write PASSIVE checkpoint reported 111 frames, all checkpointed: the legacy transfer did not hold a SQLite snapshot. AFTER's ten writes grew WAL to 457,352 bytes; PASSIVE reported 111 frames and zero checkpointed. Other fast-reader snapshots were still active, so that pin cannot be attributed to the already-completed slow-reader producer. The requested WAL growth specifically under a sustained HTTP slow-reader snapshot remains unestablished.
 
-## Runner and outstanding evidence
+Further heavy runs stopped after the failed proof. Each run database/WAL was removed and the sync-gate lease released.
 
-The runner is `scripts/sync-measurements/run.mjs`. It supports baseline-only runs and A/B/B/A arms, refuses overwriting a run directory, creates isolated fixtures/processes, records per-run conditions, and prints a table. It uses source exports and separate checkout-local dependencies. It is a benchmark script, not a Vitest lane.
+## Memory attribution and thread evidence
+
+The raw 50 ms timeline names each OS TID. In the after single-bootstrap samples, the unique Worker thread consumed 950 ms (identity), 1,400 ms (gzip), and 1,440 ms (Zstd); corresponding full-stream ratios were 1×, 6.039× and 6.194×. The worker's production phase metrics show capture, visibility pass, serialization and compression work. Phase durations overlap and are not additive; compression/transfer timing includes waits. The observations establish worker activity, not zero main-thread relay cost.
+
+HTTP identity crossed in 814 worker chunks, each at most 65,536 bytes; gzip and Zstd used 1,351/1,336 chunks with maxima 12,055/11,840 bytes. These are worker-channel bounds only. They do not establish a bound on Bun's native response buffer, and completed producers behind unread clients make that distinction material.
+
+Prefetch isolate heap change, RSS observed at metadata acknowledgement, and sampled transfer-window RSS are reported below. Metadata follows the production visibility pass, but asynchronous message delivery and native/allocator activity prevent an exact allocation split. Do not subtract these into fictitious 'map RSS' and 'buffer RSS'. The requested disjoint RSS split is **not established**; the report supplies the independently observable quantities instead.
+
+| Coding / ratio | Worker heap before / after prefetch MiB | Process RSS at meta MiB | Sampled process peak MiB |
+| --- | --- | ---: | ---: |
+| identity / 1.000× | 22.98 / 25.06 | 338.55 | 451.62 |
+| gzip / 6.039× | 22.92 / 24.82 | 360.10 | 410.54 |
+| zstd / 6.194× | 22.95 / 24.93 | 352.39 | 400.59 |
+
+## Reproduction and validation status
+
+The benchmark files are under `scripts/sync-measurements/`: deterministic corpus, isolated production host, external Node client, and sequential runner. Export the pinned before tree without changing shared branches and install its checkout-local dependencies. Hold/renew `sync-gate`, then run:
 
 ```sh
-podium lock acquire sync-gate --ttl 20m
-bun --conditions=@podium/source scripts/sync-measurements/run.mjs <reference-copy> . <fresh-output-directory> both
-podium lock release sync-gate
+bun scripts/sync-measurements/run.mjs <reference-copy> . <fresh-output-directory> both full <mode>
 ```
 
-The reference copy must contain the exact baseline commit and have its own `bun run setup:worktree` installation. Renew the lease for longer runs. Do not share node_modules. The committed runner is a historical prototype and is not ready for the corrected comparison: it still hardcodes the obsolete SHA and groups modes within each arm. Apply the revisions below before any full run. Do not execute this recipe while the coordinator disk hold is active.
+Modes include bootstrap, delta, admission, concurrent and rate-control. The runner records df before and after, removes each temporary database/WAL before the next arm, refuses overwrites and enforces the disk floor/stop rule. A known cancellation or proof failure stops that invocation; do not treat it as a green result.
 
-Fresh full-size paired measurements are approved; the historical-reuse ambiguity is resolved. Execution is held until POD-3933 confirms disk headroom. The current runner additionally records WAL growth under periodic writes; that instrumentation was added after the first baseline and has no full-size result yet. HTTP gzip/zstd and delta tiny-fixture smoke checks are harness checks only.
+Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. The final revised-harness gate and rebase remain to be run at the end of this checkpoint. Historical gate results do not validate these edits. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
 
-Remaining acceptance includes controlled paired runs, producer/queue bounds and 503 saturation evidence, WAL growth while a confirmed snapshot remains open, a defensible memory attribution method, production Replica harness evidence, and the full-size after thread timeline. No tuning or production-code change is included.
+## History — excluded from every comparison
 
-## Checkpoint validation
-
-The benchmark checkpoint was rebased onto integration commit `e79b8c766f3b2dfc83c49ebeff609bebd6a883fc`. `bun run test` was **lean gate green**: 26 successful typecheck tasks (25 cached), span-effect lint green, and 126 tests executed in 4 of 1,338 collected files. This does not validate the missing measurement acceptance. The issue remains in progress, with no merge performed.
-
-## Revised experiment design during the disk hold
-
-This section is a design, not evidence that the revised instrument has run. No new large database, source archive, build, or benchmark was started after the hold.
-
-### Corpus with representative compressibility
-
-Generate deterministic, row-specific payloads from a fixed seed: combine unique pseudo-random text with locally repeated structured text, rather than reusing one identical string across every row. Calibrate the entropy fraction on a small in-memory sample through the actual per-record gzip/Zstd encoding paths. Target approximately 6× for Zstd; report achieved ratios for each coding instead of forcing gzip to match. Record the seed, generator version, calibration size, and entropy fraction.
-
-Then validate the achieved ratio on the complete wire stream. The sample is only a calibration aid: it cannot certify the full-corpus ratio. Use a predeclared broad acceptance band (proposed 5–7× for Zstd), adjust the corpus before timed runs if outside it, and keep the resulting bytes identical across paired arms. Count scoped JSON bytes separately from payload bytes and require at least 50 MiB of scoped JSON. Report decoded/body-byte ratio beside every result, with identity approximately 1× and gzip/Zstd ratios independently measured. Do not use timings to choose a seed or tune the corpus.
-
-Keep the repetitive historical corpus as a separately named control. The original sender failure remains attributable only to the pre-POD-3931 commit; repeat identity on the corrected baseline with both corpus shapes without assuming it will fail.
-
-### Faithful corrected WebSocket arm
-
-Use the baseline's production `NativeGatewaySocket` from `gateway/ws-server.ts`, including native drain forwarding, and expose `OrderedClientSend.sendSequence` to `FeedServing`. The current prototype exposes only `send` and no drain subscription; reusing it would bypass the very fix the new baseline must include. Match native socket limits to that source commit, including its extra single-frame headroom. Sample `OrderedClientSend.stats()` without changing production behavior: pauses, accepted bytes/frames, queued/ready bytes, socket buffer peaks, and completion/failure reason.
-
-Use equivalent distinct user principals with the same visible corpus for concurrent arms. This avoids HTTP's per-user supersession while preserving comparable scoping and cache behavior. Pin source SHAs and reject unspecified or obsolete baseline provenance instead of hardcoding the old reference.
-
-### Backpressure proof that can fail
-
-1. Run the consumer in a separate process on a raw TCP socket. Read only the handshake/headers, then stop application reads. Observe the TCP connection using a read-only socket diagnostic such as `ss -tinm`, correlating the client/server port pair, kernel queue sizes, and available receive-window information. The existing bounded Node buffer is necessary but does not prove the server stalled.
-2. During a sustained stopped-reader interval, record server progress. For WebSocket, require native `-1`/pause evidence, outstanding buffered bytes, and no continued application-send advance until drain. For HTTP, observe the production response-body relay's pull/chunk counters and completion state from a benchmark wrapper: require outstanding work and a stable progress plateau after bounded kernel/native slack fills. Correlate that plateau with TCP queue evidence. Bun HTTP does not expose the WebSocket send-return API; do not call a JavaScript plateau an observed blocking syscall.
-3. Resume at 64 KiB per 500 ms. Record actual bytes/read times, resumed server progress, and completion of the full response. Compare with a fast control and a second imposed rate on the same corpus. Completion wall must track delivered bytes / imposed rate after accounting for initial kernel/native slack. A fixed 30-second cancellation alone cannot satisfy this check.
-4. A 50 MiB identity body at 128 KiB/s takes roughly 400 seconds before overhead. Plan the lease and stream deadline accordingly; separate a shorter stop/resume proof from the full rate-controlled completion. Do not use the long idle/throttled interval to claim a low main-thread busy fraction without also reporting the active-transfer window.
-5. Fail the proof if no server stall is observed, if the native body drains completely during the stopped interval, if resumption fails to advance, or if the observed rate/wall relationship is inconsistent. Preserve the failed proof as an instrument result, not a transport performance result.
-
-### Pairing, queue, memory, and WAL
-
-Interleave A/B/B/A **within each mode and coding**, using the same fixture bytes and reader placement. Record a load/process snapshot for every arm under `sync-gate`; the lease does not make unrelated processes disappear. Report paired samples and their ratios, not an aggregate mixing successful and failed transfers.
-
-For admission, hold the worker's two active jobs under demonstrated socket backpressure, fill the eight queued reservations with distinct principals, then require excess requests to return 503 with Retry-After. Record cleanup and released reservations after abort. Use actual runtime constants from the measured SHA; do not treat the planned limits as observed queue behavior.
-
-Take an external per-thread CPU/RSS timeline, worker heap-before/after-prefetch metrics, and sender/relay-owned buffer counters. Distinguish measured process RSS from isolate heap and explicit buffer ownership. A process RSS subtraction is not a defensible split into maps versus buffers. Identify the producer's OS TID rather than aggregating GC/JIT/pool threads under a worker label.
-
-Measure WAL size and append counts while a confirmed snapshot remains open during the stalled reader; demonstrate snapshot release on completion/abort. Fixture writes must preserve corpus row count and payload scale. Document the production Replica adapter and persistence semantics for the Node heal measurement; the existing Map sink remains only a transport probe.
-
-### Resume conditions
-
-POD-3933 must first confirm reclaimed disk headroom. Then finish the above harness revisions, use the pinned baseline `d958a17c3c9e916d3bab9741422d92d049dcfa79` and record the integration SHA, run a tiny smoke, and capture the fresh paired experiment under the lease. The issue remains in progress. The prior lean gate belongs to the historical checkpoint; this documentation-only correction does not change runtime and does not require another test run.
+- The first reference-commit probe used `5133399843e81b7c6a7b4ebac51ed9d45bf0a045`, before POD-3931. Its identity transfer failed before the last record. That ceiling was already fixed by `b6c4e9b2e`, so this programme gets no credit for removing it. Independently, the prototype lacked production NativeGatewaySocket drain forwarding and lazy sendSequence wiring; simply updating its source SHA would not have made it a faithful comparator.
+- That first corpus repeated one payload and achieved about 1,182× Zstd compression. Its 455 ms Zstd completion and 2.92 s Map-sink delta heal on ludovico are historical pipeline probes, not performance arms. The delta sink was not the production Replica kernel. Original raw evidence remains on the issue.
+- POD-3938's two historical identity observations (source commits `548d7c94b` and `55740153f`) used JS-paced body reads inside the server process. Their health p95 values were 22.97/42.57 ms, ping p95 8.78/23.21 ms, and main busy fractions 37.43/42.83%. Socket backpressure was unverified; hostname and contemporaneous load were not recorded in the source artifact. The coordinator's own verification run has the same JS-paced-read limitation. None is an after arm here.
