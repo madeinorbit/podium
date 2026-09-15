@@ -122,12 +122,12 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D14-READMIT',
-    from: ['live'],
+    from: ['live', 'healing'],
     input: 'delta frame containing op=upsert for a previously evicted entity',
     condition: "entity's revision has NOT moved",
     effect:
       'Install it. An upsert whose revision has not moved is still a valid upsert; clear the exit kind and flag the emission as a re-admission (not a creation).',
-    to: ['live'],
+    to: ['live', 'healing'],
     rung: 0,
     adr: 'Amendment 1 D14.2 — re-admission needs no new op',
   },

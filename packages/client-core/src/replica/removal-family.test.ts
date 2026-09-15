@@ -369,7 +369,9 @@ describe.each(
       store: opened.cache as never,
       authority: new FeedAuthorityClient({
         fetchChangesSince: async (cursor) => {
-          const reply = await port.changesSince(cursor)
+          const range = await port.changesRange(cursor)
+          const reply: import('@podium/sync/replica').ChangesSinceReply =
+            'kind' in range ? range : (await range[Symbol.asyncIterator]().next()).value!
           if (reply.kind === 'bootstrap-required') {
             return {
               kind: 'bootstrap-required',

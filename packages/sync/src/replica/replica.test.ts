@@ -2346,6 +2346,44 @@ describe('incremental range healing', () => {
     expect(h.replica.stats().pendingGaps).toBe(0)
   })
 
+  it('surfaces a refused frame commit while retaining the previous durable prefix', async () => {
+    const h = delayedRetirement()
+    await bootstrapped(h, 10, [])
+    h.store.outbox.enqueue({ mutationId: asMutationId('m1'), entity: 'session', entityId: 'denied', command: {} })
+    h.authority.changesRangeQueue = [(async function* () {
+      yield deltaFrame(10, 11, [])
+      yield deltaFrame(11, 12, [session(12, 'denied', 'denied', { mutationId: asMutationId('m1') })])
+      throw new Error('must not pull past a refused commit')
+    })()]
+    h.replica.disconnect()
+    h.replica.connect()
+    await h.entered.promise
+    h.store.cache.failNextPrepare = 'durable write denied'
+    h.commit.release()
+    await expect(h.replica.settled()).rejects.toThrow('durable write denied')
+    expect(h.store.cache.readCursor()).toEqual(cursorAt(11))
+    expect(h.store.outbox.list()).toHaveLength(1)
+    expect(h.replica.view('session', 'denied')).toBeUndefined()
+    expect(h.replica.posture).toBe('stale')
+    expect(h.replica.trace).not.toContain('D7-1-HEAL-STREAM-FAILED')
+    h.authority.changesRangeQueue = [deltaFrame(11, 12, [])]
+    h.replica.connect()
+    await h.replica.settled()
+    expect(h.authority.changesRangeCalls).toEqual([cursorAt(10), cursorAt(11)])
+  })
+
+  it('records re-admission while still healing', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [session(10, 'shared', 'shared')])
+    await h.replica.receive(deltaFrame(10, 11, [evictChange(11, 'session', 'shared')]))
+    h.authority.changesRangeQueue = [deltaFrame(11, 12, [session(12, 'shared', 'shared')])]
+    h.replica.disconnect()
+    h.replica.connect()
+    await h.replica.settled()
+    expect(h.events).toContainEqual(expect.objectContaining({ type: 'upserted', readmitted: true }))
+    expect(h.replica.transitions).toContainEqual({ rowId: 'D14-READMIT', from: 'healing', to: 'healing' })
+  })
+
   it.each(['non-chaining', 'invalid-payload', 'identity'] as const)('rejects a %s tail after a committed prefix', async (bad) => {
     const h = harness({ validator: { knows: entity => entity === 'session', validate: change => change.payload === 'invalid' ? 'bad payload' : null } })
     await bootstrapped(h, 10, [])
