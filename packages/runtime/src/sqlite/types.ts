@@ -21,6 +21,8 @@ export interface SqlStatement {
   all(...params: SqlParam[]): unknown[]
   /** Streaming rows; Bun-backed connections support this without materializing the result. */
   iterate?(...params: SqlParam[]): IterableIterator<unknown>
+  /** Release a prepared cursor, including a partially consumed streaming read. */
+  finalize?(): void
   /**
    * Rows as positional arrays rather than objects. Present because drizzle's
    * session reaches for it; every shim must offer it so that a drizzle instance

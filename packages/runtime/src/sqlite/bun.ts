@@ -11,6 +11,7 @@ interface BunStatement {
   get(...params: unknown[]): unknown
   all(...params: unknown[]): unknown[]
   iterate(...params: unknown[]): IterableIterator<unknown>
+  finalize(): void
 }
 interface BunDb {
   prepare(sql: string): BunStatement
@@ -98,6 +99,7 @@ function wrap(db: BunDb): SqlDatabase {
         },
         all: (...p) => st.all(...p),
         iterate: (...p) => st.iterate(...p),
+        finalize: () => st.finalize(),
         values: (...p) => (st as unknown as { values(...a: unknown[]): unknown[][] }).values(...p),
       }
     },

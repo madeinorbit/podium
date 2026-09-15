@@ -68,6 +68,7 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
         }
       }
       return {
+        ...(st.finalize ? { finalize: () => st.finalize!() } : {}),
         ...(st.iterate ? { iterate: function* (...p: SqlParam[]) {
           const iterator = st.iterate!(...p)
           try {

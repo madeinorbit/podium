@@ -17,7 +17,12 @@ const key = (ref: EntityRef) => JSON.stringify([ref.entity, ref.entityId])
 function* iterate<T>(db: SqlDatabase, sql: string): Generator<T> {
   const statement = db.prepare(sql)
   if (!statement.iterate) throw new Error('SQLite streaming iteration unavailable')
-  yield* statement.iterate() as IterableIterator<T>
+  try { yield* statement.iterate() as IterableIterator<T> }
+  finally {
+    // Bun 1.3.14 iterator.return() leaves the SQLite cursor active. Even
+    // ROLLBACK + db.close() keep that WAL snapshot until finalize() runs.
+    statement.finalize?.()
+  }
 }
 
 /**
@@ -184,7 +189,9 @@ export async function* produceBootstrap(
     reader.releaseLock()
     const metrics = telemetry.metrics
     if (metrics) {
-      metrics.outcome = !finished && outcome === 'complete' ? 'cancelled' : outcome
+      metrics.outcome = !finished && outcome === 'complete'
+        ? lifetime.signal.reason instanceof SyncWorkerError ? lifetime.signal.reason.reason : 'cancelled'
+        : outcome
       metrics.bytesAfter = bytesAfter
       // Wall time of the streaming coding pipeline, including its backpressure.
       metrics.phases.compress = { ms: job.encoding === 'identity' ? 0 : performance.now() - started, bytes: bytesAfter }
