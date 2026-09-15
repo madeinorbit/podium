@@ -155,7 +155,7 @@ it('bounds read-ahead and admits only four stalled streams; cancellation release
 // Exercise the shipped reader, including its lookahead and policy filtering.
 it.each([false, true])('real bounded range includes late rows only within H; invisible=%s', async (invisible) => {
   const f = fixture()
-  const row = (seq: number) => ({ seq, entity: 'issue', entityId: `i${seq}`, op: 'delete' as const, payload: null })
+  const row = (seq: number) => ({ seq, entity: 'issue' as const, entityId: `i${seq}`, op: 'delete' as const, payload: null })
   const rows = [1, 2, 3, 4, 5, 7, 8].map(row)
   let reads = 0
   const store: AuthorityDeps['store'] = {

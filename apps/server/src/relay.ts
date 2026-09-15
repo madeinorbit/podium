@@ -1,4 +1,4 @@
-import type { SyncDeltaPorts } from './sync/routes'
+import type { SyncDeltaPorts } from './sync/route-support'
 import { readIssue, readClosedIssueIds } from './modules/world-index/issue-reader'
 import { readResourceGrants } from './modules/world-index/grant-reader'
 import { WorldIndex, type WorldIndexReader } from './modules/world-index'

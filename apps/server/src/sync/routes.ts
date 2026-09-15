@@ -1,17 +1,18 @@
+import { createLogger } from '@podium/logger'
 import { randomUUID } from 'node:crypto'
 import { setImmediate } from 'node:timers/promises'
 import { parseSyncDeltaQuery, WIRE_VERSION, wireSchemaDigest, type Principal, type SyncRecord, type SyncBootstrapRequiredReason } from '@podium/protocol'
 import { ChangeRangeBootstrapRequired, type AuthorityPort } from '@podium/sync'
 import type { Hono } from 'hono'
-import { toFeedChange, type FeedServing } from '../gateway/feed-serving'
+import { toFeedChange } from '../gateway/feed-serving'
 import { NdjsonEncoder, RowTooLarge } from './ndjson-encoder'
 import { pipeSyncBody } from './pipe-sync-body'
-import { negotiateContentCoding, syncResponseHeaders } from './route-support'
+import { negotiateContentCoding, syncResponseHeaders } from './content-coding'
 
-export interface SyncDeltaPorts {
-  authority: Pick<AuthorityPort, 'captureHead' | 'changesRange'>
-  serving: Pick<FeedServing, 'identity' | 'retentionFloor'>
-}
+const log = createLogger('sync-delta')
+
+import type { SyncDeltaPorts } from './route-support'
+
 export interface SyncRouteDeps extends SyncDeltaPorts {
   principal(request: Request): Promise<Principal | undefined>
   pageRows?: number
@@ -95,6 +96,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
             }
             if (!stopped) yield encode({ type: 'syncComplete', transferId, seq: target, records, rows })
           } catch (error) {
+            log.warn('delta stream failed', { transferId, err: error })
             if (!stopped) yield encode({ type: 'syncError', transferId,
               reason: error instanceof RowTooLarge ? 'row-too-large' : 'read-failed' })
           } finally {

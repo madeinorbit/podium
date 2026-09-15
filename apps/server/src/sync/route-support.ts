@@ -1,6 +1,12 @@
 import { asAgentIdentityId, asCapabilityRef, asDelegationRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { CommandPrincipal } from '../command-principal'
-export { negotiateContentCoding, syncResponseHeaders } from './content-coding'
+import type { AuthorityPort } from '@podium/sync'
+import type { FeedServing } from '../gateway/feed-serving'
+
+export interface SyncDeltaPorts {
+  authority: Pick<AuthorityPort, 'captureHead' | 'changesRange'>
+  serving: Pick<FeedServing, 'identity' | 'retentionFloor'>
+}
 
 /** Shared with tRPC: transport authentication supplies identity, never query fields. */
 export function syncFeedPrincipal(principal: CommandPrincipal | undefined): Principal | undefined {
