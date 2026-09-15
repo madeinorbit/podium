@@ -213,3 +213,23 @@ describe('issue deletion runtime preparation', () => {
     expect(repository.publishSessionProjection).toHaveBeenCalledWith([], 12)
   })
 })
+
+describe('continueSession contract routing', () => {
+  it('writes no raw PTY bytes for a contract-routed session', async () => {
+    const { ops, ports, sessions, session } = await fixture()
+    session.status = 'live'
+    session.agentState = {
+      phase: 'errored',
+      since: stamp,
+      nativeSubagentCount: 0,
+      error: { class: 'server_error', retryable: true },
+    }
+    // A server-family session has no PTY bridge: the daemon discards typed
+    // bytes without an error, so any 'continue\r' here is bytes into nothing.
+    session.runtimeContract = true
+    session.driverId = 'opencode-server'
+    sessions.set(sessionId, session)
+    await ops.continueSession({ sessionId })
+    expect(ports.toPtyInput).not.toHaveBeenCalled()
+  })
+})
