@@ -85,7 +85,7 @@ export interface AgentSessionHandle {
    *  watch — an always-on token stream with nobody reading it is the exact cost
    *  the two levels exist to avoid. */
   watch(level: WatchLevel): Promise<() => void>
-  /** Poll-free projection. `lastActivityAt` is EVENT-time, never observe-time. */
+  /** Poll-free projection. `since` is EVENT-time, never observe-time. */
   state(): Promise<AgentRuntimeState>
 
   // ---- Transcript (CORE) ----
