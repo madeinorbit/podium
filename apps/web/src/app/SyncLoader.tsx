@@ -266,7 +266,7 @@ function SyncFailure({
             : 'The connection interrupted sync. Retry to continue.'}
       </p>
       {snapshot.error !== 'auth' && (
-        <button type="button" onClick={() => store.retry()}>
+        <button data-pressable type="button" onClick={() => store.retry()}>
           Retry sync
         </button>
       )}

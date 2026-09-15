@@ -1,3 +1,5 @@
+import { IssueWire } from '@podium/model/browser'
+import { makeIssue } from './test-issue'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -166,7 +168,7 @@ describe('kernel replica cross-tab convergence', () => {
         entity: 'issue',
         entityId: 'revoked-issue',
         op: 'upsert' as const,
-        value: { id: 'revoked-issue', title: 'visible before rescope' },
+        value: IssueWire.parse(makeIssue({ id: 'revoked-issue', title: 'visible before rescope' })),
       },
     ]
     let requests = 0
@@ -185,6 +187,8 @@ describe('kernel replica cross-tab convergence', () => {
     await vi.waitFor(() => {
       expect(firstObserver.rows('issues')).toHaveLength(1)
       expect(secondObserver.rows('issues')).toHaveLength(1)
+      expect(first?.progress.getSnapshot().phase).toBe('ready')
+      expect(second?.progress.getSnapshot().phase).toBe('ready')
     })
 
     const changed = vi.fn()

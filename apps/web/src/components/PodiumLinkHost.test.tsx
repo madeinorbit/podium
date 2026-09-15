@@ -115,7 +115,9 @@ describe('PodiumLinkHost native delivery', () => {
   })
 
   it('does not spend the resolution deadline before the initial replica is ready', () => {
-    expect(appShellSource).toContain("replicaReady={!sync.firstSync || sync.phase === 'ready'}")
+    expect(appShellSource).toContain(
+      "replicaReady={!sync.firstSync || sync.hasInstalled || sync.phase === 'ready'}",
+    )
     hostStore.issues = []
     nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710')
 
