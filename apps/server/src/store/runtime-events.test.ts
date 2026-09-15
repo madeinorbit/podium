@@ -500,6 +500,23 @@ describe('durable runtime observation gate', () => {
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(legacyAt)
     expect(legacyBoard).toEqual(['activity'])
 
+    expect(registry.modules.sessions.runtimeGateway.ready(sessionId)).toBe(false)
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
+    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'needs_user',
+        since: legacyAt,
+        nativeSubagentCount: 0,
+        needsUser: { kind: 'question' },
+      },
+    })
+    expect(legacyBoard).toEqual(['activity', 'activity', 'turnEnd', 'attention'])
+    // This second compatibility frame also ran before any durable runtime head.
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
+    legacyBoard.splice(1)
+
     const bootstrap1Completion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
       deliveryId: 'bootstrap-1',
@@ -546,7 +563,7 @@ describe('durable runtime observation gate', () => {
     })
     await agentStateCompletion2
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(firstAt)
-    expect(legacyBoard).toEqual(['activity', 'activity'])
+    expect(legacyBoard).toEqual(['activity', 'activity', 'activity'])
 
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     await registry.dispose()
