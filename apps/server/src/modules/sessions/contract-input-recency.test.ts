@@ -46,14 +46,14 @@ function turnStarted(
   seq: number,
 ) {
   return {
-    type: 'runtimeEvent',
+    type: 'runtimeEvent' as const,
     deliveryId,
     sessionId,
     event: {
-      t: 'turn',
-      ev: { ev: 'started', turnEpoch, origin },
+      t: 'turn' as const,
+      ev: { ev: 'started' as const, turnEpoch, origin },
       at,
-      provenance: 'live',
+      provenance: 'live' as const,
       cursor: { segmentId: 'recency-segment', components: { seq } },
       observerGeneration: 1,
       turnEpoch,
