@@ -42,8 +42,6 @@ export function pipeSyncBody(
           const next = await iterator.next()
           if (stopped) return
           if (next.done) {
-            stopped = true
-            signal.removeEventListener('abort', abort)
             controller.close()
             return
           }
@@ -66,7 +64,11 @@ export function pipeSyncBody(
     async pull(controller) {
       try {
         const next = await reader.read()
-        if (next.done) controller.close()
+        if (next.done) {
+          stopped = true
+          signal.removeEventListener('abort', abort)
+          controller.close()
+        }
         else controller.enqueue(next.value)
       } catch (error) { stop(error); controller.error(error) }
     },

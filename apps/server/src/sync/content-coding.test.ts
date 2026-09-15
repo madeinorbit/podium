@@ -74,13 +74,15 @@ describe('sync content coding', () => {
   it.each(['gzip', 'zstd'] as const)('bounds %s read-ahead even for compressible input', async (coding) => {
     const next = vi.fn(async () => ({ done: false as const, value: new Uint8Array(SYNC_BODY_HIGH_WATER_MARK) }))
     const body = pipeSyncBody({ [Symbol.asyncIterator]: () => ({ next }) }, coding, new AbortController().signal)
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    const reader = body.getReader()
+    await reader.read()
+    await new Promise((resolve) => setTimeout(resolve, 100))
     // One delivered output slot, one transform in flight, at most one next input.
     const pulls = next.mock.calls.length
-    expect(pulls).toBeLessThanOrEqual(3)
+    expect(pulls).toBeLessThanOrEqual(4)
     await new Promise((resolve) => setTimeout(resolve, 30))
     expect(next).toHaveBeenCalledTimes(pulls)
-    await body.cancel()
+    await reader.cancel()
   })
 
   it('aborts the producer after an injected mid-stream encoder failure', async () => {

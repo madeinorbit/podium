@@ -40,10 +40,8 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
           [constants.ZSTD_c_compressionLevel]: 3,
           [constants.ZSTD_c_windowLog]: 23,
         },
-        readableHighWaterMark: 64 * 1024,
-        writableHighWaterMark: 64 * 1024,
       })
-    : createGzip({ level: 4, readableHighWaterMark: 64 * 1024, writableHighWaterMark: 64 * 1024 })
+    : createGzip({ level: 4 })
   const operation = (run: (done: (error?: Error | null) => void) => void) =>
     new Promise<void>((resolve, reject) => {
       const failed = (error: Error) => { compressor.off('error', failed); reject(error) }
