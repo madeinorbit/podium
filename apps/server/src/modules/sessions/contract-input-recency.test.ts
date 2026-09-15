@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { SessionId } from '@podium/model'
 import { SessionRegistry } from '../../relay'
 
 const G = { cols: 80, rows: 24 }
@@ -37,7 +38,7 @@ async function seedContractSession() {
 }
 
 function turnStarted(
-  sessionId: string,
+  sessionId: SessionId,
   deliveryId: string,
   at: string,
   origin: 'human' | 'system',
@@ -57,10 +58,10 @@ function turnStarted(
       observerGeneration: 1,
       turnEpoch,
     },
-  } as const
+  }
 }
 
-function terminalOf(reg: SessionRegistry, sessionId: string) {
+function terminalOf(reg: SessionRegistry, sessionId: SessionId) {
   const session = reg.modules.sessions.sessions.get(sessionId)
   if (!session) throw new Error('session disappeared from the registry')
   return session.terminal
