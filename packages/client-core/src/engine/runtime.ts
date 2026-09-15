@@ -995,7 +995,24 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (persisted.dockTab !== this.state.dockTab) patch.dockTab = persisted.dockTab
     if (persisted.superOpen !== this.state.superOpen) patch.superOpen = persisted.superOpen
     if (JSON.stringify(persisted.panelMode) !== JSON.stringify(this.state.panelMode)) {
-      patch.panelMode = persisted.panelMode
+      // The replicated map REPLACES the local one wholesale (POD-3932): a write
+      // from any of this person's other devices lands here as a full map, so a
+      // per-session pick made on this device can be overwritten by a device
+      // that never saw it. Name every session whose mode this replace changes.
+      const local = this.state.panelMode
+      const remote = persisted.panelMode
+      const changed: Array<{ sessionId: string; from: string | null; to: string | null }> = []
+      for (const sid of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+        if (local[sid] !== remote[sid]) {
+          changed.push({ sessionId: sid, from: local[sid] ?? null, to: remote[sid] ?? null })
+        }
+      }
+      log.debug('replicated panel modes replaced the local map', {
+        changed,
+        localCount: Object.keys(local).length,
+        remoteCount: Object.keys(remote).length,
+      })
+      patch.panelMode = remote
     }
     if (Object.keys(patch).length === 0) return
     this.applyingHydratedUi = true

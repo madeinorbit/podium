@@ -31,9 +31,10 @@ import {
 } from '@podium/client-core/ui-state'
 import {
   defaultChatCapable,
-  type TerminalOutlook,
   sessionTerminalOutlook,
+  type TerminalOutlook,
 } from '@podium/client-core/viewmodels'
+import { createLogger } from '@podium/logger'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -44,6 +45,41 @@ import {
   panelGates,
   panelSurface,
 } from './panel-surface'
+
+const log = createLogger('web:panel-mode')
+
+/**
+ * WHICH RULE DECIDED THE MODE (POD-3932). The operator watched a session flip
+ * chat → CLI seconds after picking chat and could not tell whether the login
+ * override, a capability collapse, or another device's replicated pick did
+ * it. The mode alone cannot say; this names the rule, in the same order
+ * `effectivePanelMode` applies them, so the debug line can.
+ */
+type PanelModeProducer =
+  | 'login-required'
+  | 'no-terminal'
+  | 'not-chat-capable'
+  | 'saved'
+  | 'server-family'
+  | 'device-default'
+  | 'start-screen'
+
+function panelModeProducer(input: {
+  loginRequired: boolean
+  terminalCapable: boolean
+  chatCapable: boolean
+  saved: PanelMode | undefined
+  serverFamily: boolean
+  deviceDefault: string | null | undefined
+}): PanelModeProducer {
+  if (input.loginRequired) return 'login-required'
+  if (!input.terminalCapable) return 'no-terminal'
+  if (!input.chatCapable) return 'not-chat-capable'
+  if (input.saved === 'native' || input.saved === 'chat') return 'saved'
+  if (input.serverFamily) return 'server-family'
+  if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return 'device-default'
+  return 'start-screen'
+}
 
 export interface PanelArbitration {
   readonly surface: PanelSurface
@@ -150,6 +186,51 @@ export function usePanelSurface(input: {
     deviceDefault === 'chat' ||
     deviceDefault === 'native' ||
     startScreenSettled
+  const producer = panelModeProducer({
+    loginRequired,
+    terminalCapable,
+    chatCapable,
+    saved: savedMode,
+    serverFamily: session?.driverFamily === 'server',
+    deviceDefault,
+  })
+  // One line per EFFECTIVE change, naming the rule and every input it read.
+  // Debug: it fires on user picks too, and a flip the user did not ask for is
+  // diagnosed by reading the producer of the line that followed their pick.
+  const loggedModeRef = useRef<{ sessionId: SessionId; mode: PanelMode } | null>(null)
+  useEffect(() => {
+    const prev = loggedModeRef.current
+    loggedModeRef.current = { sessionId, mode }
+    if (prev !== null && prev.sessionId === sessionId && prev.mode === mode) return
+    log.debug('panel mode decided', {
+      sessionId,
+      from: prev?.sessionId === sessionId ? prev.mode : null,
+      to: mode,
+      producer,
+      saved: savedMode ?? null,
+      deviceDefault: deviceDefault ?? null,
+      startScreen,
+      startScreenSettled,
+      chatCapable,
+      transcriptAvailable: session?.transcriptAvailable ?? null,
+      terminal,
+      condition: session?.condition ?? null,
+      status: session?.status ?? null,
+    })
+  }, [
+    sessionId,
+    mode,
+    producer,
+    savedMode,
+    deviceDefault,
+    startScreen,
+    startScreenSettled,
+    chatCapable,
+    session?.transcriptAvailable,
+    terminal,
+    session?.condition,
+    session?.status,
+  ])
   // Effects can run after a newer render has already handled a user click. Read
   // the current saved value at effect time so the initial materialization cannot
   // write the mode captured by an older render back over that pick.
@@ -162,10 +243,15 @@ export function usePanelSurface(input: {
     // while another panel is being switched.
     if (savedModeRef.current !== undefined) return
     if (loginRequired) return
+    // This write replicates to the person's other devices (PANEL_MODE_KEY is
+    // per-user), so it is one of the writers that can overwrite a pick made
+    // elsewhere — name it.
+    log.debug('panel mode materialized from fallback', { sessionId, mode, producer })
     setPanelMode(sessionId, mode)
-  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode])
+  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode, producer])
 
   const pickMode = (m: PanelMode): void => {
+    log.debug('panel mode picked', { sessionId, from: mode, to: m })
     // Persist the per-session override in the store (#35)…
     setPanelMode(sessionId, m)
     // …and remember the latest pick as the per-device default for not-yet-seen sessions.
