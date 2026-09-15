@@ -292,6 +292,12 @@ export interface CodexJournalEntry {
    * which is exactly the old behaviour and not a parse error.
    */
   model?: ModelPolicy
+  /**
+   * The thread's `name` as last reported, so an adopted session's snapshot
+   * keeps the title a pre-restart one carried. Optional like `model`: entries
+   * written before this field existed simply have no title.
+   */
+  title?: string
   process: ProcessIdentity
   /** The event-stream high-water mark, so a rebind resumes rather than replays
    *  and so `seq` stays monotonic across it. */
@@ -497,6 +503,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       workdir: session.spec.workdir,
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
       model: session.spec.model,
+      ...(session.title ? { title: session.title } : {}),
       process: session.binding.process,
       seq: session.seq,
       turnEpoch: session.turnEpoch,
@@ -1376,6 +1383,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           turnEpoch: session.turnEpoch,
           interactions: [...session.asks.values()].map((ask) => ask.interaction),
           ...(session.draft ? { draft: session.draft } : {}),
+          ...(session.title ? { title: session.title } : {}),
           at: iso(),
         }
       },
@@ -2160,7 +2168,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       idleWaiters: new Set(),
       turnOpenWaiters: new Set(),
       usage: undefined,
-      title: undefined,
+      title: journalled?.title,
     }
     registerSession(input.sessionId, session)
     wire(session, input.connection)

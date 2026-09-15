@@ -65,6 +65,13 @@ export interface SessionSnapshot {
   /** Open asks at bootstrap. A session that is blocked is, by construction, a
    *  session with an entry here (spec §4). */
   interactions: readonly PendingInteraction[]
+  /**
+   * The session's title, where the driver knows one (codex folds the thread's
+   * `name`). Absent is honest: a driver that has not observed a title reports
+   * none rather than a synthesized one — synthesis stays with the consumers
+   * that own the fallback (first-prompt truncation, OSC sniffing).
+   */
+  title?: string
   /** The composer's contents, where the driver has a draft. */
   draft?: string
   at: string
