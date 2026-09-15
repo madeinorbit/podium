@@ -59,15 +59,19 @@ export interface SyncTransferMetrics {
   err?: unknown
 }
 
+export function logSyncTransfer(metrics: SyncTransferMetrics): void {
+  const { startedAt, ...fields } = metrics
+  transferLog.info('sync transfer finished', { ...fields, totalMs: performance.now() - startedAt })
+}
+
 /** Zero read-ahead: observe the existing bounded pipe, never queue another page. */
-export function observeSyncTransfer(body: ReadableStream<Uint8Array>, metrics: SyncTransferMetrics): ReadableStream<Uint8Array> {
+export function observeSyncTransfer(body: ReadableStream<Uint8Array>, metrics: SyncTransferMetrics, onFinish: () => void = () => logSyncTransfer(metrics)): ReadableStream<Uint8Array> {
   const reader = body.getReader()
   let finished = false
   const finish = () => {
     if (finished) return
     finished = true
-    const { startedAt, ...fields } = metrics
-    transferLog.info('sync transfer finished', { ...fields, totalMs: performance.now() - startedAt })
+    onFinish()
   }
   return new ReadableStream<Uint8Array>({
     async pull(controller) {

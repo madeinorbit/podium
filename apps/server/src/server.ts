@@ -1674,6 +1674,7 @@ export async function startServer(
   app.use('/sync/*', guard)
   registerSyncRoutes(app, {
     ...registry.syncDelta,
+    worker: () => syncWorker,
     principal: async (request) => syncFeedPrincipal(await requestPrincipal({
       cookieHeader: request.headers.get('cookie') ?? undefined,
       authorizationHeader: request.headers.get('authorization') ?? undefined,

@@ -1,6 +1,8 @@
 import { perf } from '../modules/perf/registry'
 import { perfPrincipal } from '../modules/perf/principal'
-import type { BootstrapMetrics } from './types'
+import type { BootstrapMetrics, SyncFailureReason } from './types'
+
+export interface BootstrapCompletion { metrics?: BootstrapMetrics; reason?: SyncFailureReason }
 import { Worker } from 'node:worker_threads'
 import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker-embed'
 import { SYNC_JOB_DEADLINE_MS, SyncWorkerError, type BootstrapJob, type FromWorker, type SyncMetaSummary, type ToWorker } from './types'
@@ -21,6 +23,7 @@ export class SyncWorkerClient {
   private closed = false
   private ready = false
   private jobs = new Map<string, Pending>()
+  private completions = new Map<string, { resolve(result: BootstrapCompletion): void; metrics?: BootstrapMetrics }>()
   private restartTimer?: ReturnType<typeof setTimeout>
   private monitorTimer: ReturnType<typeof setInterval>
   private lastMessage = Date.now()
@@ -64,6 +67,11 @@ export class SyncWorkerClient {
           return
         }
         this.lastProgress = Date.now()
+        const completion = this.completions.get(message.transferId)
+        if (message.type === 'metrics' && completion) completion.metrics = message.metrics
+        if (message.type === 'end' || message.type === 'error') {
+          this.complete(message.transferId, message.type === 'error' ? message.reason : undefined)
+        }
         const job = this.jobs.get(message.transferId)
         if (!job) return
         if (message.type === 'metrics') {
@@ -80,6 +88,12 @@ export class SyncWorkerClient {
       worker.on('error', () => this.fail(worker))
       worker.on('exit', () => { this.exited.add(worker); this.fail(worker, true) })
     } catch { this.restart() }
+  }
+  private complete(id: string, reason?: SyncFailureReason) {
+    const completion = this.completions.get(id)
+    if (!completion) return
+    this.completions.delete(id)
+    completion.resolve({ metrics: completion.metrics, reason })
   }
   private send(message: ToWorker) {
     const worker = this.worker
@@ -109,6 +123,7 @@ export class SyncWorkerClient {
     this.worker = undefined; this.ready = false
     if (!alreadyExited) this.terminate(worker)
     for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('worker-crashed'))
+    for (const id of [...this.completions.keys()]) this.complete(id, 'worker-crashed')
     this.restart()
   }
   private restart() {
@@ -118,10 +133,11 @@ export class SyncWorkerClient {
     this.restartTimer = setTimeout(() => { this.restartTimer = undefined; this.spawn() }, delay)
     this.restartTimer.unref()
   }
-  bootstrap(input: BootstrapJob, signal?: AbortSignal): { meta: Promise<SyncMetaSummary>; body: ReadableStream<Uint8Array> } {
+  bootstrap(input: BootstrapJob, signal?: AbortSignal): { meta: Promise<SyncMetaSummary>; body: ReadableStream<Uint8Array>; completed: Promise<BootstrapCompletion> } {
     const job = { ...input, deadlineMs: input.deadlineMs ?? Date.now() + SYNC_JOB_DEADLINE_MS }
     if (this.closed || !this.worker) throw new SyncWorkerError(this.closed ? 'shutdown' : 'unavailable')
-    if (this.jobs.has(job.transferId)) throw new SyncWorkerError('unavailable')
+    if (this.completions.has(job.transferId)) throw new SyncWorkerError('unavailable')
+    const completed = new Promise<BootstrapCompletion>(resolve => { this.completions.set(job.transferId, { resolve }) })
     let resolve!: Pending['resolve'], reject!: Pending['reject']
     const meta = new Promise<SyncMetaSummary>((yes, no) => { resolve = yes; reject = no })
     // A caller may consume only the body; still surface rejection through the original promise.
@@ -149,13 +165,14 @@ export class SyncWorkerClient {
       },
       cancel: () => cancel('cancelled', true),
     }, { highWaterMark: 0 })
-    return { meta, body }
+    return { meta, body, completed }
   }
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true; this.ready = false
     clearInterval(this.monitorTimer); clearTimeout(this.restartTimer)
     for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('shutdown'))
+    for (const id of [...this.completions.keys()]) this.complete(id, 'shutdown')
     const worker = this.worker; this.worker = undefined
     if (worker) { try { worker.postMessage({ type: 'stop' }) } catch {} finally { this.terminate(worker) } }
     return this.closing = Promise.all([...this.terminations]).then(() => undefined)

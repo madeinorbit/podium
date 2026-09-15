@@ -66,6 +66,16 @@ const FULL_LIST_MESSAGES = [
 
 const FULL_LIST_ALLOWED = [ADAPTER_FILE]
 
+/** Authorized feed producers, not alternate repository projections. HTTP delta
+ * uses Authority.changesRange; HTTP bootstrap relays opaque worker bytes. The
+ * worker applies the same scopeBootstrap decisions (GrantEdgeVisibilityPolicy)
+ * to the same change_latest world in one read snapshot. The route owns no store
+ * reads. This list deliberately does NOT exempt legacy full-list messages. */
+const SYNC_FEED_PRODUCERS = [
+  'apps/server/src/sync/routes.ts',
+  'apps/server/src/sync-worker/producer.ts',
+]
+
 /**
  * The two method names the deleted path had, matched AS CODE.
  *
@@ -185,6 +195,18 @@ export function runChecks(input: AuditInput): Finding[] {
     })
   }
 
+  // Feed frames are constructed only by the existing edge or authorized HTTP
+  // producers above; these are transports of the same authorized feed world.
+  for (const path of input.sources()) {
+    if (!path.startsWith('apps/server/src/') || path.endsWith('.test.ts')) continue
+    if ([SERVING_FILE, ...SYNC_FEED_PRODUCERS].includes(path)) continue
+    const source = input.read(path)
+    if (source && /type:\s*['"]feedBootstrap['"]/.test(code(source))) {
+      findings.push({ check: 'bootstrap-producers-allowlisted', where: path,
+        detail: 'Bootstrap frames must serve the same scoped change_latest world through the feed edge or authorized sync producer.' })
+    }
+  }
+
   // HTTP delta frames use Authority.changesRange and the same scoped toFeedChange
   // mapping as the live edge. This transport must never open a repository read path.
   for (const path of ['apps/server/src/sync/routes.ts', 'apps/server/src/sync/route-support.ts']) {
@@ -280,6 +302,12 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     sources: () => [...base.sources(), ...extraSources],
   })
   return [
+    {
+      name: 'a feature invents a second bootstrap producer',
+      expect: 'bootstrap-producers-allowlisted',
+      input: overlay({ 'apps/server/src/modules/other-bootstrap.ts': "send({ type: 'feedBootstrap', changes })" },
+        ['apps/server/src/modules/other-bootstrap.ts']),
+    },
     {
       name: 'HTTP sync bypasses Authority with a store import',
       expect: 'sync-route-no-store-reads',
