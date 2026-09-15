@@ -51,6 +51,7 @@ import {
   type TerminalRuntime,
   type TerminalRuntimeHost,
 } from './terminal-driver'
+import { terminalProfileFor } from './registry'
 
 /**
  * A generic-PTY harness: no causal hook channel, submit-verification on, screen
@@ -511,11 +512,12 @@ function makeWorld(options: WorldOptions = {}): {
   return {
     profile,
     target: {
-      name: 'generic-pty',
+      name: profile.driverId,
       family: 'terminal',
       createDriver: () => {
         runtime = createTerminalRuntime(host)
-        return { driver: runtime.driverFor('grok', profile), control }
+        const harness = profile.driverId === 'claude-pty' ? 'claude-code' : 'grok'
+        return { driver: runtime.driverFor(harness, profile), control }
       },
       reset: () => {
         runtime?.dispose()
@@ -535,8 +537,8 @@ function makeWorld(options: WorldOptions = {}): {
         transcripts.clear()
       },
       spec: () => ({
-        harness: 'grok',
-        selection: { auth: 'subscription', platform: 'linux', available: ['generic-pty'] },
+        harness: profile.driverId === 'claude-pty' ? 'claude-code' : 'grok',
+        selection: { auth: 'subscription', platform: 'linux', available: [profile.driverId] },
         workdir: '/tmp/conformance',
         instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
         model: {},
@@ -562,6 +564,28 @@ runConformance(target.createDriver, {
   family: target.family,
   reset: target.reset,
   spec: target.spec,
+  exemptions: TERMINAL_PERMITTED_FAILURES,
+})
+
+/**
+ * THE SECOND HARNESS PROFILE, FROM THE REAL MANIFEST (POD-3980).
+ *
+ * The generic arm above proves the screen-classifier shape; this arm proves the
+ * claude-pty shape (hook-anchored accept, hook+echo send proof) the real Claude
+ * driver ships. Built from `terminalProfileFor('claude-code')` rather than
+ * hand-written so the corpus follows future manifest changes. The line-575 note
+ * against a second full run applies to the single-branch archive arm only; a
+ * harness profile changes send, interaction and steer behaviour across the whole
+ * corpus, so it needs the whole corpus.
+ */
+const claudeProfile = terminalProfileFor('claude-code')
+if (!claudeProfile) throw new Error('missing manifest profile for claude-code')
+const { target: claudeTarget } = makeWorld({ profile: claudeProfile })
+runConformance(claudeTarget.createDriver, {
+  name: claudeTarget.name,
+  family: claudeTarget.family,
+  reset: claudeTarget.reset,
+  spec: claudeTarget.spec,
   exemptions: TERMINAL_PERMITTED_FAILURES,
 })
 
