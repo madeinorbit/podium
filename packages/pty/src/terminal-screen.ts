@@ -28,6 +28,25 @@ import { decideReopenScreen, type ReopenDecision } from './reopen-policy.js'
 import { type ScreenMode, ScreenModeTracker } from './screen-mode.js'
 import { createHeadlessScreen, type ScreenReader } from './screen-model.js'
 
+/**
+ * Serialise model rows into the bytes a fresh viewer renders as its first
+ * frame. Pure: the method below reads the screen's own mode and lines and
+ * calls this.
+ *
+ * Alternate frames enter through leave-then-enter (`1049l 1049h`): on a
+ * fresh viewer the leave is a no-op and the enter puts it on the canvas the
+ * rows were drawn for; on a viewer stuck in a dead alternate buffer the
+ * leave gets it out first, so a repeated snapshot can never double-save and
+ * strand a later program exit. Rendered rows carrying a literal ESC cell are
+ * stripped: the snapshot is a picture of the canvas, not a program.
+ */
+export function snapshotFirstFrame(mode: ScreenMode, lines: string[]): Uint8Array {
+  const safe = lines.map((line) => line.replaceAll('\x1b', ''))
+  const body = safe.join('\r\n')
+  const prefix = mode === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[H' : '\x1b[2J\x1b[H'
+  return Buffer.from(prefix + body, 'latin1')
+}
+
 /** How much recent output the byte log keeps: several screens of a TUI. */
 export const TERMINAL_SCREEN_BYTE_LOG_BYTES = 256 * 1024
 
@@ -149,11 +168,13 @@ export class TerminalScreen {
   }
 
   /**
-   * The shared model itself, for the composer and the screen observer to read.
-   * They must NOT write, resize or dispose it — the screen owns the feed and
-   * the lifecycle; readers only call `lines()`/`flush()`.
+   * The shared model itself, for the composer and the screen observer to READ.
+   * Non-owning: readers call `lines()`/`flush()` only — the screen owns the
+   * feed (`push`/`attach`), the grid (`setAppliedSize`) and the lifecycle
+   * (`dispose`). The daemon's readers take this with `ownsScreen === false`
+   * so detaching a reader never kills the session's model.
    */
-  get model(): Pick<ScreenReader, 'lines' | 'flush'> {
+  get model(): ScreenReader {
     return this.screen
   }
 
@@ -197,19 +218,10 @@ export class TerminalScreen {
 
   /**
    * Serialise model rows into the bytes a fresh viewer renders as its first
-   * frame. Alternate frames enter through leave-then-enter (`1049l 1049h`):
-   * on a fresh viewer the leave is a no-op and the enter puts it on the canvas
-   * the rows were drawn for; on a viewer stuck in a dead alternate buffer the
-   * leave gets it out first, so a repeated snapshot can never double-save and
-   * strand a later program exit. Rendered rows carrying a literal ESC cell are
-   * stripped: the snapshot is a picture of the canvas, not a program.
+   * frame — {@link snapshotFirstFrame} over this screen's own mode and lines.
    */
   snapshotFirstFrame(): Uint8Array {
-    const lines = this.screen.lines(false)
-    const safe = lines.map((line) => line.replaceAll('\x1b', ''))
-    const body = safe.join('\r\n')
-    const prefix = this.tracker.current === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[H' : '\x1b[2J\x1b[H'
-    return Buffer.from(prefix + body, 'latin1')
+    return snapshotFirstFrame(this.tracker.current, this.screen.lines(false))
   }
 
   /**
@@ -244,16 +256,20 @@ export class TerminalScreen {
     if (chunk.length === 0) return
     this.log.push(chunk)
     this.logBytes += chunk.length
-    while (this.logBytes > this.logCap && this.log.length > 0) {
-      const oldest = this.log.shift()!
-      this.logBytes -= oldest.length
-    }
-    // One chunk larger than the whole window: keep its tail only.
-    if (this.logBytes > this.logCap && this.log.length === 1) {
-      const only = this.log[0]!
-      const tail = only.subarray(only.length - this.logCap)
-      this.log[0] = Buffer.from(tail)
-      this.logBytes = tail.length
+    // Sliding window at byte granularity: drop whole oldest chunks, then trim
+    // the front of the new oldest so exactly the last `logCap` bytes survive.
+    let excess = this.logBytes - this.logCap
+    while (excess > 0 && this.log.length > 0) {
+      const oldest = this.log[0]!
+      if (oldest.length <= excess) {
+        this.log.shift()
+        this.logBytes -= oldest.length
+        excess -= oldest.length
+      } else {
+        this.log[0] = Buffer.from(oldest.subarray(excess))
+        this.logBytes -= excess
+        excess = 0
+      }
     }
   }
 }

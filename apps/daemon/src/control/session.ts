@@ -69,7 +69,7 @@ import { decideReopenScreen } from '../reopen-policy'
 import {
   forgetSessionScreen,
   sessionScreenFor,
-  snapshotFirstFrame,
+  terminalScreenFor,
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
@@ -814,9 +814,16 @@ export async function launchSpawn(
     await bindRuntimeContract(ctx, msg, false)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
-    // session. attach() is a no-op for harnesses without a driver.
+    // session. attach() is a no-op for harnesses without a driver. Reads the
+    // session's one TerminalScreen model (P2c) instead of a second emulator.
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
+      ctx.composerEngine.attach(
+        msg.sessionId,
+        msg.agentKind,
+        geometry.cols,
+        geometry.rows,
+        terminalScreenFor(ctx, msg.sessionId).model,
+      )
     }
     // An adopted spawn started nothing: the durable master for this label was still
     // running and we reattached to it (POD-1945 — a Resume used to die on abduco's
@@ -1974,16 +1981,17 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
-      // THE HEADLESS SCREEN'S GRID, NOT THE PTY'S. The composer engine parses
-      // output against some cols x rows and has to be built at one; the server's
-      // last-known is the best hint available and it never reaches the pty. The
-      // first applied report resizes the engine through the ordinary onResize
-      // path.
+      // THE HEADLESS SCREEN'S GRID, NOT THE PTY'S. The session's one
+      // TerminalScreen model (P2c) is shared here instead of building a second
+      // emulator; the cols/rows hint only sizes a fallback owned screen, and
+      // the first applied report moves the shared model through the ordinary
+      // onResize path.
       ctx.composerEngine.attach(
         msg.sessionId,
         msg.agentKind,
         msg.lastKnownGeometry.cols,
         msg.lastKnownGeometry.rows,
+        terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
     ctx.send(
@@ -2155,7 +2163,14 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, screens.cols, screens.rows)
+      // The session's one TerminalScreen model (P2c), not a second emulator.
+      ctx.composerEngine.attach(
+        msg.sessionId,
+        msg.agentKind,
+        screens.cols,
+        screens.rows,
+        terminalScreenFor(ctx, msg.sessionId).model,
+      )
     }
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
@@ -2558,15 +2573,15 @@ export const sessionHandlers: Pick<
     // a same-size alternate reopens from the model serialisation. The arms
     // differ only in HOW they apply (client terminal vs pty bridge), never in
     // WHAT they decide.
-    const screen = sessionScreenFor(ctx, msg.sessionId)
+    const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
     const record = appliedGeometryFor(ctx)
     const viewer = ctx.pendingResizes.get(msg.sessionId) ?? record.applied(msg.sessionId) ?? undefined
     const bridge = ctx.bridges.get(msg.sessionId)
     const decision = decideReopenScreen({
-      mode: screen?.tracker.current ?? 'normal',
+      mode: screen?.mode ?? 'normal',
       modelSize: screen?.modelSize ?? record.applied(msg.sessionId) ?? undefined,
       viewerSize: viewer ? { cols: viewer.cols, rows: viewer.rows } : undefined,
-      modelAlive: screen?.model !== undefined,
+      modelAlive: screen?.alive ?? false,
       ringReplayable:
         typeof (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay ===
         'function',
@@ -2574,9 +2589,8 @@ export const sessionHandlers: Pick<
     })
     const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay
     const enqueueSnapshot = (): void => {
-      const snapshot = screen?.model
-        ? snapshotFirstFrame(screen.tracker.current, screen.model.lines(false))
-        : undefined
+      // The screen owns the serialisation now: one model, one snapshot.
+      const snapshot = screen?.alive ? screen.snapshotFirstFrame() : undefined
       if (snapshot) ctx.outputScheduler.enqueue(msg.sessionId, snapshot)
     }
     const applyBridgeSizeFirst = (): void => {

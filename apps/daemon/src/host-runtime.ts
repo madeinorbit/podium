@@ -122,7 +122,7 @@ import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './trans
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
-import { trackSessionOutput } from './session-screens'
+import { terminalScreenFor, trackSessionOutput } from './session-screens'
 
 const log = createLogger('daemon:host')
 /**
@@ -543,6 +543,10 @@ export async function createDaemonHostRuntime(args: {
   // store is necessarily observable by any portable file detector. Keep the
   // observer callback cheap and install the inventory reprobe once `ctx` exists.
   let requestAuthRefresh: (sessionId: SessionId) => void = () => {}
+  // Late-bound: `ctx` is assembled below, but observer setup (spawn/reattach)
+  // always runs after it. The session's one TerminalScreen model is created on
+  // first use here, so production observers never construct a second emulator.
+  let daemonCtx: DaemonContext | undefined
   const observers = createSessionObservers({
     sessionBinding,
     send,
@@ -552,6 +556,8 @@ export async function createDaemonHostRuntime(args: {
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
+    sharedScreenFor: (sessionId) =>
+      daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,
     onExactCodexBinding: async (sessionId, nativeId) => {
       await sessionBinding.transition({
         event: 'hook-repin',
@@ -1040,6 +1046,9 @@ export async function createDaemonHostRuntime(args: {
     applyUpdateGrant,
     runtimeContractEnabled,
   }
+  // Close the late-bound observer loop: observer setup from here on reads the
+  // session's one TerminalScreen model.
+  daemonCtx = ctx
   /**
    * Client terminals (POD-2059), built here and put on the CONTEXT as well as
    * into the opencode host: `sessionPriority` (the viewer signal its idle clock

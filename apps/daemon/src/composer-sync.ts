@@ -115,6 +115,14 @@ export class SessionComposerSync {
     private readonly publish: NativeDraftPublisher,
     inject?: InjectionConfig,
     private readonly stats?: ComposerSyncStats,
+    /**
+     * False when `screen` is a session's shared TerminalScreen model (P2c):
+     * the screen owns the feed, the grid and the lifecycle, so this reader
+     * only scrapes it — `onData` schedules without writing, `onResize` is a
+     * no-op, and `dispose` leaves the model alive. Defaults true so unit
+     * tests with their own screen behave as before.
+     */
+    private readonly ownsScreen: boolean = true,
   ) {
     this.writePty = inject?.writePty
     this.onDemote = inject?.onDemote
@@ -123,9 +131,12 @@ export class SessionComposerSync {
     this.backoffBase = inject?.backoffBase ?? DEFAULT_BACKOFF_BASE
   }
 
-  /** Feed a PTY output frame and schedule a coalesced scrape. */
+  /** Feed a PTY output frame and schedule a coalesced scrape. With a shared
+   *  screen the feed already happened once via the session's TerminalScreen,
+   *  so this only schedules the scrape (re-feeding would only repaint the
+   *  same cells, but there is no reason to pay for it twice). */
   onData(data: Uint8Array | string): void {
-    this.screen.write(data)
+    if (this.ownsScreen) this.screen.write(data)
     this.scheduleScrape()
   }
 
@@ -139,7 +150,9 @@ export class SessionComposerSync {
   }
 
   onResize(cols: number, rows: number): void {
-    this.screen.resize(cols, rows)
+    // A shared screen tracks the PROGRAM size via the session's apply sites;
+    // a viewer ask on its own must never re-grid it.
+    if (this.ownsScreen) this.screen.resize(cols, rows)
   }
 
   /** The daemon saw a client→PTY input byte: the user is typing natively, so defer
@@ -315,7 +328,8 @@ export class SessionComposerSync {
       clearTimeout(this.timer)
       this.timer = null
     }
-    this.screen.dispose()
+    // A shared session model outlives this reader; only dispose what we own.
+    if (this.ownsScreen) this.screen.dispose()
   }
 }
 
@@ -346,12 +360,21 @@ export class ComposerSyncEngine {
   }
 
   /** Begin sync for a session. Returns false (no-op) when the harness has no
-   *  composer driver. Idempotent per session. */
-  attach(sessionId: SessionId, agentKind: AgentKind, cols: number, rows: number): boolean {
+   *  composer driver. Idempotent per session. With `sharedScreen` the engine
+   *  reads the session's TerminalScreen model instead of constructing a second
+   *  emulator (P2c DONE WHEN 2); the screen outlives the engine entry. */
+  attach(
+    sessionId: SessionId,
+    agentKind: AgentKind,
+    cols: number,
+    rows: number,
+    sharedScreen?: ScreenReader,
+  ): boolean {
     if (this.sessions.has(sessionId)) return true
     const driver = composerDriverFor(agentKind)
     if (!driver) return false
-    const screen = createHeadlessScreen(cols, rows)
+    const ownsScreen = sharedScreen === undefined
+    const screen = sharedScreen ?? createHeadlessScreen(cols, rows)
     const writePty = this.config.writePty
     const inject: InjectionConfig | undefined = writePty
       ? {
@@ -361,7 +384,7 @@ export class ComposerSyncEngine {
       : undefined
     this.sessions.set(
       sessionId,
-      new SessionComposerSync(sessionId, driver, screen, this.publish, inject, this.stats),
+      new SessionComposerSync(sessionId, driver, screen, this.publish, inject, this.stats, ownsScreen),
     )
     return true
   }

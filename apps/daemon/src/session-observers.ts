@@ -29,6 +29,7 @@ import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { AgentSession } from '@podium/process/screen'
+import type { ScreenReader } from '@podium/process/screen'
 import {
   createSharedStatTick,
   type StatTick,
@@ -96,6 +97,10 @@ export interface SessionObserversDeps {
   onIdleState?: (sessionId: SessionId, idle: boolean) => void
   /** A provider saw an explicit login-success line in its native terminal. */
   onAuthSignal?: (sessionId: SessionId) => void
+  /** This session's shared TerminalScreen model (P2c): the observer reads it
+   *  instead of constructing a second emulator. Omitted (tests) = the observer
+   *  mirrors into its own emulator exactly as before. */
+  sharedScreenFor?: (sessionId: SessionId) => ScreenReader | undefined
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -1361,10 +1366,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
        * the first applied resize through `onResize`.
        */
       const screenGeometry = msg.type === 'spawn' ? msg.geometry : msg.lastKnownGeometry
-      const screenObserver = createTerminalScreenObserver(screenProvider, screenGeometry, {
-        onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
-        onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
-      })
+      const screenObserver = createTerminalScreenObserver(
+        screenProvider,
+        screenGeometry,
+        {
+          onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
+          onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
+        },
+        // P2c: read the session's one screen model instead of constructing a
+        // second emulator. Absent (tests) = the observer mirrors on its own.
+        deps.sharedScreenFor?.(msg.sessionId),
+      )
       if (screenObserver) {
         screenObservers.set(msg.sessionId, screenObserver)
         for (const frame of earlyFrames?.frames ?? []) {

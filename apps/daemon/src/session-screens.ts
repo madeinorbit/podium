@@ -1,41 +1,41 @@
 /**
- * PER-SESSION SCREEN STATE — the daemon's headless model and mode per live
- * session (POD-3918 P1b).
+ * PER-SESSION SCREEN STATE — one TerminalScreen per session (POD-3922 P2c).
  *
- * Two halves with different owners:
+ * The screen belongs to the SESSION; the attachment is merely the current way
+ * of reaching it. This module is the daemon's `Map<SessionId, TerminalScreen>`:
+ * entries are created on first use (first output byte or first applied size),
+ * fed by every output funnel and every apply site, and dropped only when the
+ * session's terminal goes away (`forgetSessionScreen` on the bridge-exit path).
+ * A detach/reattach cycle never drops one — the next attachment resumes
+ * feeding the same screen, which is what makes the reopen policy reconstitute
+ * from what the program drew rather than from a fresh emulator.
  *
- * - The MODE comes from {@link ScreenModeTracker}: DECSET/DECRST 1049 read
- *   off the output stream. The server mirrors the same signal for its replay
- *   decision (see `terminal.ts`); this module owns the daemon's copy.
- * - The MODEL is a headless VT screen (`createHeadlessScreen`) fed every live
- *   frame and resized exactly when the program is, so at any moment it holds
- *   what the program drew, at the size it drew it. That is what makes the
- *   alternate same-size serialisation a first frame instead of a guess.
- *
- * INVARIANT: the model tracks the PROGRAM size, never the viewer size. It is
- * resized only by {@link trackSessionSize}, which is called where a size is
- * really applied (bridge birth, resize dispatch, the reopen handler's own
- * size-first apply). An alternate canvas is never reflowed to fit a viewer:
- * the different-size case resizes the program first and uses the old-size
- * serialisation only as a placeholder until the repaint lands.
+ * The per-session VALUE lives in `@podium/process/screen` (`TerminalScreen`:
+ * applied size, byte log, one model, 1049 mode, repaint policy) because none
+ * of that names a SessionId, a protocol frame or the daemon context. The MAP
+ * stays here because it does. `snapshotFirstFrame` is re-exported from the
+ * package so the one serialisation has one home.
  */
 
 import type { Geometry, SessionId } from '@podium/model'
-import { createHeadlessScreen, type ScreenReader } from './composer-sync'
-import { ScreenModeTracker, type ScreenMode } from './screen-mode'
+import {
+  snapshotFirstFrame,
+  TerminalScreen,
+  type ScreenMode,
+} from '@podium/process/screen'
 import type { DaemonContext } from './control/context'
 
-/** The size a model is born at when nothing applied one yet. */
+export { snapshotFirstFrame }
+export type { ScreenMode }
+
+/** The size a screen is born at when nothing applied one yet. */
 const DEFAULT_MODEL_SIZE = { cols: 80, rows: 24 } as const
 
 export interface SessionScreenState {
-  tracker: ScreenModeTracker
-  model: ScreenReader | undefined
-  /** The grid the model was fed at — what the program drew. */
-  modelSize: Geometry | undefined
+  screen: TerminalScreen
 }
 
-/** This daemon's per-session screen state, created on first use. */
+/** This daemon's per-session screens, created on first use. */
 export function sessionScreensFor(ctx: DaemonContext): Map<SessionId, SessionScreenState> {
   return (ctx.sessionScreens ??= new Map<SessionId, SessionScreenState>())
 }
@@ -51,18 +51,17 @@ function stateFor(ctx: DaemonContext, sessionId: SessionId): SessionScreenState 
   const screens = sessionScreensFor(ctx)
   let state = screens.get(sessionId)
   if (!state) {
-    state = { tracker: new ScreenModeTracker(), model: undefined, modelSize: undefined }
+    state = {
+      screen: new TerminalScreen({ cols: DEFAULT_MODEL_SIZE.cols, rows: DEFAULT_MODEL_SIZE.rows }),
+    }
     screens.set(sessionId, state)
   }
   return state
 }
 
-function modelFor(state: SessionScreenState): ScreenReader {
-  if (!state.model) {
-    const size = state.modelSize ?? DEFAULT_MODEL_SIZE
-    state.model = createHeadlessScreen(size.cols, size.rows)
-  }
-  return state.model
+/** This session's screen, creating it at the default size on first use. */
+export function terminalScreenFor(ctx: DaemonContext, sessionId: SessionId): TerminalScreen {
+  return stateFor(ctx, sessionId).screen
 }
 
 /**
@@ -71,10 +70,7 @@ function modelFor(state: SessionScreenState): ScreenReader {
  * feeding the same bytes twice only repaints the same cells.
  */
 export function trackSessionOutput(ctx: DaemonContext, sessionId: SessionId, data: Uint8Array): ScreenMode {
-  const state = stateFor(ctx, sessionId)
-  const mode = state.tracker.write(data)
-  modelFor(state).write(data)
-  return mode
+  return stateFor(ctx, sessionId).screen.push(data)
 }
 
 /**
@@ -87,9 +83,7 @@ export function trackSessionSize(
   cols: number,
   rows: number,
 ): void {
-  const state = stateFor(ctx, sessionId)
-  state.modelSize = { cols, rows }
-  modelFor(state).resize(cols, rows)
+  stateFor(ctx, sessionId).screen.setAppliedSize(cols, rows)
 }
 
 /** Read the model's rendered rows for a first-frame serialisation. */
@@ -98,40 +92,26 @@ export function snapshotLines(
   sessionId: SessionId,
 ): { mode: ScreenMode; lines: string[] } | undefined {
   const state = sessionScreenFor(ctx, sessionId)
-  if (!state?.model) return undefined
-  return { mode: state.tracker.current, lines: state.model.lines(false) }
+  if (!state || !state.screen.alive) return undefined
+  return { mode: state.screen.mode, lines: state.screen.lines(false) }
 }
 
-/** The session is gone: its model died with it (a restart rebuilds approx). */
+/** The session is gone: its screen died with it (a restart rebuilds approx). */
 export function forgetSessionScreen(ctx: DaemonContext, sessionId: SessionId): void {
   const state = ctx.sessionScreens?.get(sessionId)
   if (!state) return
   try {
-    state.model?.dispose()
+    state.screen.dispose()
   } catch {
     // Disposal is best-effort bookkeeping on a teardown path.
   }
   ctx.sessionScreens?.delete(sessionId)
 }
 
-/**
- * Serialise model rows into the bytes a fresh viewer renders as its first
- * frame.
- *
- * Alternate frames enter through leave-then-enter (`1049l 1049h`): on a
- * fresh viewer the leave is a no-op and the enter puts it on the canvas the
- * rows were drawn for; on a viewer stuck in a dead alternate buffer the
- * leave gets it out first, so a repeated snapshot can never double-save and
- * strand a later program exit. The program's own eventual `1049l` balances
- * the one `1049h` here.
- *
- * Rendered rows can carry a literal ESC cell (a program that prints one);
- * painting it raw would inject a sequence into the viewer's stream, so it is
- * stripped: the snapshot is a picture of the canvas, not a program.
- */
-export function snapshotFirstFrame(mode: ScreenMode, lines: string[]): Uint8Array {
-  const safe = lines.map((line) => line.replaceAll('\x1b', ''))
-  const body = safe.join('\r\n')
-  const prefix = mode === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[H' : '\x1b[2J\x1b[H'
-  return Buffer.from(prefix + body, 'latin1')
+/** Backwards-compatible alias: the grid the screen's model was fed at. */
+export function sessionModelSize(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+): Geometry | undefined {
+  return sessionScreenFor(ctx, sessionId)?.screen.modelSize
 }

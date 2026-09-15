@@ -63,13 +63,13 @@ async function seedAlt(ctx: DaemonContext): Promise<void> {
   // The headless emulator parses writes asynchronously; production control
   // frames always arrive on a later tick than the PTY output they follow, so
   // yield the same way here before snapshotting.
-  await sessionScreenFor(ctx, SESSION)?.model?.flush()
+  await sessionScreenFor(ctx, SESSION)?.screen?.flush()
 }
 
 async function seedNormal(ctx: DaemonContext): Promise<void> {
   trackSessionSize(ctx, SESSION, MODEL_SIZE.cols, MODEL_SIZE.rows)
   trackSessionOutput(ctx, SESSION, Buffer.from('shell line\r\n', 'latin1'))
-  await sessionScreenFor(ctx, SESSION)?.model?.flush()
+  await sessionScreenFor(ctx, SESSION)?.screen?.flush()
 }
 
 const textOf = (enqueued: Uint8Array[]): string =>

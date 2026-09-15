@@ -33,6 +33,13 @@ export interface TerminalScreenObserver {
 /**
  * Construct the screen mirror for one session. Providers that do not expose a
  * screen classifier cost nothing: callers skip construction for them.
+ *
+ * With `screen` (a session's shared TerminalScreen model, P2c) this reader
+ * owns nothing: `onData` schedules a classify without writing — the shared
+ * feed already painted the model once via the session's TerminalScreen —
+ * `onResize` never re-grids the program's canvas, and `dispose` leaves the
+ * model alive. Without one it mirrors into its own emulator exactly as
+ * before (tests and fallback paths).
  */
 export function createTerminalScreenObserver(
   provider: AgentStateProvider,
@@ -41,6 +48,7 @@ export function createTerminalScreenObserver(
   screen?: ScreenReader,
 ): TerminalScreenObserver | undefined {
   if (!provider.screen) return undefined
+  const ownsScreen = screen === undefined
   const screenReader = screen ?? createHeadlessScreen(geometry.cols, geometry.rows)
 
   let disposed = false
@@ -101,19 +109,21 @@ export function createTerminalScreenObserver(
   return {
     onData(data) {
       if (disposed) return
-      screenReader.write(data)
+      // A shared model is painted once by the session's feed; writing here
+      // would only repaint the same cells a second time.
+      if (ownsScreen) screenReader.write(data)
       schedule()
     },
     onResize(cols, rows) {
       if (disposed) return
-      screenReader.resize(cols, rows)
-      schedule()
+      if (ownsScreen) screenReader.resize(cols, rows)
+      else schedule()
     },
     dispose() {
       disposed = true
       if (timer !== undefined) clearTimeout(timer)
       timer = undefined
-      screenReader.dispose()
+      if (ownsScreen) screenReader.dispose()
     },
   }
 }

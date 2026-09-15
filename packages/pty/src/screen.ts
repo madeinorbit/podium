@@ -47,6 +47,7 @@ export {
 } from './reopen-policy.js'
 export {
   TERMINAL_SCREEN_BYTE_LOG_BYTES,
+  snapshotFirstFrame,
   type TerminalScreenFrame,
   type TerminalScreenAttachment,
   type TerminalScreenOptions,
