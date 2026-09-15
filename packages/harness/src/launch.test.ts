@@ -218,8 +218,14 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([])
     })
 
-    it('does NOT append a prompt arg for non-argv agents (opencode/cursor/shell)', () => {
-      expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
+    it('uses the OpenCode startup prompt rather than typing during TUI initialization', () => {
+      expect(
+        agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: '--help\nDo real work' }).args,
+      ).toEqual(['--prompt=--help\nDo real work'])
+      expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: '  ' }).args).toEqual([])
+    })
+
+    it('does NOT append a prompt arg for non-argv agents (cursor/shell)', () => {
       expect(agentLaunchCommand('cursor', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
       expect(agentLaunchCommand('shell', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
     })
@@ -297,7 +303,7 @@ describe('agentLaunchCommand', () => {
       expect(agentSupportsInitialPrompt('claude-code')).toBe(true)
       expect(agentSupportsInitialPrompt('codex')).toBe(true)
       expect(agentSupportsInitialPrompt('grok')).toBe(true)
-      expect(agentSupportsInitialPrompt('opencode')).toBe(false)
+      expect(agentSupportsInitialPrompt('opencode')).toBe(true)
       expect(agentSupportsInitialPrompt('cursor')).toBe(false)
       expect(agentSupportsInitialPrompt('shell')).toBe(false)
     })
@@ -394,11 +400,45 @@ describe('agentLaunchCommand', () => {
       ])
     })
 
-    it('opencode maps effort to --variant', () => {
-      expect(agentLaunchCommand('opencode', { cwd: '/w', effort: 'high' }).args).toEqual([
-        '--variant',
-        'high',
-      ])
+    it.each([
+      'opencode-go/muse-spark-1.3-contributor',
+      'opencode/muse-spark-1.3-contributor-free',
+    ])('seeds the native TUI variant for %s without its run-only flag', (model) => {
+      const spec = agentLaunchCommand('opencode', {
+        cwd: '/w',
+        model,
+        effort: 'low',
+        runtimeDir: '/runtime/session',
+        instructions: [{ source: 'test', content: 'Keep the instructions.' }],
+      })
+      expect(spec.args).toEqual(['-m', model])
+      expect(spec.env?.XDG_STATE_HOME).toBe('/runtime/session/opencode-state')
+      expect(spec.files?.[0]).toEqual({
+        path: '/runtime/session/opencode-state/opencode/model.json',
+        contents: JSON.stringify({ variant: { [model]: 'low' } }),
+      })
+      expect(spec.files?.[1]?.contents).toBe('Keep the instructions.')
+    })
+
+    it('does not silently discard terminal effort without a model or runtime directory', () => {
+      expect(() => agentLaunchCommand('opencode', { cwd: '/w', effort: 'high' })).toThrow(
+        'requires an explicit model',
+      )
+      expect(() =>
+        agentLaunchCommand('opencode', {
+          cwd: '/w',
+          model: 'opencode/test',
+          effort: 'high',
+        }),
+      ).toThrow('requires a session runtime directory')
+    })
+
+    it('leaves native defaults alone when OpenCode effort is auto', () => {
+      expect(agentLaunchCommand('opencode', { cwd: '/w', effort: 'auto' })).toEqual({
+        cmd: resolveOpencodeBin(),
+        args: [],
+        cwd: '/w',
+      })
     })
 
     it('cursor has no effort flag — effort is dropped', () => {

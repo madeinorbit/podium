@@ -73,10 +73,23 @@ describe('SessionStart: issue owner precedence', () => {
 })
 
 describe('SessionStart: creation-owned first prompt', () => {
-  it('queues a non-argv OpenCode prompt and seeds a recoverable draft', async () => {
+  it('hands OpenCode initial work to its startup prompt without a duplicate queue row', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'opencode',
+      cwd: '/proj',
+      initialPrompt: 'hello',
+    })
+
+    expect(spawns(daemon).at(-1)).toMatchObject({ sessionId, initialPrompt: 'hello' })
+    expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+    expect((await reg.sessionStore.sessions.loadDrafts())[sessionId]).toBeUndefined()
+  })
+
+  it('queues a non-argv Cursor prompt and seeds a recoverable draft', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'cursor',
       cwd: '/proj',
       initialPrompt: 'hello',
     })

@@ -11,6 +11,7 @@ import { createOpencodeConversationProvider } from '../discovery/providers/openc
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
+  type LaunchFile,
   isSet,
   selectRuntimeDriver,
   supported,
@@ -63,7 +64,7 @@ export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
   displayName: 'opencode',
   capabilities: {
-    argvPrompt: false,
+    argvPrompt: true,
     effortFlag: 'variant',
     systemPromptFlag: false,
     newSessionIdFlag: false,
@@ -137,15 +138,40 @@ export const opencodeManifest: AgentManifest = {
       podiumSessionId: opts.podiumSessionId,
       resumeValue: opts.resume?.value,
     })
+    // --variant belongs to `run`, not the persistent TUI. Seed the TUI's
+    // native per-model selection in session-owned XDG state instead. Never
+    // overwrite the operator's shared model.json or another session's effort.
+    const variantFiles: LaunchFile[] = []
+    let variantStateHome: string | undefined
+    if (isSet(opts.effort)) {
+      if (!isSet(opts.model)) throw new Error('opencode terminal effort requires an explicit model')
+      if (!opts.runtimeDir)
+        throw new Error('opencode terminal effort requires a session runtime directory')
+      variantStateHome = join(opts.runtimeDir, 'opencode-state')
+      variantFiles.push({
+        path: join(variantStateHome, 'opencode', 'model.json'),
+        contents: JSON.stringify({ variant: { [opts.model]: opts.effort } }),
+      })
+    }
     const base = {
       cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         ...(opts.resume ? ['--session', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['-m', opts.model] : []),
-        ...(isSet(opts.effort) ? ['--variant', opts.effort] : []),
+        // The TUI submits this only after its model and composer are ready.
+        // A named, equals-form argument also preserves option-looking text.
+        ...(opts.initialPrompt?.trim() ? [`--prompt=${opts.initialPrompt}`] : []),
       ],
       cwd: opts.cwd,
-      ...(databasePath ? { env: { OPENCODE_DB: databasePath } } : {}),
+      ...(databasePath || variantStateHome
+        ? {
+            env: {
+              ...(databasePath ? { OPENCODE_DB: databasePath } : {}),
+              ...(variantStateHome ? { XDG_STATE_HOME: variantStateHome } : {}),
+            },
+          }
+        : {}),
+      ...(variantFiles.length ? { files: variantFiles } : {}),
     }
     const instructions = composeAgentInstructions(opts.instructions)
     if (!instructions) return base
@@ -172,7 +198,7 @@ export const opencodeManifest: AgentManifest = {
           instructions: [...configuredInstructions, instructionPath],
         }),
       },
-      files: [{ path: instructionPath, contents: instructions }],
+      files: [...variantFiles, { path: instructionPath, contents: instructions }],
     }
   },
 

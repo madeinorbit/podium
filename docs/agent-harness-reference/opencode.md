@@ -41,13 +41,13 @@
 - **Launch command + args + env** —
   - TUI: `opencode <dir> -m <provider/model> --agent <name> --prompt "<text>" [-c | -s <ses_id>] [--port N] [--hostname H]`.
   - Server: `opencode serve --port <N> --hostname <H> [--cors <origin>…] [--mdns]`.
-  - **Env honored:** `OPENCODE_CONFIG` (config file path), `OPENCODE_CONFIG_CONTENT` (inline JSON config), `OPENCODE_CONFIG_DIR` (config dir; **singular**, not a colon-list — see overlay note below), `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` (server basic-auth), provider API keys via config `{env:VAR}` substitution, and `XDG_DATA_HOME` / `XDG_CONFIG_HOME` to relocate data/config dirs.
+  - **Env honored:** `OPENCODE_CONFIG` (config file path), `OPENCODE_CONFIG_CONTENT` (inline JSON config), `OPENCODE_CONFIG_DIR` (config dir; **singular**, not a colon-list — see overlay note below), `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD` (server basic-auth), provider API keys via config `{env:VAR}` substitution, and `XDG_DATA_HOME` / `XDG_CONFIG_HOME` / `XDG_STATE_HOME` to relocate data/config/state dirs.
   - **Env to strip** to pin opencode's stored OAuth account rather than an inherited key: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, etc. (config `{env:VAR}` and provider defaults can otherwise prefer an inherited key over stored OAuth — see §4).
   - **`--pure`** runs without external plugins (neutralizes user/orchestrator plugin interference during automation).
   - For tier B with a hook plugin, point `OPENCODE_CONFIG_DIR` at an orchestrator-owned config dir whose `plugins/` holds the status plugin (see §8), preserving the user's own config via symlink-mirroring.
 - **Durable backing for survival** — opencode has **no built-in multiplexer**. The native durability story is the client/server split: run `opencode serve` as a long-lived daemon (e.g. systemd); sessions survive any TUI/client restart because state lives in the server + DB (tier A — preferred). For tier B you still need tmux/abduco to keep the TUI master alive.
 - **Initial-prompt injection** — Multiple first-class modes; no PTY typing required:
-  - `--prompt "<text>"` flag (TUI and `run`) — **established**. (POSIX single-quote / PowerShell / cmd escaping as appropriate; this rides argv on the launch command and auto-runs the turn, not a reviewable draft.)
+  - `--prompt "<text>"` flag (TUI; `run` uses a positional message) — **established**. (POSIX single-quote / PowerShell / cmd escaping as appropriate; this rides argv on the launch command and auto-runs the turn, not a reviewable draft.)
   - `opencode run [message..]` takes the message as **positional argv**, and reads piped **stdin** as the message in non-interactive use — **established** for headless.
   - Server: `POST /session/:id/message` with the prompt in the JSON body — **established** (tier A).
   - **Fallback:** type-after-ready (bracketed paste + CR) into the PTY composer; unnecessary given the flag/argv/API paths.
@@ -55,12 +55,12 @@
 - **Permission / YOLO / sandbox** — Policy-based, **not** a one-time menu and **not** an OS sandbox. Config key `permission` with per-tool values `allow | ask | deny` (e.g. `{"permission":{"edit":"ask","bash":"ask"}}`), plus per-agent permission rule arrays (visible via `opencode agent list`, which prints rules like `{"permission":"*","action":"allow","pattern":"*"}`, with special perms `doom_loop`, `external_directory`, `question`). "YOLO" = set everything to `allow`. There is also an external-directory allowlist (e.g. tool-output under `/tmp/opencode/*`). **No `--dangerously-skip-permissions`-style flag exists**; treat any such flag as unsupported and strip it from user-supplied launch args.
 - **Model / reasoning-effort / fast-mode at launch** —
   - **Model:** `-m, --model provider/model` (e.g. `openai/gpt-5.5`, `xai/grok-4.3`, `opencode/deepseek-v4-flash-free`).
-  - **Reasoning effort:** `--variant <high|max|minimal|…>` ("provider-specific reasoning effort"), stored per-session as `model.variant` (e.g. `{"id":"deepseek-v4-flash-free","providerID":"opencode","variant":"max"}`).
+  - **Reasoning effort:** `opencode run --variant <high|max|minimal|…>` ("provider-specific reasoning effort"), stored per-session as `model.variant` (e.g. `{"id":"deepseek-v4-flash-free","providerID":"opencode","variant":"max"}`).
   - **Fast mode:** expressed as **distinct model ids** with a `-fast` suffix (`openai/gpt-5.4-fast`, `gpt-5.5-fast`, `gpt-5.4-mini-fast`) — select the fast variant by picking that model id; **there is no separate fast-mode toggle flag**.
   - `--thinking` toggles whether thinking blocks render.
-  - `--agent <name>` selects the agent (e.g. `build`); `--variant`/`--model`/`--agent` all also work on `run` (§12).
+  - `--agent <name>` selects the agent (e.g. `build`); `--model`/`--agent` work on both entry points. `--variant` is a `run` option (§12), not a default-TUI option in 1.18.31.
 
-**Conflicts / open questions:** Whether `--model`/`--variant` are injected on the interactive TUI launch is an orchestrator policy choice — they are first-class flags on both `tui` and `run`, but a minimal launch may pass only `--prompt`. Exact env var names beyond the documented `OPENCODE_*`/`XDG_*` set are unverified.
+**Verified correction (POD-4047, OpenCode 1.18.31):** The default TUI rejects `--variant` with help output and exit 1 before taking a turn. The advertised `run --interactive` flag also fails to provide a persistent prompt in this build. Podium keeps the default TUI and seeds its native `opencode/model.json` variant map under a session-owned `XDG_STATE_HOME`. Explicit effort requires an explicit model and a session runtime directory; unsupported combinations fail visibly. The operator's shared state file is never changed. Initial work goes through `--prompt=<text>`, which the TUI submits after model/composer readiness; it is not typed into the terminal during startup. One-shot `run` and the server driver's per-prompt variant remain supported. The native preference format is a version-sensitive integration contract, covered by the opt-in real-turn test.
 
 ## 3. Resume & reattach
 
