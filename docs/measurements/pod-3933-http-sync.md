@@ -90,6 +90,10 @@ podium lock release sync-gate
 
 The reference copy must contain the exact baseline commit and have its own `bun run setup:worktree` installation. Renew the lease for longer runs. Do not share node_modules. The runner currently groups modes within each arm; paired comparisons must match mode/coding and preserve raw load metadata.
 
-Full-size after measurements are pending clarification of the instruction to reuse the historical after runs while also interleaving before/after samples. The current runner additionally records WAL growth under periodic writes; that instrumentation was added after the first baseline and has no full-size result yet. HTTP identity/gzip/zstd and delta tiny-fixture smoke checks are harness checks only.
+Full-size after measurements are pending clarification of the instruction to reuse the historical after runs while also interleaving before/after samples. The current runner additionally records WAL growth under periodic writes; that instrumentation was added after the first baseline and has no full-size result yet. HTTP gzip/zstd and delta tiny-fixture smoke checks are harness checks only.
 
 Remaining acceptance includes controlled paired runs, producer/queue bounds and 503 saturation evidence, WAL growth while a confirmed snapshot remains open, a defensible memory attribution method, production Replica harness evidence, and the full-size after thread timeline. No tuning or production-code change is included.
+
+## Checkpoint validation
+
+The benchmark checkpoint was rebased onto integration commit `e79b8c766f3b2dfc83c49ebeff609bebd6a883fc`. `bun run test` was **lean gate green**: 26 successful typecheck tasks (25 cached), span-effect lint green, and 126 tests executed in 4 of 1,338 collected files. This does not validate the missing measurement acceptance. The issue remains in progress, with no merge performed.
