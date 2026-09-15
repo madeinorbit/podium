@@ -394,6 +394,8 @@ export const runtimeHandlers: Pick<
         answer(await handle.draft.set(msg.operation.text))
       }
     }).catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
+  },
+
   runtimeHistoryRequest: (ctx, msg) => {
     const answer = (result: RuntimeHistoryResultMessage['result']): void => {
       ctx.send({ type: 'runtimeHistoryResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
