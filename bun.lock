@@ -49,8 +49,8 @@
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
+        "@podium/process": "workspace:*",
         "@podium/protocol": "workspace:*",
-        "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
         "@podium/transcript": "workspace:*",
@@ -391,7 +391,7 @@
       },
     },
     "packages/pty": {
-      "name": "@podium/pty",
+      "name": "@podium/process",
       "version": "0.0.0",
       "dependencies": {
         "@podium/logger": "workspace:*",
@@ -512,8 +512,8 @@
         "@podium/issue-client": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
+        "@podium/process": "workspace:*",
         "@podium/protocol": "workspace:*",
-        "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
         "@podium/sync": "workspace:*",
@@ -561,8 +561,8 @@
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
+        "@podium/process": "workspace:*",
         "@podium/protocol": "workspace:*",
-        "@podium/pty": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
         "@podium/terminal-client": "workspace:*",
@@ -584,7 +584,7 @@
         "react": "^19.0.0",
       },
       "devDependencies": {
-        "@podium/pty": "workspace:*",
+        "@podium/process": "workspace:*",
         "@types/node": "^25.9.1",
         "@types/react": "^19.0.0",
         "tsx": "^4.22.4",
@@ -1295,9 +1295,9 @@
 
     "@podium/native-cli-lifecycle-bench": ["@podium/native-cli-lifecycle-bench@workspace:tests/native-cli-lifecycle"],
 
-    "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
+    "@podium/process": ["@podium/process@workspace:packages/pty"],
 
-    "@podium/pty": ["@podium/pty@workspace:packages/pty"],
+    "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
 
     "@podium/runtime": ["@podium/runtime@workspace:packages/runtime"],
 
