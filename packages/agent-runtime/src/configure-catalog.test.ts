@@ -40,6 +40,7 @@ describe('attachKindsForDriver', () => {
 
   it('matches the terminal factory and handles unknown ids', () => {
     const live = terminalCapabilities({
+      composerReadiness: 'confirmed-turn',
       instrumentationRequired: false,
       driverId: 'claude-pty',
       sendProof: ['transcript-echo'],
@@ -86,6 +87,7 @@ describe('configureFieldsForDriver', () => {
       expect(configureFieldsForDriver(driverId)).toEqual([])
     }
     const live = terminalCapabilities({
+      composerReadiness: 'confirmed-turn',
       instrumentationRequired: false,
       driverId: 'claude-pty',
       sendProof: ['transcript-echo'],

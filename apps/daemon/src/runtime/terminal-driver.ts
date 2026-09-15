@@ -363,6 +363,8 @@ interface DriverSession {
  *  `AgentManifest.runtime.terminal` (POD-2019) so nothing here is a second list
  *  of per-harness behaviour. */
 export interface TerminalHarnessProfile {
+  /** Manifest readiness policy, carried into the public send capability. */
+  composerReadiness: import('@podium/harness').HarnessComposerReadiness
   instrumentationRequired: boolean
   driverId: DriverId
   sendProof: DriverCapabilities['send']['proof']
@@ -2092,6 +2094,7 @@ const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>(
 function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCapabilities {
   const resolved: TerminalHarnessProfile = profile ?? {
     driverId: 'generic-pty',
+    composerReadiness: 'on-bind',
     instrumentationRequired: false,
     sendProof: ['transcript-echo'],
     hookAnchoredAccept: false,
@@ -2110,6 +2113,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     driverId: resolved.driverId,
     instrumentationRequired: resolved.instrumentationRequired,
     sendProof: resolved.sendProof,
+    composerReadiness: resolved.composerReadiness,
     interactionsFromHooks: resolved.hookAnchoredAccept,
     usesRawFirstTurn: resolved.usesRawFirstTurn,
     // Composer sync is a per-session flag, and the capability is a per-DRIVER

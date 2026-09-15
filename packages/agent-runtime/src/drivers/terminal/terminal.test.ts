@@ -34,6 +34,7 @@ import {
 } from './index.js'
 
 const PROFILE = {
+  composerReadiness: 'confirmed-turn',
   instrumentationRequired: true,
   driverId: 'claude-pty',
   sendProof: ['hook', 'transcript-echo'],

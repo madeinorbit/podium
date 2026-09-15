@@ -64,6 +64,7 @@ import { terminalProfileFor } from './registry'
  * changing this default family's conformance target.
  */
 const PROFILE: TerminalHarnessProfile = {
+  composerReadiness: 'on-bind',
   driverId: 'generic-pty',
   sendProof: ['transcript-echo'],
   hookAnchoredAccept: false,

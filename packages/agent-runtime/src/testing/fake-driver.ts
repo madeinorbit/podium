@@ -460,6 +460,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
   const capabilities = (): DriverCapabilities => ({
     send: {
+      readiness:
+        family === 'terminal'
+          ? { kind: 'terminal-composer', composer: 'on-bind' }
+          : { kind: 'driver-managed' },
       native: nativeDeliveries,
       proof: family === 'terminal' ? ['hook', 'transcript-echo'] : ['protocol-ack'],
       mayReturnUnverified,

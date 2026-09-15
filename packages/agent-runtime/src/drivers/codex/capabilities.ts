@@ -31,6 +31,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
   return {
     // ---- CORE ----
     send: {
+      readiness: { kind: 'driver-managed' },
       /**
        * `steer` IS PRESENT, MEASURED RATHER THAN HOPED.
        *

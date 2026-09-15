@@ -5,6 +5,7 @@ import type { DriverCapabilities } from '../../capabilities.js'
 export function claudeSdkCapabilities(): DriverCapabilities {
   return {
     send: {
+      readiness: { kind: 'driver-managed' },
       native: ['when-ready', 'queue'],
       proof: ['sdk-callback'],
       mayReturnUnverified: false,

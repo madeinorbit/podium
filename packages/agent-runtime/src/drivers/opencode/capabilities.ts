@@ -24,6 +24,7 @@ export function opencodeServerCapabilities(): DriverCapabilities {
   return {
     // ---- CORE ----
     send: {
+      readiness: { kind: 'driver-managed' },
       /**
        * `steer` IS ABSENT, MEASURED RATHER THAN ASSUMED.
        *

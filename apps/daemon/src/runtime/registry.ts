@@ -56,6 +56,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     driverId: terminal.driverId,
     instrumentationRequired: manifest.capabilities.hookInstall !== 'none',
     sendProof: terminal.sendProof,
+    composerReadiness: manifest.capabilities.composerReadiness,
     // HOOK-ANCHORED ACCEPT IS READ, NOT ASSUMED. A harness gets it exactly when
     // its manifest lists `hook` in the proof order it can actually produce —
     // which today is Claude and only Claude, because `UserPromptSubmit` is the

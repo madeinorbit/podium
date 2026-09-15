@@ -15,7 +15,7 @@
  * a second list would drift the first time a harness grew a hook channel.
  */
 
-import { supported, unsupported } from '@podium/harness'
+import { type HarnessComposerReadiness, supported, unsupported } from '@podium/harness'
 import type { DriverCapabilities } from '../../capabilities.js'
 import type { DriverId } from '../../families.js'
 import type { SendProof } from '../../turns.js'
@@ -25,6 +25,8 @@ export const RAW_FIRST_TURN_ATTACHMENT_REFUSAL =
   'raw-first-turn harnesses cannot consume an atomic attachment path prompt'
 
 export interface TerminalCapabilityInput {
+  /** From the harness manifest, independent of send proof and driver id. */
+  composerReadiness: HarnessComposerReadiness
   instrumentationRequired: boolean
   driverId: DriverId
   /** The harness's declared proof order, from `runtime.terminal.sendProof`. */
@@ -64,6 +66,7 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
     instrumentation: input.instrumentationRequired ? 'required' : 'none',
     // ---- CORE ----
     send: {
+      readiness: { kind: 'terminal-composer', composer: input.composerReadiness },
       // `steer` is ABSENT, and its absence is the point: a TUI has no way to
       // append into an open turn, so the driver degrades to `queue` and the
       // receipt's `deliveredAs` says so. Never a silent substitution.

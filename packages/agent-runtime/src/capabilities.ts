@@ -1,7 +1,7 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared } from '@podium/harness'
+import type { Declared, HarnessComposerReadiness } from '@podium/harness'
 import type { AttachEndpoint } from './attach.js'
 import type { WatchLevel } from './events.js'
 import type {
@@ -136,10 +136,32 @@ export interface SessionHealth {
 // Capabilities (spec §3 — `Declared<T>` per axis)
 // ---------------------------------------------------------------------------
 
+/** How a driver establishes readiness to receive text. This is a policy,
+ * not a current ready bit, permission to write, or proof of turn acceptance.
+ * Callers still use send() and its receipt rather than typing on this evidence.
+ */
+export type SendReadinessPolicy =
+  | {
+      kind: 'terminal-composer'
+      /** Manifest policy: on-bind accepts input once live; process-settle waits
+       * for startup to finish; confirmed-turn requires a recorded user turn.
+       * A running process may still be starting, and live alone does not prove
+       * a confirmed-turn composer is ready. Quiet-time heuristics remain driver
+       * implementation details, separate from this per-harness declaration. */
+      composer: HarnessComposerReadiness
+    }
+  | {
+      /** No terminal composer: the driver manages lifecycle/queue eligibility
+       * through its protocol or embedded loop. Not a claim of readiness now. */
+      kind: 'driver-managed'
+    }
+
 /** What a driver's `send` can actually do. `mayReturnUnverified` is the field
  *  the conformance suite reads to decide whether an unverified receipt is a
  *  permitted outcome or a bug. */
 export interface SendCapability {
+  /** Readiness policy, declared independently of delivery and acceptance proof. */
+  readiness: SendReadinessPolicy
   /** Deliveries implemented NATIVELY. One not listed here is degraded, and the
    *  receipt's `deliveredAs` must report the degradation. Exception: `at-boundary`
    * is opt-in and MUST return unsupported when absent, never degrade. */

@@ -59,6 +59,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const CLAUDE: TerminalHarnessProfile = {
+  composerReadiness: 'confirmed-turn',
   driverId: 'claude-pty',
   // The manifest's own order for Claude: the causal hook first, the transcript
   // echo as the fallback, `unverified` when neither lands.
@@ -75,6 +76,7 @@ const CLAUDE: TerminalHarnessProfile = {
 }
 
 const GROK: TerminalHarnessProfile = {
+  composerReadiness: 'process-settle',
   driverId: 'generic-pty',
   sendProof: ['transcript-echo'],
   hookAnchoredAccept: false,
