@@ -27,6 +27,7 @@ export class SyncWorkerClient {
   private spawnedAt = Date.now()
   private fastCrashes = 0
   private terminations = new Set<Promise<unknown>>()
+  private readonly exited = new WeakSet<Worker>()
   private closing?: Promise<void>
   constructor(private readonly options: { dbPath: string; monitorMs?: number; wedgedMs?: number; onMetrics?: (metrics: BootstrapMetrics) => void }) {
     this.spawn()
@@ -63,7 +64,7 @@ export class SyncWorkerClient {
         else this.end(message.transferId)
       })
       worker.on('error', () => this.fail(worker))
-      worker.on('exit', () => this.fail(worker))
+      worker.on('exit', () => { this.exited.add(worker); this.fail(worker, true) })
     } catch { this.restart() }
   }
   private send(message: ToWorker) {
@@ -78,13 +79,21 @@ export class SyncWorkerClient {
     else job.controller.close()
   }
   private terminate(worker: Worker) {
-    const termination = worker.terminate().catch(() => undefined)
+    if (this.exited.has(worker)) return
+    const termination = new Promise<void>(resolve => {
+      // Bun may leave a repeated terminate() promise pending after exit. The
+      // exit event is also a completion signal, and exited workers need no kill.
+      worker.once('exit', () => resolve())
+      try { void worker.terminate().then(() => resolve(), () => resolve()) }
+      catch { resolve() }
+    })
     this.terminations.add(termination)
     void termination.then(() => this.terminations.delete(termination))
   }
-  private fail(worker: Worker) {
+  private fail(worker: Worker, alreadyExited = false) {
     if (worker !== this.worker || this.closed) return
-    this.worker = undefined; this.ready = false; this.terminate(worker)
+    this.worker = undefined; this.ready = false
+    if (!alreadyExited) this.terminate(worker)
     for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('worker-crashed'))
     this.restart()
   }

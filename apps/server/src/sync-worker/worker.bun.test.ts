@@ -91,9 +91,9 @@ describe('real sync worker boundary', () => {
       await expect(reader.read()).rejects.toMatchObject({reason:'cancelled'})
       expect(f.client.activeJobCount()).toBe(0)
       await checkpoint(f.writer)
-      const expiring=f.client.bootstrap(job('deadline', Date.now()+1000))
+      const expiring=f.client.bootstrap(job('after-abort'))
       await expiring.meta
-      await expect(text(expiring.body)).resolves.toBeString()
+      expect(await text(expiring.body)).toContain('syncComplete')
       const stalled=f.client.bootstrap(job('stalled', Date.now()+100))
       await expect(textAfterDeadline(stalled.body)).rejects.toMatchObject({reason:'deadline'})
       expect(f.client.activeJobCount()).toBe(0)
