@@ -71,6 +71,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
 import { WIRE_VERSION } from '@podium/protocol'
+import { DEMO_ISSUES } from './demoData'
 import type { MobileReplicaDeps } from './MobileClientProvider'
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
 
@@ -1064,7 +1065,7 @@ describe('HTTP sync through the mobile assembly', () => {
     opened.feed.connected(false)
     send(meta)
     send(bootstrapFrame({ seq: 1, changes: [{ seq: 1, entity: 'issue', entityId: 'http-issue',
-      value: { id: 'http-issue', title: 'HTTP world', status: 'open' } }] }))
+      value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'HTTP world' } }] }))
     await waitUntil('HTTP row progress before completion', () => opened.syncProgress.getSnapshot().rowsSeen === 1)
     expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: true, phase: 'downloading', totalRows: 1 })
     expect(opened.replica.rows('issues')).toHaveLength(0)
@@ -1084,7 +1085,7 @@ describe('HTTP sync through the mobile assembly', () => {
     send({ ...meta, mode: 'delta', fromSeq: 1, seq: 2, totalRows: undefined })
     send({ type: 'feedDelta', feedId: 'feed', epoch: 'e1', fromSeq: 1, seq: 2, minAvailableSeq: 0,
       changes: [{ seq: 2, entity: 'issue', entityId: 'http-issue', op: 'upsert',
-        value: { id: 'http-issue', title: 'Healed over HTTP', status: 'open' } }] })
+        value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'Healed over HTTP' } }] })
     await waitUntil('incremental HTTP commit', () => opened.replica.getCursor() === 2)
     expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: false, phase: 'saving', rowsSeen: 1, totalRows: null })
     expect(opened.replica.rows('issues')[0]).toMatchObject({ title: 'Healed over HTTP' })
