@@ -212,7 +212,15 @@ export function runChecks(input: AuditInput): Finding[] {
   for (const path of ['apps/server/src/sync/routes.ts', 'apps/server/src/sync/route-support.ts']) {
     const source = input.read(path)
     const imports = source === null ? [] : [...code(source).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)]
-    if (imports.some((match) => !match[1]!.trim().startsWith('type ') && /(?:^|\/)store(?:\/|$)/.test(match[2]!))) {
+    const isStore = (specifier: string) => /(?:^|\/)store(?:\/|$)/.test(specifier)
+    const runtimeImport = imports.some((match) => {
+      const binding = match[1]!.trim()
+      const typesOnly = binding.startsWith('type ') ||
+        (binding.startsWith('{') && binding.endsWith('}') && binding.slice(1, -1).split(',').filter(part => part.trim()).every(part => part.trim().startsWith('type ')))
+      return !typesOnly && isStore(match[2]!)
+    })
+    const runtimeLoads = source === null ? [] : [...code(source).matchAll(/(?:\b(?:import|require)\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g)]
+    if (runtimeImport || runtimeLoads.some(match => isStore(match[1]!))) {
       findings.push({ check: 'sync-route-no-store-reads', where: path,
         detail: 'HTTP sync routes must read through Authority, with store imports restricted to types.' })
     }
@@ -302,6 +310,11 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     sources: () => [...base.sources(), ...extraSources],
   })
   return [
+    ...["import '../store'", "const store = await import('../store')", "const store = require('../store')"].map(source => ({
+      name: `HTTP sync cannot load store via ${source}`,
+      expect: 'sync-route-no-store-reads',
+      input: overlay({ 'apps/server/src/sync/routes.ts': source }),
+    })),
     {
       name: 'a feature invents a second bootstrap producer',
       expect: 'bootstrap-producers-allowlisted',

@@ -61,7 +61,7 @@ export interface SyncTransferMetrics {
 
 export function logSyncTransfer(metrics: SyncTransferMetrics): void {
   const { startedAt, ...fields } = metrics
-  transferLog.info('sync transfer finished', { ...fields, totalMs: performance.now() - startedAt })
+  transferLog.info('sync transfer finished', { ...fields, firstByteMs: fields.firstByteMs ?? null, totalMs: performance.now() - startedAt })
 }
 
 /** Zero read-ahead: observe the existing bounded pipe, never queue another page. */

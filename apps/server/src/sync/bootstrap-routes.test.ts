@@ -4,7 +4,7 @@ import { gzipSync, gunzipSync, zstdCompressSync, zstdDecompressSync } from 'node
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { clientAuthGuard } from '../auth-route'
-import { cors } from '../http-cors'
+import { podiumCors as cors } from '../http-cors'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary } from '../sync-worker/worker-client'
 import type { BootstrapCompletion } from '../sync-worker/worker-client'
 import { registerSyncRoutes, type SyncRouteDeps } from './routes'
