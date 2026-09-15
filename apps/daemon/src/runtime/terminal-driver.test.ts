@@ -2351,6 +2351,8 @@ describe('contract menu answers beyond a single index (POD-3982)', () => {
     expect(await session.interactions()).toHaveLength(1)
   })
 
+})
+
 describe('declared send readiness', () => {
   it.each(['claude-code', 'grok', 'codex', 'opencode', 'pi', 'cursor'] as const)(
     '%s exposes its manifest composer policy through the driver contract',
