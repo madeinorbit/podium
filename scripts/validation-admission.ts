@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { availableParallelism, homedir, hostname } from 'node:os'
+import { availableParallelism, homedir, hostname, totalmem } from 'node:os'
 import { join } from 'node:path'
 
 const HEAVY_TEST_LOCK = 'test:heavy'
@@ -72,25 +72,114 @@ const POOL_HELD = 'focused'
 export const VALIDATION_SLOTS_ENV = 'PODIUM_VALIDATION_SLOTS'
 export const VALIDATION_SLOT_DIR_ENV = 'PODIUM_VALIDATION_SLOT_DIR'
 const SLOT_POLL_INTERVAL_MS = 250
+export const VALIDATION_BUDGET_MB_ENV = 'PODIUM_VALIDATION_BUDGET_MB'
+
+/**
+ * What one admitted run COSTS, in MB of peak RSS. The pool is sized and charged
+ * in this unit because RAM, not CPU, is what runs out first on a shared box.
+ *
+ * typecheck: one `tsgo --noEmit` on apps/server or apps/web peaks at 2.6GB cold
+ * in the main checkout and 4.1GB in a fresh worktree (measured 2026-09-11; the
+ * 817MB figure from 2026-07 was stale by a factor of three). scripts/typecheck.ts
+ * pins turbo to one compiler per run, so a run costs one compiler.
+ *
+ * focused: one vitest lane with the single worker the pool pins it to (below).
+ * apps/server lanes are the expensive ones — transform and import of the server
+ * graph dominates — and were measured at ~1.3GB with two workers.
+ */
+export const VALIDATION_COST_MB = { typecheck: 3000, focused: 1000 } as const
+
+/** The share of the host's memory ceiling the pool may spend. The other half is
+ *  for what the tests are being run AGAINST: the server, the daemon, and the
+ *  resident agent sessions, which on an agent box are several GB of idle CLIs
+ *  before any validation starts. A fraction rather than a constant so it scales
+ *  from a 4GB laptop to a 64GB CI host. */
+const BUDGET_FRACTION = 0.5
+
+const CHEAPEST_COST_MB = Math.min(...Object.values(VALIDATION_COST_MB))
+
+/**
+ * The memory ceiling this process actually lives under, in MB: the tightest
+ * finite `memory.max` on its cgroup v2 ancestry, else physical RAM. A Podium
+ * session on a systemd host runs inside a slice (podium-sessions.slice) whose
+ * cap is well below the box's RAM, and sizing the pool from the box would admit
+ * runs the slice then kills at exit 137. Non-Linux hosts and cgroup v1 fall
+ * through to `totalmem()`.
+ */
+export function hostMemoryCeilingMb(
+  io: { read: (path: string) => string; totalMb: number } = {
+    read: (path) => readFileSync(path, 'utf8'),
+    totalMb: Math.floor(totalmem() / 1_048_576),
+  },
+): number {
+  let ceiling = io.totalMb
+  let cgroupPath: string | undefined
+  try {
+    cgroupPath = io
+      .read('/proc/self/cgroup')
+      .split('\n')
+      .find((line) => line.startsWith('0::'))
+      ?.slice(3)
+      .trim()
+  } catch {
+    return ceiling
+  }
+  if (cgroupPath === undefined) return ceiling
+  const segments = cgroupPath.split('/').filter(Boolean)
+  for (let depth = segments.length; depth >= 0; depth -= 1) {
+    const path = ['/sys/fs/cgroup', ...segments.slice(0, depth), 'memory.max'].join('/')
+    let raw: string
+    try {
+      raw = io.read(path).trim()
+    } catch {
+      continue
+    }
+    if (raw === 'max' || !/^\d+$/.test(raw)) continue
+    ceiling = Math.min(ceiling, Math.floor(Number(raw) / 1_048_576))
+  }
+  return ceiling
+}
+
+/** MB the pool may have in flight at once. `PODIUM_VALIDATION_BUDGET_MB` sets it
+ *  outright; the default is {@link BUDGET_FRACTION} of {@link hostMemoryCeilingMb}. */
+export function resolveValidationBudgetMb(
+  env: Record<string, string | undefined>,
+  ceilingMb: number = hostMemoryCeilingMb(),
+): number {
+  const configured = env[VALIDATION_BUDGET_MB_ENV]?.trim()
+  if (configured) {
+    if (!/^[1-9]\d*$/.test(configured)) {
+      throw new Error(`${VALIDATION_BUDGET_MB_ENV} must be a positive integer`)
+    }
+    const budget = Number(configured)
+    if (!Number.isSafeInteger(budget)) throw new Error(`${VALIDATION_BUDGET_MB_ENV} is too large`)
+    return budget
+  }
+  return Math.floor(ceilingMb * BUDGET_FRACTION)
+}
 
 /**
  * How many focused/typecheck runs may execute at once on this host.
  *
- * HALF THE CORES, floored, at least one. The deployment box is 8 cores and runs
- * the server, daemon and janitor continuously — roughly 1.5 cores before any
- * validation starts — so half leaves real headroom for the thing the tests are
- * being run against. It is a run limit, not a process limit: each run brings its
- * own `PODIUM_TEST_WORKERS` (2 by default), which is why the ceiling is
- * deliberately well under the core count rather than equal to it.
+ * The smaller of two ceilings, at least one:
+ *  - half the cores, floored. Each run brings its own worker(s), which is why
+ *    this sits well under the core count rather than equal to it.
+ *  - the memory budget divided by the cheapest run. This is the one that binds
+ *    on an agent box: 8 cores would allow four runs, and four 3GB compilers is
+ *    12GB into a 16GB slice that already holds 9GB of resident sessions.
+ * The count is the number of slot files, a hard cap; what a run actually costs
+ * is charged separately at claim time (see {@link claimSlot}), so a typecheck
+ * and a focused lane are not the same weight even though each takes one file.
  *
  * `PODIUM_VALIDATION_SLOTS=off` removes the limit for a dedicated CI host that
- * has nothing else to protect; a positive integer sets it outright. Same
+ * has nothing else to protect; a positive integer sets the count outright. Same
  * grammar as `PODIUM_TEST_WORKERS` (vitest.config.ts) minus its `auto`, which
  * there means "unbounded" and would read as "derive from cores" here.
  */
 export function resolveValidationSlots(
   env: Record<string, string | undefined>,
   cpuCount: number = availableParallelism(),
+  budgetMb?: number,
 ): number | null {
   const configured = env[VALIDATION_SLOTS_ENV]?.trim().toLowerCase()
   if (configured === 'off') return null
@@ -102,7 +191,10 @@ export function resolveValidationSlots(
     if (!Number.isSafeInteger(slots)) throw new Error(`${VALIDATION_SLOTS_ENV} is too large`)
     return slots
   }
-  return Math.max(1, Math.floor(Math.max(1, cpuCount) / 2))
+  const byCores = Math.floor(Math.max(1, cpuCount) / 2)
+  const byMemory =
+    budgetMb === undefined ? Number.POSITIVE_INFINITY : Math.floor(budgetMb / CHEAPEST_COST_MB)
+  return Math.max(1, Math.min(byCores, byMemory))
 }
 
 /** One directory per user and host, independent of checkout and task TMPDIR.
@@ -121,8 +213,8 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function writeSlot(path: string, note: string, exclusive: boolean): boolean {
-  const holder = { pid: process.pid, note, expiresAt: Date.now() + LEASE_TTL_MS }
+function writeSlot(path: string, note: string, costMb: number, exclusive: boolean): boolean {
+  const holder = { pid: process.pid, note, costMb, expiresAt: Date.now() + LEASE_TTL_MS }
   try {
     writeFileSync(path, `${JSON.stringify(holder)}\n`, {
       mode: 0o600,
@@ -167,18 +259,61 @@ function slotIsStale(path: string): boolean {
   return typeof holder.expiresAt !== 'number' || holder.expiresAt <= Date.now()
 }
 
-/** Take the lowest free slot, reclaiming abandoned ones as we pass them.
- *  Returns the slot's path, or null when the pool is full right now. */
-function claimSlot(directory: string, slots: number, note: string): string | null {
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
+/** MB charged by the holders of the given slot files that are still live.
+ *  A slot written before costs were recorded is charged the cheapest run. */
+function heldCostMb(directory: string, slots: number): number {
+  let held = 0
   for (let index = 0; index < slots; index += 1) {
     const path = join(directory, `slot-${index}`)
-    if (writeSlot(path, note, true)) return path
+    let raw: string
+    try {
+      raw = readFileSync(path, 'utf8')
+    } catch (error) {
+      // No file is no holder. Anything else unreadable is a claim caught
+      // mid-write: charge it the cheapest run rather than nothing —
+      // under-counting is how the box dies.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') held += CHEAPEST_COST_MB
+      continue
+    }
+    if (slotIsStale(path)) continue
+    try {
+      const holder = JSON.parse(raw) as { costMb?: unknown }
+      held += typeof holder.costMb === 'number' ? holder.costMb : CHEAPEST_COST_MB
+    } catch {
+      held += CHEAPEST_COST_MB
+    }
+  }
+  return held
+}
+
+/**
+ * Take the lowest free slot, reclaiming abandoned ones as we pass them, but
+ * only if this run's cost still fits under the budget next to the live holders.
+ * Returns the slot's path, or null when the pool is full right now.
+ *
+ * The budget check is read-then-claim, so two waiters that both see room can
+ * both take it; the slot COUNT is the hard cap that bounds that over-admission
+ * to one run. A single-run cost is always admitted into an empty pool, whatever
+ * the budget says: a box too small for one compiler still has to typecheck.
+ */
+function claimSlot(
+  directory: string,
+  slots: number,
+  note: string,
+  costMb: number,
+  budgetMb: number,
+): string | null {
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const held = heldCostMb(directory, slots)
+  if (held > 0 && held + costMb > budgetMb) return null
+  for (let index = 0; index < slots; index += 1) {
+    const path = join(directory, `slot-${index}`)
+    if (writeSlot(path, note, costMb, true)) return path
     if (!slotIsStale(path)) continue
     // Racy by construction — another waiter may reclaim the same corpse first —
     // which is why the re-create is still exclusive and a loss just moves on.
     rmSync(path, { force: true })
-    if (writeSlot(path, note, true)) return path
+    if (writeSlot(path, note, costMb, true)) return path
   }
   return null
 }
@@ -212,7 +347,9 @@ async function runWithSlot(
   options: ValidationProcessOptions,
 ): Promise<number> {
   const env = options.env ?? {}
-  const slots = resolveValidationSlots(env)
+  const budgetMb = resolveValidationBudgetMb(env)
+  const slots = resolveValidationSlots(env, undefined, budgetMb)
+  const costMb = VALIDATION_COST_MB[validationClass]
   if (slots === null || env[VALIDATION_HELD_ENV] === POOL_HELD) {
     return runProcess(command, options)
   }
@@ -240,12 +377,13 @@ async function runWithSlot(
       if (options.signal?.aborted || control.interruptedExitCode) {
         return control.interruptedExitCode ?? 130
       }
-      slot = claimSlot(directory, slots, note)
+      slot = claimSlot(directory, slots, note, costMb, budgetMb)
       if (slot) break
       if (!announced) {
         announced = true
         console.error(
-          `validation queued: all ${slots} validation slots are in use (${VALIDATION_SLOTS_ENV})`,
+          `validation queued: ${slots} slots, ${budgetMb}MB budget, this run needs ${costMb}MB ` +
+            `(${VALIDATION_SLOTS_ENV}, ${VALIDATION_BUDGET_MB_ENV})`,
         )
       }
       await Bun.sleep(pollMs)
@@ -255,12 +393,22 @@ async function runWithSlot(
     // claim alive rather than being reclaimed out from under itself.
     const held = slot
     renewalTimer = setInterval(() => {
-      if (slotIsOurs(held)) writeSlot(held, note, false)
+      if (slotIsOurs(held)) writeSlot(held, note, costMb, false)
     }, options.renewIntervalMs ?? LEASE_RENEW_INTERVAL_MS)
 
+    // A slot is ONE worker. The cost above is charged for a single-worker lane;
+    // vitest's default here is two, and a run that forks more than it was
+    // charged for is how the budget lies. A caller that set its own limit keeps
+    // it — a dedicated host says `auto` and means it.
     const child = spawnProcess(command, {
       ...options,
-      env: { ...env, [VALIDATION_HELD_ENV]: POOL_HELD },
+      env: {
+        ...env,
+        [VALIDATION_HELD_ENV]: POOL_HELD,
+        ...(validationClass === 'focused' && !env.PODIUM_TEST_WORKERS
+          ? { PODIUM_TEST_WORKERS: '1' }
+          : {}),
+      },
     })
     control.activeProcess = child
     let exitCode = await child.exited

@@ -34,7 +34,7 @@ import { arch, cpus, freemem, homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { type InstallTopology, readInstallTopology } from './install-topology'
 import { sharedCacheDir } from './shared-cache-dir'
-import { runWithValidationAdmission } from './validation-admission'
+import { runWithValidationAdmission, VALIDATION_COST_MB } from './validation-admission'
 import { readWorkspaceResolutionCensus, workspaceDirectories } from './workspace-resolution-census'
 
 export interface ForceDecision {
@@ -191,14 +191,10 @@ export function sharedTurboCacheDir(root: string, env = process.env, home = home
   return sharedCacheDir('turbo', root, env, home)
 }
 
-/** Peak RSS of one compiler. 817MB was measured in 2026-07 and was stale by a
- *  factor of three by 2026-09-11: `tsgo --noEmit` on apps/server peaks at 2.6GB
- *  cold in the main checkout and 4.1GB in a fresh worktree, apps/web is in the
- *  same class. Three compilers admitted on the old number took 7GB on a box with
- *  4GB of headroom, four times in one day, and each time the swap storm froze
- *  the daemon and the server together. The cap is built on this number rather
- *  than on core count because RAM, not CPU, is what runs out first. */
-const COMPILER_MB = 3000
+/** Peak RSS of one compiler. One number, owned by the admission pool so the slot
+ *  that admits this run and the concurrency cap inside it agree on what a
+ *  compiler costs; the measurements are documented there. */
+const COMPILER_MB = VALIDATION_COST_MB.typecheck
 
 /**
  * FIXED CONCURRENCY, for now. `null` restores the adaptive cap below.

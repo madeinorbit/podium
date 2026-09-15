@@ -205,11 +205,19 @@ The shared forked Vitest configuration defaults to at most two workers and keeps
 Three admission classes, and the shape of each follows what it is protecting:
 
 - Typecheck, related/changed probes, focused web/mobile/package tests, and direct package
-  tests take one of a fixed number of **validation slots**. They must never wait behind a
-  heavyweight suite, so this is a counting semaphore rather than a lock: the point is to cap
-  parallelism, not to serialize. `PODIUM_VALIDATION_SLOTS` defaults to half the host's cores
-  (floored, minimum one) and accepts a positive integer, or `off` on a dedicated host with
-  nothing else to protect. A run that finds every slot taken **queues** and prints one line to
+  tests take one of a fixed number of **validation slots**, and are charged against a
+  **memory budget**. They must never wait behind a heavyweight suite, so this is a counting
+  semaphore rather than a lock: the point is to cap parallelism, not to serialize. The slot
+  count is the smaller of half the host's cores and the budget divided by the cheapest run
+  (floored, minimum one); `PODIUM_VALIDATION_SLOTS` sets it outright as a positive integer, or
+  `off` on a dedicated host with nothing else to protect. The budget defaults to half the
+  memory ceiling the process lives under — the tightest cgroup `memory.max` on its ancestry
+  (a Podium session on a systemd host is inside `podium-sessions.slice`), else physical RAM —
+  and `PODIUM_VALIDATION_BUDGET_MB` sets it outright. Each admitted run is charged its class's
+  cost (a typecheck is one 3GB compiler, a focused lane 1GB; see `VALIDATION_COST_MB`), and a
+  run whose cost would push the live holders over the budget waits even when a slot file is
+  free. So on an 8-core box with a 16GB slice the pool has four slots but admits two
+  typechecks, not four. A run that finds no room **queues** and prints one line to
   stderr; it is never refused. The slots are files under
   `~/.cache/podium/<hostname>/validation-slots` (override with
   `PODIUM_VALIDATION_SLOT_DIR` for deliberate isolation), independent of task `TMPDIR`. The
@@ -221,8 +229,14 @@ Three admission classes, and the shape of each follows what it is protecting:
 - Watch holds only the singleton `validation:watch` lease and forces
   `PODIUM_TEST_WORKERS=1`; a second watcher is refused.
 
-The slot budget is a run ceiling, not a process ceiling: each admitted run still brings its own
-`PODIUM_TEST_WORKERS` (2 by default), which is why the default sits well under the core count.
+A slot is one worker: the pool sets `PODIUM_TEST_WORKERS=1` for a focused run whose caller did
+not choose a limit, so a lane forks what it was charged for. A caller that sets the variable
+(including `auto`) keeps its own value. A typecheck is not a vitest run and is left alone.
+
+Batch, do not fan out: every vitest invocation against `apps/server` pays a fixed cost before
+any test runs — transforming and importing the server graph — and holds its slot for the whole
+run. Three `test:file` calls for three files pay that three times; one call naming all three
+pays it once.
 
 Both leases renew while their child runs, terminate the child if renewal fails, and release
 only leases the invocation opened. `PODIUM_VALIDATION_RESOURCE_HELD` lets a child of a heavy
