@@ -140,17 +140,37 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     condition:
       'feedId/epoch match AND fromSeq !== cursor.seq — INCLUDING a re-delivered or overlapping frame',
     effect:
-      'Do NOT apply. Buffer the frame and call changesSince(cursor). D13.1 guarantees frames are contiguous and non-overlapping, so anything else is a protocol violation, not a case to absorb.',
+      'Do NOT apply. Buffer the frame and call changesRange(cursor). D13.1 guarantees frames are contiguous and non-overlapping, so anything else is a protocol violation, not a case to absorb.',
     to: ['healing'],
     rung: 1,
     adr: 'ADR 2 D7 rung 1, as amended by D13 (explicit lower bound also catches a lost frame)',
   },
   {
+    id: 'D7-1-PARTIAL-HEAL-COMMITTED',
+    from: ['healing'],
+    input: 'certified range frame',
+    condition: 'frame and cursor durably committed',
+    effect: 'Report committed progress and remain healing before pulling the next frame.',
+    to: ['healing'],
+    rung: 1,
+    adr: 'ADR 2 D7 rung 1 / D10; POD-3941 incremental heal',
+  },
+  {
+    id: 'D7-1-HEAL-STREAM-FAILED',
+    from: ['healing'],
+    input: 'range request or iterator throws',
+    condition: 'heal generation is still current',
+    effect: 'Retain the last committed cursor and slice; retry rung 1 on the next trigger.',
+    to: ['stale'],
+    rung: 1,
+    adr: 'ADR 2 D7 stale-visible / D10; POD-3941 interrupted heal',
+  },
+  {
     id: 'D7-1-HEALED',
     from: ['healing'],
-    input: 'changesSince reply',
-    condition: 'certified, feedId/epoch match, fromSeq === cursor.seq, well-formed',
-    effect: 'Apply the reply, then drain buffered frames while they stay contiguous.',
+    input: 'normal range completion',
+    condition: 'every frame committed and source completed normally',
+    effect: 'Leave healing, then drain buffered frames while they stay contiguous.',
     to: ['live'],
     rung: 1,
     adr: 'ADR 2 D7 rung 1',
@@ -160,7 +180,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     from: ['stale'],
     input: 'connect()',
     condition: 'a cursor is held',
-    effect: 'Resume from the cursor: changesSince(cursor). Reconnect is a heal, not a bootstrap.',
+    effect: 'Resume from the cursor: changesRange(cursor). Reconnect is a heal, not a bootstrap.',
     to: ['healing'],
     rung: 1,
     adr: 'ADR 2 D7 stale-visible; D6 (bootstrap is the RECOVERY case, not the normal one)',
@@ -187,7 +207,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     // round trip is skipped. The effect is identical, which is the point — the
     // floor is an optimisation of WHEN rung 2 is reached, never of WHAT it does.
     from: ['live', 'healing', 'stale'],
-    input: 'changesSince reply, or a delta frame carrying minAvailableSeq',
+    input: 'changesRange reply, or a delta frame carrying minAvailableSeq',
     condition:
       'reply is bootstrap-required (unknown cursor), or cursor.seq + 1 < frame.minAvailableSeq',
     effect: 'Re-bootstrap (scoped). Discard the cache at the atomic swap. KEEP THE OUTBOX.',
@@ -243,7 +263,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   {
     id: 'D7-3-REPLY-MALFORMED',
     from: ['healing'],
-    input: 'changesSince reply',
+    input: 'changesRange reply',
     condition: 'non-contiguous with the cursor, or fails validation',
     effect: 'Re-bootstrap. A sideways retry of the request that just failed is an infinite loop.',
     to: ['bootstrapping'],
@@ -253,7 +273,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   {
     id: 'D7-4-EPOCH',
     from: ['live', 'healing', 'stale', 'bootstrapping'],
-    input: 'delta frame or changesSince reply',
+    input: 'delta frame or changesRange reply',
     condition:
       'feedId or epoch differs from the held cursor — checked wherever a cursor exists, BEFORE any buffering branch',
     effect:

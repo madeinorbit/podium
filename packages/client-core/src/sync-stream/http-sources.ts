@@ -1,5 +1,5 @@
 import { SYNC_CONTENT_TYPE, SyncBootstrapRequired, type SyncMeta } from '@podium/protocol'
-import type { BootstrapChunk, BootstrapRequired, ChangesSinceReply, Cursor, DeltaFrame } from '@podium/sync/replica'
+import type { BootstrapChunk, BootstrapRequired, Cursor, DeltaFrame } from '@podium/sync/replica'
 import { toBootstrapChunk, toDeltaFrame } from '../replica/feed/frames'
 import { SyncAuthExpiredError, SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncNetworkError } from './errors'
 import { NdjsonLineReader } from './ndjson-reader'
@@ -130,7 +130,7 @@ async function refusal(response: Response, signal?: AbortSignal): Promise<Bootst
 }
 export class HttpDeltaSource {
   constructor(private readonly deps: HttpSyncSourceDeps) {}
-  async changesRange(cursor: Cursor, signal?: AbortSignal): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
+  async changesRange(cursor: Cursor, signal?: AbortSignal, onTarget?: (target: Cursor) => void): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
     const query = new URLSearchParams({ feedId: cursor.feedId, epoch: cursor.epoch, from: String(cursor.seq) })
     const response = await request(this.deps, `/sync/delta?${query}`, signal)
     if (response.status === 409) return refusal(response, signal)
@@ -141,22 +141,11 @@ export class HttpDeltaSource {
           if (record.mode !== 'delta' || record.feedId !== cursor.feedId || record.epoch !== cursor.epoch || record.fromSeq !== cursor.seq) {
             throw new SyncCorruptContentError('requested-cursor-mismatch')
           }
+          onTarget?.({ feedId: record.feedId, epoch: record.epoch, seq: record.seq })
           // Preserve the retention certificate for an equal-endpoint range.
           if (record.seq === cursor.seq) yield { kind: 'delta', ...cursor, fromSeq: cursor.seq, minAvailableSeq: record.minAvailableSeq, changes: [] }
         } else if (record.type === 'feedDelta') yield toDeltaFrame(record)
       }
     })()
-  }
-  async changesSince(cursor: Cursor, signal?: AbortSignal): Promise<ChangesSinceReply> {
-    const range = await this.changesRange(cursor, signal)
-    if ('kind' in range) return range
-    let collected: DeltaFrame | undefined
-    const changes: DeltaFrame['changes'][number][] = []
-    for await (const frame of range) {
-      for (const change of frame.changes) changes.push(change)
-      collected = frame
-    }
-    if (!collected) throw new SyncCorruptContentError('empty-uncertified-range')
-    return { ...collected, fromSeq: cursor.seq, changes }
   }
 }

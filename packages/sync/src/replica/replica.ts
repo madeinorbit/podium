@@ -172,6 +172,7 @@ export class Replica {
   private readonly exits = new Map<string, ExitKind>()
   /** Set while a bootstrap walk is in flight; bumped to abandon a superseded walk. */
   private walkGeneration = 0
+  private walkAbort = new AbortController()
   private inflight: Promise<void> = Promise.resolve()
   /** A ladder failure awaiting its ONE report through `settled()` (POD-1162). */
   private failure: unknown | undefined
@@ -335,6 +336,8 @@ export class Replica {
   /** Go offline. The last-known slice stays VISIBLE, marked stale (D7). Never blank. */
   disconnect(): TransitionOutcome {
     // Abandon any walk in flight: its staging is discarded, never half-installed.
+    this.walkAbort.abort()
+    this.walkAbort = new AbortController()
     this.walkGeneration += 1
     this.buffer = []
     this.counters.pendingGap = false
@@ -490,6 +493,7 @@ export class Replica {
   private commitChanges(
     changes: readonly ChangeEnvelope[],
     nextCursor: Cursor,
+    generation?: number,
   ): { readonly row: string; readonly done: Promise<void> } {
     // Classified BEFORE the commit, from the pre-frame exit state — the same inputs
     // `emitApplied` classifies from, through the same function, so the row this
@@ -500,6 +504,13 @@ export class Replica {
     const done = this.commitRegions(
       retirementsOf([changes]),
       (span) => {
+        if (generation !== undefined) {
+          const prepare = (): void => {
+            if (generation !== this.walkGeneration) throw new Error('superseded heal')
+          }
+          prepare()
+          span?.join({ prepare, publish() {} })
+        }
         this.store.applyAtomic(toMutation(changes, nextCursor), span)
       },
       () => {
@@ -682,50 +693,98 @@ export class Replica {
   // ─── Rung 1: heal ─────────────────────────────────────────────────────────
 
   private startHeal(): void {
+    this.walkAbort.abort()
+    this.walkAbort = new AbortController()
+    const signal = this.walkAbort.signal
+    const generation = ++this.walkGeneration
     this.counters.heals += 1
     this.setPosture('healing')
     this.emit({ type: 'heal', rung: 1, cause: 'gap' })
     this.run(async () => {
+      if (generation !== this.walkGeneration) return
       const cursor = this.cursorValue
       if (cursor === null) {
         this.startRebootstrap('cold-start')
         return
       }
-      let reply: Awaited<ReturnType<AuthorityReadPort['changesSince']>>
+      let targetSeq: number | undefined
+      let framesCommitted = 0
+      // Catch only source failures. A refused durable commit must still be
+      // surfaced through settled(), rather than mistaken for a network outage.
+      const sourceFailed = (): void => {
+        if (generation !== this.walkGeneration) return
+        this.note('D7-1-HEAL-STREAM-FAILED')
+        this.counters.pendingGap = true
+        this.setPosture('stale')
+      }
+      let range: Awaited<ReturnType<AuthorityReadPort['changesRange']>>
       try {
-        reply = await this.authority.changesSince(cursor)
+        range = await this.authority.changesRange(cursor, signal, (target) => {
+          if (generation === this.walkGeneration) targetSeq = target.seq
+        })
       } catch {
-        // The link is gone. Keep the slice visible; connect() will retry.
-        if (this.state === 'healing') this.setPosture('stale')
+        sourceFailed()
         return
       }
-      if (this.state !== 'healing') return // superseded by a rescope/disconnect
-
-      if (reply.kind === 'bootstrap-required') {
+      if (generation !== this.walkGeneration) return
+      if ('kind' in range) {
         this.note('D7-2-COMPACTED')
         this.startRebootstrap('compacted')
         return
       }
-      if (reply.feedId !== cursor.feedId || reply.epoch !== cursor.epoch) {
-        this.note('D7-4-EPOCH')
-        this.startRebootstrap('epoch-mismatch')
-        return
+      const iterator = range[Symbol.asyncIterator]()
+      let completed = false
+      try {
+        for (;;) {
+          let next: IteratorResult<DeltaFrame>
+          try {
+            next = await iterator.next()
+          } catch {
+            sourceFailed()
+            return
+          }
+          if (generation !== this.walkGeneration) return
+          if (next.done) {
+            completed = true
+            break
+          }
+          const frame = next.value
+          const current = this.cursorValue as Cursor
+          if (frame.feedId !== current.feedId || frame.epoch !== current.epoch) {
+            this.note('D7-4-EPOCH')
+            this.startRebootstrap('epoch-mismatch')
+            return
+          }
+          if (this.rejects(frame) !== null || frame.fromSeq !== current.seq) {
+            this.note('D7-3-REPLY-MALFORMED')
+            this.startRebootstrap('malformed')
+            return
+          }
+          try {
+            const applied = this.commitChanges(frame.changes, { ...current, seq: frame.seq }, generation)
+            await applied.done
+            if (generation !== this.walkGeneration) return
+            this.note(applied.row)
+          } catch (error) {
+            if (generation !== this.walkGeneration) return
+            if (!(error instanceof ReplicaStoreCorruptError)) this.setPosture('stale')
+            throw error
+          }
+          framesCommitted += 1
+          this.note('D7-1-PARTIAL-HEAL-COMMITTED')
+          this.sealTransitions()
+          this.emit({ type: 'heal-progress', framesCommitted, seq: frame.seq, targetSeq })
+        }
+      } finally {
+        if (!completed) {
+          // Cancellation also reaches an HTTP reader waiting for bytes. Closing
+          // an abandoned iterator must not mask the original failure.
+          if (this.walkAbort.signal === signal) this.walkAbort.abort()
+          try { await iterator.return?.() } catch { /* abandoned source */ }
+        }
       }
-      // Rung 3, not a retry: re-asking the question that just failed is the
-      // infinite loop D7 forbids.
-      // this.rejects(), not validateFrame(): the authority-pull route must clear
-      // the SAME rung-3 bar as the pushed route, injected known-kind check
-      // included. Using the shape-only check here let a corrupt known-kind row
-      // in through the heal reply.
-      if (this.rejects(reply) !== null || reply.fromSeq !== cursor.seq) {
-        this.note('D7-3-REPLY-MALFORMED')
-        this.startRebootstrap('malformed')
-        return
-      }
-
-      const healed = this.commitChanges(reply.changes, { ...cursor, seq: reply.seq })
-      await healed.done
-      this.note(healed.row)
+      if (generation !== this.walkGeneration) return
+      this.counters.pendingGap = false
       this.note('D7-1-HEALED')
       this.setPosture('live')
       await this.drainBuffer()
@@ -812,6 +871,8 @@ export class Replica {
   private startRebootstrap(cause: RebootstrapCause): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
+    this.walkAbort.abort()
+    this.walkAbort = new AbortController()
     this.walkGeneration += 1
     const generation = this.walkGeneration
     this.counters.bootstraps += 1
@@ -831,6 +892,7 @@ export class Replica {
         lastError = 'stream ended before the last chunk'
         this.note('D6-RESTART')
       } catch (error) {
+        if (generation !== this.walkGeneration) return
         if (error instanceof ReplicaStoreCorruptError) {
           // Rung 5 discovered from INSIDE a walk. Escalating is correct exactly
           // once: a walk that is not already the corruption walk hands over to
@@ -873,7 +935,7 @@ export class Replica {
     let head: { feedId: string; epoch: string; snapshotSeq: number } | null = null
     let sawLast = false
 
-    for await (const chunk of this.authority.bootstrap()) {
+    for await (const chunk of this.authority.bootstrap(this.walkAbort.signal)) {
       if (generation !== this.walkGeneration) return false
       if (head === null) {
         head = { feedId: chunk.feedId, epoch: chunk.epoch, snapshotSeq: chunk.snapshotSeq }
@@ -1045,6 +1107,7 @@ export class Replica {
         }
       },
     )
+    if (this.state === 'live') await this.drainBuffer()
   }
 
   // ─── Rung 5 ───────────────────────────────────────────────────────────────

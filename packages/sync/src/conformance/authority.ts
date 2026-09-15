@@ -91,7 +91,6 @@ import type { AuthorityReadPort } from '../replica/ports'
 import type {
   BootstrapChunk,
   ChangeEnvelope,
-  ChangesSinceReply,
   Cursor,
   DeltaFrame,
   ResyncRequiredFrame,
@@ -617,7 +616,7 @@ export class ConformanceAuthority {
   /** The read port ONE principal sees. There is no principal parameter on the port itself. */
   portFor(principal: ConformancePrincipal): AuthorityReadPort {
     return {
-      changesSince: async (cursor: Cursor): Promise<ChangesSinceReply> => {
+      changesRange: async (cursor, _signal, onTarget) => {
         this.changesSinceCalls.push(cursor)
         // Feed identity is checked by EQUALITY (D1). A restored backup re-serves the
         // same seqs under a new epoch, so seq comparison alone cannot see the
@@ -632,7 +631,9 @@ export class ConformanceAuthority {
           this.changesSinceCeiling === null
             ? this.head()
             : Math.min(this.changesSinceCeiling, this.head())
-        return this.frameFor(principal, cursor.seq, upTo)
+        const frame = this.frameFor(principal, cursor.seq, upTo)
+        onTarget?.({ feedId: frame.feedId, epoch: frame.epoch, seq: frame.seq })
+        return (async function* () { yield frame })()
       },
       bootstrap: (): AsyncIterable<BootstrapChunk> => {
         this.bootstrapCalls += 1

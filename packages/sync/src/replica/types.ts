@@ -187,7 +187,7 @@ export type Posture =
   | 'bootstrapping'
   /** Cursor valid, connected, applying frames. */
   | 'live'
-  /** Gap detected (rung 1); a `changesSince` is in flight. */
+  /** Gap detected (rung 1); a `changesRange` is in flight. */
   | 'healing'
   /** Disconnected, holding the last-known slice. Visible, marked stale. */
   | 'stale'
@@ -246,6 +246,13 @@ export type ReplicaEvent =
   | { readonly type: 'evicted'; readonly entity: string; readonly entityId: string }
   | { readonly type: 'cursor'; readonly cursor: Cursor; readonly watermarkOnly: boolean }
   | { readonly type: 'posture'; readonly posture: Posture; readonly previous: Posture }
+  | {
+      readonly type: 'heal-progress'
+      readonly framesCommitted: number
+      readonly seq: number
+      /** Fixed source target; undefined only for sources without target metadata. */
+      readonly targetSeq: number | undefined
+    }
   | { readonly type: 'heal'; readonly rung: HealRung; readonly cause: RebootstrapCause | 'gap' }
   | {
       readonly type: 'bootstrap-installed'

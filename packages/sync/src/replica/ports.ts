@@ -25,7 +25,6 @@ import type {
   BootstrapRequired,
   ChangeEnvelope,
   ChangeProvenance,
-  ChangesSinceReply,
   Cursor,
   DeltaFrame,
   EntityRecord,
@@ -181,10 +180,16 @@ export class ReplicaStoreCorruptError extends Error {
  * its own slice — the exact drift Amendment 1 D12.7 forbids.
  */
 export interface AuthorityReadPort {
-  /** Optional while legacy read adapters transition to incremental HTTP ranges. */
-  changesRange?(cursor: Cursor, signal?: AbortSignal): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
-  /** ADR 2 D7 rung 1's heal. Returns a certified reply, or "you must re-bootstrap". */
-  changesSince(cursor: Cursor): Promise<ChangesSinceReply>
+  /**
+   * Rung 1: certified frames toward one fixed target. Normal completion certifies
+   * the target was reached; interruption throws. The consumer commits before
+   * pulling again. Sources report the target before yielding the first frame.
+   */
+  changesRange(
+    cursor: Cursor,
+    signal?: AbortSignal,
+    onTarget?: (target: Cursor) => void,
+  ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /**
    * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
    * Pacing lives on the authority side of this port (D6: "the bootstrap must

@@ -2,7 +2,7 @@
  * THE AUTHORITY, AS THE CLIENT REPLICA SEES IT (POD-376).
  *
  * `AuthorityReadPort` has exactly two members and they are the two halves of ADR
- * 2 D7's ladder that reach off-client: `changesSince` is rung 1's heal, and
+ * 2 D7's ladder that reach off-client: `changesRange` is rung 1's heal, and
  * `bootstrap` is where rungs 2–6 all terminate. This class is that port over the
  * v2 wire — an HTTP query for the first, and the pushed-bootstrap seam for the
  * second.
@@ -15,7 +15,7 @@
  * hand the replica a lever over its own slice.
  *
  * NO RETRY, NO BACKOFF, NO CACHING. A failed heal throws, the Replica's ladder
- * takes it to a re-bootstrap, and the bootstrap has its own bounded attempt
+ * retries from its committed cursor on the next trigger, and the bootstrap has its own bounded attempt
  * count. Retrying here would make two ladders — one of which nothing observes.
  */
 
@@ -23,7 +23,6 @@ import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 import type {
   AuthorityReadPort,
   BootstrapChunk,
-  ChangesSinceReply,
   Cursor,
 } from '@podium/sync/replica'
 
@@ -52,35 +51,46 @@ export interface FeedAuthorityClientDeps {
 export class FeedAuthorityClient implements AuthorityReadPort {
   constructor(private readonly deps: FeedAuthorityClientDeps) {}
 
-  async changesSince(cursor: Cursor): Promise<ChangesSinceReply> {
+  /** Legacy tRPC bridge: one certified frame until the programme removes this adapter. */
+  async changesRange(
+    cursor: Cursor,
+    signal?: AbortSignal,
+    onTarget?: (target: Cursor) => void,
+  ): ReturnType<AuthorityReadPort['changesRange']> {
+    signal?.throwIfAborted()
     const reply = await this.deps.fetchChangesSince(cursor)
+    signal?.throwIfAborted()
     if (reply.kind === 'bootstrap-required') {
       return { kind: 'bootstrap-required', ...(reply.reason === undefined ? {} : { reason: reply.reason }) }
     }
-    return {
-      kind: 'delta',
-      feedId: reply.feedId,
-      epoch: reply.epoch,
-      fromSeq: reply.fromSeq,
-      seq: reply.seq,
-      minAvailableSeq: reply.minAvailableSeq,
-      changes: reply.changes.map((change) =>
-        change.op === 'upsert'
-          ? {
-              seq: change.seq,
-              entity: change.entity,
-              entityId: change.entityId,
-              op: 'upsert' as const,
-              payload: change.value,
-            }
-          : {
-              seq: change.seq,
-              entity: change.entity,
-              entityId: change.entityId,
-              op: change.op,
-            },
-      ),
-    }
+    onTarget?.({ feedId: reply.feedId, epoch: reply.epoch, seq: reply.seq })
+    return (async function* () {
+      signal?.throwIfAborted()
+      yield {
+        kind: 'delta' as const,
+        feedId: reply.feedId,
+        epoch: reply.epoch,
+        fromSeq: reply.fromSeq,
+        seq: reply.seq,
+        minAvailableSeq: reply.minAvailableSeq,
+        changes: reply.changes.map((change) =>
+          change.op === 'upsert'
+            ? {
+                seq: change.seq,
+                entity: change.entity,
+                entityId: change.entityId,
+                op: 'upsert' as const,
+                payload: change.value,
+              }
+            : {
+                seq: change.seq,
+                entity: change.entity,
+                entityId: change.entityId,
+                op: change.op,
+              },
+        ),
+      }
+    })()
   }
 
   bootstrap(signal?: AbortSignal): AsyncIterable<BootstrapChunk> {

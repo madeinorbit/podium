@@ -157,7 +157,7 @@ describe('HTTP sources', () => {
   })
   it.each(['feed-identity-mismatch', 'compacted-or-unknown', 'rescope', 'future-cursor', 'invalid-target'])('maps 409 %s', async reason => {
     const source = sources(() => new Response(JSON.stringify({ kind: 'bootstrap-required', reason }), { status: 409 }))
-    expect(await source.delta.changesSince(cursor)).toEqual({ kind: 'bootstrap-required', reason })
+    expect(await source.delta.changesRange(cursor)).toEqual({ kind: 'bootstrap-required', reason })
   })
   it('rejects malformed refusals', async () => {
     await expect(sources(() => new Response('{}', { status: 409 })).delta.changesRange(cursor)).rejects.toBeInstanceOf(SyncCorruptContentError)
@@ -170,22 +170,33 @@ describe('HTTP sources', () => {
     await expect(network.delta.changesRange(cursor)).rejects.toBeInstanceOf(SyncNetworkError)
     expect(network.fetch).toHaveBeenCalledTimes(1)
   })
-  it('collects chained delta certificates during transition and omits to', async () => {
+  it('streams chained delta certificates with a fixed target and omits to', async () => {
     const first = { ...delta, seq: 7 }
     const second = { ...delta, fromSeq: 7, changes: [{ ...row, seq: 9 }] }
     const source = sources(() => response([deltaMeta, first, second, { ...complete, records: 2, rows: 2 }]))
-    const reply = await source.delta.changesSince(cursor)
-    expect(reply).toMatchObject({ kind: 'delta', fromSeq: 5, seq: 10, changes: [{ seq: 6 }, { seq: 9 }] })
+    const target = vi.fn()
+    const range = await source.delta.changesRange(cursor, undefined, target)
+    const reply = await collectRange(Promise.resolve(range))
+    expect(target).toHaveBeenCalledWith({ ...cursor, seq: 10 })
+    expect(reply).toMatchObject([{ fromSeq: 5, seq: 7, changes: [{ seq: 6 }] }, { fromSeq: 7, seq: 10, changes: [{ seq: 9 }] }])
     expect(source.fetch.mock.calls[0]?.[0]).toBe('https://example.test/sync/delta?feedId=feed-1&epoch=epoch-1&from=5')
   })
   it('rejects a broken delta chain and a mismatched requested cursor', async () => {
-    await expect(sources(() => response([deltaMeta, { ...delta, fromSeq: 4 }, complete])).delta.changesSince(cursor)).rejects.toMatchObject({ reason: 'non-chaining' })
-    await expect(sources(() => response([deltaMeta, delta, complete])).delta.changesSince({ ...cursor, seq: 4 })).rejects.toMatchObject({ reason: 'requested-cursor-mismatch' })
+    await expect(collectRange(sources(() => response([deltaMeta, { ...delta, fromSeq: 4 }, complete])).delta.changesRange(cursor))).rejects.toMatchObject({ reason: 'non-chaining' })
+    await expect(collectRange(sources(() => response([deltaMeta, delta, complete])).delta.changesRange({ ...cursor, seq: 4 }))).rejects.toMatchObject({ reason: 'requested-cursor-mismatch' })
   })
   it('collects a certified equal-endpoint range, but still requires complete', async () => {
     const start = { ...deltaMeta, seq: 5 }
     const end = { ...complete, seq: 5, records: 0, rows: 0 }
-    expect(await sources(() => response([start, end])).delta.changesSince(cursor)).toMatchObject({ fromSeq: 5, seq: 5, changes: [] })
-    await expect(sources(() => response([start])).delta.changesSince(cursor)).rejects.toMatchObject({ reason: 'missing-complete' })
+    expect(await collectRange(sources(() => response([start, end])).delta.changesRange(cursor))).toMatchObject([{ fromSeq: 5, seq: 5, changes: [] }])
+    await expect(collectRange(sources(() => response([start])).delta.changesRange(cursor))).rejects.toMatchObject({ reason: 'missing-complete' })
   })
 })
+
+async function collectRange(pending: ReturnType<HttpDeltaSource['changesRange']>) {
+  const range = await pending
+  if ('kind' in range) throw new Error('expected delta range')
+  const frames = []
+  for await (const frame of range) frames.push(frame)
+  return frames
+}

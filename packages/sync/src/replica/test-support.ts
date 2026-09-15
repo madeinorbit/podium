@@ -144,8 +144,8 @@ export class FakeAuthority implements AuthorityReadPort {
   feedId = FEED_ID
   epoch = EPOCH
 
-  readonly changesSinceCalls: Cursor[] = []
-  changesSinceQueue: (ChangesSinceReply | Error)[] = []
+  readonly changesRangeCalls: Cursor[] = []
+  changesRangeQueue: (ChangesSinceReply | AsyncIterable<DeltaFrame> | Error)[] = []
 
   bootstrapCalls = 0
   /** Automatic mode: the slice this principal may see at `snapshotSeq`. */
@@ -155,12 +155,14 @@ export class FakeAuthority implements AuthorityReadPort {
   /** Manual mode: set to drive chunks by hand for mid-walk cases. */
   manual: ChunkChannel | null = null
 
-  async changesSince(cursor: Cursor): Promise<ChangesSinceReply> {
-    this.changesSinceCalls.push(cursor)
-    const next = this.changesSinceQueue.shift()
+  async changesRange(cursor: Cursor, _signal?: AbortSignal, onTarget?: (target: Cursor) => void): ReturnType<AuthorityReadPort['changesRange']> {
+    this.changesRangeCalls.push(cursor)
+    const next = this.changesRangeQueue.shift()
     if (next === undefined) return { kind: 'bootstrap-required', reason: 'no scripted reply' }
     if (next instanceof Error) throw next
-    return next
+    if (!('kind' in next) || next.kind === 'bootstrap-required') return next
+    onTarget?.({ feedId: next.feedId, epoch: next.epoch, seq: next.seq })
+    return (async function* () { yield next })()
   }
 
   bootstrap(): AsyncIterable<BootstrapChunk> {
