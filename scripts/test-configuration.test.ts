@@ -345,7 +345,7 @@ describe('test lane configuration', () => {
     expect(config(normalizedWirePackageConfig).test?.maxWorkers).toBe(1)
   })
 
-  it('assigns every ordinary server test to a shard or explicit integration lane [POD-3716]', () => {
+  it('assigns every ordinary server test to a shard or explicit integration/Bun lane [POD-3716]', () => {
     // Scan independently of unit exclusions: deriving this census from the unit
     // config would hide exactly the files that accidentally run in no lane.
     const files = readdirSync(new URL('../apps/server/src/', import.meta.url), {
@@ -360,7 +360,14 @@ describe('test lane configuration', () => {
     ) as { shards: { testFiles: string[] }[] }
     // Real server/socket tests may deliberately live outside the fast shards,
     // but must be named in the integration roster, not merely excluded from units.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    // A real worker needs Bun's runner. Count only exact paths owned by its
+    // parent lane, never every excluded *.bun.test.ts by suffix alone.
+    const bunPaths = new Set(pkg.scripts['test:bun']!.split(/\s+/))
     const owned = new Set([
+      ...files.filter((file) => file.endsWith('.bun.test.ts') && bunPaths.has(file)),
       ...manifest.shards.flatMap((shard) => shard.testFiles),
       ...(config(integrationConfig).test?.include ?? []),
     ])
