@@ -26,7 +26,7 @@ export type ToWorker =
   | { type: 'stop' }
 export type FromWorker =
   | { type: 'ready' }
-  | { type: 'heartbeat' }
+  | { type: 'heartbeat'; progressVersion: number; jobs: number }
   | { type: 'meta'; transferId: string; meta: SyncMetaSummary }
   | { type: 'bytes'; transferId: string; chunk: ArrayBuffer }
   | { type: 'metrics'; transferId: string; metrics: BootstrapMetrics }

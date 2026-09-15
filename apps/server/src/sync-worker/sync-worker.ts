@@ -17,9 +17,12 @@ if (parentPort) {
   const dbPath = (workerData as { dbPath: string }).dbPath
   const jobs = new Map<string, Work>()
   const queue: Work[] = []
-  let active = 0, stopped = false
+  let active = 0, stopped = false, progressVersion = 0
   const log = createLogger('server:sync-worker')
-  const send = (message: FromWorker, transfer: ArrayBuffer[] = []) => port.postMessage(message, transfer)
+  const send = (message: FromWorker, transfer: ArrayBuffer[] = []) => {
+    if (message.type !== 'heartbeat') progressVersion++
+    port.postMessage(message, transfer)
+  }
   const cancel = (work: Work, reason: SyncWorkerError) => {
     if (work.abort.signal.aborted) return
     work.abort.abort(reason)
@@ -68,7 +71,7 @@ if (parentPort) {
       void run(work)
     }
   }
-  const heartbeat = setInterval(() => send({ type: 'heartbeat' }), 1000)
+  const heartbeat = setInterval(() => send({ type: 'heartbeat', progressVersion, jobs: jobs.size }), 1000)
   port.on('message', (message: ToWorker) => {
     if (message.type === 'stop') {
       stopped = true; clearInterval(heartbeat)

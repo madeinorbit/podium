@@ -11,13 +11,13 @@ import { SyncWorkerClient } from './worker-client'
 import type { BootstrapJob } from './types'
 
 const job = (id: string, deadlineMs?: number): BootstrapJob => ({ transferId: id, principal: DEVICE_GRADE_PRINCIPAL, feedId: 'feed', epoch: 'epoch', encoding: 'identity', ...(deadlineMs ? { deadlineMs } : {}) })
-async function fixture() {
+async function fixture(options: { monitorMs?: number; wedgedMs?: number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'sync-worker-'))
   const path = join(dir, 'test.db')
   const writer = openDatabase(path)
   applyBaselineSchema(writer)
   writer.exec('PRAGMA journal_mode=WAL')
-  const client = new SyncWorkerClient({ dbPath: path })
+  const client = new SyncWorkerClient({ dbPath: path, ...options })
   return { path, writer, client, async close() { await client.close(); writer.close(); rmSync(dir, { recursive: true, force: true }) } }
 }
 function append(writer: SqlDatabase, id: string, text = 'x') {
@@ -56,6 +56,21 @@ describe('real sync worker boundary', () => {
     } finally { await f.close() }
   }, 30_000)
 
+  it('replaces an active worker whose progress stalls despite a live heartbeat', async () => {
+    const f = await fixture({ monitorMs: 10 })
+    try {
+      append(f.writer, 'one')
+      const transfer = f.client.bootstrap(job('wedged'))
+      await transfer.meta
+      // Advance only the progress-age seam; a heartbeat timeout cannot explain
+      // this replacement. No reader credit is supplied while the monitor runs.
+      ;(f.client as unknown as { lastProgress: number }).lastProgress = 0
+      for (let i = 0; i < 100 && f.client.activeJobCount() !== 0; i++) await delay(10)
+      expect(f.client.activeJobCount()).toBe(0)
+      await expect(text(transfer.body)).rejects.toMatchObject({ reason: 'worker-crashed' })
+      await checkpoint(f.writer)
+    } finally { await f.close() }
+  }, 30_000)
   it('holds a consistent head and complete row set during concurrent appends', async () => {
     const f = await fixture()
     let timer: ReturnType<typeof setInterval> | undefined

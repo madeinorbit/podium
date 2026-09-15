@@ -24,6 +24,9 @@ export class SyncWorkerClient {
   private restartTimer?: ReturnType<typeof setTimeout>
   private monitorTimer: ReturnType<typeof setInterval>
   private lastMessage = Date.now()
+  private lastProgress = Date.now()
+  private workerProgress = 0
+  private workerJobs = 0
   private spawnedAt = Date.now()
   private fastCrashes = 0
   private terminations = new Set<Promise<unknown>>()
@@ -32,7 +35,11 @@ export class SyncWorkerClient {
   constructor(private readonly options: { dbPath: string; monitorMs?: number; wedgedMs?: number; onMetrics?: (metrics: BootstrapMetrics) => void }) {
     this.spawn()
     this.monitorTimer = setInterval(() => {
-      if (this.worker && Date.now() - this.lastMessage >= (options.wedgedMs ?? 600_000)) this.fail(this.worker)
+      const now = Date.now()
+      const wedgedMs = options.wedgedMs ?? 600_000
+      const silent = now - this.lastMessage >= wedgedMs
+      const stalled = (this.jobs.size > 0 || this.workerJobs > 0) && now - this.lastProgress >= wedgedMs
+      if (this.worker && (silent || stalled)) this.fail(this.worker)
     }, options.monitorMs ?? 5000)
     this.monitorTimer.unref()
   }
@@ -40,7 +47,8 @@ export class SyncWorkerClient {
   activeJobCount(): number { return this.jobs.size }
   private spawn() {
     if (this.closed) return
-    this.spawnedAt = this.lastMessage = Date.now()
+    this.spawnedAt = this.lastMessage = this.lastProgress = Date.now()
+    this.workerJobs = this.workerProgress = 0
     try {
       const target = isCompiledSyncWorkerUrl(import.meta.url) ? syncWorkerEmbeddedTarget() : new URL('./sync-worker.ts', import.meta.url)
       const worker = new Worker(target, { workerData: { dbPath: this.options.dbPath } })
@@ -49,7 +57,13 @@ export class SyncWorkerClient {
         if (worker !== this.worker) return
         this.lastMessage = Date.now()
         if (message.type === 'ready') { this.ready = true; return }
-        if (message.type === 'heartbeat') return
+        if (message.type === 'heartbeat') {
+          this.workerJobs = message.jobs
+          if (message.progressVersion !== this.workerProgress || message.jobs === 0) this.lastProgress = Date.now()
+          this.workerProgress = message.progressVersion
+          return
+        }
+        this.lastProgress = Date.now()
         const job = this.jobs.get(message.transferId)
         if (!job) return
         if (message.type === 'metrics') {
