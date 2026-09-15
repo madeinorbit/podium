@@ -183,6 +183,7 @@ describe('FeedSink lifecycle', () => {
         receive: () => {},
       } as never,
       bootstraps: {
+        expectWorld: () => {},
         reset: () => {
           const result = requested
           requested = false

@@ -220,7 +220,7 @@ describe('HTTP bootstrap with a live socket', () => {
     for (let seq = 1; seq <= 10_001; seq++) {
       await replica.receive({ kind: 'delta', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: seq - 1, seq, minAvailableSeq: 0, changes: [] })
     }
-    expect(fetch).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
     expect(signals[0]?.aborted).toBe(true)
     expect(signals[1]?.aborted).toBe(false)
     replica.disconnect()
