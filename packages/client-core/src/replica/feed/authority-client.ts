@@ -26,7 +26,6 @@ import type {
   ChangesSinceReply,
   Cursor,
 } from '@podium/sync/replica'
-import type { PushedBootstrapSource } from './bootstrap-source'
 
 /**
  * The wire answer to `sync.feedChangesSince`.
@@ -47,7 +46,7 @@ export type { FeedChangesSinceReplyLenient } from '@podium/protocol'
 export interface FeedAuthorityClientDeps {
   /** Bound to the `sync.feedChangesSince` tRPC query. */
   fetchChangesSince(cursor: Cursor): Promise<FeedChangesSinceReplyLenient>
-  readonly bootstraps: PushedBootstrapSource
+  readonly bootstraps: Pick<AuthorityReadPort, 'bootstrap'>
 }
 
 export class FeedAuthorityClient implements AuthorityReadPort {
@@ -84,7 +83,7 @@ export class FeedAuthorityClient implements AuthorityReadPort {
     }
   }
 
-  bootstrap(): AsyncIterable<BootstrapChunk> {
-    return this.deps.bootstraps.bootstrap()
+  bootstrap(signal?: AbortSignal): AsyncIterable<BootstrapChunk> {
+    return this.deps.bootstraps.bootstrap(signal)
   }
 }

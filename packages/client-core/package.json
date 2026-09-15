@@ -5,6 +5,11 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
+    "./sync-stream": {
+      "@podium/source": "./src/sync-stream/index.ts",
+      "types": "./src/sync-stream/index.ts",
+      "import": "./src/sync-stream/index.ts"
+    },
     ".": {
       "@podium/source": "./src/index.ts",
       "types": "./src/index.ts",

@@ -22,10 +22,12 @@
 import type { OwnedSyncSpan, SyncSpan } from '../span'
 import type {
   BootstrapChunk,
+  BootstrapRequired,
   ChangeEnvelope,
   ChangeProvenance,
   ChangesSinceReply,
   Cursor,
+  DeltaFrame,
   EntityRecord,
 } from './types'
 
@@ -179,6 +181,8 @@ export class ReplicaStoreCorruptError extends Error {
  * its own slice — the exact drift Amendment 1 D12.7 forbids.
  */
 export interface AuthorityReadPort {
+  /** Optional while legacy read adapters transition to incremental HTTP ranges. */
+  changesRange?(cursor: Cursor, signal?: AbortSignal): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired>
   /** ADR 2 D7 rung 1's heal. Returns a certified reply, or "you must re-bootstrap". */
   changesSince(cursor: Cursor): Promise<ChangesSinceReply>
   /**
@@ -186,7 +190,7 @@ export interface AuthorityReadPort {
    * Pacing lives on the authority side of this port (D6: "the bootstrap must
    * never own the loop"); the Replica just consumes chunks as they arrive.
    */
-  bootstrap(): AsyncIterable<BootstrapChunk>
+  bootstrap(signal?: AbortSignal): AsyncIterable<BootstrapChunk>
 }
 
 /**
