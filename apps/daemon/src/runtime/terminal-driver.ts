@@ -69,6 +69,8 @@ import type {
   PendingInteraction,
   QueueDrainAbandonedReason,
   QueuedTurn,
+  QuestionPrompt,
+  QuestionSelection,
   Refusal,
   RuntimeDriver,
   RuntimeEvent,
@@ -122,6 +124,11 @@ const log = createLogger('daemon:terminal-driver')
  *  CLI key parser's own 50ms byte-run window, so no two keys share a read.
  *  Carried over verbatim from `apps/server/src/modules/sessions/inbox.ts`. */
 const MENU_KEY_DELAY_MS = 120
+
+/** Gap before the closing commit on a multi-question or multi-select menu —
+ *  the review step needs a frame to settle before the CR lands. Verbatim from
+ *  the same keystroke path. */
+const MENU_CONFIRM_DELAY_MS = 240
 
 /**
  * How many events one session's replay buffer retains.
@@ -706,11 +713,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     //
     // WHAT THE DRIVER CAN AND CANNOT FILL, stated because the gaps are real:
     // `AgentRuntimeState.need` carries the tool name and a bounded detail for a
-    // permission, and for a question it carries only a SUMMARY — the menu's
-    // options live in the transcript, which this driver does not read. So the
-    // question arm ships one option-less prompt, which is honest: the ask
-    // exists, the session is blocked, and the options are not knowable here.
-    // The server aggregate reads the transcript tail and fills them in.
+    // permission. For a question it carries a summary, AND — when the reporting
+    // channel saw the tool input — the interview: every question and option,
+    // which becomes the ask's prompts with the flags answering needs. When the
+    // channel carried no interview the arm ships one option-less prompt, which
+    // is honest: the ask exists, the session is blocked, and the options are
+    // not knowable here. The server aggregate reads the transcript tail and
+    // fills them in.
     const kindAndPayload: InteractionAskSpec =
       need?.kind === 'permission'
         ? {
@@ -726,7 +735,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
             kind: 'question',
             payload: {
               v: 1,
-              questions: [
+              // THE OBSERVED MENU, when the channel carried one. `need.interview`
+              // is the tool input's own questions — the same shape the server's
+              // synthesis normalizes — so the ask ships the flags (`multiSelect`,
+              // `previewLayout`, `otherIndex`) its own answering needs. Absent =
+              // the honest option-less prompt this always shipped.
+              questions: interviewPrompts(need) ?? [
                 {
                   question: need?.summary ?? '',
                   multiSelect: false,
@@ -1617,29 +1631,26 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { ok: false, reason: 'expired' }
         }
-        const script = menuScriptFor(answer)
+        const script = menuScriptFor(answer, interaction)
         // AN ANSWER THIS DRIVER CANNOT TYPE IS NOT AN ANSWER. Nothing is sent and
         // the ask stays open, because a partial script would leave the menu on a
         // row nobody chose and a closing keystroke would commit it (POD-770's
-        // failure, in the one place it could recur). `unknown-interaction` is the
-        // nearest true outcome the contract has today; W2's per-kind answer
-        // schemas are what will let this refuse with a reason.
-        if (!script) return { ok: false, reason: 'unknown-interaction' }
-        // THIN BY DESIGN (the plan's word). The full ask-menu drive — preview
-        // layouts, multi-select tabs, the Other row — lives in the server's
-        // `answerAskUserQuestion` and belongs to W2's port. What is here is the
-        // one shape every menu shares.
-        //
+        // failure, in the one place it could recur). `not-yet-supported` is the
+        // contract's deliberate refusal for exactly this — the server's table
+        // keeps the ask open on it, so a human can answer what the driver could
+        // not type.
+        if (!script.ok) return { ok: false, reason: 'not-yet-supported', detail: script.detail }
         // ONE KEYSTROKE PER WRITE, spaced. The CLI's key parser folds a
         // multi-character chunk into a SINGLE key event whose name is the whole
         // string, so `"12"` arrives as the key "12", matches no digit, and the
-        // menu does not move at all (POD-609). Every script here is one key
-        // today; the spacing is kept so growing one is not a silent trap.
-        script.forEach((key, at) => {
+        // menu does not move at all (POD-609). The gaps are the keystroke
+        // path's own: 120ms between keys, 240ms before the closing commit.
+        script.script.keys.forEach((key, at) => {
           const send = (): void =>
             host.bridge(session.sessionId)?.write(Buffer.from(key, 'utf8').toString('base64'))
-          if (at === 0) send()
-          else host.setTimer(send, at * MENU_KEY_DELAY_MS)
+          const delay = script.script.at[at] ?? 0
+          if (delay <= 0) send()
+          else host.setTimer(send, delay)
         })
         session.interactions.delete(interactionId)
         session.answered.add(interactionId)
@@ -2142,35 +2153,269 @@ function isPromptSubmitHook(payload: unknown): boolean {
 }
 
 /**
- * The keystrokes that answer a native menu.
+ * The keystrokes that answer a native menu, and when each one goes.
  *
- * THIN ON PURPOSE. `SessionInbox.answerAskUserQuestion` is the real script —
- * preview layouts, multi-select tabs, the Other row, the conditional closing CR —
- * and porting it belongs to W2's interactions work, which owns the per-kind
- * answer schemas that would tell this function what it is being handed. Until
- * then it accepts the two shapes that need no schema and refuses the rest, rather
- * than typing a guess into a live menu.
+ * `at[i]` is the ABSOLUTE delay in ms before `keys[i]`; `at[0]` is always 0.
+ * The gaps are the server keystroke path's own (`answerAskUserQuestion`):
+ * 120ms between keys, 240ms before the closing commit.
  */
-function menuScriptFor(answer: unknown): string[] | null {
-  if (typeof answer !== 'object' || answer === null) return null
-  const record = answer as Record<string, unknown>
-  if (record.skip === true) return [ESC]
-  const index = record.index ?? record.optionIndex
-  // `index` IS ZERO-BASED — it names an OPTION, not a keystroke. The menu's own
-  // digits are 1-based, and the conversion happens exactly here so that no caller
-  // ever has to know the difference between "the second option" and "the key you
-  // press for it". The server's `AnswerChoice.optionIndices` are the other
-  // vocabulary (raw menu digits); W2 unifies them when it types the per-kind
-  // answer schemas, and this is the boundary that will move.
-  if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index <= 8) {
-    return [String(index + 1)]
+interface MenuScript {
+  keys: string[]
+  at: number[]
+}
+
+type MenuScriptResult = { ok: true; script: MenuScript } | { ok: false; detail: string }
+
+/** One question's answer once mapped onto the keystroke path's vocabulary —
+ *  the same `AnswerChoice` shape `nativeMenuChoices` builds on the server, so
+ *  the guards below read the same way on both routes. */
+type MenuChoice = { multiSelect?: boolean; previewLayout?: boolean } & (
+  | { optionIndices: number[] }
+  | { freeText: string; otherIndex?: number }
+)
+
+/** One typed digit. Anything else cannot be a menu keystroke. */
+const isMenuDigit = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 9
+
+/** Several picks can only have come from a multi-select, so an ask that cannot
+ *  say so is still read correctly — the legacy script's own inference. */
+const isMultiChoice = (choice: MenuChoice): boolean =>
+  choice.multiSelect ?? ('optionIndices' in choice && choice.optionIndices.length > 1)
+
+/** The side-by-side preview dialog. Single-select BY CONSTRUCTION, so a choice
+ *  claiming both is a contradiction and must not be typed at all. */
+const isPreviewChoice = (choice: MenuChoice): boolean =>
+  choice.previewLayout === true && !isMultiChoice(choice)
+
+/** The ONE shape the native menu commits by itself, so the ONE shape that must
+ *  not be given a closing CR. Holds in the preview layout too: a lone question
+ *  auto-submits the moment the CR selects a row. */
+const isLoneSingleChoice = (choices: MenuChoice[]): boolean => {
+  const only = choices.length === 1 ? choices[0] : undefined
+  return only !== undefined && !isMultiChoice(only)
+}
+
+/**
+ * Why this answer cannot be typed into the native menu, or null when it can.
+ *
+ * Checked for EVERY choice before a single byte moves — the legacy path's own
+ * rule, kept verbatim: a choice this cannot express is a refusal, never a
+ * partial script, because the questions it could not answer stay on their
+ * first row and a closing CR would commit those rows as if the operator had
+ * picked them.
+ */
+const undeliverableChoice = (choice: MenuChoice, at: number): string | null => {
+  const where = `question ${at + 1}`
+  const digits = 'optionIndices' in choice ? choice.optionIndices.filter(isMenuDigit) : []
+  if (choice.previewLayout === true) {
+    if (choice.multiSelect === true) return `${where}: a preview question cannot be multi-select`
+    if (digits.length > 1) {
+      return `${where}: a preview question takes one option, got ${digits.join(',')}`
+    }
   }
-  const decision = record.decision
-  // A permission ask's yes/no is the same menu shape: the first option allows,
-  // ESC dismisses. Anything else is a vocabulary W2 has not defined yet.
-  if (decision === 'allow') return ['1']
-  if (decision === 'deny') return [ESC]
+  if ('freeText' in choice) {
+    if (choice.freeText.trim() === '') return `${where}: empty free text`
+    // The Other row only exists in the classic list layout; the preview layout
+    // reaches its Notes field with `n` and needs no index.
+    if (!isPreviewChoice(choice) && !isMenuDigit(choice.otherIndex)) {
+      return `${where}: Other is at ${choice.otherIndex}, outside the menu's 1-9 digits`
+    }
+    return null
+  }
+  if (digits.length === 0 || digits.length !== choice.optionIndices.length) {
+    const got = choice.optionIndices.join(',') || 'nothing'
+    return `${where}: no option in the menu's 1-9 digits (got ${got})`
+  }
   return null
+}
+
+/**
+ * The `need.interview` the channel carried, in the ask's own vocabulary.
+ *
+ * The flags follow the server synthesis's `normalizeQuestions` rule for rule —
+ * `previewLayout` is the CLI's own predicate (`!multiSelect` with any
+ * per-option preview), and `otherIndex` is the synthetic Other row one past
+ * the last option, never under a preview layout whose dialog has no Other row
+ * at all. Null when the channel carried no interview, in which case the ask
+ * stays the honest option-less prompt it always was.
+ */
+function interviewPrompts(need: AgentRuntimeState['need']): QuestionPrompt[] | null {
+  const raw = need?.kind === 'question' ? need.interview?.questions : undefined
+  if (!raw || raw.length === 0) return null
+  return raw.map((q) => {
+    const options = q.options.map((o) => ({
+      label: o.label,
+      ...(o.description ? { description: o.description } : {}),
+      ...(o.preview ? { preview: o.preview } : {}),
+    }))
+    const multiSelect = q.multiSelect === true
+    const previewLayout = !multiSelect && options.some((o) => (o.preview ?? '') !== '')
+    return {
+      question: q.question,
+      ...(q.header ? { header: q.header } : {}),
+      multiSelect,
+      ...(!previewLayout && options.length > 0 ? { otherIndex: options.length + 1 } : {}),
+      previewLayout,
+      options,
+    }
+  })
+}
+
+/**
+ * The keystrokes that answer a native menu (POD-3982).
+ *
+ * TWO VOCABULARIES IN. The shorthand the conformance corpus speaks —
+ * `{skip}`, `{index}`, `{decision}` — types exactly what it always typed. The
+ * typed contract value (`{kind:'question', selections}`) is mapped onto the
+ * legacy keystroke path choice for choice — single, multi-select, preview,
+ * free text through the Other row or the preview Notes field, several
+ * questions in one ask — with the same pre-send guards and the same script:
+ * digits one keystroke each, CR to select under preview, Tab past a multi,
+ * one closing CR unless the menu commits by itself, ESC for skip.
+ *
+ * NOTHING IS TYPED UNTIL EVERY SELECTION IS DELIVERABLE: an answer this cannot
+ * express in full is a refusal with the reason, never a partial script.
+ */
+function menuScriptFor(answer: unknown, ask: PendingInteraction): MenuScriptResult {
+  if (typeof answer !== 'object' || answer === null) {
+    return { ok: false, detail: 'this menu takes a question answer' }
+  }
+  const record = answer as Record<string, unknown>
+  if (typeof record.kind !== 'string') {
+    // THE SHORTHAND, unchanged: it names an option rather than carrying the
+    // typed vocabulary, and the conversion from 0-based option to 1-based menu
+    // digit happens exactly here.
+    if (record.skip === true) return { ok: true, script: { keys: [ESC], at: [0] } }
+    const index = record.index ?? record.optionIndex
+    // `index` IS ZERO-BASED — it names an OPTION, not a keystroke. The menu's own
+    // digits are 1-based, and the conversion happens exactly here so that no caller
+    // ever has to know the difference between "the second option" and "the key you
+    // press for it".
+    if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index <= 8) {
+      return { ok: true, script: { keys: [String(index + 1)], at: [0] } }
+    }
+    const decision = record.decision
+    // A permission ask's yes/no is the same menu shape: the first option allows,
+    // ESC dismisses.
+    if (decision === 'allow') return { ok: true, script: { keys: ['1'], at: [0] } }
+    if (decision === 'deny') return { ok: true, script: { keys: [ESC], at: [0] } }
+    return { ok: false, detail: 'this menu takes a question answer' }
+  }
+  if (record.kind !== 'question' || ask.kind !== 'question') {
+    return { ok: false, detail: `an answer of kind '${String(record.kind)}' cannot answer this menu` }
+  }
+  const selections = Array.isArray(record.selections)
+    ? (record.selections as readonly QuestionSelection[])
+    : null
+  if (!selections) return { ok: false, detail: 'a question answer names one selection per prompt' }
+  return questionScriptFor(ask.payload.questions, selections)
+}
+
+/**
+ * The typed question answer at the ask's own prompts.
+ *
+ * PARTIAL IS A REFUSAL. A menu holds every prompt open at once and the closing
+ * CR commits all of them, so answering three of four questions would commit
+ * the fourth on whatever row it happened to be sitting. Anything short of one
+ * expressible choice per prompt returns the reason and nothing is typed.
+ */
+function questionScriptFor(
+  prompts: readonly QuestionPrompt[],
+  selections: readonly QuestionSelection[],
+): MenuScriptResult {
+  if (prompts.length === 0) {
+    return { ok: false, detail: 'this ask carries no readable options to answer' }
+  }
+  if (selections.length !== prompts.length) {
+    return {
+      ok: false,
+      detail: `this menu holds ${prompts.length} prompt(s) and the answer covers ${selections.length}`,
+    }
+  }
+  const choices: MenuChoice[] = []
+  for (let at = 0; at < prompts.length; at++) {
+    const prompt = prompts[at]
+    const selection = selections[at]
+    if (!prompt || !selection) return { ok: false, detail: `prompt ${at + 1}: missing` }
+    const shape = {
+      ...(prompt.multiSelect ? { multiSelect: true as const } : {}),
+      ...(prompt.previewLayout ? { previewLayout: true as const } : {}),
+    }
+    if (selection.text !== undefined) {
+      // THE "OTHER" ROW ONLY EXISTS WHERE THE MENU DREW IT. Without it there
+      // is no row to type free text into — except under a preview layout,
+      // whose Notes field the `n` key reaches with no index at all, and except
+      // on an unreadable menu, where the answer's own digit is the only row.
+      if (isPreviewChoice({ ...shape, optionIndices: [] })) {
+        choices.push({ ...shape, freeText: selection.text })
+        continue
+      }
+      if (prompt.otherIndex !== undefined) {
+        choices.push({ ...shape, freeText: selection.text, otherIndex: prompt.otherIndex })
+        continue
+      }
+      const sole = selection.optionIndices.length === 1 ? selection.optionIndices[0] : undefined
+      if (prompt.options.length === 0 && isMenuDigit(sole)) {
+        choices.push({ ...shape, freeText: selection.text, otherIndex: sole })
+        continue
+      }
+      return { ok: false, detail: `prompt ${at + 1}: this menu has no free-text row` }
+    }
+    if (selection.optionIndices.length === 0) {
+      return { ok: false, detail: `prompt ${at + 1}: no option chosen` }
+    }
+    if (prompt.options.length > 0) {
+      // The classifier read N options; an index past them is an answer to a
+      // menu this is not looking at — including the Other row named without
+      // its free text.
+      const beyond = selection.optionIndices.find((index) => index > prompt.options.length)
+      if (beyond !== undefined) {
+        return {
+          ok: false,
+          detail: `prompt ${at + 1}: option ${beyond} is beyond the ${prompt.options.length} option(s) on screen`,
+        }
+      }
+    }
+    choices.push({ ...shape, optionIndices: [...selection.optionIndices] })
+  }
+  for (const [i, choice] of choices.entries()) {
+    const why = undeliverableChoice(choice, i)
+    if (why) return { ok: false, detail: why }
+  }
+  const keys: string[] = []
+  const at: number[] = []
+  let delayMs = 0
+  const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
+    if (keys.length > 0) delayMs += gapBefore
+    keys.push(data)
+    at.push(delayMs)
+  }
+  for (const choice of choices) {
+    const preview = isPreviewChoice(choice)
+    if ('freeText' in choice) {
+      // Ink needs a frame to move focus into the field before characters land
+      // as the custom answer rather than as menu keys.
+      key(preview ? 'n' : String(choice.otherIndex))
+      key(choice.freeText)
+      key('\r')
+    } else {
+      const digits = choice.optionIndices.filter(isMenuDigit)
+      if (preview) {
+        // The digit only moves the cursor here; the CR is what selects. Exactly
+        // one digit survives validation above, so there is always a first.
+        const first = digits[0]
+        if (first === undefined) return { ok: false, detail: `question: no option in the menu's digits` }
+        key(String(first))
+        key('\r')
+      } else {
+        for (const digit of digits) key(String(digit))
+      }
+    }
+    if (isMultiChoice(choice)) key('\t')
+  }
+  if (!isLoneSingleChoice(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
+  return { ok: true, script: { keys, at } }
 }
 
 /**

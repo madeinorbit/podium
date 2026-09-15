@@ -2300,7 +2300,11 @@ describe('contract menu answers beyond a single index (POD-3982)', () => {
       kind: 'question',
       selections: [{ optionIndices: [1, 2] }],
     })
-    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    expect(outcome).toEqual({
+      ok: false,
+      reason: 'not-yet-supported',
+      detail: 'question 1: a preview question takes one option, got 1,2',
+    })
     await flushKeys()
     expect(world.written).toEqual([])
     expect(await session.interactions()).toHaveLength(1)
@@ -2315,7 +2319,11 @@ describe('contract menu answers beyond a single index (POD-3982)', () => {
       kind: 'question',
       selections: [{ optionIndices: [1] }],
     })
-    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    expect(outcome).toEqual({
+      ok: false,
+      reason: 'not-yet-supported',
+      detail: 'this menu holds 2 prompt(s) and the answer covers 1',
+    })
     await flushKeys()
     expect(world.written).toEqual([])
     expect(await session.interactions()).toHaveLength(1)
@@ -2329,7 +2337,11 @@ describe('contract menu answers beyond a single index (POD-3982)', () => {
       kind: 'question',
       selections: [{ optionIndices: [9] }],
     })
-    expect(outcome).toEqual({ ok: false, reason: 'not-yet-supported' })
+    expect(outcome).toEqual({
+      ok: false,
+      reason: 'not-yet-supported',
+      detail: 'prompt 1: option 9 is beyond the 2 option(s) on screen',
+    })
     await flushKeys()
     expect(world.written).toEqual([])
     expect(await session.interactions()).toHaveLength(1)
