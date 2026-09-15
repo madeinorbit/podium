@@ -140,5 +140,6 @@ export function podiumCors(policy: OriginPolicy = {}): MiddlewareHandler {
     },
     // The whole point: the login session cookie rides these calls.
     credentials: true,
+    exposeHeaders: ['Podium-Transfer-Id'],
   })
 }

@@ -40,6 +40,7 @@ function appendVary(headers: Headers, value: string): void {
 }
 
 function eligible(request: Request, response: Response): boolean {
+  if (new URL(request.url).pathname.startsWith('/sync/')) return false
   if (request.method === 'HEAD' || !acceptsGzip(request.headers.get('accept-encoding')))
     return false
   if (response.status === 204 || response.status === 206 || response.status === 304) return false

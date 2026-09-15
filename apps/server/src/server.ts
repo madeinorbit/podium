@@ -1960,7 +1960,10 @@ export async function startServer(
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
           else headers.delete('x-podium-peer-address')
           const observedRequest = new Request(request, { headers })
-          return await compressHttpResponse(request, await app.fetch(observedRequest))
+          const response = await app.fetch(observedRequest)
+          // Sync owns its streaming content coding, including identity.
+          if (new URL(request.url).pathname.startsWith('/sync/')) return response
+          return await compressHttpResponse(request, response)
         },
       })
       startDeferredSourceMovePoll()
