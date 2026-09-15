@@ -11,3 +11,5 @@ export * from './change-lifecycle'
 export * from './ports'
 export * from './staged-projection'
 export * from './scoping'
+
+export { ChangeRangeBootstrapRequired } from '../change-log'

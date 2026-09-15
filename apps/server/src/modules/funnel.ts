@@ -7,6 +7,7 @@ import type {
 } from '@podium/protocol'
 import {
   type AuthorityPort,
+  ChangeRangeBootstrapRequired,
   DEVICE_GRADE_PRINCIPAL,
   type FeedScopingGrade,
   type ScopedChange,
@@ -237,20 +238,31 @@ export class WriteFunnel {
       return { kind: 'bootstrap-required', reason: 'feed-identity-mismatch' }
     }
     const from = cursor?.seq ?? null
-    const delivery = await this.deps.authority.changesSince(from, principal)
-    if (delivery === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
-    if (delivery.kind !== 'batch') {
-      // The authority derived a rescope for this range. Answering it as a delta
-      // would hide an authz event inside a catch-up; the honest answer to "catch
-      // me up" when the rights moved is "you cannot be caught up".
-      return { kind: 'bootstrap-required', reason: 'rescope' }
+    if (from === null) return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
+    const through = await this.deps.authority.captureHead()
+    const changes: ScopedChange[] = []
+    try {
+      for await (const delivery of this.deps.authority.changesRange(
+        principal,
+        from,
+        through,
+        1_000,
+      )) {
+        if (delivery.kind === 'rescope') return { kind: 'bootstrap-required', reason: 'rescope' }
+        changes.push(...delivery.changes)
+      }
+    } catch (error) {
+      if (error instanceof ChangeRangeBootstrapRequired) {
+        return { kind: 'bootstrap-required', reason: 'compacted-or-unknown' }
+      }
+      throw error
     }
     return {
       kind: 'delta',
       feedId: identity.feedId,
       epoch: identity.epoch,
       fromSeq: from ?? 0,
-      seq: delivery.throughSeq,
+      seq: through,
       minAvailableSeq: await this.deps.serving.retentionFloor(),
       // NOT `toBusChange`, and this cost a live-server debugging session: that
       // helper produces the v1 `MetadataChange`, whose target field is `id`. The
@@ -261,7 +273,7 @@ export class WriteFunnel {
       //
       // The mapping itself is `toFeedChange`, shared with the bootstrap the
       // serving edge builds, so a catch-up row and a pushed row cannot differ.
-      changes: delivery.changes.map(toFeedChange),
+      changes: changes.map(toFeedChange),
     }
   }
 
@@ -343,9 +355,11 @@ export class WriteFunnel {
     perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
     for (const delivery of deliveries) {
       this.deps.onPublished(delivery.throughSeq)
-      void Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch((err) => {
-        log.warn('coalesced feed publication failed', { err })
-      })
+      void Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch(
+        (err) => {
+          log.warn('coalesced feed publication failed', { err })
+        },
+      )
     }
     perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
   }

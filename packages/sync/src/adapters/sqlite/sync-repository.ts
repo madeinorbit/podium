@@ -355,6 +355,27 @@ export class SyncRepository {
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
+  /** Read exactly (from, through], with a bounded page size. */
+  async changesInRange(from: number, through: number, limit: number): Promise<ChangeLogReadRow[]> {
+    // FIVE COLUMNS OF NINE, named rather than spread [spec rule 39]: the original
+    // statement projected a subset, and a spread would read the four provenance
+    // and clock columns nobody here asks for.
+    const rows = await this.db
+      .select({
+        seq: changes.seq,
+        entity: changes.entity,
+        entityId: changes.entityId,
+        op: changes.op,
+        payload: changes.payload,
+      })
+      .from(changes)
+      .where(and(gt(changes.seq, from), lte(changes.seq, through)))
+      .orderBy(asc(changes.seq))
+      .limit(limit)
+      .all()
+    return rows.map((r) => mapChangeLogReadRow(r))
+  }
+
   /**
    * Head-only retention: drop rows beyond the row budget (keep the newest
    * `keepRows`) OR older than the age budget — whichever deletes MORE. The old

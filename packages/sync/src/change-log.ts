@@ -34,8 +34,14 @@ export interface ChangeLogStore {
   minChangeSeq(): Promise<number | null>
   /** Plain range read: rows with seq > cursor, in seq order. */
   changesSince(cursor: number): Promise<readonly ChangeLogReadRow[]>
+  /** Rows in (from, through], ascending and bounded by limit. */
+  changesInRange(from: number, through: number, limit: number): Promise<readonly ChangeLogReadRow[]>
   /** Snapshot the head-only retention threshold once per job. */
-  planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): Promise<ChangePrunePlan>
+  planChangePrune(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+  }): Promise<ChangePrunePlan>
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): Promise<number>
   /** THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
@@ -403,7 +409,7 @@ export class ChangeBaseline {
  * would claim it can serve a cursor it cannot.
  *
  * The exact replica predicate is `cursor + 1 < minAvailableSeq` ⇒ re-bootstrap,
- * which is {@link readChangesSince}'s own servability rule read from the other
+ * which is {@link readChangesRange}'s own servability rule read from the other
  * side: it can serve a cursor iff every change in (cursor, max] is retained,
  * i.e. iff `cursor + 1 >= minAvailableSeq`. Worth stating precisely because ADR
  * 2 D7 rung 2 gives the shorthand `cursor < minAvailableSeq` — the same rule off
@@ -417,53 +423,49 @@ export async function minAvailableSeq(
   return (await store.minChangeSeq()) ?? (await store.maxChangeSeq()) + 1
 }
 
-/**
- * Catch-up read for `sync.changesSince`. Returns null when the caller must fall
- * back to a snapshot: null cursor (bootstrap), a cursor from before the retained
- * range (compaction), a cursor from the future (server DB was reset), or a
- * corrupt upsert row in the range (snapshot instead of a hole).
- */
-export async function readChangesSince(
-  store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq' | 'changesSince'>,
-  cursor: number | null,
-): Promise<MetadataChange[] | null> {
-  const max = await store.maxChangeSeq()
-  if (cursor == null || cursor > max) return null
-  if (cursor === max) return []
+/** A range cannot be certified; the caller must request a bootstrap. */
+export class ChangeRangeBootstrapRequired extends Error {
+  constructor(readonly reason: 'compacted-or-unknown' | 'corrupt-payload') {
+    super(reason)
+    this.name = 'ChangeRangeBootstrapRequired'
+  }
+}
+
+/** Read a fixed target in bounded pages, checking retention once before reading. */
+export async function* readChangesRange(
+  store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
+  from: number,
+  through: number,
+  pageRows: number,
+): AsyncIterable<MetadataChange[]> {
+  if (!Number.isSafeInteger(pageRows) || pageRows <= 0)
+    throw new RangeError('pageRows must be positive')
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(through) || from < 0 || from > through) {
+    throw new ChangeRangeBootstrapRequired('compacted-or-unknown')
+  }
+  if (from === through) return
   const min = await store.minChangeSeq()
-  // Continuity: everything in (cursor, max] must still be retained. The oldest
-  // retained row must be no newer than cursor + 1, else rows were pruned away.
-  if (min == null || min > cursor + 1) return null
-  const changes: MetadataChange[] = []
-  // Page until exhausted: the repository read is LIMITed (10k default), and a
-  // single truncated read would hand the caller rows 1..10000 while cursor()
-  // reports the true head — consumers would advance past the missing tail and
-  // permanently skip it. Synchronous single-writer process, so paging to `max`
-  // terminates.
-  let from = cursor
-  while (from < max) {
-    const rows = await store.changesSince(from)
-    if (rows.length === 0) break
+  if (min == null || min > from + 1) throw new ChangeRangeBootstrapRequired('compacted-or-unknown')
+  while (from < through) {
+    const rows = await store.changesInRange(from, through, pageRows)
+    if (rows.length === 0) return
+    const changes: MetadataChange[] = []
     for (const r of rows) {
-      const base = { seq: r.seq, id: r.entityId, op: r.op }
+      const base = { seq: r.seq, id: r.entityId, op: r.op, entity: r.entity as MetadataEntityKind }
       if (r.op === 'upsert') {
-        if (r.payload == null) return null // corrupt row — snapshot instead of a hole
+        if (r.payload == null) throw new ChangeRangeBootstrapRequired('corrupt-payload')
         let value: unknown
         try {
           value = JSON.parse(r.payload)
         } catch {
-          return null // malformed payload — same corrupt-row contract as null
+          throw new ChangeRangeBootstrapRequired('corrupt-payload')
         }
-        changes.push({
-          ...base,
-          entity: r.entity as MetadataEntityKind,
-          value,
-        } as MetadataChange)
+        changes.push({ ...base, value } as MetadataChange)
       } else {
-        changes.push({ ...base, entity: r.entity as MetadataEntityKind } as MetadataChange)
+        changes.push(base as MetadataChange)
       }
     }
-    from = rows[rows.length - 1]?.seq ?? max
+    from = rows[rows.length - 1]!.seq
+    yield changes
   }
-  return changes
 }

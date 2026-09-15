@@ -53,6 +53,8 @@ function memoryStore() {
     maxChangeSeq: async () => nextSeq - 1,
     minChangeSeq: async () => rows[0]?.seq ?? null,
     changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
     latestChangeStates: async () => rows,

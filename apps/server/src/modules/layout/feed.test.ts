@@ -51,7 +51,14 @@ function memoryStore(): AuthorityStore {
   }[] = []
   let nextSeq = 1
   return {
-    async appendChanges(batch: ReadonlyArray<{ entity: string; entityId: string; op: string; payload: string | null }>) {
+    async appendChanges(
+      batch: ReadonlyArray<{
+        entity: string
+        entityId: string
+        op: string
+        payload: string | null
+      }>,
+    ) {
       const seqs: number[] = []
       for (const r of batch) {
         rows.push({ seq: nextSeq, ...r })
@@ -63,6 +70,8 @@ function memoryStore(): AuthorityStore {
     maxChangeSeq: async () => nextSeq - 1,
     minChangeSeq: async () => rows[0]?.seq ?? null,
     changesSince: async (cursor: number) => rows.filter((r) => r.seq > cursor),
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
     latestChangeStates: async () => {

@@ -74,6 +74,8 @@ function memoryStore(): ChangeLogStore {
     maxChangeSeq: async () => nextSeq - 1,
     minChangeSeq: async () => rows[0]?.seq ?? null,
     changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
     // LATEST PER (entity, id), which is what the port says and what the sqlite
@@ -112,10 +114,7 @@ function state() {
   const classes = new Map<string, VisibilityClass>([['session', 'personal']])
   const keyedUsers = new Map<string, string>()
   const values = new Map<string, unknown>()
-  const edges = new Map<
-    string,
-    { audience: readonly string[]; subjects: readonly EntityRef[] }
-  >()
+  const edges = new Map<string, { audience: readonly string[]; subjects: readonly EntityRef[] }>()
 
   const scopes = new Map<string, DelegatedScope>()
 
@@ -163,10 +162,10 @@ function state() {
   }
 }
 
-function build(rescopeThreshold = 32) {
+function build(rescopeThreshold = 32, store = memoryStore()) {
   const tables = state()
   const authority = new Authority({
-    store: memoryStore(),
+    store,
     now: () => 1,
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(tables.port, tables.port),
@@ -274,10 +273,52 @@ describe('three subscribers, three principals, three slices', () => {
     await authority.capture([upsert('mine', { n: 1 })])
     await authority.capture([upsert('theirs', { n: 2 })])
 
-    const healed = await authority.changesSince(0, ADA)
-    expect(healed?.kind === 'batch' && healed.changes.map((c) => c.entityId)).toEqual(
-      live.flatMap((d) => d.ids),
-    )
+    const healed = []
+    for await (const page of authority.changesRange(ADA, 0, await authority.captureHead(), 1)) {
+      healed.push(page)
+    }
+    expect(healed.map((page) => [page.fromSeq, page.throughSeq])).toEqual([
+      [0, 1],
+      [1, 2],
+    ])
+    expect(
+      healed.flatMap((page) => (page.kind === 'batch' ? page.changes.map((c) => c.entityId) : [])),
+    ).toEqual(live.flatMap((d) => d.ids))
+  })
+
+  it('a fixed target accounts for visible and invisible rows during an append', async () => {
+    const store = memoryStore()
+    const { authority, tables } = build(32, store)
+    tables.grant('ada', ref('mine'))
+    await authority.capture([upsert('mine', { n: 1 }), upsert('hidden', { n: 2 })])
+    const through = await authority.captureHead()
+    const read = store.changesInRange.bind(store)
+    let appended = false
+    store.changesInRange = async (from, target, limit) => {
+      const page = await read(from, target, limit)
+      if (!appended) {
+        appended = true
+        await store.appendChanges(
+          [{ entity: 'session', entityId: 'late', op: 'upsert', payload: '{}' }],
+          1,
+        )
+      }
+      return page
+    }
+    const pages = []
+    for await (const page of authority.changesRange(ADA, 0, through, 1)) pages.push(page)
+    expect(await authority.captureHead()).toBe(3)
+    expect(pages.map((p) => [p.fromSeq, p.throughSeq])).toEqual([
+      [0, 1],
+      [1, 2],
+    ])
+    expect(pages.map((p) => (p.kind === 'batch' ? p.changes.map((c) => c.seq) : []))).toEqual([
+      [1],
+      [],
+    ])
+    expect(
+      new GrantEdgeVisibilityPolicy(tables.port, tables.port).decide(ADA, ref('hidden')).visible,
+    ).toBe(false)
   })
 
   it('subscribe() takes a principal — the arity the tripwire pinned at 1', () => {
@@ -479,6 +520,16 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
     expect(ada[0]?.kind).toBe('rescope')
     // Still carries the range, so the rescope cannot be mistaken for silence.
     expect(ada[0]?.throughSeq).toBe(1)
+  })
+
+  it('ends a paged range immediately after a rescope delivery', async () => {
+    const { authority, tables } = build(0)
+    tables.edge(ref('role-change'), ['ada'], [ref('a')])
+    await authority.capture([upsert('role-change', {}), upsert('later', {}), upsert('last', {})])
+    const pages = []
+    for await (const page of authority.changesRange(ADA, 0, 3, 1)) pages.push(page)
+    expect(pages).toHaveLength(1)
+    expect(pages[0]).toMatchObject({ kind: 'rescope', fromSeq: 0, throughSeq: 1 })
   })
 
   it('the SAME shape under the threshold enumerates instead — the paired half', async () => {

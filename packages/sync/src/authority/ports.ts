@@ -22,11 +22,7 @@
 
 import type { MetadataEntityKind } from '@podium/protocol'
 import { type Principal } from '@podium/protocol'
-import type {
-  ArbitrationAttempt,
-  ArbitrationRejection,
-  ArbitrationRequest,
-} from './arbitration'
+import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
 import type { FeedScopingGrade } from '../feed/visibility'
 import type {
   ChangeLogReadRow,
@@ -242,6 +238,16 @@ export interface AuthorityPort {
    */
   changesSince(cursor: number | null, principal: Principal): Promise<ScopedDelivery | null>
 
+  /** Fix the inclusive target before opening a range read. */
+  captureHead(): Promise<number>
+  /** Bounded scoped pages; typed bootstrap failure or terminal rescope ends the range. */
+  changesRange(
+    principal: Principal,
+    from: number,
+    through: number,
+    pageRows: number,
+  ): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }>
+
   /** The highest seq ever assigned. 0 before any change. */
   cursor(): Promise<number>
 
@@ -314,9 +320,7 @@ export interface AuthorityCommit<T> {
   /** The entity write, awaited inside the same transaction as the change append. */
   write: () => Promise<T>
   /** What the write touched, declared by the writer. Never diffed from a list. */
-  changes: (result: T) =>
-    | readonly StagedChangeSpec[]
-    | Promise<readonly StagedChangeSpec[]>
+  changes: (result: T) => readonly StagedChangeSpec[] | Promise<readonly StagedChangeSpec[]>
 }
 
 export type AuthorityCommitOutcome<T> =

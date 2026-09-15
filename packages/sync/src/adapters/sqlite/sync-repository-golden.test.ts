@@ -141,6 +141,9 @@ describe('the change log', () => {
     expect((await repo.changesSince(1)).map((r) => r.seq)).toEqual([2, 3])
     expect((await repo.changesSince(0, 2)).map((r) => r.seq)).toEqual([1, 2])
     expect(await repo.changesSince(99)).toEqual([])
+    expect((await repo.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([1, 2])
+    expect((await repo.changesInRange(1, 3, 1)).map((r) => r.seq)).toEqual([2])
+    expect(await repo.changesInRange(2, 2, 10)).toEqual([])
   })
 
   it('leaves NOTHING behind when a later chunk of one append fails', async () => {
@@ -447,7 +450,11 @@ describe('the session inbox', () => {
     // `rowid` half of the ORDER BY and the half a conversion drops silently.
     await enqueue('m3', 's1', 20)
     await enqueue('other', 's2', 1)
-    expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual(['m1', 'm2', 'm3'])
+    expect((await repo.listQueuedMessages(session('s1'))).map((m) => m.id)).toEqual([
+      'm1',
+      'm2',
+      'm3',
+    ])
   })
 
   it('counts per session', async () => {

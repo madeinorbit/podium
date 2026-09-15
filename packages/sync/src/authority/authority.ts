@@ -89,7 +89,8 @@ import {
   ChangeBaseline,
   type ChangeLogStore,
   detectionKey,
-  readChangesSince,
+  readChangesRange,
+  ChangeRangeBootstrapRequired,
 } from '../change-log'
 import type {
   FeedScopingGrade,
@@ -97,7 +98,7 @@ import type {
   VisibilityAnchorPort,
 } from '../feed/visibility'
 import { arbitrate } from './arbitration'
-import type { SequencedChange, StagedChangeSpec } from './change-lifecycle'
+import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
   AuthorityClock,
   AuthorityCommit,
@@ -324,15 +325,52 @@ export class Authority implements AuthorityPort {
    * replica recovers from every rung of the ladder.
    */
   async changesSince(cursor: number | null, principal: Principal): Promise<ScopedDelivery | null> {
+    if (cursor === null) return null
+    const through = await this.captureHead()
+    const changes: ScopedChange[] = []
+    try {
+      for await (const delivery of this.changesRange(principal, cursor, through, 1_000)) {
+        if (delivery.kind === 'rescope') return delivery
+        changes.push(...delivery.changes)
+      }
+    } catch (error) {
+      if (error instanceof ChangeRangeBootstrapRequired) return null
+      throw error
+    }
+    return { kind: 'batch', throughSeq: through, changes }
+  }
+
+  async captureHead(): Promise<number> {
     await this.ready
-    const rows = await readChangesSince(this.deps.store, cursor)
-    if (rows === null) return null
-    return await this.scope(principal, rows.map(fromWire), await this.cursor())
+    return await this.deps.store.maxChangeSeq()
+  }
+
+  async *changesRange(
+    principal: Principal,
+    from: number,
+    through: number,
+    pageRows: number,
+  ): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }> {
+    await this.ready
+    // One-page lookahead identifies the final page without collecting the range.
+    let pending: MetadataChange[] | undefined
+    let previous = from
+    for await (const page of readChangesRange(this.deps.store, from, through, pageRows)) {
+      if (pending) {
+        const end = pending[pending.length - 1]!.seq
+        const delivery = await this.scope(principal, pending.map(fromWire), end)
+        yield { ...delivery, fromSeq: previous }
+        if (delivery.kind === 'rescope') return
+        previous = end
+      }
+      pending = page
+    }
+    const delivery = await this.scope(principal, (pending ?? []).map(fromWire), through)
+    yield { ...delivery, fromSeq: previous }
   }
 
   async cursor(): Promise<number> {
-    await this.ready
-    return await this.deps.store.maxChangeSeq()
+    return await this.captureHead()
   }
 
   /**
@@ -358,13 +396,9 @@ export class Authority implements AuthorityPort {
    * row per (entity, id), and the position it was read at is the same `cursor()`
    * the next delta certifies from.
    *
-   * READ AT ONE POSITION, SYNCHRONOUSLY, AND THAT IS THE CONTIGUITY ARGUMENT.
-   * `throughSeq` is taken in the same synchronous pass as the rows, and this role
-   * appends only inside `commit`, so nothing can land between the two. A caller
-   * that attaches a feed at this `throughSeq` therefore resumes exactly where the
-   * world stopped — no window, and no `changesSince` round trip to discover where
-   * it stands, which is what the v1 snapshot could never offer because its
-   * message carried no position at all.
+   * Rows and head are read with two separate awaits. Consistency requires the
+   * snapshot owned by POD-3933's sync worker; this method itself does not hold
+   * a snapshot across those reads.
    */
   async bootstrap(principal: Principal): Promise<ScopedBootstrap> {
     await this.ready
@@ -386,7 +420,12 @@ export class Authority implements AuthorityPort {
         // into every replica.
       }
     }
-    return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, await this.cursor())
+    return await scopeBootstrap(
+      { policy: this.deps.visibility },
+      principal,
+      state,
+      await this.cursor(),
+    )
   }
 
   /**

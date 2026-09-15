@@ -109,7 +109,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, ctx.held)
 
-    commit(ctx.p, 's3')
+    await commit(ctx.p, 's3')
     const delivery = await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)
     if (delivery === null) throw new Error('the log could not serve from that cursor')
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
@@ -127,7 +127,7 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
   it('leaves the gap to the client heal rather than streaming it', async () => {
     const ctx = await servedOnce()
     // The head moves BEFORE the reconnect: the replica's cursor is now behind.
-    commit(ctx.p, 's3')
+    await commit(ctx.p, 's3')
     const peer = await reconnect(ctx, ctx.held)
 
     // Still nothing but the grant. `(cursor, head]` is `sync.feedChangesSince`'s

@@ -50,6 +50,8 @@ function memoryStore() {
     maxChangeSeq: async () => nextSeq - 1,
     minChangeSeq: async () => rows[0]?.seq ?? null,
     changesSince: async (cursor) => rows.filter((r) => r.seq > cursor),
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
     latestChangeStates: async () => {
@@ -69,9 +71,13 @@ function memoryStore() {
       throw err
     }
   }
-  return { store, transact, get rows() {
-    return rows
-  } }
+  return {
+    store,
+    transact,
+    get rows() {
+      return rows
+    },
+  }
 }
 
 const upsert = (id: string, value: unknown): StagedChangeSpec => ({
@@ -128,7 +134,9 @@ describe('authorize → arbitrate → write → append → broadcast', () => {
     const trace: string[] = []
     subscribe(authority, () => trace.push('broadcast'))
     await authority.commit({
-      authorize: async () => { trace.push('authorize') },
+      authorize: async () => {
+        trace.push('authorize')
+      },
       arbitrate: { rowId: rowWith('exp-rev'), attempt: {} },
       write: async () => {
         trace.push('write')
@@ -279,7 +287,10 @@ describe('the entity write and the change append share one span', () => {
       }),
     ).rejects.toThrow()
     fail = false
-    const outcome = await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
+    const outcome = await authority.commit({
+      write: async () => 'ok',
+      changes: () => [upsert('s1', { a: 1 })],
+    })
     expect(outcome.outcome).toBe('committed')
     expect(mem.rows).toHaveLength(1)
   })
@@ -288,8 +299,12 @@ describe('the entity write and the change append share one span', () => {
     const { mem, authority } = build()
     let releaseWrite: () => void = () => undefined
     let reportStarted: () => void = () => undefined
-    const writeStarted = new Promise<void>((resolve) => { reportStarted = resolve })
-    const writeMayFinish = new Promise<void>((resolve) => { releaseWrite = resolve })
+    const writeStarted = new Promise<void>((resolve) => {
+      reportStarted = resolve
+    })
+    const writeMayFinish = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
     const pending = authority.commit({
       write: async () => {
         reportStarted()
@@ -401,7 +416,10 @@ describe('dedup and the boot reconcile', () => {
   it('drops a no-op upsert', async () => {
     const { mem, authority } = build()
     await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
-    const second = await authority.commit({ write: async () => 'ok', changes: () => [upsert('s1', { a: 1 })] })
+    const second = await authority.commit({
+      write: async () => 'ok',
+      changes: () => [upsert('s1', { a: 1 })],
+    })
     expect(second).toMatchObject({ outcome: 'committed', changes: [] })
     expect(mem.rows).toHaveLength(1)
   })

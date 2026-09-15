@@ -79,6 +79,8 @@ function memoryStore(): AuthorityStore {
     maxChangeSeq: async () => nextSeq - 1,
     minChangeSeq: async () => rows[0]?.seq ?? null,
     changesSince: async (cursor: number) => rows.filter((r) => r.seq > cursor),
+    changesInRange: async (from, through, limit) =>
+      rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
     latestChangeStates: async () => {
@@ -159,7 +161,12 @@ function build() {
 describe('read-cursor rows scope to the owning user on the Authority feed', () => {
   it("Alice's advance is on Alice's bootstrap, absent from Bob's, and durably stored", async () => {
     const { authority, service, repo } = build()
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 42, seenAt: '2026-08-02T10:00:00Z' }, 't')
+    await service.advance(
+      ALICE,
+      'issueEvents',
+      { lastEventId: 42, seenAt: '2026-08-02T10:00:00Z' },
+      't',
+    )
 
     // Positive control: the write happened. Without this, the Bob assertion
     // below passes just as well when nothing was ever captured.
@@ -219,9 +226,9 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
     expect(repo.getSnapshot(ALICE).issueEvents?.lastEventId).toBe(99)
     expect(repo.getSnapshot(BOB).issueEvents?.lastEventId).toBe(7)
 
-    const bobRows = (await authority
-      .bootstrap(humanPrincipal(BOB)))
-      .changes.filter((c) => c.entity === 'userReadPosition')
+    const bobRows = (await authority.bootstrap(humanPrincipal(BOB))).changes.filter(
+      (c) => c.entity === 'userReadPosition',
+    )
     expect(bobRows.map((c) => c.entityId)).toEqual([readPositionRowId(BOB, 'issueEvents')])
     const bobRow = bobRows[0]
     expect(bobRow?.op === 'upsert' && (bobRow.value as { lastEventId: number }).lastEventId).toBe(7)
