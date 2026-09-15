@@ -1,6 +1,6 @@
 # HTTP sync: fresh paired measurements
 
-**Confirmed backpressure regression; acceptance remains blocked.** The current WebSocket sender pauses behind a closed receive window and resumes at the imposed rate. The HTTP producer completes the entire world despite that same TCP restriction. This programme regresses a backpressure property already provided by POD-3931; matching the baseline pause/resume behavior is a remediation requirement. Fresh paired bootstrap and production Replica observations are available. POD-4022 tracks substantially longer HTTP bootstrap completion; POD-4023 blocks admission cancellation cleanup. POD-4025 records a failed HTTP producer-backpressure proof despite confirmed TCP receive-window restriction. Bounded native response memory remains unestablished; no review-ready claim is made.
+**Confirmed backpressure regression; measurements deliverable complete.** The current WebSocket sender pauses behind a closed receive window and resumes at the imposed rate. The HTTP producer completes the entire world despite that same TCP restriction. This programme regresses a backpressure property already provided by POD-3931; matching the baseline pause/resume behavior is a remediation requirement. Fresh paired bootstrap and production Replica observations are available. POD-4022 tracks substantially longer HTTP bootstrap completion; POD-4023 blocks admission cancellation cleanup. POD-4025 records a failed HTTP producer-backpressure proof despite confirmed TCP receive-window restriction. Bounded native response memory remains unestablished. The coordinator accepted this evidence as the final measurements deliverable; this does not certify the transport.
 
 ## Experiment and provenance
 
@@ -160,6 +160,10 @@ Prefetch isolate heap change, RSS observed at metadata acknowledgement, and samp
 | gzip / 6.039× | 22.92 / 24.82 | 360.10 | 410.54 |
 | zstd / 6.194× | 22.95 / 24.93 | 352.39 | 400.59 |
 
+## Final deliverable scope
+
+The coordinator narrowed the landing scope on 2026-09-15 to the corrected baseline, fresh paired samples, raw TCP proof, coarse cost breakdown and this committed document. Further queue, WAL, bounded-memory, Replica and after-trace acceptance is not required for this handoff; transport-dependent certification belongs to the operator’s transport decision. The existing production Replica observations remain included.
+
 ## Reproduction and validation status
 
 The benchmark files are under `scripts/sync-measurements/`: deterministic corpus, isolated production host, external Node client, and sequential runner. Export the pinned before tree without changing shared branches and install its checkout-local dependencies. Hold/renew `sync-gate`, then run:
@@ -170,7 +174,7 @@ bun scripts/sync-measurements/run.mjs <reference-copy> . <fresh-output-directory
 
 Modes include bootstrap, delta, admission, concurrent and rate-control. The runner records df before and after, removes each temporary database/WAL before the next arm, refuses overwrites and enforces the disk floor/stop rule. A known cancellation or proof failure stops that invocation; do not treat it as a green result.
 
-Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. Rebased checkpoint `20897623a` onto integration `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. The final `bun run test` was lean gate green: 26 typecheck tasks (25 cached), span-effect lint green, and 126 tests in 4 of 1,338 collected Node files. This is boot/wiring evidence, not a suite run or a passing benchmark acceptance claim. No specialized test lane was requested for these benchmark-only scripts; their smoke and fresh experiments are described above. The final coordinator-requested wording and coarse diagnostic are documentation-only changes; the lean gate was not repeated for them. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
+Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. The issue branch was rebased onto integration `3b793c9a5e174ec1f8b724a697d7e48912899f20` for the final handoff. Post-rebase `bun run test`: lean gate green, 26 successful typecheck tasks (25 cached), span-effect lint green, and 126 tests across 4 of 1,338 collected Node files. This is boot/wiring evidence, not a full suite or transport-certification result. The dependency admission check passed without repair. No production tuning or merge is included.
 
 ## History — excluded from every comparison
 
