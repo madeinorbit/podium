@@ -19,6 +19,7 @@ import { streamItemIdOf } from '@podium/transcript'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
+import { codexAppServerCapabilities } from './capabilities.js'
 import { createCodexClient } from './client.js'
 import {
   type CodexJournal,
@@ -1413,5 +1414,28 @@ describe('durable inbox rows on the owning driver', () => {
       expect(w.server.turnStarts).toBe(1)
       expect(w.events().filter((event) => event.t === 'delivery')).toEqual([expect.objectContaining({ rowId: 'row-live', outcome: 'delivered' })])
     } finally { w.dispose() }
+  })
+})
+
+
+describe('boundary delivery', () => {
+  it('declares support and queues until the provider closes the open turn', async () => {
+    expect(codexAppServerCapabilities().send.native).toContain('at-boundary')
+    const w = await world()
+    try {
+      await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+      const receipt = await w.handle.send(
+        { text: 'read issue mail' },
+        { origin: 'mail', delivery: 'at-boundary' },
+      )
+      expect(receipt).toMatchObject({ outcome: 'queued', deliveredAs: 'at-boundary' })
+      expect(w.server.turnStarts).toBe(1)
+      expect(w.server.steers).toBe(0)
+      w.server.completeTurn('completed')
+      await settle()
+      expect(w.server.turnStarts).toBe(2)
+    } finally {
+      w.dispose()
+    }
   })
 })
