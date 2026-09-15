@@ -1,6 +1,10 @@
-# HTTP sync measurements: baseline and historical evidence
+# HTTP sync measurements: historical probes and revised plan
 
-Status: **baseline captured; controlled comparison incomplete**. No after/before speedup, responsiveness improvement, or bounded-producer-memory claim is established by this document.
+Status: **re-baseline required; heavy runs held for disk headroom**. Fresh paired arms are approved by POD-3933. No after/before speedup, responsiveness improvement, or bounded-producer-memory claim is established by this document.
+
+The identity failure below is **pre-POD-3931 history**, not a defect removed by this programme. Commit `5133399843e` predates the send/drain fix `b6c4e9b2e`; the current old transport already contains that fix. The repetitive corpus achieved roughly **1,182× compression** (decoded JSON / Zstd envelope bytes), so all existing results here are pipeline-behaviour probes, not representative performance claims. They must not be compared to a production-like 6× corpus.
+
+POD-3933 has instructed this issue to use current `dev/mw` as the new baseline, retain every existing after run—including the coordinator's—as **historical JS-paced reads with socket backpressure unverified**, and hold large corpus generation until the coordinator confirms disk headroom. The observed baseline candidate on receipt was `d958a17c3c9e916d3bab9741422d92d049dcfa79`; its ancestry includes `b6c4e9b2e`. Pin and record the approved baseline SHA again before the resumed experiment; do not move `dev/mw` or this issue onto it.
 
 ## Commits, box, and scope
 
@@ -27,7 +31,7 @@ After the initial world, 20,000 updates cycle through those same keys. The retai
 - The slow consumer uses a paused Node `net.Socket`, reads at most 64 KiB every 500 ms, and stops after 30 seconds. It has no fetch/body handler draining native networking in the background. Node's readable buffer peaked at 127,104 bytes; kernel buffers provide additional bounded slack. This is a cancelled observation window, not a completed 50 MiB slow transfer.
 - Delta client memory includes a Node Map sink that validates page chaining and installs changes. It does **not** run the production Replica kernel or persistence adapter. Its peak RSS is sampled every 5 ms and at application boundaries; synchronous JSON parsing can hide a transient peak.
 
-## New baseline observations
+## Historical pre-POD-3931 observations
 
 All rows in the following tables have the baseline SHA, box, and scope stated above. Times are milliseconds. Load is 1/5/15-minute load average. Start times are UTC on 2026-09-15.
 
@@ -88,12 +92,52 @@ bun --conditions=@podium/source scripts/sync-measurements/run.mjs <reference-cop
 podium lock release sync-gate
 ```
 
-The reference copy must contain the exact baseline commit and have its own `bun run setup:worktree` installation. Renew the lease for longer runs. Do not share node_modules. The runner currently groups modes within each arm; paired comparisons must match mode/coding and preserve raw load metadata.
+The reference copy must contain the exact baseline commit and have its own `bun run setup:worktree` installation. Renew the lease for longer runs. Do not share node_modules. The committed runner is a historical prototype and is not ready for the corrected comparison: it still hardcodes the obsolete SHA and groups modes within each arm. Apply the revisions below before any full run. Do not execute this recipe while the coordinator disk hold is active.
 
-Full-size after measurements are pending clarification of the instruction to reuse the historical after runs while also interleaving before/after samples. The current runner additionally records WAL growth under periodic writes; that instrumentation was added after the first baseline and has no full-size result yet. HTTP gzip/zstd and delta tiny-fixture smoke checks are harness checks only.
+Fresh full-size paired measurements are approved; the historical-reuse ambiguity is resolved. Execution is held until POD-3933 confirms disk headroom. The current runner additionally records WAL growth under periodic writes; that instrumentation was added after the first baseline and has no full-size result yet. HTTP gzip/zstd and delta tiny-fixture smoke checks are harness checks only.
 
 Remaining acceptance includes controlled paired runs, producer/queue bounds and 503 saturation evidence, WAL growth while a confirmed snapshot remains open, a defensible memory attribution method, production Replica harness evidence, and the full-size after thread timeline. No tuning or production-code change is included.
 
 ## Checkpoint validation
 
 The benchmark checkpoint was rebased onto integration commit `e79b8c766f3b2dfc83c49ebeff609bebd6a883fc`. `bun run test` was **lean gate green**: 26 successful typecheck tasks (25 cached), span-effect lint green, and 126 tests executed in 4 of 1,338 collected files. This does not validate the missing measurement acceptance. The issue remains in progress, with no merge performed.
+
+## Revised experiment design during the disk hold
+
+This section is a design, not evidence that the revised instrument has run. No new large database, source archive, build, or benchmark was started after the hold.
+
+### Corpus with representative compressibility
+
+Generate deterministic, row-specific payloads from a fixed seed: combine unique pseudo-random text with locally repeated structured text, rather than reusing one identical string across every row. Calibrate the entropy fraction on a small in-memory sample through the actual per-record gzip/Zstd encoding paths. Target approximately 6× for Zstd; report achieved ratios for each coding instead of forcing gzip to match. Record the seed, generator version, calibration size, and entropy fraction.
+
+Then validate the achieved ratio on the complete wire stream. The sample is only a calibration aid: it cannot certify the full-corpus ratio. Use a predeclared broad acceptance band (proposed 5–7× for Zstd), adjust the corpus before timed runs if outside it, and keep the resulting bytes identical across paired arms. Count scoped JSON bytes separately from payload bytes and require at least 50 MiB of scoped JSON. Report decoded/body-byte ratio beside every result, with identity approximately 1× and gzip/Zstd ratios independently measured. Do not use timings to choose a seed or tune the corpus.
+
+Keep the repetitive historical corpus as a separately named control. The original sender failure remains attributable only to the pre-POD-3931 commit; repeat identity on the corrected baseline with both corpus shapes without assuming it will fail.
+
+### Faithful corrected WebSocket arm
+
+Use the baseline's production `NativeGatewaySocket` from `gateway/ws-server.ts`, including native drain forwarding, and expose `OrderedClientSend.sendSequence` to `FeedServing`. The current prototype exposes only `send` and no drain subscription; reusing it would bypass the very fix the new baseline must include. Match native socket limits to that source commit, including its extra single-frame headroom. Sample `OrderedClientSend.stats()` without changing production behavior: pauses, accepted bytes/frames, queued/ready bytes, socket buffer peaks, and completion/failure reason.
+
+Use equivalent distinct user principals with the same visible corpus for concurrent arms. This avoids HTTP's per-user supersession while preserving comparable scoping and cache behavior. Pin source SHAs and reject unspecified or obsolete baseline provenance instead of hardcoding the old reference.
+
+### Backpressure proof that can fail
+
+1. Run the consumer in a separate process on a raw TCP socket. Read only the handshake/headers, then stop application reads. Observe the TCP connection using a read-only socket diagnostic such as `ss -tinm`, correlating the client/server port pair, kernel queue sizes, and available receive-window information. The existing bounded Node buffer is necessary but does not prove the server stalled.
+2. During a sustained stopped-reader interval, record server progress. For WebSocket, require native `-1`/pause evidence, outstanding buffered bytes, and no continued application-send advance until drain. For HTTP, observe the production response-body relay's pull/chunk counters and completion state from a benchmark wrapper: require outstanding work and a stable progress plateau after bounded kernel/native slack fills. Correlate that plateau with TCP queue evidence. Bun HTTP does not expose the WebSocket send-return API; do not call a JavaScript plateau an observed blocking syscall.
+3. Resume at 64 KiB per 500 ms. Record actual bytes/read times, resumed server progress, and completion of the full response. Compare with a fast control and a second imposed rate on the same corpus. Completion wall must track delivered bytes / imposed rate after accounting for initial kernel/native slack. A fixed 30-second cancellation alone cannot satisfy this check.
+4. A 50 MiB identity body at 128 KiB/s takes roughly 400 seconds before overhead. Plan the lease and stream deadline accordingly; separate a shorter stop/resume proof from the full rate-controlled completion. Do not use the long idle/throttled interval to claim a low main-thread busy fraction without also reporting the active-transfer window.
+5. Fail the proof if no server stall is observed, if the native body drains completely during the stopped interval, if resumption fails to advance, or if the observed rate/wall relationship is inconsistent. Preserve the failed proof as an instrument result, not a transport performance result.
+
+### Pairing, queue, memory, and WAL
+
+Interleave A/B/B/A **within each mode and coding**, using the same fixture bytes and reader placement. Record a load/process snapshot for every arm under `sync-gate`; the lease does not make unrelated processes disappear. Report paired samples and their ratios, not an aggregate mixing successful and failed transfers.
+
+For admission, hold the worker's two active jobs under demonstrated socket backpressure, fill the eight queued reservations with distinct principals, then require excess requests to return 503 with Retry-After. Record cleanup and released reservations after abort. Use actual runtime constants from the measured SHA; do not treat the planned limits as observed queue behavior.
+
+Take an external per-thread CPU/RSS timeline, worker heap-before/after-prefetch metrics, and sender/relay-owned buffer counters. Distinguish measured process RSS from isolate heap and explicit buffer ownership. A process RSS subtraction is not a defensible split into maps versus buffers. Identify the producer's OS TID rather than aggregating GC/JIT/pool threads under a worker label.
+
+Measure WAL size and append counts while a confirmed snapshot remains open during the stalled reader; demonstrate snapshot release on completion/abort. Fixture writes must preserve corpus row count and payload scale. Document the production Replica adapter and persistence semantics for the Node heal measurement; the existing Map sink remains only a transport probe.
+
+### Resume conditions
+
+POD-3933 must first confirm reclaimed disk headroom. Then finish the above harness revisions, pin the corrected baseline and integration SHAs, run a tiny smoke, and capture the fresh paired experiment under the lease. The issue remains in progress. The prior lean gate belongs to the historical checkpoint; this documentation-only correction does not change runtime and does not require another test run.
