@@ -12,7 +12,13 @@ import type { ObservationInputOrigin } from '@podium/protocol'
 /** How a send should reach the agent. `steer` appends into an OPEN turn where
  *  the harness supports it (Codex `turn/steer`); embedded and terminal degrade
  *  to `queue` and the receipt REPORTS the downgrade. */
-export type TurnDelivery = 'when-ready' | 'queue' | 'interrupt' | 'steer'
+/** `at-boundary` delivers context at the next idle boundary (the current one
+ * if already idle), opening a continuation turn without interrupting or steering.
+ * It is process-local, preserves queue order, and respects interactions and leases.
+ * Unlike steer, it MUST be refused as unsupported when absent from send.native;
+ * it must never silently degrade to an ordinary send. It does not veto a provider
+ * completion or reopen a fenced epoch: continuation opens a new epoch. */
+export type TurnDelivery = 'when-ready' | 'queue' | 'interrupt' | 'steer' | 'at-boundary'
 
 /** Who is writing. Chat, mail, steward, superagent and auto-continue all become
  *  callers of one verb with different origins — this replaces `typeText` /

@@ -41,7 +41,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
        * fired in that window is refused with "no active turn to steer". Both
        * frames are in the fixtures.
        */
-      native: ['when-ready', 'queue', 'interrupt', 'steer'],
+      native: ['when-ready', 'queue', 'interrupt', 'steer', 'at-boundary'],
       /** The `turn/start` response carrying a `Turn` with `status: inProgress`.
        *  Nothing else is consulted, and nothing else is needed. */
       proof: ['protocol-ack'],

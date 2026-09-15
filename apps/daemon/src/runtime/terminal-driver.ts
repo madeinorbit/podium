@@ -1499,6 +1499,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.delivery === 'at-boundary') {
+          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+        }
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { outcome: 'refused', refusal: refuse('not_running') }
         }

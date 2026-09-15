@@ -33,6 +33,16 @@ describe('durable row delivery', () => {
       },
     }
   }
+  it('refuses durable boundary delivery without rewriting it to when-ready', async () => {
+    const f = fixture()
+    const receipt = await f.handle.send(
+      { rowId: 'mail', text: 'mail' }, { origin: 'mail', delivery: 'at-boundary' },
+    )
+    expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.emit).not.toHaveBeenCalled()
+  })
+
   it('holds FIFO rows locally and emits one outcome per row, never on admission', async () => {
     const f = fixture()
     const options = { origin: 'human', delivery: 'when-ready' } as const

@@ -1447,7 +1447,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }
@@ -1501,26 +1501,26 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
             position: session.queue.length,
             // THE DOWNGRADE, REPORTED. `deliveredAs` exists to prevent exactly
             // the silent substitution this line refuses to make.
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }
 
-        if (wanted === 'queue' && busy(session)) {
+        if ((wanted === 'queue' || wanted === 'at-boundary') && busy(session)) {
           session.queue.push({ input, options })
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }
-        if (wanted === 'queue' && session.queue.length > 0) {
+        if ((wanted === 'queue' || wanted === 'at-boundary') && session.queue.length > 0) {
           session.queue.push({ input, options })
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }

@@ -1467,6 +1467,9 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.delivery === 'at-boundary') {
+          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+        }
         if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
         if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }

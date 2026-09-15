@@ -24,6 +24,8 @@ import type { SessionId } from '@podium/model'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { startFakeAppServer } from '../../../../packages/agent-runtime/src/drivers/codex/test-support/fake-app-server'
+import { createMailInjector } from '../mail-injector'
 import { createDaemonCodexRuntime } from './codex-driver'
 
 /** Just enough app-server to complete a handshake and resume a thread. */
@@ -415,3 +417,52 @@ describe('the abandonment is said out loud before it is made durable — POD-229
   })
 })
 
+
+
+describe('issue mail without terminal callbacks', () => {
+  it('continues a completed turn with inbox context, but never loops on its own continuation', async () => {
+    const base = world()
+    const server = startFakeAppServer()
+    let now = 0
+    let polls = 0
+    const mail = createMailInjector(async () => {
+      polls++
+      return { ok: true, result: { unread: 2, senders: ['coordinator'] } }
+    }, () => now)
+    const runtime = createDaemonCodexRuntime({
+      send: () => {},
+      boundaryContext: mail.pendingContext,
+      host: {
+        ...base.host,
+        launch: async () => ({
+          transport: server.transport,
+          clientAddress: 'unix:///tmp/boundary-test.sock',
+          process: { key: 'boundary-test' },
+          stop: async () => {},
+          kill: async () => {},
+          resources: () => undefined,
+        }),
+      },
+    })
+    try {
+      const sessionId = 'boundary-mail' as SessionId
+      await runtime.launch({ sessionId, cwd: '/work' })
+      const handle = runtime.handleFor(sessionId)!
+      await handle.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
+      expect(polls).toBe(0)
+      server.completeTurn('completed')
+      await expect.poll(() => server.turnStarts).toBe(2)
+      expect(JSON.stringify(server.lastTurnInput)).toContain('podium issue mail inbox')
+      expect(JSON.stringify(server.lastTurnInput)).toContain('coordinator')
+      // Even when the cooldown expires, the mail turn cannot remind itself.
+      now = 120_000
+      server.completeTurn('completed')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(server.turnStarts).toBe(2)
+      expect(polls).toBe(1)
+    } finally {
+      runtime.dispose()
+      base.runtime.dispose()
+    }
+  })
+})

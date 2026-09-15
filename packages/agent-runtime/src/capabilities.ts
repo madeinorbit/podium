@@ -141,7 +141,8 @@ export interface SessionHealth {
  *  permitted outcome or a bug. */
 export interface SendCapability {
   /** Deliveries implemented NATIVELY. One not listed here is degraded, and the
-   *  receipt's `deliveredAs` must report the degradation. */
+   *  receipt's `deliveredAs` must report the degradation. Exception: `at-boundary`
+   * is opt-in and MUST return unsupported when absent, never degrade. */
   native: readonly TurnDelivery[]
   /** How acceptance is proven, in preference order. */
   proof: readonly SendProof[]

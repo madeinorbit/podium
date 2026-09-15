@@ -108,6 +108,10 @@ export function withDeliveryQueue(
   }
   handle.send = async (input, options) => {
     if (!input.rowId) return send(input, options)
+    // Durable delivery drains as when-ready. Never erase a boundary request.
+    if (options.delivery === 'at-boundary') {
+      return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
+    }
     if (!finished.has(input.rowId) && !rows.has(input.rowId)) {
       rows.set(input.rowId, { input, options, abort: new AbortController(), attempts: 0 })
       void drain()

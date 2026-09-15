@@ -1230,6 +1230,7 @@ export async function createDaemonHostRuntime(args: {
    */
   codexRuntime = createDaemonCodexRuntime({
     send,
+    boundaryContext: (sessionId) => mailInjector.pendingContext(sessionId),
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),

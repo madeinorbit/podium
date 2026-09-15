@@ -37,36 +37,44 @@ function mailBlockReason(unread: number, senders: string[]): string {
 export function createMailInjector(
   relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
-): { respondTo(sessionId: SessionId, payload: unknown): Promise<string | null> } {
+): {
+  respondTo(sessionId: SessionId, payload: unknown): Promise<string | null>
+  /** Harness-neutral inbox context, sharing the callback path's cooldown. */
+  pendingContext(sessionId: SessionId): Promise<string | null>
+} {
   const lastBlockedAt = new Map<string, number>()
+  async function pendingContext(sessionId: SessionId): Promise<string | null> {
+    const at = lastBlockedAt.get(sessionId)
+    if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
+    let unread: unknown
+    let senders: string[] = []
+    try {
+      const r = await relay(sessionId)
+      if (!r.ok) return null
+      const result = r.result as { unread?: unknown; senders?: unknown } | null
+      unread = result?.unread
+      // senders is optional (#237): an old server omits it — fall back to the
+      // sender-less rendering rather than failing the block.
+      if (Array.isArray(result?.senders)) {
+        senders = result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
+      }
+    } catch {
+      // Non-issue sessions / relay errors / timeouts: never block, never throw.
+      return null
+    }
+    if (typeof unread !== 'number' || unread <= 0) return null
+    lastBlockedAt.set(sessionId, now())
+    return mailBlockReason(unread, senders)
+  }
   return {
+    pendingContext,
     async respondTo(sessionId, payload) {
       const mode = mailDeliveryMode(payload)
       if (!mode) return null
-      // Loop guard: a Stop hook already blocked this turn; blocking again can loop forever.
       if (mode === 'stop' && hookBoolean(payload, 'stop_hook_active', 'stopHookActive') === true)
         return null
-      const at = lastBlockedAt.get(sessionId)
-      if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
-      let unread: unknown
-      let senders: string[] = []
-      try {
-        const r = await relay(sessionId)
-        if (!r.ok) return null
-        const result = r.result as { unread?: unknown; senders?: unknown } | null
-        unread = result?.unread
-        // senders is optional (#237): an old server omits it — fall back to the
-        // sender-less rendering rather than failing the block.
-        if (Array.isArray(result?.senders)) {
-          senders = result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
-        }
-      } catch {
-        // Non-issue sessions / relay errors / timeouts: never block, never throw.
-        return null
-      }
-      if (typeof unread !== 'number' || unread <= 0) return null
-      lastBlockedAt.set(sessionId, now())
-      return intervention(mode, mailBlockReason(unread, senders))
+      const context = await pendingContext(sessionId)
+      return context === null ? null : intervention(mode, context)
     },
   }
 }

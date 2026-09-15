@@ -782,6 +782,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.delivery === 'at-boundary') {
+          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+        }
         assertLive()
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
         if (core.interactions.size > 0) {

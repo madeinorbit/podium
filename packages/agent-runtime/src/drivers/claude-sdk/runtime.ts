@@ -835,6 +835,9 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         }
       },
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
+        if (options.delivery === 'at-boundary') {
+          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+        }
         if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
         if (options.deliveryAttempt && (core.turnOpen || core.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: core.turnOpen ? 'busy' : 'lease_held' } }

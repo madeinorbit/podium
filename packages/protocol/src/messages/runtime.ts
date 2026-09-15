@@ -85,7 +85,7 @@ export * from './runtime-interactions'
 // Deliveries and proof
 // ---------------------------------------------------------------------------
 
-export const TurnDelivery = z.enum(['when-ready', 'queue', 'interrupt', 'steer'])
+export const TurnDelivery = z.enum(['when-ready', 'queue', 'interrupt', 'steer', 'at-boundary'])
 export type TurnDelivery = z.infer<typeof TurnDelivery>
 
 /** What proved a send was accepted. The MECHANISM is declared so callers can
