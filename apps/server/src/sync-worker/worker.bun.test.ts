@@ -260,7 +260,7 @@ it.each(['identity', 'gzip', 'zstd'] as const)('pins delta rows and floor to its
   const f = await fixture()
   try {
     for (let i = 0; i < 100; i++) append(f.writer, `delta-${i}`, 'x'.repeat(4096))
-    const transfer = f.client.delta({ ...job('delta-snapshot'), mode: 'delta', from: 0, pageRows: 10, encoding })
+    const transfer = f.client.delta({ ...job('delta-snapshot', Date.now() + 10_000), mode: 'delta', from: 0, pageRows: 10, encoding })
     expect(await transfer.meta).toMatchObject({ mode: 'delta', fromSeq: 0, seq: 100, minAvailableSeq: 1 })
     append(f.writer, 'later')
     f.writer.exec('DELETE FROM changes WHERE seq < 50')
@@ -274,13 +274,14 @@ it.each(['identity', 'gzip', 'zstd'] as const)('pins delta rows and floor to its
     expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', seq: 100, rows: 100, records: 10 })
     await transfer.completed
     await checkpoint(f.writer)
-    const refused = f.client.delta({ ...job('delta-compacted'), mode: 'delta', from: 0 })
-    await expect(refused.meta).rejects.toMatchObject({ reason: 'compacted-or-unknown' })
+    const refused = f.client.delta({ ...job('delta-compacted', Date.now() + 10_000), mode: 'delta', from: 0 })
+    // Settle through the normal event loop before Bun's matcher inspects the error.
+    expect(await refused.meta.then(() => undefined, error => error)).toMatchObject({ reason: 'compacted-or-unknown' })
     await refused.completed
-    const future = f.client.delta({ ...job('delta-future'), mode: 'delta', from: 200 })
-    await expect(future.meta).rejects.toMatchObject({ reason: 'future-cursor' })
+    const future = f.client.delta({ ...job('delta-future', Date.now() + 10_000), mode: 'delta', from: 200 })
+    expect(await future.meta.then(() => undefined, error => error)).toMatchObject({ reason: 'future-cursor' })
     await future.completed
-    const empty = f.client.delta({ ...job('delta-empty'), mode: 'delta', from: 101 })
+    const empty = f.client.delta({ ...job('delta-empty', Date.now() + 10_000), mode: 'delta', from: 101 })
     const emptyRows = (await text(empty.body)).trim().split('\n').map(line => JSON.parse(line))
     expect(emptyRows[1]).toMatchObject({ type: 'feedDelta', fromSeq: 101, seq: 101, changes: [] })
     await empty.completed
