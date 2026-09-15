@@ -1,8 +1,8 @@
 {
-  "name": "@podium/pty",
+  "name": "@podium/process",
   "version": "0.0.0",
   "private": true,
-  "description": "Harness-agnostic Bun.Terminal PTY kernel with durable session hosts (abduco, systemd scopes), byte framing, OSC title scan and redraw.",
+  "description": "Harness-agnostic process kernel with raw PTY backends, durable session hosts (abduco, systemd scopes), byte framing, OSC title scan and redraw.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,6 +13,21 @@
       "@podium/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./pty": {
+      "@podium/source": "./src/pty.ts",
+      "types": "./dist/pty.d.ts",
+      "import": "./dist/pty.js"
+    },
+    "./durable": {
+      "@podium/source": "./src/durable.ts",
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js"
+    },
+    "./screen": {
+      "@podium/source": "./src/screen.ts",
+      "types": "./dist/screen.d.ts",
+      "import": "./dist/screen.js"
     }
   },
   "files": [
@@ -32,7 +47,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "bun ../../scripts/typecheck-project.ts",
-    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/pty:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/process:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
