@@ -1,3 +1,4 @@
+import type { SyncDeltaPorts } from './sync/routes'
 import { readIssue, readClosedIssueIds } from './modules/world-index/issue-reader'
 import { readResourceGrants } from './modules/world-index/grant-reader'
 import { WorldIndex, type WorldIndexReader } from './modules/world-index'
@@ -462,6 +463,7 @@ export class SessionRegistry {
    *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
   private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
+  readonly syncDelta: SyncDeltaPorts
   private readonly ledger: Ledger
   /** Curated issue-event window, resolved during async registry hydration. */
   private readonly issueEventFeed: IssueEventFeedPublisher
@@ -1066,6 +1068,8 @@ export class SessionRegistry {
       onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
       diagnostics: () => [...conversationDiagnostics.current],
     })
+    this.syncDelta = { authority: ledger.authority, serving: feedServing }
+
     const funnel = new WriteFunnel({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       bus: this.bus,

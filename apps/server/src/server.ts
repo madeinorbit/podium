@@ -1,3 +1,5 @@
+import { registerSyncRoutes } from './sync/routes'
+import { syncFeedPrincipal } from './sync/route-support'
 import { MemberInvites } from './member-invites'
 import { registerMemberRoutes, type MemberInviteMail } from './member-routes'
 import { randomUUID } from 'node:crypto'
@@ -1667,6 +1669,16 @@ export async function startServer(
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
+  app.use('/sync/*', cors())
+  app.use('/sync/*', boundary)
+  app.use('/sync/*', guard)
+  registerSyncRoutes(app, {
+    ...registry.syncDelta,
+    principal: async (request) => syncFeedPrincipal(await requestPrincipal({
+      cookieHeader: request.headers.get('cookie') ?? undefined,
+      authorizationHeader: request.headers.get('authorization') ?? undefined,
+    }, request)),
+  })
   app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
   app.use('/trpc/*', async (c, next) => {
@@ -1967,7 +1979,8 @@ export async function startServer(
           const response = await app.fetch(observedRequest)
           // Sync owns its streaming content coding, including identity.
           if (new URL(request.url).pathname.startsWith('/sync/')) return response
-          return await compressHttpResponse(request, response)
+          return new URL(request.url).pathname.startsWith('/sync/')
+            ? response : await compressHttpResponse(request, response)
         },
       })
       startDeferredSourceMovePoll()

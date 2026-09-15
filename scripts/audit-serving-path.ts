@@ -185,6 +185,17 @@ export function runChecks(input: AuditInput): Finding[] {
     })
   }
 
+  // HTTP delta frames use Authority.changesRange and the same scoped toFeedChange
+  // mapping as the live edge. This transport must never open a repository read path.
+  for (const path of ['apps/server/src/sync/routes.ts', 'apps/server/src/sync/route-support.ts']) {
+    const source = input.read(path)
+    const imports = source === null ? [] : [...code(source).matchAll(/import\s+([^;]*?)\s+from\s+['"]([^'"]+)['"]/g)]
+    if (imports.some((match) => !match[1]!.trim().startsWith('type ') && /(?:^|\/)store(?:\/|$)/.test(match[2]!))) {
+      findings.push({ check: 'sync-route-no-store-reads', where: path,
+        detail: 'HTTP sync routes must read through Authority, with store imports restricted to types.' })
+    }
+  }
+
   // ---- controls: a detector that stopped matching must THROW -------------
   //
   // Every check above reports a finding when something is WRONG, so its silent
@@ -269,6 +280,11 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     sources: () => [...base.sources(), ...extraSources],
   })
   return [
+    {
+      name: 'HTTP sync bypasses Authority with a store import',
+      expect: 'sync-route-no-store-reads',
+      input: overlay({ 'apps/server/src/sync/routes.ts': "import { Store } from '../store'" }),
+    },
     {
       name: 'a feature calls the deleted snapshot tail again',
       expect: 'deleted-tail-stays-deleted',

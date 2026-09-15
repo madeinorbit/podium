@@ -1,3 +1,4 @@
+import { syncFeedPrincipal } from '../sync/route-support'
 /**
  * THE ONE DERIVED-FAMILY BUILDER (POD-314, the 3.4 cutover).
  *
@@ -59,10 +60,6 @@
 import type { UserId } from '@podium/model'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
 import {
-  asAgentIdentityId,
-  asCapabilityRef,
-  asDelegationRef,
-  asDeviceId,
   type Principal,
 } from '@podium/protocol'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
@@ -437,37 +434,7 @@ export const familyState = (ctx: Context): FamilyState => ({
     sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
   },
-  ...(ctx.principal?.kind === 'user'
-    ? {
-        feedPrincipal: {
-          kind: 'user' as const,
-          user: ctx.principal.user,
-          device: asDeviceId(`trpc:${ctx.principal.user}`),
-          // A REF, minted here — not the command layer's Capability object. The
-          // ports carry this and must never inspect it, so handing them a
-          // structured capability would hand them a scope to read.
-          capability: asCapabilityRef(`trpc:user:${ctx.principal.user}`),
-        },
-      }
-    : ctx.principal?.kind === 'agent'
-      ? {
-          feedPrincipal: {
-            kind: 'agent' as const,
-            // POD-1164: an agent's identity and its session id are the same
-            // string, minted by asAgentIdentityId(sessionId).
-            agentIdentity: asAgentIdentityId(ctx.principal.agentSessionId),
-            onBehalfOf: ctx.principal.onBehalfOf,
-            device: asDeviceId(`trpc:${ctx.principal.agentSessionId}`),
-            capability: asCapabilityRef(`trpc:agent:${ctx.principal.agentSessionId}`),
-            // THE COMMAND PRINCIPAL CARRIES NO DELEGATION REF, so one is derived
-            // from the session. It resolves through whichever DelegationScopePort
-            // is installed; against `NoDelegationsGranted` that is an EMPTY scope,
-            // so a /trpc agent sees nothing — the same outcome as before
-            // POD-1196, now stated rather than produced by an early return.
-            delegation: asDelegationRef(`session:${ctx.principal.agentSessionId}`),
-          },
-        }
-      : {}),
+  feedPrincipal: syncFeedPrincipal(ctx.principal),
   discovery: ctx.discovery,
   superagent: ctx.superagent,
 })
