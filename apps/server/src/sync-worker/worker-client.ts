@@ -85,7 +85,9 @@ export class SyncWorkerClient {
       const target = isCompiledSyncWorkerUrl(import.meta.url)
         ? syncWorkerEmbeddedTarget()
         : new URL('./sync-worker.ts', import.meta.url)
-      const worker = new Worker(target, { workerData: { dbPath: this.options.dbPath } })
+      // Bun 1.4 follows Node's Worker contract: file URLs are URL objects.
+      const worker = new Worker(typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
+        { workerData: { dbPath: this.options.dbPath } })
       this.worker = worker
       worker.on('message', (message: FromWorker) => {
         if (worker !== this.worker) return

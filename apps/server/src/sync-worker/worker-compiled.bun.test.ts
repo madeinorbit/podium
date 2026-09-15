@@ -8,7 +8,7 @@ import { applyBaselineSchema } from '../migrations'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { SYNC_WORKER_ENTRY } from './sync-worker-embed'
 
-it('embeds and executes the real bootstrap producer in a standalone binary', async () => {
+it('embeds and executes bootstrap and delta producers in a standalone binary', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'sync-compiled-'))
   try {
     const path = join(dir, 'test.db')
