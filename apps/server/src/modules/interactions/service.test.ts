@@ -93,6 +93,9 @@ function harness(
     transcript?: unknown[]
     /** Wire a structured delivery route — the seam a protocol driver fills. */
     structured?: boolean
+    /** Sessions whose delivery is routed through the runtime contract, as the
+     *  composition root's `contractDeliveryRequested` answers it (POD-3986). */
+    contractRouted?: boolean
     /** Sessions the causal runtime-event stream owns failures for (P2/7). */
     causalSessions?: SessionId[]
     /** Declaration-resolved driver family for the state-synthesis edge. */
@@ -110,6 +113,7 @@ function harness(
   const published: InteractionRow[] = []
   const delivered: string[] = []
   const typedAtMenu: Array<readonly QuestionSelection[]> = []
+  const answeredThroughContract: Array<{ interactionId: string; answer: unknown }> = []
   let clock = 0
   const svc = new InteractionService({
     store,
@@ -129,7 +133,20 @@ function harness(
     ...(options.driverFamily !== undefined
       ? { driverFamilyForSession: () => options.driverFamily }
       : {}),
-    ...(options.structured ? { deliverStructured: async () => ({ ok: true as const }) } : {}),
+    ...(options.structured
+      ? {
+          deliverStructured: async (input: { interactionId: string; answer: unknown }) => {
+            answeredThroughContract.push({
+              interactionId: input.interactionId,
+              answer: input.answer,
+            })
+            return { ok: true as const }
+          },
+        }
+      : {}),
+    ...(options.contractRouted !== undefined
+      ? { contractRouted: () => options.contractRouted === true }
+      : {}),
     ...(options.nativeMenu
       ? {
           deliverNativeMenu: (input: {
@@ -143,7 +160,7 @@ function harness(
         }
       : {}),
   })
-  return { svc, store, published, delivered, typedAtMenu }
+  return { svc, store, published, delivered, typedAtMenu, answeredThroughContract }
 }
 
 const answerAs = async (svc: InteractionService, id: string, text: string) =>
@@ -1563,5 +1580,118 @@ describe('InteractionService under the async store (POD-3806)', () => {
     })
 
     expect(published).toHaveLength(1)
+  })
+})
+
+/**
+ * A CONTRACT SESSION'S MENU IS THE DRIVER'S TO PRESS (POD-3986).
+ *
+ * The driver implements `answer()`, and until this the server never called it
+ * for the terminal family: a terminal ask is raised `keystroke-emulated`, and
+ * only `structured` rows took the gateway. Everything else fell to
+ * `deliverNativeMenu` — the server's own Claude-specific keystroke script,
+ * which writes PTY bytes with no contract gate in front of it. On a
+ * contract-routed session that is the server reaching around the driver that
+ * owns the session's input.
+ */
+describe('InteractionService — a contract session answers through its driver (POD-3986)', () => {
+  const menuState = (): AgentRuntimeState =>
+    state({
+      phase: 'needs_user',
+      stateSource: 'classifier',
+      need: {
+        kind: 'question',
+        summary: 'Which database?',
+        interview: {
+          questions: [
+            { question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] },
+          ],
+        },
+      },
+    })
+
+  it('sends a keystroke-emulated menu answer to the driver, not the server script', async () => {
+    const { svc, delivered, typedAtMenu, answeredThroughContract } = harness({
+      structured: true,
+      contractRouted: true,
+      nativeMenu: () => ({ ok: true }),
+    })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: menuState() })
+    const [row] = await svc.listOpen(S)
+    expect(row).toMatchObject({ kind: 'question', answerable: 'keystroke-emulated' })
+
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+
+    expect(outcome).toEqual({ ok: true })
+    // The DRIVER was asked, by the ask's own id — the identity it answers through.
+    expect(answeredThroughContract).toEqual([
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      { interactionId: row!.id, answer: { kind: 'question', selections: [{ optionIndices: [2] }] } },
+    ])
+    // And NOTHING went down either server-side keystroke route.
+    expect(typedAtMenu).toEqual([])
+    expect(delivered).toEqual([])
+  })
+
+  it('leaves a non-contract session on the server keystroke route, unchanged', async () => {
+    const { svc, typedAtMenu, answeredThroughContract } = harness({
+      structured: true,
+      contractRouted: false,
+      nativeMenu: () => ({ ok: true }),
+    })
+    await svc.onStateChanged({ sessionId: S, prev: undefined, next: menuState() })
+    const [row] = await svc.listOpen(S)
+
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+
+    expect(outcome).toEqual({ ok: true })
+    expect(answeredThroughContract).toEqual([])
+    expect(typedAtMenu).toEqual([[{ optionIndices: [2] }]])
+  })
+
+  /**
+   * PROSE IS NOT A MENU. A recovery ask is materialized from a failed turn: no
+   * request id is held open for it, and its answer is "continue where you left
+   * off" over the durable send path. Routing it to the driver would hand a
+   * driver an id it has never seen — which service.ts's own synthesis comment
+   * says is the reason these are not raised `structured` in the first place.
+   */
+  it('keeps a prose recovery answer on the durable send path', async () => {
+    const { svc, delivered, answeredThroughContract } = harness({
+      structured: true,
+      contractRouted: true,
+      causalSessions: [S],
+    })
+    await svc.onTurnEvent({
+      sessionId: S,
+      ev: { ev: 'failed', reason: 'context-overflow', disposition: 'needs-human' },
+      at: '2026-09-15T00:00:00.000Z',
+    })
+    const [row] = await svc.listOpen(S)
+    expect(row).toMatchObject({ kind: 'recovery' })
+
+    const outcome = await svc.answer({
+      // biome-ignore lint/style/noNonNullAssertion: asserted open above.
+      id: row!.id,
+      answer: { kind: 'recovery', choice: 'full-resume' },
+      answeredBy: 'human',
+      principal: PRINCIPAL,
+    })
+
+    expect(outcome).toEqual({ ok: true })
+    expect(answeredThroughContract).toEqual([])
+    expect(delivered).toHaveLength(1)
   })
 })
