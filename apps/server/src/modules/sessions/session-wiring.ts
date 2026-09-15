@@ -696,7 +696,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // captured. A turn event that arrives before the aggregate exists is
     // dropped, which cannot happen — nothing can spawn a session before the
     // server is serving.
-    turn: async (input) => { await bag.interactionTurn?.(input) },
+    turn: async (input) => {
+      // A turn OPENING with a human origin means a person touched the session
+      // (POD-3995): contract sessions never see PTY keystrokes, so without this
+      // their input recency never moves and the boot-time offer-staleness rule
+      // plus the userOpenedTurn fallback can never fire for them. The origin
+      // rides the turn event from the send; non-human origins advance
+      // last-input only, exactly like the terminal path does.
+      if (input.ev.ev === 'started') {
+        const session = bag.sessions.get(input.sessionId)
+        const atMs = Date.parse(input.at)
+        if (session && Number.isFinite(atMs)) {
+          session.terminal.recordInputActivity(atMs, input.ev.origin)
+        }
+      }
+      await bag.interactionTurn?.(input)
+    },
     interaction: async (input) => { await bag.interactionResolved?.(input) },
     state: ({ sessionId, change, at, draft }) => {
       const session = bag.sessions.get(sessionId)
