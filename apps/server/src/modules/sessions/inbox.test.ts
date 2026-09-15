@@ -1491,6 +1491,32 @@ describe('SessionInbox authorization and identity', () => {
     }
   })
 
+  it('writes no raw abort bytes for a contract-routed session', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        agentKind: 'opencode',
+        phase: 'working',
+        contractDelivery: true,
+        contractInterrupt: { ok: true },
+      })
+
+      await h.inbox.interruptText({
+        sessionId: SID,
+        text: 'stop and read this',
+        principal: agentPrincipal(),
+      })
+      await vi.advanceTimersByTimeAsync(500)
+
+      // A server-family session has no PTY bridge: the daemon discards typed
+      // bytes without an error, so any abort keystroke here is bytes into
+      // nothing. The contract interrupt port is the delivery that exists.
+      expect(h.sent).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses to interrupt a session that is not running', async () => {
     const h = harness({ status: 'exited' })
 
