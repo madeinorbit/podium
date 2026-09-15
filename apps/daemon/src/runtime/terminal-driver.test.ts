@@ -2126,13 +2126,13 @@ describe('contract draft synchronization', () => {
     Object.assign(world.host, { setDraftTarget: target })
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
-    world.runtime.observe({ type: 'nativeDraft', sessionId: session.sessionId, text: 'half typed' })
+    world.runtime.observe({ type: 'nativeDraft', sessionId: session.binding.sessionId, text: 'half typed' })
     expect(world.frames).toContainEqual(expect.objectContaining({
       type: 'runtimeEvent', event: expect.objectContaining({ t: 'draft', text: 'half typed' }),
     }))
     expect(await session.draft.get()).toBe('half typed')
     expect(await session.draft.set('replacement')).toEqual({ ok: true })
-    expect(target).toHaveBeenCalledWith(session.sessionId, 'replacement')
+    expect(target).toHaveBeenCalledWith(session.binding.sessionId, 'replacement')
   })
 })
 
@@ -2149,9 +2149,9 @@ describe('draft write availability', () => {
   it('publishes a cleared draft once and includes it in snapshots', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    world.runtime.observeDraft(session.sessionId, 'draft')
-    world.runtime.observeDraft(session.sessionId, '')
-    world.runtime.observeDraft(session.sessionId, '')
+    world.runtime.observeDraft(session.binding.sessionId, 'draft')
+    world.runtime.observeDraft(session.binding.sessionId, '')
+    world.runtime.observeDraft(session.binding.sessionId, '')
     const drafts = world.frames.filter(frame => frame.type === 'runtimeEvent' && frame.event.t === 'draft')
     expect(drafts).toHaveLength(2)
     expect((await session.snapshot()).draft).toBe('')

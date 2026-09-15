@@ -1,6 +1,6 @@
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId } from '@podium/model'
-import { RuntimeDraftRequestMessage, type DaemonMessage } from '@podium/protocol/daemon'
+import { RuntimeDraftRequestMessage, parseControlMessage, parseDaemonMessage, type DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
@@ -14,9 +14,12 @@ async function dispatch(operation: { verb: 'get' } | { verb: 'set'; text: string
     send: (message: DaemonMessage) => sent.push(message),
     agentRuntime: { handleFor: () => draft ? { draft } : undefined },
   } as unknown as DaemonContext
-  runtimeHandlers.runtimeDraftRequest(ctx, { ...request, operation } as never)
+  const frame = parseControlMessage(JSON.stringify({ ...request, operation }))
+  if (frame.type !== 'runtimeDraftRequest') throw new Error('wrong frame')
+  runtimeHandlers.runtimeDraftRequest(ctx, frame as never)
   await vi.waitFor(() => expect(sent).toHaveLength(1))
   expect(sent[0]).toMatchObject({ type: 'runtimeDraftResult', requestId: request.requestId, sessionId })
+  expect(parseDaemonMessage(JSON.stringify(sent[0]))).toEqual(sent[0])
   return sent[0]
 }
 

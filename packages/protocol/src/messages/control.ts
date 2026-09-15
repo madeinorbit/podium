@@ -45,6 +45,7 @@ import { AgentRelayResultMessage } from './issues'
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
+  RuntimeDraftRequestMessage,
   RuntimeInterruptRequestMessage,
   RuntimeLifecycleRequestMessage,
   RuntimeQueueDrainAbandonedAckMessage,
@@ -182,6 +183,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  of this union for the same reason it is appended at the end of
    *  `RuntimeCommandMessage`: the golden corpus samples arms by index. */
   RuntimeConfigureRequestMessage,
+  RuntimeDraftRequestMessage,
   SetDaemonLogLevelMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
