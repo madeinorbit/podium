@@ -144,7 +144,7 @@ bun scripts/sync-measurements/run.mjs <reference-copy> . <fresh-output-directory
 
 Modes include bootstrap, delta, admission, concurrent and rate-control. The runner records df before and after, removes each temporary database/WAL before the next arm, refuses overwrites and enforces the disk floor/stop rule. A known cancellation or proof failure stops that invocation; do not treat it as a green result.
 
-Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. The final revised-harness gate and rebase remain to be run at the end of this checkpoint. Historical gate results do not validate these edits. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
+Tiny fixtures exercised both bootstrap transports/codings, real Replica heal ports and raw protocol parsing. Rebased checkpoint `20897623a` onto integration `dc389b4143a53c1bd46eb7ee7d5a66a9a1a687e2`. The final `bun run test` was lean gate green: 26 typecheck tasks (25 cached), span-effect lint green, and 126 tests in 4 of 1,338 collected Node files. This is boot/wiring evidence, not a suite run or a passing benchmark acceptance claim. No specialized test lane was requested for these benchmark-only scripts; their smoke and fresh experiments are described above. No production tuning or merge is included; issue stays in progress while acceptance blockers remain.
 
 ## History — excluded from every comparison
 
