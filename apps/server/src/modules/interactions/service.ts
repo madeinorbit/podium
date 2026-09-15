@@ -223,6 +223,25 @@ export interface InteractionServiceDeps {
     answer: InteractionAnswer
   }): Promise<InteractionAnswerOutcome>
   /**
+   * IS THIS SESSION'S INPUT THE DRIVER'S TO WRITE (POD-3986)?
+   *
+   * Bound at the composition root to `contractDeliveryRequested`, the ONE
+   * predicate the server already uses for "this session is answered through the
+   * runtime contract" — the same one `interruptText` and `continueSession` were
+   * routed behind. A second answer to that question living here is how the two
+   * would drift apart.
+   *
+   * It exists because {@link deliverStructured} alone cannot decide it. A
+   * terminal ask is raised `keystroke-emulated` — honestly, because the answer
+   * IS keystrokes — and the driver is the thing that types them. Without this
+   * port the aggregate had only the ask's answerability to go on and reached
+   * around the driver to write the PTY itself.
+   *
+   * OPTIONAL, and absent means NO: a build that has not wired it behaves
+   * exactly as it did before, on the server keystroke routes.
+   */
+  contractRouted?(sessionId: SessionId): boolean | Promise<boolean>
+  /**
    * THE MENU THE ASK ITSELF READ — see {@link deliverToNativeMenu}.
    *
    * {@link deliver} answers a question by re-deriving its options from the
@@ -1035,6 +1054,45 @@ export class InteractionService {
    * from the terminal sources W2 synthesizes from — which is why there is no
    * pretend implementation of it here.
    */
+  /**
+   * DOES THIS ANSWER BELONG TO THE DRIVER (POD-3986)?
+   *
+   * Two ways an ask reaches the driver's own `answer()`:
+   *
+   * `structured` — the ask came from a protocol driver holding a request id
+   * open, and answering means replying over that protocol. Unchanged.
+   *
+   * `keystroke-emulated` ON A CONTRACT SESSION — the ask is a live MENU, and
+   * the driver that owns the session's input is the thing that presses it. The
+   * server used to type those digits itself through `deliverNativeMenu` /
+   * `deliver`, both of which write PTY bytes with no contract gate in front of
+   * them; on a contract-routed session that is the server reaching around the
+   * driver. The driver refuses an answer it cannot type and nothing is sent —
+   * see the terminal driver's `answer()`, whose refusal keeps the ask open.
+   *
+   * PROSE IS EXCLUDED, and it is not a hedge. A `plan-approval`, `login` or
+   * `recovery` answer is not a menu selection — it is text delivered as an
+   * ordinary turn over the durable send path, which is why these three are the
+   * exact set {@link deliver} gives `textFallback`. The synthesis that raises
+   * them says the same thing in the other direction: they are deliberately NOT
+   * `structured` because "the ANSWER is prose the durable send path delivers,
+   * not a reply to a request id the harness is holding open. Claiming
+   * `structured` would route it to a driver with nothing to reply to." Routing
+   * them here would do precisely that.
+   *
+   * A `permission` answer never reaches this function at all — POD-707 refuses
+   * it before the row is claimed, and that is unchanged.
+   */
+  private async answeredByDriver(row: InteractionRow, answer: InteractionAnswer): Promise<boolean> {
+    if (row.answerable === 'structured') return true
+    if (row.answerable !== 'keystroke-emulated') return false
+    if (answer.kind === 'plan-approval' || answer.kind === 'login' || answer.kind === 'recovery') {
+      return false
+    }
+    if (!this.deps.contractRouted) return false
+    return await this.deps.contractRouted(row.sessionId)
+  }
+
   private async deliver(
     row: InteractionRow,
     answer: InteractionAnswer,
@@ -1050,7 +1108,9 @@ export class InteractionService {
     refusal?: AnswerRefusalReason
   }> {
     /**
-     * THE STRUCTURED PATH GOES FIRST, and it never falls back to keystrokes.
+     * THE DRIVER'S OWN ANSWER GOES FIRST, and it never falls back to the
+     * server's keystrokes — see {@link answeredByDriver} for which asks reach
+     * it.
      *
      * A `structured` ask came from a protocol driver and is answered over that
      * protocol; if the round-trip fails, the honest report is that delivery
@@ -1058,7 +1118,7 @@ export class InteractionService {
      * session that has no terminal would be answering a menu that does not
      * exist.
      */
-    if (row.answerable === 'structured' && this.deps.deliverStructured) {
+    if (this.deps.deliverStructured && (await this.answeredByDriver(row, answer))) {
       try {
         const outcome = await this.deps.deliverStructured({
           sessionId: row.sessionId,
@@ -1066,7 +1126,16 @@ export class InteractionService {
           answer,
         })
         return outcome.ok
-          ? { ok: true, via: 'structured' }
+          ? {
+              ok: true,
+              // WHAT ACTUALLY HAPPENED, not which port carried it. A
+              // `structured` row was answered over the harness's own protocol;
+              // a `keystroke-emulated` one had its menu PRESSED by the driver,
+              // which is what `menu` has always meant on this field. Reporting
+              // `structured` for the second would tell an operator a protocol
+              // reply happened where digits were typed.
+              via: row.answerable === 'structured' ? 'structured' : 'menu',
+            }
           : {
               ok: false,
               via: 'unverified',

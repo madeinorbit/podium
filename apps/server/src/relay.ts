@@ -143,6 +143,7 @@ import type { ServerTransferTargetState } from './modules/server-transfer/servic
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
+import { contractDeliveryRequested } from './modules/sessions/contract-delivery'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
@@ -3120,6 +3121,19 @@ export class SessionRegistry {
        * request id this answers. Narrowing here would mean the server deciding
        * the shape of a reply it does not send.
        */
+      /**
+       * IS THIS SESSION ANSWERED THROUGH THE CONTRACT (POD-3986)?
+       *
+       * The SAME predicate `interruptText` and `continueSession` route behind —
+       * imported, not re-derived, so the rollout switch that governs one
+       * governs all of them. A session the server cannot find is not contract
+       * routed: the keystroke routes refuse an unknown session on their own,
+       * which is the behaviour that was there before this port existed.
+       */
+      contractRouted: async (sessionId) => {
+        const session = await sessionsSvc.sessionById(sessionId)
+        return session !== undefined && contractDeliveryRequested(session)
+      },
       deliverStructured: async (input) =>
         await sessionsSvc.runtimeGateway.answer({
           sessionId: input.sessionId,
