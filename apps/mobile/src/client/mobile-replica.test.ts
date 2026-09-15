@@ -70,6 +70,8 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 // graph, whose direct React Native require cannot use Vite's web alias.
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
+import { WIRE_VERSION } from '@podium/protocol'
+import type { MobileReplicaDeps } from './MobileClientProvider'
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
 
 /**
@@ -307,6 +309,7 @@ async function open(args: {
    *  principal's namespace and nobody else's. */
   principal?: string
   /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
+  httpSync?: MobileReplicaDeps['httpSync']
   fetchChangesSince?: () => Promise<FeedChangesSinceReplyLenient>
   pendingPrincipalCleanups?: readonly {
     principal: string
@@ -336,6 +339,7 @@ async function open(args: {
       : {}),
     ...(args.flushStorage !== undefined ? { flushStorage: args.flushStorage } : {}),
     evidence: args.evidence ?? SINGLE_ACCOUNT,
+    ...(args.httpSync ? { httpSync: args.httpSync } : {}),
     fetchChangesSince: args.fetchChangesSince ?? SILENT_AUTHORITY,
     onDegraded: (message) => degradations.push(message),
     now: () => 1_700_000_009_000,
@@ -1038,5 +1042,55 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     expect(keys.some((k) => k.includes('principal.bob'))).toBe(true)
     expect(keys.some((k) => k.startsWith('podium.replica.issues'))).toBe(false)
     expect(keys.some((k) => k.startsWith('podium.replica.cursor'))).toBe(false)
+  })
+})
+
+
+describe('HTTP sync through the mobile assembly', () => {
+  it('counts streamed rows before completion, installs atomically, and heals a warm cursor', async () => {
+    const file = freshDatabaseFile()
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } }), {
+      headers: { 'content-type': 'application/x-ndjson' },
+    })
+    const fetch = vi.fn().mockResolvedValueOnce(response)
+    const opened = await open({ file, storage: legacyDevice({}),
+      httpSync: { origin: 'https://server', streamingFetch: { fetch } } })
+    const send = (record: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(record) + '\n'))
+    const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 'mobile',
+      feedId: 'feed', epoch: 'e1', seq: 1, minAvailableSeq: 0, wireVersion: WIRE_VERSION,
+      wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
+    expect(opened.feed.syncHttp).toBe(true)
+    opened.feed.connected(false)
+    send(meta)
+    send(bootstrapFrame({ seq: 1, changes: [{ seq: 1, entity: 'issue', entityId: 'http-issue',
+      value: { id: 'http-issue', title: 'HTTP world', status: 'open' } }] }))
+    await waitUntil('HTTP row progress before completion', () => opened.syncProgress.getSnapshot().rowsSeen === 1)
+    expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: true, phase: 'downloading', totalRows: 1 })
+    expect(opened.replica.rows('issues')).toHaveLength(0)
+    send({ type: 'syncComplete', transferId: 'mobile', seq: 1, records: 1, rows: 1 })
+    controller.close()
+    await waitUntil('HTTP durable install', () => opened.syncProgress.getSnapshot().phase === 'ready')
+    expect(opened.replica.rows('issues')).toHaveLength(1)
+    expect(opened.feed.helloFields()?.feedCursor.seq).toBe(1)
+    expect(fetch.mock.calls[0]![0]).toBe('https://server/sync/bootstrap')
+
+    opened.feed.disconnected()
+    const deltaResponse = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } }), {
+      headers: { 'content-type': 'application/x-ndjson' },
+    })
+    fetch.mockResolvedValueOnce(deltaResponse)
+    opened.feed.connected(false)
+    send({ ...meta, mode: 'delta', fromSeq: 1, seq: 2, totalRows: undefined })
+    send({ type: 'feedDelta', feedId: 'feed', epoch: 'e1', fromSeq: 1, seq: 2, minAvailableSeq: 0,
+      changes: [{ seq: 2, entity: 'issue', entityId: 'http-issue', op: 'upsert',
+        value: { id: 'http-issue', title: 'Healed over HTTP', status: 'open' } }] })
+    await waitUntil('incremental HTTP commit', () => opened.replica.getCursor() === 2)
+    expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: false, phase: 'saving', rowsSeen: 1, totalRows: null })
+    expect(opened.replica.rows('issues')[0]).toMatchObject({ title: 'Healed over HTTP' })
+    send({ type: 'syncComplete', transferId: 'mobile', seq: 2, records: 1, rows: 1 })
+    controller.close()
+    await waitUntil('warm HTTP completion', () => opened.syncProgress.getSnapshot().phase === 'ready')
+    expect(fetch.mock.calls[1]![0]).toBe('https://server/sync/delta?feedId=feed&epoch=e1&from=1')
   })
 })

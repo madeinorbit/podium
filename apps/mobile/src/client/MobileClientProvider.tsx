@@ -32,6 +32,7 @@
  * surface therefore exercises the same slices as the product.
  */
 
+import { HttpBootstrapSource, HttpDeltaSource, type HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   type CreateEngineOutbox,
@@ -96,6 +97,7 @@ import { openMobileEntityStore } from './mobile-entity-store'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
+import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { createPlatformConnectivity } from './platform-connectivity'
 import { useOptionalServerProfile } from './ServerProfileGate'
@@ -230,11 +232,12 @@ export interface MobileReplicaDeps {
    *  unattributable device and observe the REFUSAL. */
   readonly evidence?: LegacyIdentityEvidence
   /**
-   * THE v2 CATCH-UP READ (POD-1241). Bound to `sync.feedChangesSince` in the
-   * live provider; tests inject a silent authority that delivers nothing so a
-   * cold-start paint assertion cannot be rescued by a live feed.
+   * Production HTTP sources. The optional legacy read below keeps the pushed
+   * feed test fixtures intact until the programme cutover removes that path.
    */
-  readonly fetchChangesSince: (cursor: Cursor) => Promise<FeedChangesSinceReplyLenient>
+  readonly httpSync?: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+  /** Transitional pushed-feed fixtures only; production injects httpSync. */
+  readonly fetchChangesSince?: (cursor: Cursor) => Promise<FeedChangesSinceReplyLenient>
   /** Surfaced, never swallowed (ADR 6 D4.4). */
   readonly onDegraded: (message: string) => void
   readonly now?: () => number
@@ -456,7 +459,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------
   let hub: SocketHub | undefined
   let freshWorldPending = false
-  const bootstraps = new PushedBootstrapSource({
+  const pushedBootstraps = new PushedBootstrapSource({
     requestFreshWorld: () => {
       if (hub === undefined) {
         freshWorldPending = true
@@ -467,10 +470,29 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   })
 
   const syncProgress = new MobileSyncProgressStore()
+  const sourceDeps = deps.httpSync && {
+    ...deps.httpSync,
+    onMeta: (totalRows: number | undefined) => syncProgress.noteMeta(totalRows),
+    onChunk: (rows: number) => syncProgress.noteReceived(rows),
+  }
+  const bootstraps = sourceDeps ? new HttpBootstrapSource(sourceDeps) : pushedBootstraps
+  const deltas = sourceDeps ? new HttpDeltaSource(sourceDeps) : undefined
   const kernel = new KernelReplica({
     store: view.cache,
-    authority: new FeedAuthorityClient({
-      fetchChangesSince: deps.fetchChangesSince,
+    authority: deltas ? {
+      async *bootstrap(signal) {
+        syncProgress.beginAttempt()
+        for await (const chunk of bootstraps.bootstrap(signal)) {
+          if (chunk.last) syncProgress.noteSaving()
+          yield chunk
+        }
+      },
+      async changesRange(cursor, signal, onTarget) {
+        syncProgress.beginAttempt()
+        return deltas.changesRange(cursor, signal, onTarget)
+      },
+    } : new FeedAuthorityClient({
+      fetchChangesSince: deps.fetchChangesSince ?? (() => { throw new Error('Mobile sync source missing') }),
       bootstraps,
     }),
     onEvent: (event: ReplicaEvent) => {
@@ -490,11 +512,13 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   syncProgress.begin(kernel.posture)
   const sink = new FeedSink({ replica: kernel, bootstraps })
   const feed: FeedSinkPort = {
+    syncHttp: sink.syncHttp,
+    requestFreshWorld: () => sink.requestFreshWorld(),
     helloFields: () => sink.helloFields(),
     connected: (worldPromised) => sink.connected(worldPromised),
     disconnected: () => sink.disconnected(),
     frame: (frame) => {
-      if (frame.type === 'feedBootstrap') syncProgress.noteBootstrapFrame(frame)
+      if (!sink.syncHttp && frame.type === 'feedBootstrap') syncProgress.noteBootstrapFrame(frame)
       sink.frame(frame)
     },
   }
@@ -885,15 +909,6 @@ function LiveProvider({ children }: { children: ReactNode }) {
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
         if (status.userId === null) throw new Error('authenticated account is unavailable')
-        // The live server's v2 catch-up. Typed through the hand-written MobileTrpc
-        // surface is deliberately loose: the client is createTRPCClient<any>, and
-        // PodiumClientApi still only names the v1 changesSince. Runtime has the
-        // real procedure; casting here is the same seam web uses.
-        const syncV2 = trpc.sync as typeof trpc.sync & {
-          feedChangesSince: {
-            query: (input: { cursor: Cursor }) => Promise<FeedChangesSinceReplyLenient>
-          }
-        }
         const opened = await openMobileReplica({
           // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
           // times out under Chromium even with COOP/COEP + correct wasm MIME, so
@@ -930,7 +945,15 @@ function LiveProvider({ children }: { children: ReactNode }) {
             principal: cleanup.principal,
             complete: () => completePendingProfileCleanup(cleanup),
           })),
-          fetchChangesSince: async (cursor) => syncV2.feedChangesSince.query({ cursor }),
+          httpSync: {
+            origin: config.httpOrigin,
+            streamingFetch: createMobileSyncFetch(
+              bearer,
+              expireLiveCredential,
+              config.workspaceId ? { workspaceId: config.workspaceId }
+                : config.workspaceSlug ? { workspaceSlug: config.workspaceSlug } : undefined,
+            ),
+          },
           onDegraded: setNotice,
         })
         await recordUserRef.current?.(status.userId)
@@ -983,6 +1006,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
     bearer,
     config.httpOrigin,
     config.workspaceId,
+    config.workspaceSlug,
+    expireLiveCredential,
     profileId,
     trpc,
     inheritedAuthStatus,

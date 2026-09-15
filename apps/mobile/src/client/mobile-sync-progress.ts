@@ -70,6 +70,25 @@ export class MobileSyncProgressStore {
     )
   }
 
+  /** Reset even when a retry targets the same snapshot sequence. */
+  beginAttempt(): void {
+    this.walkSeq = null
+    this.publish({ ...this.snapshot, phase: this.snapshot.blocking ? 'connecting' : 'updating',
+      rowsSeen: 0, totalRows: null, failure: null })
+  }
+
+  noteMeta(totalRows: number | undefined): void {
+    this.publish({ ...this.snapshot, phase: 'downloading', totalRows: totalRows ?? null })
+  }
+
+  noteReceived(rows: number): void {
+    this.publish({ ...this.snapshot, phase: 'downloading', rowsSeen: this.snapshot.rowsSeen + rows })
+  }
+
+  noteSaving(): void {
+    this.publish({ ...this.snapshot, phase: 'saving' })
+  }
+
   noteBootstrapFrame(frame: BootstrapFrameLike): void {
     let rowsSeen = this.snapshot.rowsSeen
     let totalRows = this.snapshot.totalRows
@@ -88,6 +107,10 @@ export class MobileSyncProgressStore {
   }
 
   noteEvent(event: ReplicaEvent): void {
+    if (event.type === 'heal-progress') {
+      this.noteSaving()
+      return
+    }
     if (event.type === 'bootstrap-installed') {
       this.publish({ ...this.snapshot, blocking: false, phase: 'ready', failure: null })
       return
