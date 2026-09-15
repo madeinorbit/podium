@@ -52,12 +52,12 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
         else resolve()
       })
     })
-  return new TransformStream<Uint8Array, Uint8Array>({
-    start(controller) {
+  const transformer = {
+    start(controller: { enqueue(chunk: Uint8Array): void; error(reason: unknown): void }) {
       compressor.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)))
       compressor.on('error', (error) => controller.error(error))
     },
-    async transform(chunk) {
+    async transform(chunk: Uint8Array) {
       await operation((done) => { compressor.write(chunk, done) })
       await operation((done) => compressor.flush(
         coding === 'zstd' ? constants.ZSTD_e_flush : constants.Z_SYNC_FLUSH, done,
@@ -72,8 +72,11 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
     cancel(reason: unknown) {
       compressor.destroy(reason instanceof Error ? reason : new Error(String(reason)))
     },
-  } satisfies Transformer<Uint8Array, Uint8Array> & { cancel(reason: unknown): void },
-  { highWaterMark: 1 }, { highWaterMark: 0 })
+  }
+  // Bun supports cancellation here; DOM typings omit this extension. A named
+  // structural value preserves the runtime hook without an excess-property cast.
+  return new TransformStream<Uint8Array, Uint8Array>(transformer,
+    { highWaterMark: 1 }, { highWaterMark: 0 })
 }
 
 export function syncResponseHeaders(coding: ContentCoding): Headers {
