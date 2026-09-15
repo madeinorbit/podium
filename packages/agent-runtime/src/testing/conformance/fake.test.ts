@@ -26,6 +26,7 @@ import {
 } from '../fake-driver.js'
 import {
   assertAttachHonoursOneControlLease,
+  assertInteractionDeliveryClaim,
   assertNoNativeSteerEntitled,
   assertSteerJoinedOpenTurn,
   assertUnverifiedClaimHonest,
@@ -58,6 +59,19 @@ describeDriverConformance({
   family: 'terminal',
   createDriver: () => {
     const driver = createFakeTerminalDriver()
+    return { driver, control: driver.control as ConformanceControl }
+  },
+  reset: resetFakeRuntime,
+  spec,
+})
+
+// Hook provenance does not imply provider request identity (POD-3979).
+// Exercise the same corpus with the terminal driver's honest delivery claim.
+describeDriverConformance({
+  name: 'fake-terminal-hook',
+  family: 'terminal',
+  createDriver: () => {
+    const driver = createFakeTerminalDriver({ interactionSource: 'hook' })
     return { driver, control: driver.control as ConformanceControl }
   },
   reset: resetFakeRuntime,
@@ -406,5 +420,30 @@ describe('the tier boundary', () => {
     for (const primitive of ['send', 'events', 'adopt', 'snapshot', 'export'] as const) {
       expect(RUNTIME_PRIMITIVE_TIER[primitive]).toBe('core')
     }
+  })
+})
+
+describe('interaction delivery claim boundaries', () => {
+  it.each(['server', 'embedded'] as const)('rejects duplicate hook asks for %s', (family) => {
+    const driver = createFakeTerminalDriver({ interactionSource: 'hook' })
+    expect(() => assertInteractionDeliveryClaim(family, driver.capabilities())).toThrow()
+  })
+
+  it('rejects duplicate protocol asks even for terminals', () => {
+    const driver = createFakeTerminalDriver({ interactionSource: 'protocol' })
+    expect(() => assertInteractionDeliveryClaim('terminal', driver.capabilities())).toThrow()
+  })
+
+  it('rejects an exactly-once classifier claim', () => {
+    const driver = createFakeTerminalDriver({ atLeastOnceInteractions: false })
+    expect(() => assertInteractionDeliveryClaim('terminal', driver.capabilities())).toThrow()
+  })
+
+  it('allows a hook driver to guarantee stable identity', () => {
+    const driver = createFakeTerminalDriver({
+      interactionSource: 'hook',
+      atLeastOnceInteractions: false,
+    })
+    expect(() => assertInteractionDeliveryClaim('terminal', driver.capabilities())).not.toThrow()
   })
 })

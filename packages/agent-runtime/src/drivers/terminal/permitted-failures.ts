@@ -19,7 +19,7 @@ import { PERMITTED_FAILURES, type PermittedFailure } from '../../permitted-failu
 
 /**
  * What the terminal family may fail, per the spec: unverified sends,
- * at-least-once classifier interactions, and no native steer. Nothing else —
+ * at-least-once classifier or hook interactions, and no native steer. Nothing else —
  * and in particular NOT `no-attach`, which is the embedded family's exemption:
  * the engine terminal is exactly what a terminal session has.
  *

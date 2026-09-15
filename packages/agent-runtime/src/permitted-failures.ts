@@ -35,9 +35,10 @@ export type PermittedFailure =
   /**
    * Interaction asked→answered is AT-LEAST-ONCE with best-effort identity: a
    * re-rendered menu can mint a duplicate ask, and a keystroke answer cannot
-   * prove it acted on the exact menu it classified. TERMINAL ONLY, and only for
-   * classifier-sourced asks — a terminal driver reading a real hook channel has
-   * better identity than this and should not claim the exemption.
+   * prove it acted on the exact menu. TERMINAL ONLY: classifier-sourced asks
+   * require this exemption; hook-sourced asks may claim it when the driver has
+   * observation identity rather than stable provider request identity. Hook
+   * provenance alone does not establish exactly-once delivery (POD-3979).
    */
   | 'at-least-once-interactions'
   /**

@@ -29,8 +29,8 @@ export interface TerminalCapabilityInput {
   /** The harness's declared proof order, from `runtime.terminal.sendProof`. */
   sendProof: readonly SendProof[]
   /** Whether this harness's driver reads a real hook channel for its
-   *  interactions. Hook-sourced asks have provider identity; classified screens
-   *  do not, and the difference is the whole of `atLeastOnce`. */
+   *  interactions. This declares provenance, not stable ask identity; both
+   *  sources currently use observation transitions and can duplicate asks. */
   interactionsFromHooks: boolean
   /** Whether composer-sync runs for this session (Draft Sync v2, POD-859). The
    *  scrape is the ONLY reason `draft.get()` can answer at all. */
@@ -90,10 +90,10 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
        * TRUE ON BOTH SOURCES, INCLUDING THE HOOK ONE — reverted from a per-source
        * claim this driver could not keep (POD-2021 review, F2).
        *
-       * The corpus permits a hook-reading terminal driver to decline this, and in
-       * principle it should be able to: a causal hook gives an ask the harness's
-       * own identity. This driver cannot, and the reason is specific rather than
-       * a shrug. Its ask identity is the OBSERVATION's `transitionId`, which is
+       * The corpus permits hook-reading terminal drivers to claim this (POD-3979).
+       * A driver with stable provider request identity could decline it, but
+       * hook provenance alone does not supply that identity. This driver uses
+       * the OBSERVATION's `transitionId`, which is
        * derived from `[segmentId, turnEpoch, identity, priorPhase, phase]` — a
        * PHASE-TRANSITION id, not an ask id. Two consequences on the hook path:
        *

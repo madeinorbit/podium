@@ -412,29 +412,9 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         assertUnverifiedClaimHonest(target.family, driver.capabilities())
       })
 
-      it('claims at-least-once interactions ONLY for classifier-sourced asks', () => {
+      it('claims at-least-once interactions only for permitted terminal sources', () => {
         const { driver } = setup()
-        const declared = driver.capabilities().interactions
-        if (!declared.supported) return
-        const { atLeastOnce, source } = declared.value
-
-        // THE PERMISSION IS PER-SOURCE, NOT PER-FAMILY, and the difference is
-        // load-bearing rather than pedantic. The exemption exists because a
-        // re-rendered menu can mint a duplicate ask and a keystroke answer
-        // cannot prove which menu it acted on — that is a property of the
-        // SCREEN CLASSIFIER, not of the terminal family. W3's `claude-pty`
-        // reads `UserPromptSubmit`, a real causal hook: it has better identity
-        // than this and must be able to decline the exemption. A strict
-        // per-family equality here would force it to declare a weakness it does
-        // not have, which is exactly the dishonesty the table exists to prevent.
-        if (atLeastOnce) {
-          expect(source).toBe('screen-classifier')
-          // …and the family must still be one the table permits it to.
-          expect(permits(target.family, 'at-least-once-interactions')).toBe(true)
-        }
-        // The converse: a classifier-sourced driver may NOT claim exactly-once
-        // identity, because it cannot have it.
-        if (source === 'screen-classifier') expect(atLeastOnce).toBe(true)
+        assertInteractionDeliveryClaim(target.family, driver.capabilities())
       })
 
       it('cannot declare an ARCHIVE it has no resume ref to put in one', () => {
@@ -1024,11 +1004,12 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect((await session.interactions()).map((i) => i.id)).toContain(id)
       })
 
-      it('classifier-sourced asks are at-least-once ONLY where permitted', async () => {
+      it('declared at-least-once asks may repeat only where permitted', async () => {
         const { handle, control, driver } = setup()
         const session = await handle
         const declared = driver.capabilities().interactions
-        if (!declared.supported || !permits(target.family, 'at-least-once-interactions')) return
+        if (!declared.supported || !declared.value.atLeastOnce) return
+        expect(permits(target.family, 'at-least-once-interactions')).toBe(true)
         const first = control.askInteraction(session.binding.sessionId, 'permission')
         const duplicate = control.reaskInteraction(session.binding.sessionId, first)
         // A re-rendered menu mints a SECOND id for the SAME logical ask. The
@@ -2879,4 +2860,24 @@ export function assertUnverifiedClaimHonest(
     capabilities.send.mayReturnUnverified,
     `family '${family}' ${permits(family, 'unverified-send') ? 'permits' : 'does not permit'} unverified sends`,
   ).toBe(permits(family, 'unverified-send'))
+}
+
+/** Hook provenance does not prove stable request identity (POD-3979).
+ * Terminal hooks may report phase transitions rather than provider ask IDs.
+ * Consumers must tolerate duplicates when the driver declares this exemption.
+ * Exported to exercise rejected claims as well as the corpus's valid targets. */
+export function assertInteractionDeliveryClaim(
+  family: DriverFamily,
+  capabilities: DriverCapabilities,
+): void {
+  const declared = capabilities.interactions
+  if (!declared.supported) return
+  const { atLeastOnce, source } = declared.value
+  if (atLeastOnce) {
+    expect(['hook', 'screen-classifier']).toContain(source)
+    expect(permits(family, 'at-least-once-interactions')).toBe(true)
+  }
+  // Classifiers cannot promise stable identity. Hooks may do so only when
+  // their driver actually supplies it; the exemption is permission, not a duty.
+  if (source === 'screen-classifier') expect(atLeastOnce).toBe(true)
 }
