@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url'
 import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
+import { SYNC_WORKER_ENTRY } from '../apps/server/src/sync-worker/sync-worker-embed.js'
 import { JANITOR_WORKER_ENTRY } from '../packages/janitor/src/janitor-worker-embed.js'
 /**
  * The dev-label rules, from the one place that defines them (POD-2502). The
@@ -708,7 +709,7 @@ export function packageHeadlessForFreshClients(
   // Bun does not discover `new Worker(...)` targets during `--compile`. Their
   // shared embed modules keep build-time paths and runtime targets identical.
   compile('scripts/cli-compiled.ts', names.compiled, {
-    extraEntrypoints: [DISCOVERY_WORKER_ENTRY, JANITOR_WORKER_ENTRY],
+    extraEntrypoints: [DISCOVERY_WORKER_ENTRY, JANITOR_WORKER_ENTRY, SYNC_WORKER_ENTRY],
   })
   if (spec?.nodePlatform === 'darwin') signDarwin(`${bundleRoot}/${names.compiled}`)
   console.log(`[build-bun] done -> ${bundleRoot}/${names.compiled}`)

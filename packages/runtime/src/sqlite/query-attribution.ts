@@ -68,6 +68,16 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
         }
       }
       return {
+        ...(st.iterate ? { iterate: function* (...p: SqlParam[]) {
+          const iterator = st.iterate!(...p)
+          try {
+            while (true) {
+              const next = timed(() => iterator.next(), (result) => result.done ? 0 : 1)
+              if (next.done) return
+              yield next.value
+            }
+          } finally { iterator.return?.() }
+        } } : {}),
         run: (...p: SqlParam[]) =>
           timed(
             () => st.run(...p),

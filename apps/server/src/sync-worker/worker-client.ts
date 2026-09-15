@@ -1,0 +1,137 @@
+import { perf } from '../modules/perf/registry'
+import { perfPrincipal } from '../modules/perf/principal'
+import type { BootstrapMetrics } from './types'
+import { Worker } from 'node:worker_threads'
+import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker-embed'
+import { SYNC_JOB_DEADLINE_MS, SyncWorkerError, type BootstrapJob, type FromWorker, type SyncMetaSummary, type ToWorker } from './types'
+export { SyncWorkerError } from './types'
+export type { BootstrapJob, SyncMetaSummary } from './types'
+
+interface Pending {
+  principal: BootstrapJob['principal']
+  controller: ReadableStreamDefaultController<Uint8Array>
+  resolve(meta: SyncMetaSummary): void
+  reject(error: Error): void
+  cleanup(): void
+  pullDone?: () => void
+}
+/** Main-thread boundary: only bounded opaque buffers and the small meta record cross it. */
+export class SyncWorkerClient {
+  private worker?: Worker
+  private closed = false
+  private ready = false
+  private jobs = new Map<string, Pending>()
+  private restartTimer?: ReturnType<typeof setTimeout>
+  private monitorTimer: ReturnType<typeof setInterval>
+  private lastMessage = Date.now()
+  private spawnedAt = Date.now()
+  private fastCrashes = 0
+  private terminations = new Set<Promise<unknown>>()
+  private closing?: Promise<void>
+  constructor(private readonly options: { dbPath: string; monitorMs?: number; wedgedMs?: number; onMetrics?: (metrics: BootstrapMetrics) => void }) {
+    this.spawn()
+    this.monitorTimer = setInterval(() => {
+      if (this.worker && Date.now() - this.lastMessage >= (options.wedgedMs ?? 600_000)) this.fail(this.worker)
+    }, options.monitorMs ?? 5000)
+    this.monitorTimer.unref()
+  }
+  state(): 'running' | 'degraded' | 'stopped' { return this.closed ? 'stopped' : this.ready ? 'running' : 'degraded' }
+  activeJobCount(): number { return this.jobs.size }
+  private spawn() {
+    if (this.closed) return
+    this.spawnedAt = this.lastMessage = Date.now()
+    try {
+      const target = isCompiledSyncWorkerUrl(import.meta.url) ? syncWorkerEmbeddedTarget() : new URL('./sync-worker.ts', import.meta.url)
+      const worker = new Worker(target, { workerData: { dbPath: this.options.dbPath } })
+      this.worker = worker
+      worker.on('message', (message: FromWorker) => {
+        if (worker !== this.worker) return
+        this.lastMessage = Date.now()
+        if (message.type === 'ready') { this.ready = true; return }
+        if (message.type === 'heartbeat') return
+        const job = this.jobs.get(message.transferId)
+        if (!job) return
+        if (message.type === 'metrics') {
+          const attribution = perfPrincipal(job.principal)
+          for (const [name, value] of Object.entries(message.metrics.phases)) perf.record('phase', `syncBootstrap.${name}`, value.ms, attribution, value.bytes)
+          this.options.onMetrics?.(message.metrics)
+        } else if (message.type === 'meta') job.resolve(message.meta)
+        else if (message.type === 'bytes') {
+          job.controller.enqueue(new Uint8Array(message.chunk))
+          const done = job.pullDone; job.pullDone = undefined; done?.()
+        } else if (message.type === 'error') this.end(message.transferId, new SyncWorkerError(message.reason))
+        else this.end(message.transferId)
+      })
+      worker.on('error', () => this.fail(worker))
+      worker.on('exit', () => this.fail(worker))
+    } catch { this.restart() }
+  }
+  private send(message: ToWorker) { this.worker?.postMessage(message) }
+  private end(id: string, error?: SyncWorkerError, cancelled = false) {
+    const job = this.jobs.get(id)
+    if (!job) return
+    this.jobs.delete(id); job.cleanup(); job.pullDone?.()
+    if (error) { job.reject(error); if (!cancelled) job.controller.error(error) }
+    else job.controller.close()
+  }
+  private terminate(worker: Worker) {
+    const termination = worker.terminate().catch(() => undefined)
+    this.terminations.add(termination)
+    void termination.then(() => this.terminations.delete(termination))
+  }
+  private fail(worker: Worker) {
+    if (worker !== this.worker || this.closed) return
+    this.worker = undefined; this.ready = false; this.terminate(worker)
+    for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('worker-crashed'))
+    this.restart()
+  }
+  private restart() {
+    if (this.closed || this.restartTimer) return
+    this.fastCrashes = Date.now() - this.spawnedAt < 3000 ? this.fastCrashes + 1 : 1
+    const delay = [0, 1000, 3000, 10_000, 30_000][Math.min(this.fastCrashes - 1, 4)]!
+    this.restartTimer = setTimeout(() => { this.restartTimer = undefined; this.spawn() }, delay)
+    this.restartTimer.unref()
+  }
+  bootstrap(input: BootstrapJob, signal?: AbortSignal): { meta: Promise<SyncMetaSummary>; body: ReadableStream<Uint8Array> } {
+    const job = { ...input, deadlineMs: input.deadlineMs ?? Date.now() + SYNC_JOB_DEADLINE_MS }
+    if (this.closed || !this.worker) throw new SyncWorkerError(this.closed ? 'shutdown' : 'unavailable')
+    if (this.jobs.has(job.transferId)) throw new SyncWorkerError('unavailable')
+    let resolve!: Pending['resolve'], reject!: Pending['reject']
+    const meta = new Promise<SyncMetaSummary>((yes, no) => { resolve = yes; reject = no })
+    // A caller may consume only the body; still surface rejection through the original promise.
+    void meta.catch(() => {})
+    const cancel = (reason: 'cancelled' | 'deadline', streamCancelled = false) => {
+      this.send({ type: 'cancel', transferId: job.transferId, reason })
+      this.end(job.transferId, new SyncWorkerError(reason), streamCancelled)
+    }
+    const onAbort = () => cancel('cancelled')
+    const body = new ReadableStream<Uint8Array>({
+      start: controller => {
+        const timer = setTimeout(() => cancel('deadline'), Math.max(0, job.deadlineMs - Date.now()))
+        timer.unref()
+        this.jobs.set(job.transferId, { principal: job.principal, controller, resolve, reject, cleanup: () => {
+          clearTimeout(timer); signal?.removeEventListener('abort', onAbort)
+        } })
+        this.send({ type: 'start', job })
+        signal?.addEventListener('abort', onAbort, { once: true })
+        if (signal?.aborted) onAbort()
+      },
+      pull: () => {
+        const pending = this.jobs.get(job.transferId)
+        if (!pending) return
+        return new Promise<void>(done => { pending.pullDone = done; this.send({ type: 'credit', transferId: job.transferId, n: 1 }) })
+      },
+      cancel: () => cancel('cancelled', true),
+    }, { highWaterMark: 0 })
+    return { meta, body }
+  }
+  close(): Promise<void> {
+    if (this.closing) return this.closing
+    this.closed = true; this.ready = false
+    clearInterval(this.monitorTimer); clearTimeout(this.restartTimer)
+    for (const id of [...this.jobs.keys()]) this.end(id, new SyncWorkerError('shutdown'))
+    const worker = this.worker; this.worker = undefined
+    if (worker) { worker.postMessage({ type: 'stop' }); this.terminate(worker) }
+    return this.closing = Promise.all([...this.terminations]).then(() => undefined)
+  }
+}

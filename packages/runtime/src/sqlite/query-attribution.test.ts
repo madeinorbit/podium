@@ -54,6 +54,21 @@ describe('attributeQueries', () => {
     expect(db.prepared).toEqual(['SELECT * FROM podium_events WHERE id > ?'])
   })
 
+  it('streams attributed rows and closes a partially consumed iterator', () => {
+    resetQueryAttribution()
+    let released = false
+    const db = fakeDatabase()
+    const original = db.prepare.bind(db)
+    db.prepare = (sql) => ({ ...original(sql), iterate: function* () {
+      try { yield { id: 1 }; yield { id: 2 } } finally { released = true }
+    } })
+    const iterator = attributeQueries(db, true).prepare('SELECT streamed').iterate!()
+    expect(iterator.next().value).toEqual({ id: 1 })
+    iterator.return?.()
+    expect(released).toBe(true)
+    expect(queryAttributionSnapshot().get('SELECT streamed')?.rows).toBe(1)
+  })
+
   it('attributes rows to the statement that returned them', () => {
     resetQueryAttribution()
     const st = attributeQueries(fakeDatabase(7), true).prepare('SELECT * FROM podium_events')

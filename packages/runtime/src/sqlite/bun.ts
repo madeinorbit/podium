@@ -10,6 +10,7 @@ interface BunStatement {
   run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint }
   get(...params: unknown[]): unknown
   all(...params: unknown[]): unknown[]
+  iterate(...params: unknown[]): IterableIterator<unknown>
 }
 interface BunDb {
   prepare(sql: string): BunStatement
@@ -96,6 +97,7 @@ function wrap(db: BunDb): SqlDatabase {
           return row === null ? undefined : row
         },
         all: (...p) => st.all(...p),
+        iterate: (...p) => st.iterate(...p),
         values: (...p) => (st as unknown as { values(...a: unknown[]): unknown[][] }).values(...p),
       }
     },

@@ -19,6 +19,8 @@ export interface SqlStatement {
   /** First matching row, or `undefined` when there is none. */
   get(...params: SqlParam[]): unknown
   all(...params: SqlParam[]): unknown[]
+  /** Streaming rows; Bun-backed connections support this without materializing the result. */
+  iterate?(...params: SqlParam[]): IterableIterator<unknown>
   /**
    * Rows as positional arrays rather than objects. Present because drizzle's
    * session reaches for it; every shim must offer it so that a drizzle instance

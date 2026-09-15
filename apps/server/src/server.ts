@@ -172,7 +172,8 @@ import { createServerReadiness } from './server-readiness'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { SessionStore } from './store'
+import { defaultDbPath, SessionStore } from './store'
+import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
 import {
@@ -220,6 +221,8 @@ export function isAddressInUseError(err: unknown): boolean {
 }
 
 export interface ServerHandle {
+  /** Server-owned bootstrap producer; undefined while starting or in unit-test hosts. */
+  syncWorker(): SyncWorkerClient | undefined
   instanceId: string
   port: number
   registry: SessionRegistry
@@ -1340,6 +1343,7 @@ export async function startServer(
 
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
+  let syncWorker: SyncWorkerClient | undefined
   let janitorHostClosing = false
   let janitorHostStarting: Promise<void> | undefined
   // RESOLVED ONCE, AT BOOT. This is a trust decision — which other origins may
@@ -1980,6 +1984,11 @@ export async function startServer(
     // and the client turns faults/stalls into observable degraded state plus
     // automatic replacement rather than request-loop failure.
     janitorHostStarting = (async () => {
+      // Existing worker test seam suppresses real threads in vitest's fork runtime.
+      if (!opts.janitorWorkerForTests && !janitorHostClosing) {
+        const { SyncWorkerClient } = await import('./sync-worker/worker-client')
+        syncWorker = new SyncWorkerClient({ dbPath: defaultDbPath() })
+      }
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
@@ -2352,6 +2361,7 @@ export async function startServer(
       targetsResolvedOnBoot = true
       resolve({
         port: server.port,
+        syncWorker: () => syncWorker,
         instanceId,
         registry,
         recoveryOnly,
@@ -2418,6 +2428,7 @@ export async function startServer(
                 async () => {
                   janitorHostClosing = true
                   await janitorHostStarting
+                  await syncWorker?.close()
                   if (janitorHost) {
                     const closing: Promise<void> = janitorHost.close()
                     await closing
