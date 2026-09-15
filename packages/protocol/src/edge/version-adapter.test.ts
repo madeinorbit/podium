@@ -149,7 +149,11 @@ describe('426 is the backstop beyond the window', () => {
 
 describe('the shipped window', () => {
   it('is derived once, not re-derived by callers', () => {
-    expect(SUPPORTED_WIRE_VERSIONS).toEqual([1, 2])
+    const expectedVersions = []
+    for (let version = MIN_SUPPORTED_VERSION; version <= WIRE_VERSION; version++) {
+      expectedVersions.push(version)
+    }
+    expect(SUPPORTED_WIRE_VERSIONS).toEqual(expectedVersions)
     expect(SUPPORTED_WIRE_VERSIONS.at(0)).toBe(MIN_SUPPORTED_VERSION)
     expect(SUPPORTED_WIRE_VERSIONS.at(-1)).toBe(WIRE_VERSION)
   })
