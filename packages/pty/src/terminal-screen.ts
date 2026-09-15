@@ -40,7 +40,7 @@ import { createHeadlessScreen, type ScreenReader } from './screen-model.js'
  * strand a later program exit. Rendered rows carrying a literal ESC cell are
  * stripped: the snapshot is a picture of the canvas, not a program.
  */
-export function snapshotFirstFrame(mode: ScreenMode, lines: string[]): Uint8Array {
+export function snapshotFirstFrame(mode: ScreenMode, lines: string[]): Buffer {
   const safe = lines.map((line) => line.replaceAll('\x1b', ''))
   const body = safe.join('\r\n')
   const prefix = mode === 'alternate' ? '\x1b[?1049l\x1b[?1049h\x1b[H' : '\x1b[2J\x1b[H'
@@ -220,7 +220,7 @@ export class TerminalScreen {
    * Serialise model rows into the bytes a fresh viewer renders as its first
    * frame — {@link snapshotFirstFrame} over this screen's own mode and lines.
    */
-  snapshotFirstFrame(): Uint8Array {
+  snapshotFirstFrame(): Buffer {
     return snapshotFirstFrame(this.tracker.current, this.screen.lines(false))
   }
 
