@@ -261,6 +261,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       if (client) bag.clients.deliver(client, message)
     },
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    runtimeDraft: (input, machineId) => bag.rpc.runtimeDraft(input, machineId),
+    runtimeSnapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
     onNativeViewReleased: (sessionId) => bag.inbox?.drain(sessionId),
     onArchived: async (sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
@@ -771,6 +773,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // them at the accepted-event seam so live chat and restart hydration agree.
   // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
   bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
+    if (event.t === 'draft') {
+      await bag.state.handleNativeDraft(sessionId, event.text)
+      return
+    }
     const item = runtimeTranscriptItemFromEvent(event)
     if (!item) return
     const session = bag.sessions.get(sessionId)

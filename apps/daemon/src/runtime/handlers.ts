@@ -23,6 +23,7 @@ import type { AgentSessionHandle } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
 import type {
   RuntimeConfigureResultMessage,
+  RuntimeDraftResultMessage,
   RuntimeSnapshotResultMessage,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
@@ -80,6 +81,7 @@ export const runtimeHandlers: Pick<
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
   | 'runtimeConfigureRequest'
+  | 'runtimeDraftRequest'
   | 'runtimeSnapshotRequest'
   | 'runtimeQueueDrainAbandonedAck'
   | 'runtimeEventAck'
@@ -372,6 +374,25 @@ export const runtimeHandlers: Pick<
    * the contract answers `not_running`, which is the true statement rather than
    * an empty snapshot a consumer would mistake for "nothing has happened".
    */
+  runtimeDraftRequest: (ctx, msg) => {
+    const answer = (result: RuntimeDraftResultMessage['result']): void => {
+      ctx.send({ type: 'runtimeDraftResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+    }
+    const handle = handleFor(ctx, msg.sessionId)
+    if (!handle) {
+      answer({ reason: 'not_running' })
+      return
+    }
+    void Promise.resolve().then(async () => {
+      if (msg.operation.verb === 'get') {
+        const result = await handle.draft.get()
+        answer(typeof result === 'string' ? { text: result } : result)
+      } else {
+        answer(await handle.draft.set(msg.operation.text))
+      }
+    }).catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
+  },
+
   runtimeSnapshotRequest: (ctx, msg) => {
     const answer = (result: RuntimeSnapshotResultMessage['result']): void => {
       ctx.send({

@@ -377,7 +377,10 @@ export async function createDaemonHostRuntime(args: {
 
   const bridges = new Map<SessionId, AgentSession>()
   const composerEngine = new ComposerSyncEngine(
-    (sessionId, text) => send({ type: 'nativeDraft', sessionId, text }),
+    (sessionId, text) => {
+      if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)
+      else send({ type: 'nativeDraft', sessionId, text })
+    },
     {
       writePty: (sessionId, bytes) =>
         bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),

@@ -182,6 +182,7 @@ export interface TerminalRuntimeHost {
   trackedState(sessionId: SessionId): AgentRuntimeState | undefined
   /** Whether composer sync is running (Draft Sync v2) for this session. */
   draftSyncing(sessionId: SessionId): boolean
+  setDraftTarget(sessionId: SessionId, text: string): boolean
   /** The durable host label. THIS is the process identity: exactly one abduco or
    *  abduco master owns it, and `adopt()` matches on it without a prefix. */
   durableLabel(sessionId: SessionId): string
@@ -479,6 +480,7 @@ export function turnEventForObservation(observation: AgentObservation): RuntimeE
 // ---------------------------------------------------------------------------
 
 export interface TerminalRuntime {
+  observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
    *  open a second record. */
@@ -863,6 +865,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  function observeDraft(sessionId: SessionId, text: string): void {
+    const session = sessions.get(sessionId)
+    if (!session || session.disposed || session.draft === text) return
+    session.draft = text
+    emit(session, { t: 'draft', text }, observedAt(), 'live')
+  }
+
   function observe(msg: DaemonMessage): void {
     // `agentObservation` is keyed by `observation.podiumSessionId`, not by a
     // top-level `sessionId` — it is the one frame whose session id lives inside
@@ -973,10 +982,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         return
       }
       case 'nativeDraft': {
-        // Not an event: the composer is STATE, and `snapshot()`/`draft.get()` are
-        // where a consumer reads it. Emitting a keystroke-rate event stream for a
-        // draft is exactly the cost the two watch levels exist to avoid.
-        session.draft = msg.text
+        observeDraft(session.sessionId, msg.text)
         return
       }
       case 'agentState': {
@@ -1782,11 +1788,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           }
           return session.draft ?? ''
         },
-        async set() {
-          // DECLARED, NOT BUILT. Composer injection exists (POD-859 phase 4) but
-          // routing it through the contract is a later phase, and a verb that
-          // silently did nothing would be worse than one that says so.
-          return refuse('unsupported', 'draft injection is not routed through the contract yet')
+        async set(text) {
+          if (session.disposed) return refuse('not_running')
+          if (!host.draftSyncing(session.sessionId) || !host.setDraftTarget(session.sessionId, text)) {
+            return refuse('unsupported', 'composer injection is unavailable for this session')
+          }
+          observeDraft(session.sessionId, text)
+          return { ok: true as const }
         },
       },
 
@@ -1990,6 +1998,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     bindings: () => [...handles.values()].map((handle) => handle.binding),
     has: (sessionId) => sessions.has(sessionId),
     observe,
+    observeDraft,
     onHookPayload,
     reportOomKill(sessionId, scopeUnit) {
       const session = sessions.get(sessionId)

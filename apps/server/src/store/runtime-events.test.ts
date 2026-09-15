@@ -1285,3 +1285,28 @@ describe('durable delivery outcome projection', () => {
     expect(settled).toEqual(['row-one'])
   })
 })
+
+it('projects draft changes after a completed turn without recording agent activity', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    registry.modules.sessions.state.setDraftSyncEnabled(true)
+    const at = '2026-09-15T00:00:00.000Z'
+    await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
+      sessionId, event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }),
+    })
+    await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
+      sessionId, event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }),
+    })
+    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
+    const event = { ...turnEvent({ at: '2026-09-16T00:00:00.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }), t: 'draft' as const, text: 'next prompt' }
+    expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
+    expect(registry.modules.sessions.state.draftText(sessionId)).toBe('next prompt')
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
+    expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})

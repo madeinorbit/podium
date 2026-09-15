@@ -275,6 +275,7 @@ export const CONTROL_PLANE_CLASS = {
    *  request/reply like every other session verb: a lost one is a failed RPC the
    *  caller already handles, and it is safe to repeat — configuring a session to
    *  the model it is already on is a no-op. */
+  runtimeDraftRequest: 'control.command',
   runtimeConfigureRequest: 'control.command',
   // Receipt for a durable-synced daemon report. It is safe to repeat and only
   // retires the daemon outbox record whose reportId it names.
@@ -399,6 +400,7 @@ export const DAEMON_PLANE_CLASS = {
   // so this correction is entity truth rather than a lossy live-stream hint.
   runtimeQueueDrainAbandoned: 'control.entity',
   runtimeLifecycleResult: 'control.command',
+  runtimeDraftResult: 'control.command',
   runtimeConfigureResult: 'control.command',
   runtimeAnswerResult: 'control.command',
   /**

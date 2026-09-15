@@ -156,10 +156,7 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
 
     // ---- EXTENDED ----
     draft: input.draftReadable
-      ? // WRITE IS FALSE ON PURPOSE. Composer INJECTION exists (POD-859 phase 4)
-        // but routing it through the contract is a later phase; declaring it
-        // now would promise a verb this driver does not implement.
-        supported({ read: true, write: false })
+      ? supported({ read: true, write: true })
       : unsupported('composer sync is not running for this session'),
     /**
      * UNSUPPORTED, AND STILL THE RIGHT ANSWER AFTER POD-3081 MADE THE THREE

@@ -2033,6 +2033,120 @@
       "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
     },
     {
+      "schema": "RuntimeDraftRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeDraftRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "operation": {
+          "verb": "get"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"operation\":{\"verb\":\"get\"}}"
+    },
+    {
+      "schema": "RuntimeDraftRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeDraftRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "operation": {
+          "verb": "get"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"operation\":{\"verb\":\"get\"}}"
+    },
+    {
+      "schema": "RuntimeDraftRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeDraftRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "operation": {
+          "verb": "set",
+          "text": "operation.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"operation\":{\"verb\":\"set\",\"text\":\"operation.text\"}}"
+    },
+    {
+      "schema": "RuntimeDraftResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeDraftResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "text": "result.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"text\":\"result.text\"}}"
+    },
+    {
+      "schema": "RuntimeDraftResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeDraftResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "text": "result.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"text\":\"result.text\"}}"
+    },
+    {
+      "schema": "RuntimeDraftResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeDraftResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true}}"
+    },
+    {
+      "schema": "RuntimeDraftResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeDraftResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "unsupported",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+    },
+    {
       "schema": "RuntimeEvent",
       "variant": "minimal",
       "wire": {

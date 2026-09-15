@@ -324,6 +324,7 @@ function makeWorld(options: WorldOptions = {}): {
     bridge: (sessionId) => bridgeOf.get(sessionId),
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
+    setDraftTarget: () => false,
     durableLabel: labelFor,
     scopeUnit: () => undefined,
     durableHostAlive: async (label) => alive.get(label) === true,

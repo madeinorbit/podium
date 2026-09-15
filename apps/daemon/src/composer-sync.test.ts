@@ -461,3 +461,19 @@ describe('ComposerSyncEngine', () => {
     }
   })
 })
+
+it('starts an idle draft target without waiting for another terminal frame', () => {
+  vi.useFakeTimers()
+  const term = scriptedTerminal(claudeComposerDriver)
+  const sync = new SessionComposerSync(asSessionId('s1'), claudeComposerDriver, term.reader, () => {}, {
+    writePty: term.applyBytes,
+  })
+  try {
+    expect(sync.setTarget('contract draft')).toBe(true)
+    vi.advanceTimersByTime(300)
+    expect(term.composer).toBe('contract draft')
+  } finally {
+    sync.dispose()
+    vi.useRealTimers()
+  }
+})

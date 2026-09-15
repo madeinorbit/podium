@@ -147,6 +147,7 @@ export const DAEMON_FRAME_PORTS = {
   runtimeStageAttachmentResult: ['rpc'],
   runtimeSendResult: ['rpc'],
   runtimeLifecycleResult: ['rpc'],
+  runtimeDraftResult: ['rpc'],
   runtimeConfigureResult: ['rpc'],
   runtimeAnswerResult: ['rpc'],
   /** The correlated reply to a snapshot request — the observation bootstrap a

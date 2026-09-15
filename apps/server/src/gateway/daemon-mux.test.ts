@@ -300,7 +300,8 @@ describe('machine scope and the writer class', () => {
     // `DAEMON_FRAME_PORTS`, not carried over. dev/mw contributed no new rpc
     // reply on top of what POD-3070 already absorbed.
     // 39 after direct server cutover adds the correlated serverEndpointResult reply.
-    expect(rpcFrames.length).toBe(39)
+    // The draft contract adds one correlated get/set reply.
+    expect(rpcFrames.length).toBe(40)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

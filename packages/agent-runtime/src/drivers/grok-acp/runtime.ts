@@ -1465,7 +1465,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()].map((ask) => ask.interaction),
-          ...(session.draft ? { draft: session.draft } : {}),
+          draft: session.draft,
           at: iso(),
         }
       },
@@ -1797,7 +1797,11 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           return session.draft
         },
         async set(text) {
-          session.draft = text
+          if (session.disposed) return { reason: 'not_running' as const }
+          if (session.draft !== text) {
+            session.draft = text
+            emit(session, { t: 'draft', text }, iso())
+          }
           return { ok: true as const }
         },
       },

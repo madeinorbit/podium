@@ -44,7 +44,7 @@ import {
   type MachineId,
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { RuntimeDraftResultMessage, RuntimeSnapshotResultMessage, ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
 import type { IssueRow } from '../../../store/types'
@@ -69,7 +69,7 @@ export interface SessionStatePrincipal {
 export type SessionStateRecord = Pick<
   Session,
   'sessionId' | 'machineId' | 'lastActiveAt' | 'draftUpdatedAt' | 'archived' | 'workState'
->
+> & { runtimeContract?: boolean }
 
 /**
  * The only DURABLE fields this module may WRITE [POD-3330], as they appear on a
@@ -162,6 +162,12 @@ export interface SessionStatePorts {
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
+  readonly runtimeDraft?: (
+    input: { sessionId: SessionId; operation: { verb: 'get' } | { verb: 'set'; text: string } },
+    machineId: MachineId,
+  ) => Promise<{ result: RuntimeDraftResultMessage['result'] }>
+  readonly runtimeSnapshot?: (sessionId: SessionId, machineId: MachineId) =>
+    Promise<{ result: RuntimeSnapshotResultMessage['result'] }>
   /** Re-arm durable inbox delivery after native terminal control is released. */
   readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
@@ -638,7 +644,7 @@ export class SessionStateService {
     if (!doc?.text) return
     const lastLive = this.ports.getSession(sessionId)?.lastActiveAt
     if (lastLive && doc.editedAt <= lastLive) return
-    this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
+    this.sendDraftTarget(sessionId, machineId, doc.text)
   }
 
   /**
@@ -814,6 +820,45 @@ export class SessionStateService {
     }
   }
 
+  /** Seed a rebound contract session once; subsequent changes arrive as events. */
+  async initializeRuntimeDraft(sessionId: SessionId, machineId: MachineId): Promise<void> {
+    if (!this.draftSyncEnabled_) return
+    const session = this.ports.getSession(sessionId)
+    if (!session?.runtimeContract) {
+      this.maybeCatchupInject(sessionId, machineId)
+      return
+    }
+    const before = this.draftDocs.get(sessionId)
+    const revision = before?.rev
+    if (before && before.rev > 0 && (!session.lastActiveAt || before.editedAt > session.lastActiveAt)) {
+      this.sendDraftTarget(sessionId, machineId, before.text)
+      return
+    }
+    const snapshot = await this.ports.runtimeSnapshot?.(sessionId, machineId)
+    let text = snapshot && 'snapshot' in snapshot.result ? snapshot.result.snapshot.draft : undefined
+    if (text === undefined) {
+      const answer = await this.ports.runtimeDraft?.({ sessionId, operation: { verb: 'get' } }, machineId)
+      if (answer && 'text' in answer.result) text = answer.result.text
+    }
+    // A delayed bootstrap must never replace a draft edited while it was in flight.
+    if (text !== undefined && this.ports.getSession(sessionId) === session &&
+        this.draftDocs.get(sessionId)?.rev === revision) {
+      await this.handleNativeDraft(sessionId, text)
+    }
+  }
+
+  private sendDraftTarget(sessionId: SessionId, machineId: MachineId, text: string): void {
+    if (!this.ports.getSession(sessionId)?.runtimeContract) {
+      this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text })
+      return
+    }
+    void this.ports.runtimeDraft?.({ sessionId, operation: { verb: 'set', text } }, machineId)
+      .then(({ result }) => {
+        if ('reason' in result) log.warn('runtime draft write refused', { sessionId, reason: result.reason })
+      })
+      .catch((error: unknown) => log.warn('runtime draft write failed', { sessionId, err: error }))
+  }
+
   private scheduleDraftInject(sessionId: SessionId): void {
     const existing = this.draftInjectTimers.get(sessionId)
     if (existing) clearTimeout(existing)
@@ -822,11 +867,7 @@ export class SessionStateService {
       const doc = this.draftDocs.get(sessionId)
       const session = this.ports.getSession(sessionId)
       if (!doc || !session || doc.origin === 'native') return
-      this.ports.toMachine(session.machineId, {
-        type: 'draftTarget',
-        sessionId,
-        text: doc.text,
-      })
+      this.sendDraftTarget(sessionId, session.machineId, doc.text)
     }, DEFAULT_LEASE_MS)
     timer.unref?.()
     this.draftInjectTimers.set(sessionId, timer)

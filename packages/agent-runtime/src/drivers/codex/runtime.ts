@@ -1382,8 +1382,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.asks.values()].map((ask) => ask.interaction),
-          ...(session.draft ? { draft: session.draft } : {}),
-          ...(session.title ? { title: session.title } : {}),
+          draft: session.draft,
           at: iso(),
         }
       },
@@ -1865,7 +1864,11 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           return session.draft
         },
         async set(text: string) {
-          session.draft = text
+          if (session.disposed) return { reason: 'not_running' as const }
+          if (session.draft !== text) {
+            session.draft = text
+            emit(session, { t: 'draft', text }, iso())
+          }
           return { ok: true as const }
         },
       },

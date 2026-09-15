@@ -211,7 +211,7 @@ export class RuntimeEventGate {
     await this.ports.write(
       sessionId,
       (draft) => {
-        session.recordRuntimeActivity(event.at, draft)
+        if (event.t !== 'draft') session.recordRuntimeActivity(event.at, draft)
         /**
          * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
          *
@@ -363,7 +363,8 @@ export class RuntimeEventGate {
       current.closedTurnEpoch !== null &&
       event.turnEpoch <= current.closedTurnEpoch &&
       event.t !== 'process' &&
-      event.t !== 'delivery'
+      event.t !== 'delivery' &&
+      event.t !== 'draft'
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }

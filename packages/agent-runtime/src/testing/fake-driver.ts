@@ -1033,7 +1033,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           return core.draft
         },
         async set(text) {
-          core.draft = text
+          if (core.draft !== text) {
+            core.draft = text
+            push(core, { t: 'draft', text })
+          }
           return { ok: true as const }
         },
       },

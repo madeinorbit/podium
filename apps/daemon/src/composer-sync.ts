@@ -175,13 +175,15 @@ export class SessionComposerSync {
 
   /** Set (or clear, with null) the chat-originated text to drive into native. No-op
    *  in read-only mode. Re-arms the state machine so it retries from the new target. */
-  setTarget(text: string | null): void {
-    if (!this.writePty || this.demoted) return
+  setTarget(text: string | null): boolean {
+    if (!this.writePty || this.demoted) return false
     this.target = text
     this.injecting = false
     this.expected = null
     this.backoffSkip = 0
     this.mismatch = 0
+    this.scheduleScrape()
+    return true
   }
 
   /** Seed the change comparator so a known value (a catchup baseline, or the
@@ -398,8 +400,8 @@ export class ComposerSyncEngine {
   }
 
   /** A chat-originated draft target to drive into the native composer (phase 4). */
-  setTarget(sessionId: SessionId, text: string | null): void {
-    this.sessions.get(sessionId)?.setTarget(text)
+  setTarget(sessionId: SessionId, text: string | null): boolean {
+    return this.sessions.get(sessionId)?.setTarget(text) ?? false
   }
 
   /** The daemon saw a client→PTY input byte for this session (input-byte tap). */

@@ -294,6 +294,7 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
     t: z.literal('open-url'),
     ev: z.object({ url: z.string(), intent: z.enum(['login', 'link']) }),
   }),
+  z.object({ t: z.literal('draft'), text: z.string() }),
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
@@ -615,6 +616,26 @@ export const RuntimeWatchMessage = z.object({
 })
 export type RuntimeWatchMessage = z.infer<typeof RuntimeWatchMessage>
 
+/** Read or replace the runtime-owned composer draft. */
+export const RuntimeDraftRequestMessage = z.object({
+  type: z.literal('runtimeDraftRequest'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  operation: z.discriminatedUnion('verb', [
+    z.object({ verb: z.literal('get') }),
+    z.object({ verb: z.literal('set'), text: z.string() }),
+  ]),
+})
+export type RuntimeDraftRequestMessage = z.infer<typeof RuntimeDraftRequestMessage>
+
+export const RuntimeDraftResultMessage = z.object({
+  type: z.literal('runtimeDraftResult'),
+  requestId: z.string(),
+  sessionId: z.string().min(1).pipe(SessionIdField),
+  result: z.union([z.object({ text: z.string() }), z.object({ ok: z.literal(true) }), Refusal]),
+})
+export type RuntimeDraftResultMessage = z.infer<typeof RuntimeDraftResultMessage>
+
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
@@ -629,6 +650,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // index, so a new arm at the END leaves every existing sample byte-identical
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
+  RuntimeDraftRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -834,6 +856,7 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   // APPENDED for the same reason as the command union's last arm: the golden
   // corpus samples by index, so the end is the one position that costs nothing.
   RuntimeConfigureResultMessage,
+  RuntimeDraftResultMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -859,6 +882,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',
   'runtimeConfigureRequest',
+  'runtimeDraftRequest',
   'runtimeSnapshotRequest',
   'runtimeQueueDrainAbandonedAck',
   'runtimeEventAck',
@@ -868,6 +892,7 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',
   'runtimeConfigureResult',
+  'runtimeDraftResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
   'runtimeSnapshotResult',
