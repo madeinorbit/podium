@@ -167,6 +167,12 @@ export interface FakeAppServer {
   /** Drive the open turn to completion with a verdict Codex would report. */
   completeTurn(status?: 'completed' | 'interrupted' | 'failed'): void
   /**
+   * Announce a thread rename the way the real server does: a `thread/started`
+   * carrying the thread's `name`. What the driver's `session.title` — and
+   * therefore `snapshot().title` — is folded from.
+   */
+  renameThread(name: string): void
+  /**
    * Announce the user's own message back, as codex does: `item/started` then
    * `item/completed` for a `userMessage`. Its started half is the one the
    * viewer least needs previewed — they typed it.
@@ -370,6 +376,13 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         status: { type: 'idle' },
       })
       notify('turn/completed', { threadId: server.threadId, turn })
+    },
+    renameThread(name: string) {
+      const threadId = server.threadId
+      if (!threadId) return
+      notify('thread/started', {
+        thread: { ...(threadPayload(threadId) as Record<string, unknown>), name },
+      })
     },
     emitUserMessage(text, itemId) {
       const id = itemId ?? `usr_${++itemSeq}`

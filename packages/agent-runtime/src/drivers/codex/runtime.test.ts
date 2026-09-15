@@ -1439,3 +1439,28 @@ describe('boundary delivery', () => {
     }
   })
 })
+
+describe('the session title on snapshot', () => {
+  it('carries the thread name the driver already folds, across adopt', async () => {
+    /**
+     * THE SIDE CHANNEL THIS ISSUE CLOSES (ONE DRIVER OF IT). The driver has
+     * folded `thread.name` into `session.title` since the app-server move, but
+     * `snapshot()` never carried it — so the declared `title` capability had
+     * no verb behind it and every consumer scraped the PTY OSC title or the
+     * transcript instead. Pinning the snapshot first: a rename must be
+     * observable on the next snapshot, and must survive the journal round-trip
+     * an adopt reads back.
+     */
+    const w = await world()
+    try {
+      expect((await w.handle.snapshot()).title).toBeUndefined()
+      w.server.renameThread('user scope models')
+      await settle()
+      expect((await w.handle.snapshot()).title).toBe('user scope models')
+      const adopted = await w.adopt()
+      expect((await adopted.snapshot()).title).toBe('user scope models')
+    } finally {
+      w.dispose()
+    }
+  })
+})
