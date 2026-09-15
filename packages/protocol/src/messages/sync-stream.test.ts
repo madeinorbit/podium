@@ -7,6 +7,10 @@ import {
 import { SYNC_WIRE_FIXTURES } from './sync-stream.fixtures'
 import golden from './wire-golden.json'
 
+const { URLSearchParams } = globalThis as unknown as {
+  URLSearchParams: new (query: string) => { getAll(name: string): string[]; set(name: string, value: string): void }
+}
+
 const meta = SyncRecord.parse(SYNC_WIRE_FIXTURES[1]!.value)
 const delta = SyncRecord.parse(SYNC_WIRE_FIXTURES[3]!.value)
 const complete = SyncRecord.parse(SYNC_WIRE_FIXTURES[4]!.value)

@@ -11,6 +11,11 @@ import {
   type FeedFrameViolation,
 } from './feed'
 
+// Structural WHATWG contracts keep this package's ES-only typecheck DOM-free.
+const utf8 = globalThis as unknown as { TextEncoder: new () => { encode(input: string): Uint8Array } }
+const encoder = new utf8.TextEncoder()
+export interface SyncQueryParams { getAll(name: string): string[] }
+
 export const SYNC_CONTENT_TYPE = 'application/x-ndjson'
 export const SYNC_LINE_MAX_BYTES = 16 * 1024 * 1024
 export const SYNC_BATCH_TARGET_BYTES = 1024 * 1024
@@ -96,7 +101,7 @@ export type SyncRecordParseResult =
 
 /** Input excludes the terminating LF. Unknown types are ignored, not certified. */
 export function parseSyncRecord(line: string): SyncRecordParseResult {
-  if (new TextEncoder().encode(line).byteLength > SYNC_LINE_MAX_BYTES) {
+  if (encoder.encode(line).byteLength > SYNC_LINE_MAX_BYTES) {
     return { kind: 'refused', reason: 'line-too-large' }
   }
   let raw: unknown
@@ -124,7 +129,7 @@ export const SyncDeltaQuery = z.object({
   message: 'to must be greater than or equal to from', path: ['to'],
 })
 export type SyncDeltaQuery = z.infer<typeof SyncDeltaQuery>
-export function parseSyncDeltaQuery(query: URLSearchParams): ReturnType<typeof SyncDeltaQuery.safeParse> {
+export function parseSyncDeltaQuery(query: SyncQueryParams): ReturnType<typeof SyncDeltaQuery.safeParse> {
   const fields: Record<string, unknown> = {}
   for (const key of ['feedId', 'epoch', 'from', 'to']) {
     const values = query.getAll(key)
