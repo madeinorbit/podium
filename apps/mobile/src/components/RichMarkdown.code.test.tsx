@@ -2,7 +2,14 @@ import { act, cleanup, render } from '@testing-library/react'
 import { processColor } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 import { prosePalette } from '../theme/syntax'
+import { color } from '../theme/theme'
 import { RichMarkdown } from './RichMarkdown'
+
+// A distinct resolved label catches substitutions with fixed palette inks.
+vi.mock('../theme/platform-colors', async (original) => ({
+  ...(await original<object>()),
+  semanticColor: (name: string, fallback: string) => (name === 'label' ? '#314159' : fallback),
+}))
 
 vi.mock('./RefChip', () => ({ RefChip: () => null }))
 vi.mock('../lib/podium-link', () => ({ followPodiumLink: vi.fn() }))
@@ -47,9 +54,9 @@ it('distinguishes inline symbols from bold prose without a chip', () => {
   expect(processColor(getComputedStyle(code).color)).toBe(
     processColor(prosePalette.dark['code-inline']),
   )
-  expect(processColor(getComputedStyle(strong).color)).toBe(
-    processColor(prosePalette.dark['text-strong']),
-  )
+  expect(processColor(getComputedStyle(strong).color)).toBe(processColor(color.text))
+  if (!code.parentElement) throw new Error('Missing prose parent')
+  expect(processColor(getComputedStyle(code.parentElement).color)).toBe(processColor(color.body))
   expect(getComputedStyle(strong).fontFamily).toContain('Geist_600SemiBold')
   expect(processColor(getComputedStyle(code).backgroundColor)).toBe(processColor('transparent'))
   expect(['', '0px']).toContain(getComputedStyle(code).borderWidth)

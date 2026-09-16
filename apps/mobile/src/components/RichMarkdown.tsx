@@ -388,12 +388,14 @@ const styles = StyleSheet.create({
   root: { minWidth: 0 },
   body: {
     ...sans(400),
-    color: proseColor('foreground'),
+    // Keep UIKit label adaptation, including Increase Contrast, for reading text.
+    color: color.body,
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
   },
   paragraph: { marginVertical: 4 },
-  strong: { ...sans(600), color: proseColor('text-strong') },
+  // UIKit primary label can already be black/white: emphasis adds weight there.
+  strong: { ...sans(600), color: color.text },
   em: { fontStyle: 'italic' },
   del: { textDecorationLine: 'line-through', color: color.textDim },
   link: { color: color.info, textDecorationLine: 'underline' },
