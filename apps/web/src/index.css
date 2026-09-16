@@ -545,7 +545,7 @@
    any state the surrounding UI can be in.
 
    Contrast floor: every token measures at least 4.5:1 against its own mode's
-   ground (near-black #0e0e12–#16171a in dark, #f2f1ed–#ffffff in light), except
+   ground (near-black #0e0e12–#1e2024 in dark, #f0efe9–#ffffff in light), except
    --syntax-punct, which is deliberately quieter because a comma is not
    information. */
 :root {
@@ -559,7 +559,7 @@
   --syntax-function: #1d4ed8;
   --syntax-type: #0c6f86;
   --syntax-property: #2451a8;
-  --syntax-tag: #b8532e;
+  --syntax-tag: #ad4e2b;
   --syntax-invalid: #c81e2b;
   /* Editor chrome. The gutter is a number column, not a border: it carries no
      rule and no fill, only dimmer ink, so the code starts at the left edge of
@@ -573,7 +573,7 @@
 }
 .dark {
   --syntax-ink: #d5d7de;
-  --syntax-comment: #7c8494;
+  --syntax-comment: #838b9b;
   --syntax-punct: #8a91a0;
   --syntax-operator: #a7aebd;
   --syntax-keyword: #bb9af7;
@@ -590,6 +590,58 @@
   --syntax-active-line: rgb(255 255 255 / 0.035);
   --syntax-cursor: #d9b477;
   --syntax-match: rgb(127 176 255 / 0.22);
+}
+
+/* Shared worker token colours for transcript fences and Bash tool cells.
+   Keep these beside the light/dark palette; punctuation uses its documented
+   quieter contrast exception. Dotted semantic scopes are emitted as hyphens. */
+:is(.chat-md, .tool-cmd) .hljs-keyword,
+:is(.chat-md, .tool-cmd) .hljs-selector-tag {
+  color: var(--syntax-keyword);
+}
+:is(.chat-md, .tool-cmd) .hljs-string,
+:is(.chat-md, .tool-cmd) .hljs-regexp {
+  color: var(--syntax-string);
+}
+:is(.chat-md, .tool-cmd) .hljs-number,
+:is(.chat-md, .tool-cmd) .hljs-literal {
+  color: var(--syntax-number);
+}
+:is(.chat-md, .tool-cmd) .hljs-comment,
+:is(.chat-md, .tool-cmd) .hljs-quote {
+  color: var(--syntax-comment);
+}
+:is(.chat-md, .tool-cmd) .hljs-title,
+:is(.chat-md, .tool-cmd) .hljs-title-function,
+:is(.chat-md, .tool-cmd) .hljs-title-function-invoke {
+  color: var(--syntax-function);
+}
+:is(.chat-md, .tool-cmd) .hljs-type,
+:is(.chat-md, .tool-cmd) .hljs-title-class,
+:is(.chat-md, .tool-cmd) .hljs-title-class-inherited,
+:is(.chat-md, .tool-cmd) .hljs-built_in {
+  color: var(--syntax-type);
+}
+:is(.chat-md, .tool-cmd) .hljs-attr,
+:is(.chat-md, .tool-cmd) .hljs-attribute,
+:is(.chat-md, .tool-cmd) .hljs-property,
+:is(.chat-md, .tool-cmd) .hljs-params,
+:is(.chat-md, .tool-cmd) .hljs-variable,
+:is(.chat-md, .tool-cmd) .hljs-variable-constant,
+:is(.chat-md, .tool-cmd) .hljs-variable-language,
+:is(.chat-md, .tool-cmd) .hljs-template-variable {
+  color: var(--syntax-property);
+}
+:is(.chat-md, .tool-cmd) .hljs-name,
+:is(.chat-md, .tool-cmd) .hljs-tag,
+:is(.chat-md, .tool-cmd) .hljs-bullet {
+  color: var(--syntax-tag);
+}
+:is(.chat-md, .tool-cmd) .hljs-operator {
+  color: var(--syntax-operator);
+}
+:is(.chat-md, .tool-cmd) .hljs-punctuation {
+  color: var(--syntax-punct);
 }
 
 /* ── Issue-accent channel [spec:SP-b4d1] ─────────────────────────────────────
