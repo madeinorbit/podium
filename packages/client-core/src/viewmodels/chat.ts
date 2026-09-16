@@ -110,6 +110,7 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
       const call = callByToolUseId.get(item.toolUseId)
       if (call) {
         call.result = item.toolResult
+        if (item.toolEffects) call.item = { ...call.item, toolEffects: item.toolEffects }
         continue
       }
       // Orphan result (call scrolled out of the buffer) — show it standalone.

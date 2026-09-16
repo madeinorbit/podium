@@ -29,7 +29,7 @@ export type ToolEditPayload = {
   patch?: string
   added: number
   removed: number
-  changedFiles?: number
+  changedFileCount?: number
   moreFiles?: number
   truncated?: boolean
 }
@@ -222,7 +222,7 @@ export function safeToolEditJson(edit: ToolEditPayload): string | undefined {
       hunks: [],
       added: edit.added,
       removed: edit.removed,
-      changedFiles: edit.changedFiles,
+      changedFileCount: edit.changedFileCount,
       moreFiles: edit.moreFiles,
       truncated: true,
     } satisfies ToolEditPayload)

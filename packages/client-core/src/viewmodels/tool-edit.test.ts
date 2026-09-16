@@ -1,23 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import {
-  parseToolEdit,
-  toolEditLines,
-  toolEditMagnitude,
-  toolEditUnifiedDiff,
-} from './tool-edit'
+import { parseToolEdit, toolEditLines, toolEditMagnitude, toolEditUnifiedDiff } from './tool-edit'
 
 const replaceJson = JSON.stringify({
   kind: 'file-edit',
   path: 'a.ts',
   mode: 'replace',
-  hunks: [{ path: 'a.ts', oldText: 'const a = 1\nconst b = 2', newText: 'const a = 1\nconst b = 3' }],
+  hunks: [
+    { path: 'a.ts', oldText: 'const a = 1\nconst b = 2', newText: 'const a = 1\nconst b = 3' },
+  ],
   added: 2,
   removed: 2,
 })
 
 describe('parseToolEdit', () => {
   it('reads a file-edit payload and ignores an ask card', () => {
-    expect(parseToolEdit(replaceJson)).toMatchObject({ kind: 'file-edit', path: 'a.ts', mode: 'replace' })
+    expect(parseToolEdit(replaceJson)).toMatchObject({
+      kind: 'file-edit',
+      path: 'a.ts',
+      mode: 'replace',
+    })
     expect(parseToolEdit(JSON.stringify({ questions: [] }))).toBeUndefined()
     expect(parseToolEdit(undefined)).toBeUndefined()
   })
@@ -104,7 +105,9 @@ describe('toolEditLines', () => {
 describe('toolEditUnifiedDiff', () => {
   it('renders the recorded change as a unified diff a viewer can parse', () => {
     const edit = parseToolEdit(replaceJson)!
-    expect(toolEditUnifiedDiff(edit)).toBe([' const a = 1', '-const b = 2', '+const b = 3'].join('\n'))
+    expect(toolEditUnifiedDiff(edit)).toBe(
+      [' const a = 1', '-const b = 2', '+const b = 3'].join('\n'),
+    )
   })
 
   it('omits line numbers it does not have rather than counting from a made-up 1', () => {
@@ -156,4 +159,41 @@ describe('toolEditUnifiedDiff', () => {
     // The cap counts the file label too, so ten kept rows are nine of content.
     expect(toolEditUnifiedDiff(edit, 10)).toMatch(/\\ 31 more lines not recorded/)
   })
+})
+
+it('resolves applied effects before requested intent and keeps provenance', async () => {
+  const { resolveToolEdit } = await import('./tool-edit')
+  const intent = JSON.stringify({
+    kind: 'file-edit',
+    mode: 'replace',
+    hunks: [{ oldText: 'before', newText: 'requested' }],
+    added: 1,
+    removed: 1,
+  })
+  const item = {
+    id: 'call',
+    role: 'tool' as const,
+    text: '',
+    toolInputJson: intent,
+    toolEffects: [
+      {
+        kind: 'file-edit' as const,
+        userModified: true,
+        edit: {
+          kind: 'file-edit' as const,
+          mode: 'patch' as const,
+          hunks: [],
+          patch: '--- a.ts\n+++ a.ts\n@@ -1 +1 @@\n-before\n+applied',
+          added: 1,
+          removed: 1,
+        },
+      },
+    ],
+  }
+  const resolved = resolveToolEdit(item)
+  expect(resolved).toMatchObject({ source: 'effect', userModified: true })
+  expect(resolved && toolEditUnifiedDiff(resolved)).toContain('+++ a.ts')
+  expect(resolved && toolEditUnifiedDiff(resolved)).toContain('+applied')
+  expect(item.toolInputJson).toBe(intent)
+  expect(resolveToolEdit({ ...item, toolEffects: undefined })).toMatchObject({ source: 'intent' })
 })

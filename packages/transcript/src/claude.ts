@@ -152,9 +152,9 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
     const results = items.filter((item) => item.toolResult !== undefined)
     // Claude writes one effect envelope per record, not one per content block.
     // Ambiguous parallel-result envelopes must not be attributed to every call.
-    if (results.length === 1) {
+    if (results.length === 1 && results[0]) {
       const effects = claudeToolEffects(r.toolUseResult)
-      if (effects.length) Object.assign(results[0]!, { toolEffects: effects })
+      if (effects.length) results[0].toolEffects = effects
     }
     return items
   }
@@ -175,6 +175,17 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
         },
       ]
     }
+    if (subtype === 'stop_hook_summary') {
+      const errors = Array.isArray(r.hookErrors) ? r.hookErrors.length : 0
+      return [
+        {
+          id: uuid ?? '',
+          role: 'system',
+          ts,
+          text: `Stop hooks: ${typeof r.hookCount === 'number' ? r.hookCount : 0} completed${errors ? `, ${errors} errors` : ''}${r.preventedContinuation === true ? '; continuation prevented' : ''}`,
+        },
+      ]
+    }
     const text = typeof r.content === 'string' ? r.content : ''
     if (!text.trim()) return []
     // away_summary is Claude Code's while-you-were-gone recap — tag it so the chat
@@ -188,19 +199,18 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
     const att = (r as { attachment?: Record<string, unknown> }).attachment
     // A prompt the human sent MID-TURN is here and nowhere else (POD-1468).
     if (att?.type === 'queued_command') return queuedCommandItems(uuid, ts, att)
-    // ONLY WHAT THE HUMAN ATTACHED (POD-1171). Claude Code writes many
-    // `attachment` subtypes and all of them are context bookkeeping except one:
-    // 'file' is a path the operator named in the composer (@mention), so it
-    // belongs to their turn. The other two file-bearing subtypes are the harness
-    // talking to itself — 'edited_text_file' re-attaches a file whose bytes
-    // changed on disk after a tool call (Claude Code's own UI shows nothing),
-    // and 'compact_file_reference' carries a path across a compaction seam.
-    // Emitting those as role:'user' put an empty "You" bubble holding a file
-    // chip into the feed seconds after the AGENT edited the file, which reads as
-    // the human having sent it. Same call the string-content branch already
-    // makes for `promptSource: 'system'`: drop it rather than render a lie.
-    // Their paths need no allow-listing either — the tool_use that touched the
-    // file already contributed it (see knownPathsFor).
+    if (att?.type === 'edited_text_file' && typeof att.filename === 'string') {
+      // This is a post-edit notice, not a user attachment or a before/after diff.
+      return [
+        {
+          id: uuid ?? '',
+          role: 'system',
+          ts,
+          text: `File changed: ${att.filename}`,
+          toolPaths: [att.filename],
+        },
+      ]
+    }
     if (att?.type === 'file' && typeof att.filename === 'string') {
       const filename = att.filename
       return [

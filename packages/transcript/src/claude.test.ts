@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { recordUuid, stampCursors } from './cursor-codec'
 import {
   claudeRecordColor,
   claudeRecordModel,
@@ -8,6 +7,7 @@ import {
   claudeToolResultItem,
   toolInputPreview,
 } from './claude'
+import { recordUuid, stampCursors } from './cursor-codec'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {
@@ -756,13 +756,15 @@ describe('claudeRecordToItems toolPaths', () => {
   // attachment subtype used to become a role:'user' item, so the chat drew an
   // empty right-aligned "You" bubble holding a file chip — seconds after the
   // AGENT's own Bash call rewrote the file. Only the operator's @mention
-  // ('file') survives; the harness's own re-attachments produce nothing.
-  it('drops an edited_text_file attachment (harness re-attach, not a user turn)', () => {
+  // ('file') becomes a user attachment; edited-file notices belong to the system.
+  it('surfaces an edited_text_file as a system notice, never a user turn)', () => {
     const items = claudeRecordToItems({
       type: 'attachment',
       attachment: { type: 'edited_text_file', filename: '/repo/b.ts', snippet: '...' },
     })
-    expect(items).toEqual([])
+    expect(items).toMatchObject([
+      { role: 'system', text: 'File changed: /repo/b.ts', toolPaths: ['/repo/b.ts'] },
+    ])
   })
 
   it('drops a compact_file_reference attachment (context carried across a seam)', () => {

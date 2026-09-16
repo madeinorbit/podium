@@ -17,9 +17,21 @@ export function ToolEditDiff({ edit }: { edit: ToolEditView }): JSX.Element {
   return (
     <div className="tool-edit-diff" data-testid="tool-edit-diff">
       <div className="tool-edit-head">
-        <span className="tool-edit-head-label">{edit.mode === 'write' ? 'new file' : 'diff'}</span>
+        <span className="tool-edit-head-label">
+          {edit.source === 'effect' ? 'applied' : 'requested'}{' '}
+          {edit.mode === 'write' ? 'new file' : 'diff'}
+        </span>
         <span className="tool-edit-mag">{magnitude}</span>
       </div>
+      {edit.userModified && (
+        <div className="tool-edit-line tool-edit-line--note">User modified this edit</div>
+      )}
+      {edit.changedFileCount !== undefined && (
+        <div className="tool-edit-line tool-edit-line--note">
+          {edit.changedFileCount} {edit.changedFileCount === 1 ? 'file' : 'files'} changed
+          {edit.moreFiles ? ` · ${edit.moreFiles} additional files without recorded diffs` : ''}
+        </div>
+      )}
       {lines.map((line, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a static parsed list
         <DiffLine key={i} line={line} />

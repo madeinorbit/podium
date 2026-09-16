@@ -1,4 +1,4 @@
-import { formatClock, parseToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
+import { formatClock, resolveToolEdit, toolEditUnifiedDiff } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -7,12 +7,7 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import {
-  processClass,
-  type ProcessPosition,
-  type TurnPosition,
-  turnClass,
-} from './ChatBlockView'
+import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
 import {
   type ChatBlock,
   type ToolBatchRow,
@@ -233,7 +228,7 @@ export function ToolBatchView({
       // ONLY a recorded edit. `toolPaths` is every path the call reported —
       // reads included, and files outside the repo — and neither belongs in a
       // list of what this run changed. See the note above.
-      const edit = parseToolEdit(b.item.toolInputJson)
+      const edit = resolveToolEdit(b.item)
       if (!edit?.path) continue
       const text = toolEditUnifiedDiff(edit, SHEET_LINE_CAP)
       if (!text) continue

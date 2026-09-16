@@ -1,0 +1,755 @@
+{
+  "provenance": {
+    "date": "2026-09-16",
+    "transcripts": 12,
+    "records": 23769,
+    "description": "Shape-only projection of the twelve most recently modified project Claude JSONL transcripts. Values omitted; key presence and multiplicity retained."
+  },
+  "shapes": [
+    {
+      "count": 928,
+      "record": {
+        "type": "last-prompt"
+      }
+    },
+    {
+      "count": 913,
+      "record": {
+        "type": "mode"
+      }
+    },
+    {
+      "count": 864,
+      "record": {
+        "type": "permission-mode"
+      }
+    },
+    {
+      "count": 912,
+      "record": {
+        "type": "atis-latch"
+      }
+    },
+    {
+      "count": 882,
+      "record": {
+        "type": "bridge-session"
+      }
+    },
+    {
+      "count": 4936,
+      "record": {
+        "attachment": {
+          "type": "hook_success"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 51,
+      "record": {
+        "attachment": {
+          "type": "hook_additional_context"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 258,
+      "record": {
+        "type": "file-history-snapshot"
+      }
+    },
+    {
+      "count": 426,
+      "record": {
+        "type": "user"
+      }
+    },
+    {
+      "count": 61,
+      "record": {
+        "attachment": {
+          "type": "environment"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 16,
+      "record": {
+        "attachment": {
+          "type": "model"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 29,
+      "record": {
+        "attachment": {
+          "type": "deferred_tools_delta"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 14,
+      "record": {
+        "attachment": {
+          "type": "agent_listing_delta"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 18,
+      "record": {
+        "attachment": {
+          "type": "mcp_instructions_delta"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 17,
+      "record": {
+        "attachment": {
+          "type": "skill_listing"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 14,
+      "record": {
+        "attachment": {
+          "type": "auto_mode"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 2245,
+      "record": {
+        "attachment": {
+          "type": "total_tokens_reminder"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 24,
+      "record": {
+        "attachment": {
+          "type": "instructions"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 13,
+      "record": {
+        "attachment": {
+          "type": "session_context"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 20,
+      "record": {
+        "attachment": {
+          "type": "date"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 13,
+      "record": {
+        "attachment": {
+          "type": "remote_session_change"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 28,
+      "record": {
+        "attachment": {
+          "type": "prompt_snapshot"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 900,
+      "record": {
+        "type": "ai-title"
+      }
+    },
+    {
+      "count": 4912,
+      "record": {
+        "type": "assistant"
+      }
+    },
+    {
+      "count": 1965,
+      "record": {
+        "toolUseResult": {
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 12,
+      "record": {
+        "toolUseResult": {
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "persistedOutputPath": null,
+          "persistedOutputSize": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 336,
+      "record": {
+        "subtype": "stop_hook_summary",
+        "type": "system"
+      }
+    },
+    {
+      "count": 317,
+      "record": {
+        "subtype": "turn_duration",
+        "type": "system"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "attachment": {
+          "type": "nested_memory"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 76,
+      "record": {
+        "toolUseResult": {
+          "bashEditDiff": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 19,
+      "record": {
+        "attachment": {
+          "type": "hook_blocking_error"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 455,
+      "record": {
+        "type": "queue-operation"
+      }
+    },
+    {
+      "count": 127,
+      "record": {
+        "attachment": {
+          "type": "queued_command"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "toolUseResult": {
+          "bashEditDiff": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "staleReadFileStateHint": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 3,
+      "record": {
+        "toolUseResult": {
+          "bashEditDiff": null,
+          "gitOperation": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 13,
+      "record": {
+        "attachment": {
+          "type": "hook_non_blocking_error"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 6,
+      "record": {
+        "toolUseResult": {
+          "file": null,
+          "type": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 875,
+      "record": {
+        "attachment": {
+          "type": "batching_reminder_sent"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 645,
+      "record": {
+        "attachment": {
+          "type": "bash_output_audience_note"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 66,
+      "record": {
+        "attachment": {
+          "type": "silent_turn_reminder"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 23,
+      "record": {
+        "type": "cost-state"
+      }
+    },
+    {
+      "count": 6,
+      "record": {
+        "toolUseResult": {
+          "backgroundTaskId": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null,
+          "timedOutAfterMs": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 18,
+      "record": {
+        "attachment": {
+          "type": "edited_text_file"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 8,
+      "record": {
+        "toolUseResult": {
+          "matches": null,
+          "query": null,
+          "total_deferred_tools": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 7,
+      "record": {
+        "toolUseResult": {
+          "persistent": null,
+          "taskId": null,
+          "timeoutMs": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 11,
+      "record": {
+        "attachment": {
+          "type": "deferred_tools_record"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 21,
+      "record": {
+        "toolUseResult": {
+          "gitOperation": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 3,
+      "record": {
+        "toolUseResult": {
+          "command": null,
+          "message": null,
+          "task_id": null,
+          "task_type": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 24,
+      "record": {
+        "toolUseResult": {
+          "backgroundTaskId": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 68,
+      "record": {
+        "toolUseResult": {
+          "backgroundCwdHint": null,
+          "backgroundTaskId": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 5,
+      "record": {
+        "toolUseResult": {
+          "commandName": null,
+          "success": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 5,
+      "record": {
+        "attachment": {
+          "type": "command_permissions"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 12,
+      "record": {
+        "toolUseResult": {
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "returnCodeInterpretation": null,
+          "stderr": null,
+          "stdout": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 5,
+      "record": {
+        "subtype": "local_command",
+        "type": "system"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "toolUseResult": {
+          "backgroundCwdHint": null,
+          "backgroundTaskId": null,
+          "interrupted": null,
+          "isImage": null,
+          "noOutputExpected": null,
+          "stderr": null,
+          "stdout": null,
+          "timedOutAfterMs": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 15,
+      "record": {
+        "subtype": "away_summary",
+        "type": "system"
+      }
+    },
+    {
+      "count": 13,
+      "record": {
+        "toolUseResult": {
+          "agentId": null,
+          "canReadOutputFile": null,
+          "description": null,
+          "isAsync": null,
+          "outputFile": null,
+          "prompt": null,
+          "resolvedModel": null,
+          "status": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "toolUseResult": {
+          "retrieval_status": null,
+          "task": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 3,
+      "record": {
+        "attachment": {
+          "type": "hook_cancelled"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "attachment": {
+          "type": "date_change"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "toolUseResult": {
+          "durationSeconds": null,
+          "query": null,
+          "results": null,
+          "searchCount": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 4,
+      "record": {
+        "toolUseResult": {
+          "bytes": null,
+          "code": null,
+          "codeText": null,
+          "durationMs": null,
+          "result": null,
+          "url": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 12,
+      "record": {
+        "type": "file-history-delta"
+      }
+    },
+    {
+      "count": 7,
+      "record": {
+        "toolUseResult": {
+          "content": null,
+          "filePath": null,
+          "memdirStamped": null,
+          "originalFile": null,
+          "structuredPatch": null,
+          "type": null,
+          "userModified": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "subtype": "compact_boundary",
+        "type": "system"
+      }
+    },
+    {
+      "count": 7,
+      "record": {
+        "attachment": {
+          "type": "file"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "attachment": {
+          "type": "compact_file_reference"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 5,
+      "record": {
+        "toolUseResult": {
+          "content": null,
+          "filePath": null,
+          "originalFile": null,
+          "structuredPatch": null,
+          "type": null,
+          "userModified": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "toolUseResult": {
+          "durable": null,
+          "humanSchedule": null,
+          "id": null,
+          "recurring": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "attachment": {
+          "type": "thinking_stripped"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "attachment": {
+          "type": "invoked_skills"
+        },
+        "type": "attachment"
+      }
+    },
+    {
+      "count": 3,
+      "record": {
+        "subtype": "scheduled_task_fire",
+        "type": "system"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "toolUseResult": {
+          "id": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 2,
+      "record": {
+        "type": "frame-link"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "toolUseResult": {
+          "artifact_id": null,
+          "audience": null,
+          "contract": null,
+          "liveSubscription": null,
+          "path": null,
+          "seq": null,
+          "title": null,
+          "updated": null,
+          "url": null,
+          "version": null
+        },
+        "type": "user"
+      }
+    },
+    {
+      "count": 1,
+      "record": {
+        "type": "artifact-comment-monitor"
+      }
+    },
+    {
+      "count": 52,
+      "record": {
+        "type": "artifact-autoreact-ledger"
+      }
+    }
+  ]
+}

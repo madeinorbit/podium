@@ -28,6 +28,53 @@ export const TranscriptTag = z.object({
 })
 export type TranscriptTag = z.infer<typeof TranscriptTag>
 
+/** A bounded, discriminated account of observed tool effects, separate from intent. */
+export const TranscriptToolEffect = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('file-edit'),
+    edit: z.object({
+      kind: z.literal('file-edit'),
+      path: z.string().optional(),
+      mode: z.enum(['replace', 'write', 'patch']),
+      hunks: z.array(
+        z.object({
+          path: z.string().optional(),
+          oldText: z.string().optional(),
+          newText: z.string().optional(),
+        }),
+      ),
+      patch: z.string().optional(),
+      added: z.number(),
+      removed: z.number(),
+      changedFileCount: z.number().optional(),
+      moreFiles: z.number().optional(),
+      truncated: z.boolean().optional(),
+    }),
+    userModified: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal('git-operation'),
+    operation: z.object({
+      commit: z
+        .object({
+          sha: z.string().optional(),
+          kind: z.string().optional(),
+          branch: z.string().optional(),
+        })
+        .optional(),
+      branch: z.object({ ref: z.string().optional(), action: z.string().optional() }).optional(),
+    }),
+  }),
+  z.object({ kind: z.literal('background-task'), taskId: z.string() }),
+  z.object({
+    kind: z.literal('termination'),
+    interrupted: z.literal(true).optional(),
+    timedOutAfterMs: z.number().optional(),
+    interpretation: z.string().optional(),
+  }),
+  z.object({ kind: z.literal('unknown'), key: z.string() }),
+])
+
 export const TranscriptItem = z.object({
   /** UNBRANDED: harness-derived and, for some items, SYNTHESIZED by the daemon
    *  parser rather than minted by us — the schema says so two lines down. A
@@ -57,6 +104,8 @@ export const TranscriptItem = z.object({
   toolInputJson: z.string().optional(),
   /** Truncated tool result text (set on role 'tool' result items). */
   toolResult: z.string().optional(),
+  /** Observed effects on result records; the mapper caps the whole list at 24,000. */
+  toolEffects: z.array(TranscriptToolEffect).optional(),
   /** Pairs a tool call with its result item. UNBRANDED: the HARNESS's tool-use
    *  id, in the provider's namespace. */
   toolUseId: z.string().optional(),

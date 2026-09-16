@@ -630,3 +630,16 @@ describe('dead-lettered operator messages reaching the transcript', () => {
     expect(message?.failure).toBe('dead-lettered · target gone')
   })
 })
+
+describe('observed tool-effect pairing', () => {
+  it('preserves intent and carries effects from result to call without mutating source items', () => {
+    const call: TranscriptItem = {id: 'call', role: 'tool', text: '', toolUseId: 't', toolName: 'Bash', toolInputJson: 'intent'}
+    const result: TranscriptItem = {id: 'result', role: 'tool', text: '', toolUseId: 't', toolResult: '', toolEffects: [{kind: 'background-task', taskId: 'bg'}]}
+    const blocks = pairToolResults([call, result])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.item.toolEffects).toEqual(result.toolEffects)
+    expect(blocks[0]?.item.toolInputJson).toBe('intent')
+    expect(call.toolEffects).toBeUndefined()
+    expect(pairToolResults([result])[0]?.item.toolEffects).toEqual(result.toolEffects)
+  })
+})

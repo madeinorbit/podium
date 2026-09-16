@@ -1,3 +1,5 @@
+import type { TranscriptItem } from '@podium/model'
+
 /**
  * Chat-side view of a file-edit tool call. Parsers store a capped
  * `{ kind: "file-edit", … }` payload on `toolInputJson`; this module is the
@@ -22,6 +24,10 @@ export type ToolEditView = {
   patch?: string
   added: number
   removed: number
+  changedFileCount?: number
+  moreFiles?: number
+  source?: 'effect' | 'intent'
+  userModified?: boolean
   truncated?: boolean
 }
 
@@ -38,6 +44,19 @@ export type ToolEditLine = {
 const LINE_CAP = 160
 const LCS_CELL_CAP = 24_000
 
+/** Single precedence decision for both inline diffs and the batch diff sheet. */
+export function resolveToolEdit(item: TranscriptItem): ToolEditView | undefined {
+  const applied = item.toolEffects?.find((effect) => effect.kind === 'file-edit')
+  if (applied?.kind === 'file-edit')
+    return {
+      ...applied.edit,
+      source: 'effect',
+      ...(applied.userModified ? { userModified: true } : {}),
+    }
+  const intent = parseToolEdit(item.toolInputJson)
+  return intent ? { ...intent, source: 'intent' } : undefined
+}
+
 export function parseToolEdit(toolInputJson: string | undefined): ToolEditView | undefined {
   if (!toolInputJson) return undefined
   try {
@@ -49,7 +68,8 @@ export function parseToolEdit(toolInputJson: string | undefined): ToolEditView |
     const path = typeof raw.path === 'string' && raw.path ? raw.path : undefined
     const patch = typeof raw.patch === 'string' && raw.patch ? raw.patch : undefined
     const added = typeof raw.added === 'number' && Number.isFinite(raw.added) ? raw.added : 0
-    const removed = typeof raw.removed === 'number' && Number.isFinite(raw.removed) ? raw.removed : 0
+    const removed =
+      typeof raw.removed === 'number' && Number.isFinite(raw.removed) ? raw.removed : 0
     return {
       kind: TOOL_EDIT_KIND,
       ...(path ? { path } : {}),
@@ -99,7 +119,7 @@ export function toolEditUnifiedDiff(edit: ToolEditView, cap?: number): string {
         if (lines.filter((l) => l.kind === 'hunk').length > 1) out.push(`@@ @@ ${line.text}`)
         break
       case 'meta':
-        out.push(line.text.startsWith('@@') ? line.text : `@@ @@ ${line.text}`)
+        out.push(line.text)
         break
       case 'add':
         out.push(`+${line.text}`)
@@ -167,11 +187,7 @@ function parseHunk(value: unknown): ToolEditHunk[] {
 function patchLines(patch: string): ToolEditLine[] {
   const lines: ToolEditLine[] = []
   for (const line of patch.split('\n')) {
-    if (
-      line === '*** Begin Patch' ||
-      line === '*** End Patch' ||
-      line === '*** End of File'
-    ) {
+    if (line === '*** Begin Patch' || line === '*** End Patch' || line === '*** End of File') {
       continue
     }
     const file = /^\*\*\* (Add|Update|Delete) File: (.+)$/.exec(line)
@@ -179,7 +195,13 @@ function patchLines(patch: string): ToolEditLine[] {
       lines.push({ kind: 'hunk', text: `${file[1]} ${file[2]}`.trim() })
       continue
     }
-    if (line.startsWith('***') || line.startsWith('@@')) {
+    if (
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('diff --git ') ||
+      line.startsWith('***') ||
+      line.startsWith('@@')
+    ) {
       lines.push({ kind: 'meta', text: line })
       continue
     }
@@ -218,7 +240,7 @@ function lcsDiff(a: string[], b: string[]): ToolEditLine[] {
     const row = dp[i]!
     const next = dp[i + 1]!
     for (let j = m - 1; j >= 0; j--) {
-      row[j] = ai === b[j] ? (next[j + 1]! + 1) as number : Math.max(next[j]!, row[j + 1]!)
+      row[j] = ai === b[j] ? ((next[j + 1]! + 1) as number) : Math.max(next[j]!, row[j + 1]!)
     }
   }
   const lines: ToolEditLine[] = []

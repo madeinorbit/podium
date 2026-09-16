@@ -1,5 +1,5 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { parseToolEdit } from '@podium/client-core/viewmodels'
+import { resolveToolEdit } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
@@ -70,8 +70,12 @@ export function ToolBlock({
   const [open, setOpen] = useState(false)
   const { item } = block
   const result = block.result ?? item.toolResult
-  const verdict = toolVerdict(result)
-  const edit = parseToolEdit(item.toolInputJson)
+  const abnormal = item.toolEffects?.some(
+    (effect) =>
+      effect.kind === 'termination' && (effect.interrupted || effect.timedOutAfterMs !== undefined),
+  )
+  const verdict = abnormal ? 'err' : toolVerdict(result)
+  const edit = resolveToolEdit(item)
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
   // THE SHORT FORM, WHICH IS THE HOVER PANEL'S (POD-993 round 7). This row used
@@ -100,7 +104,7 @@ export function ToolBlock({
   // This row used to pick the path itself — `edit.path ?? toolPaths[0]` — which
   // could name a file the call only READ, and which the sheet then had no diff
   // for. The batch resolves it now, from the recorded edit alone.
-  const openable = onOpenDiff && diffPath ? diffPath : undefined
+  const openable = onOpenDiff && diffPath && !item.toolEffects?.length ? diffPath : undefined
   const activate = (): void => {
     if (openable && onOpenDiff) onOpenDiff(openable)
     else setOpen((v) => !v)
@@ -153,7 +157,47 @@ export function ToolBlock({
         </pre>
       )}
       {aside && open && <div className="tool-aside">{aside}</div>}
-      {verdict === 'err' && <div className="tool-fail-line">{failLine(result)}</div>}
+      {verdict === 'err' && (
+        <div className="tool-fail-line">
+          {abnormal ? 'Tool interrupted or timed out' : failLine(result)}
+        </div>
+      )}
+      {open &&
+        item.toolEffects?.map((effect) => {
+          let text: string | undefined
+          switch (effect.kind) {
+            case 'file-edit':
+              break
+            case 'git-operation':
+              text = `Git (reported by harness): ${JSON.stringify(effect.operation)}`
+              break
+            case 'background-task':
+              text = `Background task: ${effect.taskId}`
+              break
+            case 'termination':
+              text = [
+                effect.interrupted ? 'Interrupted' : '',
+                effect.timedOutAfterMs !== undefined
+                  ? `Timed out after ${effect.timedOutAfterMs} ms`
+                  : '',
+                effect.interpretation,
+              ]
+                .filter(Boolean)
+                .join(' · ')
+              break
+            case 'unknown':
+              text = `Unrecognized tool effect: ${effect.key}`
+              break
+          }
+          return text ? (
+            <div
+              className="tool-aside"
+              key={effect.kind === 'unknown' ? `unknown-${effect.key}` : effect.kind}
+            >
+              {text}
+            </div>
+          ) : null
+        })}
       {open && edit && <ToolEditDiff edit={edit} />}
       {open && !edit && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
       {open && edit && verdict === 'err' && result && (

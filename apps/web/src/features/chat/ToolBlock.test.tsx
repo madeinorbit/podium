@@ -82,3 +82,38 @@ describe('Bash tool command colouring', () => {
     expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('echo "second"')
   })
 })
+
+it('unfolds applied Bash effects with user modification and background metadata', () => {
+  mount({
+    toolInput: 'sed -i s/before/applied/ a.ts',
+    toolResult: '',
+    toolEffects: [
+      {
+        kind: 'file-edit',
+        userModified: true,
+        edit: {
+          kind: 'file-edit',
+          path: 'a.ts',
+          mode: 'patch',
+          hunks: [],
+          patch: '--- a.ts\n+++ a.ts\n@@ -1 +1 @@\n-before\n+applied',
+          added: 1,
+          removed: 1,
+          changedFileCount: 1,
+        },
+      },
+      { kind: 'background-task', taskId: 'task-42' },
+    ],
+  })
+  unfold()
+  expect(host.textContent).toContain('applied diff')
+  expect(host.textContent).toContain('User modified this edit')
+  expect(host.textContent).toContain('1 file changed')
+  expect(host.textContent).toContain('Background task: task-42')
+})
+
+it('shows an interrupted effect as a failure even with empty output', () => {
+  mount({ toolResult: '', toolEffects: [{ kind: 'termination', interrupted: true }] })
+  expect(host.querySelector('[data-verdict="err"]')).not.toBeNull()
+  expect(host.textContent).toContain('Tool interrupted or timed out')
+})
