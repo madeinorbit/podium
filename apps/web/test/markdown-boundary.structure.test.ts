@@ -19,6 +19,8 @@ const sourceRoot = resolve(import.meta.dirname, '../src')
 const entry = join(sourceRoot, 'app/main.tsx')
 
 const forbiddenPackages = [
+  // Workspace packages are opaque to this source walker; guard the public entry too.
+  '@podium/client-core/code-highlight',
   'dompurify',
   'highlight.js',
   'lowlight',
@@ -157,7 +159,7 @@ describe('Markdown loading boundary', () => {
     )
 
     expect(boundary).toMatch(
-      /lazy\(\(\) =>\s*import\(['"]\.\/TranscriptFeed['"]\)\.then\(\(module\) =>/,
+      /lazy\(\(\) =>\s*throughRestarts\(\(\) => import\(['"]\.\/TranscriptFeed['"]\)\)\.then\(\(module\) =>/,
     )
   })
 })
