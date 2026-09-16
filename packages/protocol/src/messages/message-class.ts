@@ -342,6 +342,7 @@ export const DAEMON_PLANE_CLASS = {
   inventoryReport: 'control.command',
   // Host-local configuration warning, durably routed to the machine owner/admins.
   machineDiagnostic: 'control.command',
+  machineHarnessVersion: 'control.command',
   // The driver decision, ahead of the launch it describes (POD-2290). Same
   // class as the `bind` that supersedes it: a lost one costs a client the early
   // answer and nothing else, because `bind` carries the same fact behind it.

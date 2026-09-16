@@ -10,6 +10,7 @@ import {
   PODIUM_CODEX_HOOK_URL_ENV,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
+import { reportHarnessProbe } from './harness-version-reporting'
 
 const log = createLogger('daemon:codex-hooks')
 
@@ -84,7 +85,9 @@ export async function detectCodexVersion(): Promise<string> {
   const { stdout, stderr } = await execFileAsync('codex', ['--version'], {
     timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
   })
-  return `${stdout}${stderr}`.trim()
+  const output = `${stdout}${stderr}`.trim()
+  reportHarnessProbe('codex', output)
+  return output
 }
 
 const CODEX_HOOK_EVENTS = [

@@ -762,3 +762,25 @@ describe('MachinesPanel per-machine update source', () => {
     expect(options).toEqual(['Fleet default', 'Development', 'Edge', 'Stable'])
   })
 })
+
+it('shows recorded harness versions and a quiet unverified marker', () => {
+  storeState.machines = [
+    machine({
+      harnessVersions: [
+        {
+          harness: 'codex',
+          version: '0.154.0',
+          firstSeen: '2026-09-16T10:00:00.000Z',
+          lastSeen: '2026-09-16T11:00:00.000Z',
+          verifiedThrough: '0.151.0',
+          unverified: true,
+        },
+      ],
+    }),
+  ]
+  setTrpc(vi.fn())
+  render(<MachinesPanel />)
+  expect(screen.getByText('codex 0.154.0')).toBeTruthy()
+  expect(screen.getByText('unverified').getAttribute('title')).toBe('Verified through 0.151.0')
+  expect(screen.queryByRole('alert')).toBeNull()
+})

@@ -8,10 +8,11 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import {
   Inventory,
   MachineComponent,
+  MachineHarnessVersion,
+  type MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
   MachineServiceReport,
-  type MachineId,
   UpdateChannel,
   type UpdateChannel as UpdateChannelValue,
   type UserId,
@@ -19,7 +20,7 @@ import {
 import type { PeerBuild } from '@podium/protocol'
 import { asc, eq, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import type { MachineRecord } from './types'
 
@@ -114,6 +115,7 @@ type MachineSelect = Pick<
   | 'createdAt'
   | 'lastSeenAt'
   | 'inventoryJson'
+  | 'harnessVersionsJson'
   | 'ownerUserId'
   | 'appVersion'
   | 'wireSchemaDigest'
@@ -136,6 +138,7 @@ const MACHINE_COLUMNS = {
   createdAt: machines.createdAt,
   lastSeenAt: machines.lastSeenAt,
   inventoryJson: machines.inventoryJson,
+  harnessVersionsJson: machines.harnessVersionsJson,
   ownerUserId: machines.ownerUserId,
   appVersion: machines.appVersion,
   wireSchemaDigest: machines.wireSchemaDigest,
@@ -154,6 +157,11 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
   const inventory = parseInventory(r.inventoryJson)
   return {
     id: r.id,
+    harnessVersions: r.harnessVersionsJson
+      ? Object.values(JSON.parse(r.harnessVersionsJson)).map((row) =>
+          MachineHarnessVersion.parse(row),
+        )
+      : [],
     name: r.name,
     hostname: r.hostname,
     createdAt: r.createdAt,
@@ -392,6 +400,39 @@ export class MachinesRepository {
       .set({ componentsJson: JSON.stringify(next) })
       .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
     return true
+  }
+
+  /** One atomic replacement per harness; delayed reports cannot roll back the latest version. */
+  async recordHarnessVersion(
+    id: MachineId,
+    report: {
+      harness: string
+      version: string
+      probedAt: string
+    },
+  ): Promise<void> {
+    const path = `$."${report.harness}"`
+    const document = sql`coalesce(${machines.harnessVersionsJson}, '{}')`
+    const previousFirst = sql`json_extract(${document}, ${`${path}.firstSeen`})`
+    const previousLast = sql`json_extract(${document}, ${`${path}.lastSeen`})`
+    await this.committed.write(
+      async () =>
+        this.db
+          .update(machines)
+          .set({
+            harnessVersionsJson: sql`json_set(${document}, ${path}, json_object(
+        'harness', ${report.harness},
+        'version', case when ${previousLast} > ${report.probedAt}
+          then json_extract(${document}, ${`${path}.version`}) else ${report.version} end,
+        'firstSeen', min(coalesce(${previousFirst}, ${report.probedAt}), ${report.probedAt}),
+        'lastSeen', max(coalesce(${previousLast}, ${report.probedAt}), ${report.probedAt})
+      ))`,
+          })
+          .where(eq(machines.id, id))
+          .returning()
+          .all(),
+      'upsert',
+    )
   }
 
   /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */

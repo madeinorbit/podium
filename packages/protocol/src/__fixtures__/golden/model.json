@@ -6328,6 +6328,24 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
     },
     {
+      "schema": "LoginEmail",
+      "variant": "minimal",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
+      "schema": "LoginEmail",
+      "variant": "full",
+      "wire": "fixture@example.test",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"fixture@example.test\""
+    },
+    {
       "schema": "LoopBucketCostWire",
       "variant": "minimal",
       "wire": {
@@ -6501,6 +6519,36 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "\"daemon\""
+    },
+    {
+      "schema": "MachineHarnessVersion",
+      "variant": "minimal",
+      "wire": {
+        "harness": "harness",
+        "version": "version",
+        "firstSeen": "firstSeen",
+        "lastSeen": "lastSeen"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"harness\":\"harness\",\"version\":\"version\",\"firstSeen\":\"firstSeen\",\"lastSeen\":\"lastSeen\"}"
+    },
+    {
+      "schema": "MachineHarnessVersion",
+      "variant": "full",
+      "wire": {
+        "harness": "harness",
+        "version": "version",
+        "firstSeen": "firstSeen",
+        "lastSeen": "lastSeen",
+        "verifiedThrough": "verifiedThrough",
+        "unverified": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"harness\":\"harness\",\"version\":\"version\",\"firstSeen\":\"firstSeen\",\"lastSeen\":\"lastSeen\",\"verifiedThrough\":\"verifiedThrough\",\"unverified\":true}"
     },
     {
       "schema": "MachineId",
@@ -6737,6 +6785,16 @@
       "schema": "MachineWire",
       "variant": "full",
       "wire": {
+        "harnessVersions": [
+          {
+            "harness": "harnessVersions[0].harness",
+            "version": "harnessVersions[0].version",
+            "firstSeen": "harnessVersions[0].firstSeen",
+            "lastSeen": "harnessVersions[0].lastSeen",
+            "verifiedThrough": "harnessVersions[0].verifiedThrough",
+            "unverified": true
+          }
+        ],
         "id": "id",
         "name": "name",
         "hostname": "hostname",
@@ -6831,7 +6889,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MemberId",

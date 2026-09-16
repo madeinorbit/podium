@@ -1,16 +1,13 @@
-import { readResourceGrants } from '../world-index/grant-reader'
-import { machineRecordFromRow } from '../../store/machines'
-import type { WorldIndexReader } from '../world-index'
-import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
+import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type AgentKind,
   agentCapabilityRejection,
-  agentProbeTimeoutDescription,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
+  agentProbeTimeoutDescription,
   asAccountId,
   asMachineId,
   asUserId,
@@ -41,7 +38,7 @@ import type {
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
-import { supervisorGenerationOf } from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
@@ -49,8 +46,11 @@ import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
+import { machineRecordFromRow } from '../../store/machines'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
+import type { WorldIndexReader } from '../world-index'
+import { readResourceGrants } from '../world-index/grant-reader'
 import type { EnrollmentHost } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
@@ -1353,6 +1353,19 @@ export class MachinesService {
         // projection `agentLoginCondition` and `factsSnapshot` also read, so the
         // three can never disagree about what a machine can run.
         ...facts,
+        harnessVersions: (m.harnessVersions ?? []).map((report) => {
+          const policy =
+            HARNESS_VERSION_POLICIES[report.harness as keyof typeof HARNESS_VERSION_POLICIES]
+          return {
+            ...report,
+            ...(policy
+              ? {
+                  verifiedThrough: policy.verifiedThrough,
+                  unverified: gateHarnessVersion(policy, report.version) === 'unverified',
+                }
+              : {}),
+          }
+        }),
         name: m.name,
         hostname: m.hostname,
         lastSeenAt: m.lastSeenAt,
@@ -1520,6 +1533,17 @@ export class MachinesService {
   async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
     if (this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
+    await this.broadcastMachines()
+  }
+
+  async recordHarnessVersion(
+    machineId: MachineId,
+    report: Extract<DaemonMessage, { type: 'machineHarnessVersion' }>,
+  ): Promise<void> {
+    await this.deps.store.machines.recordHarnessVersion(machineId, {
+      ...report,
+      probedAt: new Date(report.probedAt).toISOString(),
+    })
     await this.broadcastMachines()
   }
 

@@ -3,6 +3,7 @@ import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { sendHarnessVersion } from '../harness-version-reporting'
 import { opencode2VersionProbeForExecutable } from '../runtime/opencode-server'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -77,6 +78,19 @@ export function runtimeDriverInventory(
   ]
 }
 
+const inventoryProbeTimes = new WeakMap<Inventory, string>()
+
+function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventory): void {
+  // Replaying the same completed wave is not another probe.
+  const probedAt = inventoryProbeTimes.get(inventory) ?? new Date().toISOString()
+  inventoryProbeTimes.set(inventory, probedAt)
+  for (const agent of inventory.agents) {
+    if (agent.installed && agent.version) {
+      sendHarnessVersion(send, agent.kind, agent.version, probedAt)
+    }
+  }
+}
+
 export async function reportInventory(
   ctx: DaemonContext,
   opts: { rebuild?: boolean; reprobe?: boolean } = {},
@@ -111,6 +125,7 @@ export async function reportInventory(
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, opencode2Drivable),
         },
       })
+      reportHarnessInventory(ctx.send, snapshot.inventory)
     } catch (err) {
       log.warn('inventory report failed', { err })
     }
@@ -182,6 +197,7 @@ export async function reportInventory(
       machineId: asMachineId(machineId),
       inventory: { ...inventory, runtimeDrivers: runtimeDriverInventory(inventory) },
     })
+    reportHarnessInventory(ctx.send, inventory)
   } catch (err) {
     // Evict only OUR failed build — a concurrent rebuild may have already stored
     // a fresh pending under this key; don't discard it.

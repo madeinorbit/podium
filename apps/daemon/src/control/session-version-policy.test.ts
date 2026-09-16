@@ -80,7 +80,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
     'newer',
     'unparseable',
     'timeout',
-  ] as const)('starts the full driver for %s and emits one machine notice across sessions', async (scenario) => {
+  ] as const)('starts the full driver for %s; newer versions stay quiet', async (scenario) => {
     const { ctx, sent, create } = world(row.harness)
     const output =
       scenario === 'newer'
@@ -122,8 +122,9 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
         .every((message) => message.driverId === row.driver),
     ).toBe(true)
     const notices = sent.filter((message) => message.type === 'machineDiagnostic')
-    expect(notices).toHaveLength(1)
-    expect(notices[0]?.body).toContain('session runs normally with the full driver')
+    expect(notices).toHaveLength(scenario === 'newer' ? 0 : 1)
+    if (scenario !== 'newer')
+      expect(notices[0]?.body).toContain('session runs normally with the full driver')
   })
 
   it('refuses below the floor with the install instruction', async () => {
@@ -154,7 +155,7 @@ it('deduplicates by machine, harness and version, preserving distinct preview ve
   const first = world('codex')
   const second = world('codex')
   const diagnostic = {
-    code: 'version-unverified',
+    code: 'version-unparseable',
     title: 'Unverified',
     body: 'Runs normally',
     observedVersion: 'codex-cli 2.0.0-beta.1',

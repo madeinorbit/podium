@@ -2,6 +2,7 @@ import {
   AgentKind,
   AgentMemoryWire,
   AgentQuotaWire,
+  HarnessAgent,
   HostDiskWire,
   HostMemoryWire,
   HostMetricsWire,
@@ -89,6 +90,15 @@ export type ReclaimAttachmentsMessage = z.infer<typeof ReclaimAttachmentsMessage
  * machine principal on delivery (ADR 3 D7). A daemon cannot redirect a warning
  * to another machine or name a human in this payload.
  */
+/** Quiet version telemetry; machine identity comes only from the authenticated channel. */
+export const MachineHarnessVersionMessage = z.object({
+  type: z.literal('machineHarnessVersion'),
+  harness: HarnessAgent,
+  version: z.string().min(1),
+  probedAt: z.string().datetime(),
+})
+export type MachineHarnessVersionMessage = z.infer<typeof MachineHarnessVersionMessage>
+
 export const MachineDiagnosticMessage = z.object({
   type: z.literal('machineDiagnostic'),
   code: z.string().min(1),

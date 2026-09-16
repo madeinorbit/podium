@@ -63,6 +63,7 @@ export function machineHelpText(): string {
     'Show the machines this session may see, so you can decide where to run work.',
     '',
     'Commands:',
+    '  harnesses [--json]     Recorded harness versions, first and last seen.',
     '  list [--json]           Every visible machine, one block each (default).',
     '  show <name|id> [--json]    One machine in full, including its harness inventory.',
     '  reprobe <name|id> [--json] Re-run install and login probes on that machine.',
@@ -88,6 +89,7 @@ function argumentError(argv: string[]): string | undefined {
   if (
     command !== undefined &&
     command !== 'list' &&
+    command !== 'harnesses' &&
     command !== 'show' &&
     command !== 'reprobe'
   ) {
@@ -240,6 +242,29 @@ export async function runMachineCli(
 
   const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
   const json = argv.includes('--json')
+
+  if (argv[0] === 'harnesses') {
+    const data = machines.map((machine) => ({
+      machineId: machine.id,
+      machineName: machine.name,
+      harnesses: machine.harnessVersions ?? [],
+    }))
+    return json
+      ? JSON.stringify({ command: 'machine harnesses', ok: true, data })
+      : data
+          .map((machine) =>
+            [
+              machine.machineName,
+              ...(machine.harnesses.length
+                ? machine.harnesses.map(
+                    (row) =>
+                      `  ${row.harness} ${row.version}${row.unverified ? ` · unverified (verified through ${row.verifiedThrough})` : ''} · first seen ${row.firstSeen} · last seen ${row.lastSeen}`,
+                  )
+                : ['  No harness versions reported yet.']),
+            ].join('\n'),
+          )
+          .join('\n\n') || 'No machines are visible to this session.'
+  }
 
   if (argv[0] === 'show' || argv[0] === 'reprobe') {
     const selector = argv.slice(1).find((arg) => !arg.startsWith('-')) as string

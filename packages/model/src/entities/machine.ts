@@ -458,7 +458,19 @@ export function resolveMachineChannel(
   return pinned ?? fleetDefault ?? DEFAULT_FLEET_UPDATE_CHANNEL
 }
 
+export const MachineHarnessVersion = z.object({
+  harness: z.string(),
+  version: z.string(),
+  firstSeen: z.string(),
+  lastSeen: z.string(),
+  /** Derived at read time from the current harness policy, never an admission input. */
+  verifiedThrough: z.string().optional(),
+  unverified: z.boolean().optional(),
+})
+export type MachineHarnessVersion = z.infer<typeof MachineHarnessVersion>
+
 export const MachineWire = z.object({
+  harnessVersions: z.array(MachineHarnessVersion).optional(),
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
    *  row with the constant `'local'`, branding here would have minted a well-typed

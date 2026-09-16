@@ -9,11 +9,11 @@ import type {
   Geometry,
   IssueColorSlot,
   IssueId,
+  MachineComponent,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
   MachineServiceReport,
-  MachineComponent,
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
@@ -284,6 +284,7 @@ export interface SessionRow {
 
 /** One row of the machines table (token_hash is internal — not included here). */
 export interface MachineRecord {
+  harnessVersions?: import('@podium/model').MachineHarnessVersion[]
   id: MachineId
   name: string
   hostname: string

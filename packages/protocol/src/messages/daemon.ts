@@ -36,9 +36,10 @@ import {
 import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
-  QuotaHistoryResultMessage,
   MachineDiagnosticMessage,
+  MachineHarnessVersionMessage,
   MemoryBreakdownResultMessage,
+  QuotaHistoryResultMessage,
   ReclaimDiskEstimateResultMessage,
   UsageResultMessage,
 } from './host'
@@ -46,17 +47,17 @@ import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import {
   RuntimeAnswerResultMessage,
-  RuntimeEventMessage,
-  RuntimeFineEventMessage,
-  RuntimeInteractionAskedMessage,
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
+  RuntimeEventMessage,
+  RuntimeFineEventMessage,
+  RuntimeHistoryResultMessage,
+  RuntimeInteractionAskedMessage,
   RuntimeLifecycleResultMessage,
   RuntimeQueueDrainAbandonedMessage,
-  RuntimeStageAttachmentResultMessage,
   RuntimeSendResultMessage,
   RuntimeSnapshotResultMessage,
-  RuntimeHistoryResultMessage,
+  RuntimeStageAttachmentResultMessage,
 } from './runtime'
 import {
   AgentObservationMessage,
@@ -227,6 +228,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   TranscriptMirrorResultMessage,
   HostMetricsMessage,
   MachineDiagnosticMessage,
+  MachineHarnessVersionMessage,
   MemoryBreakdownResultMessage,
   ReclaimDiskEstimateResultMessage,
   TranscriptDeltaMessage,

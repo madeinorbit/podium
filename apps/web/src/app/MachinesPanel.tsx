@@ -1276,6 +1276,27 @@ function MachineRow({
               )}
             </div>
 
+            <ul className="settings-micro mt-1 space-y-0.5" aria-label="Recorded harness versions">
+              {(machine.harnessVersions ?? []).map((row) => (
+                <li
+                  key={row.harness}
+                  title={`First seen ${row.firstSeen}; last seen ${row.lastSeen}`}
+                >
+                  <span className="font-mono">
+                    {row.harness} {row.version}
+                  </span>
+                  {row.unverified && (
+                    <span
+                      className="ml-1.5 text-muted-foreground"
+                      title={`Verified through ${row.verifiedThrough}`}
+                    >
+                      unverified
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+
             {/* The machine's own voice: what it is, what it runs, when it was last
                 here — one line, mono where the value is a machine's. */}
             <div className="settings-micro mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5">

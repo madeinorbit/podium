@@ -87,6 +87,10 @@ export interface MachinesDaemonPort {
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],
   ): Promise<void>
+  recordHarnessVersion(
+    machineId: MachineId,
+    report: DaemonFrame<'machineHarnessVersion'>,
+  ): Promise<void>
   recordDiagnostic(machineId: MachineId, diagnostic: DaemonFrame<'machineDiagnostic'>): void
 }
 

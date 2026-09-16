@@ -1,10 +1,13 @@
-import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import { wireSchemaDigest } from '@podium/protocol'
+import { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { DaemonMux } from '../../gateway/daemon-mux'
+import type { DaemonFeaturePorts } from '../../gateway/daemon-ports'
 import { SessionRegistry } from '../../relay'
-import { openTestStore } from '../../test-support/open-test-store'
 
 import { SessionStore } from '../../store'
-import { wireSchemaDigest } from '@podium/protocol'
+import { openTestStore } from '../../test-support/open-test-store'
 import { deriveServerMoveEligibility, deriveVersionState, MachinesService } from './service'
 
 describe('deriveServerMoveEligibility', () => {
@@ -141,5 +144,91 @@ describe('deriveVersionState', () => {
 
     expect((await registry.modules.machines.listMachines())[0]?.versionState).toBe('current')
     await registry.dispose()
+  })
+})
+
+describe('per-machine harness versions', () => {
+  it('stores authenticated reports, preserves firstSeen, replaces versions, and derives quiet verification', async () => {
+    const store = await openTestStore(':memory:')
+    const id = asMachineId('probe-machine')
+    await store.machines.upsertMachine({
+      id,
+      name: 'box',
+      hostname: 'box',
+      tokenHash: 'token',
+      ownerUserId: null,
+    })
+    await store.machines.upsertMachine({
+      id: 'other-machine',
+      name: 'other',
+      hostname: 'other',
+      tokenHash: 'other',
+      ownerUserId: null,
+    })
+    const service = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: id,
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    })
+    const mux = new DaemonMux({
+      ports: { machines: service } as unknown as DaemonFeaturePorts,
+      bus: { emit: () => {} } as never,
+    })
+    const first = '2026-09-16T10:00:00.000Z'
+    const second = '2026-09-16T11:00:00.000Z'
+    const third = '2026-09-16T12:00:00.000Z'
+    const report = (version: string, probedAt: string) =>
+      mux.routeDaemonFrame(
+        id,
+        DaemonMessage.parse({
+          type: 'machineHarnessVersion',
+          harness: 'codex',
+          version,
+          probedAt,
+          machineId: 'other-machine', // Payload identity cannot redirect the authenticated observation.
+        }),
+      )
+    try {
+      await report('0.154.0', first)
+      expect((await store.machines.getMachine(id))?.harnessVersions).toEqual([
+        { harness: 'codex', version: '0.154.0', firstSeen: first, lastSeen: first },
+      ])
+      await report('0.154.0', second)
+      expect((await store.machines.getMachine(id))?.harnessVersions).toEqual([
+        { harness: 'codex', version: '0.154.0', firstSeen: first, lastSeen: second },
+      ])
+      await report('0.155.0', third)
+      // A delayed cached report cannot replace the newer observation.
+      await report('0.154.0', second)
+      const row = (await service.listMachines()).find((machine) => machine.id === id)
+      expect(row?.harnessVersions).toEqual([
+        {
+          harness: 'codex',
+          version: '0.155.0',
+          firstSeen: first,
+          lastSeen: third,
+          verifiedThrough: '0.151.0',
+          unverified: true,
+        },
+      ])
+      expect((await store.machines.getMachine('other-machine'))?.harnessVersions).toEqual([])
+      // Reading through a fresh service proves this is durable data, not service memory.
+      const fresh = new MachinesService({
+        instanceId: 'default',
+        store,
+        hostMachineId: id,
+        clients: () => [],
+        machinesForPrincipal: async () => [],
+      })
+      expect(
+        (await fresh.listMachines()).find((machine) => machine.id === id)?.harnessVersions,
+      ).toEqual(row?.harnessVersions)
+      fresh.dispose()
+    } finally {
+      service.dispose()
+      await store.close()
+    }
   })
 })

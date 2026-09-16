@@ -93,6 +93,7 @@ export const DAEMON_FRAME_PORTS = {
   // ---- machine-owned ----
   inventoryReport: ['machines'],
   machineDiagnostic: ['machines'],
+  machineHarnessVersion: ['machines'],
   updateStatus: ['updates'],
 
   // ---- fleet daemon log capture (POD-3156) ----
@@ -225,6 +226,7 @@ export type RpcDaemonFrame = Extract<DaemonMessage, { type: RpcDaemonFrameType }
 export const MACHINE_SCOPE_CARRIER = {
   inventoryReport: 'principal',
   machineDiagnostic: 'principal',
+  machineHarnessVersion: 'principal',
   updateStatus: 'principal',
   // Filed UNDER the machine, so the machine had better not come from the frame.
   daemonLogBatch: 'principal',

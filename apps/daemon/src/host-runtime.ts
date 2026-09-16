@@ -13,10 +13,10 @@ import {
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } from '@podium/model'
+import { createDurableProcess, sweepStaleDurableBindTemps } from '@podium/process/durable'
+import type { AgentSession } from '@podium/process/screen'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentSession } from '@podium/process/screen'
-import { createDurableProcess, sweepStaleDurableBindTemps } from '@podium/process/durable'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -79,6 +79,7 @@ import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { sweepHandoffStage } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
+import { withHarnessVersionReporting } from './harness-version-reporting'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostLoad, sampleHostMemory } from './host-metrics'
@@ -114,13 +115,13 @@ import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
+import { terminalScreenFor, trackSessionOutput } from './session-screens'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { ShippingExecutionPlane } from './shipping/executor'
 import { restartAsServer, retireTargetDaemonAfterAcknowledgement } from './transfer-lifecycle'
 import { swapHeadlessBundle } from './update-install'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
-import { terminalScreenFor, trackSessionOutput } from './session-screens'
 
 const log = createLogger('daemon:host')
 /**
@@ -1533,7 +1534,9 @@ export async function createDaemonHostRuntime(args: {
     connected,
     receive: (raw) => {
       if (!bindingRecovery) return
-      void bindingRecovery.then(() => frameGuard.receive(raw)).catch(() => {})
+      void bindingRecovery
+        .then(() => withHarnessVersionReporting(send, () => frameGuard.receive(raw)))
+        .catch(() => {})
     },
     receiveBinaryInput: (metadata, payload) => {
       if (!bindingRecovery) return

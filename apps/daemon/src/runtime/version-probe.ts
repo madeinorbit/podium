@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { reportHarnessProbe } from '../harness-version-reporting'
 
 export interface VersionProbeOutput {
   output: string
@@ -84,6 +85,7 @@ export function execVersionProbe(command: string, timeoutMs: number): Promise<Ve
       ['--version'],
       { encoding: 'utf8', timeout: timeoutMs },
       (error, stdout, stderr) => {
+        if (!error) reportHarnessProbe(command, `${stdout ?? ''}${stderr ?? ''}`)
         resolve({
           output: `${stdout ?? ''}${stderr ?? ''}`.trim(),
           ok: error === null,

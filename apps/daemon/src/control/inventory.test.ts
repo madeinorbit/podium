@@ -184,7 +184,7 @@ describe('daemon inventory reporting (#222)', () => {
     expect(codexAppServerVersionProbe).not.toHaveBeenCalled()
     expect(grokAcpVersionProbe).not.toHaveBeenCalled()
     expect(opencodeVersionProbe).not.toHaveBeenCalled()
-    expect(sent).toEqual([
+    expect(sent.filter((message) => message.type === 'inventoryReport')).toEqual([
       {
         type: 'inventoryReport',
         machineId: 'm-test',
@@ -372,4 +372,33 @@ describe('daemon model probe (POD-1466)', () => {
       expect(sent).toEqual([{ type: 'modelProbeResult', requestId: 'req-3', byAgent: {} }]),
     )
   })
+})
+
+it('reports every installed harness version as quiet, timestamped machine data', async () => {
+  const { ctx, sent } = makeCtx()
+  buildInventory.mockResolvedValueOnce({
+    ...INV,
+    agents: [
+      { kind: 'codex', installed: true, version: '0.154.0', login: { state: 'in' } },
+      { kind: 'claude-code', installed: true, version: '2.1.50', login: { state: 'in' } },
+    ],
+  })
+  await reportInventory(ctx)
+  expect(sent.filter((message) => message.type === 'machineHarnessVersion')).toEqual([
+    {
+      type: 'machineHarnessVersion',
+      harness: 'codex',
+      version: '0.154.0',
+      probedAt: expect.any(String),
+    },
+    {
+      type: 'machineHarnessVersion',
+      harness: 'claude-code',
+      version: '2.1.50',
+      probedAt: expect.any(String),
+    },
+  ])
+  expect(
+    sent.some((message) => message.type === 'machineDiagnostic' || message.type === 'spawnError'),
+  ).toBe(false)
 })

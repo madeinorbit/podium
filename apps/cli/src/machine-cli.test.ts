@@ -238,3 +238,25 @@ describe('runMachineCli', () => {
     expect(await runMachineCli(['--help'], exploding, NOW)).toBe(machineHelpText())
   })
 })
+
+it('reads harness versions and their first/last observations without treating unverified as an error', async () => {
+  const harnesses = [
+    {
+      harness: 'codex',
+      version: '0.154.0',
+      firstSeen: '2026-09-16T10:00:00.000Z',
+      lastSeen: '2026-09-16T11:00:00.000Z',
+      verifiedThrough: '0.151.0',
+      unverified: true,
+    },
+  ]
+  const client = fakeClient([{ ...ludovico, harnessVersions: harnesses }])
+  const text = await runMachineCli(['harnesses'], client)
+  expect(text).toContain('codex 0.154.0 · unverified (verified through 0.151.0)')
+  expect(text).toContain('first seen 2026-09-16T10:00:00.000Z')
+  expect(text).toContain('last seen 2026-09-16T11:00:00.000Z')
+  expect(JSON.parse(await runMachineCli(['harnesses', '--json'], client))).toMatchObject({
+    ok: true,
+    data: [{ machineId: ludovico.id, harnesses }],
+  })
+})

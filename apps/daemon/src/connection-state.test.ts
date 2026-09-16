@@ -1197,3 +1197,56 @@ describe('authenticated legacy owner handoff', () => {
     }
   })
 })
+
+it('retains the latest harness probe until the machine transport authenticates', async () => {
+  const socket = new FakeSocket()
+  const sendApplicationFrame = vi.fn((_socket: unknown, _message: DaemonMessage) => true)
+  const state = createDaemonConnection({
+    options: { serverUrl: 'ws://server', identityDir: temp() },
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: { token: 'token' },
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame,
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+    openSocket: () => socket,
+  })
+
+  const started = state.start()
+  state.send({
+    type: 'machineHarnessVersion',
+    harness: 'codex',
+    version: '0.153.0',
+    probedAt: '2026-09-16T10:00:00.000Z',
+  })
+  state.send({
+    type: 'machineHarnessVersion',
+    harness: 'codex',
+    version: '0.154.0',
+    probedAt: '2026-09-16T11:00:00.000Z',
+  })
+  expect(sendApplicationFrame).not.toHaveBeenCalled()
+
+  socket.emit('open')
+  socket.message(ok)
+  await started
+
+  expect(sendApplicationFrame).toHaveBeenCalledWith(
+    socket,
+    expect.objectContaining({
+      type: 'machineHarnessVersion',
+      harness: 'codex',
+      version: '0.154.0',
+      probedAt: '2026-09-16T11:00:00.000Z',
+    }),
+  )
+  expect(
+    sendApplicationFrame.mock.calls.filter(
+      (call) => (call[1] as DaemonMessage)?.type === 'machineHarnessVersion',
+    ),
+  ).toHaveLength(1)
+  await state.close()
+})

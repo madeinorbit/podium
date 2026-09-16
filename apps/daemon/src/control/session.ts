@@ -1436,6 +1436,8 @@ export function reportHarnessVersionDiagnostic(
   harness: string,
   diagnostic: HarnessVersionDiagnostic,
 ): void {
+  // Informational ceilings belong in the machine version readout, not attention items.
+  if (diagnostic.code.endsWith('-unverified')) return
   const version = parseHarnessVersion(diagnostic.observedVersion)
   // Probe errors and changed banners may contain different text on every spawn.
   const observed = version

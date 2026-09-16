@@ -1,4 +1,6 @@
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { reportHarnessProbe, withHarnessVersionReporting } from '../harness-version-reporting'
 import { createVersionProbeCache } from './version-probe'
 
 type Verdict =
@@ -101,4 +103,53 @@ it('retries an inconclusive but admitted harness after its TTL', async () => {
   now = 11
   await expect(cache.probe(run)).resolves.toEqual({ drivable: true })
   expect(calls).toBe(2)
+})
+
+it('keeps asynchronous version observations scoped to their machine and never gates the caller', async () => {
+  const first: DaemonMessage[] = []
+  const second: DaemonMessage[] = []
+  await Promise.all([
+    withHarnessVersionReporting(
+      (message) => {
+        first.push(message)
+      },
+      async () => {
+        await Promise.resolve()
+        reportHarnessProbe('codex', 'codex-cli 0.154.0')
+      },
+    ),
+    withHarnessVersionReporting(
+      (message) => {
+        second.push(message)
+      },
+      async () => {
+        await Promise.resolve()
+        reportHarnessProbe('/usr/bin/grok', '0.2.118')
+      },
+    ),
+  ])
+  expect(first).toEqual([
+    {
+      type: 'machineHarnessVersion',
+      harness: 'codex',
+      version: '0.154.0',
+      probedAt: expect.any(String),
+    },
+  ])
+  expect(second).toEqual([
+    {
+      type: 'machineHarnessVersion',
+      harness: 'grok',
+      version: '0.2.118',
+      probedAt: expect.any(String),
+    },
+  ])
+  expect(() =>
+    withHarnessVersionReporting(
+      () => {
+        throw new Error('offline')
+      },
+      () => reportHarnessProbe('codex', '0.154.0'),
+    ),
+  ).not.toThrow()
 })

@@ -22,18 +22,18 @@ import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
-import { workspaceEndpoint } from '@podium/runtime/workspace-target'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
   updateKeyFingerprint,
 } from '@podium/runtime/update-key-trust'
+import { workspaceEndpoint } from '@podium/runtime/workspace-target'
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
 import type { RuntimeEventOutbox } from './runtime-event-outbox'
-import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const log = createLogger('daemon:connection')
@@ -199,6 +199,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   // per code/version until an authenticated machine transport exists. Ordinary
   // runtime frames retain historical drop-while-offline behavior; queue-drain
   // abandonment is the one durable, acknowledged exception below.
+  const pendingHarnessVersions = new Map<
+    string,
+    Extract<DaemonMessage, { type: 'machineHarnessVersion' }>
+  >()
   const pendingDiagnostics = new Map<
     string,
     Extract<DaemonMessage, { type: 'machineDiagnostic' }>
@@ -496,6 +500,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else deps.sendApplicationFrame(socket, diagnostic)
     }
     pendingDiagnostics.clear()
+    for (const report of pendingHarnessVersions.values()) {
+      if (localAttachment) localAttachment.deliver(report)
+      else deps.sendApplicationFrame(socket, report)
+    }
+    pendingHarnessVersions.clear()
     replayQueueDrainReports()
     replayRuntimeEvents()
     resolveStart()
@@ -957,6 +966,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') {
+        if (msg.type === 'machineHarnessVersion') pendingHarnessVersions.set(msg.harness, msg)
         if (msg.type === 'machineDiagnostic') {
           pendingDiagnostics.set(msg.code + '\0' + (msg.observedVersion ?? ''), msg)
         }

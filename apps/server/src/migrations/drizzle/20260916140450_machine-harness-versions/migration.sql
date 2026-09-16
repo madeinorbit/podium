@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `harness_versions_json` text;

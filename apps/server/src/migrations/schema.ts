@@ -750,6 +750,7 @@ export const machines = sqliteTable('machines', {
   createdAt: text('created_at').notNull(),
   lastSeenAt: text('last_seen_at').notNull(),
   inventoryJson: text('inventory_json'),
+  harnessVersionsJson: text('harness_versions_json'),
   /** Pairing mode: managed hosts may receive copied native credentials. */ podiumManaged: integer(
     'podium_managed',
     { mode: 'boolean' },
