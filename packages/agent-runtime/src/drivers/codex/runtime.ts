@@ -2011,7 +2011,10 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
    * this family: `initialize` either answers or the child is not usable, so a
    * handle never comes back before it can be driven.
    */
-  async function connect(endpoint: CodexServerEndpoint): Promise<CodexConnection> {
+  async function connect(
+    endpoint: CodexServerEndpoint,
+    sessionId: SessionId,
+  ): Promise<CodexConnection> {
     const make = host.makeClient ?? createCodexClient
     /**
      * THE HANDLERS ARE INDIRECTED THROUGH A MUTABLE SINK, on purpose.
@@ -2024,6 +2027,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
      */
     const sink: CodexSink = {}
     const client = make({
+      sessionId,
       transport: endpoint.transport,
       onNotification: (note) => sink.note?.(note),
       onServerRequest: (request) => {
@@ -2212,7 +2216,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
     })
-    const connection = await connect(endpoint)
+    const connection = await connect(endpoint, sessionId)
     /**
      * `thread/start` BEFORE the first turn is what gives this family
      * `resumeRefTiming: 'spawn'` — and therefore a `hibernate()` that never has
@@ -2264,7 +2268,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       ...(input.spec.env ? { env: input.spec.env } : {}),
       ...mcpOf(input.spec),
     })
-    const connection = await connect(endpoint)
+    const connection = await connect(endpoint, input.sessionId)
     const resumed = await connection.client.call<{
       thread?: { id?: string; path?: string | null }
     }>(CODEX_METHODS.threadResume, { threadId: input.threadId })

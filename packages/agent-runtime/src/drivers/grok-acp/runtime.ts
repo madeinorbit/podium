@@ -824,6 +824,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       | undefined
     const make = host.makeClient ?? createGrokAcpClient
     const client = make({
+      sessionId,
       transport: endpoint.transport,
       onFrame(frame) {
         host.onRawFrame?.(sessionId, frame)

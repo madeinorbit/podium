@@ -1,0 +1,9 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 900,
+    "method": "item/renamed/requestApproval",
+    "params": {}
+  },
+  "notification": { "jsonrpc": "2.0", "method": "future/status", "params": {} }
+}

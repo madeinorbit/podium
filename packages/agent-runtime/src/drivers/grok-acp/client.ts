@@ -23,6 +23,8 @@ export interface GrokAcpServerRequest {
 }
 
 export interface GrokAcpClientConfig {
+  /** Podium session identity for protocol diagnostics. */
+  sessionId?: string
   transport: GrokAcpTransport
   /** Every parsed inbound frame, before dispatching it to a request/update
    * consumer. Kept optional so ordinary hosts pay no diagnostic cost. */
@@ -64,6 +66,25 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     number,
     { resolve(value: unknown): void; reject(error: Error): void; method: string; timer: unknown }
   >()
+  const knownInboundMethods = new Set<string>([
+    GROK_ACP_METHODS.requestPermission,
+    'session/update',
+    '_x.ai/session/update',
+    '_x.ai/session_notification',
+  ])
+  const reportedMethods = new Set<string>()
+  let harnessVersion = 'unknown (initialize has not reported a version)'
+  const diagnoseMethod = (method: string): void => {
+    if (knownInboundMethods.has(method)) return
+    const key = JSON.stringify([method, harnessVersion])
+    if (reportedMethods.has(key)) return
+    reportedMethods.add(key)
+    console.warn('[grok-acp] Unrecognised inbound JSON-RPC method', {
+      method,
+      harnessVersion,
+      sessionId: config.sessionId ?? 'unknown',
+    })
+  }
   let nextId = 1
   let ready = false
   let initialized = false
@@ -95,6 +116,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     if (!parsed.success) return
     const frame = parsed.data
     config.onFrame?.(frame)
+    if (frame.method !== undefined) diagnoseMethod(frame.method)
     if (frame.id !== undefined && frame.method !== undefined) {
       config.onServerRequest({ id: frame.id, method: frame.method, params: frame.params })
       return
@@ -103,6 +125,19 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
       const key = typeof frame.id === 'number' ? frame.id : Number(frame.id)
       const entry = pending.get(key)
       if (!entry) return
+      // Capture before resolving initialize, including frames in the same batch.
+      if (entry.method === GROK_ACP_METHODS.initialize && !frame.error) {
+        const initialized = GrokAcpInitializeResultSchema.safeParse(frame.result)
+        const meta = initialized.success ? initialized.data._meta : undefined
+        if (
+          meta &&
+          typeof meta === 'object' &&
+          'agentVersion' in meta &&
+          typeof meta.agentVersion === 'string'
+        ) {
+          harnessVersion = meta.agentVersion
+        }
+      }
       pending.delete(key)
       clearTimer(entry.timer)
       config.onResponse?.(entry.method, frame)

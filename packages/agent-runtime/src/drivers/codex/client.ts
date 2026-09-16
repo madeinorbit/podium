@@ -34,6 +34,9 @@
  */
 
 import {
+  CODEX_METHODS,
+  CODEX_NOTIFICATION_METHODS,
+  CODEX_SERVER_REQUESTS,
   type CodexAuthStatus,
   CodexAuthStatus as CodexAuthStatusSchema,
   CodexFrame,
@@ -43,7 +46,7 @@ import {
   type CodexNotification,
   CodexProtocolError,
   CodexRpcError,
-  CODEX_METHODS,
+  DELTA_NOTIFICATIONS,
   parseCodexNotification,
 } from './protocol.js'
 
@@ -85,6 +88,8 @@ export interface CodexServerRequest {
 }
 
 export interface CodexClientConfig {
+  /** Podium session identity for protocol diagnostics. */
+  sessionId?: string
   transport: CodexTransport
   /** Called for every notification arm this driver consumes; unknown arms never
    *  reach it (see `parseCodexNotification`). */
@@ -145,8 +150,31 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
 
   const pending = new Map<
     number,
-    { resolve: (value: unknown) => void; reject: (err: Error) => void; method: string; timer: unknown }
+    {
+      resolve: (value: unknown) => void
+      reject: (err: Error) => void
+      method: string
+      timer: unknown
+    }
   >()
+  const knownInboundMethods = new Set<string>([
+    ...Object.values(CODEX_SERVER_REQUESTS),
+    ...CODEX_NOTIFICATION_METHODS,
+    ...DELTA_NOTIFICATIONS,
+  ])
+  const reportedMethods = new Set<string>()
+  let harnessVersion = 'unknown (initialize has not reported a version)'
+  const diagnoseMethod = (method: string): void => {
+    if (knownInboundMethods.has(method)) return
+    const key = JSON.stringify([method, harnessVersion])
+    if (reportedMethods.has(key)) return
+    reportedMethods.add(key)
+    console.warn('[codex] Unrecognised inbound JSON-RPC method', {
+      method,
+      harnessVersion,
+      sessionId: config.sessionId ?? 'unknown',
+    })
+  }
   let nextId = 1
   let ready = false
   let handshakeStarted = false
@@ -178,6 +206,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
     if (!frame.success) return
 
     const { id, method } = frame.data
+    if (method !== undefined) diagnoseMethod(method)
     if (id !== undefined && method !== undefined) {
       // SERVER→CLIENT REQUEST. Note the id can be 0 — see the guard below.
       config.onServerRequest({ id, method, params: frame.data.params })
@@ -194,6 +223,15 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       const key = typeof id === 'number' ? id : Number(id)
       const entry = pending.get(key)
       if (!entry) return
+      // Capture the version synchronously: the next inbound frame can arrive
+      // before the initialize promise continuation runs.
+      if (entry.method === CODEX_METHODS.initialize && !frame.data.error) {
+        const initialized = CodexInitializeResponseSchema.safeParse(frame.data.result)
+        if (initialized.success) {
+          harnessVersion =
+            initialized.data.userAgent.split(' ')[0]?.split('/')[1] ?? initialized.data.userAgent
+        }
+      }
       pending.delete(key)
       clearTimer(entry.timer)
       if (frame.data.error) {
