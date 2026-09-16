@@ -437,7 +437,7 @@ async function* events(
               sessionID,
               time: raw.created,
               part: {
-                id: `${messageID}:${String(data.ordinal ?? 0)}:${raw.type}`,
+                id: `${messageID}:${String(data.ordinal ?? 0)}`,
                 messageID,
                 sessionID,
                 type: raw.type === 'session.text.ended' ? 'text' : 'reasoning',
@@ -456,7 +456,7 @@ async function* events(
             properties: {
               sessionID,
               messageID,
-              partID: `${messageID}:${String(data.ordinal ?? 0)}:${raw.type === 'session.text.delta' ? 'session.text.ended' : 'session.reasoning.ended'}`,
+              partID: `${messageID}:${String(data.ordinal ?? 0)}`,
               field: 'text',
               delta: String(data.delta ?? ''),
             },

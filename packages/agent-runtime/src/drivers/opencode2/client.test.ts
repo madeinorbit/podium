@@ -1,4 +1,6 @@
+import { opencodePartToItems } from '@podium/transcript'
 import { describe, expect, it, vi } from 'vitest'
+import { deltaItemIdForPart, partToItems } from '../opencode/map.js'
 import { createOpencode2Client } from './client.js'
 
 const json = (data: unknown, status = 200) =>
@@ -275,4 +277,79 @@ describe('OpenCode 2 client adapter', () => {
     await expect(makeClient(fetch, 5).health()).resolves.toBe(false)
     expect(observed?.aborted).toBe(true)
   })
+})
+
+it('gives SSE live, REST replay, and the file mapper identical deterministic item IDs', async () => {
+  const sessionID = 'ses_v2'
+  const messageID = 'msg_a'
+  const content = [
+    { type: 'reasoning', text: 'Thinking' },
+    { type: 'text', text: 'Hello' },
+    { type: 'text', text: 'World' },
+  ]
+  const frames = content.flatMap((part, ordinal) => [
+    {
+      id: 'delta-' + ordinal,
+      type: 'session.' + part.type + '.delta',
+      data: { sessionID, assistantMessageID: messageID, ordinal, delta: part.text },
+    },
+    {
+      id: 'ended-' + ordinal,
+      type: 'session.' + part.type + '.ended',
+      data: { sessionID, assistantMessageID: messageID, ordinal, text: part.text },
+    },
+  ])
+  const historyBytes = JSON.stringify({
+    data: [{ id: messageID, type: 'assistant', time: { created: 1 }, content }],
+    cursor: { next: null },
+  })
+  const eventBytes = frames.map((frame) => 'data:' + JSON.stringify(frame) + '\n\n').join('')
+  const parse = async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).includes('/message')
+        ? new Response(historyBytes, { headers: { 'content-type': 'application/json' } })
+        : new Response(eventBytes),
+    )
+    const client = makeClient(fetch)
+    const [message] = await client.messages(sessionID)
+    if (!message) throw new Error('Missing history fixture')
+    const controller = new AbortController()
+    const iterator = client.events(controller.signal)[Symbol.asyncIterator]()
+    const ids: string[] = []
+    try {
+      for (const part of message.parts) {
+        const delta = (await iterator.next()).value
+        const ended = (await iterator.next()).value
+        if (delta?.type !== 'message.part.delta' || ended?.type !== 'message.part.updated') {
+          throw new Error('Missing delta/complete fixture pair')
+        }
+        expect(delta.properties.partID).toBe(part.id)
+        expect(ended.properties.part.id).toBe(part.id)
+        const rest = partToItems(sessionID, message.info, part)
+        const live = partToItems(sessionID, message.info, ended.properties.part)
+        const file = opencodePartToItems({
+          sessionId: sessionID,
+          messageId: messageID,
+          partId: part.id,
+          timeCreated: 1,
+          timeUpdated: 2,
+          messageData: JSON.stringify(message.info),
+          partData: JSON.stringify(part),
+        })
+        expect(live.map((item) => item.id)).toEqual(rest.map((item) => item.id))
+        expect(file.map((item) => item.id)).toEqual(rest.map((item) => item.id))
+        rest.forEach((item, sub) => {
+          expect(deltaItemIdForPart(sessionID, delta.properties.partID, sub)).toBe(item.id)
+          ids.push(item.id)
+        })
+      }
+    } finally {
+      controller.abort()
+      await iterator.return?.()
+    }
+    expect(ids).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    return ids
+  }
+  expect(await parse()).toEqual(await parse())
 })
