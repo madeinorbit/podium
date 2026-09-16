@@ -44,6 +44,8 @@ export interface TranscriptTailer {
 }
 
 export interface TranscriptTailOptions {
+  /** Native harness session identity, shared with on-disk and mirrored reads. */
+  resumeValue: string
   pollMs?: number
   /** Shared daemon cadence. When present, pollMs is ignored; the immediate seed
    *  read remains independently paced by seedGate. */
@@ -111,7 +113,7 @@ export interface TranscriptTailMeta {
  * reset=true).
  *
  * Cursors use the SAME scheme as the disk slice reader (`readFileItems` in
- * slice.ts): `fileId = fileIdFor(path)`, each record's items stamped with the
+ * slice.ts): `fileId = fileIdFor(opts.resumeValue)`, each record's items stamped with the
  * record line's ABSOLUTE byte offset and `recordUuid(record)`. So a live-tailed
  * cursor is interchangeable with one read off disk — the same record at the same
  * offset yields the same cursor either way.
@@ -138,7 +140,7 @@ export interface TranscriptTailMeta {
 export function tailTranscript(
   path: string,
   onItems: (items: TranscriptItem[], meta: TranscriptTailMeta) => void,
-  opts: TranscriptTailOptions = {},
+  opts: TranscriptTailOptions,
 ): TranscriptTailer {
   const recordToItems = opts.recordToItems ?? claudeRecordToItems
   const recordColor = opts.recordColor ?? claudeRecordColor
@@ -147,7 +149,7 @@ export function tailTranscript(
   const windowBytes = opts.initialWindowBytes ?? TAIL_BYTES
   const maxInitialItems = opts.maxInitialItems ?? MAX_INITIAL_ITEMS
   const chunkBytes = opts.readChunkBytes ?? READ_CHUNK_BYTES
-  const fileId = fileIdFor(path)
+  const fileId = fileIdFor(opts.resumeValue)
   let lastColor: string | undefined
   let lastModel: string | undefined
   let lastEffort: string | undefined

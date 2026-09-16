@@ -137,11 +137,11 @@ const INITIAL_WINDOW_BYTES = 256 * 1024
  * `head`/`tail` are the cursors of the first/last returned items. `hasMore` is
  * whether any item exists beyond the returned window in `direction`.
  *
- * Anchor matching is exact (cursor string) first, then drift-tolerant: if the
- * encoded uuid changed under us but `{fileId, offset, sub}` still match, we still
- * anchor — the uuid is only a soft validator, the position is authoritative.
+ * UUID-bearing anchors use record identity + sub; byte position is a search hint.
+ * UUID-less anchors retain position + sub matching.
  *
- * PERF (bounded reads): this never slurps whole files on the live path. It reads
+ * PERF: ordinary reads stay bounded; UUID drift may scan the whole anchor file.
+ * The normal path reads
  * each chain file via bounded, doubling `readFileItems` windows seeded at the
  * anchor's byte offset, growing until the needed side holds `limit + 1` items or
  * the file boundary is reached, only then continuing into the adjacent chain file
@@ -160,7 +160,31 @@ export async function readTranscriptSlice(
   // cursor is undecodable, or its fileId is not in the chain (rolled away). In the
   // last two cases we fall back to the default window (newest for `before`, oldest
   // for `after`) — losing the position is safe and avoids a broken page.
-  const anchorFileIdx = want ? chain.findIndex((e) => e.fileId === want.fileId) : -1
+  let anchorFileIdx = want ? chain.findIndex((e) => e.fileId === want.fileId) : -1
+  let anchorItems: TranscriptItem[] | undefined
+  let anchorSiblings: TranscriptItem[] = []
+  if (want && want.uuid !== null && anchorFileIdx >= 0 && opts.anchor) {
+    const entry = chain[anchorFileIdx]!
+    const seeded = await readFileWindowed(entry, recordToItems, {
+      toward: 'newer',
+      anchorOffset: want.offset,
+      need: opts.direction === 'after' ? opts.limit + 1 : 1,
+      initialWindowBytes: opts.initialWindowBytes,
+    })
+    // Only trust the saved byte offset when it still holds this record identity.
+    const idx = findAnchorIndex(seeded.items, opts.anchor, want)
+    if (idx < 0 || offsetOf(seeded.items[idx]!) !== want.offset) {
+      anchorItems = await self.readFileItems(entry.path, entry.fileId, recordToItems)
+      if (findAnchorIndex(anchorItems, opts.anchor, want) < 0) {
+        anchorFileIdx = -1
+        anchorItems = undefined
+      }
+    } else if (opts.direction === 'after') {
+      anchorItems = seeded.items
+    } else {
+      anchorSiblings = seeded.items.slice(0, idx)
+    }
+  }
   const haveAnchor = anchorFileIdx >= 0
   const need = opts.limit + 1 // page + one extra to decide hasMore
 
@@ -173,14 +197,16 @@ export async function readTranscriptSlice(
       const entry = chain[fi]
       if (!entry) continue
       const isAnchorFile = fi === anchorFileIdx
-      const { items: fileItems } = await readFileWindowed(entry, recordToItems, {
+      const { items: fileItems } = isAnchorFile && anchorItems
+        ? { items: anchorItems }
+        : await readFileWindowed(entry, recordToItems, {
         toward: 'older',
         anchorOffset: isAnchorFile && want ? want.offset : undefined,
         need: need - collected.length,
         initialWindowBytes: opts.initialWindowBytes,
       })
       const contribution = isAnchorFile
-        ? sliceBeforeAnchor(fileItems, opts.anchor, want)
+        ? [...sliceBeforeAnchor(fileItems, opts.anchor, want), ...anchorSiblings]
         : fileItems
       collected.unshift(...contribution)
       if (collected.length >= need) break
@@ -205,7 +231,9 @@ export async function readTranscriptSlice(
     const entry = chain[fi]
     if (!entry) continue
     const isAnchorFile = fi === anchorFileIdx
-    const { items: fileItems } = await readFileWindowed(entry, recordToItems, {
+    const { items: fileItems } = isAnchorFile && anchorItems
+        ? { items: anchorItems }
+        : await readFileWindowed(entry, recordToItems, {
       toward: 'newer',
       anchorOffset: isAnchorFile && want ? want.offset : undefined,
       need: need - collected.length,
@@ -408,10 +436,11 @@ function findAnchorIndex(
   const exact = items.findIndex((i) => i.cursor === anchor)
   if (exact >= 0) return exact
   if (!want) return -1
-  // Drift-tolerant: match on file+offset+sub even if the uuid changed under us.
+  // A saved position is authoritative only when the cursor has no UUID.
   return items.findIndex((i) => {
     const c = i.cursor ? decodeCursor(i.cursor) : null
-    return c !== null && c.fileId === want.fileId && c.offset === want.offset && c.sub === want.sub
+    return c !== null && c.fileId === want.fileId &&
+      (want.uuid === null ? c.offset === want.offset : c.uuid === want.uuid) && c.sub === want.sub
   })
 }
 
@@ -522,7 +551,7 @@ async function sliceCacheKey(chain: ChainEntry[], opts: SliceOptions): Promise<s
   for (const entry of chain) {
     try {
       const st = await stat(entry.path)
-      parts.push(`${entry.path}#${st.size}#${st.mtimeMs}`)
+      parts.push(JSON.stringify([entry.path, entry.fileId, st.size, st.mtimeMs]))
     } catch {
       return null
     }

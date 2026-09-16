@@ -511,7 +511,10 @@ export function fileTranscript(
       : unsupported('this harness does not report model, effort or context use in its records'),
     chainPaths: supported(chainPaths),
     async sourceFor(input) {
-      const chain = (await chainPaths(input)).map((path) => ({ path, fileId: fileIdFor(path) }))
+      const sessionIdentity = input.resumeValue
+      const chain = sessionIdentity
+        ? (await chainPaths(input)).map((path) => ({ path, fileId: fileIdFor(sessionIdentity) }))
+        : []
       return fileChainSource(chain, recordToItems)
     },
   }

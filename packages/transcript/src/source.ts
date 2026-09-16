@@ -128,12 +128,9 @@ export function stampOpencodeItems(
  * opencode's parts ARE a bounded list, so an honest in-memory slice is the
  * right shape here. Exported for @podium/harness's `opencodeDbSource`.
  *
- * Anchor matching is exact (cursor string) first, then drift-tolerant on the FULL
- * `{fileId, offset, uuid, sub}` — opencode `time_created` ties are common, so the
- * partId (`uuid`) is load-bearing for disambiguation, unlike the file source which
- * may drift on `{fileId, offset, sub}` alone. A missing/undecodable/not-found
- * anchor falls back to the default window (newest for `before`, oldest for
- * `after`), matching `readTranscriptSlice`.
+ * Anchor matching uses UUID + sub within the session namespace, even when the
+ * position changes. UUID-less anchors use position + sub. Missing anchors fall
+ * back to the default window (newest for `before`, oldest for `after`).
  */
 export function sliceItemsByAnchor(
   all: TranscriptItem[],
@@ -165,7 +162,7 @@ function finalize(items: TranscriptItem[], hasMore: boolean): SliceResult {
   return { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore }
 }
 
-/** Locate the anchor item: exact cursor first, then full `{fileId,offset,uuid,sub}`. */
+/** Locate the anchor item: exact cursor first, then UUID + sub (position only for UUID-less anchors). */
 function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): number {
   const exact = items.findIndex((i) => i.cursor === anchor)
   if (exact >= 0) return exact
@@ -176,8 +173,7 @@ function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): numbe
     return (
       c !== null &&
       c.fileId === want.fileId &&
-      c.offset === want.offset &&
-      c.uuid === want.uuid &&
+      (want.uuid === null ? c.offset === want.offset : c.uuid === want.uuid) &&
       c.sub === want.sub
     )
   })

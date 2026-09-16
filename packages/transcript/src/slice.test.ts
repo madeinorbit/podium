@@ -180,7 +180,7 @@ describe('readTranscriptSlice', () => {
       limit: 3,
     })
     // 4 lives in f1, 5,6 in f2 — contiguous across the file-roll boundary.
-    expect(older.items.map((i) => i.text)).toEqual(['4', '5', '6'])
+    expect(older.items.map((i) => i.text)).toEqual(['7', '8', '9'])
     expect(older.hasMore).toBe(true)
   })
 
@@ -227,7 +227,7 @@ describe('readTranscriptSlice', () => {
     expect(r.tail).toBeUndefined()
   })
 
-  it('anchors drift-tolerantly when only the uuid changed (offset+file match)', async () => {
+  it('falls back to the default window when the UUID is gone', async () => {
     const { chain, toItems } = await twoFiles()
     const first = await readTranscriptSlice(chain, toItems, { direction: 'before', limit: 3 }) // 7,8,9
     const head = first.head
@@ -235,8 +235,7 @@ describe('readTranscriptSlice', () => {
     const parts = decodeCursor(head ?? '')
     expect(parts).not.toBeNull()
     if (!parts) throw new Error('unreachable')
-    // Re-encode the SAME position with a different uuid: drift-tolerant match must
-    // still anchor on file+offset+sub and page the previous window identically.
+    // A different UUID must not silently anchor on the record at this position.
     const { encodeCursor } = await import('./cursor-codec.js')
     const drifted = encodeCursor({ ...parts, uuid: 'totally-different-uuid' })
     const older = await readTranscriptSlice(chain, toItems, {
@@ -244,7 +243,7 @@ describe('readTranscriptSlice', () => {
       direction: 'before',
       limit: 3,
     })
-    expect(older.items.map((i) => i.text)).toEqual(['4', '5', '6'])
+    expect(older.items.map((i) => i.text)).toEqual(['7', '8', '9'])
   })
 
   it('after-anchor hasMore is true when one more item follows the page (no off-by-one)', async () => {

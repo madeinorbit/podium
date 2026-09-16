@@ -55,14 +55,14 @@ const textsOf = (emissions: Emission[]): string[] => itemsOf(emissions).map((i) 
 /** Drive a tailer's poll deterministically: each `tick()` waits a hair longer
  *  than `pollMs` so exactly one `readNew` completes, then returns the emissions
  *  captured since the last tick. Mirrors the existing `opts.pollMs` test seam. */
-function makeTailHarness(path: string, pollMs = 10, opts: TranscriptTailOptions = {}) {
+function makeTailHarness(path: string, pollMs = 10, opts: Partial<TranscriptTailOptions> = {}) {
   const emissions: Emission[] = []
   const tailer = tailTranscript(
     path,
     (items, meta) => {
       emissions.push({ items, reset: meta.reset, tail: meta.tail })
     },
-    { pollMs, ...opts },
+    { resumeValue: 'native-session', pollMs, ...opts },
   )
   let drained = 0
   const tick = async (): Promise<Emission[]> => {
@@ -93,6 +93,7 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
+        resumeValue: 'native-session',
         statTick: {
           subscribe(next) {
             watcher = next
@@ -143,10 +144,10 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       const c2 = decodeCursor(all[1]?.cursor ?? '')
       expect(c1).not.toBeNull()
       expect(c2).not.toBeNull()
-      expect(c1?.fileId).toBe(fileIdFor(path))
+      expect(c1?.fileId).toBe(fileIdFor('native-session'))
       expect(c1?.offset).toBe(0)
       expect(c1?.uuid).toBe('c1')
-      expect(c2?.fileId).toBe(fileIdFor(path))
+      expect(c2?.fileId).toBe(fileIdFor('native-session'))
       expect(c2?.offset).toBe(off2)
       expect(c2?.uuid).toBe('c2')
 
@@ -267,6 +268,7 @@ describe('tailTranscript — missing provider file', () => {
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
+        resumeValue: 'native-session',
         recordToItems: grokRecordToItems,
         initialPathStat: async () => Promise.reject(error),
         statTick: {
@@ -304,6 +306,7 @@ describe('tailTranscript — missing provider file', () => {
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
+        resumeValue: 'native-session',
         recordToItems: grokRecordToItems,
         statTick: {
           subscribe(next) {
@@ -364,6 +367,7 @@ describe('tailTranscript — missing provider file', () => {
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
+        resumeValue: 'native-session',
         recordToItems: grokRecordToItems,
         statTick: {
           subscribe(next) {
@@ -429,6 +433,7 @@ describe('tailTranscript — seedGate (POD-612)', () => {
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
+        resumeValue: 'native-session',
         pollMs: 5,
         seedGate: async (fn) => {
           await held
@@ -459,12 +464,12 @@ describe('tailTranscript — seedGate (POD-612)', () => {
 })
 
 describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () => {
-  const collect = (path: string, opts: Parameters<typeof tailTranscript>[2]) => {
+  const collect = (path: string, opts: Partial<TranscriptTailOptions>) => {
     const emissions: Emission[] = []
     const tailer = tailTranscript(
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
-      { pollMs: 10, ...opts },
+      { resumeValue: 'native-session', pollMs: 10, ...opts },
     )
     return { emissions, tailer }
   }
