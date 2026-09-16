@@ -9,7 +9,7 @@ it('file sources share the native session namespace across paths and repeated pa
   const dir = await mkdtemp(join(tmpdir(), 'manifest-namespace-'))
   try {
     const bytes = `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } })}\n`
-    const paths = [join(dir, 'live.jsonl'), join(dir, 'mirror.jsonl')]
+    const paths = [join(dir, 'live.jsonl'), join(dir, 'mirror.jsonl')] as const
     for (const path of paths) await writeFile(path, bytes)
     const transcript = fileTranscript(
       async ({ pathHint }) => (pathHint ? [pathHint] : []),
@@ -20,13 +20,13 @@ it('file sources share the native session namespace across paths and repeated pa
         direction: 'before',
         limit: 10,
       })
-    const first = await read(paths[0]!, 'native-session')
+    const first = await read(paths[0], 'native-session')
     expect(first.items).toHaveLength(1)
     expect(decodeCursor(first.items[0]?.cursor ?? '')?.fileId).toBe('native-session')
     expect(first.items[0]?.id).toBe(first.items[0]?.cursor)
-    expect(await read(paths[0]!, 'native-session')).toEqual(first)
-    expect(await read(paths[1]!, 'native-session')).toEqual(first)
-    expect((await read(paths[0]!)).items).toEqual([])
+    expect(await read(paths[0], 'native-session')).toEqual(first)
+    expect(await read(paths[1], 'native-session')).toEqual(first)
+    expect((await read(paths[0])).items).toEqual([])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -48,7 +48,7 @@ describe('session cursor identity', () => {
     const dir = await mkdtemp(join(tmpdir(), 'source-identity-'))
     try {
       const bytes = `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'héllo' } })}\n`
-      const paths = [join(dir, 'live.jsonl'), join(dir, 'mirror.jsonl')]
+      const paths = [join(dir, 'live.jsonl'), join(dir, 'mirror.jsonl')] as const
       for (const path of paths) await writeFile(path, bytes)
       const read = (path: string, fileId: string, cached = false) =>
         fileChainSource([{ path, fileId }], claudeRecordToItems).readSlice({
@@ -56,20 +56,20 @@ describe('session cursor identity', () => {
           limit: 10,
           cached,
         })
-      const first = await read(paths[0]!, fileIdFor('native-session'))
+      const first = await read(paths[0], fileIdFor('native-session'))
       expect(first.items).toHaveLength(1)
       expect(first.items[0]?.id).toBe(first.items[0]?.cursor)
-      expect(await read(paths[0]!, fileIdFor('native-session'))).toEqual(first)
-      expect(await read(paths[1]!, fileIdFor('native-session'))).toEqual(first)
-      expect(await read(paths[0]!, fileIdFor('native-session'), true)).toEqual(first)
-      const archived = await read(paths[0]!, fileIdFor('native-session', 1), true)
+      expect(await read(paths[0], fileIdFor('native-session'))).toEqual(first)
+      expect(await read(paths[1], fileIdFor('native-session'))).toEqual(first)
+      expect(await read(paths[0], fileIdFor('native-session'), true)).toEqual(first)
+      const archived = await read(paths[0], fileIdFor('native-session', 1), true)
       expect(archived.items[0]?.cursor).not.toBe(first.items[0]?.cursor)
-      expect(await read(paths[1]!, fileIdFor('native-session', 1))).toEqual(archived)
+      expect(await read(paths[1], fileIdFor('native-session', 1))).toEqual(archived)
       expect(fileIdFor('native-session')).toBe('native-session')
       expect(fileIdFor('native-session', 1)).not.toBe(fileIdFor('native-session', 2))
       const oldAnchor = encodeCursor({ fileId: 'old-path-hash', offset: 0, uuid: null, sub: 0 })
       const source = fileChainSource(
-        [{ path: paths[0]!, fileId: fileIdFor('native-session') }],
+        [{ path: paths[0], fileId: fileIdFor('native-session') }],
         claudeRecordToItems,
       )
       expect(await source.readSlice({ anchor: oldAnchor, direction: 'before', limit: 10 })).toEqual(

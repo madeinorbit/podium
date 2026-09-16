@@ -324,7 +324,7 @@ describe('tailTranscript — missing provider file', () => {
       },
     )
     try {
-      await new Promise((resolve) => setTimeout(resolve, 10))
+      await waitFor(() => statuses.length > 0)
       expect(statuses).toEqual([expect.objectContaining({ kind: 'error', path })])
       writeFileSync(
         path,
@@ -612,10 +612,9 @@ it('tailer and repeated disk parses produce identical byte-offset cursors and sy
   const { claudeRecordToItems } = await import('./claude')
   const { readFileItems } = await import('./slice')
   const path = join(dir, 'disk-parity.jsonl')
-  const bytes =
-    ['multibyte 🦊 prefix', 'uuid-less record']
-      .map((content) => JSON.stringify({ type: 'user', message: { role: 'user', content } }))
-      .join('\n') + '\n'
+  const bytes = `${['multibyte 🦊 prefix', 'uuid-less record']
+    .map((content) => JSON.stringify({ type: 'user', message: { role: 'user', content } }))
+    .join('\n')}\n`
   writeFileSync(path, bytes)
   const harness = makeTailHarness(path)
   try {
@@ -628,7 +627,7 @@ it('tailer and repeated disk parses produce identical byte-offset cursors and sy
     )
     expect(disk.map((item) => item.id)).toEqual(disk.map((item) => item.cursor))
     expect(decodeCursor(disk[1]?.cursor ?? '')?.offset).toBe(
-      Buffer.byteLength(bytes.split('\n')[0]!) + 1,
+      Buffer.byteLength(bytes.split('\n')[0] ?? '') + 1,
     )
   } finally {
     harness.tailer.stop()

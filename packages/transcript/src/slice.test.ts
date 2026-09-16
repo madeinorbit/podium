@@ -180,7 +180,7 @@ describe('readTranscriptSlice', () => {
       limit: 3,
     })
     // 4 lives in f1, 5,6 in f2 — contiguous across the file-roll boundary.
-    expect(older.items.map((i) => i.text)).toEqual(['7', '8', '9'])
+    expect(older.items.map((i) => i.text)).toEqual(['4', '5', '6'])
     expect(older.hasMore).toBe(true)
   })
 

@@ -163,8 +163,9 @@ export async function readTranscriptSlice(
   let anchorFileIdx = want ? chain.findIndex((e) => e.fileId === want.fileId) : -1
   let anchorItems: TranscriptItem[] | undefined
   let anchorSiblings: TranscriptItem[] = []
-  if (want && want.uuid !== null && anchorFileIdx >= 0 && opts.anchor) {
-    const entry = chain[anchorFileIdx]!
+  const anchorEntry = chain[anchorFileIdx]
+  if (want && want.uuid !== null && anchorEntry && opts.anchor) {
+    const entry = anchorEntry
     const seeded = await readFileWindowed(entry, recordToItems, {
       toward: 'newer',
       anchorOffset: want.offset,
@@ -173,7 +174,8 @@ export async function readTranscriptSlice(
     })
     // Only trust the saved byte offset when it still holds this record identity.
     const idx = findAnchorIndex(seeded.items, opts.anchor, want)
-    if (idx < 0 || offsetOf(seeded.items[idx]!) !== want.offset) {
+    const seededAnchor = seeded.items[idx]
+    if (!seededAnchor || offsetOf(seededAnchor) !== want.offset) {
       anchorItems = await self.readFileItems(entry.path, entry.fileId, recordToItems)
       if (findAnchorIndex(anchorItems, opts.anchor, want) < 0) {
         anchorFileIdx = -1
