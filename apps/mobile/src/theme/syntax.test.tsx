@@ -5,7 +5,7 @@ import { cleanup, render } from '@testing-library/react'
 import { processColor } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HighlightedCode } from '../components/HighlightedCode'
-import { syntaxPalette, syntaxScopeToken } from './syntax'
+import { prosePalette, syntaxPalette, syntaxScopeToken } from './syntax'
 import { color } from './theme'
 
 const appearanceState = vi.hoisted(() => ({ mode: 'dark' as 'light' | 'dark' }))
@@ -38,6 +38,13 @@ it('matches the web scope rules and both web palettes', () => {
   expect(webScopes.size).toBeGreaterThan(20)
   for (const [scope, token] of Object.entries(syntaxScopeToken)) {
     expect(token, scope).toBe(webScopes.get(scope.replaceAll('.', '-')) ?? null)
+  }
+  for (const [token, light] of Object.entries(prosePalette.light)) {
+    const values = [...web.matchAll(new RegExp(`--${token}: (#[0-9a-f]+);`, 'g'))]
+    expect(values.map((match) => match[1])).toEqual([
+      light,
+      prosePalette.dark[token as keyof typeof prosePalette.dark],
+    ])
   }
   for (const [token, light] of Object.entries(syntaxPalette.light)) {
     const values = [...web.matchAll(new RegExp(`--syntax-${token}: (#[0-9a-f]+);`, 'g'))]

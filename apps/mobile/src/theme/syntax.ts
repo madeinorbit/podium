@@ -81,3 +81,13 @@ export function syntaxColor(scope: string | null): string {
       : null
   return token ? adaptiveColor(syntaxPalette.light[token], syntaxPalette.dark[token]) : color.body
 }
+
+// Whole prose spans have independent semantics from parsed syntax roles.
+export const prosePalette = {
+  light: { 'code-inline': '#0c6f86', 'text-strong': '#1d1c19' },
+  dark: { 'code-inline': '#6fcfd0', 'text-strong': '#f2f3f5' },
+} as const
+
+export function proseColor(token: keyof typeof prosePalette.light): string {
+  return adaptiveColor(prosePalette.light[token], prosePalette.dark[token])
+}

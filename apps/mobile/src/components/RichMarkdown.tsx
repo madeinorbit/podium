@@ -13,6 +13,7 @@ import {
 } from '../lib/markdown'
 import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
+import { proseColor } from '../theme/syntax'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { HighlightedCode } from './HighlightedCode'
 import { RefChip } from './RefChip'
@@ -392,14 +393,14 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.body, 'prose'),
   },
   paragraph: { marginVertical: 4 },
-  strong: { ...sans(600), color: color.text },
+  strong: { ...sans(600), color: proseColor('text-strong') },
   em: { fontStyle: 'italic' },
   del: { textDecorationLine: 'line-through', color: color.textDim },
   link: { color: color.info, textDecorationLine: 'underline' },
   inlineCode: {
     ...mono(400),
-    color: color.text,
-    backgroundColor: color.surface,
+    // POD-725: a change of ink and face, never a boxed chip.
+    color: proseColor('code-inline'),
     fontSize: font.small,
   },
   heading: { ...sans(600), color: color.text, marginTop: space.md, marginBottom: space.xs },

@@ -7302,14 +7302,15 @@ html[data-density="compact"] .chat-md {
 /* Inline code is a CHANGE OF VOICE, not a chip (POD-725). It wore a fill, a
    border and a radius, so a sentence naming three symbols came out as three
    little buttons and the prose stopped being prose. Mono at the design's 13px
-   against 15px body, in the strong ink — the face and the weight are already
-   the whole signal, and they survive on both grounds. */
+   against 15px body, with independent teal ink to distinguish symbols from
+   bold prose and blue links on both grounds. */
 .chat-md code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.87em;
-  color: var(--text-strong);
+  color: var(--code-inline);
 }
 .chat-md pre code {
+  color: var(--text-strong);
   background: none;
   border: none;
   padding: 0;
