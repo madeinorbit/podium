@@ -254,6 +254,13 @@ it.each([
     const livePath = join(dir, 'live.jsonl')
     writeFileSync(livePath, bytes)
     writeFileSync(join(dir, machineId, `${nativeId}.jsonl`), bytes)
+    await store.conversations.registry.ensure({
+      machineId,
+      nativeId,
+      providerId: 'claude-code-jsonl',
+      path: livePath,
+      sizeBytes: Buffer.byteLength(bytes),
+    })
     if (mode !== 'legacy') {
       await store.conversations.mirror.startIncarnation(
         machineId,
