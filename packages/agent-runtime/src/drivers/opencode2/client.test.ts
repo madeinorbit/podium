@@ -289,13 +289,13 @@ it('gives SSE live, REST replay, and the file mapper identical deterministic ite
   ]
   const frames = content.flatMap((part, ordinal) => [
     {
-      id: 'delta-' + ordinal,
-      type: 'session.' + part.type + '.delta',
+      id: `delta-${ordinal}`,
+      type: `session.${part.type}.delta`,
       data: { sessionID, assistantMessageID: messageID, ordinal, delta: part.text },
     },
     {
-      id: 'ended-' + ordinal,
-      type: 'session.' + part.type + '.ended',
+      id: `ended-${ordinal}`,
+      type: `session.${part.type}.ended`,
       data: { sessionID, assistantMessageID: messageID, ordinal, text: part.text },
     },
   ])
@@ -303,7 +303,7 @@ it('gives SSE live, REST replay, and the file mapper identical deterministic ite
     data: [{ id: messageID, type: 'assistant', time: { created: 1 }, content }],
     cursor: { next: null },
   })
-  const eventBytes = frames.map((frame) => 'data:' + JSON.stringify(frame) + '\n\n').join('')
+  const eventBytes = frames.map((frame) => `data:${JSON.stringify(frame)}\n\n`).join('')
   const parse = async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url).includes('/message')
