@@ -84,4 +84,28 @@ export function harnessSupportsNoTools(kind: AgentKind | string): boolean {
   return HARNESS_NO_TOOLS[kind as BuiltinHarnessKind] === true
 }
 
-export * from './version-policy.js'
+export type {
+  HarnessVersion,
+  HarnessVersionDiagnostic,
+  HarnessVersionPolicy,
+  HarnessVersionStatus,
+} from './version-policy'
+/**
+ * The version policy, re-exported BY NAME.
+ *
+ * An open entrypoint may not `export *`: that re-opens a capability-restricted
+ * package in one line, so widening this surface has to be an edit someone makes
+ * on purpose. Extensionless, because the boundary checker resolves a browser
+ * entrypoint's closure itself and an import it cannot resolve TRUNCATES that
+ * closure — which would make the no-Node claim green for the wrong reason.
+ */
+export {
+  CODEX_VERSION_POLICY,
+  GROK_ACP_VERSION_POLICY,
+  gateHarnessVersion,
+  HARNESS_VERSION_POLICIES,
+  harnessVersionDiagnostic,
+  harnessVersionFloor,
+  OPENCODE_VERSION_POLICY,
+  parseHarnessVersion,
+} from './version-policy'
