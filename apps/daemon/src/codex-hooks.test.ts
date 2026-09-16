@@ -127,6 +127,17 @@ describe('ensurePodiumCodexHooks', () => {
     expect(await readFile(join(dir, '.codex', 'config.toml'), 'utf8')).toBe(config)
   })
 
+  it('accepts a Codex newer than the last exercised version (ceilings never block)', async () => {
+    for (const raw of ['codex-cli 0.147.0', 'codex-cli 0.154.0', 'codex-cli 1.0.0']) {
+      const version = parseCodexVersion(raw)
+      if (!version) throw new Error(`unparseable ${raw}`)
+      expect(supportsCodexHooks(version)).toBe(true)
+    }
+    const old = parseCodexVersion('codex-cli 0.141.9')
+    if (!old) throw new Error('unparseable')
+    expect(supportsCodexHooks(old)).toBe(false)
+  })
+
   it('degrades loudly and leaves both Codex files untouched on an unknown version', async () => {
     const dir = await home()
     const hooks = '{"hooks":{"Stop":[]}}\n'
@@ -141,7 +152,7 @@ describe('ensurePodiumCodexHooks', () => {
 
     const res = await ensureHooks({
       homeDir: dir,
-      versionProbe: async () => 'codex-cli 0.147.0',
+      versionProbe: async () => 'codex-cli 0.141.0',
       onDegraded,
     })
 
@@ -151,7 +162,7 @@ describe('ensurePodiumCodexHooks', () => {
     expect(onDegraded).toHaveBeenCalledWith(
       expect.objectContaining({
         code: 'codex-version-unsupported',
-        observedVersion: 'codex-cli 0.147.0',
+        observedVersion: 'codex-cli 0.141.0',
       }),
     )
     expect(records).toContainEqual(
@@ -159,7 +170,7 @@ describe('ensurePodiumCodexHooks', () => {
         level: 'error',
         msg: 'Codex hooks need review',
         code: 'codex-version-unsupported',
-        observedVersion: 'codex-cli 0.147.0',
+        observedVersion: 'codex-cli 0.141.0',
       }),
     )
     dispose()

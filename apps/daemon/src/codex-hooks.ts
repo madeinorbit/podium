@@ -39,8 +39,14 @@ export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSIO
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
 const execFileAsync = promisify(execFile)
 
-/** Versions whose public hooks.json contract was exercised by Podium. */
-const SUPPORTED_CODEX_MINOR = { min: 142, max: 146 } as const
+/**
+ * The first Codex whose public hooks.json contract Podium exercised. A FLOOR
+ * ONLY: a newer Codex has already been installed by the user, so refusing it
+ * leaves them nothing to do, and the hooks.json format has stayed additive
+ * across every minor since. Newer versions install and run; a break would
+ * surface as missing observations, never as a refused session (POD-4083).
+ */
+const MINIMUM_CODEX_HOOKS_MINOR = 142
 
 export interface CodexVersion {
   raw: string
@@ -70,11 +76,8 @@ export function parseCodexVersion(output: string): CodexVersion | null {
 }
 
 export function supportsCodexHooks(version: CodexVersion): boolean {
-  return (
-    version.major === 0 &&
-    version.minor >= SUPPORTED_CODEX_MINOR.min &&
-    version.minor <= SUPPORTED_CODEX_MINOR.max
-  )
+  if (version.major !== 0) return version.major > 0
+  return version.minor >= MINIMUM_CODEX_HOOKS_MINOR
 }
 
 export async function detectCodexVersion(): Promise<string> {
