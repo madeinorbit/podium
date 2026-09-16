@@ -1,8 +1,3 @@
-import {
-  installTerminalInstrumentation,
-  prepareTerminalInstrumentation,
-  type InstalledTerminalInstrumentation,
-} from '../runtime/terminal-instrumentation'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -25,10 +20,15 @@ import {
   type Geometry,
   type SessionId,
 } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import {
+  type DurableAttachment,
+  type DurableProcess,
+  durableProcessFor,
+} from '@podium/process/durable'
 import { type AgentSession, spawnAgent } from '@podium/process/screen'
-import type { SessionBindingTransitionOutcome } from '../binding-store'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
+import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
@@ -57,20 +57,20 @@ import {
   unhonouredSpawnDriver,
 } from '../runtime/registry'
 import { beginServerDriverReap } from '../runtime/server-reap'
+import {
+  type InstalledTerminalInstrumentation,
+  installTerminalInstrumentation,
+  prepareTerminalInstrumentation,
+  reportInstrumentationDegradation,
+} from '../runtime/terminal-instrumentation'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame } from './applied-geometry'
-import {
-  type DurableAttachment,
-  type DurableProcess,
-  durableProcessFor,
-} from '@podium/process/durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
 export { harnessCompatEnv } from './session-env'
 
-import { sourceForRead } from './transcripts'
 import { decideReopenScreen } from '../reopen-policy'
 import {
   forgetSessionScreen,
@@ -79,6 +79,7 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
+import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
 
@@ -898,22 +899,22 @@ export async function launchSpawn(
       await ctx.agentRuntime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
     } else {
       // Shell/login and injected legacy hosts have no runtime session to create.
-      await launch(
-        await prepareTerminalInstrumentation(
-          {
-            instrumentation:
-              !msg.loginHarness && profile?.instrumentationRequired ? 'required' : 'none',
-          },
-          spec,
-          () =>
-            installTerminalInstrumentation({
-              sessionId: msg.sessionId,
-              spec,
-              settingsDir: ctx.settingsDir,
-              ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-            }),
-        ),
+      const instrumentation = await prepareTerminalInstrumentation(
+        {
+          instrumentation:
+            !msg.loginHarness && profile?.instrumentationRequired ? 'required' : 'none',
+        },
+        spec,
+        () =>
+          installTerminalInstrumentation({
+            sessionId: msg.sessionId,
+            spec,
+            settingsDir: ctx.settingsDir,
+            ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+          }),
       )
+      reportInstrumentationDegradation(ctx, spec.harness, instrumentation, ctx.send)
+      await launch(instrumentation)
     }
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)

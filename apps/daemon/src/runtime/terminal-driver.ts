@@ -1,9 +1,10 @@
+import { withDeliveryQueue } from '@podium/agent-runtime'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
-  prepareTerminalInstrumentation,
   type InstalledTerminalInstrumentation,
+  prepareTerminalInstrumentation,
+  reportInstrumentationDegradation,
 } from './terminal-instrumentation'
-import { withDeliveryQueue } from '@podium/agent-runtime'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
  * (POD-1761 W3; spec §3, §9 phase 2 daemon half).
@@ -68,10 +69,10 @@ import type {
   InteractionAnswerOutcome,
   InteractionAskSpec,
   PendingInteraction,
-  QueueDrainAbandonedReason,
-  QueuedTurn,
   QuestionPrompt,
   QuestionSelection,
+  QueueDrainAbandonedReason,
+  QueuedTurn,
   Refusal,
   RuntimeDriver,
   RuntimeEvent,
@@ -211,7 +212,9 @@ export interface TerminalRuntimeHost {
   ): Promise<readonly TranscriptItem[]>
   readHistory(
     session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
-    range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] },
+    range: Omit<RuntimeHistoryRange, 'direction'> & {
+      direction?: RuntimeHistoryRange['direction']
+    },
   ): Promise<RuntimeHistoryPage>
   /** Locate the harness-native transcript for an archive, or throw with the
    *  harness's own reason when it declares none. */
@@ -1527,7 +1530,13 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
-          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+          return {
+            outcome: 'refused',
+            refusal: {
+              reason: 'unsupported',
+              detail: 'boundary delivery is not implemented by this driver',
+            },
+          }
         }
         if (!session.alive || !host.bridge(session.sessionId)) {
           return { outcome: 'refused', refusal: refuse('not_running') }
@@ -1792,7 +1801,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         },
         async set(text) {
           if (session.disposed) return refuse('not_running')
-          if (!host.draftSyncing(session.sessionId) || !host.setDraftTarget(session.sessionId, text)) {
+          if (
+            !host.draftSyncing(session.sessionId) ||
+            !host.setDraftTarget(session.sessionId, text)
+          ) {
             return refuse('unsupported', 'composer injection is unavailable for this session')
           }
           observeDraft(session.sessionId, text)
@@ -1976,6 +1988,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           spec,
           () => host.installInstrumentation(sessionId, spec),
         )
+        reportInstrumentationDegradation(host, spec.harness, instrumentation, host.send)
         await launch(instrumentation)
         return registerOrReuse(
           {
@@ -2318,7 +2331,10 @@ function menuScriptFor(answer: unknown, ask: PendingInteraction): MenuScriptResu
     return { ok: false, detail: 'this menu takes a question answer' }
   }
   if (record.kind !== 'question' || ask.kind !== 'question') {
-    return { ok: false, detail: `an answer of kind '${String(record.kind)}' cannot answer this menu` }
+    return {
+      ok: false,
+      detail: `an answer of kind '${String(record.kind)}' cannot answer this menu`,
+    }
   }
   const selections = Array.isArray(record.selections)
     ? (record.selections as readonly QuestionSelection[])
@@ -2420,7 +2436,8 @@ function questionScriptFor(
         // The digit only moves the cursor here; the CR is what selects. Exactly
         // one digit survives validation above, so there is always a first.
         const first = digits[0]
-        if (first === undefined) return { ok: false, detail: `question: no option in the menu's digits` }
+        if (first === undefined)
+          return { ok: false, detail: `question: no option in the menu's digits` }
         key(String(first))
         key('\r')
       } else {

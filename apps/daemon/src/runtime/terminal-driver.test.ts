@@ -1,4 +1,9 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { pageHistory } from '@podium/agent-runtime'
+import * as codexHooks from '../codex-hooks'
+import { installTerminalInstrumentation } from './terminal-instrumentation'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
  *
@@ -33,18 +38,17 @@ import {
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type RuntimeEvent,
 } from '@podium/agent-runtime'
-import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import { addSink, type LogRecord } from '@podium/logger'
+import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AGENT_MANIFESTS } from '@podium/harness'
-import { terminalProfileFor } from './registry'
 import {
   RUNTIME_CONTRACT_ENV,
   runtimeContractEnabledByEnv,
   runtimeContractEnabledFor,
 } from './flag'
+import { terminalProfileFor } from './registry'
 import {
   createTerminalRuntime,
   EVENT_LOG_LIMIT,
@@ -291,7 +295,12 @@ function makeWorld(
       if (bindOnLaunch) bindFrame(msg.sessionId)
     },
     readTranscript: options.readTranscript ?? (async () => []),
-    readHistory: async (session, range) => pageHistory(await (options.readTranscript ?? (async () => []))(session, { limit: 10000 }), session.sessionId, range),
+    readHistory: async (session, range) =>
+      pageHistory(
+        await (options.readTranscript ?? (async () => []))(session, { limit: 10000 }),
+        session.sessionId,
+        range,
+      ),
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
     readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
     resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
@@ -447,20 +456,75 @@ describe('instrumented terminal creation', () => {
     world.runtime.dispose()
   })
 
-  it('propagates installer failure without launching and permits a later retry', async () => {
+  it('propagates a missing installer bug without launching and permits a later retry', async () => {
     const world = makeWorld()
     const launch = vi.spyOn(world.host, 'launch')
     world.host.installInstrumentation = vi
       .fn()
-      .mockRejectedValueOnce(new Error('unreadable hooks.json'))
+      .mockRejectedValueOnce(new Error('no instrumentation installer for fixture'))
       .mockResolvedValue({ args: [] })
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    await expect(driver.create(SPEC)).rejects.toThrow('unreadable hooks.json')
+    await expect(driver.create(SPEC)).rejects.toThrow('no instrumentation installer for fixture')
     expect(launch).not.toHaveBeenCalled()
     expect(world.runtime.bindings()).toEqual([])
     await driver.create(SPEC)
     expect(launch).toHaveBeenCalledTimes(1)
     world.runtime.dispose()
+  })
+
+  it.each([
+    ['missing home', 'no ~/.codex'],
+    ['unreadable', 'unreadable hooks.json'],
+    ['not object', 'hooks.json not an object'],
+    ['garbage version', 'unsupported codex version: garbage banner'],
+    ['write failure', 'EISDIR'],
+    ['malformed groups', 'null'],
+  ])('starts Codex with %s and emits one reason-specific diagnostic', async (scenario, reason) => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'codex-spawn-'))
+    const world = makeWorld()
+    const actualEnsure = codexHooks.ensurePodiumCodexHooks
+    const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockImplementation((opts) =>
+      actualEnsure({
+        ...opts,
+        versionProbe: async () =>
+          scenario === 'garbage version' ? 'garbage banner' : 'codex-cli 0.142.0',
+      }),
+    )
+    try {
+      const codexHome = join(homeDir, '.codex')
+      if (scenario !== 'missing home') await mkdir(codexHome)
+      const path = join(codexHome, 'hooks.json')
+      if (scenario === 'unreadable') await mkdir(path)
+      if (scenario === 'not object') await writeFile(path, '[]')
+      if (scenario === 'malformed groups') await writeFile(path, '{"hooks":{"Stop":[null]}}')
+      if (scenario === 'write failure') await mkdir(`${path}.podium-tmp`)
+      world.host.installInstrumentation = (sessionId, spec) =>
+        installTerminalInstrumentation({
+          sessionId,
+          spec,
+          homeDir,
+          settingsDir: join(homeDir, 'settings'),
+        })
+      const launch = vi.spyOn(world.host, 'launch')
+      const profile = terminalProfileFor('codex')
+      if (!profile) throw new Error('missing Codex profile')
+      const driver = world.runtime.driverFor('codex', profile)
+      for (let i = 0; i < 2; i++) await driver.create({ ...SPEC, harness: 'codex' })
+      expect(launch).toHaveBeenCalledTimes(2)
+      for (const call of launch.mock.calls) {
+        expect(call[1]?.env).toEqual(
+          expect.objectContaining({ PODIUM_CODEX_HOOK_URL: SPEC.instrumentation.endpointUrl }),
+        )
+        expect(call[1]?.degradedReason).toContain(reason)
+      }
+      const diagnostics = world.frames.filter((frame) => frame.type === 'machineDiagnostic')
+      expect(diagnostics).toHaveLength(1)
+      expect(diagnostics[0]).toMatchObject({ body: expect.stringContaining(reason) })
+    } finally {
+      ensure.mockRestore()
+      world.runtime.dispose()
+      await rm(homeDir, { recursive: true, force: true })
+    }
   })
 
   it('installs on resume and on creation with a server-assigned identity', async () => {
@@ -791,7 +855,10 @@ describe('send receipts', () => {
     // reason named anywhere. The channel absence must be said once, loudly,
     // rather than producing weaker receipts forever with no explanation.
     const records: LogRecord[] = []
-    const dispose = addSink({ name: 'pod-3983-silent-hook', write: (record) => records.push(record) })
+    const dispose = addSink({
+      name: 'pod-3983-silent-hook',
+      write: (record) => records.push(record),
+    })
     try {
       const driver = world.runtime.driverFor('claude-code', CLAUDE)
       const session = await driver.create(SPEC)
@@ -2119,7 +2186,6 @@ describe('capabilities', () => {
   })
 })
 
-
 describe('contract draft synchronization', () => {
   it('pushes native changes and routes writes through the composer target', async () => {
     const world = makeWorld()
@@ -2128,16 +2194,22 @@ describe('contract draft synchronization', () => {
     Object.assign(world.host, { setDraftTarget: target })
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
-    world.runtime.observe({ type: 'nativeDraft', sessionId: session.binding.sessionId, text: 'half typed' })
-    expect(world.frames).toContainEqual(expect.objectContaining({
-      type: 'runtimeEvent', event: expect.objectContaining({ t: 'draft', text: 'half typed' }),
-    }))
+    world.runtime.observe({
+      type: 'nativeDraft',
+      sessionId: session.binding.sessionId,
+      text: 'half typed',
+    })
+    expect(world.frames).toContainEqual(
+      expect.objectContaining({
+        type: 'runtimeEvent',
+        event: expect.objectContaining({ t: 'draft', text: 'half typed' }),
+      }),
+    )
     expect(await session.draft.get()).toBe('half typed')
     expect(await session.draft.set('replacement')).toEqual({ ok: true })
     expect(target).toHaveBeenCalledWith(session.binding.sessionId, 'replacement')
   })
 })
-
 
 describe('draft write availability', () => {
   it('refuses when the composer is disabled or demoted', async () => {
@@ -2154,7 +2226,9 @@ describe('draft write availability', () => {
     world.runtime.observeDraft(session.binding.sessionId, 'draft')
     world.runtime.observeDraft(session.binding.sessionId, '')
     world.runtime.observeDraft(session.binding.sessionId, '')
-    const drafts = world.frames.filter(frame => frame.type === 'runtimeEvent' && frame.event.t === 'draft')
+    const drafts = world.frames.filter(
+      (frame) => frame.type === 'runtimeEvent' && frame.event.t === 'draft',
+    )
     expect(drafts).toHaveLength(2)
     expect((await session.snapshot()).draft).toBe('')
   })

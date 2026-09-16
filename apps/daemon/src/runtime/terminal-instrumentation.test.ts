@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionSpec } from '@podium/agent-runtime'
@@ -9,6 +9,7 @@ import { terminalProfileFor } from './registry'
 import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
+  reportInstrumentationDegradation,
 } from './terminal-instrumentation'
 
 const directories: string[] = []
@@ -67,6 +68,38 @@ describe('terminal instrumentation installation', () => {
     expect(await readFile(join(settingsDir, 'blue.json'), 'utf8')).not.toContain('/hooks/green')
   })
 
+  it('degrades a settings write failure without passing a missing file to the CLI', async () => {
+    const homeDir = await directory()
+    const settingsDir = join(homeDir, 'not-a-directory')
+    await writeFile(settingsDir, 'untouched')
+    const result = await installTerminalInstrumentation({
+      sessionId: asSessionId('claude'),
+      spec: spec('claude-code'),
+      settingsDir,
+    })
+    expect(result.args).toEqual([])
+    expect(result.degradedReason).toBeTruthy()
+    expect(await readFile(settingsDir, 'utf8')).toBe('untouched')
+  })
+
+  it('deduplicates by machine owner, harness, and reason', () => {
+    const owner = {}
+    const send = vi.fn()
+    const failure = { args: [], degradedReason: 'unreadable hooks.json' }
+    reportInstrumentationDegradation(owner, 'codex', failure, send)
+    reportInstrumentationDegradation(owner, 'codex', failure, send)
+    reportInstrumentationDegradation(owner, 'grok', failure, send)
+    reportInstrumentationDegradation(
+      owner,
+      'codex',
+      { ...failure, degradedReason: 'no ~/.codex' },
+      send,
+    )
+    reportInstrumentationDegradation({}, 'codex', failure, send)
+    expect(send).toHaveBeenCalledTimes(4)
+    expect(new Set(send.mock.calls.map(([message]) => message.code)).size).toBe(3)
+  })
+
   it('serializes simultaneous Grok installs and returns each session endpoint', async () => {
     const homeDir = await directory()
     await mkdir(join(homeDir, '.grok'))
@@ -87,7 +120,7 @@ describe('terminal instrumentation installation', () => {
     expect(Object.values(results[1]?.env ?? {})).toContain('http://localhost/hooks/two')
   })
 
-  it('rejects an unreadable global hook file without replacing it', async () => {
+  it('retains wiring for an unreadable global hook file without replacing it', async () => {
     const homeDir = await directory()
     const hooksDir = join(homeDir, '.grok/hooks')
     await mkdir(hooksDir, { recursive: true })
@@ -99,11 +132,14 @@ describe('terminal instrumentation installation', () => {
         homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
-    ).rejects.toThrow('instrumentation unavailable')
+    ).resolves.toMatchObject({
+      degradedReason: expect.stringContaining('unreadable'),
+      env: expect.any(Object),
+    })
     expect(await readFile(join(hooksDir, 'podium.json'), 'utf8')).toBe('not json')
   })
 
-  it('uses the instance Codex home over inherited or session overrides and propagates refusal', async () => {
+  it('uses the instance Codex home over inherited or session overrides and returns degradation', async () => {
     const homeDir = await directory()
     const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
       installed: false,
@@ -117,7 +153,10 @@ describe('terminal instrumentation installation', () => {
         homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
-    ).rejects.toThrow('unsupported codex version')
+    ).resolves.toMatchObject({
+      degradedReason: 'unsupported codex version',
+      env: expect.any(Object),
+    })
     expect(ensure).toHaveBeenCalledWith({ codexHome: join(homeDir, '.codex') })
   })
 })

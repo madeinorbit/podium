@@ -1,15 +1,18 @@
+import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { DriverCapabilities, SessionSpec } from '@podium/agent-runtime'
 import { agentStateProviderFor, harnessInstanceHomeEnv, manifestFor } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { ensurePodiumCodexHooks } from '../codex-hooks'
 import { ensurePodiumGrokHooks } from '../grok-hooks'
 
-/** Ready-to-launch wiring. Files have already been written successfully. */
+/** Launch wiring remains usable when global hook installation degrades. */
 export interface InstalledTerminalInstrumentation {
   args: string[]
+  degradedReason?: string
   env?: Record<string, string>
 }
 
@@ -55,7 +58,11 @@ export async function installTerminalInstrumentation(input: {
   if (!manifest || !provider || manifest.capabilities.hookInstall === 'none') {
     throw new Error(`no instrumentation installer for ${spec.harness}`)
   }
+  let degradedReason: string | undefined
   if (manifest.capabilities.hookInstall === 'global-env') {
+    if (spec.harness !== 'codex' && spec.harness !== 'grok') {
+      throw new Error(`no global instrumentation installer for ${spec.harness}`)
+    }
     // Match the child environment: instance-owned homes override session values.
     const env = {
       ...process.env,
@@ -67,13 +74,16 @@ export async function installTerminalInstrumentation(input: {
       spec.harness === 'codex'
         ? env.CODEX_HOME?.trim() || join(homeDir, '.codex')
         : env.GROK_HOME?.trim() || join(homeDir, '.grok')
-    const result = await serialized(`${spec.harness}:${harnessHome}`, async () => {
-      if (spec.harness === 'codex') return ensurePodiumCodexHooks({ codexHome: harnessHome })
-      if (spec.harness === 'grok') return ensurePodiumGrokHooks({ grokHome: harnessHome })
-      throw new Error(`no global instrumentation installer for ${spec.harness}`)
-    })
-    if (!result.installed)
-      throw new Error(`${spec.harness} instrumentation unavailable: ${result.reason}`)
+    try {
+      const result = await serialized(`${spec.harness}:${harnessHome}`, () =>
+        spec.harness === 'codex'
+          ? ensurePodiumCodexHooks({ codexHome: harnessHome })
+          : ensurePodiumGrokHooks({ grokHome: harnessHome }),
+      )
+      if (!result.installed) degradedReason = result.reason ?? 'hook installation failed'
+    } catch (error) {
+      degradedReason = error instanceof Error ? error.message : String(error)
+    }
   }
   const wiring = provider.instrumentation({
     ...channel,
@@ -81,8 +91,45 @@ export async function installTerminalInstrumentation(input: {
     settingsPath: join(input.settingsDir, `${input.sessionId}.json`),
   })
   if (wiring.file) {
-    await mkdir(dirname(wiring.file.path), { recursive: true })
-    await writeFile(wiring.file.path, wiring.file.contents)
+    try {
+      await mkdir(dirname(wiring.file.path), { recursive: true })
+      await writeFile(wiring.file.path, wiring.file.contents)
+    } catch (error) {
+      // A missing per-session settings file must not become a fatal CLI argument.
+      return { args: [], degradedReason: error instanceof Error ? error.message : String(error) }
+    }
   }
-  return { args: wiring.args, ...(wiring.env ? { env: wiring.env } : {}) }
+  return {
+    args: wiring.args,
+    ...(wiring.env ? { env: wiring.env } : {}),
+    ...(degradedReason ? { degradedReason } : {}),
+  }
+}
+
+const warnings = new WeakMap<object, Set<string>>()
+
+/** The owner is machine-scoped, never session-scoped. Server dedupe uses code. */
+export function reportInstrumentationDegradation(
+  owner: object,
+  harness: string,
+  installation: InstalledTerminalInstrumentation,
+  send: (message: DaemonMessage) => void,
+): void {
+  const reason = installation.degradedReason
+  if (!reason) return
+  const code = `${harness}-hooks-${createHash('sha256').update(reason).digest('hex')}`
+  let seen = warnings.get(owner)
+  if (!seen) {
+    seen = new Set()
+    warnings.set(owner, seen)
+  }
+  if (seen.has(code)) return
+  seen.add(code)
+  send({
+    type: 'machineDiagnostic',
+    code,
+    title: `${harness} hooks unavailable`,
+    description: `${harness} hook installation failed; sessions can still start.`,
+    body: `${harness} instrumentation unavailable: ${reason}. The session will start; hook observations may be missing.`,
+  })
 }

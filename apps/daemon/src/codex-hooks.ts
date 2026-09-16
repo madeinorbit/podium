@@ -212,7 +212,7 @@ export async function ensurePodiumCodexHooks(opts?: {
       installed: false,
       changed: false,
       degraded: true,
-      reason: 'unsupported codex version',
+      reason: `unsupported codex version: ${observedVersion}`,
     }
   }
 
