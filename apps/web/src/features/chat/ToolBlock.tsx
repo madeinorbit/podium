@@ -1,17 +1,10 @@
-import { parseToolEdit, toolEditMagnitude } from '@podium/client-core/viewmodels'
+import { highlightCode } from '@podium/client-core/code-highlight'
+import { parseToolEdit } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { useState } from 'react'
-import { resolveAgainstCwd } from '@/lib/file-path'
+import { useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
-import {
-  type ChatBlock,
-  failLine,
-  mcpLabel,
-  resultPreview,
-  toolSubject,
-  toolVerdict,
-} from './chat'
+import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
@@ -20,6 +13,28 @@ import { ToolEditDiff } from './ToolEditDiff'
  *  server, not by the raw `mcp__a__b` id. */
 export function toolCallLabel(item: TranscriptItem): string {
   return item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'result'
+}
+
+/** This module is behind TranscriptFeedBoundary, keeping the highlighter out of
+ * the eager app graph. The shared tokenizer has a bounded content cache; memoise
+ * the React leaves too, so disclosure/result updates don't rebuild them. */
+function BashCommand({ command }: { command: string }): JSX.Element {
+  const spans = useMemo(() => {
+    let offset = 0
+    return highlightCode(command, 'bash').map((token) => {
+      const start = offset
+      offset += token.text.length
+      return (
+        <span
+          key={start}
+          className={token.scope ? `hljs-${token.scope.replaceAll('.', '-')}` : undefined}
+        >
+          {token.text}
+        </span>
+      )
+    })
+  }, [command])
+  return <>{spans}</>
 }
 
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
@@ -35,9 +50,6 @@ export function toolCallLabel(item: TranscriptItem): string {
  *  — a reader who unfolded the run has already asked for this. */
 export function ToolBlock({
   block,
-  sessionId,
-  cwd,
-  openFile,
   onOpenDiff,
   diffPath,
 }: {
@@ -60,8 +72,6 @@ export function ToolBlock({
   const result = block.result ?? item.toolResult
   const verdict = toolVerdict(result)
   const edit = parseToolEdit(item.toolInputJson)
-  const preview = edit ? undefined : resultPreview(result)
-  const editPreview = edit ? toolEditMagnitude(edit) : undefined
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
   // THE SHORT FORM, WHICH IS THE HOVER PANEL'S (POD-993 round 7). This row used
@@ -120,7 +130,9 @@ export function ToolBlock({
         <span className="tool-name">{label}</span>
         {subject && (
           <span className={cn('min-w-0 truncate', isCommand ? 'tool-cmd' : 'tool-subject')}>
-            {subject}
+            {/* Keep ALL inline tokens inside the single shrinking flex child:
+                putting token spans directly in tool-row breaks its ellipsis. */}
+            {isCommand && item.toolInput ? <BashCommand command={subject} /> : subject}
           </span>
         )}
       </button>
@@ -135,6 +147,11 @@ export function ToolBlock({
           The exception is a FAILURE, which is not detail — it is the verdict,
           and a reader who has to click to discover that something broke has been
           told the wrong thing by the row above it. */}
+      {open && isCommand && item.toolInput && (
+        <pre className="tool-result-full tool-cmd">
+          <BashCommand command={item.toolInput} />
+        </pre>
+      )}
       {aside && open && <div className="tool-aside">{aside}</div>}
       {verdict === 'err' && <div className="tool-fail-line">{failLine(result)}</div>}
       {open && edit && <ToolEditDiff edit={edit} />}
