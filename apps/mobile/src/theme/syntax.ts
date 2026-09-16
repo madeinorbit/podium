@@ -18,7 +18,7 @@ export const syntaxPalette = {
   },
   dark: {
     ink: '#d5d7de',
-    comment: '#7c8494',
+    comment: '#838b9b',
     punct: '#8a91a0',
     operator: '#a7aebd',
     keyword: '#bb9af7',

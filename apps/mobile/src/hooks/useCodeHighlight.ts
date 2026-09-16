@@ -12,7 +12,7 @@ export function useCodeHighlight(source: string, language: string | undefined, e
   useEffect(() => {
     if (!enabled) return
     const highlight = () => setResult({ source, language, tokens: highlightCode(source, language) })
-    // Native RN and modern browsers provide idle callbacks. Older web targets
+    // RN 0.86 Libraries/Core/setUpTimers.js installs idle callbacks. Older targets
     // still yield the initial render before doing synchronous grammar work.
     if (typeof requestIdleCallback === 'function') {
       const handle = requestIdleCallback(highlight)
