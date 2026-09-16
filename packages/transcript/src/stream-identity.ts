@@ -46,17 +46,14 @@ import { decodeCursor, encodeCursor } from './cursor-codec'
  *   - CODEX and GROK give an item a provider id that is stable for its whole
  *     life (`msg_…`, `grok-assistant-<eventId>`). Their deltas already carry it
  *     and their complete items already are it.
- *   - OPENCODE derives `id` from the part id AND ITS TEXT, so the id of a
- *     growing assistant message changes on every update. Its stamped `cursor`
- *     is closer but not stable either: the cursor's `offset` is the part's
- *     `timeUpdated`, and that moves from `time.start` to `time.end` the moment
- *     the part finishes — so the LAST complete item, the authoritative one, has
- *     a different cursor from every partial that preceded it.
+ *   - OPENCODE assigns each item an encoded (session namespace, offset 0,
+ *     partId, sub) identity. Text uses sub 0; tool calls/results use sub 0/1.
+ *     Its paging cursor uses timeCreated as the offset, which does not change
+ *     when timeUpdated changes. Normalizing that cursor returns the item id.
  *
- * What IS stable across an opencode part's whole life is the rest of the cursor:
- * `(fileId, uuid=partId, sub)`. So the rule is: a cursor-stamped item's stream
- * identity is its cursor with the mutable offset zeroed; an unstamped item's is
- * its `id`. Both sides of the join call this, so they cannot drift apart.
+ * For compatibility across families, a cursor-stamped item's stream identity
+ * is its cursor with offset zeroed; an unstamped item's is its id. OpenCode
+ * producers can use their item ids directly, without this normalization.
  *
  * DRIVERS EMIT WHAT THIS RETURNS. A driver's `{kind:'delta'}` fragment must
  * carry, as `itemId`, the value this function returns for the complete item it
