@@ -20,26 +20,44 @@
  * synchronous work; web callers should run it in their compute worker.
  */
 import core from 'highlight.js/lib/core'
-import typescript from 'highlight.js/lib/languages/typescript'
-import javascript from 'highlight.js/lib/languages/javascript'
 import bash from 'highlight.js/lib/languages/bash'
+import javascript from 'highlight.js/lib/languages/javascript'
 import json from 'highlight.js/lib/languages/json'
-import python from 'highlight.js/lib/languages/python'
-import sql from 'highlight.js/lib/languages/sql'
-import yaml from 'highlight.js/lib/languages/yaml'
-import rust from 'highlight.js/lib/languages/rust'
 import markdown from 'highlight.js/lib/languages/markdown'
+import python from 'highlight.js/lib/languages/python'
+import rust from 'highlight.js/lib/languages/rust'
+import sql from 'highlight.js/lib/languages/sql'
+import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 
 /** Platform-neutral leaves; null means unstyled source text. Never HTML. */
-export interface CodeToken { readonly scope: string | null; readonly text: string }
+export interface CodeToken {
+  readonly scope: string | null
+  readonly text: string
+}
 const grammars = { typescript, javascript, bash, json, python, sql, yaml, rust, markdown, xml }
 type Language = keyof typeof grammars
 const aliases: Record<string, Language | 'plain'> = {
-  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-  sh: 'bash', shell: 'bash', zsh: 'bash', console: 'bash', jsonc: 'json',
-  py: 'python', yml: 'yaml', rs: 'rust', md: 'markdown', html: 'xml', htm: 'xml',
-  text: 'plain', txt: 'plain', plaintext: 'plain', plain: 'plain',
+  ts: 'typescript',
+  tsx: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  sh: 'bash',
+  shell: 'bash',
+  zsh: 'bash',
+  console: 'bash',
+  jsonc: 'json',
+  py: 'python',
+  yml: 'yaml',
+  rs: 'rust',
+  md: 'markdown',
+  html: 'xml',
+  htm: 'xml',
+  text: 'plain',
+  txt: 'plain',
+  plaintext: 'plain',
+  plain: 'plain',
 }
 const hljs = core.newInstance()
 const loaded = new Set<Language>()
@@ -51,19 +69,30 @@ function register(language: Language): void {
   loaded.add(language)
 }
 const scopes = new Set(
-  'attr attribute built_in bullet char.escape code comment doctag emphasis function keyword link literal meta name number operator params property punctuation quote regexp section string strong subst symbol tag template-variable title title.class title.class.inherited title.function title.function.invoke type variable variable.constant variable.language'.split(' '),
+  'attr attribute built_in bullet char.escape code comment doctag emphasis function keyword link literal meta name number operator params property punctuation quote regexp section string strong subst symbol tag template-variable title title.class title.class.inherited title.function title.function.invoke type variable variable.constant variable.language'.split(
+    ' ',
+  ),
 )
 
-interface Tree { scope?: string; children: Array<string | Tree> }
+interface Tree {
+  scope?: string
+  children: Array<string | Tree>
+}
 function flatten(tree: Tree, tokens: CodeToken[], inherited: string | null = null): void {
   const scope = tree.scope?.startsWith('language:')
     ? null
-    : tree.scope && scopes.has(tree.scope) ? tree.scope : inherited
+    : tree.scope && scopes.has(tree.scope)
+      ? tree.scope
+      : inherited
   for (const child of tree.children) {
-    if (typeof child !== 'string') { flatten(child, tokens, scope); continue }
+    if (typeof child !== 'string') {
+      flatten(child, tokens, scope)
+      continue
+    }
     if (!child) continue
     const previous = tokens.at(-1)
-    if (previous?.scope === scope) tokens[tokens.length - 1] = { scope, text: previous.text + child }
+    if (previous?.scope === scope)
+      tokens[tokens.length - 1] = { scope, text: previous.text + child }
     else tokens.push({ scope, text: child })
   }
 }
@@ -79,9 +108,10 @@ export function codeBlockIdentity(itemId: string, ordinal: number): string {
 }
 /** Synchronous on every platform. Grammar registration and memoization are realm-local. */
 export function highlightCode(text: string, langHint?: string): readonly CodeToken[] {
-  const hint = (langHint ?? '').trim().split(/\s+/)[0]!.toLowerCase()
-  const language = (Object.hasOwn(aliases, hint) ? aliases[hint] : undefined)
-    ?? (Object.hasOwn(grammars, hint) ? hint as Language : undefined)
+  const hint = ((langHint ?? '').trim().split(/\s+/)[0] ?? '').toLowerCase()
+  const language =
+    (Object.hasOwn(aliases, hint) ? aliases[hint] : undefined) ??
+    (Object.hasOwn(grammars, hint) ? (hint as Language) : undefined)
   const source = JSON.stringify([language ?? hint, text])
   const key = hash(source)
   const cached = memo.get(key)
@@ -98,14 +128,19 @@ export function highlightCode(text: string, langHint?: string): readonly CodeTok
         const leaves: CodeToken[] = []
         // highlight.js 11's token emitter is the sole internal API used here.
         flatten((result._emitter as unknown as { rootNode: Tree }).rootNode, leaves)
-        if (leaves.map(token => token.text).join('') === text) tokens = leaves
+        if (leaves.map((token) => token.text).join('') === text) tokens = leaves
       }
-    } catch { /* Malformed/unsupported input remains exact, unstyled source. */ }
+    } catch {
+      /* Malformed/unsupported input remains exact, unstyled source. */
+    }
   }
-  const frozen = Object.freeze(tokens.map(token => Object.freeze(token)))
+  const frozen = Object.freeze(tokens.map((token) => Object.freeze(token)))
   // Bound retained entries and avoid retaining unusually large blocks.
   if (source.length <= 100_000) {
-    if (memo.size >= 256) memo.delete(memo.keys().next().value!)
+    if (memo.size >= 256) {
+      const oldest = memo.keys().next()
+      if (!oldest.done) memo.delete(oldest.value)
+    }
     memo.set(key, { source, tokens: frozen })
   }
   return frozen

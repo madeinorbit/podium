@@ -1,6 +1,6 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
-import { safeToolEditJsonFromInput } from './tool-edit'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
+import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
