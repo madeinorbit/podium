@@ -192,7 +192,8 @@ describe('OpenCode item identity', () => {
   })
 
   it.each([0, 1, 2, 3])('keeps row %i IDs while content and update time change', (index) => {
-    const source = rows[index]!
+    const source = rows[index]
+    if (!source) throw new Error('Missing fixture row')
     const grown = {
       ...source,
       timeUpdated: source.timeUpdated + 10_000,
@@ -207,7 +208,8 @@ describe('OpenCode item identity', () => {
   })
 
   it('retains the call ID when a tool result first appears', () => {
-    const source = rows[2]!
+    const source = rows[2]
+    if (!source) throw new Error('Missing tool fixture')
     const pending = { ...source, partData: '{"type":"tool","tool":"read","state":{}}' }
     const call = opencodePartToItems(pending)
     const completed = opencodePartToItems(source)
@@ -229,7 +231,7 @@ describe('OpenCode item identity', () => {
       expect(updated.map((item) => item.cursor)).toEqual(stamped.map((item) => item.cursor))
       stamped.forEach((item, sub) => {
         if (item.event === 'interrupt') return
-        expect(decodeCursor(item.cursor!)).toEqual({
+        expect(decodeCursor(item.cursor ?? '')).toEqual({
           fileId: opencodeFileId(source.sessionId),
           offset: source.timeCreated,
           uuid: source.partId,
