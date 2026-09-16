@@ -12813,3 +12813,11 @@ button.waterfall-fold:hover {
 .cost-swatch-kid {
   background: color-mix(in srgb, var(--foreground) 18%, transparent);
 }
+
+/* Shared highlight.js token scopes, emitted only by transcript compute. */
+.chat-md .hljs-keyword, .chat-md .hljs-selector-tag { color: var(--syntax-keyword, #c792ea); }
+.chat-md .hljs-string, .chat-md .hljs-regexp { color: var(--syntax-string, #a8c97f); }
+.chat-md .hljs-number, .chat-md .hljs-literal { color: var(--syntax-number, #e5b567); }
+.chat-md .hljs-comment, .chat-md .hljs-quote { color: var(--syntax-comment, #8b949e); }
+.chat-md .hljs-title, .chat-md .hljs-title-function, .chat-md .hljs-title-class { color: var(--syntax-function, #82aaff); }
+.chat-md .hljs-attr, .chat-md .hljs-attribute, .chat-md .hljs-name, .chat-md .hljs-type { color: var(--syntax-type, #89ddff); }

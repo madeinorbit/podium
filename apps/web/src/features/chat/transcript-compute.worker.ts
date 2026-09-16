@@ -5,7 +5,10 @@ import {
   type TranscriptComputeInput,
   type TranscriptComputeResult,
 } from '@podium/client-core/viewmodels'
-import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
+import { createMarkdownRenderer } from '@/lib/markdown-renderer'
+import { highlightCode } from '@podium/client-core/code-highlight'
+
+const renderMarkdownUnsafe = createMarkdownRenderer(highlightCode)
 
 export interface TranscriptIndexWorkerRequest {
   id: number
