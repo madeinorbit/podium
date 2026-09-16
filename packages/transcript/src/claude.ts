@@ -150,11 +150,21 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
   if (r.type === 'user') {
     const items = userItems(uuid, ts, message, promptSource)
     const results = items.filter((item) => item.toolResult !== undefined)
-    // Claude writes one effect envelope per record, not one per content block.
-    // Ambiguous parallel-result envelopes must not be attributed to every call.
-    if (results.length === 1 && results[0]) {
-      const effects = claudeToolEffects(r.toolUseResult)
-      if (effects.length) results[0].toolEffects = effects
+    // One sibling envelope cannot be attributed to several parallel results.
+    // Keep ambiguous envelopes visible as an orphan rather than guessing a call.
+    const effects = claudeToolEffects(r.toolUseResult)
+    if (effects.length) {
+      if (results.length === 1 && results[0]) results[0].toolEffects = effects
+      else
+        items.push({
+          id: uuid ? `${uuid}-effects` : '',
+          role: 'tool',
+          ts,
+          text: '',
+          toolName: 'Tool effects',
+          toolResult: 'Recorded effects; call attribution unavailable',
+          toolEffects: effects,
+        })
     }
     return items
   }

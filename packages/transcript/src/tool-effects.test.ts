@@ -79,7 +79,13 @@ describe('Claude observed effects', () => {
   it('does not duplicate a single effect envelope onto parallel results', () => {
     const record = result(applied)
     record.message.content.push({ type: 'tool_result', tool_use_id: 'other', content: '' })
-    expect(claudeRecordToItems(record).every((item) => item.toolEffects === undefined)).toBe(true)
+    const items = claudeRecordToItems(record)
+    expect(items.slice(0, 2).every((item) => item.toolEffects === undefined)).toBe(true)
+    expect(items[2]).toMatchObject({
+      toolName: 'Tool effects',
+      toolEffects: [{ kind: 'file-edit' }],
+    })
+    expect(items[2]?.toolUseId).toBeUndefined()
   })
 })
 
