@@ -32,7 +32,7 @@
  * surface therefore exercises the same slices as the product.
  */
 
-import { HttpBootstrapSource, HttpDeltaSource, type HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
+import { createSyncTransferTelemetry, HttpBootstrapSource, HttpDeltaSource, type HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   type CreateEngineOutbox,
@@ -447,10 +447,16 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
 
   // ---- WIRE v2 (POD-1241) — the feed that populates entity rows ------------
   const syncProgress = new MobileSyncProgressStore()
+  // POD-4071 — the same debug transfer timeline web emits. It matters more here:
+  // `mobile-sync-fetch` deliberately leaves Accept-Encoding to the native HTTP
+  // stack, and RN may hand back a buffered body, so the `opened` line is the only
+  // place the coding and the streaming/buffered answer are ever stated.
+  const syncTelemetry = createSyncTransferTelemetry()
   const sourceDeps = {
     ...deps.httpSync,
     onMeta: (totalRows: number | undefined) => syncProgress.noteMeta(totalRows),
     onChunk: (rows: number) => syncProgress.noteReceived(rows),
+    telemetry: syncTelemetry,
   }
   const bootstraps = new HttpBootstrapSource(sourceDeps)
   const deltas = new HttpDeltaSource(sourceDeps)
@@ -470,6 +476,9 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
       },
     },
     onEvent: (event: ReplicaEvent) => {
+      // Before the progress store, for the same reason web takes it first: the
+      // `heal` cause is emitted before the request it explains opens.
+      syncTelemetry.noteReplicaEvent(event)
       syncProgress.noteEvent(event)
       facade.onKernelEvent(event)
     },

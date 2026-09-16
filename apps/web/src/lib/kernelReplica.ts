@@ -52,6 +52,7 @@ import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { SyncProgressStore } from './sync-progress'
 import {
+  createSyncTransferTelemetry,
   HttpBootstrapSource,
   HttpDeltaSource,
   SyncAuthExpiredError,
@@ -439,11 +440,17 @@ export async function openKernelAssembly(
     }
     if (kind === 'auth') window.dispatchEvent(new Event('podium:sync-auth-expired'))
   }
+  // POD-4071. Debug-level timing for the client half of a sync transfer, joined
+  // to the server's own line on `Podium-Transfer-Id`. The desktop shell loads
+  // this same bundle from `apps/web/dist`, so the Mac app's webview is covered
+  // by this one wiring and not by a second copy of it.
+  const syncTelemetry = createSyncTransferTelemetry()
   const sourceDeps = {
     origin: options.httpOrigin ?? '',
     streamingFetch: { fetch: workspaceFetch, credentials: 'include' as const },
     onMeta: (totalRows: number | undefined) => progress.noteMeta(totalRows),
     onChunk: (rows: number, bytes: number) => progress.noteReceived(rows, bytes),
+    telemetry: syncTelemetry,
   }
   const bootstraps = new HttpBootstrapSource(sourceDeps)
   const deltas = new HttpDeltaSource(sourceDeps)
@@ -486,6 +493,11 @@ export async function openKernelAssembly(
       },
     },
     onEvent: (event) => {
+      // FIRST, and before anything that could throw: this is where the Replica's
+      // own reason for a walk (`heal`) and its commit (`bootstrap-installed`)
+      // reach the transfer log. The cause is emitted before the request opens,
+      // so a listener that ran late would label the wrong attempt.
+      syncTelemetry.noteReplicaEvent(event)
       // The install is the ONE moment the first sync becomes durable and
       // renderable; the loading screen keys off it (POD-1249).
       if (event.type === 'bootstrap-installed') progress.noteInstalled(event.entityCount)

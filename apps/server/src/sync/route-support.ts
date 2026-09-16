@@ -5,7 +5,10 @@ import type { CommandPrincipal } from '../command-principal'
 import type { AuthorityPort } from '@podium/sync'
 import type { FeedServing } from '../gateway/feed-serving'
 
-const transferLog = createLogger('sync-http')
+/** One namespace for both halves of the route's story: the INFO transfer line
+ *  below, and the DEBUG line `routes.ts` emits when one bootstrap supersedes
+ *  another (POD-4071 — that is how a `cancelled` transfer names its successor). */
+export const transferLog = createLogger('sync-http')
 
 export interface SyncDeltaPorts {
   authority: Pick<AuthorityPort, 'captureHead' | 'changesRange'>

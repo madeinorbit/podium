@@ -2,7 +2,7 @@ import { SyncWorkerError, type SyncWorkerClient } from '../sync-worker/worker-cl
 import { randomUUID } from 'node:crypto'
 import { parseSyncDeltaQuery, principalRoutingId, SyncBootstrapRequiredReason, type Principal } from '@podium/protocol'
 import type { Hono } from 'hono'
-import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
+import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, transferLog, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
 
 export interface SyncRouteDeps extends SyncDeltaPorts {
   principal(request: Request): Promise<Principal | undefined>
@@ -12,7 +12,11 @@ export interface SyncRouteDeps extends SyncDeltaPorts {
 
 /** HTTP admission and opaque byte relay; both producers run in the sync worker. */
 export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
-  const bootstraps = new Map<string, AbortController>()
+  // The transfer id rides alongside the controller so a supersede can NAME both
+  // sides of itself. Without it the cancelled transfer's INFO line says only that
+  // it ended with zero bytes, and the request that killed it is unidentifiable
+  // among every other bootstrap in the log (POD-4071).
+  const bootstraps = new Map<string, { abort: AbortController; transferId: string }>()
   app.get('/sync/bootstrap', async (c) => {
     const principal = await deps.principal(c.req.raw)
     if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
@@ -27,11 +31,19 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     const abort = new AbortController()
     // Reserve before awaiting identity, so concurrent retries cannot overtake
     // one another and resurrect an older snapshot after the new request starts.
-    bootstraps.get(routingId)?.abort(new SyncWorkerError('cancelled'))
-    bootstraps.set(routingId, abort)
+    const superseded = bootstraps.get(routingId)
+    if (superseded) {
+      // DEBUG, not info: `logSyncTransfer` already reports the outcome at info.
+      // This says only who did it, which is the one fact that line cannot carry.
+      transferLog.debug('sync bootstrap superseded', {
+        principal: routingId, supersededTransferId: superseded.transferId, transferId,
+      })
+      superseded.abort.abort(new SyncWorkerError('cancelled'))
+    }
+    bootstraps.set(routingId, { abort, transferId })
     const signal = AbortSignal.any([c.req.raw.signal, abort.signal])
     const release = () => {
-      if (bootstraps.get(routingId) === abort) bootstraps.delete(routingId)
+      if (bootstraps.get(routingId)?.abort === abort) bootstraps.delete(routingId)
     }
     let completionOwnsLog = false
     try {
