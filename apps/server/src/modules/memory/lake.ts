@@ -188,13 +188,15 @@ export class TranscriptLake {
               const path = incarnation.active
                 ? this.mirror?.lakePath(session.machineId, nativeId)
                 : this.mirror?.archivedLakePath(session.machineId, nativeId, incarnation.sequence)
-              return path ? { path, fileId: fileIdFor(path) } : undefined
+              return path
+                ? { path, fileId: fileIdFor(nativeId, incarnation.active ? undefined : incarnation.sequence) }
+                : undefined
             })
             .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
         : await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) > 0
           ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
               path,
-              fileId: fileIdFor(path),
+              fileId: fileIdFor(nativeId),
             }))
           : []
     if (chain.length === 0) return undefined

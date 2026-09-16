@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Transcript pages now follow the record ID after a file rewrite, preventing duplicate rows
+  when byte offsets shift. Live and mirrored transcripts share the native session namespace;
+  archived file generations keep separate namespaces.
+
+### Changed
+
+- File transcript cursors and cursor-derived synthetic item IDs change once with this rollout.
+  Old cursors fall back to the default transcript window rather than anchoring to the old position.
+
 ## [0.1.1-edge.4] - 2026-08-31
 
 ### Added

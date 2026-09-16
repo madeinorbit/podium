@@ -152,6 +152,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // resume-transcript bootstrap; grok/codex/cursor once their observer learns
   // the harness session id), so reattached chat gets history before new activity.
   const tails = new Map<SessionId, TranscriptTailer>()
+  const nativeSessionIds = new Map<SessionId, string>()
+  const tailSessionIds = new Map<SessionId, string>()
   // One live observation per session — the adapter-owned watch over the
   // harness's native session store (state observers, tail bootstrap, and for
   // codex the hook re-pin policy). The adapter rides along so the hook ingest
@@ -1012,6 +1014,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           transcriptPath,
           adapter.kind,
           transcriptRecordMapperFor(adapter.kind) ?? (() => []),
+          msg.providerSessionId ?? undefined,
         )
       }
       bindingHooks?.delete(msg.providerSessionId!)
@@ -1065,10 +1068,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     path: string,
     agentKind: string,
     recordToItems: (record: unknown) => TranscriptItem[],
+    resumeValue = nativeSessionIds.get(sessionId),
   ): void => {
+    if (!resumeValue) return
     const existing = tails.get(sessionId)
-    if (existing?.path === path) return
+    if (existing?.path === path && tailSessionIds.get(sessionId) === resumeValue) return
     existing?.stop()
+    nativeSessionIds.set(sessionId, resumeValue)
+    tailSessionIds.set(sessionId, resumeValue)
     tails.set(
       sessionId,
       tailTranscript(
@@ -1094,6 +1101,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           })
         },
         {
+          resumeValue,
           recordToItems,
           statTick,
           // The agent's `/color` accent rides the same transcript tail.
@@ -1129,6 +1137,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const stopTranscriptTail = (sessionId: SessionId): void => {
     tails.get(sessionId)?.stop()
     tails.delete(sessionId)
+    tailSessionIds.delete(sessionId)
   }
   const cancelPendingIdleEmit = (sessionId: SessionId): void => {
     const timer = pendingIdleEmits.get(sessionId)
@@ -1201,6 +1210,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
     onResumeValue: (value, confidence) => {
+      nativeSessionIds.set(sessionId, value)
       if (
         adapter.capabilities.observationProtocol === 'codex-exact' &&
         confidence === 'exact' &&
@@ -1244,6 +1254,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const stopObservation = (sessionId: SessionId): void => {
     observations.get(sessionId)?.observation.stop()
     observations.delete(sessionId)
+    nativeSessionIds.delete(sessionId)
   }
   const startObservation = (
     sessionId: SessionId,
@@ -1251,6 +1262,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     input: HarnessObserveInput,
   ): void => {
     stopObservation(sessionId)
+    if (input.resumeValue) nativeSessionIds.set(sessionId, input.resumeValue)
     // A harness that declares `observer` unsupported gets NO observation — its
     // phase stays 'unknown' and its transcript stays unbound, which is the honest
     // degraded state. Registering a fake or borrowed observer here would report
@@ -1598,6 +1610,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         transcriptPath,
         bound.adapter.kind,
         transcriptRecordMapperFor(bound.adapter.kind) ?? (() => []),
+        harnessSessionId ?? nativeSessionIds.get(sessionId),
       )
     }
     if (harnessSessionId) {
