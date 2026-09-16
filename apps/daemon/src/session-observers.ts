@@ -3,8 +3,8 @@ import {
   type AgentRuntimeState,
   type AgentStateEvent,
   type AgentStateProvider,
-  ClaudeCausalObserver,
   agentStateProviderFor,
+  ClaudeCausalObserver,
   captureClaudeTranscript,
   carryAcrossRebuild,
   claudePromptHookFingerprint,
@@ -24,12 +24,12 @@ import {
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
 } from '@podium/harness'
+import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentSession, ScreenReader } from '@podium/process/screen'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { AgentSession } from '@podium/process/screen'
-import type { ScreenReader } from '@podium/process/screen'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
   createSharedStatTick,
   type StatTick,
@@ -40,12 +40,11 @@ import { createGitCapture } from './git-capture'
 import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
-import type { SessionCwdTracker } from './worktree-resolve'
-import { createLogger } from '@podium/logger'
 import {
   createTerminalScreenObserver,
   type TerminalScreenObserver,
 } from './terminal-screen-observer'
+import type { SessionCwdTracker } from './worktree-resolve'
 
 const log = createLogger('daemon:session')
 

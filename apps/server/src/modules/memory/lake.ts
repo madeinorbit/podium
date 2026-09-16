@@ -1,4 +1,4 @@
-import type { AgentKind, ResumeRef, TranscriptItem, MachineId } from '@podium/model'
+import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor } from '@podium/transcript'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
@@ -83,9 +83,11 @@ export class TranscriptLake {
       async (machineId, request) => await this.read(machineId, request),
       deps.now,
       {
-        onBytes: async (machineId, nativeId, lakePath) => await indexer.onBytes(machineId, nativeId, lakePath),
+        onBytes: async (machineId, nativeId, lakePath) =>
+          await indexer.onBytes(machineId, nativeId, lakePath),
         onTruncate: async (machineId, nativeId) => await indexer.onTruncate(machineId, nativeId),
-        onIncarnation: async (machineId, nativeId) => await indexer.onIncarnation(machineId, nativeId),
+        onIncarnation: async (machineId, nativeId) =>
+          await indexer.onIncarnation(machineId, nativeId),
       },
     )
   }
@@ -160,15 +162,18 @@ export class TranscriptLake {
     )
   }
 
-  async pathHint(machineId: MachineId, nativeId: string): Promise<{ pathHint: string } | undefined> {
+  async pathHint(
+    machineId: MachineId,
+    nativeId: string,
+  ): Promise<{ pathHint: string } | undefined> {
     const path = await this.deps.store.registry.segmentPath(machineId, nativeId)
     return path ? { pathHint: path } : undefined
   }
 
   async hasPredecessors(machineId: MachineId, nativeId: string): Promise<boolean> {
-    return (await this.deps.store.mirror
-      .incarnations(machineId, nativeId))
-      .some((incarnation) => !incarnation.active && incarnation.mirroredBytes > 0)
+    return (await this.deps.store.mirror.incarnations(machineId, nativeId)).some(
+      (incarnation) => !incarnation.active && incarnation.mirroredBytes > 0,
+    )
   }
 
   async readWindow(
@@ -189,11 +194,17 @@ export class TranscriptLake {
                 ? this.mirror?.lakePath(session.machineId, nativeId)
                 : this.mirror?.archivedLakePath(session.machineId, nativeId, incarnation.sequence)
               return path
-                ? { path, fileId: fileIdFor(nativeId, incarnation.active ? undefined : incarnation.sequence) }
+                ? {
+                    path,
+                    fileId: fileIdFor(
+                      nativeId,
+                      incarnation.active ? undefined : incarnation.sequence,
+                    ),
+                  }
                 : undefined
             })
             .filter((entry): entry is { path: string; fileId: string } => entry !== undefined)
-        : await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId) > 0
+        : (await this.deps.store.mirror.mirrorCursor(session.machineId, nativeId)) > 0
           ? [this.mirror.lakePath(session.machineId, nativeId)].map((path) => ({
               path,
               fileId: fileIdFor(nativeId),

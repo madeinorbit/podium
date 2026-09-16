@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
@@ -218,7 +218,9 @@ describe('the transcript indexer follows the search flag', () => {
     })
     await indexer.onBytes(machineId, 'native-a', lakePath)
     await indexer.settled()
-    expect(await on.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(bytes.length)
+    expect(await on.conversations.transcriptIndex.indexedCursor(machineId, 'native-a')).toBe(
+      bytes.length,
+    )
     expect(
       (await on.conversations.transcriptIndex.searchCandidates('capacitor')).map((c) => c.nativeId),
     ).toEqual(['native-a'])
@@ -226,4 +228,75 @@ describe('the transcript indexer follows the search flag', () => {
     await on.close()
     rmSync(dir, { recursive: true, force: true })
   })
+})
+
+it.each([
+  'legacy',
+  'active',
+  'archived',
+] as const)('lake %s namespaces match live bytes only for the active incarnation', async (mode) => {
+  const { claudeRecordToItems, decodeCursor, readFileItems } = await import('@podium/transcript')
+  const store = await openTestStore(':memory:')
+  const dir = mkdtempSync(join(tmpdir(), 'lake-namespace-'))
+  const machineId = asMachineId('namespace-machine')
+  const nativeId = 'native-session'
+  const daemonRequest = new DaemonRequestBroker({
+    toMachine: () => {},
+    defaultMachine: () => machineId,
+  })
+  const lake = new TranscriptLake(
+    { store: store.conversations, now: Date.now, daemonRequest },
+    { mirrorLakeDir: dir },
+  )
+  try {
+    const bytes = `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'same bytes' } })}\n`
+    mkdirSync(join(dir, machineId), { recursive: true })
+    const livePath = join(dir, 'live.jsonl')
+    writeFileSync(livePath, bytes)
+    writeFileSync(join(dir, machineId, `${nativeId}.jsonl`), bytes)
+    if (mode !== 'legacy') {
+      await store.conversations.mirror.startIncarnation(
+        machineId,
+        nativeId,
+        { device: '1', inode: '1' },
+        '2026-09-16T00:00:00Z',
+      )
+    }
+    if (mode === 'archived') {
+      await store.conversations.mirror.rotateIncarnation(
+        machineId,
+        nativeId,
+        { device: '1', inode: '2' },
+        Buffer.byteLength(bytes),
+        '2026-09-16T00:01:00Z',
+      )
+      writeFileSync(join(dir, machineId, `${nativeId}.incarnation-1.jsonl`), bytes)
+    }
+    await store.conversations.mirror.setMirrorCursor(
+      machineId,
+      nativeId,
+      Buffer.byteLength(bytes),
+      '2026-09-16T00:02:00Z',
+    )
+    const session = {
+      machineId,
+      agentKind: 'claude-code' as const,
+      resume: { kind: 'claude-session' as const, value: nativeId },
+    }
+    const first = await lake.readWindow(session, { direction: 'before', limit: 10 })
+    expect(first?.items).toHaveLength(mode === 'archived' ? 2 : 1)
+    const live = await readFileItems(livePath, nativeId, claudeRecordToItems)
+    expect(first?.items.at(-1)).toEqual(live[0])
+    expect(await lake.readWindow(session, { direction: 'before', limit: 10 })).toEqual(first)
+    if (mode === 'archived') {
+      expect(decodeCursor(first?.items[0]?.cursor ?? '')?.fileId).toBe(
+        JSON.stringify([nativeId, 1]),
+      )
+      expect(first?.items[0]?.id).not.toBe(live[0]?.id)
+    }
+  } finally {
+    lake.dispose()
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

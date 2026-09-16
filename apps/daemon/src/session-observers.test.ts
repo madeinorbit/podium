@@ -2870,7 +2870,6 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
   })
 })
 
-
 describe('Grok accepted rebind transcript bridge', () => {
   it('keeps legacy late-created chat_history live and exactly-once across reload', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))
@@ -2880,7 +2879,10 @@ describe('Grok accepted rebind transcript bridge', () => {
     const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
     const chatHistory = join(sessionDir, 'chat_history.jsonl')
     await mkdir(sessionDir, { recursive: true })
-    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(
+      join(sessionDir, 'summary.json'),
+      JSON.stringify({ info: { id: nativeId, cwd } }),
+    )
     await writeFile(join(sessionDir, 'updates.jsonl'), '')
 
     const statTick = new ManualStatTick()
@@ -2937,7 +2939,11 @@ describe('Grok accepted rebind transcript bridge', () => {
       [
         JSON.stringify({ type: 'system', content: 'hidden' }),
         JSON.stringify({ uuid: 'grok-user-token', type: 'user', content: 'user token' }),
-        JSON.stringify({ uuid: 'grok-assistant-token', type: 'assistant', content: 'assistant token' }),
+        JSON.stringify({
+          uuid: 'grok-assistant-token',
+          type: 'assistant',
+          content: 'assistant token',
+        }),
       ].join('\n') + '\n',
     )
     for (const watcher of statTick.watchers) watcher()
@@ -2971,12 +2977,16 @@ describe('Grok accepted rebind transcript bridge', () => {
       { seedOnFrame: false },
     )
     await vi.waitFor(() => {
-      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(
+        true,
+      )
     })
-    const replay = sent.slice(reloadStart).find(
-      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
-        message.type === 'transcriptDelta',
-    )!
+    const replay = sent
+      .slice(reloadStart)
+      .find(
+        (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          message.type === 'transcriptDelta',
+      )!
     expect(replay.reset).toBe(true)
     expect(replay.items.map((item) => item.id)).toEqual(['grok-user-token', 'grok-assistant-token'])
 
@@ -2993,7 +3003,10 @@ describe('Grok accepted rebind transcript bridge', () => {
     const transcriptRoot = join(home, 'product-transcripts')
     const currentTranscript = join(transcriptRoot, 'project-native-id', `${nativeId}.jsonl`)
     await mkdir(sessionDir, { recursive: true })
-    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(
+      join(sessionDir, 'summary.json'),
+      JSON.stringify({ info: { id: nativeId, cwd } }),
+    )
     await writeFile(join(sessionDir, 'updates.jsonl'), '')
 
     const statTick = new ManualStatTick()
@@ -3090,12 +3103,16 @@ describe('Grok accepted rebind transcript bridge', () => {
       { seedOnFrame: false },
     )
     await vi.waitFor(() => {
-      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(
+        true,
+      )
     })
-    const replay = sent.slice(reloadStart).find(
-      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
-        message.type === 'transcriptDelta',
-    )!
+    const replay = sent
+      .slice(reloadStart)
+      .find(
+        (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          message.type === 'transcriptDelta',
+      )!
     expect(replay.reset).toBe(true)
     expect(replay.items.map((item) => item.id)).toEqual([
       'current-user-token',
@@ -3114,7 +3131,10 @@ describe('Grok causal hook ingest', () => {
     const grokSessionId = 'g-causal-hook'
     const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), grokSessionId)
     await mkdir(sessionDir, { recursive: true })
-    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: grokSessionId, cwd } }))
+    await writeFile(
+      join(sessionDir, 'summary.json'),
+      JSON.stringify({ info: { id: grokSessionId, cwd } }),
+    )
     await writeFile(join(sessionDir, 'updates.jsonl'), '')
     await writeFile(join(sessionDir, 'chat_history.jsonl'), '')
 
@@ -3218,4 +3238,50 @@ describe('Grok causal hook ingest', () => {
     await rm(home, { recursive: true, force: true })
     observers.clearSession(sessionId)
   })
+})
+
+it('tail binding uses native session cursors and rebinds the same path to a new identity', async () => {
+  const { claudeRecordToItems, readFileItems } = await import('@podium/transcript')
+  const dir = await mkdtemp(join(tmpdir(), 'observer-namespace-'))
+  const path = join(dir, 'transcript.jsonl')
+  await writeFile(
+    path,
+    `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } })}\n`,
+  )
+  const adapter = harnessAdapterFor('claude-code')
+  if (!adapter) throw new Error('Claude adapter missing')
+  let host: HarnessObserverHost | undefined
+  const sent: DaemonMessage[] = []
+  const observers = createSessionObservers({
+    harnessAdapterFor: () => ({
+      ...adapter,
+      observer: supported((_input, nextHost) => {
+        host = nextHost
+        nextHost.tailFile(path)
+        return { stop() {} }
+      }),
+    }),
+    send: (message) => sent.push(message),
+    onTranscriptDirty: vi.fn(),
+    cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+  })
+  const sessionId = asSessionId('podium-namespace')
+  try {
+    observers.bindHeadlessSession(sessionId, 'claude-code', dir, 'native-first')
+    const expected = await readFileItems(path, 'native-first', claudeRecordToItems)
+    await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(1))
+    expect(sent.find((m) => m.type === 'transcriptDelta')).toMatchObject({ items: expected })
+    if (!host) throw new Error('observer host missing')
+    host.onResumeValue('native-second', 'exact')
+    host.tailFile(path)
+    await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(2))
+    const rebound = await readFileItems(path, 'native-second', claudeRecordToItems)
+    expect(rebound[0]?.cursor).not.toBe(expected[0]?.cursor)
+    expect(sent.filter((m) => m.type === 'transcriptDelta').at(-1)).toMatchObject({
+      items: rebound,
+    })
+  } finally {
+    observers.clearSession(sessionId)
+    await rm(dir, { recursive: true, force: true })
+  }
 })
