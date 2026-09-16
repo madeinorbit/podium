@@ -3241,7 +3241,7 @@ describe('Grok causal hook ingest', () => {
 })
 
 it('tail binding uses native session cursors and rebinds the same path to a new identity', async () => {
-  const { claudeRecordToItems, readFileItems } = await import('@podium/transcript')
+  const { claudeRecordToItems, fileIdFor, readFileItems } = await import('@podium/transcript')
   const dir = await mkdtemp(join(tmpdir(), 'observer-namespace-'))
   const path = join(dir, 'transcript.jsonl')
   await writeFile(
@@ -3268,14 +3268,14 @@ it('tail binding uses native session cursors and rebinds the same path to a new 
   const sessionId = asSessionId('podium-namespace')
   try {
     observers.bindHeadlessSession(sessionId, 'claude-code', dir, 'native-first')
-    const expected = await readFileItems(path, 'native-first', claudeRecordToItems)
+    const expected = await readFileItems(path, fileIdFor('native-first'), claudeRecordToItems)
     await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(1))
     expect(sent.find((m) => m.type === 'transcriptDelta')).toMatchObject({ items: expected })
     if (!host) throw new Error('observer host missing')
     host.onResumeValue('native-second', 'exact')
     host.tailFile(path)
     await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(2))
-    const rebound = await readFileItems(path, 'native-second', claudeRecordToItems)
+    const rebound = await readFileItems(path, fileIdFor('native-second'), claudeRecordToItems)
     expect(rebound[0]?.cursor).not.toBe(expected[0]?.cursor)
     expect(sent.filter((m) => m.type === 'transcriptDelta').at(-1)).toMatchObject({
       items: rebound,
@@ -3283,5 +3283,37 @@ it('tail binding uses native session cursors and rebinds the same path to a new 
   } finally {
     observers.clearSession(sessionId)
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('refuses to start a transcript tail until native identity is known', () => {
+  const adapter = harnessAdapterFor('claude-code')
+  if (!adapter) throw new Error('Claude adapter missing')
+  const statTick = new ManualStatTick()
+  let host: HarnessObserverHost | undefined
+  const observers = createSessionObservers({
+    statTick,
+    harnessAdapterFor: () => ({
+      ...adapter,
+      observer: supported((_input, nextHost) => {
+        host = nextHost
+        nextHost.tailFile('/tmp/unknown-native-transcript.jsonl')
+        return { stop() {} }
+      }),
+    }),
+    send: vi.fn(),
+    onTranscriptDirty: vi.fn(),
+    cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+  })
+  const sessionId = asSessionId('unknown-native')
+  try {
+    observers.bindHeadlessSession(sessionId, 'claude-code', '/tmp', '')
+    expect(statTick.watchers.size).toBe(0)
+    if (!host) throw new Error('observer host missing')
+    host.onResumeValue('now-known', 'exact')
+    host.tailFile('/tmp/unknown-native-transcript.jsonl')
+    expect(statTick.watchers.size).toBe(1)
+  } finally {
+    observers.clearSession(sessionId)
   }
 })

@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems, decodeCursor } from '@podium/transcript'
+import { claudeRecordToItems, decodeCursor, fileIdFor } from '@podium/transcript'
 import { expect, it } from 'vitest'
 import { fileTranscript } from './manifest'
 
@@ -22,7 +22,7 @@ it('file sources share the native session namespace across paths and repeated pa
       })
     const first = await read(paths[0], 'native-session')
     expect(first.items).toHaveLength(1)
-    expect(decodeCursor(first.items[0]?.cursor ?? '')?.fileId).toBe('native-session')
+    expect(decodeCursor(first.items[0]?.cursor ?? '')?.fileId).toBe(fileIdFor('native-session'))
     expect(first.items[0]?.id).toBe(first.items[0]?.cursor)
     expect(await read(paths[0], 'native-session')).toEqual(first)
     expect(await read(paths[1], 'native-session')).toEqual(first)

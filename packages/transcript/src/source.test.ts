@@ -63,9 +63,10 @@ describe('session cursor identity', () => {
       expect(await read(paths[1], fileIdFor('native-session'))).toEqual(first)
       expect(await read(paths[0], fileIdFor('native-session'), true)).toEqual(first)
       const archived = await read(paths[0], fileIdFor('native-session', 1), true)
+      // Archived bytes belong to a retired generation; they must not deduplicate against live rows.
       expect(archived.items[0]?.cursor).not.toBe(first.items[0]?.cursor)
       expect(await read(paths[1], fileIdFor('native-session', 1))).toEqual(archived)
-      expect(fileIdFor('native-session')).toBe('native-session')
+      expect(fileIdFor('native-session')).toMatch(/^[a-f0-9]{12}$/)
       expect(fileIdFor('native-session', 1)).not.toBe(fileIdFor('native-session', 2))
       const oldAnchor = encodeCursor({ fileId: 'old-path-hash', offset: 0, uuid: null, sub: 0 })
       const source = fileChainSource(

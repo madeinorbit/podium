@@ -1069,6 +1069,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     recordToItems: (record: unknown) => TranscriptItem[],
     resumeValue = nativeSessionIds.get(sessionId),
   ): void => {
+    // Wait for native identity: a path fallback would split live and mirrored cursors.
     if (!resumeValue) return
     const existing = tails.get(sessionId)
     if (existing?.path === path && tailSessionIds.get(sessionId) === resumeValue) return

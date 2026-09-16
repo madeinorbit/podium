@@ -235,7 +235,9 @@ it.each([
   'active',
   'archived',
 ] as const)('lake %s namespaces match live bytes only for the active incarnation', async (mode) => {
-  const { claudeRecordToItems, decodeCursor, readFileItems } = await import('@podium/transcript')
+  const { claudeRecordToItems, decodeCursor, fileIdFor, readFileItems } = await import(
+    '@podium/transcript'
+  )
   const store = await openTestStore(':memory:')
   const dir = mkdtempSync(join(tmpdir(), 'lake-namespace-'))
   const machineId = asMachineId('namespace-machine')
@@ -292,13 +294,12 @@ it.each([
     }
     const first = await lake.readWindow(session, { direction: 'before', limit: 10 })
     expect(first?.items).toHaveLength(mode === 'archived' ? 2 : 1)
-    const live = await readFileItems(livePath, nativeId, claudeRecordToItems)
+    const live = await readFileItems(livePath, fileIdFor(nativeId), claudeRecordToItems)
     expect(first?.items.at(-1)).toEqual(live[0])
     expect(await lake.readWindow(session, { direction: 'before', limit: 10 })).toEqual(first)
     if (mode === 'archived') {
-      expect(decodeCursor(first?.items[0]?.cursor ?? '')?.fileId).toBe(
-        JSON.stringify([nativeId, 1]),
-      )
+      expect(decodeCursor(first?.items[0]?.cursor ?? '')?.fileId).toBe(fileIdFor(nativeId, 1))
+      // Identical bytes in a retired generation are distinct history, not a duplicate live row.
       expect(first?.items[0]?.id).not.toBe(live[0]?.id)
     }
   } finally {

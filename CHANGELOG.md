@@ -7,16 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Transcript pages now follow the record ID after a file rewrite, preventing duplicate rows
-  when byte offsets shift. Live and mirrored transcripts share the native session namespace;
-  archived file generations keep separate namespaces.
-
 ### Changed
 
-- File transcript cursors and cursor-derived synthetic item IDs change once with this rollout.
-  Old cursors fall back to the default transcript window rather than anchoring to the old position.
+- After this update, a chat scrolled to an older point may lose its saved position once
+  and load the default message window because the way positions are recorded has changed.
+  No messages are lost, and this reset does not recur for positions saved after the update.
 
 ## [0.1.1-edge.4] - 2026-08-31
 
