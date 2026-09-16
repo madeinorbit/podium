@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
   root: { minWidth: 0 },
   body: {
     ...sans(400),
-    color: color.body,
+    color: proseColor('foreground'),
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
   },

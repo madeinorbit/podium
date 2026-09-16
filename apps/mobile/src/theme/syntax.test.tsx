@@ -5,7 +5,7 @@ import { cleanup, render } from '@testing-library/react'
 import { processColor } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HighlightedCode } from '../components/HighlightedCode'
-import { prosePalette, syntaxPalette, syntaxScopeToken } from './syntax'
+import { proseColor, prosePalette, syntaxPalette, syntaxScopeToken } from './syntax'
 import { color } from './theme'
 
 const appearanceState = vi.hoisted(() => ({ mode: 'dark' as 'light' | 'dark' }))
@@ -116,4 +116,24 @@ describe.each(['light', 'dark'] as const)('%s native token leaves', (appearance)
       ).toBe(normalized(expected))
     })
   })
+})
+
+function luminance(hex: string): number {
+  const channel = (offset: number) => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  }
+  return channel(1) * 0.2126 + channel(3) * 0.7152 + channel(5) * 0.0722
+}
+
+it.each(['light', 'dark'] as const)('%s inline ink clears the prose contrast floor', (mode) => {
+  appearanceState.mode = mode
+  expect(proseColor('code-inline')).toBe(prosePalette[mode]['code-inline'])
+  const ink = luminance(prosePalette[mode]['code-inline'])
+  const grounds = mode === 'light' ? ['#ffffff', '#f2f1ed'] : ['#23262d', '#16171a']
+  for (const ground of grounds) {
+    const background = luminance(ground)
+    const ratio = (Math.max(ink, background) + 0.05) / (Math.min(ink, background) + 0.05)
+    expect(ratio, `${mode} on ${ground}`).toBeGreaterThanOrEqual(4.5)
+  }
 })
