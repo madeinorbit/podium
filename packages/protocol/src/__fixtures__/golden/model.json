@@ -6328,24 +6328,6 @@
       "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
     },
     {
-      "schema": "LoginEmail",
-      "variant": "minimal",
-      "wire": "fixture@example.test",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"fixture@example.test\""
-    },
-    {
-      "schema": "LoginEmail",
-      "variant": "full",
-      "wire": "fixture@example.test",
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "\"fixture@example.test\""
-    },
-    {
       "schema": "LoopBucketCostWire",
       "variant": "minimal",
       "wire": {

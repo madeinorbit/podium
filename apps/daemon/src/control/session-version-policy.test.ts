@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { AGENT_MANIFESTS, type DriverId } from '@podium/harness'
+import {
+  AGENT_MANIFESTS,
+  CODEX_VERSION_POLICY,
+  type DriverId,
+  harnessVersionDiagnostic,
+} from '@podium/harness'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -80,7 +85,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
     'newer',
     'unparseable',
     'timeout',
-  ] as const)('starts the full driver for %s; newer versions stay quiet', async (scenario) => {
+  ] as const)('starts the full driver for %s without an attention notice', async (scenario) => {
     const { ctx, sent, create } = world(row.harness)
     const output =
       scenario === 'newer'
@@ -122,9 +127,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
         .every((message) => message.driverId === row.driver),
     ).toBe(true)
     const notices = sent.filter((message) => message.type === 'machineDiagnostic')
-    expect(notices).toHaveLength(scenario === 'newer' ? 0 : 1)
-    if (scenario !== 'newer')
-      expect(notices[0]?.body).toContain('session runs normally with the full driver')
+    expect(notices).toHaveLength(0)
   })
 
   it('refuses below the floor with the install instruction', async () => {
@@ -155,19 +158,19 @@ it('deduplicates by machine, harness and version, preserving distinct preview ve
   const first = world('codex')
   const second = world('codex')
   const diagnostic = {
-    code: 'version-unparseable',
-    title: 'Unverified',
-    body: 'Runs normally',
-    observedVersion: 'codex-cli 2.0.0-beta.1',
+    code: 'codex-version-too-old',
+    title: 'Codex is too old',
+    body: 'Install a newer Codex version.',
+    observedVersion: 'codex-cli 0.146.0-beta.1',
   }
   reportHarnessVersionDiagnostic(first.ctx, 'codex', diagnostic)
   reportHarnessVersionDiagnostic(first.ctx, 'codex', {
     ...diagnostic,
-    observedVersion: 'v2.0.0-beta.1',
+    observedVersion: 'v0.146.0-beta.1',
   })
   reportHarnessVersionDiagnostic(first.ctx, 'codex', {
     ...diagnostic,
-    observedVersion: '2.0.0-beta.2',
+    observedVersion: '0.146.0-beta.2',
   })
   reportHarnessVersionDiagnostic(first.ctx, 'opencode', diagnostic)
   reportHarnessVersionDiagnostic(second.ctx, 'codex', diagnostic)
@@ -175,26 +178,22 @@ it('deduplicates by machine, harness and version, preserving distinct preview ve
   expect(second.sent).toHaveLength(1)
 })
 
-it('buckets changing unreadable observations once per machine and harness', () => {
-  const first = world('codex')
-  const second = world('codex')
-  const diagnostic = {
-    code: 'codex-version-unparseable',
-    title: 'Version unreadable',
-    body: 'Runs normally',
-    observedVersion: 'probe failed at /tmp/probe-one',
+it('keeps unverified and unparseable observations quiet while still sending too-old diagnostics', () => {
+  const { ctx, sent } = world('codex')
+  for (const [output, code] of [
+    ['0.154.0', 'codex-version-unverified'],
+    ['probe timed out', 'codex-version-unparseable'],
+  ] as const) {
+    const diagnostic = harnessVersionDiagnostic('codex', CODEX_VERSION_POLICY, output)
+    expect(diagnostic?.code).toBe(code)
+    if (!diagnostic) throw new Error('expected an informational version observation')
+    reportHarnessVersionDiagnostic(ctx, 'codex', diagnostic)
+    expect(sent).toEqual([])
   }
-  for (const observedVersion of [
-    diagnostic.observedVersion,
-    'probe failed at /tmp/probe-two',
-    'changed banner',
-    '(no output)',
-    '999999999999999999999.1.0',
-  ]) {
-    reportHarnessVersionDiagnostic(first.ctx, 'codex', { ...diagnostic, observedVersion })
-  }
-  reportHarnessVersionDiagnostic(first.ctx, 'opencode', diagnostic)
-  reportHarnessVersionDiagnostic(second.ctx, 'codex', diagnostic)
-  expect(first.sent).toHaveLength(2)
-  expect(second.sent).toHaveLength(1)
+
+  const tooOld = harnessVersionDiagnostic('codex', CODEX_VERSION_POLICY, '0.146.0')
+  expect(tooOld?.code).toBe('codex-version-too-old')
+  if (!tooOld) throw new Error('expected an actionable floor diagnostic')
+  reportHarnessVersionDiagnostic(ctx, 'codex', tooOld)
+  expect(sent).toEqual([{ type: 'machineDiagnostic', ...tooOld }])
 })
