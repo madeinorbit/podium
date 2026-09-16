@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
 import { contentToText, isRecord, stringField } from './json-util'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -39,7 +40,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
     if (ptype === 'turn_aborted') {
       return [
         {
-          id: stableId('codex-interrupt', ts ?? 'turn-aborted'),
+          id: stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
           role: 'user',
           ...(ts ? { ts } : {}),
           text: 'Conversation interrupted',
@@ -63,7 +64,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
           {
             id:
               stringField(currentUserMessage ?? {}, 'id') ??
-              stableId('codex-user', `${ts ?? ''}:${text}`),
+              stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
             role: 'user',
             ...(ts ? { ts } : {}),
             text,
@@ -85,7 +86,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       return text
         ? [
             {
-              id: stableId('codex-assistant', `${ts ?? ''}:${text}`),
+              id: stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
               role: 'assistant',
               ...(ts ? { ts } : {}),
               text,
@@ -123,7 +124,7 @@ function toolCallItem(payload: Record<string, unknown>, ts: string | undefined):
   const display = codexToolDisplay(wireToolName, rawInput)
   const callId = stringField(payload, 'call_id') ?? stringField(payload, 'id')
   return {
-    id: callId ?? stableId('codex-tool', `${wireToolName}:${ts ?? ''}`),
+    id: callId ?? SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -445,7 +446,7 @@ function toolResultItem(payload: Record<string, unknown>, ts: string | undefined
   const text = (typeof out === 'string' ? out : contentToText(out)).trim()
   const callId = stringField(payload, 'call_id') ?? stringField(payload, 'id')
   return {
-    id: callId ? `${callId}:out` : stableId('codex-tool-result', `${ts ?? ''}:${text}`),
+    id: callId ? `${callId}:out` : SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -468,11 +469,4 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s
 }
 
-function stableId(prefix: string, seed: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `${prefix}-${(hash >>> 0).toString(36)}`
-}
+

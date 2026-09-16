@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from './claude'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */
@@ -37,14 +38,19 @@ function messageItems(
   const items: TranscriptItem[] = []
   if (text || tags.length > 0) {
     items.push({
-      id: stableId(`cursor-${role}`, `${role}:${text}`),
+      id: stringField(record, 'id') ?? stringField(record, 'uuid') ?? SYNTHESIZED_ITEM_ID_PREFIX,
       role,
       text,
       ...(tags.length > 0 ? { tags } : {}),
     })
   }
   items.push(...parts.extraItems)
-  return items
+  const recordId = stringField(record, 'id') ?? stringField(record, 'uuid')
+  return items.map((item, sub) =>
+    recordId && item.id.startsWith(SYNTHESIZED_ITEM_ID_PREFIX)
+      ? { ...item, id: `${recordId}:${sub}` }
+      : item,
+  )
 }
 
 function contentParts(content: unknown): {
@@ -101,7 +107,7 @@ function toolCallItem(record: Record<string, unknown>): TranscriptItem | undefin
   const input = record.input ?? record.arguments ?? record.args
   const toolInputJson = safeToolEditJsonFromInput(toolName, input)
   return {
-    id: toolUseId ?? stableId('cursor-tool', `${toolName}:${safeJson(record.input)}`),
+    id: toolUseId ?? SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     text: '',
     toolName,
@@ -119,7 +125,7 @@ function toolResultItem(record: Record<string, unknown>): TranscriptItem | undef
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
-    id: stableId('cursor-tool-result', `result:${toolUseId ?? ''}:${resultText}`),
+    id: toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     text: '',
     toolResult: truncate(resultText, 2000),
@@ -165,22 +171,9 @@ function contentText(content: unknown): string {
   return ''
 }
 
-function stableId(prefix: string, seed: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `${prefix}-${(hash >>> 0).toString(36)}`
-}
 
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? ''
-  } catch {
-    return ''
-  }
-}
+
+
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s

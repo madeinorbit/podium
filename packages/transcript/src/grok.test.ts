@@ -1,3 +1,4 @@
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { describe, expect, it } from 'vitest'
 import { grokRecordToItems } from './grok'
 
@@ -11,7 +12,7 @@ describe('grokRecordToItems', () => {
       }),
     ).toEqual([
       {
-        id: expect.stringMatching(/^grok-user-/),
+        id: SYNTHESIZED_ITEM_ID_PREFIX,
         role: 'user',
         ts: '2026-06-15T10:00:00.000Z',
         text: 'hello',
@@ -131,7 +132,7 @@ describe('grokRecordToItems', () => {
       }),
     ).toEqual([
       {
-        id: expect.stringMatching(/^grok-tool-result-/),
+        id: 'tool-1:out',
         role: 'tool',
         text: '',
         toolResult: 'file contents',
@@ -155,7 +156,7 @@ describe('grokRecordToItems', () => {
     })
     expect(items).toEqual([
       {
-        id: expect.stringMatching(/^grok-assistant-/),
+        id: SYNTHESIZED_ITEM_ID_PREFIX,
         role: 'assistant',
         text: "I'll check what's already on the board.",
       },

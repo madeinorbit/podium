@@ -1,5 +1,6 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { toolInputPreview } from './claude'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */
@@ -36,7 +37,7 @@ export function grokRecordToItems(record: unknown): TranscriptItem[] {
     case 'tool':
     case 'tool_use':
     case 'tool_call': {
-      const call = toolCallItem(record, ts, kind)
+      const call = toolCallItem(record, ts)
       if (call) return [call]
       const result = toolResultItem(record, ts)
       return result ? [result] : []
@@ -62,7 +63,7 @@ function messageItems(
   const items: TranscriptItem[] = []
   if (text || parts.tags.length > 0) {
     items.push({
-      id: baseId(record, `grok-${role}`, `${role}:${ts ?? ''}:${text}`),
+      id: baseId(record),
       role,
       ...(ts ? { ts } : {}),
       text,
@@ -82,7 +83,12 @@ function messageItems(
       items.push(item)
     }
   }
-  return items
+  const recordId = stringField(record, 'id') ?? stringField(record, 'uuid')
+  return items.map((item, sub) =>
+    recordId && item.id.startsWith(SYNTHESIZED_ITEM_ID_PREFIX)
+      ? { ...item, id: `${recordId}:${sub}` }
+      : item,
+  )
 }
 
 function assistantToolCallItems(
@@ -93,7 +99,7 @@ function assistantToolCallItems(
   const items: TranscriptItem[] = []
   for (const call of record.tool_calls) {
     if (!isRecord(call)) continue
-    const item = toolCallItem(call, ts, 'tool_call')
+    const item = toolCallItem(call, ts)
     if (item) items.push(item)
   }
   return items
@@ -108,7 +114,7 @@ function systemItems(
   if (!text) return []
   return [
     {
-      id: baseId(record, 'grok-system', `system:${ts ?? ''}:${text}`),
+      id: baseId(record),
       role: 'system',
       ...(ts ? { ts } : {}),
       text,
@@ -145,7 +151,7 @@ function contentParts(
       return
     }
     if (kind === 'tool_use' || kind === 'tool_call') {
-      const item = toolCallItem(part, ts, kind)
+      const item = toolCallItem(part, ts)
       if (item) extraItems.push(item)
       return
     }
@@ -170,7 +176,6 @@ function contentParts(
 function toolCallItem(
   record: Record<string, unknown>,
   ts: string | undefined,
-  fallbackKind: string,
 ): TranscriptItem | undefined {
   const wireName =
     stringField(record, 'name') ??
@@ -181,13 +186,14 @@ function toolCallItem(
   const display = grokToolDisplay(wireName, parseGrokArgs(rawInput))
   const toolUseId =
     stringField(record, 'id') ??
+    stringField(record, 'uuid') ??
     stringField(record, 'tool_use_id') ??
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
     id:
       toolUseId ??
-      stableId('grok-tool', `${fallbackKind}:${display.toolName}:${safeJson(rawInput)}`),
+      SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -378,7 +384,7 @@ function toolResultItem(
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
-    id: baseId(record, 'grok-tool-result', `result:${toolUseId ?? ''}:${resultText}`),
+    id: stringField(record, 'id') ?? stringField(record, 'uuid') ?? (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -439,26 +445,13 @@ function tagLabel(record: Record<string, unknown>): { label: string } | Record<s
   return label ? { label } : {}
 }
 
-function baseId(record: Record<string, unknown>, prefix: string, seed: string): string {
-  return stringField(record, 'id') ?? stringField(record, 'uuid') ?? stableId(prefix, seed)
+function baseId(record: Record<string, unknown>): string {
+  return stringField(record, 'id') ?? stringField(record, 'uuid') ?? SYNTHESIZED_ITEM_ID_PREFIX
 }
 
-function stableId(prefix: string, seed: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `${prefix}-${(hash >>> 0).toString(36)}`
-}
 
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? ''
-  } catch {
-    return ''
-  }
-}
+
+
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s

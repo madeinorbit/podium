@@ -2,6 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from './claude'
 import { contentToText, isRecord, stringField } from './json-util'
 import type { HarnessRuntimeObservation } from './runtime'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -30,7 +31,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
 
   switch (role) {
     case 'user':
-      return textItem(entryId ?? stableId('pi-user', ts ?? ''), 'user', message.content, ts)
+      return textItem(entryId ?? SYNTHESIZED_ITEM_ID_PREFIX, 'user', message.content, ts)
     case 'assistant':
       return assistantItems(entryId, message, ts)
     case 'toolResult': {
@@ -41,7 +42,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
       const command = stringField(message, 'command')
       if (!command) return []
       const output = typeof message.output === 'string' ? message.output : ''
-      const id = entryId ?? stableId('pi-bash', `${command}:${ts ?? ''}`)
+      const id = entryId ?? SYNTHESIZED_ITEM_ID_PREFIX
       return [
         {
           id,
@@ -49,7 +50,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
           text: '',
           toolName: 'bash',
           toolInput: command,
-          toolUseId: id,
+          ...(entryId ? { toolUseId: entryId } : {}),
           ...(ts ? { ts } : {}),
         },
         ...(output.trim()
@@ -59,7 +60,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
                 role: 'tool' as const,
                 text: '',
                 toolResult: truncate(output.trim(), 2000),
-                toolUseId: id,
+                ...(entryId ? { toolUseId: entryId } : {}),
                 ...(ts ? { ts } : {}),
               },
             ]
@@ -74,7 +75,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
       return text
         ? [
             {
-              id: entryId ?? stableId('pi-custom', text),
+              id: entryId ?? SYNTHESIZED_ITEM_ID_PREFIX,
               role: 'system',
               text,
               ...(ts ? { ts } : {}),
@@ -88,7 +89,7 @@ export function piRecordToItems(record: unknown): TranscriptItem[] {
       return summary
         ? [
             {
-              id: entryId ?? stableId('pi-summary', summary),
+              id: entryId ?? SYNTHESIZED_ITEM_ID_PREFIX,
               role: 'system',
               text: summary,
               systemKind: 'recap',
@@ -136,7 +137,7 @@ function assistantItems(
   const parts = Array.isArray(message.content) ? message.content : [message.content]
   const texts: string[] = []
   const tools: TranscriptItem[] = []
-  for (const part of parts) {
+  for (const [sub, part] of parts.entries()) {
     if (typeof part === 'string') {
       texts.push(part)
       continue
@@ -153,7 +154,7 @@ function assistantItems(
       const input = part.arguments
       const toolInputJson = safeToolEditJsonFromInput(toolName, input)
       tools.push({
-        id: toolUseId ?? stableId('pi-tool', `${toolName}:${ts ?? ''}`),
+        id: toolUseId ?? (entryId ? `${entryId}:tool:${sub}` : SYNTHESIZED_ITEM_ID_PREFIX),
         role: 'tool',
         text: '',
         toolName,
@@ -171,7 +172,7 @@ function assistantItems(
   const items: TranscriptItem[] = []
   if (text || (stopReason === 'error' && errorMessage)) {
     items.push({
-      id: entryId ?? stableId('pi-assistant', `${text}:${ts ?? ''}`),
+      id: entryId ?? SYNTHESIZED_ITEM_ID_PREFIX,
       role: 'assistant',
       text: text || `Error: ${errorMessage}`,
       // 'stop' ends the turn; 'toolUse' is intermediate narration. 'length' and
@@ -194,7 +195,7 @@ function toolResultItem(
   const isError = message.isError === true
   if (!resultText && !isError) return undefined
   return {
-    id: entryId ?? stableId('pi-tool-result', `${toolUseId ?? ''}:${resultText}`),
+    id: entryId ?? (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
     role: 'tool',
     text: '',
     toolResult: truncate(resultText || '(tool error)', 2000),
@@ -228,14 +229,7 @@ function epochIso(value: unknown): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
-function stableId(prefix: string, seed: string): string {
-  let hash = 2166136261
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `${prefix}-${(hash >>> 0).toString(36)}`
-}
+
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s
