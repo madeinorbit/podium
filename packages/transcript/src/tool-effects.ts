@@ -33,23 +33,30 @@ export function claudeToolEffects(value: unknown): ToolEffect[] {
       }
       sections.push(lines.join('\n'))
     }
-    const created = !files.length && value.type === 'create' && typeof value.content === 'string'
-    if (created)
-      added = value.content === '' ? 0 : value.content.replace(/\n$/, '').split('\n').length
+    const createdContent =
+      !files.length && value.type === 'create' && typeof value.content === 'string'
+        ? value.content
+        : undefined
+    const created = createdContent !== undefined
+    if (createdContent !== undefined)
+      added = createdContent === '' ? 0 : createdContent.replace(/\n$/, '').split('\n').length
     const edit: ToolEditPayload = {
       kind: 'file-edit',
       ...(patchFiles.length === 1 && typeof patchFiles[0]?.filePath === 'string'
         ? { path: patchFiles[0].filePath }
         : {}),
       mode: created ? 'write' : 'patch',
-      hunks: created ? [{ newText: value.content as string }] : [],
+      hunks: createdContent !== undefined ? [{ newText: createdContent }] : [],
       ...(!created ? { patch: sections.join('\n') } : {}),
       added,
       removed,
-      ...(bash?.unavailable === true ? { truncated: true } : {}),
-      changedFileCount: Array.isArray(bash?.changedFiles)
-        ? bash.changedFiles.length
-        : patchFiles.length,
+      ...(bash?.unavailable === true
+        ? { unavailable: true }
+        : {
+            changedFileCount: Array.isArray(bash?.changedFiles)
+              ? bash.changedFiles.length
+              : patchFiles.length,
+          }),
       ...(typeof bash?.moreFiles === 'number' ? { moreFiles: bash.moreFiles } : {}),
     }
     const json = safeToolEditJson(edit)

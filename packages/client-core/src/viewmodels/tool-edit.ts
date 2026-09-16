@@ -28,6 +28,7 @@ export type ToolEditView = {
   moreFiles?: number
   source?: 'effect' | 'intent'
   userModified?: boolean
+  unavailable?: boolean
   truncated?: boolean
 }
 
@@ -142,6 +143,8 @@ export function toolEditLines(
   edit: ToolEditView,
   cap = LINE_CAP,
 ): { lines: ToolEditLine[]; omitted: number } {
+  if (edit.unavailable)
+    return { lines: [{ kind: 'note', text: 'Applied diff unavailable' }], omitted: 0 }
   const raw: ToolEditLine[] = []
   if (edit.patch) {
     raw.push(...patchLines(edit.patch))

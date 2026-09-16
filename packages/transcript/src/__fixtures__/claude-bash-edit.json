@@ -1,0 +1,67 @@
+[
+  {
+    "type": "assistant",
+    "uuid": "72619cea-ac5c-4d05-9dc6-9cb9c1d69acd",
+    "message": {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01BkoZAsRqwGtmAfYXkSRfX1",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/mgw/src/other/podium/.worktrees/integrate-4057-harness-coloring && cp /tmp/syn.bak apps/mobile/src/theme/syntax.ts && git status --porcelain && echo \"RESTORED clean\" && git log --oneline dev/mw..HEAD",
+            "description": "Restore and show final integration log"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "type": "user",
+    "uuid": "4af816a1-d3b4-4e08-9b90-9dd7787e4879",
+    "message": {
+      "content": [
+        {
+          "tool_use_id": "toolu_01BkoZAsRqwGtmAfYXkSRfX1",
+          "type": "tool_result",
+          "content": "RESTORED clean\n56fedebda Align mobile palette with landed web syntax rules\nd9767fd35 Cover mobile syntax parity and streaming highlighting\nd90a08f28 Render mobile code tokens with adaptive syntax colours\n9accbf50e Colour Bash tool commands with shared syntax tokens\n4d6c58479 Unify web syntax colours across chat and tool cells\n04bfa2d8a Clear lint debt from the restored web highlight wiring\n8a3250663 Restore worker code highlight rendering\n0abd975a8 Clear lint debt introduced by the highlight token lanes\nbfd531557 Add shared code highlight token contract\nb1416485c Fix Claude transcript fallback item identities",
+          "is_error": false
+        }
+      ]
+    },
+    "toolUseResult": {
+      "bashEditDiff": {
+        "files": [
+          {
+            "filePath": "/home/mgw/src/other/podium/.worktrees/integrate-4057-harness-coloring/apps/mobile/src/theme/syntax.ts",
+            "hunks": [
+              {
+                "oldStart": 8,
+                "oldLines": 7,
+                "newStart": 8,
+                "newLines": 7,
+                "lines": [
+                  "     comment: '#6f6d64',",
+                  "     punct: '#8a8880',",
+                  "     operator: '#5f5d55',",
+                  "-    keyword: '#deadbe',",
+                  "+    keyword: '#7132d4',",
+                  "     string: '#12704a',",
+                  "     number: '#8a5a00',",
+                  "     function: '#1d4ed8',"
+                ]
+              }
+            ]
+          }
+        ],
+        "moreFiles": 0,
+        "changedFiles": [
+          "/home/mgw/src/other/podium/.worktrees/integrate-4057-harness-coloring/apps/mobile/src/theme/syntax.ts"
+        ]
+      }
+    }
+  }
+]

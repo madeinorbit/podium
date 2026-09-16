@@ -82,3 +82,11 @@ describe('Claude observed effects', () => {
     expect(claudeRecordToItems(record).every((item) => item.toolEffects === undefined)).toBe(true)
   })
 })
+
+it('marks an unavailable shell diff without claiming zero changed files', () => {
+  const effects = claudeToolEffects({
+    bashEditDiff: { files: [], moreFiles: 0, unavailable: true },
+  })
+  expect(effects[0]).toMatchObject({ kind: 'file-edit', edit: { unavailable: true } })
+  expect(effects[0]?.kind === 'file-edit' && effects[0].edit.changedFileCount).toBeUndefined()
+})

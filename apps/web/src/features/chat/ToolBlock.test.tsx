@@ -117,3 +117,51 @@ it('shows an interrupted effect as a failure even with empty output', () => {
   expect(host.querySelector('[data-verdict="err"]')).not.toBeNull()
   expect(host.textContent).toContain('Tool interrupted or timed out')
 })
+
+it('renders the real recorded Bash edit with identical path, hunk lines and counts', async () => {
+  const { default: records } = await import(
+    '../../../../../packages/transcript/src/__fixtures__/claude-bash-edit.json'
+  )
+  const { claudeRecordToItems } = await import('@podium/transcript')
+  const { pairToolResults } = await import('./chat')
+  const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
+  if (!block) throw new Error('Missing recorded Bash call')
+  mount(block.item)
+  unfold()
+  const recorded = records[1]?.toolUseResult?.bashEditDiff.files[0]
+  if (!recorded) throw new Error('Missing recorded Bash effect')
+  expect(host.textContent).toContain(recorded.filePath)
+  for (const line of recorded.hunks[0]?.lines ?? []) {
+    expect(host.textContent).toContain(line.slice(1))
+  }
+  expect(host.querySelector('.tool-edit-mag')?.textContent).toBe('+1 −1')
+  expect(host.textContent).toContain('applied diff')
+})
+
+it('shows unavailable applied effects instead of requested edits', () => {
+  mount({
+    toolInputJson: JSON.stringify({
+      kind: 'file-edit',
+      mode: 'write',
+      hunks: [{ newText: 'REQUESTED ONLY' }],
+      added: 1,
+      removed: 0,
+    }),
+    toolEffects: [
+      {
+        kind: 'file-edit',
+        edit: {
+          kind: 'file-edit',
+          mode: 'patch',
+          hunks: [],
+          added: 0,
+          removed: 0,
+          unavailable: true,
+        },
+      },
+    ],
+  })
+  unfold()
+  expect(host.textContent).toContain('Applied diff unavailable')
+  expect(host.textContent).not.toContain('REQUESTED ONLY')
+})

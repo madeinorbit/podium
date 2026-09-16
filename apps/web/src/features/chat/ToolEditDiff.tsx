@@ -21,7 +21,7 @@ export function ToolEditDiff({ edit }: { edit: ToolEditView }): JSX.Element {
           {edit.source === 'effect' ? 'applied' : 'requested'}{' '}
           {edit.mode === 'write' ? 'new file' : 'diff'}
         </span>
-        <span className="tool-edit-mag">{magnitude}</span>
+        {!edit.unavailable && <span className="tool-edit-mag">{magnitude}</span>}
       </div>
       {edit.userModified && (
         <div className="tool-edit-line tool-edit-line--note">User modified this edit</div>

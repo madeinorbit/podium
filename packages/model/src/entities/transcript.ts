@@ -48,6 +48,7 @@ export const TranscriptToolEffect = z.discriminatedUnion('kind', [
       removed: z.number(),
       changedFileCount: z.number().optional(),
       moreFiles: z.number().optional(),
+      unavailable: z.boolean().optional(),
       truncated: z.boolean().optional(),
     }),
     userModified: z.boolean().optional(),
