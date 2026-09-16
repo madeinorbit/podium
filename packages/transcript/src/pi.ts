@@ -1,8 +1,8 @@
 import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from './claude'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { contentToText, isRecord, stringField } from './json-util'
 import type { HarnessRuntimeObservation } from './runtime'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -228,8 +228,6 @@ function epochIso(value: unknown): string | undefined {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
-
-
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s

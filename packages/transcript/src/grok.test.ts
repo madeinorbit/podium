@@ -1,5 +1,5 @@
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { describe, expect, it } from 'vitest'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { grokRecordToItems } from './grok'
 
 describe('grokRecordToItems', () => {
@@ -190,7 +190,8 @@ describe('grokRecordToItems', () => {
         {
           id: 'call-edit',
           name: 'search_replace',
-          arguments: '{"file_path":"/repo/packages/transcript/src/grok.ts","old_string":"a","new_string":"b"}',
+          arguments:
+            '{"file_path":"/repo/packages/transcript/src/grok.ts","old_string":"a","new_string":"b"}',
         },
       ],
     })
@@ -291,7 +292,9 @@ describe('grokRecordToItems', () => {
   it('does not double-emit a call that already arrived as a content block', () => {
     const items = grokRecordToItems({
       type: 'assistant',
-      content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'src/app.ts' } }],
+      content: [
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: 'src/app.ts' } },
+      ],
       tool_calls: [
         {
           id: 'tool-1',

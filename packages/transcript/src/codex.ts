@@ -1,7 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
-import { contentToText, isRecord, stringField } from './json-util'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
+import { contentToText, isRecord, stringField } from './json-util'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -64,7 +64,8 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
           {
             id:
               stringField(currentUserMessage ?? {}, 'id') ??
-              stringField(payload, 'id') ?? SYNTHESIZED_ITEM_ID_PREFIX,
+              stringField(payload, 'id') ??
+              SYNTHESIZED_ITEM_ID_PREFIX,
             role: 'user',
             ...(ts ? { ts } : {}),
             text,
@@ -468,5 +469,3 @@ function parseArgs(value: unknown): unknown {
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s
 }
-
-

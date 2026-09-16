@@ -75,9 +75,7 @@ function messageItems(
   // blocks. Older fixtures (and a few Claude-shaped records) still use
   // `tool_use` parts, which contentParts already emitted above — skip dupes.
   if (role === 'assistant') {
-    const seen = new Set(
-      items.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])),
-    )
+    const seen = new Set(items.flatMap((item) => (item.toolUseId ? [item.toolUseId] : [])))
     for (const item of assistantToolCallItems(record, ts)) {
       if (item.toolUseId && seen.has(item.toolUseId)) continue
       items.push(item)
@@ -191,9 +189,7 @@ function toolCallItem(
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
-    id:
-      toolUseId ??
-      SYNTHESIZED_ITEM_ID_PREFIX,
+    id: toolUseId ?? SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -384,7 +380,10 @@ function toolResultItem(
     stringField(record, 'tool_call_id') ??
     stringField(record, 'call_id')
   return {
-    id: stringField(record, 'id') ?? stringField(record, 'uuid') ?? (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
+    id:
+      stringField(record, 'id') ??
+      stringField(record, 'uuid') ??
+      (toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX),
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
@@ -448,10 +447,6 @@ function tagLabel(record: Record<string, unknown>): { label: string } | Record<s
 function baseId(record: Record<string, unknown>): string {
   return stringField(record, 'id') ?? stringField(record, 'uuid') ?? SYNTHESIZED_ITEM_ID_PREFIX
 }
-
-
-
-
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s

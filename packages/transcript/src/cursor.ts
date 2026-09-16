@@ -171,10 +171,6 @@ function contentText(content: unknown): string {
   return ''
 }
 
-
-
-
-
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s
 }

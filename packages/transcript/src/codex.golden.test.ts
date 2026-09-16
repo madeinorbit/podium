@@ -90,3 +90,40 @@ describe('codexRecordToItems golden fixture', () => {
     expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_orphan_empty' })
   })
 })
+
+it('preserves the same message IDs as fake app-server notifications through the live mapper', async () => {
+  const { startFakeAppServer } = await import(
+    '../../agent-runtime/src/drivers/codex/test-support/fake-app-server'
+  )
+  const { threadItemToItems } = await import('../../agent-runtime/src/drivers/codex/map')
+  const server = startFakeAppServer()
+  const live: string[] = []
+  server.transport.onLine({
+    line(line) {
+      const frame = JSON.parse(line)
+      if (frame.method === 'item/completed') {
+        live.push(...threadItemToItems(frame.params.item, undefined).map((item) => item.id))
+      }
+    },
+    closed() {},
+  })
+  try {
+    server.emitUserMessage('Hello', 'usr_parity')
+    server.emitAgentMessage('Hello back', 'msg_parity', 'Hello')
+    const bytes = readFileSync(
+      new URL('./__fixtures__/codex-provider-identity.jsonl', import.meta.url),
+      'utf8',
+    )
+    const parse = () =>
+      bytes
+        .trim()
+        .split('\n')
+        .flatMap((line) => codexRecordToItems(JSON.parse(line)))
+        .map((item) => item.id)
+    expect(live).toEqual(['usr_parity', 'msg_parity'])
+    expect(parse()).toEqual(live)
+    expect(parse()).toEqual(live)
+  } finally {
+    server.transport.close()
+  }
+})
