@@ -85,19 +85,61 @@ describe('terminal instrumentation installation', () => {
   it('deduplicates by machine owner, harness, and reason', () => {
     const owner = {}
     const send = vi.fn()
-    const failure = { args: [], degradedReason: 'unreadable hooks.json' }
+    const failure = {
+      args: [],
+      degradedReason: 'unreadable hooks.json',
+      degradedKind: 'unreadable-hooks-json' as const,
+    }
     reportInstrumentationDegradation(owner, 'codex', failure, send)
     reportInstrumentationDegradation(owner, 'codex', failure, send)
     reportInstrumentationDegradation(owner, 'grok', failure, send)
     reportInstrumentationDegradation(
       owner,
       'codex',
-      { ...failure, degradedReason: 'no ~/.codex' },
+      { ...failure, degradedReason: 'no ~/.codex', degradedKind: 'no-home' },
       send,
     )
     reportInstrumentationDegradation({}, 'codex', failure, send)
     expect(send).toHaveBeenCalledTimes(4)
     expect(new Set(send.mock.calls.map(([message]) => message.code)).size).toBe(3)
+  })
+
+  it('deduplicates changing exception details and keeps them out of the code', async () => {
+    const owner = {}
+    const send = vi.fn()
+    const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks')
+    for (const message of ['EACCES /home/one/hooks.json', 'EIO /home/two/hooks.json']) {
+      ensure.mockRejectedValueOnce(new Error(message))
+      const result = await installTerminalInstrumentation({
+        sessionId: asSessionId('failure'),
+        spec: spec('codex'),
+        settingsDir: '/unused',
+      })
+      expect(result).toMatchObject({ degradedKind: 'error', degradedReason: message })
+      reportInstrumentationDegradation(owner, 'codex', result, send)
+    }
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'codex-hooks-error',
+        body: expect.stringContaining('EACCES /home/one/hooks.json'),
+      }),
+    )
+  })
+
+  it('keeps successful already-installed hooks silent', async () => {
+    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
+      installed: true,
+      changed: false,
+    })
+    const send = vi.fn()
+    const result = await installTerminalInstrumentation({
+      sessionId: asSessionId('installed'),
+      spec: spec('codex'),
+      settingsDir: '/unused',
+    })
+    reportInstrumentationDegradation({}, 'codex', result, send)
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('serializes simultaneous Grok installs and returns each session endpoint', async () => {

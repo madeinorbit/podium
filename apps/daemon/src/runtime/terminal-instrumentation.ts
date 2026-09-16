@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -9,10 +8,38 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { ensurePodiumCodexHooks } from '../codex-hooks'
 import { ensurePodiumGrokHooks } from '../grok-hooks'
 
+type InstrumentationFailure =
+  | 'no-home'
+  | 'unreadable-hooks-json'
+  | 'not-an-object'
+  | 'unsupported-version'
+  | 'error'
+
+// Classify installer refusals only. Exceptions always use error, regardless of text.
+function installerFailure(reason: string | undefined): InstrumentationFailure {
+  switch (reason) {
+    case 'no ~/.codex':
+    case 'no GROK_HOME':
+      return 'no-home'
+    case 'unreadable hooks.json':
+    case 'unreadable podium hook file':
+      return 'unreadable-hooks-json'
+    case 'hooks.json not an object':
+    case 'podium hook file is not an object':
+      return 'not-an-object'
+    default:
+      return reason === 'unsupported codex version' ||
+        reason?.startsWith('unsupported codex version:')
+        ? 'unsupported-version'
+        : 'error'
+  }
+}
+
 /** Launch wiring remains usable when global hook installation degrades. */
 export interface InstalledTerminalInstrumentation {
   args: string[]
   degradedReason?: string
+  degradedKind?: InstrumentationFailure
   env?: Record<string, string>
 }
 
@@ -59,6 +86,7 @@ export async function installTerminalInstrumentation(input: {
     throw new Error(`no instrumentation installer for ${spec.harness}`)
   }
   let degradedReason: string | undefined
+  let degradedKind: InstrumentationFailure = 'error'
   if (manifest.capabilities.hookInstall === 'global-env') {
     if (spec.harness !== 'codex' && spec.harness !== 'grok') {
       throw new Error(`no global instrumentation installer for ${spec.harness}`)
@@ -80,7 +108,10 @@ export async function installTerminalInstrumentation(input: {
           ? ensurePodiumCodexHooks({ codexHome: harnessHome })
           : ensurePodiumGrokHooks({ grokHome: harnessHome }),
       )
-      if (!result.installed) degradedReason = result.reason ?? 'hook installation failed'
+      if (!result.installed) {
+        degradedReason = result.reason ?? 'hook installation failed'
+        degradedKind = installerFailure(result.reason)
+      }
     } catch (error) {
       degradedReason = error instanceof Error ? error.message : String(error)
     }
@@ -96,13 +127,18 @@ export async function installTerminalInstrumentation(input: {
       await writeFile(wiring.file.path, wiring.file.contents)
     } catch (error) {
       // A missing per-session settings file must not become a fatal CLI argument.
-      return { args: [], degradedReason: error instanceof Error ? error.message : String(error) }
+      return {
+        args: [],
+        ...(wiring.env ? { env: wiring.env } : {}),
+        degradedReason: error instanceof Error ? error.message : String(error),
+        degradedKind: 'error',
+      }
     }
   }
   return {
     args: wiring.args,
     ...(wiring.env ? { env: wiring.env } : {}),
-    ...(degradedReason ? { degradedReason } : {}),
+    ...(degradedReason ? { degradedReason, degradedKind } : {}),
   }
 }
 
@@ -117,7 +153,7 @@ export function reportInstrumentationDegradation(
 ): void {
   const reason = installation.degradedReason
   if (!reason) return
-  const code = `${harness}-hooks-${createHash('sha256').update(reason).digest('hex')}`
+  const code = `${harness}-hooks-${installation.degradedKind ?? 'error'}`
   let seen = warnings.get(owner)
   if (!seen) {
     seen = new Set()

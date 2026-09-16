@@ -473,13 +473,13 @@ describe('instrumented terminal creation', () => {
   })
 
   it.each([
-    ['missing home', 'no ~/.codex'],
-    ['unreadable', 'unreadable hooks.json'],
-    ['not object', 'hooks.json not an object'],
-    ['garbage version', 'unsupported codex version: garbage banner'],
-    ['write failure', 'EISDIR'],
-    ['malformed groups', 'null'],
-  ])('starts Codex with %s and emits one reason-specific diagnostic', async (scenario, reason) => {
+    ['missing home', 'no ~/.codex', 'no-home'],
+    ['unreadable', 'unreadable hooks.json', 'unreadable-hooks-json'],
+    ['not object', 'hooks.json not an object', 'not-an-object'],
+    ['garbage version', 'unsupported codex version: garbage banner', 'unsupported-version'],
+    ['write failure', 'EISDIR', 'error'],
+    ['malformed groups', 'null', 'error'],
+  ])('starts Codex with %s and emits one reason-specific diagnostic', async (scenario, reason, slug) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'codex-spawn-'))
     const world = makeWorld()
     const actualEnsure = codexHooks.ensurePodiumCodexHooks
@@ -519,7 +519,10 @@ describe('instrumented terminal creation', () => {
       }
       const diagnostics = world.frames.filter((frame) => frame.type === 'machineDiagnostic')
       expect(diagnostics).toHaveLength(1)
-      expect(diagnostics[0]).toMatchObject({ body: expect.stringContaining(reason) })
+      expect(diagnostics[0]).toMatchObject({
+        code: `codex-hooks-${slug}`,
+        body: expect.stringContaining(reason),
+      })
     } finally {
       ensure.mockRestore()
       world.runtime.dispose()
