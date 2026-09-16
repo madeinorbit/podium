@@ -92,17 +92,22 @@ describe('codexRecordToItems golden fixture', () => {
 })
 
 it('preserves the same message IDs as fake app-server notifications through the live mapper', async () => {
+  // Load the sibling test helpers at runtime: transcript's rootDir deliberately
+  // excludes agent-runtime, and this parity test must not add a package dependency.
+  const driverUrl = new URL('../../agent-runtime/src/drivers/codex/', import.meta.url)
   const { startFakeAppServer } = await import(
-    '../../agent-runtime/src/drivers/codex/test-support/fake-app-server'
+    new URL('test-support/fake-app-server.ts', driverUrl).href
   )
-  const { threadItemToItems } = await import('../../agent-runtime/src/drivers/codex/map')
+  const { threadItemToItems } = await import(new URL('map.ts', driverUrl).href)
   const server = startFakeAppServer()
   const live: string[] = []
   server.transport.onLine({
-    line(line) {
+    line(line: string) {
       const frame = JSON.parse(line)
       if (frame.method === 'item/completed') {
-        live.push(...threadItemToItems(frame.params.item, undefined).map((item) => item.id))
+        live.push(
+          ...threadItemToItems(frame.params.item, undefined).map((item: { id: string }) => item.id),
+        )
       }
     },
     closed() {},
