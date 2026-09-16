@@ -54,7 +54,7 @@ export function createVersionProbeCache<Verdict extends ProbeVerdictShape>(input
         .then(run)
         .then(input.evaluate)
         .then((verdict) => {
-          if (!verdict.drivable && verdict.reason === 'unprobeable') {
+          if (verdict.reason === 'unprobeable') {
             inconclusive = { verdict, expiresAt: now() + unprobeableTtlMs }
           } else {
             definitive = verdict

@@ -91,9 +91,11 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
         .splice(0)
         .forEach(({ respond }) => respond({ result: { sessionId: 'native-grok-resurrecting' } })),
     rejectLoads: () =>
-      loadReplies.splice(0).forEach(({ respond }) =>
-        respond({ error: { code: -32_000, message: 'session/load timed out' } }),
-      ),
+      loadReplies
+        .splice(0)
+        .forEach(({ respond }) =>
+          respond({ error: { code: -32_000, message: 'session/load timed out' } }),
+        ),
   }
 }
 
@@ -218,9 +220,7 @@ describe('Grok ACP daemon restart adoption', () => {
       return handle
     })
     await vi.waitFor(() =>
-      expect(
-        world.requests.filter((request) => request.method === 'session/load'),
-      ).toHaveLength(2),
+      expect(world.requests.filter((request) => request.method === 'session/load')).toHaveLength(2),
     )
     expect(ready).toBe(false)
 
@@ -279,7 +279,9 @@ describe('Grok ACP daemon restart adoption', () => {
 
 describe('Grok ACP daemon gate', () => {
   it('admits a supported binary into driver selection', async () => {
-    await expect(grokAcpVersionProbe(() => ({ ok: true, output: 'grok 1.0.3' }))).resolves.toEqual({
+    await expect(
+      grokAcpVersionProbe(() => ({ ok: true, output: 'grok 0.2.118' })),
+    ).resolves.toEqual({
       drivable: true,
     })
     expect(availableDriverIds({ opencodeDrivable: false, grokDrivable: true })).toContain(
@@ -297,8 +299,8 @@ describe('Grok ACP daemon gate', () => {
       calls += 1
       return { ok: true, output: 'grok 0.2.118' }
     })
-    expect(first).toMatchObject({ drivable: false, reason: 'unprobeable' })
-    expect(second).toMatchObject({ drivable: false, reason: 'unprobeable' })
+    expect(first).toMatchObject({ drivable: true, reason: 'unprobeable' })
+    expect(second).toMatchObject({ drivable: true, reason: 'unprobeable' })
     expect(calls).toBe(1)
   })
 

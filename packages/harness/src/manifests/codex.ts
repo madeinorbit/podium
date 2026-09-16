@@ -20,8 +20,8 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
-  type HarnessEnvironment,
   fileTranscript,
+  type HarnessEnvironment,
   type HarnessObservationLease,
   isSet,
   promptArgv,
@@ -30,6 +30,7 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../manifest.js'
+import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../version-policy.js'
 
 const log = createLogger('harness:codex')
 
@@ -384,13 +385,9 @@ export const codexManifest: AgentManifest = {
        */
       transport: 'unix-socket',
       requiresPerSessionSecret: false,
-      // PINNED AGAINST RECORDED FIXTURES, not guessed (W6). Every shape the
-      // driver reads was captured from a live 0.147.0 app-server and replays in
-      // `packages/agent-runtime/src/drivers/codex/__fixtures__`. The 0.150.1
-      // generated bindings and real subscription live suite were compared on
-      // 2026-08-29 (POD-3093); `manifest-axis.test.ts` keeps this advertised
-      // range equal to the runtime gate.
-      versionRange: supported('>=0.147 <0.151'),
+      // Only the floor controls admission; fixture verification is informational.
+      versionRange: supported(harnessVersionFloor(CODEX_VERSION_POLICY)),
+      verifiedThrough: CODEX_VERSION_POLICY.verifiedThrough,
       /**
        * `codex resume --remote <socket>` — the stock TUI, joined to the
        * app-server this session is already running.

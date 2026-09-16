@@ -246,8 +246,8 @@ describe('Grok ACP version floor', () => {
     expect(supportsGrokAcpDriver(stable)).toBe(true)
   })
 
-  it('refuses older and unrecognizable builds with a diagnostic', () => {
+  it('refuses older builds but admits an unrecognizable version', () => {
     expect(gateGrokVersion('grok 0.2.22')).not.toBeNull()
-    expect(gateGrokVersion('command not found')).not.toBeNull()
+    expect(gateGrokVersion('command not found')).toBeNull()
   })
 })

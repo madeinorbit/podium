@@ -24,11 +24,15 @@ import {
   type GrokAcpRuntimeHost,
   type GrokAcpTransport,
   type GrokVersionDiagnostic,
-  gateGrokVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type ScopeResources,
 } from '@podium/agent-runtime'
-import { grokSessionPaths } from '@podium/harness'
+import {
+  GROK_ACP_VERSION_POLICY,
+  gateHarnessVersion,
+  grokSessionPaths,
+  harnessVersionDiagnostic,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -99,31 +103,28 @@ export function createGrokAcpJournal(): GrokAcpJournal {
   }
 }
 
+/** Only a version below the policy floor prevents full-driver admission. */
 export type GrokAcpProbeVerdict =
-  | { drivable: true }
+  | { drivable: true; reason?: 'unprobeable'; diagnostic?: GrokVersionDiagnostic }
   | { drivable: false; reason: 'unsupported'; diagnostic: GrokVersionDiagnostic }
-  | { drivable: false; reason: 'unprobeable'; diagnostic: GrokVersionDiagnostic }
 
 const versionProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
   evaluate: ({ output, ok }) => {
-    if (!ok) {
-      return {
-        drivable: false,
-        reason: 'unprobeable',
-        diagnostic: {
-          code: 'grok-acp-version-unsupported',
-          title: 'Grok ACP version could not be checked',
-          body: `\`grok --version\` did not answer within ${PROBE_TIMEOUT_MS}ms; a later spawn will probe again. Observed: ${output || '(no output)'}`,
-          observedVersion: output.trim() || '(probe failed)',
-        },
-      }
+    // Failed probes cannot establish a floor violation, even if stderr contains a version.
+    const observed = ok ? output : ''
+    const status = gateHarnessVersion(GROK_ACP_VERSION_POLICY, observed)
+    const diagnostic = harnessVersionDiagnostic('grok', GROK_ACP_VERSION_POLICY, observed)
+    if (status === 'too-old' && diagnostic) {
+      return { drivable: false, reason: 'unsupported', diagnostic }
     }
-    const diagnostic = gateGrokVersion(output)
-    return diagnostic ? { drivable: false, reason: 'unsupported', diagnostic } : { drivable: true }
+    return {
+      drivable: true,
+      ...(status === 'unparseable' ? { reason: 'unprobeable' as const } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    }
   },
 })
 
-/** Three-valued gate: a timeout/ENOENT is transient and cached only briefly. */
 export function grokAcpVersionProbe(
   probe: VersionProbe = defaultVersionProbe,
   policy?: VersionProbePolicy,

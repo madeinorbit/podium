@@ -684,12 +684,12 @@ describe('the version gate, as the daemon reads it', () => {
     expect(opencodeServeArgv('opencode', 41234)[0]).toBe('opencode')
   })
 
-  it('admits a version in range and refuses one outside it', async () => {
+  it('admits recorded and newer versions', async () => {
     await expect(opencodeVersionProbe(answered('1.18.16'))).resolves.toEqual({ drivable: true })
     resetOpencodeVersionProbe()
     const verdict = await opencodeVersionProbe(answered('2.0.0'))
-    expect(verdict.drivable).toBe(false)
-    if (!verdict.drivable) expect(verdict.reason).toBe('unsupported')
+    expect(verdict.drivable).toBe(true)
+    expect(verdict.diagnostic?.body).toContain('session runs normally')
   })
 
   it('MEMOIZES a DEFINITIVE answer, because the binary does not change under a daemon', async () => {
@@ -717,35 +717,27 @@ describe('the version gate, as the daemon reads it', () => {
       calls += 1
       return calls === 1 ? { output: 'ETIMEDOUT', ok: false } : { output: '1.18.16', ok: true }
     }
-    expect((await opencodeVersionProbe(probe)).drivable).toBe(false)
+    expect((await opencodeVersionProbe(probe)).drivable).toBe(true)
     // A spawn burst reuses the inconclusive result instead of repeating the
     // expensive process. Expiry behavior is pinned by version-probe.test.ts.
-    expect((await opencodeVersionProbe(probe)).drivable).toBe(false)
+    expect((await opencodeVersionProbe(probe)).drivable).toBe(true)
     expect(calls).toBe(1)
   })
 
-  it('separates "too old" from "could not find out"', async () => {
-    // The distinction the spawn path branches on: one is a stable fact about the
-    // machine and safe to degrade on, the other is a fact about load.
-    const unsupported = await opencodeVersionProbe(answered('2.0.0'))
-    expect(unsupported.drivable === false && unsupported.reason).toBe('unsupported')
+  it('refuses too old but admits an unknown version', async () => {
+    const unsupported = await opencodeVersionProbe(answered('1.17.99'))
+    expect(unsupported.drivable).toBe(false)
+    expect(unsupported.diagnostic?.body).toContain('Install opencode 1.18 or newer')
     resetOpencodeVersionProbe()
     const unprobeable = await opencodeVersionProbe(silent('opencode ETIMEDOUT'))
-    expect(unprobeable.drivable === false && unprobeable.reason).toBe('unprobeable')
-    // …and it says so in terms an operator can act on, rather than blaming the
-    // version it never read.
-    if (!unprobeable.drivable) {
-      expect(unprobeable.diagnostic.body).toContain('NOT about the version')
-    }
+    expect(unprobeable).toMatchObject({ drivable: true, reason: 'unprobeable' })
+    expect(unprobeable.diagnostic?.body).toContain('session runs normally')
   })
 
-  it('reports "no" through the old boolean surface either way', async () => {
-    // `availableDriverIds` only asks "may I drive it", and for an availability
-    // LIST an unprobeable driver is correctly absent. The distinction lives at
-    // the spawn site, which asks the verdict directly.
+  it('exposes only refusals through the old diagnostic surface', async () => {
     await expect(opencodeVersionDiagnostic(answered('1.18.16'))).resolves.toBeNull()
     resetOpencodeVersionProbe()
-    await expect(opencodeVersionDiagnostic(silent('ENOENT'))).resolves.not.toBeNull()
+    await expect(opencodeVersionDiagnostic(silent('ENOENT'))).resolves.toBeNull()
   })
 })
 

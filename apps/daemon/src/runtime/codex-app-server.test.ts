@@ -253,32 +253,26 @@ describe('the version gate', () => {
     expect(verdict.drivable).toBe(false)
     if (verdict.drivable) return
     expect(verdict.reason).toBe('unsupported')
-    expect(verdict.diagnostic.code).toBe('codex-app-server-version-unsupported')
+    expect(verdict.diagnostic.code).toBe('codex-version-too-old')
     expect(verdict.diagnostic.observedVersion).toBe('codex-cli 0.130.0')
   })
 
-  it('REFUSES a codex whose output it cannot parse', async () => {
+  it.each([
+    'codex-cli 0.154.0',
+    'codex-cli 1.0.0',
+    'some unrelated banner',
+  ])('admits %s with an informational diagnostic', async (output) => {
     resetCodexAppServerVersionProbe()
-    const verdict = await codexAppServerVersionProbe(answered('some unrelated banner'))
-    expect(verdict.drivable).toBe(false)
-    if (!verdict.drivable) expect(verdict.reason).toBe('unsupported')
+    const verdict = await codexAppServerVersionProbe(answered(output))
+    expect(verdict.drivable).toBe(true)
+    expect(verdict.diagnostic?.body).toContain('session runs normally with the full driver')
   })
 
-  it('distinguishes "too old" from "I could not find out"', async () => {
-    /**
-     * THREE ANSWERS, NOT TWO — adopted from POD-2023's review round after
-     * POD-2056 measured why it matters, and sharper here because this binary is
-     * bigger: a 26-second `codex --version` on a loaded box is an ordinary
-     * observation. "Too old" is stable and about the MACHINE; "did not answer"
-     * is transient and about LOAD, and treating the second like the first
-     * silently converts a deliberate request into a different kind of session.
-     */
+  it('admits failed probes and retains a retryable notice', async () => {
     resetCodexAppServerVersionProbe()
     const verdict = await codexAppServerVersionProbe(unanswered('codex: command not found'))
-    expect(verdict.drivable).toBe(false)
-    if (verdict.drivable) return
-    expect(verdict.reason).toBe('unprobeable')
-    expect(verdict.diagnostic.body).toContain('NOT about the version')
+    expect(verdict).toMatchObject({ drivable: true, reason: 'unprobeable' })
+    expect(verdict.diagnostic?.body).toContain('probe may have timed out')
   })
 
   it('memoizes a DEFINITIVE verdict, so the probe is one fork per daemon life', async () => {

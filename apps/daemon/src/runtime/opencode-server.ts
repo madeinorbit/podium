@@ -1,3 +1,8 @@
+import {
+  gateHarnessVersion,
+  harnessVersionDiagnostic,
+  OPENCODE_VERSION_POLICY,
+} from '@podium/harness'
 /**
  * `opencode serve`, ONE PER SESSION, UNDER A SYSTEMD SCOPE (POD-1761 W5; plan §1).
  *
@@ -58,7 +63,6 @@ import type {
   ScopeResources,
 } from '@podium/agent-runtime'
 import {
-  gateOpencodeVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersionDiagnostic,
 } from '@podium/agent-runtime'
@@ -269,61 +273,29 @@ async function waitForReady(
  * retained only for a short retry interval: long enough that a spawn burst pays
  * for one child, not long enough to turn load or ENOENT into a permanent refusal.
  */
-/**
- * THREE ANSWERS, NOT TWO — and the third one is why this is a union (POD-2056's
- * measurement, reported on POD-2023).
- *
- * "This machine's opencode is too old" and "I could not find out" are different
- * facts and deserve different behaviour, and collapsing them cost a real
- * debugging session. The first is stable and about the MACHINE: degrading an
- * explicit override to the terminal driver is defensible, because the driver
- * genuinely cannot run here and will not start next time either. The second is
- * transient and about LOAD: degrading on it silently converts a deliberate
- * request into a different kind of session, on a box that happened to be busy.
- */
+/** Only a version below the policy floor prevents full-driver admission. */
 export type OpencodeProbeVerdict =
-  | { drivable: true }
-  /** The binary answered and the gate refused it. Stable; degrade is honest. */
+  | { drivable: true; reason?: 'unprobeable'; diagnostic?: OpencodeVersionDiagnostic }
   | {
       drivable: false
-      reason: 'unsupported'
-      diagnostic: OpencodeVersionDiagnostic
-    }
-  /** The binary did not answer at all — absent, or too slow under load. NOT a
-   *  statement about the version, and cached only until the retry interval. */
-  | {
-      drivable: false
-      reason: 'unprobeable'
+      reason: 'unsupported' | 'unprobeable'
       diagnostic: OpencodeVersionDiagnostic
     }
 
-/**
- * MEMOIZED PERMANENTLY ONLY WHEN THE ANSWER IS DEFINITIVE.
- *
- * A version the gate accepted or refused cannot change under a running daemon,
- * so caching it saves a process spawn per session. A probe that timed out is a
- * fact about load in that moment, so it uses the shared expiring cache instead.
- */
 const versionProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
   evaluate: ({ output, ok }) => {
-    if (!ok) {
-      const diagnostic: OpencodeVersionDiagnostic = {
-        code: 'opencode-version-unsupported',
-        title: 'opencode server driver needs review',
-        body: `\`opencode --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the server driver is not disabled, and a later spawn will probe again. Observed: ${
-          output || '(no output)'
-        }`,
-        observedVersion: output.trim() || '(probe failed)',
-      }
-      log.warn('could not probe the opencode version', { output })
-      return { drivable: false, reason: 'unprobeable', diagnostic }
+    // Failed probes cannot establish a floor violation, even if stderr contains a version.
+    const observed = ok ? output : ''
+    const status = gateHarnessVersion(OPENCODE_VERSION_POLICY, observed)
+    const diagnostic = harnessVersionDiagnostic('opencode', OPENCODE_VERSION_POLICY, observed)
+    if (status === 'too-old' && diagnostic) {
+      return { drivable: false, reason: 'unsupported', diagnostic }
     }
-    const diagnostic = gateOpencodeVersion(output)
-    const verdict: OpencodeProbeVerdict = diagnostic
-      ? { drivable: false, reason: 'unsupported', diagnostic }
-      : { drivable: true }
-    if (diagnostic) log.warn('opencode is outside the server driver range', { diagnostic })
-    return verdict
+    return {
+      drivable: true,
+      ...(status === 'unparseable' ? { reason: 'unprobeable' as const } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    }
   },
 })
 

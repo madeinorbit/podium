@@ -697,19 +697,10 @@ export interface ServerRuntimeSpec {
   secretEnvVar?: string
   /** Where the OpenAPI document lives, for the drivers that generate a client. */
   openapiPath?: string
-  /**
-   * The harness versions this driver speaks. The server family's crown jewels
-   * ride pre-1.0, vendor-internal protocols — codex app-server has already
-   * renamed its approval methods once. The stance is the codex-hooks
-   * minor-version gate: refuse loudly with a machine diagnostic, never guess.
-   *
-   * `Declared<T>`, and UNSUPPORTED in W1 for every harness, because a range is a
-   * claim about which wire shapes this build has actually been tested against.
-   * The driver items (W5, W6) pin it against recorded fixtures. An invented
-   * range would be worse than none: it would let a driver start against a
-   * protocol nobody verified while looking like it had been checked.
-   */
+  /** Minimum harness version required for admission (preview channels may pin builds). */
   versionRange: Declared<string>
+  /** Newest fixture-verified version; never limits admission. */
+  verifiedThrough?: string
   /**
    * THE HARNESS'S OWN TUI, POINTED AT A SESSION THIS SERVER IS ALREADY RUNNING
    * (POD-2823).

@@ -41,11 +41,15 @@ import type {
   ScopeResources,
 } from '@podium/agent-runtime'
 import {
-  gateCodexVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   STRIPPED_CODEX_CREDENTIALS,
 } from '@podium/agent-runtime'
-import { codexMcpArgs } from '@podium/harness'
+import {
+  CODEX_VERSION_POLICY,
+  codexMcpArgs,
+  gateHarnessVersion,
+  harnessVersionDiagnostic,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -198,55 +202,25 @@ const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
  *  both numbers and the inequality between them. */
 const GRACEFUL_EXIT_MS = SERVER_GRACEFUL_EXIT_MS
 
-/**
- * THREE ANSWERS, NOT TWO — adopted wholesale from POD-2023's review round, where
- * POD-2056 measured why it matters.
- *
- * "This machine's codex is too old" and "I could not find out" are different
- * facts and deserve different behaviour. The first is stable and about the
- * MACHINE: degrading an explicit override to the terminal driver is defensible,
- * because the driver genuinely cannot run here and will not start next time
- * either. The second is transient and about LOAD: degrading on it silently
- * converts a deliberate request into a different kind of session because a box
- * happened to be busy.
- *
- * That distinction is sharper here than it was for opencode, because this
- * binary is bigger and its probe is slower — a 26-second `codex --version` on a
- * loaded machine is an ordinary observation, not an anomaly.
- */
+/** Only a version below the policy floor prevents full-driver admission. */
 export type CodexProbeVerdict =
-  | { drivable: true }
-  /** The binary answered and the gate refused it. Stable; degrade is honest. */
+  | { drivable: true; reason?: 'unprobeable'; diagnostic?: CodexVersionDiagnostic }
   | { drivable: false; reason: 'unsupported'; diagnostic: CodexVersionDiagnostic }
-  /** The binary did not answer at all — absent, or too slow under load. NOT a
-   *  statement about the version, and cached only until the retry interval. */
-  | { drivable: false; reason: 'unprobeable'; diagnostic: CodexVersionDiagnostic }
 
-/**
- * MEMOIZED PERMANENTLY ONLY WHEN THE ANSWER IS DEFINITIVE.
- *
- * A version the gate accepted or refused cannot change under a running daemon,
- * so caching it saves a fork of a 250MB executable per session. A timeout is a
- * transient load fact and therefore uses the shared expiring cache instead.
- */
 const versionProbeCache = createVersionProbeCache<CodexProbeVerdict>({
   evaluate: ({ output, ok }) => {
-    if (!ok) {
-      const diagnostic: CodexVersionDiagnostic = {
-        code: 'codex-app-server-version-unsupported',
-        title: 'codex app-server driver needs review',
-        body: `\`codex --version\` did not answer within ${VERSION_PROBE_TIMEOUT_MS}ms. That is a statement about this machine's load or PATH, NOT about the version — the app-server driver is not disabled, and a later spawn will probe again. Observed: ${output || '(no output)'}`,
-        observedVersion: output.trim() || '(probe failed)',
-      }
-      log.warn('could not probe the codex version', { output })
-      return { drivable: false, reason: 'unprobeable', diagnostic }
+    // Failed probes cannot establish a floor violation, even if stderr contains a version.
+    const observed = ok ? output : ''
+    const status = gateHarnessVersion(CODEX_VERSION_POLICY, observed)
+    const diagnostic = harnessVersionDiagnostic('codex', CODEX_VERSION_POLICY, observed)
+    if (status === 'too-old' && diagnostic) {
+      return { drivable: false, reason: 'unsupported', diagnostic }
     }
-    const diagnostic = gateCodexVersion(output)
-    const verdict: CodexProbeVerdict = diagnostic
-      ? { drivable: false, reason: 'unsupported', diagnostic }
-      : { drivable: true }
-    if (diagnostic) log.warn('codex is outside the app-server driver range', { diagnostic })
-    return verdict
+    return {
+      drivable: true,
+      ...(status === 'unparseable' ? { reason: 'unprobeable' as const } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    }
   },
 })
 
@@ -497,12 +471,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
     async launch(input) {
       const verdict = await codexAppServerVersionProbe()
       if (!verdict.drivable) {
-        // REFUSED, NOT DEGRADED. A driver written against methods this binary
-        // may not speak fails by never receiving an approval — the session
-        // simply hangs on its first tool call, and the operator reads it as a
-        // Podium bug. Both non-drivable reasons refuse HERE, because by this
-        // point a driver was already chosen: the place where `unprobeable` gets
-        // its softer treatment is the SELECTION path, not the spawn.
+        // Only the floor can refuse a Codex launch.
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
       }
 

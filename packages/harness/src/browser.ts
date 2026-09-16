@@ -83,3 +83,5 @@ export const HARNESS_NO_TOOLS: Record<BuiltinHarnessKind, boolean> = {
 export function harnessSupportsNoTools(kind: AgentKind | string): boolean {
   return HARNESS_NO_TOOLS[kind as BuiltinHarnessKind] === true
 }
+
+export * from './version-policy.js'

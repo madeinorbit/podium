@@ -13,10 +13,13 @@
  * typo in a taxonomy.
  */
 
-import { AGENT_MANIFESTS, DRIVER_IDS } from '@podium/harness'
+import {
+  AGENT_MANIFESTS,
+  DRIVER_IDS,
+  HARNESS_VERSION_POLICIES,
+  harnessVersionFloor,
+} from '@podium/harness'
 import { describe, expect, it } from 'vitest'
-import { SUPPORTED_CODEX } from '../drivers/codex/version.js'
-import { SUPPORTED_OPENCODE } from '../drivers/opencode/version.js'
 
 const MANIFESTS = Object.entries(AGENT_MANIFESTS)
 
@@ -237,62 +240,28 @@ describe('server specs carry their security posture', () => {
     expect(server.value.requiresPerSessionSecret).toBe(false)
   })
 
-  it('pins a version range ONLY where a driver has recorded fixtures behind it', () => {
-    /**
-     * THE RULE, UNCHANGED SINCE W1; WHAT MOVED IS WHO SATISFIES IT (POD-2023).
-     *
-     * A range is a claim about which wire shapes this build was TESTED against,
-     * and an invented one is worse than none — it lets a driver start against a
-     * protocol nobody verified while looking checked. W1 pinned neither because
-     * it had no client to test with, and named W5/W6 as the items that would.
-     *
-     * W5 landed opencode's, so its range is now `supported` and the evidence is
-     * `packages/agent-runtime/src/drivers/opencode/__fixtures__` — frames
-     * recorded from a live 1.18.16, replayed by `protocol.test.ts`, and enforced
-     * at runtime by `gateOpencodeVersion`.
-     *
-     * W6 has now landed codex's, so BOTH sides of the rule are satisfied rather
-     * than one being the negative case (POD-2024). Its evidence is
-     * `drivers/codex/__fixtures__` — frames recorded from a live 0.147.0
-     * app-server, replayed by that driver's `protocol.test.ts`, and enforced at
-     * runtime by `gateCodexVersion`. The pin is deliberately NARROW (two minors)
-     * because codex is pre-1.0 and has renamed app-server approval methods
-     * before, and a wrong method name there does not error: the approval simply
-     * never arrives and the session hangs on its first tool call.
-     *
-     * THE RULE THIS TEST ENFORCES IS UNCHANGED — a range may be `supported` only
-     * where recorded fixtures justify it. What it can no longer do is catch a
-     * range pinned ahead of its fixtures by asserting codex declines, because
-     * codex no longer declines. That guard now lives where it can still bite:
-     * each driver's own fixture test, which fails if the recorded frames stop
-     * parsing with the schemas the driver ships.
-     */
-    const codex = AGENT_MANIFESTS.codex.runtime.server
-    expect(codex.supported).toBe(true)
-    if (codex.supported) {
-      expect(codex.value.versionRange.supported).toBe(true)
-      // Both sides move together: widening only the public manifest would
-      // promise a version the runtime gate still demotes to the terminal.
-      if (codex.value.versionRange.supported) {
-        expect(codex.value.versionRange.value).toBe(
-          `>=${SUPPORTED_CODEX.major}.${SUPPORTED_CODEX.minMinor} <${SUPPORTED_CODEX.major}.${SUPPORTED_CODEX.maxMinor + 1}`,
-        )
-      }
-    }
+  it.each([
+    'codex',
+    'opencode',
+    'grok',
+  ] as const)('%s advertises its policy floor and verification separately', (kind) => {
+    const server = AGENT_MANIFESTS[kind].runtime.server
+    expect(server.supported).toBe(true)
+    if (!server.supported) return
+    expect(server.value.versionRange).toEqual({
+      supported: true,
+      value: harnessVersionFloor(HARNESS_VERSION_POLICIES[kind]),
+    })
+    expect(server.value.verifiedThrough).toBe(HARNESS_VERSION_POLICIES[kind].verifiedThrough)
+  })
 
-    const opencode = AGENT_MANIFESTS.opencode.runtime.server
-    expect(opencode.supported).toBe(true)
-    if (opencode.supported) {
-      expect(opencode.value.versionRange.supported).toBe(true)
-      if (opencode.value.versionRange.supported) {
-        // The range the driver's own gate enforces. Both sides moving together
-        // is the point: a manifest that advertised a wider range than
-        // `SUPPORTED_OPENCODE` admits would promise a version the driver refuses
-        // to drive.
-        expect(opencode.value.versionRange.value).toBe(
-          `>=${SUPPORTED_OPENCODE.major}.${SUPPORTED_OPENCODE.minMinor} <${SUPPORTED_OPENCODE.major}.${SUPPORTED_OPENCODE.maxMinor + 1}`,
-        )
-      }
-    }
+  it('retains the exact OpenCode preview pins', () => {
+    const server = AGENT_MANIFESTS.opencode.runtime.serverAlternatives?.find(
+      (entry) => entry.driverId === 'opencode2-server',
+    )
+    expect(server?.versionRange).toEqual({
+      supported: true,
+      value: '=0.0.0-beta-18743 || =0.0.0-beta-18866',
+    })
   })
 })

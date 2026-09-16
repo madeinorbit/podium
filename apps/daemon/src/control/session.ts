@@ -8,6 +8,7 @@ import {
   bindHarnessLaunch,
   type DriverId,
   declaredValue,
+  type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   type LaunchFile,
   manifestFor,
@@ -1426,8 +1427,25 @@ function announceDriverSelection(
   ctx.send({ type: 'driverSelected', sessionId, driverId })
 }
 
+const reportedHarnessVersions = new Set<string>()
+
+/** One notice per machine, harness and version, across sessions and probe retries. */
+export function reportHarnessVersionDiagnostic(
+  ctx: Pick<DaemonContext, 'machineId' | 'send'>,
+  harness: string,
+  diagnostic: HarnessVersionDiagnostic,
+): void {
+  const observed =
+    diagnostic.observedVersion.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/u)?.[0] ??
+    diagnostic.observedVersion
+  const key = JSON.stringify([ctx.machineId, harness, observed])
+  if (reportedHarnessVersions.has(key)) return
+  ctx.send({ type: 'machineDiagnostic', ...diagnostic })
+  reportedHarnessVersions.add(key)
+}
+
 type ServerDriverProbeVerdict =
-  | { drivable: true }
+  | { drivable: true; diagnostic?: HarnessVersionDiagnostic }
   | {
       drivable: false
       reason: 'unsupported' | 'unprobeable'
@@ -1523,6 +1541,20 @@ export async function launchServerDriverSession(
     )
   const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
+  if (preferredProbe?.drivable && preferredProbe.diagnostic) {
+    reportHarnessVersionDiagnostic(ctx, msg.agentKind, preferredProbe.diagnostic)
+  }
+  if (
+    preferredProbe &&
+    !preferredProbe.drivable &&
+    preferredProbe.reason === 'unsupported' &&
+    preferredServer !== 'opencode2-server'
+  ) {
+    const message = `${preferredProbe.diagnostic.title}: ${preferredProbe.diagnostic.body}`
+    ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message })
+    driverTiming.sessionFailed(msg.sessionId, message)
+    return { handled: true }
+  }
   const namedProbe = namedHere ? preferredProbe : undefined
   /**
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this

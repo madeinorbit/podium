@@ -10,8 +10,8 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
-  type HarnessEnvironment,
   fileTranscript,
+  type HarnessEnvironment,
   isSet,
   promptArgv,
   selectRuntimeDriver,
@@ -19,6 +19,7 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../manifest.js'
+import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../version-policy.js'
 
 interface GrokAuthRecord {
   key?: unknown
@@ -224,7 +225,8 @@ export const grokManifest: AgentManifest = {
       requiresPerSessionSecret: false,
       // 0.2.23 is the first build with the complete agent operator set. The
       // protocol shapes are fixture-pinned separately against the W7 captures.
-      versionRange: supported('>=0.2.23'),
+      versionRange: supported(harnessVersionFloor(GROK_ACP_VERSION_POLICY)),
+      verifiedThrough: GROK_ACP_VERSION_POLICY.verifiedThrough,
       /**
        * `grok --resume <id>` — the stock TUI, reopening the same conversation
        * the ACP engine is running.

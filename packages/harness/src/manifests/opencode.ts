@@ -11,8 +11,8 @@ import { createOpencodeConversationProvider } from '../discovery/providers/openc
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
-  type LaunchFile,
   isSet,
+  type LaunchFile,
   selectRuntimeDriver,
   supported,
   unsupported,
@@ -24,6 +24,7 @@ import {
   opencodeDbPathForSession,
   openOpencodeDb,
 } from '../opencode/db.js'
+import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../version-policy.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
@@ -237,12 +238,9 @@ export const opencodeManifest: AgentManifest = {
       transport: 'loopback-tcp',
       requiresPerSessionSecret: true,
       openapiPath: '/doc',
-      // PINNED AGAINST RECORDED FIXTURES, not guessed (W5). Every shape the
-      // driver reads was captured from 1.18.16 and replays in
-      // `packages/agent-runtime/src/drivers/opencode/__fixtures__`; the gate that
-      // enforces this range is `gateOpencodeVersion`, and widening it means
-      // re-recording those fixtures first.
-      versionRange: supported('>=1.18 <1.25'),
+      // Only the floor controls admission; fixture verification is informational.
+      versionRange: supported(harnessVersionFloor(OPENCODE_VERSION_POLICY)),
+      verifiedThrough: OPENCODE_VERSION_POLICY.verifiedThrough,
       /**
        * `opencode attach <url> --session <id>` — the stock TUI, pointed at the
        * loopback server this session is already running.

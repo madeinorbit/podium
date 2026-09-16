@@ -85,3 +85,20 @@ describe('the asynchronous version-probe cache', () => {
     ])
   })
 })
+
+it('retries an inconclusive but admitted harness after its TTL', async () => {
+  let now = 0
+  const cache = createVersionProbeCache({
+    now: () => now,
+    unprobeableTtlMs: 10,
+    evaluate: ({ ok }) => ({ drivable: true, ...(!ok ? { reason: 'unprobeable' as const } : {}) }),
+  })
+  let calls = 0
+  const run = () => ({ output: '', ok: ++calls > 1 })
+  await expect(cache.probe(run)).resolves.toEqual({ drivable: true, reason: 'unprobeable' })
+  await cache.probe(run)
+  expect(calls).toBe(1)
+  now = 11
+  await expect(cache.probe(run)).resolves.toEqual({ drivable: true })
+  expect(calls).toBe(2)
+})
