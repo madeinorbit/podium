@@ -29,6 +29,8 @@ export type ToolEditPayload = {
   patch?: string
   added: number
   removed: number
+  changedFiles?: number
+  moreFiles?: number
   truncated?: boolean
 }
 
@@ -47,7 +49,14 @@ const FILE_PATH_KEYS = [
   'notebookPath',
 ] as const
 
-const OLD_KEYS = ['old_string', 'oldString', 'old_str', 'old_source', 'oldSource', 'old_text'] as const
+const OLD_KEYS = [
+  'old_string',
+  'oldString',
+  'old_str',
+  'old_source',
+  'oldSource',
+  'old_text',
+] as const
 const NEW_KEYS = [
   'new_string',
   'newString',
@@ -213,6 +222,8 @@ export function safeToolEditJson(edit: ToolEditPayload): string | undefined {
       hunks: [],
       added: edit.added,
       removed: edit.removed,
+      changedFiles: edit.changedFiles,
+      moreFiles: edit.moreFiles,
       truncated: true,
     } satisfies ToolEditPayload)
     return fallback !== undefined && fallback.length <= EDIT_INPUT_MAX ? fallback : undefined

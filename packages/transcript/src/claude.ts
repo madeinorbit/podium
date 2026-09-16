@@ -1,6 +1,7 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { safeToolEditJsonFromInput } from './tool-edit'
+import { claudeToolEffects } from './tool-effects'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
@@ -146,7 +147,17 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
   // on older transcripts (then undefined → treated as a real turn, no regression).
   const promptSource = typeof r.promptSource === 'string' ? r.promptSource : undefined
 
-  if (r.type === 'user') return userItems(uuid, ts, message, promptSource)
+  if (r.type === 'user') {
+    const items = userItems(uuid, ts, message, promptSource)
+    const results = items.filter((item) => item.toolResult !== undefined)
+    // Claude writes one effect envelope per record, not one per content block.
+    // Ambiguous parallel-result envelopes must not be attributed to every call.
+    if (results.length === 1) {
+      const effects = claudeToolEffects(r.toolUseResult)
+      if (effects.length) Object.assign(results[0]!, { toolEffects: effects })
+    }
+    return items
+  }
   if (r.type === 'assistant') return assistantItems(uuid, ts, message)
   if (r.type === 'system') {
     const subtype = typeof r.subtype === 'string' ? r.subtype : undefined
