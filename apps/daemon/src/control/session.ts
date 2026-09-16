@@ -12,6 +12,7 @@ import {
   harnessCapabilitiesFor,
   type LaunchFile,
   manifestFor,
+  parseHarnessVersion,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import {
@@ -1435,9 +1436,11 @@ export function reportHarnessVersionDiagnostic(
   harness: string,
   diagnostic: HarnessVersionDiagnostic,
 ): void {
-  const observed =
-    diagnostic.observedVersion.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/u)?.[0] ??
-    diagnostic.observedVersion
+  const version = parseHarnessVersion(diagnostic.observedVersion)
+  // Probe errors and changed banners may contain different text on every spawn.
+  const observed = version
+    ? (version.raw.match(/\d+\.\d+\.\d+(?:[-+][\w.-]+)?/u)?.[0] ?? 'unparseable')
+    : 'unparseable'
   const key = JSON.stringify([ctx.machineId, harness, observed])
   if (reportedHarnessVersions.has(key)) return
   ctx.send({ type: 'machineDiagnostic', ...diagnostic })

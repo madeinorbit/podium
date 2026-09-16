@@ -173,3 +173,27 @@ it('deduplicates by machine, harness and version, preserving distinct preview ve
   expect(first.sent).toHaveLength(3)
   expect(second.sent).toHaveLength(1)
 })
+
+it('buckets changing unreadable observations once per machine and harness', () => {
+  const first = world('codex')
+  const second = world('codex')
+  const diagnostic = {
+    code: 'codex-version-unparseable',
+    title: 'Version unreadable',
+    body: 'Runs normally',
+    observedVersion: 'probe failed at /tmp/probe-one',
+  }
+  for (const observedVersion of [
+    diagnostic.observedVersion,
+    'probe failed at /tmp/probe-two',
+    'changed banner',
+    '(no output)',
+    '999999999999999999999.1.0',
+  ]) {
+    reportHarnessVersionDiagnostic(first.ctx, 'codex', { ...diagnostic, observedVersion })
+  }
+  reportHarnessVersionDiagnostic(first.ctx, 'opencode', diagnostic)
+  reportHarnessVersionDiagnostic(second.ctx, 'codex', diagnostic)
+  expect(first.sent).toHaveLength(2)
+  expect(second.sent).toHaveLength(1)
+})
