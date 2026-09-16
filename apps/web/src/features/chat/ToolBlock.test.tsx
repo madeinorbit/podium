@@ -126,8 +126,9 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
   if (!block) throw new Error('Missing recorded Bash call')
-  mount(block.item)
+  mount({ ...block.item, toolResult: block.result })
   unfold()
+  expect(host.textContent).toContain('RESTORED clean')
   const recorded = records[1]?.toolUseResult?.bashEditDiff.files[0]
   if (!recorded) throw new Error('Missing recorded Bash effect')
   expect(host.textContent).toContain(recorded.filePath)

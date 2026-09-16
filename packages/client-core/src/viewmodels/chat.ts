@@ -514,12 +514,14 @@ export function toolRunElapsedMs(blocks: ChatBlock[], nowMs?: number): number | 
 /** How many calls in a run failed — surfaced on the COLLAPSED work line, because
  *  a failure hidden behind a disclosure is a failure the operator never sees. */
 export function toolRunFailures(blocks: ChatBlock[]): number {
-  return blocks.filter((b) => toolVerdict(b.result ?? b.item.toolResult) === 'err').length
+  return blocks.filter(
+    (b) => toolVerdict(b.result ?? b.item.toolResult, b.item.toolEffects) === 'err',
+  ).length
 }
 
 /** Per-call outcome shown as a glyph on the collapsed tool row (Flat Field
- *  design, POD-159). The transcript carries no structured error flag, so this
- *  is a conservative heuristic over the result text: only patterns that
+ *  design, POD-159). Structured termination takes precedence; otherwise use
+ *  a conservative heuristic over the result text: only patterns that
  *  reliably open real failure output flag 'err'; anything ambiguous stays
  *  'ok' so successes never read as failures. 'none' = no result captured. */
 export type ToolVerdict = 'ok' | 'err' | 'none'
@@ -527,7 +529,11 @@ export type ToolVerdict = 'ok' | 'err' | 'none'
 const TOOL_ERR_RE =
   /^\s*(?:error(?::|\b)|[A-Za-z]*Error:|exception\b|traceback \(most recent call last\)|fatal:|command failed|exit code [1-9]|exited with (?:code [1-9]|non-zero))/i
 
-export function toolVerdict(result: string | undefined): ToolVerdict {
+export function toolVerdict(
+  result: string | undefined,
+  effects?: TranscriptItem['toolEffects'],
+): ToolVerdict {
+  if (effects?.some((effect) => effect.kind === 'termination')) return 'err'
   if (result === undefined || result.trim() === '') return 'none'
   const firstLine = result.trimStart().split('\n', 1)[0] ?? ''
   return TOOL_ERR_RE.test(firstLine) ? 'err' : 'ok'

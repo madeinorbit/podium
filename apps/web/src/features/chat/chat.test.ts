@@ -657,3 +657,18 @@ describe('observed tool-effect pairing', () => {
     expect(pairToolResults([result])[0]?.item.toolEffects).toEqual(result.toolEffects)
   })
 })
+
+it('counts structured termination as a failed run even when output is empty', () => {
+  const blocks = pairToolResults([
+    { id: 'c', role: 'tool', text: '', toolName: 'Bash', toolUseId: 't' },
+    {
+      id: 'r',
+      role: 'tool',
+      text: '',
+      toolUseId: 't',
+      toolResult: '',
+      toolEffects: [{ kind: 'termination', interrupted: true }],
+    },
+  ])
+  expect(toolRunFailures(blocks)).toBe(1)
+})

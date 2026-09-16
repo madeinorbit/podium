@@ -74,7 +74,7 @@ export function ToolBlock({
     (effect) =>
       effect.kind === 'termination' && (effect.interrupted || effect.timedOutAfterMs !== undefined),
   )
-  const verdict = abnormal ? 'err' : toolVerdict(result)
+  const verdict = toolVerdict(result, item.toolEffects)
   const edit = resolveToolEdit(item)
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
@@ -199,8 +199,10 @@ export function ToolBlock({
           ) : null
         })}
       {open && edit && <ToolEditDiff edit={edit} />}
-      {open && !edit && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
-      {open && edit && verdict === 'err' && result && (
+      {open && (!edit || isCommand) && (
+        <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>
+      )}
+      {open && edit && !isCommand && verdict === 'err' && result && (
         <pre className="tool-result-full">{result}</pre>
       )}
     </div>
