@@ -1,6 +1,8 @@
+import { codeBlockIdentity } from '@podium/client-core/code-highlight'
 import { LinearGradient } from 'expo-linear-gradient'
-import { type ReactNode, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useId, useMemo, useRef, useState } from 'react'
 import { ScrollView, type StyleProp, StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { useCodeHighlight } from '../hooks/useCodeHighlight'
 import {
   type MarkdownTableCell,
   type MarkdownToken,
@@ -13,6 +15,7 @@ import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { HighlightedCode } from './HighlightedCode'
 import { RefChip } from './RefChip'
 
 interface RichMarkdownProps {
@@ -153,8 +156,10 @@ function Inline({
 
 function CodeBlock({ token }: { token: MarkdownToken }) {
   const language = token.lang?.trim().split(/\s+/)[0]
-  const lines = plainText(token).replace(/\n$/, '').split('\n')
-  const diff = language === 'diff' || language === 'patch'
+  const source = plainText(token).replace(/\n$/, '')
+  const lines = source.split('\n')
+  const diff = language?.toLowerCase() === 'diff' || language?.toLowerCase() === 'patch'
+  const highlighted = useCodeHighlight(source, language, !diff)
   return (
     <View style={styles.codeFrame}>
       <View style={styles.codeBar}>
@@ -165,24 +170,27 @@ function CodeBlock({ token }: { token: MarkdownToken }) {
       </View>
       <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
         <Text selectable style={styles.codeText}>
-          {lines.map((line, index) => {
-            const lineStyle = diff
-              ? line.startsWith('+') && !line.startsWith('+++')
-                ? styles.diffAdd
-                : line.startsWith('-') && !line.startsWith('---')
-                  ? styles.diffDel
-                  : line.startsWith('@@')
-                    ? styles.diffHunk
-                    : undefined
-              : undefined
-            return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: parsed code lines are immutable and positional
-              <Text key={`${index}:${line}`} style={lineStyle}>
-                {line}
-                {index < lines.length - 1 ? '\n' : ''}
-              </Text>
-            )
-          })}
+          {diff ? (
+            lines.map((line, index) => {
+              const lineStyle =
+                line.startsWith('+') && !line.startsWith('+++')
+                  ? styles.diffAdd
+                  : line.startsWith('-') && !line.startsWith('---')
+                    ? styles.diffDel
+                    : line.startsWith('@@')
+                      ? styles.diffHunk
+                      : undefined
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: parsed code lines are immutable and positional
+                <Text key={`${index}:${line}`} style={lineStyle}>
+                  {line}
+                  {index < lines.length - 1 ? '\n' : ''}
+                </Text>
+              )
+            })
+          ) : (
+            <HighlightedCode tokens={highlighted} />
+          )}
         </Text>
       </ScrollView>
     </View>
@@ -284,8 +292,9 @@ function Blocks({
   ctx: RenderContext
   compact?: boolean
 }) {
+  const itemId = useId()
   return tokens.map((token, index) => {
-    const key = `${token.type}:${index}`
+    const key = codeBlockIdentity(itemId, index)
     switch (token.type) {
       case 'space':
         return null
