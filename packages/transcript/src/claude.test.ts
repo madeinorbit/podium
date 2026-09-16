@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { recordUuid, stampCursors } from './cursor-codec'
 import {
   claudeRecordColor,
   claudeRecordModel,
@@ -43,6 +44,80 @@ describe('claudeRecordModel', () => {
 })
 
 describe('claudeRecordToItems', () => {
+  it('replays uuid-less records with deterministic, unique fallback IDs', () => {
+    const records = [
+      { type: 'system', content: 'Notice' },
+      { type: 'system', subtype: 'away_summary', content: 'Recap' },
+      { type: 'system', subtype: 'turn_duration', durationMs: 1200 },
+      { type: 'attachment', attachment: { type: 'file', filename: '/tmp/雪.png' } },
+      {
+        type: 'attachment',
+        attachment: { type: 'queued_command', commandMode: 'prompt', prompt: 'Next' },
+      },
+      { type: 'user', isMeta: true, message: { content: '[Image: source: /tmp/a.png]' } },
+      { type: 'user', message: { content: 'Hello' } },
+      {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'text', text: 'Results' },
+            { type: 'tool_result', content: 'One' },
+            { type: 'tool_result', content: 'Two' },
+          ],
+        },
+      },
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'Working' },
+            { type: 'tool_use', name: 'Bash', input: { command: 'pwd' } },
+            { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+          ],
+        },
+      },
+    ]
+    const fixture = records.map((record) => JSON.stringify(record)).join('\n')
+    const map = () => fixture.split('\n').flatMap((line) => claudeRecordToItems(JSON.parse(line)))
+    const ids = map().map((item) => item.id)
+    expect(ids).toHaveLength(13)
+    expect(map().map((item) => item.id)).toEqual(ids)
+    expect(new Set(ids).size).toBe(ids.length)
+
+    // Repeated identical bytes at different offsets must remain separate rows.
+    const repeated = `${fixture}\n${fixture}`
+    const parse = (fileId = 'claude-file') => {
+      let offset = 0
+      return repeated.split('\n').flatMap((line) => {
+        const record = JSON.parse(line)
+        const items = stampCursors(claudeRecordToItems(record), fileId, offset, recordUuid(record))
+        offset += new TextEncoder().encode(`${line}\n`).length
+        return items
+      })
+    }
+    const first = parse()
+    expect(parse()).toEqual(first)
+    expect(new Set(first.map((item) => item.id)).size).toBe(first.length)
+    expect(first.every((item) => item.id === item.cursor)).toBe(true)
+    expect(parse('other-file').map((item) => item.id)).not.toEqual(first.map((item) => item.id))
+  })
+
+  it('preserves provider IDs when stamping cursors', () => {
+    const record = {
+      type: 'assistant',
+      uuid: 'turn',
+      message: {
+        content: [
+          { type: 'text', text: 'Working' },
+          { type: 'tool_use', id: 'call', name: 'Bash', input: {} },
+        ],
+      },
+    }
+    expect(
+      stampCursors(claudeRecordToItems(record), 'file', 0, record.uuid).map((item) => item.id),
+    ).toEqual(['turn', 'call'])
+  })
+
   it('maps a plain string user prompt', () => {
     const items = claudeRecordToItems({
       type: 'user',
@@ -813,14 +888,9 @@ describe('claudeRecordToItems toolPaths', () => {
   // DIFFERENT ids so React does not warn about duplicate keys in the chat view.
   it('produces distinct ids for two attachment records with the same filename', () => {
     const filename = '/repo/spec.md'
-    const [item1] = claudeRecordToItems({
-      type: 'attachment',
-      attachment: { type: 'file', filename },
-    })
-    const [item2] = claudeRecordToItems({
-      type: 'attachment',
-      attachment: { type: 'file', filename },
-    })
+    const record = { type: 'attachment', attachment: { type: 'file', filename } }
+    const [item1] = stampCursors(claudeRecordToItems(record), 'file', 0, null)
+    const [item2] = stampCursors(claudeRecordToItems(record), 'file', 100, null)
     expect(item1).toBeDefined()
     expect(item2).toBeDefined()
     expect(item1!.id).not.toBe(item2!.id)

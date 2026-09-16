@@ -1,5 +1,8 @@
 import type { TranscriptItem } from '@podium/model'
 
+// Reserved for mapper fallbacks that file readers replace with position identity.
+export const SYNTHESIZED_ITEM_ID_PREFIX = 'claude-fallback:'
+
 export interface CursorParts {
   /** Stable id of the JSONL file this item's record lives in. */
   fileId: string
@@ -51,10 +54,14 @@ export function stampCursors(
   offset: number,
   uuid: string | null,
 ): TranscriptItem[] {
-  return items.map((item, sub) => ({
-    ...item,
-    cursor: encodeCursor({ fileId, offset, uuid, sub }),
-  }))
+  return items.map((item, sub) => {
+    const cursor = encodeCursor({ fileId, offset, uuid, sub })
+    return {
+      ...item,
+      id: item.id.startsWith(SYNTHESIZED_ITEM_ID_PREFIX) ? cursor : item.id,
+      cursor,
+    }
+  })
 }
 
 export function recordUuid(record: unknown): string | null {

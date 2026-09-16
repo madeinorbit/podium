@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
+import { encodeCursor } from '@podium/transcript/browser'
 import { describe, expect, it } from 'vitest'
 import {
   FileLinkPathIndex,
@@ -501,6 +502,16 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
 })
 
 describe('dedupeByCursor', () => {
+  it('merges UUID-less replay overlap while retaining distinct file positions', () => {
+    const at = (offset: number, sub: number) => {
+      const cursor = encodeCursor({ fileId: 'claude-file', offset, uuid: null, sub })
+      return it_(cursor, cursor)
+    }
+    const first = [at(0, 0), at(100, 0), at(100, 1)]
+    const replay = [at(100, 0), at(100, 1), at(200, 0)]
+    expect(dedupeByCursor([...first, ...replay])).toEqual([...first, at(200, 0)])
+  })
+
   it('drops later items sharing a cursor with an earlier one (paging/live seam)', () => {
     // [...older, ...items] where the boundary item overlaps.
     const seam = [it_('a', 'c1'), it_('b', 'c2'), it_('b', 'c2'), it_('c', 'c3')]

@@ -1,5 +1,6 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { safeToolEditJsonFromInput } from './tool-edit'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
@@ -91,7 +92,7 @@ function metaImageSourceItems(
   if (paths.length === 0) return []
   return [
     {
-      id: uuid ?? freshId('u'),
+      id: uuid ?? '',
       role: 'user',
       ts,
       text: '',
@@ -105,6 +106,23 @@ function metaImageSourceItems(
 }
 
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
+  const items = mapClaudeRecord(record)
+  if (items.every((item) => item.id !== '')) return items
+  // Pure fallback for direct mapper consumers. File readers replace these with
+  // cursor identity, which also distinguishes identical records at two offsets.
+  const bytes = JSON.stringify(record)
+  let hash = 2166136261
+  for (let i = 0; i < bytes.length; i++) {
+    hash = Math.imul(hash ^ bytes.charCodeAt(i), 16777619)
+  }
+  return items.map((item, sub) =>
+    item.id === ''
+      ? { ...item, id: `${SYNTHESIZED_ITEM_ID_PREFIX}${(hash >>> 0).toString(16)}:${sub}` }
+      : item,
+  )
+}
+
+function mapClaudeRecord(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
   if (r.isSidechain === true) return []
@@ -137,7 +155,7 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     if (subtype === 'turn_duration' && typeof r.durationMs === 'number') {
       return [
         {
-          id: uuid ?? `dur-${ts ?? Math.random()}`,
+          id: uuid ?? '',
           role: 'system',
           ts,
           text: '',
@@ -151,11 +169,9 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     // away_summary is Claude Code's while-you-were-gone recap — tag it so the chat
     // renders a distinct "Recap" block rather than a generic "System" line.
     if (subtype === 'away_summary') {
-      return [
-        { id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text, systemKind: 'recap' },
-      ]
+      return [{ id: uuid ?? '', role: 'system', ts, text, systemKind: 'recap' }]
     }
-    return [{ id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text }]
+    return [{ id: uuid ?? '', role: 'system', ts, text }]
   }
   if (r.type === 'attachment') {
     const att = (r as { attachment?: Record<string, unknown> }).attachment
@@ -178,7 +194,7 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
       const filename = att.filename
       return [
         {
-          id: freshId(`att-${filename}`),
+          id: uuid ?? '',
           role: 'user',
           ts,
           text: '',
@@ -191,9 +207,6 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   }
   return []
 }
-
-let fallbackCounter = 0
-const freshId = (prefix: string): string => `${prefix}-${++fallbackCounter}`
 
 // The user stopping the agent mid-run is written as a normal user turn whose only
 // text is this marker. It IS a user action (role stays 'user'), but it isn't a
@@ -271,7 +284,7 @@ function userItems(
     if (!text) return []
     return [
       {
-        id: uuid ?? freshId('u'),
+        id: uuid ?? '',
         role: 'user',
         ts,
         text,
@@ -301,7 +314,7 @@ function userItems(
           // Parallel tool calls put several tool_result blocks in one record; key
           // off the tool_use_id (unique per call) so the items don't collide as
           // React keys when their originating calls scrolled out of the buffer.
-          id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : freshId('tr'),
+          id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : '',
           output: b.content,
           ...(ts ? { ts } : {}),
           ...(toolUseId ? { toolUseId } : {}),
@@ -320,7 +333,7 @@ function userItems(
   })
   if (text || tags.length > 0) {
     items.unshift({
-      id: uuid ?? freshId('u'),
+      id: uuid ?? '',
       role: 'user',
       ts,
       text,
@@ -374,7 +387,7 @@ function queuedCommandItems(
   if (!text && paths.length === 0) return []
   return [
     {
-      id: uuid ?? freshId('u'),
+      id: uuid ?? '',
       role: 'user',
       ts: typeof att.timestamp === 'string' ? att.timestamp : ts,
       text,
@@ -409,7 +422,7 @@ function assistantItems(
       const toolUseId = typeof b.id === 'string' ? b.id : undefined
       items.push(
         claudeToolCallItem({
-          id: toolUseId ?? freshId('t'),
+          id: toolUseId ?? '',
           toolName: b.name,
           input: b.input,
           ...(ts ? { ts } : {}),
@@ -427,7 +440,7 @@ function assistantItems(
     const sr = message.stop_reason
     const isAnswer = sr === 'end_turn' || sr === 'stop_sequence'
     items.unshift({
-      id: uuid ?? freshId('a'),
+      id: uuid ?? '',
       role: 'assistant',
       ts,
       text,
