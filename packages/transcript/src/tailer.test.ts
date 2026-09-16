@@ -1,6 +1,6 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { open as openFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -372,7 +372,9 @@ describe('tailTranscript — missing provider file', () => {
         statTick: {
           subscribe(next) {
             watcher = next
-            return () => { watcher = (): void => {} }
+            return () => {
+              watcher = (): void => {}
+            }
           },
         },
         openFile: async (candidate) => {
@@ -410,7 +412,10 @@ describe('tailTranscript — missing provider file', () => {
       await new Promise((resolve) => setTimeout(resolve, 10))
 
       failStat = true
-      appendFileSync(path, JSON.stringify({ uuid: 'recover-2', type: 'user', content: 'next' }) + '\n')
+      appendFileSync(
+        path,
+        JSON.stringify({ uuid: 'recover-2', type: 'user', content: 'next' }) + '\n',
+      )
       watcher()
       await waitFor(() => statuses.filter((event) => event.kind === 'error').length === 2)
       expect(statuses.filter((event) => event.kind === 'error')).toHaveLength(2)
@@ -601,4 +606,31 @@ describe('tailTranscript — observed model + effort (POD-121)', () => {
     expect(seen).toHaveLength(2)
     tailer.stop()
   })
+})
+
+it('tailer and repeated disk parses produce identical byte-offset cursors and synthetic ids', async () => {
+  const { claudeRecordToItems } = await import('./claude')
+  const { readFileItems } = await import('./slice')
+  const path = join(dir, 'disk-parity.jsonl')
+  const bytes =
+    ['multibyte 🦊 prefix', 'uuid-less record']
+      .map((content) => JSON.stringify({ type: 'user', message: { role: 'user', content } }))
+      .join('\n') + '\n'
+  writeFileSync(path, bytes)
+  const harness = makeTailHarness(path)
+  try {
+    await waitFor(() => itemsOf(harness.emissions).length === 2)
+    const disk = await readFileItems(path, fileIdFor('native-session'), claudeRecordToItems)
+    expect(disk).toHaveLength(2)
+    expect(itemsOf(harness.emissions)).toEqual(disk)
+    expect(await readFileItems(path, fileIdFor('native-session'), claudeRecordToItems)).toEqual(
+      disk,
+    )
+    expect(disk.map((item) => item.id)).toEqual(disk.map((item) => item.cursor))
+    expect(decodeCursor(disk[1]?.cursor ?? '')?.offset).toBe(
+      Buffer.byteLength(bytes.split('\n')[0]!) + 1,
+    )
+  } finally {
+    harness.tailer.stop()
+  }
 })

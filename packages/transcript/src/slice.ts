@@ -197,14 +197,15 @@ export async function readTranscriptSlice(
       const entry = chain[fi]
       if (!entry) continue
       const isAnchorFile = fi === anchorFileIdx
-      const { items: fileItems } = isAnchorFile && anchorItems
-        ? { items: anchorItems }
-        : await readFileWindowed(entry, recordToItems, {
-        toward: 'older',
-        anchorOffset: isAnchorFile && want ? want.offset : undefined,
-        need: need - collected.length,
-        initialWindowBytes: opts.initialWindowBytes,
-      })
+      const { items: fileItems } =
+        isAnchorFile && anchorItems
+          ? { items: anchorItems }
+          : await readFileWindowed(entry, recordToItems, {
+              toward: 'older',
+              anchorOffset: isAnchorFile && want ? want.offset : undefined,
+              need: need - collected.length,
+              initialWindowBytes: opts.initialWindowBytes,
+            })
       const contribution = isAnchorFile
         ? [...sliceBeforeAnchor(fileItems, opts.anchor, want), ...anchorSiblings]
         : fileItems
@@ -231,14 +232,15 @@ export async function readTranscriptSlice(
     const entry = chain[fi]
     if (!entry) continue
     const isAnchorFile = fi === anchorFileIdx
-    const { items: fileItems } = isAnchorFile && anchorItems
+    const { items: fileItems } =
+      isAnchorFile && anchorItems
         ? { items: anchorItems }
         : await readFileWindowed(entry, recordToItems, {
-      toward: 'newer',
-      anchorOffset: isAnchorFile && want ? want.offset : undefined,
-      need: need - collected.length,
-      initialWindowBytes: opts.initialWindowBytes,
-    })
+            toward: 'newer',
+            anchorOffset: isAnchorFile && want ? want.offset : undefined,
+            need: need - collected.length,
+            initialWindowBytes: opts.initialWindowBytes,
+          })
     const contribution = isAnchorFile ? sliceAfterAnchor(fileItems, opts.anchor, want) : fileItems
     collected.push(...contribution)
     if (collected.length >= need) break
@@ -439,8 +441,12 @@ function findAnchorIndex(
   // A saved position is authoritative only when the cursor has no UUID.
   return items.findIndex((i) => {
     const c = i.cursor ? decodeCursor(i.cursor) : null
-    return c !== null && c.fileId === want.fileId &&
-      (want.uuid === null ? c.offset === want.offset : c.uuid === want.uuid) && c.sub === want.sub
+    return (
+      c !== null &&
+      c.fileId === want.fileId &&
+      (want.uuid === null ? c.offset === want.offset : c.uuid === want.uuid) &&
+      c.sub === want.sub
+    )
   })
 }
 

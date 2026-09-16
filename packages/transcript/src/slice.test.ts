@@ -651,3 +651,67 @@ describe('readTranscriptSlice', () => {
     expect(before.hasMore).toBe(true) // '0a' still precedes
   })
 })
+
+describe('UUID-first rewrite anchoring', () => {
+  const mapper = (r: unknown): TranscriptItem[] => {
+    const record = r as { uuid?: string; text: string }
+    return [0, 1].map(
+      (sub) => ({ id: `${record.uuid}:${sub}`, text: `${record.text}:${sub}` }) as TranscriptItem,
+    )
+  }
+
+  it.each([
+    'insert',
+    'remove',
+    'replace',
+  ] as const)('finds the same UUID and sub after %s shifts its offset', async (rewrite) => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchor-rewrite-'))
+    const path = join(dir, 'transcript.jsonl')
+    const lines = ['a', 'b', 'c'].map((uuid) => JSON.stringify({ uuid, text: uuid }))
+    const chain = [{ path, fileId: 'session' }]
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const initial = await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })
+    expect(await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })).toEqual(
+      initial,
+    )
+    const rewritten =
+      rewrite === 'insert'
+        ? [JSON.stringify({ uuid: 'x', text: 'x' }), ...lines]
+        : rewrite === 'remove'
+          ? lines.slice(1)
+          : [JSON.stringify({ uuid: 'a', text: 'longer 🦊 prefix' }), ...lines.slice(1)]
+    await writeFile(path, `${rewritten.join('\n')}\n`)
+    const after = await readTranscriptSlice(chain, mapper, {
+      anchor: initial.items[2]?.cursor,
+      direction: 'after',
+      limit: 2,
+      initialWindowBytes: 16,
+    })
+    expect(after.items.map((i) => i.text)).toEqual(['b:1', 'c:0'])
+    expect(after.hasMore).toBe(true)
+    const before = await readTranscriptSlice(chain, mapper, {
+      anchor: initial.items[3]?.cursor,
+      direction: 'before',
+      limit: 1,
+      initialWindowBytes: 16,
+    })
+    expect(before.items.map((i) => i.text)).toEqual(['b:0'])
+  })
+
+  it('uses position when the saved cursor has no UUID', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'anchor-position-'))
+    const path = join(dir, 'transcript.jsonl')
+    const lines = ['a', 'b', 'c'].map((text) => JSON.stringify({ text }))
+    const chain = [{ path, fileId: 'session' }]
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const initial = await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })
+    expect(decodeCursor(initial.items[2]?.cursor ?? '')?.uuid).toBeNull()
+    await writeFile(path, `${lines.join('\n').replace('"b"', '"x"')}\n`)
+    const after = await readTranscriptSlice(chain, mapper, {
+      anchor: initial.items[2]?.cursor,
+      direction: 'after',
+      limit: 2,
+    })
+    expect(after.items.map((i) => i.text)).toEqual(['x:1', 'c:0'])
+  })
+})
