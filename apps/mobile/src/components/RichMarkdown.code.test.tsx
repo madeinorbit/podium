@@ -51,7 +51,7 @@ it('distinguishes inline symbols from bold prose without a chip', () => {
     processColor(prosePalette.dark['text-strong']),
   )
   expect(getComputedStyle(strong).fontFamily).toContain('Geist_600SemiBold')
-  expect(['', 'transparent', 'rgba(0, 0, 0, 0)']).toContain(getComputedStyle(code).backgroundColor)
+  expect(processColor(getComputedStyle(code).backgroundColor)).toBe(processColor('transparent'))
   expect(['', '0px']).toContain(getComputedStyle(code).borderWidth)
   expect(['', '0px']).toContain(getComputedStyle(code).borderRadius)
 })
