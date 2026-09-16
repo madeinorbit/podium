@@ -1,5 +1,5 @@
-import { marked as sharedMarked, Marked, type Tokens } from 'marked'
 import type { CodeToken } from '@podium/client-core/code-highlight'
+import { Marked, marked as sharedMarked, type Tokens } from 'marked'
 
 // This module is deliberately DOM-free. It is imported by the browser main
 // thread and by the transcript Worker; sanitation, link activation, and DOM
@@ -50,11 +50,15 @@ export function createMarkdownRenderer(highlight?: Highlighter): (text: string) 
         const looksLikeDiff = language === '' && /^@@ /m.test(text) && /^[+-]/m.test(text)
         if (language === 'diff' || language === 'patch' || looksLikeDiff) return renderDiff(text)
         const cls = language ? ` class="language-${escapeHtml(language)}"` : ''
-        const body = highlight ? highlight(text, lang).map(token => {
-          const value = escapeHtml(token.text)
-          const scope = token.scope?.replace(/[^a-zA-Z0-9_-]/g, '-')
-          return scope ? `<span class="hljs-${scope}">${value}</span>` : value
-        }).join('') : escapeHtml(text)
+        const body = highlight
+          ? highlight(text, lang)
+              .map((token) => {
+                const value = escapeHtml(token.text)
+                const scope = token.scope?.replace(/[^a-zA-Z0-9_-]/g, '-')
+                return scope ? `<span class="hljs-${scope}">${value}</span>` : value
+              })
+              .join('')
+          : escapeHtml(text)
         return `<pre><code${cls}>${body}</code>${COPY_BUTTON}</pre>`
       },
     },

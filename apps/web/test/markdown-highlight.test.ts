@@ -1,5 +1,5 @@
-import { expect, it } from 'vitest'
 import { highlightCode } from '@podium/client-core/code-highlight'
+import { expect, it } from 'vitest'
 import { createMarkdownRenderer, renderMarkdownUnsafe } from '../src/lib/markdown-renderer'
 
 it('highlights only when the worker supplies a tokenizer and escapes source', () => {
@@ -12,8 +12,10 @@ it('highlights only when the worker supplies a tokenizer and escapes source', ()
   expect(html).toContain('code-copy')
 })
 it('preserves explicit and inferred diffs', () => {
-  const render = createMarkdownRenderer(() => { throw new Error('diff must bypass highlighting') })
+  const render = createMarkdownRenderer(() => {
+    throw new Error('diff must bypass highlighting')
+  })
   for (const label of ['diff', 'patch', '']) {
-    expect(render('```' + label + '\n@@ -1 +1 @@\n-old\n+new\n```')).toContain('diff-add')
+    expect(render(`\`\`\`${label}\n@@ -1 +1 @@\n-old\n+new\n\`\`\``)).toContain('diff-add')
   }
 })
