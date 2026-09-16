@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { decodeCursor, encodeCursor } from './cursor-codec'
 import type { OpencodeMessagePartRow } from './opencode'
-import { classifyOpencodeIdleText, opencodePartToItems } from './opencode'
-import { stampOpencodeItems } from './source'
+import { classifyOpencodeIdleText, opencodePartToItems, opencodeRowsToItems } from './opencode'
+import { opencodeFileId, stampOpencodeItems } from './source'
 
 function row(
   overrides: Partial<OpencodeMessagePartRow> & {
@@ -118,7 +119,12 @@ describe('OpenCode interruption records', () => {
       partData: JSON.stringify({ type: 'interrupt' }),
     })
     const expected = expect.objectContaining({
-      id: 'opencode-interrupt-msg-aborted',
+      id: encodeCursor({
+        fileId: opencodeFileId('ses-1'),
+        offset: 0,
+        uuid: synthetic.partId,
+        sub: 0,
+      }),
       role: 'user',
       text: '[Request interrupted by user]',
     })
@@ -138,5 +144,98 @@ describe('OpenCode interruption records', () => {
       partData: JSON.stringify({ type: 'text', text: 'late text' }),
     })
     expect(stampOpencodeItems([repeatedPart], 'ses-1')).toEqual([])
+  })
+})
+
+describe('OpenCode item identity', () => {
+  const rows = [
+    row({
+      partId: 'user',
+      messageData: '{"role":"user"}',
+      partData: '{"type":"text","text":"hello"}',
+    }),
+    row({
+      partId: 'assistant',
+      messageData: '{"role":"assistant"}',
+      partData: '{"type":"text","text":"hello"}',
+    }),
+    row({
+      partId: 'tool',
+      messageData: '{"role":"assistant"}',
+      partData:
+        '{"type":"tool","tool":"read","callID":"call-1","state":{"input":{"path":"a"},"output":"hello"}}',
+    }),
+    row({
+      partId: 'interrupt:aborted',
+      messageData: '{"role":"assistant","error":{"name":"MessageAborted"}}',
+      partData: '{"type":"interrupt"}',
+    }),
+  ]
+
+  it('reparses identical bytes into identical, unique item IDs including tool result slots', () => {
+    const bytes = JSON.stringify(rows)
+    const first = opencodeRowsToItems(JSON.parse(bytes))
+    const second = opencodeRowsToItems(JSON.parse(bytes))
+    expect(first).toHaveLength(5)
+    expect(second).toEqual(first)
+    expect(new Set(first.map((item) => item.id)).size).toBe(5)
+    for (const source of rows) {
+      opencodePartToItems(source).forEach((item, sub) => {
+        expect(decodeCursor(item.id)).toEqual({
+          fileId: opencodeFileId(source.sessionId),
+          offset: 0,
+          uuid: source.partId,
+          sub,
+        })
+      })
+    }
+  })
+
+  it.each([0, 1, 2, 3])('keeps row %i IDs while content and update time change', (index) => {
+    const source = rows[index]!
+    const grown = {
+      ...source,
+      timeUpdated: source.timeUpdated + 10_000,
+      partData: source.partData
+        .replaceAll('hello', 'hello with more content')
+        .replace('"a"', '"b"'),
+    }
+    const ids = (value: OpencodeMessagePartRow) => opencodePartToItems(value).map((item) => item.id)
+    expect(ids(grown)).toEqual(ids(source))
+    expect(ids({ ...source, sessionId: 'another-session' })).not.toEqual(ids(source))
+    expect(ids({ ...source, partId: 'another-part' })).not.toEqual(ids(source))
+  })
+
+  it('retains the call ID when a tool result first appears', () => {
+    const source = rows[2]!
+    const pending = { ...source, partData: '{"type":"tool","tool":"read","state":{}}' }
+    const call = opencodePartToItems(pending)
+    const completed = opencodePartToItems(source)
+    expect(call).toHaveLength(1)
+    expect(completed).toHaveLength(2)
+    expect(completed[0]?.id).toBe(call[0]?.id)
+    expect(completed[1]?.id).not.toBe(call[0]?.id)
+  })
+
+  it('preserves item identity and creation-time paging offsets through stamping', () => {
+    for (const source of rows) {
+      const mapped = opencodePartToItems(source)
+      const stamped = stampOpencodeItems([source], source.sessionId)
+      const updated = stampOpencodeItems(
+        [{ ...source, timeUpdated: source.timeUpdated + 10_000 }],
+        source.sessionId,
+      )
+      expect(stamped.map((item) => item.id)).toEqual(mapped.map((item) => item.id))
+      expect(updated.map((item) => item.cursor)).toEqual(stamped.map((item) => item.cursor))
+      stamped.forEach((item, sub) => {
+        if (item.event === 'interrupt') return
+        expect(decodeCursor(item.cursor!)).toEqual({
+          fileId: opencodeFileId(source.sessionId),
+          offset: source.timeCreated,
+          uuid: source.partId,
+          sub,
+        })
+      })
+    }
   })
 })

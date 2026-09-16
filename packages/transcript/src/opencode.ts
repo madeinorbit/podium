@@ -17,6 +17,8 @@ export type OpencodeMessagePartRow = {
 }
 
 import { toolInputPreview } from './claude'
+import { encodeCursor } from './cursor-codec'
+import { opencodeFileId } from './source'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */
@@ -28,11 +30,15 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
   const role = stringField(messageInfo, 'role')
   const partType = stringField(part, 'type')
   const ts = epochToIso(row.timeUpdated ?? row.timeCreated)
+  // Identity excludes mutable payloads and timestamps. The paging cursor keeps
+  // timeCreated separately; tool calls/results occupy stable slots 0 and 1.
+  const itemId = (sub: number): string =>
+    encodeCursor({ fileId: opencodeFileId(row.sessionId), offset: 0, uuid: row.partId, sub })
   const aborted = isOpencodeMessageAborted(messageInfo)
   if (partType === 'interrupt' && aborted) {
     return [
       {
-        id: 'opencode-interrupt-' + row.messageId,
+        id: itemId(0),
         role: 'user',
         ...(ts ? { ts } : {}),
         text: '[Request interrupted by user]',
@@ -52,7 +58,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       if (role === 'user') {
         return [
           {
-            id: stableId('opencode-user', `${row.partId}:${text}`),
+            id: itemId(0),
             role: 'user',
             ...(ts ? { ts } : {}),
             text,
@@ -62,7 +68,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       if (role === 'assistant') {
         return [
           {
-            id: stableId('opencode-assistant', `${row.partId}:${text}`),
+            id: itemId(0),
             role: 'assistant',
             ...(ts ? { ts } : {}),
             text,
@@ -80,7 +86,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       const toolInputJson = input ? safeToolEditJsonFromInput(toolName, input) : undefined
       const items: TranscriptItem[] = [
         {
-          id: stableId('opencode-tool', `${row.partId}:${toolName}`),
+          id: itemId(0),
           role: 'tool',
           ...(ts ? { ts } : {}),
           text: toolName,
@@ -92,7 +98,7 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
       ]
       if (output) {
         items.push({
-          id: stableId('opencode-tool-result', `${row.partId}:${callId ?? ''}:${output}`),
+          id: itemId(1),
           role: 'tool',
           ...(ts ? { ts } : {}),
           text: output,
@@ -157,10 +163,4 @@ function stringField(v: Record<string, unknown>, key: string): string | undefine
 function epochToIso(ms: number | undefined): string | undefined {
   if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return undefined
   return new Date(ms).toISOString()
-}
-
-function stableId(prefix: string, seed: string): string {
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
-  return `${prefix}-${hash.toString(16)}`
 }
