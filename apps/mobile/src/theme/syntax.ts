@@ -14,7 +14,7 @@ export const syntaxPalette = {
     function: '#1d4ed8',
     type: '#0c6f86',
     property: '#2451a8',
-    tag: '#b8532e',
+    tag: '#ad4e2b',
   },
   dark: {
     ink: '#d5d7de',

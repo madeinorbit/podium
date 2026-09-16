@@ -13,7 +13,6 @@ import {
 } from '../lib/markdown'
 import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
-import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
 import { HighlightedCode } from './HighlightedCode'
 import { RefChip } from './RefChip'
