@@ -122,6 +122,7 @@ function makeWorld(options: WorldOptions): {
   const submitted = new Map<SessionId, string[]>()
   const submissionWaiters = new Set<() => void>()
   const turnEpochs = new Map<SessionId, number>()
+  const completedEpochs = new Map<SessionId, number>()
   const bridgeOf = new Map<SessionId, { write(dataBase64: string): void; pid: number }>()
   const pendingPaste = new Map<SessionId, string>()
   /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
@@ -266,6 +267,11 @@ function makeWorld(options: WorldOptions): {
       transcripts.set(resume.value, file)
     }
     runtime?.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    if (profile.lifecycleFromState) {
+      const working: AgentRuntimeState = { phase: 'working', since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
+      phases.set(sessionId, working)
+      runtime?.observe({ type: 'agentState', sessionId, state: working })
+    }
     // The harness has now written its store. `first-turn` is that moment.
     postResumeRef(sessionId)
   }
@@ -477,6 +483,15 @@ function makeWorld(options: WorldOptions): {
     },
     completeTurn(sessionId) {
       phases.set(sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
+      if (profile.lifecycleFromState) {
+        const epoch = turnEpochs.get(sessionId) ?? 0
+        if (completedEpochs.get(sessionId) === epoch) return
+        completedEpochs.set(sessionId, epoch)
+        const idle: AgentRuntimeState = { phase: 'idle', since: iso(), nativeSubagentCount: 0, idle: { kind: 'done' }, stateSource: 'poll' }
+        phases.set(sessionId, idle)
+        runtime?.observe({ type: 'agentState', sessionId, state: idle })
+        return
+      }
       runtime?.observe({
         type: 'agentObservation',
         observation: observation(sessionId, 'turn_terminal', 'idle'),
@@ -574,6 +589,7 @@ function makeWorld(options: WorldOptions): {
         submitted.clear()
         submissionWaiters.clear()
         turnEpochs.clear()
+        completedEpochs.clear()
         bridgeOf.clear()
         pendingPaste.clear()
         deliveries.clear()
