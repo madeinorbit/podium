@@ -49,11 +49,18 @@ test('default machine refuses without an available assigned daemon, then selects
   const { svc, store } = await storedService()
   try {
     await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+    const serverOnly = asMachineId('server-only')
+    await store.machines.upsertMachine({ id: serverOnly, name: 'server', hostname: 'server',
+      tokenHash: 'test', ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: false } })
+    await svc.attach(serverOnly, () => {})
+    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
     await svc.attach(MACHINE, () => {})
     expect(await svc.defaultMachine()).toBe(MACHINE)
     svc.detach(MACHINE)
     await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
   } finally {
+    svc.dispose()
     await store.close()
   }
 })
