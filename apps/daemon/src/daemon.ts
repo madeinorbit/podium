@@ -150,6 +150,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     },
     sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
     isConnected: () => connection?.state === 'connected',
+    retryHandshake: () => connection?.retryHandshake(),
     acknowledgeQueueDrainReport: (reportId) => {
       if (connection) connection.acknowledgeQueueDrainReport(reportId)
       else queueDrainOutbox.acknowledge(reportId)

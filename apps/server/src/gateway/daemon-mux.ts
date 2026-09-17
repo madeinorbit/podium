@@ -158,7 +158,9 @@ const DISPATCH: Dispatcher = {
   // ---- hosts: a per-machine fact, so the machine rides the delivery path ----
   hostMetrics: (ports, principal, msg) => {
     const { type: _type, ...sample } = msg
-    return ports.hosts.onHostMetrics(principal.machine, sample)
+    const result = ports.hosts.onHostMetrics(principal.machine, sample)
+    ports.machines.recordDaemonReadiness(principal.machine, msg.daemonReadiness)
+    return result
   },
   memoryBreakdownResult: (ports, principal, msg) =>
     ports.hosts.onMemoryBreakdownResult(principal.machine, msg),

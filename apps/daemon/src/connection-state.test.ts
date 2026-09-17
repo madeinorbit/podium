@@ -1318,3 +1318,18 @@ it('retries the entire inventory handshake after a lookup failure and delivers t
   expect(onConnected).toHaveBeenCalledWith(undefined, facts)
   await conn.close()
 })
+
+
+it('retries the whole local handshake when host recovery fails', async () => {
+  const state = connection(localOptions(() => {}, { bootstrapToken: 'local-secret' }))
+  try {
+    await state.start()
+    expect(state.state).toBe('connected')
+    state.retryHandshake()
+    expect(state.state).toBe('backoff')
+    state.retryHandshake()
+    expect(state.state).toBe('backoff')
+  } finally {
+    await state.close()
+  }
+})

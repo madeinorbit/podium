@@ -1104,6 +1104,12 @@ function MachineRow({
         label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
         tone: 'offline' as const,
       }
+    : machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
+      ? {
+          label: `Not ready · ${machine.daemonReadiness.reason}`,
+          tone: 'degraded' as const,
+          detail: `${machine.daemonReadiness.quarantinedBindings} quarantined`,
+        }
     : degradedServices.length > 0
       ? {
           label: `Online · Degraded: ${degradedServices.join(', ')}`,
@@ -1339,7 +1345,10 @@ function MachineRow({
                   <span aria-hidden="true">·</span>
                   <span className={fleetState.tone === 'degraded' ? 'text-warning' : undefined}>
                     {fleetState.detail}
-                    {fleetState.tone === 'degraded' ? ' · Restart Podium on this machine.' : ''}
+                    {fleetState.tone === 'degraded' &&
+                    (!machine.daemonReadiness || machine.daemonReadiness.state === 'ready')
+                      ? ' · Restart Podium on this machine.'
+                      : ''}
                   </span>
                 </>
               )}

@@ -100,7 +100,7 @@ export const DAEMON_FRAME_PORTS = {
   daemonLogBatch: ['logs'],
 
   // ---- host-owned ----
-  hostMetrics: ['hosts'],
+  hostMetrics: ['hosts', 'machines'],
   memoryBreakdownResult: ['hosts'],
   reclaimDiskEstimateResult: ['hosts'],
 

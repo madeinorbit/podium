@@ -242,7 +242,9 @@ export function visibleFleetOperations(args: {
       online: machine.online,
       availability,
       statusLabel: machine.online
-        ? availability === 'unauthorized'
+        ? machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
+          ? `not ready · ${machine.daemonReadiness.reason} · ${machine.daemonReadiness.quarantinedBindings} quarantined`
+          : availability === 'unauthorized'
           ? 'online · view only'
           : 'online'
         : 'offline',

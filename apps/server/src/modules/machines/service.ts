@@ -1,4 +1,5 @@
 import type { SettingsAuditRow } from '../../store/settings-audit'
+import type { DaemonReadiness } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness'
@@ -212,7 +213,7 @@ export interface PairingGrant {
  */
 type MachineCapabilityFacts = Pick<
   MachineListing,
-  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt'
+  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt' | 'daemonReadiness'
 >
 
 export interface MachineFactsSnapshot {
@@ -357,6 +358,7 @@ export class MachinesService {
     Send<Extract<ControlMessage, { type: 'updateGrant' }>>
   >()
   /** Online daemon connections whose current-generation inventory has not arrived yet. */
+  private readonly daemonReadiness = new Map<string, DaemonReadiness>()
   private readonly inventoryPending = new Set<string>()
   private readonly inventoryWaiters = new Map<string, Set<() => void>>()
   /** Latest authenticated legacy hello, retained for fallback after supervisor detach. */
@@ -423,6 +425,7 @@ export class MachinesService {
   retireIncarnation(id: MachineId): void {
     this.pendingByMachine.delete(id)
     this.daemons.delete(id)
+    this.daemonReadiness.delete(id)
     this.daemonCaps.delete(id)
     this.supervisors.delete(id)
     this.updateParticipants.delete(id)
@@ -527,6 +530,7 @@ export class MachinesService {
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
     this.inventoryPending.add(machineId)
+    this.daemonReadiness.set(machineId, { state: 'attached', reason: 'inventory pending', quarantinedBindings: 0 })
     if (!this.supervisors.has(machineId) && !this.presenceReadOnly) {
       await this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
       this.clearPresenceGrace(machineId)
@@ -768,6 +772,7 @@ export class MachinesService {
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
     if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
+    this.daemonReadiness.delete(machineId)
     void this.recordAvailability(machineId).catch(() => {})
     this.daemonCaps.delete(machineId)
     this.inventoryPending.delete(machineId)
@@ -1411,6 +1416,7 @@ export class MachinesService {
       components: m.components ?? [],
       serviceAssignment: m.serviceAssignment,
       availability: this.observedAvailability(m.id),
+      ...(this.daemonReadiness.has(m.id) ? { daemonReadiness: this.daemonReadiness.get(m.id)! } : {}),
       // A durable snapshot remains useful while OFFLINE, but it is not evidence
       // about a newly attached daemon until that connection reports once.
       ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
@@ -1646,6 +1652,13 @@ export class MachinesService {
     if (this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     await this.broadcastMachines()
+  }
+
+  recordDaemonReadiness(machineId: MachineId, readiness: DaemonReadiness | undefined): void {
+    if (!readiness || !this.daemons.has(machineId)) return
+    if (JSON.stringify(this.daemonReadiness.get(machineId)) === JSON.stringify(readiness)) return
+    this.daemonReadiness.set(machineId, readiness)
+    this.scheduleBroadcastMachines()
   }
 
   async recordHarnessVersion(

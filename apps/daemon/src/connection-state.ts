@@ -114,6 +114,7 @@ export interface DaemonConnectionDeps {
 export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
+  retryHandshake(): void
   sendOutput(batch: DaemonPtyOutputBatch): void
   send(msg: DaemonMessage): void
   quiesceEndpoint(transferId: string): void
@@ -975,6 +976,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       const message = legacyOutputMessage(batch)
       deps.sendApplicationFrame(socket, message)
+    },
+    retryHandshake() {
+      if (closing || state !== 'connected') return
+      if (socket) socket.close()
+      else {
+        localAttachment?.close()
+        localAttachment = undefined
+        scheduleReconnect()
+      }
     },
     send(msg) {
       const isQueueDrainReport = msg.type === 'runtimeQueueDrainAbandoned'

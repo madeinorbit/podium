@@ -1399,3 +1399,36 @@ describe('retained revocation and explicit replacement', () => {
     } finally { await store.close() }
   })
 })
+
+describe('current daemon recovery projection', () => {
+  test('attachment is not readiness, reports reasons, and forgets old connections', async () => {
+    const { svc, store } = await storedService()
+    const first = recorder()
+    const second = recorder()
+    try {
+      await svc.attach(MACHINE, first.send)
+      const row = async () => (await svc.listMachines()).find((m) => m.id === MACHINE)!
+      expect((await row()).daemonReadiness).toEqual({ state: 'attached', reason: 'inventory pending', quarantinedBindings: 0 })
+      svc.recordDaemonReadiness(MACHINE, { state: 'recovering', reason: '2 quarantined', quarantinedBindings: 2 })
+      expect((await row()).daemonReadiness).toEqual({ state: 'recovering', reason: '2 quarantined', quarantinedBindings: 2 })
+      // The observation must not withdraw execution from confirmed bindings.
+      expect((await row()).availability?.daemon).toBe(true)
+      svc.recordDaemonReadiness(MACHINE, { state: 'ready', reason: '', quarantinedBindings: 0 })
+      expect((await row()).daemonReadiness?.state).toBe('ready')
+      await svc.attach(MACHINE, second.send)
+      expect((await row()).daemonReadiness?.state).toBe('attached')
+      expect(svc.detach(MACHINE, first.send)).toBe(false)
+      expect((await row()).daemonReadiness?.state).toBe('attached')
+      svc.detach(MACHINE, second.send)
+      svc.recordDaemonReadiness(MACHINE, { state: 'ready', reason: '', quarantinedBindings: 0 })
+      expect((await row()).daemonReadiness).toBeUndefined()
+      await svc.attach(MACHINE, second.send)
+      svc.recordDaemonReadiness(MACHINE, { state: 'ready', reason: '', quarantinedBindings: 0 })
+      svc.retireIncarnation(MACHINE)
+      expect((await row()).daemonReadiness).toBeUndefined()
+    } finally {
+      svc.dispose()
+      await store.close()
+    }
+  })
+})

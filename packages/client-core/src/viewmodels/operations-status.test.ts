@@ -22,6 +22,8 @@ const machine = (id: string, partial: Partial<MachineWire> = {}): MachineWire =>
   online: true,
   lastSeenAt: '2026-08-31T00:00:00.000Z',
   use: 'granted',
+  serviceAssignment: { server: false, agentExecution: true },
+  availability: { epoch: 'test', server: false, daemon: true, supervisor: false },
   ...partial,
 })
 
@@ -248,4 +250,13 @@ describe('connectedDeviceViews', () => {
     expect(views[1]?.activityLabel).toBe('Active 5m ago')
     expect(views.some((view) => 'userId' in view)).toBe(false)
   })
+})
+
+
+it('shows daemon recovery reasons and counts in the mobile machine list', () => {
+  const fleet = visibleFleetOperations({
+    machines: [machine('recovering', { daemonReadiness: { state: 'recovering', reason: 'retrying handshake', quarantinedBindings: 3 } })],
+    hosts: [], capacityReadings: {}, loadPerCore: 1.5,
+  })
+  expect(fleet.machines[0]?.statusLabel).toBe('not ready · retrying handshake · 3 quarantined')
 })

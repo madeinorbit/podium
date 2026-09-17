@@ -291,6 +291,7 @@ describe('MachinesPanel version skew', () => {
   it('shows the daemon version and badges a machine behind the server', async () => {
     storeState.machines = [
       machine({
+        appVersion: '0.4.1',
         inventory: { os: 'darwin', arch: 'arm64', podiumVersion: '0.4.1', agents: [], tools: [] },
       }),
     ]
@@ -304,6 +305,7 @@ describe('MachinesPanel version skew', () => {
   it('does not badge a machine on the server version', async () => {
     storeState.machines = [
       machine({
+        appVersion: '0.5.0',
         inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.5.0', agents: [], tools: [] },
       }),
     ]
@@ -364,6 +366,7 @@ describe('MachinesPanel version skew', () => {
       machine({
         id: asMachineId('m-dev'),
         name: 'devbox',
+        appVersion: 'dev',
         inventory: { os: 'linux', arch: 'x64', podiumVersion: 'dev', agents: [], tools: [] },
       }),
       machine({ id: asMachineId('m-old'), name: 'pre-inventory' }),
@@ -428,7 +431,7 @@ describe('MachinesPanel update rows', () => {
     setUpdateTrpc()
     render(<MachinesPanel />)
 
-    expect(await screen.findByText('Managed by Desktop updater.')).toBeTruthy()
+    expect(await screen.findByText('Cannot take delivery: Managed by Desktop updater.')).toBeTruthy()
     expect(applyButton().hasAttribute('disabled')).toBe(true)
   })
 
@@ -814,3 +817,16 @@ it('shows recorded harness versions and a quiet unverified marker', () => {
      expect(screen.getByRole('button', { name: 'Adopt' })).toHaveProperty('disabled', false)
    })
  })
+
+
+describe('daemon recovery status', () => {
+  it.each(['inventory pending', '2 quarantined', 'retrying handshake'])('shows not ready with %s and the count', async (reason) => {
+    setTrpc(vi.fn())
+    storeState.machines = [machine({ online: true, daemonReadiness: { state: 'recovering', reason, quarantinedBindings: 2 } })]
+    render(<MachinesPanel />)
+    expect(await screen.findByText(`Not ready · ${reason}`)).toBeTruthy()
+    expect(screen.getAllByText('2 quarantined').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Online')).toBeNull()
+    expect(screen.queryByText(/Restart Podium on this machine/)).toBeNull()
+  })
+})

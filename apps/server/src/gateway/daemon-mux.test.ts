@@ -458,3 +458,11 @@ describe('retired daemon attribution ingress', () => {
     expect(calls[0]?.args).toEqual([asMachineId('source'), message])
   })
 })
+
+
+it('records readiness against the authenticated reporting machine', () => {
+  const { ports, calls } = fakePorts()
+  const daemonReadiness = { state: 'recovering' as const, reason: 'retrying handshake', quarantinedBindings: 2 }
+  muxWith(ports).routeDaemonFrame(PRINCIPAL, { ...sampleFrame('hostMetrics'), daemonReadiness } as DaemonMessage)
+  expect(calls.find((call) => call.method === 'recordDaemonReadiness')?.args).toEqual([PRINCIPAL.machine, daemonReadiness])
+})

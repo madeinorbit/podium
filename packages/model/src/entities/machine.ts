@@ -247,8 +247,17 @@ export const HostLoadWire = z.object({
 })
 export type HostLoadWire = z.infer<typeof HostLoadWire>
 
+/** Live recovery observation; never persisted as evidence for a later connection. */
+export const DaemonReadiness = z.object({
+  state: z.enum(['attached', 'recovering', 'ready']),
+  reason: z.string(),
+  quarantinedBindings: z.number().int().nonnegative(),
+})
+export type DaemonReadiness = z.infer<typeof DaemonReadiness>
+
 /** `SEE` — health/liveness sample, plus the machine identity it is about. */
 export const HostMetricsWire = z.object({
+  daemonReadiness: DaemonReadiness.optional(),
   /** Bindings withheld from new work pending server confirmation. */
   quarantinedBindings: z.number().int().nonnegative().optional(),
   hostname: z.string(),
@@ -447,6 +456,7 @@ export type MachineHarnessVersion = z.infer<typeof MachineHarnessVersion>
 export const MachineWire = z.object({
   /** Retained audit identity; revoked machines cannot execute or receive control. */
   revokedAt: z.string().nullable().optional(),
+  daemonReadiness: DaemonReadiness.optional(),
   harnessVersions: z.array(MachineHarnessVersion).optional(),
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this

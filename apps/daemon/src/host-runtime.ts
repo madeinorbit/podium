@@ -1,3 +1,4 @@
+import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
@@ -266,6 +267,7 @@ export async function createDaemonHostRuntime(args: {
    * operator raised the daemon to see.
    */
   isConnected: () => boolean
+  retryHandshake?: () => void
 }): Promise<DaemonHostRuntime> {
   const { options: opts, instance, build, installDir, send: sendUpstream, sendOutput } = args
   /**
@@ -310,8 +312,12 @@ export async function createDaemonHostRuntime(args: {
    * The ports are read PER FRAME rather than captured, because the runtime and
    * the context are both built below this line.
    */
+  let inventoryReported = () => {}
   const send = createFrameSink({
-    upstream: sendUpstream,
+    upstream: (frame) => {
+      sendUpstream(frame)
+      if (frame.type === 'inventoryReport') inventoryReported()
+    },
     runtime: () => agentRuntime,
     context: () => context,
   })
@@ -1354,6 +1360,7 @@ export async function createDaemonHostRuntime(args: {
     const loop = loopAccounting?.latestMinute()
     send({
       type: 'hostMetrics',
+      daemonReadiness: readiness.snapshot(),
       quarantinedBindings: bindingStore.quarantinedCount,
       hostname: hostname(),
       sampledAt: new Date().toISOString(),
@@ -1404,6 +1411,20 @@ export async function createDaemonHostRuntime(args: {
     timer.unref?.()
   }
 
+  const readiness = createRecoveryReadiness(() => pushHostMetrics())
+  inventoryReported = () => readiness.inventoryReported()
+  let recoveryRetry: ReturnType<typeof setTimeout> | undefined
+  const retryRecovery = (epoch: number): void => {
+    if (epoch !== recoveryGeneration || disposed) return
+    readiness.failed(epoch)
+    if (recoveryRetry) clearTimeout(recoveryRetry)
+    recoveryRetry = setTimeout(() => {
+      recoveryRetry = undefined
+      if (!disposed && epoch === recoveryGeneration) args.retryHandshake?.()
+    }, 5_000)
+    recoveryRetry.unref?.()
+  }
+  let recoveryGeneration = 0
   let bindingRecovery: Promise<void> | undefined
   let currentBindingFacts: BindingConfirmations | undefined
   let reapingBindings = false
@@ -1435,6 +1456,7 @@ export async function createDaemonHostRuntime(args: {
       }, instance.codexReceiptDir)
     } finally {
       reapingBindings = false
+      readiness.quarantined(bindingStore.quarantinedCount)
     }
   }
   const connected = (
@@ -1443,6 +1465,10 @@ export async function createDaemonHostRuntime(args: {
   ): { convergedVersion?: string } => {
     currentBindingFacts = facts
     bindingStore.confirmInventory(machineId, facts)
+    if (recoveryRetry) clearTimeout(recoveryRetry)
+    recoveryRetry = undefined
+    const recoveryEpoch = readiness.begin(bindingStore.quarantinedCount)
+    recoveryGeneration = recoveryEpoch
     if (facts !== undefined) {
       bindingRecovery = (bindingRecovery ?? Promise.resolve())
         .then(() =>
@@ -1458,9 +1484,14 @@ export async function createDaemonHostRuntime(args: {
           await reapBindings()
           pushHostMetrics()
           await replayPendingBindingReceipts()
+          readiness.recovered(recoveryEpoch, bindingStore.quarantinedCount)
         })
-        .catch((err) => log.error('binding recovery failed', { err }))
+        .catch((err) => {
+          retryRecovery(recoveryEpoch)
+          log.error('binding recovery failed', { err })
+        })
     }
+    if (facts === undefined) retryRecovery(recoveryEpoch)
     startConnectedServices()
     pushHostMetrics()
     const convergedVersion = reconcilePendingUpdate()
@@ -1504,6 +1535,7 @@ export async function createDaemonHostRuntime(args: {
     await bindingRecovery?.catch(() => {})
     if (disposed) return
     disposed = true
+    if (recoveryRetry) clearTimeout(recoveryRetry)
     observers.stopAllTails()
     logForwarding.dispose()
     await ingest.close()
