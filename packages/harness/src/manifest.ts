@@ -892,21 +892,16 @@ export function selectRuntimeDriver(
   ctx: SelectionContext,
   ranked: readonly [...DriverId[], DriverId],
 ): DriverId {
-  const available = new Set(ctx.available)
+  const available = new Set(ctx.available.map(canonicalDriverId))
+  const preference = ctx.preference ? canonicalDriverId(ctx.preference) as DriverId : undefined
   // An explicit operator choice wins over the policy — but only if the machine
   // can actually run it AND this harness declares it. Without the second half,
   // a machine-wide preference for one harness's healthy server can route a
   // different harness into that server family. Terminal ids are interchangeable
   // at the launch seam, so either terminal preference still explicitly opts out
   // of a harness's preferred server driver.
-  if (
-    ctx.preference &&
-    available.has(ctx.preference) &&
-    (ranked.includes(ctx.preference) ||
-      ctx.preference === 'claude-pty' ||
-      ctx.preference === 'generic-pty')
-  ) {
-    return canonicalDriverId(ctx.preference) as DriverId
+  if (preference && available.has(preference) && ranked.includes(preference)) {
+    return preference
   }
   for (const id of ranked) if (available.has(id)) return id
   return ranked[ranked.length - 1] as DriverId
