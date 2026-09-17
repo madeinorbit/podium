@@ -1,7 +1,6 @@
-// @vitest-environment jsdom
+// @vitest-environment jsdom-sanitizer
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   linkifyCodePaths,

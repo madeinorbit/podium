@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment jsdom-sanitizer
 import { afterEach, describe, expect, it } from 'vitest'
 import { setKnownPodiumOrigins } from '@/lib/podium-link'
 import { assembleMarkdownBlocksUnsafe, renderMarkdownBlocks } from './markdown-blocks'

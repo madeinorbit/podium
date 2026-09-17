@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment jsdom-sanitizer
 import { highlightCode } from '@podium/client-core/code-highlight'
 import { expect, it } from 'vitest'
 import { sanitizeRenderedMarkdown } from '../src/lib/markdown'

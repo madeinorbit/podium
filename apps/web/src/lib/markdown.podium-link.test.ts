@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment jsdom-sanitizer
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
 import {
@@ -61,7 +61,8 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     expect(link.getAttribute('href')).toBe(
       `${HOME}/file?label=hello%20world&&root=%2fw&path=%2fw%2fa.ts&path=%2Fduplicate&signature=a%2Fb%3D#x%2fy`,
     )
-    expect(link.getAttribute('target')).toBe('_blank')
+    // The validated local file target is handled in-app; Chromium leaves target absent.
+    expect(link.getAttribute('target')).toBeNull()
   })
 
   it('replaces raw HTML resolver markers with values derived from the href', () => {
