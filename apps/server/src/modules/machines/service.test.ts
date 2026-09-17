@@ -45,6 +45,19 @@ function makeService(): MachinesService {
   return new MachinesService(deps)
 }
 
+test('default machine refuses without an available assigned daemon, then selects the reported daemon', async () => {
+  const { svc, store } = await storedService()
+  try {
+    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+    await svc.attach(MACHINE, () => {})
+    expect(await svc.defaultMachine()).toBe(MACHINE)
+    svc.detach(MACHINE)
+    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+  } finally {
+    await store.close()
+  }
+})
+
 const MACHINE = asMachineId('vmi')
 /** A keystroke — the message class that silently queued into the void during the outage. */
 const keystroke: ControlMessage = { type: 'input', sessionId: asSessionId('s1'), data: 'ls\r' }

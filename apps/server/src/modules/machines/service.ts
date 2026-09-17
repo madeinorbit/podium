@@ -2,6 +2,7 @@ import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { stateDir } from '@podium/runtime/config'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
+import type { ServerPlacement } from '../updates/service'
 import { supersedeMachine } from './supersession'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { DaemonReadiness } from '@podium/model'
@@ -264,17 +265,9 @@ export interface MachinesDeps {
   store: SessionStore
   /** Recovery transport must never refresh durable presence. */
   recoveryOnly?: boolean
-  /**
-   * THIS HOST'S machine id — the UUID in `<stateDir>/machine.id`, read once by the
-   * composition root (`readOrCreateLocalMachineId`) and handed down.
-   *
-   * It is a dependency, not a constant, because the server is one machine among
-   * equals: the id it answers to is minted material owned by the host, exactly like
-   * a remote daemon's. Routing that has no other machine to name (`defaultMachine`,
-   * boot-before-daemon spawns) names THIS one, and it is a real id with a real row,
-   * so nothing downstream has to know it is "the local one".
-   */
+  /** Existing self-hosted identity for legacy readers; routing uses explicit placement or daemon availability. */
   hostMachineId: MachineId
+  serverPlacement?: ServerPlacement
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   installationId?: string
   pairing?: PairingCodes
@@ -505,6 +498,8 @@ export class MachinesService {
     return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
   }
 
+
+  get serverPlacement(): ServerPlacement | undefined { return this.deps.serverPlacement }
 
   get hostMachineId(): MachineId {
     return this.deps.hostMachineId
@@ -1101,28 +1096,13 @@ export class MachinesService {
     return target.id
   }
 
-  /**
-   * Resolve the machine a new session should spawn on. An explicitly requested
-   * machine wins when it's online; otherwise pick by repo affinity, else the sole
-   * online machine, else this host. For a single connected daemon this always
-   * returns that one machine — single-machine behavior is unchanged.
-   */
+  /** Resolve an explicit online machine or an assigned and available daemon by repo affinity. */
   async resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId> {
     if (requested && this.daemons.has(requested) && (await this.serviceAssignment(asMachineId(requested))).agentExecution) return asMachineId(requested)
     return await this.pickMachineForRepo(undefined, cwd)
   }
 
-  /**
-   * Resolve a session target and enforce the daemon-reported harness/login
-   * capability before any durable session or spawn side effect is created.
-   *
-   * Boot-before-daemon still QUEUES rather than refusing: the host machine's row
-   * exists after setup enrollment, so the pick resolves to it, the capability
-   * check sees an offline machine with no inventory yet, and the last branch below
-   * lets it through to `toMachine`'s offline queue — which flushes when the host
-   * daemon attaches under that same id. What is gone is the branch that let the
-   * PLACEHOLDER through unchecked.
-   */
+  /** Resolve the selected machine and check its harness/login capability before creating a session. */
   async resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
@@ -1337,18 +1317,7 @@ export class MachinesService {
     }
   }
 
-  /**
-   * Pick the best online machine for a repo: one that has the cwd registered as a
-   * repo path, else `defaultMachine()` — the sole/first online machine, or this
-   * host when nothing is online.
-   *
-   * This used to be three branches ending in the placeholder, and the third one
-   * carried a warning that queueing under `'__local__'` "would dead-queue forever
-   * because no daemon ever attaches as `'__local__'` after adoption". There is
-   * nothing left to warn about: every arm now names a machine with a row, and the
-   * boot-before-daemon arm names the host whose daemon is precisely the one about
-   * to attach and drain the queue.
-   */
+  /** Pick an online machine reporting the repo, or refuse through defaultMachine. */
   async pickMachineForRepo(_originUrl: string | undefined, cwd: string): Promise<MachineId> {
     const online = this.onlineMachineIds()
     // A removed repo would make a retained positive unsafe. Resolve per pick;

@@ -905,6 +905,17 @@ describe('conversation index', () => {
     await store.close()
   })
 
+  it('refuses metadata for an undiscovered conversation without creating a row', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      await expect(store.conversations.index.setMeta('undiscovered', { name: 'Name' }))
+        .rejects.toThrow('has not been reported by a daemon')
+      expect(await store.conversations.index.search({})).toEqual([])
+    } finally {
+      await store.close()
+    }
+  })
+
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.index.upsert([conv('a')])

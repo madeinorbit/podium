@@ -287,8 +287,8 @@ export class SessionView {
         }
       }
     }
-    const repoId = await this.ports.store.repos.resolveRepoIdForPath(session.cwd)
-    if (await this.ports.store.repos.prefixForRepoId(repoId) === null) return
+    const repoId = await this.ports.store.repos.resolveRepoIdForPath(session.cwd, session.machineId)
+    if (repoId === null || await this.ports.store.repos.prefixForRepoId(repoId) === null) return
     return async () => {
       session.refDraft = await this.ports.store.repos.nextDraftSeq(repoId)
     }

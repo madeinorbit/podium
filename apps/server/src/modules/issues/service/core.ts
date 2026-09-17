@@ -909,7 +909,7 @@ export class IssueStore {
     if (!repoPath) return () => true
     const resolve = await this.deps.store.repos.repoIdResolver()
     const scope = resolve(repoPath)
-    return (row: IssueRow) => (row.repoId ?? resolve(row.repoPath)) === scope
+    return (row: IssueRow) => scope !== null && (row.repoId ?? resolve(row.repoPath, row.machineId)) === scope
   }
 
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
@@ -948,7 +948,7 @@ export class IssueStore {
         const resolve = await this.deps.store.repos.repoIdResolver()
         const repoId = repo.repoId ?? resolve(repo.path)
         const matches = [...this.rows.values()].filter(
-          (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath)) === repoId,
+          (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath, r.machineId)) === repoId,
         )
         if (matches.length >= 1) return matches[0]!.id
       }

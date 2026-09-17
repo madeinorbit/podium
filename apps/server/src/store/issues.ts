@@ -114,7 +114,7 @@ export class IssuesRepository {
   constructor(
     queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
-    private readonly resolveRepoIdForPath: (repoPath: string) => string | Promise<string>,
+    private readonly resolveRepoIdForPath: (repoPath: string, machineId?: MachineId | null) => string | Promise<string>,
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'issues')
     this.rootDb = queries.rootDb
@@ -248,7 +248,7 @@ export class IssuesRepository {
       createdByActor: row.createdByActor ?? row.ownerUserId,
       createdByOnBehalfOf: row.createdByOnBehalfOf,
       repoPath: row.repoPath,
-      repoId: row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath)) as RepoId),
+      repoId: row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath, row.machineId)) as RepoId),
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -731,6 +731,7 @@ export class IssuesRepository {
         id: issues.id,
         repoId: issues.repoId,
         repoPath: issues.repoPath,
+        machineId: issues.machineId,
         seq: issues.seq,
         createdAt: issues.createdAt,
       })
@@ -738,7 +739,7 @@ export class IssuesRepository {
       .all()
     const byRepo = new Map<string, typeof rows>()
     for (const r of rows) {
-      const rid = r.repoId ?? (await this.resolveRepoIdForPath(r.repoPath))
+      const rid = r.repoId ?? (await this.resolveRepoIdForPath(r.repoPath, r.machineId))
       const g = byRepo.get(rid)
       if (g) g.push(r)
       else byRepo.set(rid, [r])

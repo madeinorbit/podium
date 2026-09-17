@@ -1,3 +1,4 @@
+import type { ServerPlacement } from '../modules/updates/service'
 /**
  * The server-side {@link MachineDirectory} — the credential half of ADR 5 D5's
  * three `machine` rows, backed by `MachinesService.authenticateDaemon`.
@@ -64,11 +65,8 @@ export type MachineAuthenticationResult =
 
 /** The async store-backed slice of `MachinesService` this adapter needs. */
 export interface MachineAuthenticator {
-  /** The machine the loopback bootstrap secret is a credential FOR - this host, under
-   *  the id minted in `<stateDir>/machine.id`. Read from the service rather than
-   *  written as a constant here: the directory must not be a second opinion about who
-   *  the host is, and there is no id in this process that is not minted material. */
-  readonly hostMachineId: MachineId
+  /** Local maintenance credentials require an explicit fleet placement. */
+  readonly serverPlacement?: ServerPlacement
   readonly installationId?: string
   rotateCredential?(machineId: MachineId, rotation: import('@podium/protocol').MachineCredentialRotation, transcript: string): Promise<boolean>
   authenticateDaemon(
@@ -79,7 +77,7 @@ export interface MachineAuthenticator {
 
 /** A one-frame answer prepared before entering the synchronous protocol acceptor. */
 export interface ResolvedMachineAuthenticator {
-  readonly hostMachineId: MachineId
+  readonly serverPlacement?: ServerPlacement
   authenticateDaemon(
     frame: MachineAuthenticationInput,
     options?: MachineDirectoryOptions,
@@ -285,13 +283,13 @@ export const createResolvedMachineDirectory = (
 })
 
 export const resolvedMachineAuthenticator = (
-  machines: Pick<MachineAuthenticator, 'hostMachineId'>,
+  machines: Pick<MachineAuthenticator, 'serverPlacement'>,
   expected: MachineAuthenticationInput,
   result: MachineAuthenticationResult,
 ): ResolvedMachineAuthenticator => {
   let available = true
   return {
-    hostMachineId: machines.hostMachineId,
+    serverPlacement: machines.serverPlacement,
     authenticateDaemon(frame) {
       if (!available || JSON.stringify(frame) !== JSON.stringify(expected)) {
         return { ok: false, reason: 'credential result unavailable' }

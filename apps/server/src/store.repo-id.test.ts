@@ -113,7 +113,7 @@ describe('repo_id schema (v8, #74)', () => {
     await s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3 }))
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3, machineId: s.hostMachineId }))
     const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/r' })
     expect((await s.repos.listRepos())[0]?.repoId).toBe(fallback)
     expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(fallback)
@@ -265,18 +265,32 @@ describe('stored repo ids are read, never re-derived', () => {
     await s.close()
   })
 
-  it('an UNREGISTERED path is the one re-derive lookup, and it derives under this host', async () => {
-    // KNOWN LIMIT, pinned rather than hidden. `resolveRepoIdForPath` is used as a
-    // lookup key (`store/issues.ts` issue-by-repo queries, `prefixForPath`), and for
-    // a path no repo row claims it DERIVES rather than reads. That derivation used
-    // to be namespaced by `'__local__'` and is now namespaced by this host, so an
-    // issue whose repo was never registered was stored under the old namespace and
-    // is looked up under the new one. Registering the repo — the ordinary state —
-    // returns the stored id and makes the question moot; see the test above.
+  it('uses an issue caller machine and refuses an unplaced issue', async () => {
     const s = await openTestStore(':memory:')
-    expect(await s.repos.resolveRepoIdForPath('/nowhere')).toBe(
-      deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
-    )
-    await s.close()
+    try {
+      await expect(s.issues.upsertIssue(issueRow({ repoPath: '/undiscovered' })))
+        .rejects.toThrow('no reporting machine')
+      expect(await s.issues.getIssue('iss_x')).toBeNull()
+      const machineId = asMachineId('caller-machine')
+      await s.issues.upsertIssue(issueRow({ repoPath: '/undiscovered', machineId }))
+      expect((await s.issues.getIssue('iss_x'))?.repoId).toBe(
+        deriveRepoId({ machineId, path: '/undiscovered' }),
+      )
+    } finally {
+      await s.close()
+    }
+  })
+
+  it('refuses an unregistered path unless the caller names its machine', async () => {
+    const s = await openTestStore(':memory:')
+    try {
+      await expect(s.repos.resolveRepoIdForPath('/nowhere')).rejects.toThrow('no reporting machine')
+      expect((await s.repos.repoIdResolver())('/nowhere')).toBeNull()
+      expect(await s.repos.resolveRepoIdForPath('/nowhere', s.hostMachineId)).toBe(
+        deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
+      )
+    } finally {
+      await s.close()
+    }
   })
 })

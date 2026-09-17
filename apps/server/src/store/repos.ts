@@ -88,9 +88,6 @@ export class ReposRepository {
     queries: StoreQueries,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
-    /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
-     *  half of a path-fallback repo id for a path no repo row claims. */
-    private readonly hostMachineId: MachineId,
     /** The store's per-table write announcement, for the writers that never reach
      *  this class. */
     tableWrites: TableWrites,
@@ -230,14 +227,18 @@ export class ReposRepository {
 
   /** The prefix chosen for the logical repo containing `repoPath` (or null). */
   async prefixForPath(repoPath: string): Promise<string | null> {
-    return await this.prefixForRepoId(await this.resolveRepoIdForPath(repoPath))
+    const id = (await this.repoIdResolver())(repoPath)
+    return id ? await this.prefixForRepoId(id) : null
   }
 
   /** Resolve display prefixes from one transaction-local registry snapshot. */
   async prefixResolver(): Promise<(path: string) => string | null> {
     const resolve = await this.repoIdResolver()
     const prefixes = (await this.registry()).prefixes
-    return path => prefixes.get(resolve(path)) ?? null
+    return path => {
+      const id = resolve(path)
+      return id ? prefixes.get(id) ?? null : null
+    }
   }
 
   /** The registered repo owning `prefix` (its repoId + a representative path). */
@@ -287,7 +288,7 @@ export class ReposRepository {
     if (!isValidPrefix(prefix)) {
       throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
     }
-    const repoId = await this.resolveRepoIdForPath(normalizeRepoPath(path))
+    const repoId = await this.resolveRepoIdForPath(normalizeRepoPath(path), machineId)
     const owner = await this.db
       .select({ repoId: repoPrefixes.repoId })
       .from(repoPrefixes)
@@ -454,18 +455,11 @@ export class ReposRepository {
     }
   }
 
-  /**
-   * repo_id for an issue's repoPath: the longest registered repo root that contains it
-   * (any machine), else the deterministic (machine, path) fallback for THIS host.
-   *
-   * The stored id always wins, which is the property that made POD-318 safe to land
-   * without rewriting a single `repo_id`: a repo that has a row keeps whatever id it
-   * was minted with, opaque and untouched, no matter what machine the row now names.
-   * Only a path NO repo row claims reaches the derivation, and it derives under this
-   * host's real id because that is the machine the caller is talking about.
-   */
-  async resolveRepoIdForPath(repoPath: string): Promise<RepoId> {
-    return (await this.repoIdResolver())(repoPath)
+  /** Resolve a reported repo, or derive only under a machine explicitly named by the caller. */
+  async resolveRepoIdForPath(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
+    const id = (await this.repoIdResolver())(repoPath, machineId)
+    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    return id
   }
 
   /**
@@ -492,19 +486,19 @@ export class ReposRepository {
    * answering from the pre-write registry. Take it inside the pass that uses it —
    * which is every caller today, all of them read-only loops.
    */
-  async repoIdResolver(): Promise<(repoPath: string) => RepoId> {
+  async repoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
     const roots = (await this.listRepos())
-      .map((r) => ({ repoId: r.repoId, path: normalizeRepoPath(r.path) }))
+      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: normalizeRepoPath(r.path) }))
       .sort((a, b) => b.path.length - a.path.length)
-    const hostMachineId = this.hostMachineId
-    return (repoPath: string): RepoId => {
+    return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = normalizeRepoPath(repoPath)
       const match = roots.find(
         (r) =>
-          normalizedRepoPath === r.path ||
-          normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`),
+          (machineId == null || r.machineId === machineId) &&
+          (normalizedRepoPath === r.path ||
+          normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`)),
       )
-      return match?.repoId ?? deriveRepoId({ machineId: hostMachineId, path: normalizedRepoPath })
+      return match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
     }
   }
 

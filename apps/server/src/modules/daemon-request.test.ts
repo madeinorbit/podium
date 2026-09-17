@@ -253,7 +253,7 @@ describe('server transfer RPC', () => {
           }),
         )
       },
-      hostMachineId: asMachineId('source-machine'),
+      serverPlacement: { kind: 'fleet', machineId: asMachineId('source-machine') },
       defaultMachine: () => 'source-machine',
     } as never)
 
@@ -331,6 +331,27 @@ describe('server transfer RPC', () => {
     expect(sent.every(({ machineId }) => machineId === 'target-machine')).toBe(true)
   })
 
+  it.each([{ kind: 'external' as const }, undefined])('refuses transfer without fleet placement (%j) before dispatch', async (serverPlacement) => {
+    const toMachine = vi.fn()
+    const defaultMachine = vi.fn(() => asMachineId('unrelated-daemon'))
+    const rpc = new DaemonRpcService({ toMachine, defaultMachine, serverPlacement } as never)
+    await expect(rpc.serverTransferPrepare({
+      transferId: 'hosted-transfer',
+      manifest: {
+        formatVersion: 1, operationId: 'op', transferId: 'hosted-transfer',
+        sourceInstanceId: 'source', sourceMachineId: 'invented-host', targetMachineId: 'target',
+        sourceFeedId: 'feed', sourceFeedEpoch: 'epoch', appVersion: 'test', schemaVersion: 'test',
+        packageBytes: 0, files: [],
+      },
+      manifestDigest: 'a'.repeat(64), publicUrl: 'https://target.example.test',
+      bindHost: '0.0.0.0', reachabilityToken: 'r'.repeat(64), port: 443,
+    }, asMachineId('target'))).resolves.toMatchObject({
+      ok: false, error: expect.stringContaining('no source machine'),
+    })
+    expect(toMachine).not.toHaveBeenCalled()
+    expect(defaultMachine).not.toHaveBeenCalled()
+  })
+
   it('prepares a second move from the durable promoted host when liveness orders another daemon first', async () => {
     const sent: { machineId: string; msg: ControlMessage }[] = []
     const defaultMachine = vi.fn(() => asMachineId('unrelated-online-daemon'))
@@ -350,7 +371,7 @@ describe('server transfer RPC', () => {
           }),
         )
       },
-      hostMachineId: asMachineId('promoted-host'),
+      serverPlacement: { kind: 'fleet', machineId: asMachineId('promoted-host') },
       defaultMachine,
       onlineMachineIds: () => [
         asMachineId('unrelated-online-daemon'),

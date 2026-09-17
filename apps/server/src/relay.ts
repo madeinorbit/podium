@@ -1,3 +1,4 @@
+import type { ServerPlacement } from './modules/updates/service'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { readIssue, readClosedIssueIds } from './modules/world-index/issue-reader'
 import { readResourceGrants } from './modules/world-index/grant-reader'
@@ -217,6 +218,7 @@ interface SessionRegistryBoot {
 }
 
 interface SessionRegistryOptions {
+  serverPlacement?: ServerPlacement
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
   instanceId: string
   /**
@@ -730,6 +732,7 @@ export class SessionRegistry {
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
       hostMachineId: this.store.hostMachineId,
+      serverPlacement: options.serverPlacement,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
@@ -1131,7 +1134,7 @@ export class SessionRegistry {
       broker: requestBroker,
       memory,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      hostMachineId: machines.hostMachineId,
+      serverPlacement: options.serverPlacement,
       defaultMachine: async () => await machines.defaultMachine(),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),

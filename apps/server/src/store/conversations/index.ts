@@ -63,9 +63,6 @@ export class ConversationIndexRepository {
   protected readonly createOrJoinTransaction: TransactionRunner
   constructor(
     queries: StoreQueries,
-    /** This host's minted machine id — the machine a row this repository has to
-     *  CONJURE belongs to. See {@link setMeta}. */
-    private readonly hostMachineId: MachineId,
   ) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -210,19 +207,7 @@ export class ConversationIndexRepository {
       .where(eq(conversations.id, id))
       .get()
     if (!present) {
-      // Curating a conversation nobody has discovered yet CREATES the row, and
-      // since POD-318 the machine column has no default to manufacture one — so
-      // this names the host, which is where a local curation act happens. It used
-      // to lean on the `'__local__'` default, silently.
-      ;await (this.db
-        .insert(conversations)
-        .values({
-          id,
-          agentKind: 'claude-code',
-          providerId: 'unknown',
-          machineId: this.hostMachineId,
-        }))
-        .run()
+      throw new Error(`conversation ${id} has not been reported by a daemon; metadata cannot be set before discovery`)
     }
     if (meta.name !== undefined)
       await this.db.update(conversations).set({ name: meta.name }).where(eq(conversations.id, id)).run()

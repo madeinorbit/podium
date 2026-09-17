@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import { asMachineId, asSessionId, firstAdminMemberId, type RepoId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createMachineDirectory } from './gateway/machine-directory'
+import { createMachineDirectory, createResolvedMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
 import { deriveRepoId } from './repo-id'
 import { openTestStore } from './test-support/open-test-store'
@@ -194,45 +194,24 @@ describe('a database that already ran the retired upgrades', () => {
   })
 })
 
-describe('the split-mode local daemon authenticates as this host', () => {
-  const bootedRegistry = async (secret: string) => {
-    const store = await openTestStore(':memory:', HOST)
-    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await registry.modules.machines.ensureHostMachine('this-host', secret)
-    return registry
-  }
-
-  it('the state-dir secret verifies against the state-dir id — one ordinary hello', async () => {
-    const directory = createMachineDirectory(
-      (await bootedRegistry('shared-secret')).modules.machines,
-    )
-
-    const resolved = await directory.verifyMachineToken('shared-secret', HOST, { hostname: 'this-host' })
-
-    expect(resolved).toMatchObject({ machine: HOST, name: 'this-host' })
+describe('local maintenance authentication requires fleet placement', () => {
+  it.each([{ kind: 'external' as const }, undefined])('refuses %j without consulting credentials', async (serverPlacement) => {
+    const authenticateDaemon = vi.fn()
+    const machines = { hostMachineId: HOST, serverPlacement, authenticateDaemon }
+    expect(await createMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toBeNull()
+    expect(createResolvedMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toBeNull()
+    expect(authenticateDaemon).not.toHaveBeenCalled()
   })
 
-  it('a WRONG secret with the right id is refused', async () => {
-    // The counterfactual: the id is not the credential. Reading `machine.id` — a
-    // 0600 file, but not a secret — must not be enough to become this host.
-    const directory = createMachineDirectory(
-      (await bootedRegistry('shared-secret')).modules.machines,
-    )
-
-    expect(await directory.verifyMachineToken('not-the-secret', HOST)).toBeNull()
-  })
-
-  it('the directory names the host from the service, not from a constant', async () => {
-    // Two servers, two state dirs, two ids — and each directory verifies against
-    // its own. A hard-coded `'local'` could not tell them apart.
-    const other = asMachineId('11112222-3333-4444-5555-666677778888')
-    const store = await openTestStore(':memory:', other)
-    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
-
-    expect(
-      await createMachineDirectory(registry.modules.machines).verifyMachineToken('other-secret', other),
-    ).toMatchObject({ machine: other })
+  it('authenticates the explicitly placed machine and refuses an incorrect token', async () => {
+    const placed = asMachineId('explicit-fleet-machine')
+    const authenticateDaemon = vi.fn((frame) => frame.machineId === placed && frame.token === 'shared-secret'
+      ? { ok: true as const, machineId: placed, name: 'self-hosted' }
+      : { ok: false as const, reason: 'invalid credential' })
+    const machines = { hostMachineId: HOST, serverPlacement: { kind: 'fleet' as const, machineId: placed }, authenticateDaemon }
+    expect(await createMachineDirectory({ ...machines, authenticateDaemon: async frame => authenticateDaemon(frame) }).verifyDaemonSecret('shared-secret')).toMatchObject({ machine: placed })
+    expect(createResolvedMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toMatchObject({ machine: placed })
+    expect(await createMachineDirectory({ ...machines, authenticateDaemon: async frame => authenticateDaemon(frame) }).verifyDaemonSecret('wrong')).toBeNull()
   })
 })
 
@@ -240,6 +219,9 @@ describe('composition threads deployment identity explicitly', () => {
   it('derives fleet and durable-session namespaces from the constructor parameter', async () => {
     const store = await openTestStore(':memory:', HOST)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'blue' })
+    await store.machines.upsertMachine({ id: HOST, name: 'host', hostname: 'host', tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
+    await registry.modules.machines.attach(HOST, () => {})
 
     expect(registry.modules.machines.instanceId).toBe('blue')
     const { sessionId } = await registry.modules.sessions.createSession({
@@ -263,34 +245,17 @@ describe('composition threads deployment identity explicitly', () => {
 })
 
 describe('rows are attributed from birth — there is no placeholder phase', () => {
-  it('a session created before any daemon connects already names the host', async () => {
+  it('refuses implicit placement before any daemon is available without creating a session', async () => {
     const store = await openTestStore(':memory:', HOST)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await registry.modules.machines.ensureHostMachine('this-host', 'secret')
-
-    const { sessionId } = await registry.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/w',
-    })
-
-    expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.machineId,
-    ).toBe(HOST)
-    expect((await store.sessions.loadSessions())[0]?.machineId).toBe(HOST)
-    await store.close()
-  })
-
-  it('defaultMachine answers with the host even when its daemon is offline', async () => {
-    const store = await openTestStore(':memory:', HOST)
-    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await registry.modules.machines.ensureHostMachine('this-host', 'secret')
-
-    expect(await registry.modules.machines.defaultMachine()).toBe(HOST)
-    expect(registry.modules.machines.hasDaemon(HOST)).toBe(false)
-    // …and a connected remote takes precedence, so this is not a hard-coded answer.
-    registry.gateway.attachDaemon(asMachineId('remote-1'), () => {})
-    expect(await registry.modules.machines.defaultMachine()).toBe(asMachineId('remote-1'))
-    await store.close()
+    try {
+      await expect(registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' }))
+        .rejects.toThrow('no assigned and available daemon')
+      expect(await store.sessions.loadSessions()).toEqual([])
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
   })
 
   it('a durable session row cannot be written without a machine', async () => {

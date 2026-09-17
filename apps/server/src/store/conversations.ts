@@ -2,7 +2,6 @@
  * Memory persistence composition. No forwarding methods: consumers must name
  * whether they need summaries, stable identity, mirror cursors, or transcript FTS.
  */
-import type { MachineId } from '@podium/model'
 import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
@@ -17,15 +16,12 @@ export class ConversationsRepository {
 
   constructor(
     queries: StoreQueries,
-    /** This host's minted machine id — the machine a row this composition has to
-     *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
-    hostMachineId: MachineId,
   ) {
     // The sub-repositories of this aggregate are composed HERE and nowhere else,
     // so the one query capability this aggregate is handed is passed straight
     // down [POD-3254, spec rule 27b]. They take the same object for the same
     // reason: B1 fills it with the asynchronous pair and none of them changes.
-    this.index = new ConversationIndexRepository(queries, hostMachineId)
+    this.index = new ConversationIndexRepository(queries)
     this.registry = new ConversationRegistryRepository(queries)
     this.mirror = new TranscriptMirrorRepository(queries)
     this.transcriptIndex = new TranscriptIndexRepository(queries)

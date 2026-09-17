@@ -61,7 +61,7 @@ beforeEach(() => {
   probeStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
-  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, HOST, new TableWrites())
+  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, new TableWrites())
 })
 
 describe('ReposRepository.invalidateRegistry', () => {
@@ -163,12 +163,24 @@ describe('ReposRepository.repoIdResolver', () => {
     expect(resolve('/home/u/alphabet')).not.toBe(alpha)
   })
 
-  it('falls back to the (host machine, path) derivation for an unclaimed path', async () => {
+  it('requires an explicit machine to derive an unclaimed path', async () => {
     const resolve = await repos.repoIdResolver()
 
-    expect(resolve('/home/u/unregistered')).toBe(
+    expect(resolve('/home/u/unregistered')).toBeNull()
+    expect(resolve('/home/u/unregistered', HOST)).toBe(
       deriveRepoId({ machineId: HOST, path: '/home/u/unregistered' }),
     )
+  })
+
+  it('resolves identical paths against the caller machine', async () => {
+    const remote = asMachineId('machine-remote')
+    await repos.addRepo('/same', HOST, undefined, 'AA')
+    await repos.addRepo('/same', remote, undefined, 'BB')
+    const rows = await repos.listRepos()
+    const resolve = await repos.repoIdResolver()
+    expect(resolve('/same', HOST)).toBe(rows.find(r => r.machineId === HOST)?.repoId)
+    expect(resolve('/same', remote)).toBe(rows.find(r => r.machineId === remote)?.repoId)
+    expect(resolve('/same', HOST)).not.toBe(resolve('/same', remote))
   })
 
   it('normalizes a trailing slash on the path it is asked about', async () => {

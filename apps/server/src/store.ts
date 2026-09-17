@@ -370,17 +370,16 @@ export class SessionStore {
     )
     this.issues = new IssuesRepository(
       this.queries,
-      async (repoPath) => await this.repos.resolveRepoIdForPath(repoPath),
+      async (repoPath, machineId) => await this.repos.resolveRepoIdForPath(repoPath, machineId),
     )
     this.repos = new ReposRepository(
       this.queries,
       async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
-      this.hostMachineId,
       this.tableWrites,
     )
     this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
-    this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
+    this.conversations = new ConversationsRepository(this.queries)
     // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it
     // takes the narrow port the PACKAGE declares and `this.queries` satisfies
     // structurally — `StoreQueries`, the same inversion `syncServerTables` uses one

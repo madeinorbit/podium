@@ -309,7 +309,7 @@ export async function prepareDaemonFrame(
     connectionId: prepared.deps.connectionId,
     ...carried,
     machines: {
-      hostMachineId: prepared.deps.machines.hostMachineId,
+      serverPlacement: prepared.deps.machines.serverPlacement,
       authenticateDaemon(frame) {
         request = frame
         return { ok: false, reason: 'credential resolution pending' }

@@ -72,7 +72,7 @@ beforeEach(async () => {
   // constructor change [POD-3281, POD-3254]. (The executor's `legacy` field was
   // the original reason this held; POD-3263 deleted it and the handle is now the
   // only path, so the observation is more direct, not less.)
-  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, asMachineId(HOST), tableWrites)
+  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, tableWrites)
   await repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   await repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
@@ -128,9 +128,9 @@ describe('repo reads under a projection pass', () => {
 
     await repos.removeRepo('/home/u/alpha', asMachineId(HOST))
 
-    // With alpha gone the path no repo row claims falls back to a derived id,
-    // which is a DIFFERENT value — a stale cache would still return `before`.
-    expect(await repos.resolveRepoIdForPath('/home/u/alpha/x')).not.toBe(before)
+    // Removing the reporting repo withdraws its identity; a stale cache would retain it.
+    await expect(repos.resolveRepoIdForPath('/home/u/alpha/x')).rejects.toThrow('no reporting machine')
+    expect((await repos.repoIdResolver())('/home/u/alpha/x')).not.toBe(before)
     expect((await repos.listRepos()).map((r) => r.path)).not.toContain('/home/u/alpha')
   })
 

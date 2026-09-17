@@ -1,3 +1,4 @@
+import type { ServerPlacement } from '../updates/service'
 import { isAbsolute, join } from 'node:path'
 import type {
   AgentKind,
@@ -188,8 +189,8 @@ interface DaemonRpcDeps {
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  /** Durable identity of the machine hosting this server process. */
-  hostMachineId: MachineId
+  /** Explicit deployment placement; absence refuses local-machine operations. */
+  serverPlacement?: ServerPlacement
   defaultMachine(): MachineId | Promise<MachineId>
   resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   hasDaemon(machineId: MachineId): boolean
@@ -1669,7 +1670,13 @@ export class DaemonRpcService {
         errorCode: 'invalid-request',
       })
     const manifest = input.manifest as ServerTransferManifest
-    const sourceMachineId = this.deps.hostMachineId
+    const placement = this.deps.serverPlacement
+    if (placement?.kind !== 'fleet') return {
+      transferId: input.transferId, operation: 'prepare', ok: false, state: 'aborted',
+      error: 'server is external or its placement is unavailable; no source machine for transfer',
+      errorCode: 'identity-mismatch',
+    }
+    const sourceMachineId = placement.machineId
     if (
       manifest.transferId !== input.transferId ||
       manifest.sourceMachineId !== sourceMachineId ||
