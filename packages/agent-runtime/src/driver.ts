@@ -91,7 +91,11 @@ export interface AgentSessionHandle {
   // ---- Transcript (CORE) ----
   readonly transcript: {
     /** Live handle only; archive/lake reads are outside this contract. History
-     * cursors are opaque and distinct from observation cursors. */
+     * cursors are opaque and distinct from observation cursors.
+     * Identity contract: id is stable across re-reads of the same content and never
+     * derived from item text; use the harness UUID/provider identity first, otherwise
+     * record position plus item slot; cursor is an opaque position anchor consumers
+     * never decode. See TranscriptItem for the free-form session namespace rule. */
     history(range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] }): Promise<RuntimeHistoryPage>
   }
 

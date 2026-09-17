@@ -1063,6 +1063,41 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     // them, and a synthesized fragment agrees with whatever the test invented.
     // -----------------------------------------------------------------------
 
+    describe('transcript identity', () => {
+      it('replays stable unique ids for repeated text and reuses opaque page anchors', async () => {
+        const { handle, control, driver } = setup()
+        const declared = driver.capabilities().transcript
+        if (!declared.supported || !declared.value.history) return
+        const session = await handle
+        const text = 'identity witness: identical text at different positions'
+        for (let turn = 0; turn < 2; turn++) {
+          const before = await session.snapshot()
+          const receipt = await session.send({ text }, { origin: 'human', delivery: 'when-ready' })
+          expect(receipt.outcome).toBe('accepted')
+          await control.completeTurn(session.binding.sessionId)
+          const events = await drainUntil(session.events(before.cursor), (event) =>
+            event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed'))
+          expect(events.some((event) => event.t === 'turn')).toBe(true)
+        }
+        const first = await session.transcript.history({ limit: 100 })
+        const second = await session.transcript.history({ limit: 100 })
+        const ids = first.items.map((item) => item.id)
+        expect(ids.length).toBeGreaterThanOrEqual(2)
+        expect(ids.every((id) => id.length > 0)).toBe(true)
+        expect(second.items.map((item) => item.id)).toEqual(ids)
+        expect(new Set(ids).size).toBe(ids.length)
+        const repeated = first.items.filter((item) => item.role === 'user' && item.text === text)
+        expect(repeated).toHaveLength(2)
+        expect(new Set(repeated.map((item) => item.id)).size).toBe(2)
+        expect(first.head).toBeDefined()
+        expect(first.tail).toBeDefined()
+        const after = await session.transcript.history({ from: first.head, direction: 'after', limit: 100 })
+        const before = await session.transcript.history({ from: first.tail, direction: 'before', limit: 100 })
+        expect(after.items.map((item) => item.id)).toEqual(ids.slice(1))
+        expect(before.items.map((item) => item.id)).toEqual(ids.slice(0, -1))
+      })
+    })
+
     describe('fine watch — token fragments', () => {
       const CHUNKS = ['Hel', 'lo, ', 'world'] as const
       const WHOLE = CHUNKS.join('')

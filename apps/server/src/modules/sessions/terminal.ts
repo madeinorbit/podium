@@ -47,9 +47,9 @@ function submitsCommandLine(bytes: Uint8Array): boolean {
 }
 
 /**
- * Merge logical transcript rows by either stable alias. Providers may preserve
- * an id while rotating a cursor, or preserve a cursor while deriving a new id;
- * either match identifies the same row. A disjoint-set pass joins aliases in
+ * Merge logical transcript rows by item.id, the stable identity contract.
+ * Cursor aliases are a compatibility safety net for previously emitted rows;
+ * cursor rotation never changes item identity. A disjoint-set pass joins aliases in
  * near-linear time, including a bridge item that connects two former roots.
  *
  * Complete rows are ordered by their real event timestamps. A missing/invalid
@@ -119,6 +119,9 @@ export function mergeTranscriptItems(
       if (prior !== undefined) union(index, prior)
       byId.set(id, index)
     }
+  }
+  // Resolve primary identities first. Cursor aliases only bridge remaining roots.
+  for (const [index, itemAliases] of aliases.entries()) {
     for (const cursor of itemAliases.cursors) {
       const prior = byCursor.get(cursor)
       if (prior !== undefined) union(index, prior)
@@ -158,8 +161,7 @@ export function mergeTranscriptItems(
     if (aTimestamp === undefined && bTimestamp !== undefined) return -1
     if (aTimestamp !== undefined && bTimestamp === undefined) return 1
     if (a.order !== b.order) return a.order - b.order
-    const cursorOrder = (a.item.cursor ?? '').localeCompare(b.item.cursor ?? '')
-    return cursorOrder !== 0 ? cursorOrder : a.item.id.localeCompare(b.item.id)
+    return a.item.id.localeCompare(b.item.id)
   })
   const result = merged.map(({ item }) => item)
   return result.length > limit ? result.slice(-limit) : result

@@ -76,15 +76,28 @@ export const TranscriptToolEffect = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unknown'), key: z.string() }),
 ])
 
+/**
+ * Identity contract: id is stable across re-reads of the same content and never
+ * derived from item text; use the harness UUID/provider identity first, otherwise
+ * record position plus item slot; cursor is an opaque position anchor consumers
+ * never decode.
+ *
+ * The cursor producer's fileId is a free-form session namespace string, not a
+ * fixed-width token or a storage path. Hashes and provider-prefixed namespaces
+ * are both valid: equality within the same session/generation is the contract,
+ * not length or readable structure. Archives have distinct generation namespaces.
+ * UUID-bearing anchors survive rewrites; byte offsets are seek hints. Without a
+ * UUID, position is authoritative. Paging and stream identities are distinct;
+ * delta/complete consumers join through streamItemIdOf, never cursor arithmetic.
+ */
 export const TranscriptItem = z.object({
   /** UNBRANDED: harness-derived and, for some items, SYNTHESIZED by the daemon
    *  parser rather than minted by us — the schema says so two lines down. A
    *  transcript item is per-session detail, not a replicated entity, so it has no
    *  brand and no `MetadataEntityKind` membership. */
   id: z.string(),
-  /** Opaque, daemon-defined position anchor for read-from/subscribe-since paging.
-   *  Stable across re-reads of the same file bytes (unlike `id`, which is
-   *  synthesized for some items). The client treats it as opaque. */
+  /** Opaque position anchor for read-from/subscribe-since paging. Stable across
+   *  re-reads of the same bytes in the same session namespace, independent of path. */
   cursor: z.string().optional(),
   role: TranscriptRole,
   ts: z.string().optional(), // ISO 8601
