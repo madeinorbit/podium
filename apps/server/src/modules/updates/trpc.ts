@@ -1,3 +1,4 @@
+import type { ServerPlacement } from './service'
 import type { PrepareCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
@@ -35,6 +36,11 @@ import {
 } from './wave'
 
 const log = createLogger('server:updates')
+
+function serverPlacementOf(ctx: Context): ServerPlacement {
+  if (!ctx.serverPlacement) throw new Error('Server placement is not configured for updates')
+  return ctx.serverPlacement
+}
 
 const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
 const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
@@ -191,10 +197,10 @@ export interface UpdateFleetSnapshot {
  */
 export async function fleetSnapshot(
   updates: UpdatesService,
+  serverPlacement: ServerPlacement,
   reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
-  hostMachineId?: string,
 ): Promise<UpdateFleetSnapshot> {
-  const channel = await updates.operationChannel(hostMachineId)
+  const channel = await updates.operationChannel(serverPlacement)
   const allMachines = (await updates.fleet()).map((machine) => {
     const convergedBy = reconciler?.convergedBy(machine)
     return {
@@ -285,7 +291,7 @@ export function updateOperationContext(input: {
   appVersion: () => string
   sourceDigest?: () => string | undefined
   serverInstallKind?: 'installed' | 'source'
-  hostMachineId?: string
+  serverPlacement: ServerPlacement
   desktopSupervised?: boolean
   surface?: UpdateSurface
   onlyMachines?: readonly string[]
@@ -318,7 +324,7 @@ export function updateOperationContext(input: {
     appVersion: input.appVersion,
     ...(input.sourceDigest ? { sourceDigest: input.sourceDigest } : {}),
     ...(input.serverInstallKind ? { serverInstallKind: input.serverInstallKind } : {}),
-    ...(input.hostMachineId ? { hostMachineId: input.hostMachineId } : {}),
+    serverPlacement: input.serverPlacement,
     ...(input.desktopSupervised ? { desktopSupervised: true } : {}),
     ...(input.surface ? { surface: input.surface } : {}),
     ...(input.onlyMachines ? { onlyMachines: input.onlyMachines } : {}),
@@ -376,11 +382,11 @@ async function contextFor(
     // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
     // no operation at all. A machine pinned elsewhere still keeps its own
     // per-row action (POD-2100).
-    channel: await state.modules.updates.operationChannel(state.store.hostMachineId),
+    channel: await state.modules.updates.operationChannel(serverPlacementOf(ctx)),
     appVersion: serverBuildVersion,
     sourceDigest: serverBuildSourceDigest,
     ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
-    hostMachineId: state.store.hostMachineId,
+    serverPlacement: serverPlacementOf(ctx),
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
     createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
@@ -624,14 +630,14 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const updates = state.modules.updates
   const fleet = await fleetSnapshot(
     updates,
+    serverPlacementOf(ctx),
     state.modules.updatesReconciler,
-    state.store.hostMachineId,
   )
   const preparation = ctx.updatePreparation?.()
   const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   // The queued version belongs to the same authority as the counts above: a dev
   // publication is not what a stable host is waiting its turn for (POD-2222).
-  const hostChannel = await updates.operationChannel(state.store.hostMachineId)
+  const hostChannel = await updates.operationChannel(serverPlacementOf(ctx))
   const queued = updates.nextTarget(hostChannel)
   const target = updates.target(hostChannel)
   const startability = target
@@ -679,7 +685,7 @@ async function legacyConvergeResult(
   updates: UpdatesService,
   operation: Operation | null,
   fallbackVersion: string,
-  hostMachineId?: string,
+  serverPlacement: ServerPlacement,
 ): Promise<{
   state: 'in-progress'
   version: string
@@ -691,7 +697,7 @@ async function legacyConvergeResult(
 }> {
   const steps = operation?.steps ?? []
   const done = steps.filter((step) => step.state === 'done' || step.state === 'skipped').length
-  const fleet = await fleetSnapshot(updates, undefined, hostMachineId)
+  const fleet = await fleetSnapshot(updates, serverPlacement)
   return {
     state: 'in-progress',
     version:
@@ -863,7 +869,7 @@ export function updateProcedures() {
         state.modules.updates,
         operation,
         serverBuildVersion(),
-        state.store.hostMachineId,
+        serverPlacementOf(ctx),
       )
     }),
   }

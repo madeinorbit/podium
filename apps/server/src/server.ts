@@ -148,6 +148,7 @@ import {
 } from './modules/updates/installed-restart'
 import { startLocalUpdateParticipant } from './modules/updates/local-participant'
 import type { UpdateReality } from './modules/updates/operation'
+import type { ServerPlacement } from './modules/updates/service'
 import type { ChannelFeed } from './modules/updates/release-target'
 import {
   readOrCreateDevArtifactToken,
@@ -624,6 +625,9 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
+  // This composition is self-hosted. Hosted composition supplies external placement
+  // without choosing a fleet member or deriving placement from update policy.
+  const serverPlacement: ServerPlacement = { kind: 'fleet', machineId: hostMachineId }
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
@@ -1102,11 +1106,11 @@ export async function startServer(
       // `UpdatesService.operationChannel`. This root is the ADOPTION path, so a
       // literal here also decided which channel a resumed operation was read
       // back against.
-      channel: await registry.modules.updates.operationChannel(hostMachineId),
+      channel: await registry.modules.updates.operationChannel(serverPlacement),
       appVersion: () => appVersion,
       sourceDigest: serverBuildSourceDigest,
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
-      hostMachineId,
+      serverPlacement,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       createDatabaseSnapshot: (from, target) =>
         registry.sessionStore.snapshotBeforeUpdate(from, target),
@@ -1426,7 +1430,7 @@ export async function startServer(
     // A source checkout's HEAD is a RELEASE PROPOSAL, not an update target.
     // Only a manifest already published into the feed may become the normal
     // update offer returned here.
-    updateTarget: async () => registry.modules.updates.advertisedTarget(hostMachineId),
+    updateTarget: async () => registry.modules.updates.advertisedTarget(serverPlacement),
     mobileWeb: () => servedWebIdentity(phoneWebDir()),
     web: () => servedWebIdentity(desktopWebDir()),
     /**
@@ -1818,6 +1822,7 @@ export async function startServer(
           ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
           ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
           serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+          serverPlacement,
           // POD-2766: `setup.activate` — the restart an operator can reach while
           // the data plane is blocked — reads this live and refuses any instance
           // that is not activation-pending, so it never becomes a bounce lever.

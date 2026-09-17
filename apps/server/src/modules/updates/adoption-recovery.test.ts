@@ -76,6 +76,7 @@ async function fixture() {
         updates: registry.modules.updates,
         operations: registry.modules.operations,
         channel: 'dev',
+        serverPlacement: { kind: 'external' },
         appVersion: () => target.version,
         onlyMachines: ids,
         createDatabaseSnapshot: () => {

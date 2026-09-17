@@ -50,6 +50,7 @@ const target: UpdateTarget = {
 }
 const context: UpdateOperationContext = {
   updates,
+  serverPlacement: { kind: 'external' },
   channel: 'dev',
   appVersion: () => target.version,
   onlyMachines: [machineId],

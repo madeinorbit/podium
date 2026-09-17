@@ -44,6 +44,10 @@ const WAVE_CONTINUATION_CAUSE: GrantCause = {
   eligibility: 'an authorized wave widened after a machine proved this target',
 }
 
+export type ServerPlacement =
+  | { kind: 'fleet'; machineId: string }
+  | { kind: 'external' }
+
 export interface UpdatesDeps {
   /** Synchronous checkpoint: execution authority must survive before dispatch. */
   recovery?: UpdateRecoveryPersistence
@@ -2063,9 +2067,9 @@ export class UpdatesService {
    * elsewhere are scoped out at plan time and keep their own per-row action and
    * the standing reconciliation. What is fixed here is only *which* authority.
    */
-  async operationChannel(hostMachineId?: string): Promise<UpdateChannel> {
-    const host = hostMachineId
-      ? (await this.deps.machines()).find((candidate) => candidate.id === hostMachineId)
+  async operationChannel(serverPlacement: ServerPlacement): Promise<UpdateChannel> {
+    const host = serverPlacement.kind === 'fleet'
+      ? (await this.deps.machines()).find((candidate) => candidate.id === serverPlacement.machineId)
       : undefined
     return host ? this.channelOf(host) : this.fleetDefaultChannel()
   }
@@ -2091,8 +2095,8 @@ export class UpdatesService {
    * proposal until an admin builds and publishes it. Only the standing target
    * pulled from that channel's feed can become an offer.
    */
-  async advertisedTarget(hostMachineId?: string): Promise<UpdateTarget | undefined> {
-    const channel = await this.operationChannel(hostMachineId)
+  async advertisedTarget(serverPlacement: ServerPlacement): Promise<UpdateTarget | undefined> {
+    const channel = await this.operationChannel(serverPlacement)
     const raw = this.target(channel)
     return raw ? withoutArtifactCredentials(raw) : undefined
   }

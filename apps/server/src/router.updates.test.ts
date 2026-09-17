@@ -105,6 +105,7 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
         ? () => opts.servedWebDigest as string
         : undefined
   const caller = appRouter.createCaller({
+    serverPlacement: { kind: 'fleet', machineId: hostMachineId },
     registry,
     repos,
     superagent,
@@ -621,7 +622,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
 
     const fleet = await caller.updates.fleet()
     const channel = await registry.modules.updates.operationChannel(
-      registry.sessionStore.hostMachineId,
+      { kind: 'fleet', machineId: registry.sessionStore.hostMachineId },
     )
 
     expect(channel).toBe('stable')

@@ -156,6 +156,7 @@ const planInput = (over: Partial<UpdatePlanInput> = {}): UpdatePlanInput => ({
   target: devTarget(),
   channel: 'dev',
   fleet: [],
+  serverPlacement: { kind: 'fleet', machineId: 'test-server' },
   channelOf: () => 'dev',
   appVersion: '0.4.1',
   servedWebDigest: 'older99',
@@ -178,6 +179,36 @@ describe('planUpdateOperation', () => {
    */
   const rows: Array<{ name: string; input: Partial<UpdatePlanInput>; steps: string[] }> = [
     {
+      name: 'an external server with no host updates only the fleet despite restart capabilities',
+      input: {
+        serverPlacement: { kind: 'external' },
+        target: packedTarget(),
+        fleet: [machine({ id: 'remote' })],
+      },
+      steps: [UPDATE_STEP_MACHINES],
+    },
+    {
+      name: 'an external server with no machines never updates its own server or website',
+      input: { serverPlacement: { kind: 'external' }, target: packedTarget() },
+      steps: [],
+    },
+    {
+      name: 'an external server can prepare a fleet delivery without replacing itself',
+      input: { serverPlacement: { kind: 'external' }, fleet: [machine({ id: 'remote' })] },
+      steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES],
+    },
+    {
+      name: 'a self-hosted server absent from the directory still follows its machines',
+      input: {
+        serverPlacement: { kind: 'fleet', machineId: 'host' },
+        target: packedTarget(),
+        fleet: [machine({ id: 'remote' })],
+        servedWebDigest: WEB_DIGEST,
+      },
+      steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER],
+    },
+
+    {
       name: 'a dev identity behind everywhere plans all four steps, in dependency order',
       input: { fleet: [machine({ id: 'vmi' })] },
       steps: [UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES, UPDATE_STEP_SERVER, UPDATE_STEP_WEB],
@@ -191,7 +222,7 @@ describe('planUpdateOperation', () => {
       name: 'a parent-backed host participates once in the fleet instead of a server step',
       input: {
         target: packedTarget(),
-        hostMachineId: 'host',
+        serverPlacement: { kind: 'fleet', machineId: 'host' },
         fleet: [machine({ id: 'host', installKind: 'installed', online: true })],
       },
       steps: [UPDATE_STEP_MACHINES],
@@ -655,7 +686,7 @@ describe('planUpdateOperation', () => {
   it('plans an all-in-one payload through the machine step without a desktop ask', async () => {
     const plan = planUpdateOperation(
       planInput({
-        hostMachineId: 'macbook',
+        serverPlacement: { kind: 'fleet', machineId: 'macbook' },
         fleet: [
           machine({
             id: 'macbook',
@@ -673,7 +704,7 @@ describe('planUpdateOperation', () => {
   it('updates the all-in-one host alongside its other connected machines', async () => {
     const plan = planUpdateOperation(
       planInput({
-        hostMachineId: 'macbook',
+        serverPlacement: { kind: 'fleet', machineId: 'macbook' },
         fleet: [
           machine({
             id: 'macbook',
@@ -699,7 +730,7 @@ describe('planUpdateOperation', () => {
   it('plans the coordinator server step after the fleet when its desktop host is absent', () => {
     const plan = planUpdateOperation(
       planInput({
-        hostMachineId: 'desktop-server',
+        serverPlacement: { kind: 'fleet', machineId: 'desktop-server' },
         desktopSupervised: true,
         fleet: [machine({ id: 'linux-a', name: 'linux-a' })],
       }),
@@ -726,7 +757,7 @@ describe('planUpdateOperation', () => {
     ]) {
       const plan = planUpdateOperation(
         planInput({
-          hostMachineId: host.id,
+          serverPlacement: { kind: 'fleet', machineId: host.id },
           fleet: [host],
         }),
       )
@@ -1322,7 +1353,7 @@ interface HarnessOptions {
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
-  hostMachineId?: string
+  serverPlacement?: UpdateOperationContext['serverPlacement']
   /** POD-2101: how often a watched step says it is still there. */
   heartbeatIntervalMs?: number
 }
@@ -1416,7 +1447,7 @@ async function harness(options: HarnessOptions = {}) {
     updates: service,
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
-    ...(options.hostMachineId ? { hostMachineId: options.hostMachineId } : {}),
+    serverPlacement: options.serverPlacement ?? { kind: 'fleet', machineId: 'test-server' },
     createDatabaseSnapshot: async (from, target) =>
       options.createDatabaseSnapshot
         ? options.createDatabaseSnapshot(from, target)
@@ -1595,7 +1626,7 @@ describe('the update operation, driven', () => {
   it('keeps an all-in-one operation running on its ordinary machine step', async () => {
     const h = await harness({
       machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
-      hostMachineId: 'macbook',
+      serverPlacement: { kind: 'fleet', machineId: 'macbook' },
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
     })
@@ -1617,7 +1648,7 @@ describe('the update operation, driven', () => {
           name: 'macbook',
         }),
       ],
-      hostMachineId: 'macbook',
+      serverPlacement: { kind: 'fleet', machineId: 'macbook' },
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
     })
@@ -1710,6 +1741,31 @@ describe('the update operation, driven', () => {
 })
 
 describe('the step runners', () => {
+  it('does not restart an external server when resuming an old server step', async () => {
+    const restart = vi.fn()
+    const snapshot = vi.fn(() => '/unused-snapshot')
+    const prepare = vi.fn()
+    const h = await harness({
+      serverPlacement: { kind: 'external' },
+      target: packedTarget(),
+      requestCoordinatorRestart: restart,
+      createDatabaseSnapshot: snapshot,
+      prepareCoordinatorUpdate: prepare,
+    })
+    const step = { id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'running' as const }
+    const operation: Operation = {
+      id: 'old-fleet-operation', kind: UPDATE_OPERATION_KIND, state: 'running',
+      details: { target: packedTarget(), channel: 'dev' }, steps: [step],
+    }
+    const outcome = await updateOperationKind().runners[UPDATE_STEP_SERVER]!.ensure({
+      operation, step, context: h.context(),
+    })
+    expect(outcome).toEqual({ state: 'skipped' })
+    expect(restart).not.toHaveBeenCalled()
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(prepare).not.toHaveBeenCalled()
+  })
+
   it('prepare: packs once however many times ensure() runs', async () => {
     let resolvePack: (() => void) | undefined
     const requestDestBundle = vi.fn(
@@ -1826,6 +1882,8 @@ describe('the step runners', () => {
     const order: string[] = []
     const h = await harness({
       machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async (target) => {
@@ -1851,6 +1909,8 @@ describe('the step runners', () => {
     const restart = vi.fn()
     const h = await harness({
       machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async () => {
@@ -1873,6 +1933,8 @@ describe('the step runners', () => {
   it('server: reports missing supervisor control without claiming a download failed', async () => {
     const h = await harness({
       machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async () => {
@@ -1902,6 +1964,8 @@ describe('the step runners', () => {
     const restart = vi.fn()
     const h = await harness({
       machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async () => {
@@ -1930,6 +1994,8 @@ describe('the step runners', () => {
     const restart = vi.fn()
     const h = await harness({
       machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       prepareCoordinatorUpdate: async () => {
@@ -2244,7 +2310,7 @@ describe('the step runners', () => {
       appVersion: '0.4.1',
       servedWebDigest: () => WEB_DIGEST,
       requestCoordinatorRestart: vi.fn(),
-      hostMachineId: 'podium',
+      serverPlacement: { kind: 'fleet', machineId: 'podium' },
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
@@ -2668,7 +2734,7 @@ describe('surviving the coordinator restart', () => {
   async function restartAllInOneAt(appVersion: string) {
     const h = await harness({
       machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
-      hostMachineId: 'macbook',
+      serverPlacement: { kind: 'fleet', machineId: 'macbook' },
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
     })
@@ -4607,7 +4673,7 @@ describe('coordinator snapshot activation boundary', () => {
       runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
     })!
     const h = await harness({
-      machines: fleet, target, hostMachineId: 'host', durableRecovery: true,
+      machines: fleet, target, serverPlacement: { kind: 'fleet', machineId: 'host' }, durableRecovery: true,
       approvedTarget: async () => approved, servedWebDigest: () => WEB_DIGEST,
       legacyTransferActive: () => transfer,
       prepareCoordinatorUpdate: async (target, grant) => {

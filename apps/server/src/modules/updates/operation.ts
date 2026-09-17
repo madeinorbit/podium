@@ -1,3 +1,4 @@
+import type { ServerPlacement } from './service'
 import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
@@ -762,8 +763,8 @@ export interface UpdatePlanInput {
   canRestartServer: boolean
   /** Newest verified restore point, when one already exists. */
   databaseSnapshotPath?: string
-  /** THIS host's machine id, so its own row can be recognised. */
-  hostMachineId?: string
+  /** Whether this server is a fleet update participant or an external service. */
+  serverPlacement: ServerPlacement
   /** The coordinating server runs below a native crash-supervisor frame. */
   desktopSupervised?: boolean
   surface?: UpdateSurface
@@ -995,8 +996,9 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   // A source process can rebuild its own current checkout, but it cannot swap
   // to a package for a different checkout. The operator owns that transition.
   const sourceCannotTakeTarget = input.serverInstallKind === 'source' && serverDiffers
-  const host = input.hostMachineId
-    ? input.fleet.find((machine) => machine.id === input.hostMachineId)
+  const placement = input.serverPlacement
+  const host = placement.kind === 'fleet'
+    ? input.fleet.find((machine) => machine.id === placement.machineId)
     : undefined
   // Crash ownership is a local runtime fact, never persisted fleet policy.
   const desktopHosted = input.desktopSupervised === true
@@ -1079,8 +1081,9 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   }
 
   if (
+    input.serverPlacement.kind === 'fleet' &&
     !hostUpdatesThroughFleet &&
-    (input.onlyMachines === undefined || (input.hostMachineId !== undefined && input.onlyMachines.includes(input.hostMachineId))) &&
+    (input.onlyMachines === undefined || input.onlyMachines.includes(input.serverPlacement.machineId)) &&
     input.serverInstallKind !== 'source' &&
     serverDiffers &&
     input.canRestartServer
@@ -1095,6 +1098,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const expectedWeb = target.artifacts.web?.digest
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   if (
+    input.serverPlacement.kind === 'fleet' &&
     !desktopHosted &&
     !hostUpdatesThroughFleet &&
     !sourceCannotTakeTarget &&
@@ -1393,8 +1397,8 @@ export interface UpdateOperationContext {
   sourceDigest?: () => string | undefined
   /** Explicit process install shape; absent remains unknown and actionable. */
   serverInstallKind?: 'installed' | 'source'
-  /** THIS host's machine id — how an all-in-one installation recognises itself. */
-  hostMachineId?: string
+  /** Explicit server placement supplied by composition. */
+  serverPlacement: ServerPlacement
   /** The coordinating server is a child of, and replaced by, Podium Desktop. */
   desktopSupervised?: boolean
   surface?: UpdateSurface
@@ -1787,9 +1791,11 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
   },
 }
 
+type MachineProgressContext = Pick<UpdateOperationContext, 'updates' | 'now' | 'recordOperationDetails'>
+
 async function writeWaveRounds(
   operation: Operation,
-  context: UpdateOperationContext,
+  context: MachineProgressContext,
 ): Promise<void> {
   const rounds = mergedWaveRounds(operation, context.updates)
   // Awaited: this is the last instant before the answer goes back to the engine,
@@ -1807,8 +1813,8 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
   if (context.legacyTransferActive?.()) {
     return { state: 'failed', error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }) }
   }
-  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
-    const hostId = context.hostMachineId
+  if (context.serverPlacement.kind === 'fleet' && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    const hostId = context.serverPlacement.machineId
     // A host absent at plan time belongs to the later server step. Holding it
     // here prevents auto-ticks on attach from racing that step's snapshot.
     if ((step.places ?? []).some((place) => place.id === hostId)) {
@@ -1979,7 +1985,7 @@ function clockPlace(carried: StepPlace, projected: StepPlace, now: number): Step
 export async function projectMachines(
   operation: Operation,
   step: OperationStep,
-  context: UpdateOperationContext,
+  context: MachineProgressContext,
 ): Promise<{ places: StepPlace[]; progress: { done: number; total: number } }> {
   const details = updateOperationDetails(operation)
   const targetVersion = details?.target.version
@@ -2151,7 +2157,7 @@ export function describeUpdateStall(input: {
 async function settleMachines(
   operation: Operation,
   step: OperationStep,
-  context: UpdateOperationContext,
+  context: MachineProgressContext,
 ): Promise<(StepOutcome & { state: 'done' | 'failed' }) | undefined> {
   const { places, progress } = await projectMachines(operation, step, context)
   const failedPlaces = places.filter(
@@ -2199,10 +2205,11 @@ async function settleMachines(
 const serverRunner: StepRunner<UpdateOperationContext> = {
   reversible: false,
   ensure: async ({ operation, context }) => {
+    if (context.serverPlacement.kind === 'external') return { state: 'skipped' }
     const details = updateOperationDetails(operation)
-    if (context.hostMachineId && context.prepareCoordinatorUpdate && details &&
+    if (context.prepareCoordinatorUpdate && details &&
         context.appVersion() !== details.target.version) {
-      const hostId = context.hostMachineId
+      const hostId = context.serverPlacement.machineId
       let replacement: Promise<StepOutcome> | undefined
       // BOTH AWAITED BEFORE `replacement` IS READ. `replacement` is assigned by
       // the dispatch callback, and dispatch only runs after these two have
@@ -2259,6 +2266,7 @@ async function runCoordinatorReplacement(
   stepId: string,
   grant?: UpdateGrantMessage,
 ): Promise<StepOutcome> {
+  if (context.serverPlacement.kind === 'external') return { state: 'skipped' }
   const originalDetails = updateOperationDetails(operation)
   const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
   const active = async () =>
@@ -2266,8 +2274,8 @@ async function runCoordinatorReplacement(
     (await context.stepActive?.(operation.id, stepId)) !== false &&
     context.legacyTransferActive?.() !== true &&
     (!grant ||
-      (context.hostMachineId !== undefined &&
-        (await context.updates.coordinatorGrantActive(context.hostMachineId, grant))))
+      (context.serverPlacement.kind === 'fleet' &&
+        (await context.updates.coordinatorGrantActive(context.serverPlacement.machineId, grant))))
   if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
   if (grant && grant.target.version !== originalDetails?.target.version)
@@ -2683,10 +2691,8 @@ export function createUpdateFleetBridge(deps: {
       if (!step || isFinishedStep(step) || step.state === 'pending') return
       const details = updateOperationDetails(row.operation)
       if (!details) return
-      const context: UpdateOperationContext = {
+      const context: MachineProgressContext = {
         updates: deps.updates,
-        channel: details.channel,
-        appVersion: () => details.fromVersion ?? '',
         ...(deps.now ? { now: deps.now } : {}),
         recordOperationDetails: async (id, patch) => {
           await deps.engine.recordDetails(id, patch)
@@ -2923,8 +2929,8 @@ export function supersededDeferredPlaces(
  * never shown as an error).
  */
 export async function planInputFrom(context: UpdateOperationContext): Promise<UpdatePlanInput> {
-  if (context.hostMachineId && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
-    context.updates.reserveCoordinatorUpdate(context.hostMachineId)
+  if (context.serverPlacement.kind === 'fleet' && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+    context.updates.reserveCoordinatorUpdate(context.serverPlacement.machineId)
   }
   const target = context.updates.target(context.channel)
   if (!target) throw new Error(`no ${context.channel} update target is published`)
@@ -2941,7 +2947,7 @@ export async function planInputFrom(context: UpdateOperationContext): Promise<Up
     canRebuildWeb: context.requestWebRebuild !== undefined,
     databaseSnapshotPath: context.latestDatabaseSnapshot?.(),
     canRestartServer: context.requestCoordinatorRestart !== undefined,
-    ...(context.hostMachineId ? { hostMachineId: context.hostMachineId } : {}),
+    serverPlacement: context.serverPlacement,
     ...(context.desktopSupervised ? { desktopSupervised: true } : {}),
     ...(context.surface ? { surface: context.surface } : {}),
     ...(context.onlyMachines ? { onlyMachines: context.onlyMachines } : {}),

@@ -1,3 +1,4 @@
+import type { ServerPlacement } from './modules/updates/service'
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
@@ -90,6 +91,8 @@ export interface Context {
   requestCoordinatorRestart?: () => void | Promise<void>
   /** This coordinator's own install shape; absent remains unknown and visible. */
   serverInstallKind?: 'installed' | 'source'
+  /** Required by updater endpoints; supplied by server composition. */
+  serverPlacement?: ServerPlacement
   /** This deployment's lifecycle projection, read live (POD-2766). `setup.activate`
    *  needs it to refuse an instance that is not actually activation-pending, which
    *  is what keeps a control-plane restart from being a remote bounce lever. */

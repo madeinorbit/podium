@@ -233,7 +233,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       channel: 'dev',
       appVersion: () => version,
       serverInstallKind: 'installed',
-      hostMachineId: 'coordinator',
+      serverPlacement: { kind: 'fleet', machineId: 'coordinator' },
       onlyMachines: ['coordinator'],
       prepareCoordinatorUpdate: createInstalledCoordinatorUpdate({
         runtimeDir,

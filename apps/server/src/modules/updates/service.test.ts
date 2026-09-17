@@ -1914,20 +1914,25 @@ describe('UpdatesService.operationChannel', () => {
    */
   it('is the shipped fleet default, not dev, when nothing is pinned', async () => {
     const svc = shipped([m('host'), m('vps')])
-    expect(await svc.operationChannel('host')).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
-    expect(await svc.operationChannel('host')).not.toBe('dev')
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe(DEFAULT_FLEET_UPDATE_CHANNEL)
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).not.toBe('dev')
+  })
+
+  it('uses the fleet default for external placement without adopting a machine pin', async () => {
+    const svc = shipped([m('remote', { channel: 'dev' })], 'edge')
+    expect(await svc.operationChannel({ kind: 'external' })).toBe('edge')
   })
 
   it("follows the host's own pin", async () => {
     const svc = shipped([m('host', { channel: 'edge' }), m('vps', { channel: 'stable' })])
-    expect(await svc.operationChannel('host')).toBe('edge')
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe('edge')
   })
 
   /** A development coordinator still gets a dev operation — the previous
    *  behaviour was not wrong, it was only ever right for one fleet. */
   it('still answers dev where dev is what this installation follows', async () => {
     const svc = shipped([m('host')], 'dev')
-    expect(await svc.operationChannel('host')).toBe('dev')
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe('dev')
   })
 
   /**
@@ -1938,8 +1943,8 @@ describe('UpdatesService.operationChannel', () => {
    */
   it('falls back to the fleet default when the host is not in the directory yet', async () => {
     const svc = shipped([], 'edge')
-    expect(await svc.operationChannel('host')).toBe('edge')
-    expect(await svc.operationChannel(undefined)).toBe('edge')
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe('edge')
+    expect(await svc.operationChannel({ kind: 'external' })).toBe('edge')
   })
 
   /** One answer, not two (POD-2100): this must agree with the authority that
@@ -1947,7 +1952,7 @@ describe('UpdatesService.operationChannel', () => {
   it('agrees with channelOf for the host row', async () => {
     const host = m('host', { channel: 'stable' })
     const svc = shipped([host], 'dev')
-    expect(await svc.operationChannel('host')).toBe(svc.channelOf(host as never))
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe(svc.channelOf(host as never))
   })
 })
 
@@ -1985,7 +1990,7 @@ describe('UpdatesService.advertisedTarget', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
     svc.setTarget('stable', t('0.1.3'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
+    expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
   })
 
   it('does not let a development feed speak for a stable-pinned host', async () => {
@@ -1993,7 +1998,7 @@ describe('UpdatesService.advertisedTarget', () => {
     svc.setTarget('stable', t('0.1.3'))
     svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
+    expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
   })
 
   it('advertises only a feed-published development target on a dev-pinned host', async () => {
@@ -2016,14 +2021,14 @@ describe('UpdatesService.advertisedTarget', () => {
       },
     } as unknown as never
     svc.setTarget('dev', packed)
-    const advertised = (await svc.advertisedTarget('host'))
+    const advertised = (await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))
     expect(advertised?.artifacts.headless).toBeDefined()
     expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
   })
 
   it('advertises no update when HEAD has only a pre-release proposal', async () => {
     const svc = shipped([m('host', { channel: 'dev' })])
-    expect(await svc.advertisedTarget('host')).toBeUndefined()
+    expect(await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })).toBeUndefined()
   })
 
   /**
@@ -2052,7 +2057,7 @@ describe('UpdatesService.advertisedTarget', () => {
     const svc = shipped([m('host', { channel: 'dev' })])
     svc.setTarget('dev', packed)
 
-    const advertised = (await svc.advertisedTarget('host'))
+    const advertised = (await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))
     const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
     expect(advertisedUrl).toBeDefined()
     expect(advertisedUrl).not.toContain('token=')
@@ -2067,7 +2072,7 @@ describe('UpdatesService.advertisedTarget', () => {
     svc.setTarget('edge', t('0.2.0'))
     svc.setTarget('dev', t('dev+aaaaaaa'))
 
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.2.0')
+    expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.2.0')
   })
 
   /**
@@ -2079,9 +2084,9 @@ describe('UpdatesService.advertisedTarget', () => {
     const svc = shipped([], 'stable')
     svc.setTarget('stable', t('0.1.3'))
 
-    expect(await svc.operationChannel('host')).toBe('stable')
-    expect((await svc.advertisedTarget('host'))?.version).toBe('0.1.3')
-    expect((await svc.advertisedTarget(undefined))?.version).toBe('0.1.3')
+    expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe('stable')
+    expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
+    expect((await svc.advertisedTarget({ kind: 'external' }))?.version).toBe('0.1.3')
   })
 
   /** Nothing published on the host's authority is still nothing: an absent
@@ -2090,7 +2095,7 @@ describe('UpdatesService.advertisedTarget', () => {
     const svc = shipped([m('host', { channel: 'stable' })])
     svc.setTarget('dev', t('dev+aaaaaaa'))
 
-    expect(await svc.advertisedTarget('host')).toBeUndefined()
+    expect(await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })).toBeUndefined()
   })
 })
 
