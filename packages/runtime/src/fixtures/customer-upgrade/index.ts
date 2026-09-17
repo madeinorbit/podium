@@ -14,9 +14,10 @@ import daemonBindings from './daemon-bindings.json'
 import daemonReceipts from './daemon-receipts.json'
 import localStorage from './local-storage.json'
 import manifest from './manifest.json'
+import serverReleaseMigrations from './server-release-migrations.json'
 import serverRows from './server-rows.json'
 
-export { daemonBindings, daemonReceipts, localStorage, manifest, serverRows }
+export { daemonBindings, daemonReceipts, localStorage, manifest, serverReleaseMigrations, serverRows }
 
 /** The ledger exactly as found on the customer's disk (sanitised), newline-terminated. */
 export const enrollmentLedger = readFileSync(new URL('./enrollment.ledger', import.meta.url), 'utf8')

@@ -7,12 +7,11 @@
  * incident left it (root cause 2, 2026-09-14): the device is full, so the
  * successor's first marker write throws QuotaExceededError. The storage here
  * counts bytes and throws exactly like a browser at its quota; nothing about
- * the namespace policy is replaced. The successor principal is the member the
- * upgraded database mints, read from the shared fixture's server arm contract
- * rather than typed here.
+ * the namespace policy is replaced. The successor principal is a member id
+ * minted by the same minter the retirement migration uses, never a literal.
  */
 
-import { firstAdminMemberId } from '@podium/model'
+import { newMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { localStorage as captured, manifest } from '../../../runtime/src/fixtures/customer-upgrade'
 import type { StorageApi } from './contract'
@@ -20,13 +19,15 @@ import {
   inspectPrincipalNamespaces,
   preparePrincipalNamespace,
   principalKeyPrefix,
-} from '../principal-storage'
+} from './principal-storage'
 
 const OLD = manifest.client.oldNamespacePrefix
 const BASE = manifest.client.basePrefix
 const DAY = 24 * 60 * 60 * 1000
 /** The moment the incident's deploy booted the upgraded web client. */
 const UPGRADE_AT = Date.parse('2026-09-14T09:22:00.000Z')
+/** The member the upgrade minted for the retired principal. */
+const MEMBER = newMemberId()
 
 /** A device at its quota: the captured keys fit exactly; one more byte throws. */
 function fullDevice(headroom = 0): { api: StorageApi; keys: () => string[]; used: () => number } {
@@ -75,7 +76,7 @@ describe('customer upgrade fixture: client', () => {
 
   it('boots on the full device: the successor marker is durable after the old namespace gives way', () => {
     const device = fullDevice()
-    const member = firstAdminMemberId()
+    const member = MEMBER
     const successor = boot(device, member, UPGRADE_AT)
     expect(successor.durable).toBe(true)
     expect(successor.evictedPrincipals).toEqual([manifest.retiredPrincipal])
@@ -90,7 +91,7 @@ describe('customer upgrade fixture: client', () => {
 
   it('same-identity bootstrap keeps the successor cache and evicts nothing', () => {
     const device = fullDevice()
-    const member = firstAdminMemberId()
+    const member = MEMBER
     const first = boot(device, member, UPGRADE_AT)
     expect(first.durable).toBe(true)
     device.api.setItem(`${first.keyPrefix}.cursor.v1`, '1')
@@ -106,7 +107,7 @@ describe('customer upgrade fixture: client', () => {
 
   it('retention is unchanged: with room, a recent foreign namespace is kept for its 30 days', () => {
     const device = fullDevice(4096)
-    const member = firstAdminMemberId()
+    const member = MEMBER
     const successor = boot(device, member, UPGRADE_AT)
     expect(successor.durable).toBe(true)
     expect(successor.evictedPrincipals).toEqual([])
@@ -118,7 +119,7 @@ describe('customer upgrade fixture: client', () => {
 
   it('sign-out of the successor erases its namespace; what remains is documented', () => {
     const device = fullDevice()
-    const member = firstAdminMemberId()
+    const member = MEMBER
     const successor = boot(device, member, UPGRADE_AT)
     device.api.setItem(`${successor.keyPrefix}.cursor.v1`, '7')
     successor.erase()

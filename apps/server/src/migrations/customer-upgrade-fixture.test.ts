@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   enrollmentLedger,
   manifest,
+  serverReleaseMigrations,
   serverRows,
 } from '../../../../packages/runtime/src/fixtures/customer-upgrade'
 import { LEDGER_IMPORT_MARKER, RETIRED_MEMBER_MAPPING } from '../enrollment-ledger-import'
@@ -89,14 +90,19 @@ function withDb<T>(root: string, fn: (db: SqlDatabase) => T): T {
 function customerState(options: { ledger?: string | null; extraMachines?: Row[] } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'podium-customer-upgrade-'))
   roots.push(root)
-  const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name === manifest.customerRelease.lastMigration)
-  expect(cut, `pinned customer release migration ${manifest.customerRelease.lastMigration}`).toBeGreaterThan(0)
+  // EXACTLY the migrations the release shipped, by name — not a timestamp
+  // prefix: seven later-merged migrations carry earlier timestamps and were
+  // not on the customer's disk, so the upgrade must apply them out of order.
+  const shipped = new Set(serverReleaseMigrations.migrations)
+  const release = DRIZZLE_MIGRATIONS.filter((m) => shipped.has(m.name))
+  expect(release.map((m) => m.name)).toEqual(serverReleaseMigrations.migrations)
+  expect(DRIZZLE_MIGRATIONS.length - release.length).toBeGreaterThan(7)
   const db = openDatabase(join(root, 'podium.db'))
   try {
     db.exec('PRAGMA foreign_keys = OFF')
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+    runDrizzleMigrations(db, release)
     // A REAL old ledger, not a first boot (trap 1).
-    expect(db.prepare('SELECT count(*) AS c FROM __drizzle_migrations').get()).toEqual({ c: cut + 1 })
+    expect(db.prepare('SELECT count(*) AS c FROM __drizzle_migrations').get()).toEqual({ c: release.length })
     const usersBefore = db.prepare('SELECT id FROM users').all() as { id: string }[]
     expect(usersBefore.map((u) => u.id)).toEqual([RETIRED])
     for (const machine of [...serverRows.machines, ...(options.extraMachines ?? [])]) insert(db, 'machines', machine as Row)
@@ -130,7 +136,13 @@ const header = enrollmentLedger.split('\n')[0]!
 describe('customer upgrade fixture: server', () => {
   it('is the pinned customer release with the captured, non-vacuous fleet', () => {
     expect(manifest.customerRelease.tag).toBe('v0.1.1-edge.4')
-    expect(DRIZZLE_MIGRATIONS.some((m) => m.name === manifest.customerRelease.lastMigration)).toBe(true)
+    expect(serverReleaseMigrations.tag).toBe(manifest.customerRelease.tag)
+    expect(serverReleaseMigrations.migrations).toHaveLength(87)
+    const names = new Set(DRIZZLE_MIGRATIONS.map((m) => m.name))
+    expect(serverReleaseMigrations.migrations.every((name) => names.has(name))).toBe(true)
+    // The release is not a prefix of today's manifest: later-merged migrations interleave.
+    const last = serverReleaseMigrations.migrations.at(-1)!
+    expect(DRIZZLE_MIGRATIONS.filter((m) => m.name < last && !serverReleaseMigrations.migrations.includes(m.name))).toHaveLength(7)
     expect(enrollmentLedger.endsWith('\n')).toBe(true)
     expect(ledgerMachines()).toHaveLength(4)
     const dbIds = new Set(serverRows.machines.map((m) => m.id))

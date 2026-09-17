@@ -2,7 +2,7 @@
   "fixture": "customer-upgrade",
   "source": "sanitised ~/podium-incidents/2026-09-14-pdm52-quarantine (ludovico dev.139 -> dev.140, 2026-09-14)",
   "identityMap": "one deterministic map: every real uuid became a name; user:sole kept because it is the literal under test; paths under /fixture; timestamps preserved",
-  "customerRelease": { "tag": "v0.1.1-edge.4", "lastMigration": "20260824202715_quota-windows" },
+  "customerRelease": { "tag": "v0.1.1-edge.4", "commit": "d09e5d47a4c3200c2ded231269d91ff0d1d90cd1", "migrations": "server-release-migrations.json (the exact 87 the release shipped; seven later-merged migrations carry earlier timestamps and are NOT in it)" },
   "oldestSupportedDaemon": { "tag": "v0.1.0", "wireVersion": 2 },
   "retiredPrincipal": "user:sole",
   "hostMachineId": "machine-host",
