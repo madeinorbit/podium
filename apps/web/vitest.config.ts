@@ -4,7 +4,10 @@ import { sharedVitestConfig } from '../../vitest.config'
 
 // Web-local vitest config. The repo-root vitest.config.ts excludes **/.claude/**,
 // and this worktree lives under .claude/worktrees/, so the root config would
-// silently skip every test here. This config runs the web suite under happy-dom.
+// silently skip every test here. Most web tests use happy-dom. Sanitizer-facing
+// suites opt into jsdom with @vitest-environment: happy-dom 20.10.2 and 20.14.5
+// lose the first element and leave later scripts/handlers intact (POD-4109).
+// Keep security removal assertions in those jsdom suites, not the default DOM.
 
 const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
   fileURLToPath(new URL(`../../${file}`, import.meta.url)),

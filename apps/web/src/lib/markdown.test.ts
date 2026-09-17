@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
@@ -6,6 +7,7 @@ import {
   linkifyCodePaths,
   linkifyRefs,
   renderMarkdown,
+  renderReadoutMarkdown,
   sanitizeRenderedMarkdown,
 } from './markdown'
 import { setKnownRefPrefixes } from './markdown-references'
@@ -18,8 +20,8 @@ const styles = readFileSync(stylesPath ?? 'src/styles.css', 'utf8')
 describe('renderMarkdown', () => {
   it('colourizes add/del/hunk lines in a diff code block', () => {
     const html = renderMarkdown('```diff\n@@ -1 +1 @@\n+added line\n-removed line\n unchanged\n```')
-    // The line-level colour rides these span classes (the <pre class="chat-diff">
-    // wrapper is stripped by happy-dom's sanitize here, but kept in the browser).
+    // The browser keeps both the wrapper and line-level token classes.
+    expect(html).toContain('<pre class="chat-diff">')
     expect(html).toContain('class="diff-add"')
     expect(html).toContain('class="diff-del"')
     expect(html).toContain('class="diff-hunk"')
@@ -78,6 +80,20 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<img src="x">')
     expect(html).not.toContain('onerror')
     expect(html).toContain('safe')
+  })
+
+  it('sanitizes later siblings without losing the first wrapper', () => {
+    const html = sanitizeRenderedMarkdown(
+      '<p>safe</p><img src="x" onerror="alert(1)"><script>alert(1)</script>',
+    )
+    expect(html).toBe('<p>safe</p><img src="x">')
+  })
+
+  it('strips readout links, images and scripts while keeping text and structure', () => {
+    const html = renderReadoutMarkdown(
+      '[link](https://example.com) <img src="x" onerror="alert(1)"><script>alert(1)</script>',
+    )
+    expect(html).toBe('<p>link </p>\n')
   })
 })
 

@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
 import {
@@ -166,7 +166,11 @@ describe('a transcript link that points at this Podium (POD-1606)', () => {
     // so the target is `file` either way and only `root` is lost. Root is the
     // assertion that fails without the entity decode.
     expect(html).toContain('&amp;')
-    expect(internalPodiumTarget(href)).toEqual({
+    const container = document.createElement('template')
+    container.innerHTML = html
+    const renderedHref = container.content.querySelector('a')?.getAttribute('href')
+    expect(renderedHref).toBe(href)
+    expect(internalPodiumTarget(renderedHref ?? '')).toEqual({
       kind: 'file',
       path: '/w/a.ts',
       root: '/w',
