@@ -557,9 +557,12 @@
   --syntax-string: #12704a;
   --syntax-number: #8a5a00;
   --syntax-function: #1d4ed8;
-  /* Independent prose ink: 5.78:1 on white, 5.11:1 on #f2f1ed.
-     Teal distinguishes symbols from blue links without adding a chip. */
-  --code-inline: #0c6f86;
+  /* Independent prose ink: 7.63:1 on white, 6.75:1 on #f2f1ed. A deep plum
+     rather than a code-well hue — inline code sits in PROSE, on warm paper, so
+     it is tuned to that ground rather than reused from the fenced palette. Far
+     from --info so a symbol never reads as a link, and clear of --syntax-invalid
+     so it never reads as an error. Ink and face only, never a chip (POD-725). */
+  --code-inline: #87356b;
   --syntax-type: #0c6f86;
   --syntax-property: #2451a8;
   --syntax-tag: #ad4e2b;
@@ -583,8 +586,10 @@
   --syntax-string: #8fd0a8;
   --syntax-number: #e8b071;
   --syntax-function: #7fb0ff;
-  /* Prose contrast: 8.30:1 on #23262d, 9.83:1 on #16171a. */
-  --code-inline: #6fcfd0;
+  /* Prose contrast: 7.36:1 on #23262d, 8.71:1 on #16171a. Same hue family as
+     light, deliberately NOT the same value: the dark ground is cool, so this is
+     a soft orchid rose that lifts off it rather than the deep plum that suits paper. */
+  --code-inline: #e0a2cb;
   --syntax-type: #6fcfd0;
   --syntax-property: #a8c8f5;
   --syntax-tag: #f0937a;
