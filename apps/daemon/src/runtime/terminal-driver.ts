@@ -64,6 +64,7 @@ import type {
   DriverCapabilities,
   DriverId,
   EventStreamStart,
+  EchoAcceptPort,
   HookAcceptPort,
   HookAcceptWatch,
   InteractionAnswerOutcome,
@@ -324,6 +325,9 @@ interface DriverSession {
   injection: TerminalInjectionMachine
   /** Open waiters for a causal accept, keyed by the prompt text they watch. */
   hookWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
+  /** Open waiters for a transcript echo, keyed by the prompt text they watch.
+   *  Same shape and same reason as `hookWaiters` — see `creditEchoWaiters`. */
+  echoWaiters: Set<{ text: string; resolve: (ok: boolean) => void }>
   /**
    * Whether ANY `UserPromptSubmit` hook payload has reached this session.
    *
@@ -903,6 +907,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // `DriverSession.userTurns` for what counting the other way costs.
         if (msg.reset) session.userTurns = 0
         session.userTurns += msg.items.filter((item) => item.role === 'user').length
+        // THE COUNT NO LONGER PROVES A SEND (POD-4055). It still answers
+        // `rawFirstTurn`, which is a question about the CONVERSATION's position
+        // and not about any one delivery. Delivery is proven by content, below.
+        creditEchoWaiters(session, msg.items)
         emitTranscriptItems(session, msg.items, msg.reset ? 'bootstrap' : 'live')
         return
       }
@@ -1182,6 +1190,88 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  /**
+   * THE ECHO FINGERPRINT (POD-4055), and it is deliberately NOT the hook's.
+   *
+   * The hook path can hash a structured payload because Claude hands it one.
+   * The echo is a recorded transcript item, so what has to be absorbed is the
+   * set of transformations the RECORDERS apply between the bytes we typed and
+   * the row they write. Those are enumerable, and they are all whitespace:
+   * `codexRecordToItems` trims, `contentToText` joins multi-block content with
+   * newlines, and the several JSONL codecs re-wrap.
+   *
+   * WHAT THIS BUYS AND WHAT IT LETS THROUGH, stated because a tolerance nobody
+   * wrote down is a tolerance nobody can review. It buys immunity to trimming
+   * and to block joins. It lets through two submitted texts that differ ONLY in
+   * whitespace — an overlapping pair differing just in wrapping can cross-credit.
+   * That is a far narrower hole than the counter it replaces, which credited any
+   * user turn from any source at all.
+   *
+   * WHAT IT DOES NOT DO IS MATCH A SUBSTRING. An echo carrying the full text
+   * plus anything else is a different turn, and a truncated echo is not this
+   * turn. Both stay `unverified`, which is true. Note this is safe precisely
+   * because nothing here reads a SCREEN: every producer of these items reads a
+   * structured record (codex/grok/cursor/pi rollout JSONL, opencode's own
+   * SQLite rows, Claude's transcript tail), so a TUI's `> ` prompt marker never
+   * reaches this comparison. An anchored match against a painted line would be
+   * wrong; against a recorded one it is exactly right.
+   */
+  const echoFingerprint = (text: string): string | null => {
+    const collapsed = text.replace(/\s+/gu, ' ').trim()
+    // FAIL CLOSED on an empty item, for the reason the hook path fails closed on
+    // an unfingerprintable payload: an item carrying no text cannot attribute
+    // anything, and crediting an arbitrary waiter for it is the mis-credit this
+    // whole mechanism exists to prevent.
+    return collapsed.length > 0 ? collapsed : null
+  }
+
+  /**
+   * Credit at most one waiter per echoed user item, by CONTENT.
+   *
+   * The structure is the hook path's, deliberately: two sends can be in flight —
+   * a queue drain overlapping a chat send — and crediting the wrong one reports
+   * an accept for a turn that never landed. An unmatched echo leaves every
+   * waiter waiting, which resolves as `unverified`.
+   */
+  function creditEchoWaiters(session: DriverSession, items: readonly TranscriptItem[]): void {
+    if (session.echoWaiters.size === 0) return
+    for (const item of items) {
+      if (item.role !== 'user') continue
+      // AN ABORTED TURN IS NOT A DELIVERY, and it is the case that most inverts
+      // the meaning of this proof. Codex records a cancelled turn as a user-role
+      // item reading 'Conversation interrupted'; the schema's own note says a
+      // reader may treat an interrupt as a user action "without mistaking it for
+      // a typed prompt". Counting it credited the one item that positively means
+      // the prompt did NOT land.
+      if (item.event === 'interrupt') continue
+      const fingerprint = echoFingerprint(item.text)
+      if (fingerprint === null) continue
+      for (const waiter of [...session.echoWaiters]) {
+        if (echoFingerprint(waiter.text) !== fingerprint) continue
+        session.echoWaiters.delete(waiter)
+        waiter.resolve(true)
+        break
+      }
+    }
+  }
+
+  const echoAcceptFor = (session: DriverSession): EchoAcceptPort => ({
+    watch(text: string) {
+      let settle: ((ok: boolean) => void) | undefined
+      const accepted = new Promise<boolean>((resolve) => {
+        settle = resolve
+      })
+      const waiter = { text, resolve: (ok: boolean) => settle?.(ok) }
+      session.echoWaiters.add(waiter)
+      return {
+        accepted,
+        cancel() {
+          session.echoWaiters.delete(waiter)
+        },
+      }
+    },
+  })
+
   const hookAcceptFor = (session: DriverSession): HookAcceptPort => ({
     watch(text: string): HookAcceptWatch {
       let settle: ((ok: boolean) => void) | undefined
@@ -1211,12 +1301,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         running: () => session.alive && host.bridge(session.sessionId) !== undefined,
         live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
-        userTurnCount: () => session.userTurns,
         lastOutputAtMs: () => session.lastOutputAtMs,
         now: host.now,
         setTimer: host.setTimer,
         clearTimer: host.clearTimer,
         ...(profile?.hookAnchoredAccept ? { hookAccept: hookAcceptFor(session) } : {}),
+        // UNCONDITIONAL, because every terminal profile in the fleet declares
+        // `transcript-echo`. Claude declares it too, as the fallback behind its
+        // hook — and that fallback used to be the same bare counter as everyone
+        // else's, so this is six harnesses being fixed, not five.
+        echoAccept: echoAcceptFor(session),
         // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
         // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
         // transcript has ANY user turn, so an adopted session whose driver-local
@@ -1329,6 +1423,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       transcriptVersions: new Map(),
       injection: undefined as unknown as TerminalInjectionMachine,
       hookWaiters: new Set(),
+      echoWaiters: new Set(),
       hookSeen: false,
       hookAbsenceWarned: false,
       userTurns: 0,

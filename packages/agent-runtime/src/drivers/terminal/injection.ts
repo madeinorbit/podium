@@ -167,6 +167,28 @@ export interface HookAcceptWatch {
   cancel(): void
 }
 
+/**
+ * THE TRANSCRIPT-ECHO COUNTERPART OF `HookAcceptPort` (POD-4055).
+ *
+ * WHY THIS IS A WATCH AND NOT A COUNTER. The echo proof used to be
+ * `userTurnCount() > baseline` against a bare running total, which establishes
+ * only "the harness's user-turn count went up at some point in the window" —
+ * satisfied by a person typing at the attached terminal, by a queue drain
+ * overlapping a chat send, or by an aborted turn's own marker. None of those
+ * typed the caller's text, and reporting `accepted` for them is a false accept
+ * the caller cannot see through: it stops looking, and the turn never happened.
+ *
+ * So the echo is matched to CONTENT, exactly as the hook is, and for the same
+ * reason. A watch is the shape that can do that, because the text to compare
+ * against has to be remembered from before the write.
+ */
+export interface EchoAcceptPort {
+  /** Armed with `payload.body` BEFORE the first byte goes out, for the same
+   *  reason the hook watch is: a fast harness can record the turn before the
+   *  awaiting side gets a turn on the event loop. */
+  watch(text: string): HookAcceptWatch
+}
+
 /** Everything the machine needs from the world, and nothing more. Each one is a
  *  READ or a WRITE on the session's terminal; none of them is a mechanism the
  *  contract exposes. */
@@ -192,8 +214,6 @@ export interface TerminalInjectionPorts {
   live(): boolean
   /** The session's normalized phase, or undefined while unknown. */
   phase(): string | undefined
-  /** USER turns in the harness's own transcript. The submit-verify baseline. */
-  userTurnCount(): number
   /** When the PTY last produced output — the drain's quiet detector. */
   lastOutputAtMs(): number
   now(): number
@@ -201,6 +221,13 @@ export interface TerminalInjectionPorts {
   clearTimer(handle: TimerHandle): void
   /** Absent for harnesses with no causal hook channel; present for Claude. */
   hookAccept?: HookAcceptPort
+  /**
+   * The transcript-echo channel. Absent only where nothing can observe the
+   * harness's transcript at all — and an absent channel means the echo proof
+   * cannot be produced, so a send with no hook degrades to `unverified`. That
+   * is the honest answer: the bytes went out and nothing confirmed them.
+   */
+  echoAccept?: EchoAcceptPort
   /** Grok's fresh TUI ignores bracketed paste until a native first turn
    *  (POD-549/POD-901): type the first prompt as raw keystrokes instead. */
   rawFirstTurn(): boolean
@@ -370,26 +397,35 @@ export function createTerminalInjection(
    * Returns the proof that landed, or null when the window closed without one.
    */
   async function awaitProof(
-    baselineUserTurns: number,
     hookWatch: HookAcceptWatch | undefined,
+    echoWatch: HookAcceptWatch | undefined,
     signal?: AbortSignal,
   ): Promise<'hook' | 'transcript-echo' | null> {
     let hookFired = false
+    let echoFired = false
     void hookWatch?.accepted.then((ok) => {
       hookFired = hookFired || ok
+    })
+    void echoWatch?.accepted.then((ok) => {
+      echoFired = echoFired || ok
     })
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
     const deadline = ports.now() + VERIFICATION_WINDOW_MS
 
     while (ports.now() < deadline) {
-      // Race the hook against the tick so a causal accept is not made to wait out
-      // a 1.6s poll it already answered.
+      // Race BOTH proofs against the tick so a proof that has already landed is
+      // not made to wait out a 1.6s poll it already answered.
       const tick = sleep(SUBMIT_VERIFY_DELAY_MS)
-      await (hookWatch ? Promise.race([hookWatch.accepted, tick]) : tick)
+      const settled: Promise<unknown>[] = [tick]
+      if (hookWatch) settled.push(hookWatch.accepted)
+      if (echoWatch) settled.push(echoWatch.accepted)
+      await Promise.race(settled)
       if (signal?.aborted) return null
+      // THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
+      // signal, so where both landed the stronger one is the honest attribution.
       if (hookFired) return 'hook'
-      if (ports.userTurnCount() > baselineUserTurns) return 'transcript-echo'
+      if (echoFired) return 'transcript-echo'
       // A dead session cannot echo and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
       if (!ports.running()) return null
@@ -403,7 +439,7 @@ export function createTerminalInjection(
         ports.write('\r')
       }
     }
-    return hookFired ? 'hook' : null
+    return hookFired ? 'hook' : echoFired ? 'transcript-echo' : null
   }
 
   async function deliver(text: string, options: DeliverOptions): Promise<TurnReceipt> {
@@ -435,17 +471,21 @@ export function createTerminalInjection(
     // watcher armed with the pre-boundary text would fail to recognise its own
     // accept and report `unverified` for a turn that landed.
     const payload = injectionPayload(text, { rawFirstTurn: ports.rawFirstTurn() })
-    const baseline = ports.userTurnCount()
-    // Started BEFORE the write: a fast CLI can fire `UserPromptSubmit` before we
-    // would otherwise be listening, and a proof we missed reads as `unverified`.
+    // BOTH WATCHES ARE ARMED WITH `payload.body`, and both are started BEFORE the
+    // write: a fast CLI can fire `UserPromptSubmit`, or record its user turn,
+    // before we would otherwise be listening, and a proof we missed reads as
+    // `unverified`. They are armed with the POST-boundary body for the reason the
+    // comment above gives — a watcher armed with the pre-boundary text would fail
+    // to recognise its own accept.
     const hookWatch = ports.hookAccept?.watch(payload.body)
+    const echoWatch = ports.echoAccept?.watch(payload.body)
     try {
       ports.write(payload.bytes)
       setTimer(() => {
         if (!options.signal?.aborted && ports.running()) ports.write('\r')
       }, SUBMIT_CR_DELAY_MS)
 
-      const proof = await awaitProof(baseline, hookWatch, options.signal)
+      const proof = await awaitProof(hookWatch, echoWatch, options.signal)
       if (!proof) {
         return {
           outcome: 'unverified',
@@ -463,6 +503,7 @@ export function createTerminalInjection(
       }
     } finally {
       hookWatch?.cancel()
+      echoWatch?.cancel()
     }
   }
 

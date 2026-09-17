@@ -151,7 +151,14 @@ interface World {
   echo(
     sessionId: SessionId,
     text: string,
-    options?: { reset?: boolean; role?: TranscriptItem['role'] },
+    options?: {
+      reset?: boolean
+      role?: TranscriptItem['role']
+      /** A recognized non-conversational user ACTION. `interrupt` is how a
+       *  harness records a turn cancelled at the CLI — a user-role item that
+       *  positively means the prompt did not land. */
+      event?: TranscriptItem['event']
+    },
   ): void
   observe(sessionId: SessionId, observation: Partial<AgentObservation>): void
   /** The `bind` frame — the daemon saying this session's CLI is up. It is what
@@ -338,6 +345,7 @@ function makeWorld(
         role: options?.role ?? 'user',
         ts: new Date(clock).toISOString(),
         text,
+        ...(options?.event ? { event: options.event } : {}),
       }
       runtime.observe({
         type: 'transcriptDelta',
@@ -1141,6 +1149,121 @@ describe('the echo baseline', () => {
     // server-side retry there is nothing underneath to catch it.
     const resolved = await receipt
     expect(resolved.outcome).toBe('unverified')
+  })
+  /**
+   * THE TOLERANCE, PINNED FROM BOTH SIDES (POD-4055 1b).
+   *
+   * The rule is an EXACT match after whitespace collapse — not a substring test.
+   * What that absorbs is the set of transformations the transcript RECORDERS
+   * apply: `codexRecordToItems` trims, `contentToText` joins multi-block content
+   * with newlines, the JSONL codecs re-wrap. What it must NOT absorb is text the
+   * harness never took, which is why the two rejections below are as load-bearing
+   * as the acceptance above them.
+   *
+   * ANCHORED IS SAFE HERE BECAUSE NOTHING READS A SCREEN. Every producer of these
+   * items reads a structured record, so a TUI's `> ` prompt marker never reaches
+   * the comparison; an anchored match against a painted line would be wrong.
+   */
+  it('credits an echo whose whitespace the recorder reflowed', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'preserve these words\nand their order' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    world.echo(sessionId, '  preserve\r\nthese\twords and\n their order  ')
+
+    const resolved = await receipt
+    expect(resolved.outcome).toBe('accepted')
+    if (resolved.outcome === 'accepted') expect(resolved.provenBy).toBe('transcript-echo')
+  })
+
+  it('does not credit a send with a TRUNCATED echo of its text', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'preserve these words and their order' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // A prefix is not the turn. The rest of the prompt may never have arrived.
+    world.echo(sessionId, 'preserve these words…')
+
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('does not credit a send with an echo that DECORATES its text', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'preserve these words and their order' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // CONTAINS the whole submitted text, and is still a different turn — which is
+    // why the rule cannot be a substring test.
+    world.echo(sessionId, 'OTHER REQUEST: preserve these words and their order')
+
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('credits only the overlapping send the echo NAMES', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    // A queue drain overlapping a chat send — the scenario the hook path names
+    // as its reason for refusing to credit by count, and the one a scalar
+    // baseline cannot answer at all: both sends see the count rise.
+    const first = session.send(
+      { text: 'first amber request' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    const second = session.send(
+      { text: 'second violet request' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    world.echo(sessionId, 'second violet request')
+
+    const [firstReceipt, secondReceipt] = await Promise.all([first, second])
+    expect(secondReceipt.outcome).toBe('accepted')
+    if (secondReceipt.outcome === 'accepted') {
+      expect(secondReceipt.provenBy).toBe('transcript-echo')
+    }
+    expect(firstReceipt.outcome).toBe('unverified')
+  })
+
+  it('does not credit a send with an INTERRUPT marker', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'Conversation interrupted' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // THE ITEM THAT MOST INVERTS THIS PROOF. Codex records an aborted turn as a
+    // user-role item whose text is exactly this, so a prompt CANCELLED at the CLI
+    // used to be read as proof it landed. The text is chosen to collide on
+    // purpose: the marker is refused by its `event`, not by failing to match.
+    world.echo(sessionId, 'Conversation interrupted', { event: 'interrupt' })
+
+    expect((await receipt).outcome).toBe('unverified')
   })
 
   it('still credits a genuine new user turn after a reset', async () => {

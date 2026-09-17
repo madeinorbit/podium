@@ -217,9 +217,13 @@ function terminal(overrides: Partial<TerminalInjectionPorts> = {}): {
     running: () => true,
     live: () => true,
     phase: () => 'idle',
-    // The echo lands as soon as anything has been typed, so a `deliver` settles
-    // on its first verification tick instead of waiting out the real window.
-    userTurnCount: () => (written.length > 0 ? 1 : 0),
+    // The echo lands for whatever was typed, so a `deliver` settles on its first
+    // verification tick instead of waiting out the real window. These assertions
+    // are about the BYTES, not the receipt — a test that wants an unproven send
+    // overrides `echoAccept` with a watch that never resolves.
+    echoAccept: {
+      watch: () => ({ accepted: Promise.resolve(true), cancel: () => {} }),
+    },
     lastOutputAtMs: () => Date.now(),
     now: () => Date.now(),
     setTimer: (fn) => setTimeout(fn, 0),
@@ -464,7 +468,11 @@ describe('the manifest-driven interrupt (POD-3981)', () => {
 describe('row cancellation at the terminal submit boundary', () => {
   it('fences the delayed Enter and confirmation nudges after cancellation', async () => {
     const abort = new AbortController()
-    const { ports, written } = terminal({ needsSubmitVerification: () => true, userTurnCount: () => 0 })
+    const { ports, written } = terminal({
+      needsSubmitVerification: () => true,
+      // Nothing echoes this row back: the point is the receipt an abort produces.
+      echoAccept: { watch: () => ({ accepted: new Promise<boolean>(() => {}), cancel: () => {} }) },
+    })
     const delivery = createTerminalInjection(ports).deliver('cancelled row', {
       origin: 'human', delivery: 'when-ready', signal: abort.signal,
     })

@@ -36,6 +36,7 @@ export {
   DEFAULT_TERMINAL_INTERRUPT,
   type DeliverOptions,
   ESC,
+  type EchoAcceptPort,
   type HookAcceptPort,
   type HookAcceptWatch,
   QUEUE_DRAIN_DEADLINE_MS,
