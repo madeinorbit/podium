@@ -385,7 +385,6 @@ describe('world index committed facts', () => {
     expect(index.reader.issueForWorktree('/after')).toBe(row.id)
     for (const write of [
       () => store.issues.transitionShippingStage(row.id, 'review', 'shipping', at),
-      () => store.issues.backfillLegacyWorktreeMachineIds(asMachineId('world-host')),
       () => store.issues.assignRepoIdToIssuesUnder(asRepoId('repo:new'), row.repoPath),
     ]) {
       apply.mockClear()

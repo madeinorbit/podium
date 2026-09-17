@@ -46,6 +46,8 @@ import {
   issueMessageUserState,
   issueRefLetters,
   issues,
+  machines,
+  meta,
   issueUserState,
   sessions,
 } from '../migrations/schema'
@@ -55,6 +57,8 @@ import { currentTransaction } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
+
+export const LEGACY_WORKTREE_MIGRATION = 'legacy_worktree_machine_ids_v1'
 
 const log = createLogger('server:store')
 
@@ -869,47 +873,20 @@ export class IssuesRepository {
     return r?.c ?? 0
   }
 
-  /**
-   * ONE-TIME BOOT BACKFILL for worktrees created before ordinary issue starts
-   * recorded their machine (POD-2647, restored by POD-3359). Most NULL pins are
-   * historical hub work, but the old session-CWD adoption path could copy a
-   * remote session's worktree onto an issue without copying its machine.
-   *
-   * WHY THIS IS STILL HERE AFTER POD-3246 RETIRED THE OTHER BOOT UPGRADES. That
-   * retirement's premise was that every database had already crossed the build
-   * carrying the upgrade. This one had not: it was introduced by 3416b5cec on
-   * 2026-08-23, three days AFTER the only stable release v0.1.0 (79c588880,
-   * 2026-08-20), and `git tag --contains 3416b5cec` names no stable tag — only
-   * `dev`, `v0.1.1-edge.3` and `v0.1.1-edge.4`. A supported direct upgrade from
-   * v0.1.0 therefore skips it, and nothing else stops that upgrade: the drizzle
-   * adoption build 938ad5bd is INSIDE v0.1.0, so a v0.1.0 database is already
-   * drizzle-native and the migration runtime opens it without complaint.
-   *
-   * WHY THE SENTINEL REFUSAL CANNOT REPLACE IT. `refuseLegacyIdentities` rejects
-   * retired machine sentinels and missing repo_ids. It cannot see this class,
-   * and widening it to fire on a NULL machine_id would be a worse bug: a NULL
-   * machine is ALSO legitimate for a worktree-less or genuinely ambiguous row,
-   * so the refusal would brick boots that are perfectly correct.
-   *
-   * Session rows are the durable contradiction: the adopting session was already
-   * linked to the issue and authenticated as its real machine. Both its current
-   * `issue_id` and its sticky birth `ref_issue_id` count, so rehoming cannot
-   * erase the evidence. A row with ANY linked non-host session therefore stays
-   * NULL for manual recovery rather than being routed to the wrong disk.
-   *
-   * The caller runs this AFTER `refuseLegacyIdentities`, which preserves the
-   * precondition the deleted version got from the legacy-machine rewrite that
-   * used to precede it: a database still carrying a retired sentinel never
-   * reaches here, so no stored machine id can be mistaken for a remote one.
-   *
-   * Existing pins always win, worktree-less issues remain genuinely unplaced,
-   * and reruns update nothing. Contradictory rows stay countable on every boot so
-   * the operator can see the backfill deliberately left work behind.
-   */
+  /** One-time historical migration, after the facade's identity refusals.
+   * The enrolled host row supplies the placement; an absent or revoked host
+   * defers the migration. The receipt commits with the updates, even when
+   * contradictory rows remain for manual recovery. */
   async backfillLegacyWorktreeMachineIds(
-    hostMachineId: MachineId,
-  ): Promise<{ backfilled: number; skipped: number }> {
+    candidateHostId: MachineId,
+  ): Promise<{ hostMachineId: MachineId; backfilled: number; skipped: number } | undefined> {
     return await this.createOrJoinTransaction(async () => {
+      if (await this.db.select({ value: meta.value }).from(meta)
+        .where(eq(meta.key, LEGACY_WORKTREE_MIGRATION)).get()) return undefined
+      const host = await this.db.select({ id: machines.id }).from(machines)
+        .where(and(eq(machines.id, candidateHostId), isNull(machines.revokedAt))).get()
+      if (!host) return undefined
+      const hostMachineId = host.id
       const { legacyWorktreeRow, contradictorySession } = this.legacyWorktreeTerms(hostMachineId)
       const skipped = (await this.legacyWorktreeSkippedQuery(hostMachineId).get())?.c ?? 0
       // BEFORE the write, per the POD-1939 invariant `store-issues-row-cache-writers`
@@ -924,7 +901,11 @@ export class IssuesRepository {
             .where(and(legacyWorktreeRow, not(contradictorySession))).returning().all(), 'upsert')
         ).changes,
       )
-      return { backfilled, skipped }
+      await this.db.insert(meta).values({
+        key: LEGACY_WORKTREE_MIGRATION,
+        value: JSON.stringify({ hostMachineId, backfilled, skipped }),
+      }).run()
+      return { hostMachineId, backfilled, skipped }
     })
   }
 

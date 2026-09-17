@@ -1,37 +1,18 @@
-/**
- * THE BOOT BACKFILL A v0.1.0 DATABASE STILL NEEDS (POD-3359).
- *
- * POD-3246 retired three one-time boot upgrades on the premise that every
- * database had already crossed the build carrying them. That premise did not
- * hold for the worktree-machine backfill. It was introduced by 3416b5cec on
- * 2026-08-23, three days AFTER the only stable release v0.1.0 (79c588880,
- * 2026-08-20), and `git tag --contains 3416b5cec` names no stable tag — only
- * `dev`, `v0.1.1-edge.3` and `v0.1.1-edge.4`. The operator's minimum supported
- * upgrade version is v0.1.0, so a database may arrive here having never run it.
- * Nothing upstream catches that: the drizzle adoption build 938ad5bd is INSIDE
- * v0.1.0, so such a database is already drizzle-native and the migration runtime
- * opens it without complaint.
- *
- * WHAT THIS FILE HAS TO SHOW, given the backfill is RESTORED code rather than new
- * code: that it does something. The pinning case and the boot wiring are asserted
- * here, so removing either the call in `initialize()` or the UPDATE in the
- * repository turns this file red.
- *
- * AND THE HALF THAT IS EASIER TO GET WRONG: the rows it must NOT touch. A NULL
- * `machine_id` is legitimate for a worktree-less or genuinely contradicted row,
- * which is exactly why the POD-3246 sentinel refusal cannot cover this class and
- * must not be widened to try — it would refuse boots that are perfectly correct.
- * Each of those rows is asserted still NULL, and the boot is asserted to open.
- */
-
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import * as fs from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { LEGACY_WORKTREE_MIGRATION } from './store/issues'
 import { openTestStore } from './test-support/open-test-store'
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+})
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -42,6 +23,7 @@ const tmpDb = (): string => {
   return join(dir, 'podium.db')
 }
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -112,7 +94,7 @@ async function seedV010ShapedDb(path: string): Promise<void> {
   db.close()
 }
 
-describe('the boot backfill for legacy worktree machine identity', () => {
+describe('the run-once migration for legacy worktree machine identity', () => {
   it('pins a v0.1.0 database’s unpinned worktree issues to this host', async () => {
     const path = tmpDb()
     await seedV010ShapedDb(path)
@@ -173,23 +155,74 @@ describe('the boot backfill for legacy worktree machine identity', () => {
     expect(machineIds(path)['i-already-pinned']).toBe(OTHER)
   })
 
-  it('changes nothing on a second boot', async () => {
+  it('never revisits skipped or newly unpinned rows, and warns only once', async () => {
     const path = tmpDb()
     await seedV010ShapedDb(path)
-    ;await (await openTestStore(path, HOST)).close()
-    const afterFirst = machineIds(path)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await (await openTestStore(path, HOST)).close()
+    expect(warning.mock.calls.filter(([message]) => String(message).includes('legacy worktree'))).toHaveLength(1)
+    const db = openDatabase(path)
+    const receipt = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)
+    expect(receipt).toEqual({ value: JSON.stringify({ hostMachineId: HOST, backfilled: 2, skipped: 2 }) })
+    db.exec("DELETE FROM sessions; UPDATE issues SET machine_id = NULL WHERE id = 'i-unpinned'")
+    const before = db.prepare('SELECT * FROM issues ORDER BY id').all()
+    db.exec("CREATE TRIGGER refuse_issue_updates BEFORE UPDATE ON issues BEGIN SELECT RAISE(ABORT, 'boot wrote issues'); END")
+    db.close()
+    await (await openTestStore(path, HOST)).close()
+    const after = openDatabase(path)
+    expect(after.prepare('SELECT * FROM issues ORDER BY id').all()).toEqual(before)
+    expect(after.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)).toEqual(receipt)
+    after.close()
+    expect(warning.mock.calls.filter(([message]) => String(message).includes('legacy worktree'))).toHaveLength(1)
+  })
 
-    const store = await openTestStore(path, HOST)
-    // The count the operator sees, read directly: a rerun reports zero work,
-    // which is what makes this safe to leave in the boot path indefinitely.
-    const rerun = await store.issues.backfillLegacyWorktreeMachineIds(HOST)
-    await store.close()
+  it('defers without a receipt until the host has an enrolled database row', async () => {
+    const path = tmpDb()
+    await seedV010ShapedDb(path)
+    await (await openTestStore(path, asMachineId('not-enrolled'))).close()
+    const db = openDatabase(path)
+    expect(db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)).toBeUndefined()
+    db.close()
+    expect(machineIds(path)['i-unpinned']).toBeNull()
+    await (await openTestStore(path, HOST)).close()
+    expect(machineIds(path)['i-unpinned']).toBe(HOST)
+  })
 
-    expect(rerun.backfilled).toBe(0)
-    // The contradicted rows stay countable on every boot — that is how the
-    // operator learns the backfill deliberately left work behind.
-    expect(rerun.skipped).toBe(2)
-    expect(machineIds(path)).toEqual(afterFirst)
+  it('rolls back placement writes when the receipt cannot commit', async () => {
+    const path = tmpDb()
+    await seedV010ShapedDb(path)
+    const db = openDatabase(path)
+    db.exec(`CREATE TRIGGER fail_receipt BEFORE INSERT ON meta WHEN NEW.key = '${LEGACY_WORKTREE_MIGRATION}'
+      BEGIN SELECT RAISE(ABORT, 'receipt failed'); END`)
+    db.close()
+    await expect(openTestStore(path, HOST)).rejects.toThrow()
+    expect(machineIds(path)['i-unpinned']).toBeNull()
+    const retry = openDatabase(path)
+    expect(retry.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)).toBeUndefined()
+    retry.exec('DROP TRIGGER fail_receipt')
+    retry.close()
+    await (await openTestStore(path, HOST)).close()
+    expect(machineIds(path)['i-unpinned']).toBe(HOST)
+  })
+
+  it('never reads or imports the retired repos.json path at boot', async () => {
+    const path = tmpDb()
+    await seedV010ShapedDb(path)
+    const retiredPath = join(dirname(path), 'repos.json')
+    writeFileSync(retiredPath, JSON.stringify(['/retired-repo']))
+    const reads = vi.mocked(fs.readFileSync)
+    reads.mockClear()
+    const db = openDatabase(path)
+    const before = db.prepare('SELECT * FROM repos').all()
+    db.exec("CREATE TRIGGER refuse_repo_import BEFORE INSERT ON repos BEGIN SELECT RAISE(ABORT, 'boot imported repos'); END")
+    db.close()
+    await (await openTestStore(path, HOST)).close()
+    writeFileSync(retiredPath, 'invalid legacy JSON')
+    await (await openTestStore(path, HOST)).close()
+    expect(reads.mock.calls.some(([file]) => String(file) === retiredPath)).toBe(false)
+    const after = openDatabase(path)
+    expect(after.prepare('SELECT * FROM repos').all()).toEqual(before)
+    after.close()
   })
 
   it('correlates the session evidence to the outer issue, not to itself', async () => {

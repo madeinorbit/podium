@@ -89,8 +89,7 @@ export class ReposRepository {
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
-     *  half of a path-fallback repo id for a path no repo row claims, and the owner
-     *  stamped on rows imported from the legacy `repos.json`. */
+     *  half of a path-fallback repo id for a path no repo row claims. */
     private readonly hostMachineId: MachineId,
     /** The store's per-table write announcement, for the writers that never reach
      *  this class. */
