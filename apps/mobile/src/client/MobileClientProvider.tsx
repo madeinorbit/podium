@@ -32,7 +32,6 @@
  * surface therefore exercises the same slices as the product.
  */
 
-import { createSyncTransferTelemetry, HttpBootstrapSource, HttpDeltaSource, type HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   type CreateEngineOutbox,
@@ -56,6 +55,13 @@ import {
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
+import {
+  createSyncTransferTelemetry,
+  HttpBootstrapSource,
+  HttpDeltaSource,
+  type HttpSyncSourceDeps,
+} from '@podium/client-core/sync-stream'
+import { createLogger } from '@podium/logger'
 import { actorUser, asUserId, type SessionId } from '@podium/model'
 import {
   decideLegacyAdoption,
@@ -89,11 +95,11 @@ import {
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
-import { openMobileEntityStore } from './mobile-entity-store'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { openMobileEntityStore } from './mobile-entity-store'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
-import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
+import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { createPlatformConnectivity } from './platform-connectivity'
 import { useOptionalServerProfile } from './ServerProfileGate'
@@ -103,7 +109,17 @@ import {
   type PendingProfileCleanup,
   profilePrincipal,
 } from './server-profiles'
-import { type MobileShell, MobileShellProvider } from './shell'
+import { type MobileShell, MobileShellProvider, type NoticeTone } from './shell'
+
+const log = createLogger('mobile:replica')
+
+/**
+ * What the user reads when the entity cache is being re-derived from the server
+ * (POD-4002). A bootstrap after an upgrade is expected, not a failure: plain
+ * words, neutral tone, and the reason code stays in the log line beside it.
+ */
+export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
+
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // App-installation metadata must be available before a principal-scoped replica
@@ -234,7 +250,7 @@ export interface MobileReplicaDeps {
   readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
 
   /** Surfaced, never swallowed (ADR 6 D4.4). */
-  readonly onDegraded: (message: string) => void
+  readonly onDegraded: (message: string, tone?: NoticeTone) => void
   readonly now?: () => number
 }
 
@@ -382,7 +398,10 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   )
   if (!adoption.adopt) {
     view.cache.discardCache()
-    deps.onDegraded(`Refreshing from the server after a storage upgrade (${adoption.reason}).`)
+    // The reason code is diagnostic, not copy (POD-4002): it goes to the log,
+    // and the user reads one plain sentence in the neutral tone.
+    log.warn('entity cache not adopted — refreshing from the server', { reason: adoption.reason })
+    deps.onDegraded(STORE_REFRESH_NOTICE, 'info')
   }
 
   const outcome = await migrateLegacyReplica({
@@ -679,7 +698,6 @@ function MobileHubAttach({
 }): null {
   const { hub } = useStore()
   useEffect(() => {
-
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it
     // needs the hub the same way the bootstrap source does. `undefined` on web,
@@ -748,7 +766,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const connectivity = useMemo(() => createPlatformConnectivity(), [])
   useEffect(() => () => connectivity?.dispose(), [connectivity])
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ message: string; tone: NoticeTone } | null>(null)
   const authExpiryHandled = useRef(false)
   useEffect(() => {
     authExpiryHandled.current = false
@@ -882,7 +900,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // composition root also keeps each shipped bundle on one engine.
           openStore: () =>
             openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
-              setNotice(`Offline changes may not survive a restart on this device (${cause}).`),
+              setNotice({
+                message: `Offline changes may not survive a restart on this device (${cause}).`,
+                tone: 'warning',
+              }),
             ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
@@ -905,11 +926,14 @@ function LiveProvider({ children }: { children: ReactNode }) {
             streamingFetch: createMobileSyncFetch(
               bearer,
               expireLiveCredential,
-              config.workspaceId ? { workspaceId: config.workspaceId }
-                : config.workspaceSlug ? { workspaceSlug: config.workspaceSlug } : undefined,
+              config.workspaceId
+                ? { workspaceId: config.workspaceId }
+                : config.workspaceSlug
+                  ? { workspaceSlug: config.workspaceSlug }
+                  : undefined,
             ),
           },
-          onDegraded: setNotice,
+          onDegraded: (message, tone) => setNotice({ message, tone: tone ?? 'warning' }),
         })
         await recordUserRef.current?.(status.userId)
         if (!alive) {
@@ -930,11 +954,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
         // first paint, so it only speaks when nothing louder has.
         const lost = opened.outcome.parked + opened.outcome.rejected.length
         if (lost > 0) {
-          setNotice(
-            `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
-          )
+          setNotice({
+            message: `${lost} queued change(s) from an earlier session could not be carried over and were not sent.`,
+            tone: 'warning',
+          })
         } else if (opened.outcome.cursorDiscarded) {
-          setNotice('Refreshing from the server after a storage upgrade.')
+          setNotice({ message: STORE_REFRESH_NOTICE, tone: 'info' })
         }
         setOpenedReplica(opened)
         setBootStalled(false)
@@ -984,7 +1009,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const shell = useMemo<MobileShell>(
     () => ({
       error,
-      notice: notice === null ? null : { message: notice, dismiss: () => setNotice(null) },
+      notice: notice === null ? null : { ...notice, dismiss: () => setNotice(null) },
       eraseLocalData: erase ?? (async () => {}),
     }),
     [error, notice, erase],

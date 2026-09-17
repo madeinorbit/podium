@@ -3,7 +3,11 @@ import { indexedDB } from 'fake-indexeddb'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { openKernelAssembly } from './kernelReplica'
-import { resolveReplicaPrincipal, useKernelReplica } from './use-kernel-replica'
+import {
+  resolveReplicaPrincipal,
+  STORE_REFRESH_NOTICE,
+  useKernelReplica,
+} from './use-kernel-replica'
 
 const response = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -186,6 +190,35 @@ describe('private replica boot failure', () => {
     expect(dispose).not.toHaveBeenCalled()
     unmount()
     expect(dispose).toHaveBeenCalledOnce()
+  })
+
+  it('a store that was not adopted surfaces as a plain refresh notice, never as the reason code (POD-4002)', async () => {
+    const trpc = {} as Trpc
+    const assembly = {
+      principal: 'alice',
+      dispose: async () => {},
+    } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
+    const openAssembly = vi.fn(async (options: Parameters<typeof openKernelAssembly>[0]) => {
+      options.onDegraded?.({ kind: 'store-not-adopted', reason: 'discarded-multiple-identities' })
+      return assembly
+    })
+
+    const { result, unmount } = renderHook(() =>
+      useKernelReplica({
+        trpc,
+        auth: { kind: 'principal', principal: 'alice' },
+        httpOrigin: 'http://backend.test:1234',
+        resolvePrincipal: vi.fn(async () => 'alice'),
+        openAssembly,
+      }),
+    )
+
+    await waitFor(() => expect(result.current.status).toBe('kernel'))
+    const gate = result.current as { notice?: string }
+    expect(gate.notice).toBe(STORE_REFRESH_NOTICE)
+    expect(gate.notice).toBe('Refreshing your data after the upgrade — this happens once.')
+    expect(gate.notice).not.toMatch(/discarded|identit/)
+    unmount()
   })
 
   it('reopens and disposes only when the auth principal changes', async () => {

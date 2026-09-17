@@ -188,6 +188,14 @@ export async function resolveReplicaPrincipal(
   throw new ReplicaGateError('authenticated account is unavailable', outcome)
 }
 
+/**
+ * What the user reads when the entity cache was not adopted and is being
+ * re-derived from the server (POD-4002). A bootstrap after an upgrade is
+ * expected, not a failure: plain words, no reason code — that stays in the
+ * `kernel replica store not adopted` log line beside the decision.
+ */
+export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
+
 export function recordIdentityEvidence(principal: string): LegacyIdentityEvidence {
   try {
     const identities = [
@@ -257,6 +265,9 @@ export function useKernelReplica(args: {
             const report = detail as { kind?: unknown; notice?: unknown }
             if (report?.kind === 'legacy-outbox-migrated' && typeof report.notice === 'string') {
               notice = report.notice
+            } else if (report?.kind === 'store-not-adopted' && notice === undefined) {
+              // Milder than a migration loss, so it never overwrites one.
+              notice = STORE_REFRESH_NOTICE
             }
           },
         }).catch((error: unknown) => {

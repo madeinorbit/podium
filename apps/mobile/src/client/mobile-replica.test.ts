@@ -79,7 +79,6 @@ import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvid
  * only pass if the durable store is wired — a live feed cannot rescue it.
  */
 
-
 // ---------------------------------------------------------------------------
 // A REAL ENGINE, OR NOTHING
 // ---------------------------------------------------------------------------
@@ -317,20 +316,37 @@ async function open(args: {
   let snapshot: ReturnType<typeof bootstrapFrame> | undefined
   const fixtureHttp: MobileReplicaDeps['httpSync'] = {
     origin: 'https://fixture.test',
-    streamingFetch: { fetch: async () => {
-      if (!snapshot) throw new Error('silent test authority')
-      const records = [
-        { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 'fixture',
-          feedId: snapshot.feedId, epoch: snapshot.epoch, seq: snapshot.seq,
-          minAvailableSeq: 0, wireVersion: WIRE_VERSION, wireSchemaDigest: '0123456789abcdef',
-          totalRows: snapshot.changes.length },
-        snapshot,
-        { type: 'syncComplete', transferId: 'fixture', seq: snapshot.seq, records: 1, rows: snapshot.changes.length },
-      ]
-      return new Response(records.map(record => JSON.stringify(record)).join('\n') + '\n', {
-        headers: { 'content-type': 'application/x-ndjson' },
-      })
-    } },
+    streamingFetch: {
+      fetch: async () => {
+        if (!snapshot) throw new Error('silent test authority')
+        const records = [
+          {
+            type: 'syncMeta',
+            formatVersion: 1,
+            mode: 'snapshot',
+            transferId: 'fixture',
+            feedId: snapshot.feedId,
+            epoch: snapshot.epoch,
+            seq: snapshot.seq,
+            minAvailableSeq: 0,
+            wireVersion: WIRE_VERSION,
+            wireSchemaDigest: '0123456789abcdef',
+            totalRows: snapshot.changes.length,
+          },
+          snapshot,
+          {
+            type: 'syncComplete',
+            transferId: 'fixture',
+            seq: snapshot.seq,
+            records: 1,
+            rows: snapshot.changes.length,
+          },
+        ]
+        return new Response(records.map((record) => JSON.stringify(record)).join('\n') + '\n', {
+          headers: { 'content-type': 'application/x-ndjson' },
+        })
+      },
+    },
   }
   const opened = await openMobileReplica({
     api: STUB_API,
@@ -357,7 +373,13 @@ async function open(args: {
     onDegraded: (message) => degradations.push(message),
     now: () => 1_700_000_009_000,
   })
-  return { ...opened, degradations, setSnapshot: (frame: ReturnType<typeof bootstrapFrame>) => { snapshot = frame } }
+  return {
+    ...opened,
+    degradations,
+    setSnapshot: (frame: ReturnType<typeof bootstrapFrame>) => {
+      snapshot = frame
+    },
+  }
 }
 
 /** Seed one issue into the durable entity cache of an already-opened store. */
@@ -600,11 +622,15 @@ describe('the mobile replica composition root', () => {
     expect(seeded.replica.rows('issues').map((r) => r.id)).toEqual(['i-seed'])
     seeded.store.close()
 
-    const { replica, outcome } = await open({
+    const { replica, outcome, degradations } = await open({
       file,
       storage: device,
       evidence: { kind: 'unknown' },
     })
+    // AND THE USER IS TOLD, in plain words (POD-4002): the reason code is a log
+    // field, never copy.
+    expect(degradations).toContain('Refreshing your data after the upgrade — this happens once.')
+    expect(degradations.some((line) => /discarded-/.test(line))).toBe(false)
 
     // Legacy AsyncStorage entities/cursor are retired by the migration; the
     // SQLite entity cache is discarded by the same attribution decision that
@@ -781,15 +807,37 @@ function bootstrapFrame(args: {
       entity: c.entity,
       entityId: c.entityId,
       op: 'upsert' as const,
-      value: c.entity === 'issue' ? IssueWire.parse({
-        repoPath: '/fixture', seq: c.seq, description: '', stage: 'backlog',
-        worktreePath: '', branch: '', parentBranch: '', defaultModel: 'auto', defaultEffort: 'auto',
-        defaultAgent: 'codex', priority: 2, type: 'task', pinned: false,
-        needsHuman: false, labels: [], deps: [], dependents: [], ready: true,
-        blocked: false, deferred: false, childCount: 0, childDoneCount: 0,
-        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-        archived: false, ...c.value,
-      }) : c.value,
+      value:
+        c.entity === 'issue'
+          ? IssueWire.parse({
+              repoPath: '/fixture',
+              seq: c.seq,
+              description: '',
+              stage: 'backlog',
+              worktreePath: '',
+              branch: '',
+              parentBranch: '',
+              defaultModel: 'auto',
+              defaultEffort: 'auto',
+              defaultAgent: 'codex',
+              priority: 2,
+              type: 'task',
+              pinned: false,
+              needsHuman: false,
+              labels: [],
+              deps: [],
+              dependents: [],
+              ready: true,
+              blocked: false,
+              deferred: false,
+              childCount: 0,
+              childDoneCount: 0,
+              createdAt: '2026-01-01T00:00:00Z',
+              updatedAt: '2026-01-01T00:00:00Z',
+              archived: false,
+              ...c.value,
+            })
+          : c.value,
     })),
   }
 }
@@ -1048,52 +1096,122 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
   })
 })
 
-
 describe('HTTP sync through the mobile assembly', () => {
   it('counts streamed rows before completion, installs atomically, and heals a warm cursor', async () => {
     const file = freshDatabaseFile()
     let controller!: ReadableStreamDefaultController<Uint8Array>
-    const response = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } }), {
-      headers: { 'content-type': 'application/x-ndjson' },
-    })
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(value) {
+          controller = value
+        },
+      }),
+      {
+        headers: { 'content-type': 'application/x-ndjson' },
+      },
+    )
     const fetch = vi.fn().mockResolvedValueOnce(response)
-    const opened = await open({ file, storage: legacyDevice({}),
-      httpSync: { origin: 'https://server', streamingFetch: { fetch } } })
-    const send = (record: unknown) => controller.enqueue(new TextEncoder().encode(JSON.stringify(record) + '\n'))
-    const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 'mobile',
-      feedId: 'feed', epoch: 'e1', seq: 1, minAvailableSeq: 0, wireVersion: WIRE_VERSION,
-      wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
+    const opened = await open({
+      file,
+      storage: legacyDevice({}),
+      httpSync: { origin: 'https://server', streamingFetch: { fetch } },
+    })
+    const send = (record: unknown) =>
+      controller.enqueue(new TextEncoder().encode(JSON.stringify(record) + '\n'))
+    const meta = {
+      type: 'syncMeta',
+      formatVersion: 1,
+      mode: 'snapshot',
+      transferId: 'mobile',
+      feedId: 'feed',
+      epoch: 'e1',
+      seq: 1,
+      minAvailableSeq: 0,
+      wireVersion: WIRE_VERSION,
+      wireSchemaDigest: '0123456789abcdef',
+      totalRows: 1,
+    }
     expect(opened.feed.syncHttp).toBe(true)
     opened.feed.connected(false)
     send(meta)
-    send(bootstrapFrame({ seq: 1, changes: [{ seq: 1, entity: 'issue', entityId: 'http-issue',
-      value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'HTTP world' } }] }))
-    await waitUntil('HTTP row progress before completion', () => opened.syncProgress.getSnapshot().rowsSeen === 1)
-    expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: true, phase: 'downloading', totalRows: 1 })
+    send(
+      bootstrapFrame({
+        seq: 1,
+        changes: [
+          {
+            seq: 1,
+            entity: 'issue',
+            entityId: 'http-issue',
+            value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'HTTP world' },
+          },
+        ],
+      }),
+    )
+    await waitUntil(
+      'HTTP row progress before completion',
+      () => opened.syncProgress.getSnapshot().rowsSeen === 1,
+    )
+    expect(opened.syncProgress.getSnapshot()).toMatchObject({
+      blocking: true,
+      phase: 'downloading',
+      totalRows: 1,
+    })
     expect(opened.replica.rows('issues')).toHaveLength(0)
     send({ type: 'syncComplete', transferId: 'mobile', seq: 1, records: 1, rows: 1 })
     controller.close()
-    await waitUntil('HTTP durable install', () => opened.syncProgress.getSnapshot().phase === 'ready')
+    await waitUntil(
+      'HTTP durable install',
+      () => opened.syncProgress.getSnapshot().phase === 'ready',
+    )
     expect(opened.replica.rows('issues')).toHaveLength(1)
     expect(opened.feed.helloFields()?.feedCursor.seq).toBe(1)
     expect(fetch.mock.calls[0]![0]).toBe('https://server/sync/bootstrap')
 
     opened.feed.disconnected()
-    const deltaResponse = new Response(new ReadableStream<Uint8Array>({ start(value) { controller = value } }), {
-      headers: { 'content-type': 'application/x-ndjson' },
-    })
+    const deltaResponse = new Response(
+      new ReadableStream<Uint8Array>({
+        start(value) {
+          controller = value
+        },
+      }),
+      {
+        headers: { 'content-type': 'application/x-ndjson' },
+      },
+    )
     fetch.mockResolvedValueOnce(deltaResponse)
     opened.feed.connected(false)
     send({ ...meta, mode: 'delta', fromSeq: 1, seq: 2, totalRows: undefined })
-    send({ type: 'feedDelta', feedId: 'feed', epoch: 'e1', fromSeq: 1, seq: 2, minAvailableSeq: 0,
-      changes: [{ seq: 2, entity: 'issue', entityId: 'http-issue', op: 'upsert',
-        value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'Healed over HTTP' } }] })
+    send({
+      type: 'feedDelta',
+      feedId: 'feed',
+      epoch: 'e1',
+      fromSeq: 1,
+      seq: 2,
+      minAvailableSeq: 0,
+      changes: [
+        {
+          seq: 2,
+          entity: 'issue',
+          entityId: 'http-issue',
+          op: 'upsert',
+          value: { ...DEMO_ISSUES[0]!, id: 'http-issue', title: 'Healed over HTTP' },
+        },
+      ],
+    })
     await waitUntil('incremental HTTP commit', () => opened.replica.getCursor() === 2)
-    expect(opened.syncProgress.getSnapshot()).toMatchObject({ blocking: false, phase: 'saving', rowsSeen: 1, totalRows: null })
+    expect(opened.syncProgress.getSnapshot()).toMatchObject({
+      blocking: false,
+      phase: 'saving',
+      rowsSeen: 1,
+      totalRows: null,
+    })
     expect(opened.replica.rows('issues')[0]).toMatchObject({ title: 'Healed over HTTP' })
     send({ type: 'syncComplete', transferId: 'mobile', seq: 2, records: 1, rows: 1 })
     controller.close()
-    await waitUntil('warm HTTP completion', () => opened.syncProgress.getSnapshot().phase === 'ready')
+    await waitUntil(
+      'warm HTTP completion',
+      () => opened.syncProgress.getSnapshot().phase === 'ready',
+    )
     expect(fetch.mock.calls[1]![0]).toBe('https://server/sync/delta?feedId=feed&epoch=e1&from=1')
   })
 })

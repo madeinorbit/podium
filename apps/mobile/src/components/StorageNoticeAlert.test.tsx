@@ -31,6 +31,30 @@ describe('StorageNoticeAlert', () => {
     expect(dismiss).toHaveBeenCalledOnce()
   })
 
+  it('an info-tone notice reads as a status, not a failure: neutral surface, plain words (POD-4002)', () => {
+    render(
+      <MobileShellProvider
+        value={{
+          error: null,
+          notice: {
+            message: 'Refreshing your data after the upgrade — this happens once.',
+            tone: 'info',
+            dismiss: () => {},
+          },
+          eraseLocalData: async () => {},
+        }}
+      >
+        <StorageNoticeAlert />
+      </MobileShellProvider>,
+    )
+
+    const banner = screen.getByRole('alert')
+    expect(banner.textContent).toContain('Refreshing your data after the upgrade')
+    expect(banner.textContent).not.toMatch(/discarded|identit/)
+    expect(screen.getByTestId('storage-notice-info')).toBe(banner)
+    expect(screen.queryByTestId('storage-notice-alert')).toBeNull()
+  })
+
   it('renders nothing when storage has not degraded', () => {
     render(
       <MobileShellProvider value={{ error: null, notice: null, eraseLocalData: async () => {} }}>

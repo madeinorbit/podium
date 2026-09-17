@@ -25,11 +25,18 @@
  */
 import { createContext, type ReactNode, useContext } from 'react'
 
+/**
+ * How a notice reads. `warning` is the default and the danger colour: work was
+ * lost, or storage cannot be trusted. `info` is a fact the user is owed but that
+ * cost them nothing — a one-time refresh after an upgrade (POD-4002).
+ */
+export type NoticeTone = 'warning' | 'info'
+
 export interface MobileShell {
   /** Fatal store error, or null. Rendered as a screen-local strip. */
   readonly error: string | null
   /** Storage degradation / migration loss the user is owed, or null. */
-  readonly notice: { readonly message: string; dismiss(): void } | null
+  readonly notice: { readonly message: string; readonly tone?: NoticeTone; dismiss(): void } | null
   /** Default sign-out policy: erase this principal's complete local namespace. */
   eraseLocalData(): Promise<void>
 }
