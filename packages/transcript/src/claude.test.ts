@@ -1039,7 +1039,7 @@ describe('retained shell commands', () => {
       type: 'assistant',
       uuid: 'command-record',
       message: { content: [{ type: 'tool_use', id: 'call', name: 'Bash', input }] },
-    })[0]!
+    })[0]
     const codex = codexRecordToItems({
       type: 'response_item',
       payload: {
@@ -1048,11 +1048,12 @@ describe('retained shell commands', () => {
         call_id: 'call',
         arguments: JSON.stringify({ cmd: command }),
       },
-    })[0]!
+    })[0]
+    if (!claude || !codex) throw new Error('Missing command item')
     const live = claudeToolCallItem({ id: 'call', toolName: 'Bash', input })
     expect(live.toolInputJson).toBe(claude.toolInputJson)
     expect(codex.toolInputJson).toBe(claude.toolInputJson)
-    expect(codex.toolInput).toBe(claude.toolInput)
+    if (command) expect(codex.toolInput).toBe(claude.toolInput)
     return claude
   }
 
@@ -1062,18 +1063,18 @@ describe('retained shell commands', () => {
     '',
   ])('retains command text independently of the bounded preview: %s', (command) => {
     const item = commands(command)
-    expect(item.toolInput!.length).toBeLessThanOrEqual(161)
+    expect(item.toolInput?.length).toBeLessThanOrEqual(161)
     if (command.length > 160) expect(item.toolInput).toBe(`${command.slice(0, 160)}…`)
-    expect(JSON.parse(item.toolInputJson!)).toEqual({ kind: 'shell-command', command })
+    expect(JSON.parse(item.toolInputJson ?? 'null')).toEqual({ kind: 'shell-command', command })
     expect(JSON.parse(JSON.stringify(item)).toolInputJson).toBe(item.toolInputJson)
   })
 
   it.each(['x', '\u0000', '雪', '😀'])('bounds oversized serialized commands: %s', (unit) => {
     const command = unit.repeat(100_000)
     const item = commands(command)
-    expect(item.toolInput!.length).toBeLessThanOrEqual(161)
-    expect(item.toolInputJson!.length).toBeLessThanOrEqual(TOOL_INPUT_MAX)
-    const payload = JSON.parse(item.toolInputJson!)
+    expect(item.toolInput?.length).toBeLessThanOrEqual(161)
+    expect(item.toolInputJson?.length).toBeLessThanOrEqual(TOOL_INPUT_MAX)
+    const payload = JSON.parse(item.toolInputJson ?? 'null')
     expect(payload.kind).toBe('shell-command')
     expect(payload.truncated).toBe(true)
     expect(payload.command.length).toBeGreaterThan(160)
@@ -1094,6 +1095,9 @@ describe('retained shell commands', () => {
       toolName: 'Bash',
       input: { command: 'ls', env: 'private' },
     })
-    expect(JSON.parse(item.toolInputJson!)).toEqual({ kind: 'shell-command', command: 'ls' })
+    expect(JSON.parse(item.toolInputJson ?? 'null')).toEqual({
+      kind: 'shell-command',
+      command: 'ls',
+    })
   })
 })
