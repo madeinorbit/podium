@@ -729,6 +729,7 @@ export async function startServer(
   // does. That difference is why the same tree was honestly reported as both
   // clean and broken by different readers (POD-1858, POD-1862).
   const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
+    serverPlacement,
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
