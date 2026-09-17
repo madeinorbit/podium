@@ -64,6 +64,20 @@ for (const [family, mapper, record] of families) {
             limit: 10,
           })
           expect(ids(page.items)).toEqual(ids(first.slice(2)))
+          // Namespace matching is exact equality, never a decoded prefix or hash slice.
+          // This cursor names a different session with a shared readable prefix.
+          const foreignAnchor = encodeCursor({
+            fileId: `${fileId}:different-session`,
+            offset: 0,
+            uuid: null,
+            sub: 0,
+          })
+          const foreign = await readTranscriptSlice([{ path: b, fileId }], mapper, {
+            anchor: foreignAnchor,
+            direction: 'after',
+            limit: 10,
+          })
+          expect(coordinates(foreign.items)).toEqual(coordinates(first))
           // Editing text in place must not remint the first positional identity.
           await writeFile(a, bytes.replaceAll('same words', 'other text'))
           expect(ids(await readFileItems(a, fileId, mapper))).toEqual(ids(first))
@@ -72,6 +86,22 @@ for (const [family, mapper, record] of families) {
         }
       })
     }
+
+    it('keeps live and archived session generations distinct and stable', () => {
+      const session = 'native-session-identity'
+      const generations = [undefined, 1, 2].map((sequence) => fileIdFor(session, sequence))
+      expect(new Set(generations).size).toBe(3)
+      for (const [index, namespace] of generations.entries()) {
+        const parse = () =>
+          stampCursors(mapper(JSON.parse(JSON.stringify(record))), namespace, 0, null)
+        const first = parse()
+        expect(first).toHaveLength(1)
+        expect(coordinates(parse())).toEqual(coordinates(first))
+        expect(namespace).toBe(fileIdFor(session, [undefined, 1, 2][index]))
+        expect(namespace).not.toBe(fileIdFor('another-native-session', [undefined, 1, 2][index]))
+        expect(decodeCursor(first[0]?.cursor ?? '')?.fileId).toBe(namespace)
+      }
+    })
 
     it('reanchors the saved UUID after a rewrite moves its byte offset', async () => {
       const directory = await mkdtemp(join(tmpdir(), 'transcript-rewrite-'))
@@ -203,9 +233,15 @@ describe('opencode identity contract', () => {
     expect(coordinates(parse())).toEqual(coordinates(first))
     expect(new Set(ids(first)).size).toBe(2)
     for (const [sub, item] of first.entries()) {
-      expect(streamItemIdOf(item)).toBe(
-        encodeCursor({ fileId: opencodeFileId(sessionId), offset: 0, uuid: row.partId, sub }),
-      )
+      const liveId = encodeCursor({
+        fileId: opencodeFileId(sessionId),
+        offset: 0,
+        uuid: row.partId,
+        sub,
+      })
+      expect(item.id).toBe(liveId)
+      expect(first.filter((candidate) => candidate.id === liveId)).toHaveLength(1)
+      expect(streamItemIdOf(item)).toBe(liveId)
     }
   })
   it('replays distinct positional ids, reanchors rewritten rows, and joins stream items', () => {
@@ -227,6 +263,19 @@ describe('opencode identity contract', () => {
     expect(ids(rewritten)).toEqual(ids(first))
     const anchor = first[1]?.cursor
     expect(anchor).toBeDefined()
+    const foreignAnchor = encodeCursor({
+      fileId: `${opencodeFileId(sessionId)}:different-session`,
+      offset: 101,
+      uuid: 'part-1',
+      sub: 0,
+    })
+    expect(
+      coordinates(
+        sliceItemsByAnchor(first, { anchor: foreignAnchor, direction: 'after', limit: 10 }).items,
+      ),
+    ).toEqual(coordinates(first))
+    expect(opencodeFileId(sessionId)).toBe(opencodeFileId(sessionId))
+    expect(opencodeFileId(sessionId)).not.toBe(opencodeFileId(`${sessionId}:different-session`))
     expect(ids(sliceItemsByAnchor(first, { anchor, direction: 'after', limit: 10 }).items)).toEqual(
       ids(first.slice(2)),
     )

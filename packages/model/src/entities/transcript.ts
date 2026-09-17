@@ -82,10 +82,15 @@ export const TranscriptToolEffect = z.discriminatedUnion('kind', [
  * record position plus item slot; cursor is an opaque position anchor consumers
  * never decode.
  *
- * The cursor producer's fileId is a free-form session namespace string, not a
- * fixed-width token or a storage path. Hashes and provider-prefixed namespaces
- * are both valid: equality within the same session/generation is the contract,
- * not length or readable structure. Archives have distinct generation namespaces.
+ * The cursor producer derives fileId from the harness SESSION IDENTITY, never
+ * from a storage location. It is stable for the lifetime of that session:
+ * reading the same session at any path produces the same namespace. Each archived
+ * generation has a distinct namespace, unequal to the live session and to other
+ * generations, even when their bytes are identical.
+ * fileId has a free-form encoding with no width or prefix guarantee; hashes and
+ * provider-prefixed strings are valid. Consumers may compare it for equality but
+ * MUST NOT decode it or infer meaning from its structure. Producers should weigh
+ * length carefully: the namespace is repeated inside every cursor on every page.
  * UUID-bearing anchors survive rewrites; byte offsets are seek hints. Without a
  * UUID, position is authoritative. Paging and stream identities are distinct;
  * delta/complete consumers join through streamItemIdOf, never cursor arithmetic.
