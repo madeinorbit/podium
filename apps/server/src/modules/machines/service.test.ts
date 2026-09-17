@@ -1184,6 +1184,26 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 
+  test('setup records the host grantee only on an UNOWNED host row (POD-4179)', async () => {
+    const { svc, store, dir } = await adoptWorld()
+    try {
+      await store.machines.upsertMachine({
+        id: store.hostMachineId,
+        name: 'host',
+        hostname: 'host.local',
+        tokenHash: sha256('host-tok'),
+        ownerUserId: null,
+      })
+      expect(await svc.grantHostMachineIfUnowned(asUserId(ALICE))).toBe(true)
+      expect((await store.machines.getMachine(store.hostMachineId))?.ownerUserId).toBe(ALICE)
+      // Idempotent and never a takeover: an owned row is left exactly as it is.
+      expect(await svc.grantHostMachineIfUnowned(asUserId(BOB))).toBe(false)
+      expect((await store.machines.getMachine(store.hostMachineId))?.ownerUserId).toBe(ALICE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('an unknown machine is refused before anything is read', async () => {
     const { svc, dir } = await adoptWorld()
     try {

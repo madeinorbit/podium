@@ -927,6 +927,23 @@ export class MachinesService {
       : accountId
   }
 
+  /**
+   * SETUP RECORDS THE HOST GRANTEE (POD-4179, design rule 3's named exception).
+   * The host row is created at boot with NO owner; the transaction that creates
+   * or activates the first admin — `setup.complete`, a staged `podium setup`
+   * password adopted at the next boot, or PODIUM_PASSWORD applied at boot — is
+   * the one that may give the row its personal grantee. Only an UNOWNED row is
+   * written: an upgraded install already carries its owner from the ledger
+   * import, and nothing here infers an owner at read time or on every boot.
+   */
+  async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
+    const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
+    if (!row || row.ownerUserId !== null) return false
+    await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
+    this.invalidateMachineCache()
+    return true
+  }
+
   /** Explicit schema-level repair only; ordinary writes update in place. */
   invalidateMachineCache(): void {
     // Bump BEFORE clearing: a read in flight compares against this counter, and

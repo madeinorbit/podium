@@ -80,6 +80,8 @@ export interface FirstAdminCredentialStore {
 export interface AdoptStagedPasswordResult {
   /** What the boot actually did. `adopted` is the only outcome that wrote a credential. */
   outcome: 'adopted' | 'nothing-staged' | 'no-first-admin' | 'verify-failed'
+  /** The member the credential was attached to — present only when `adopted`. */
+  userId?: UserId
 }
 
 export interface AdoptStagedPasswordOptions {
@@ -148,7 +150,7 @@ export async function adoptStagedFirstAdminPassword(
   }
 
   deleteLegacyInstancePasswordFile(authDir)
-  return { outcome: 'adopted' }
+  return { outcome: 'adopted', userId }
 }
 
 /**
@@ -167,7 +169,7 @@ export async function applyEnvFirstAdminPassword(opts: {
   users: FirstAdminCredentialStore
   env?: NodeJS.ProcessEnv
   now?: () => Date
-}): Promise<{ applied: boolean }> {
+}): Promise<{ applied: boolean; userId?: UserId }> {
   const env = opts.env ?? process.env
   const pw = env.PODIUM_PASSWORD
   if (!pw?.trim()) return { applied: false }
@@ -180,5 +182,5 @@ export async function applyEnvFirstAdminPassword(opts: {
 
   const updatedAt = (opts.now?.() ?? new Date()).toISOString()
   await opts.users.setPasswordHash(userId, await hashPassword(pw), updatedAt)
-  return { applied: true }
+  return { applied: true, userId }
 }

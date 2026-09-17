@@ -112,6 +112,13 @@ export interface InstanceDeps {
   readonly transcriptMirrorSetting?:
     | (() => boolean | undefined | Promise<boolean | undefined>)
     | undefined
+  /**
+   * SETUP RECORDS THE HOST GRANTEE (POD-4179). Completing setup is the act that
+   * gives the server's own machine row its personal grantee — the caller — when
+   * the row is still unowned. Optional: an instance assembled without machines
+   * (tests, the in-process MCP caller) simply records nothing.
+   */
+  readonly grantHostMachine?: ((ownerUserId: UserId) => Promise<boolean>) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -355,6 +362,12 @@ export class InstanceService {
         await hashPassword(password),
         new Date().toISOString(),
       )
+    }
+    // The caller completing setup is the host machine's grantee if it has none yet
+    // (POD-4179): the one write that replaces the boot-time owner inference the
+    // database cutover removed. Idempotent — an owned row is left alone.
+    if (this.deps.grantHostMachine && this.deps.callerUserId) {
+      await this.deps.grantHostMachine(this.deps.callerUserId)
     }
     return cfg
   }

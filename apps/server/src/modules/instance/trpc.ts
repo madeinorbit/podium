@@ -36,7 +36,10 @@ const instanceService = (state: {
   caller: { userId: UserId }
   modules?:
     | {
-        machines: { refreshFleetChannel(): void | Promise<void> }
+        machines: {
+          refreshFleetChannel(): void | Promise<void>
+          grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
+        }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
     | undefined
@@ -54,6 +57,10 @@ const instanceService = (state: {
     // call so a Settings write shows up without a restart.
     transcriptMirrorSetting: async () =>
       (await state.store?.settings.getSettings())?.transcripts.mirror,
+    // POD-4179: setup.complete records the host machine's grantee.
+    grantHostMachine: state.modules
+      ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)
+      : undefined,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
     // so writing it has to re-resolve their targets and push the new projection.
     onFleetChannelChanged: state.modules

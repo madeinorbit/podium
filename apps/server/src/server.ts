@@ -665,10 +665,9 @@ export async function startServer(
   // auth.json by `podium setup` is the operator's REAL password and wins, so it is
   // adopted first; the PODIUM_PASSWORD seam then finds a credential and stays the no-op
   // it has always been on an instance that already has one.
-  if (!recoveryOnly) {
-    await adoptStagedFirstAdminPassword({ users: store.users })
-    await applyEnvFirstAdminPassword({ users: store.users })
-  }
+  // MOVED below `ensureHostMachine` (POD-4179): adopting the first admin's password is
+  // the setup transaction that may also give the host row its grantee, so the row has to
+  // exist first. Login is not served until both have run.
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
@@ -831,6 +830,20 @@ export async function startServer(
         ? bootTargetPromotion.sourceMachineId
         : undefined,
     )
+  // THE FIRST ADMIN'S PASSWORD, from wherever it was left before this boot, and before
+  // anything can serve a login. Order matters between these two: a hash staged in
+  // auth.json by `podium setup` is the operator's REAL password and wins, so it is
+  // adopted first; the PODIUM_PASSWORD seam then finds a credential and stays the no-op
+  // it has always been on an instance that already has one. Either one that WRITES a
+  // credential is a setup act and records the host machine's grantee (POD-4179).
+  if (!recoveryOnly) {
+    const adopted = await adoptStagedFirstAdminPassword({ users: store.users })
+    if (adopted.outcome === 'adopted' && adopted.userId)
+      await registry.modules.machines.grantHostMachineIfUnowned(adopted.userId)
+    const applied = await applyEnvFirstAdminPassword({ users: store.users })
+    if (applied.applied && applied.userId)
+      await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
+  }
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
