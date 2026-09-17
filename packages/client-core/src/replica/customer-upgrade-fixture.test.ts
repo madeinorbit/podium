@@ -12,6 +12,7 @@
  */
 
 import { newMemberId } from '@podium/model'
+import { decideLegacyAdoption } from '@podium/sync/adapters/legacy-replica'
 import { describe, expect, it } from 'vitest'
 import { localStorage as captured, manifest } from '../../../runtime/src/fixtures/customer-upgrade'
 import type { StorageApi } from './contract'
@@ -103,6 +104,25 @@ describe('customer upgrade fixture: client', () => {
     expect(device.api.getItem(`${first.keyPrefix}.cursor.v1`)).toBe('1')
     expect(device.api.getItem(`${first.keyPrefix}.sessions.v1`)).toBe(JSON.stringify(['s1']))
     expect(JSON.parse(device.api.getItem(`${first.keyPrefix}.namespace.v1`)!)).toMatchObject({ lastUsedAt: UPGRADE_AT + DAY })
+  })
+
+  it('no danger banner for a same-identity bootstrap', () => {
+    const device = fullDevice(4096)
+    const first = boot(device, MEMBER, UPGRADE_AT)
+    device.api.setItem(`${first.keyPrefix}.sessions.v1`, JSON.stringify(['s1']))
+    const again = boot(device, MEMBER, UPGRADE_AT + DAY)
+    expect(again.knownPrincipals).toContain(manifest.retiredPrincipal)
+    expect(again.knownPrincipals).toContain(MEMBER)
+    const decision = decideLegacyAdoption(
+      { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
+      { kind: 'multi-user', signedInAs: MEMBER, identitiesEverSignedIn: again.knownPrincipals },
+      UPGRADE_AT + DAY,
+      { kind: 'principal-scoped', writtenUnder: [MEMBER] },
+    )
+    // Both client roots show the store-not-adopted notice only on refusal.
+    expect(decision.adopt).toBe(true)
+    expect(decision.reason).toBe('adopted-nothing-to-protect')
+    expect(device.api.getItem(`${first.keyPrefix}.sessions.v1`)).toBe(JSON.stringify(['s1']))
   })
 
   it('retention is unchanged: with room, a recent foreign namespace is kept for its 30 days', () => {
