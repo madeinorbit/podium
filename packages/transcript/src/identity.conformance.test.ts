@@ -298,3 +298,195 @@ describe('opencode identity contract', () => {
     }
   })
 })
+
+// ID-site inventory, including pass-through writes and shared generators:
+// Claude 17; Codex 5; Cursor 4; Pi 10 (8 writes + user/bash generators);
+// Grok 5 (4 reachable writes + baseId); OpenCode 6 (5 writes + itemId).
+// Grok's additional systemItems.id is unreachable: the public switch drops
+// system records and never calls systemItems. It is not claimed as covered.
+// Every fixture below asserts raw mapper IDs BEFORE cursor stamping can replace
+// fallback IDs, then the normalized IDs. Both UUID-less and provider-ID forms
+// are exercised. The internal-site mutation sweep is recorded in issue evidence.
+const call = { type: 'tool_use', name: 'Read', input: { path: 'same words' } }
+const result = { type: 'tool_result', content: 'same words' }
+const claudeCases: [string, object][] = [
+  [
+    'meta image',
+    { type: 'user', isMeta: true, message: { content: '[Image: source: /tmp/picture.png]' } },
+  ],
+  [
+    'orphan effects',
+    { type: 'user', message: { content: 'same words' }, toolUseResult: { newEffect: true } },
+  ],
+  ['duration', { type: 'system', subtype: 'turn_duration', durationMs: 42 }],
+  ['stop hooks', { type: 'system', subtype: 'stop_hook_summary', hookCount: 1 }],
+  ['away summary', { type: 'system', subtype: 'away_summary', content: 'same words' }],
+  ['system text', { type: 'system', content: 'same words' }],
+  [
+    'edited file',
+    { type: 'attachment', attachment: { type: 'edited_text_file', filename: '/tmp/a' } },
+  ],
+  ['file attachment', { type: 'attachment', attachment: { type: 'file', filename: '/tmp/a' } }],
+  ['user string', { type: 'user', message: { content: 'same words' } }],
+  ['user array and result', { type: 'user', message: { content: [...content, result] } }],
+  [
+    'queued command',
+    {
+      type: 'attachment',
+      attachment: { type: 'queued_command', commandMode: 'prompt', prompt: 'same words' },
+    },
+  ],
+  ['assistant text and call', { type: 'assistant', message: { content: [...content, call] } }],
+]
+const codexCases: [string, object][] = [
+  ['interrupt', { type: 'event_msg', payload: { type: 'turn_aborted' } }],
+  ['legacy user', { type: 'event_msg', payload: { type: 'user_message', message: 'same words' } }],
+  [
+    'completed user',
+    {
+      type: 'event_msg',
+      payload: { type: 'item_completed', item: { type: 'UserMessage', content } },
+    },
+  ],
+  [
+    'assistant',
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', content } },
+  ],
+  ...['function_call', 'custom_tool_call'].map((type): [string, object] => [
+    type,
+    { type: 'response_item', payload: { type, name: 'Read', arguments: {}, input: 'same words' } },
+  ]),
+  ...['function_call_output', 'custom_tool_call_output'].map((type): [string, object] => [
+    type,
+    { type: 'response_item', payload: { type, output: 'same words' } },
+  ]),
+]
+const piCases: [string, object][] = [
+  ['user', { role: 'user', content }],
+  ['bash call and result', { role: 'bashExecution', command: 'echo hello', output: 'same words' }],
+  ['custom displayed', { role: 'custom', display: true, content }],
+  ['compaction summary', { role: 'compactionSummary', summary: 'same words' }],
+  ['branch summary', { role: 'branchSummary', summary: 'same words' }],
+  [
+    'assistant text and tool',
+    { role: 'assistant', content: [...content, { type: 'toolCall', name: 'Read', arguments: {} }] },
+  ],
+  ['assistant error', { role: 'assistant', stopReason: 'error', errorMessage: 'same words' }],
+  ['tool result', { role: 'toolResult', content }],
+].map(([name, message]) => [name as string, { type: 'message', message }])
+const cursorCases: [string, object][] = [
+  ['user', { role: 'user', message: { content } }],
+  [
+    'assistant text call result',
+    { role: 'assistant', message: { content: [...content, call, result] } },
+  ],
+]
+const grokCases: [string, object][] = [
+  ['user', { role: 'user', content }],
+  ['assistant content calls', { role: 'assistant', content: [...content, call, result] }],
+  ['assistant tool_calls', { role: 'assistant', content, tool_calls: [call] }],
+  ['top-level call', call],
+  ['top-level result', result],
+]
+
+// Add IDs at the provider locations, leaving nested call/result IDs absent in
+// one variant to exercise record+slot fallbacks as well as native tool IDs.
+function withProviderIds(record: object, nested: boolean): object {
+  const visit = (value: unknown, path: string): unknown => {
+    if (Array.isArray(value)) return value.map((entry, index) => visit(entry, `${path}-${index}`))
+    if (value === null || typeof value !== 'object') return value
+    const input = value as Record<string, unknown>
+    const out = Object.fromEntries(
+      Object.entries(input).map(([key, entry]) => [key, visit(entry, `${path}-${key}`)]),
+    )
+    if (
+      path === 'record' ||
+      nested ||
+      path === 'record-payload' ||
+      path === 'record-payload-item'
+    ) {
+      out.id = `${path}-id`
+      out.uuid = `${path}-uuid`
+      out.call_id = `${path}-call`
+      out.tool_use_id = `${path}-tool`
+      out.toolCallId = `${path}-tool`
+    }
+    return out
+  }
+  return visit(record, 'record') as object
+}
+
+for (const [family, mapper, fixtures] of [
+  ['claude', claudeRecordToItems, claudeCases],
+  ['codex', codexRecordToItems, codexCases],
+  ['cursor', cursorRecordToItems, cursorCases],
+  ['pi', piRecordToItems, piCases],
+  ['grok', grokRecordToItems, grokCases],
+] as [string, Mapper, [string, object][]][]) {
+  describe(`${family} internal ID sites`, () => {
+    for (const [site, record] of fixtures) {
+      for (const [variant, input] of [
+        ['uuid-less', record],
+        ['record identity', withProviderIds(record, false)],
+        ['native tool identity', withProviderIds(record, true)],
+      ] as const) {
+        it(`${site}: ${variant} repeats raw and stamped IDs`, () => {
+          const bytes = JSON.stringify(input)
+          const parse = () => mapper(JSON.parse(bytes))
+          const first = parse()
+          expect(first.length).toBeGreaterThan(0)
+          // Raw IDs may be fallback sentinels shared by siblings. They must be
+          // deterministic, and become unique only after position stamping.
+          expect(ids(parse())).toEqual(ids(first))
+          const stamped = stampCursors(first, fileIdFor('internal-sites'), 42, recordUuid(input))
+          expect(
+            coordinates(stampCursors(parse(), fileIdFor('internal-sites'), 42, recordUuid(input))),
+          ).toEqual(coordinates(stamped))
+          expect(new Set(ids(stamped)).size).toBe(stamped.length)
+        })
+      }
+    }
+  })
+}
+
+describe('opencode internal ID sites', () => {
+  for (const [site, message, part, count] of [
+    [
+      'interrupt',
+      { role: 'assistant', error: { name: 'MessageAborted' } },
+      { type: 'interrupt' },
+      1,
+    ],
+    ['user text', { role: 'user' }, { type: 'text', text: 'same words' }, 1],
+    ['assistant text', { role: 'assistant' }, { type: 'text', text: 'same words' }, 1],
+    [
+      'call and result',
+      { role: 'assistant' },
+      { type: 'tool', tool: 'read', state: { input: {}, output: 'same words' } },
+      2,
+    ],
+  ] as const) {
+    it(`${site}: repeats raw and stamped IDs`, () => {
+      const row: OpencodeMessagePartRow = {
+        sessionId: 'site-session',
+        messageId: 'message',
+        partId: 'part',
+        timeCreated: 12,
+        timeUpdated: 15,
+        messageData: JSON.stringify(message),
+        partData: JSON.stringify(part),
+      }
+      const bytes = JSON.stringify([row])
+      const parse = () => stampOpencodeItems(JSON.parse(bytes), row.sessionId)
+      const first = parse()
+      expect(first).toHaveLength(count)
+      expect(coordinates(parse())).toEqual(coordinates(first))
+      expect(new Set(ids(first)).size).toBe(count)
+      for (const [sub, item] of first.entries()) {
+        expect(item.id).toBe(
+          encodeCursor({ fileId: opencodeFileId(row.sessionId), offset: 0, uuid: row.partId, sub }),
+        )
+      }
+    })
+  }
+})
