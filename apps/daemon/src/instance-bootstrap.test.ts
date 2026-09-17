@@ -94,6 +94,32 @@ describe('bootstrapDaemonInstance', () => {
     second.releaseGuards()
   })
 
+  it('takes over both guards from an unreaped zombie without releasing its locks first', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-daemon-zombie-'))
+    roots.push(root)
+    process.env.PODIUM_INSTANCE = 'blue'
+    process.env.PODIUM_STATE_DIR = root
+    let pid = 101
+    let zombie = false
+    const io = {
+      pidAlive: () => true,
+      processState: (candidate: number) => candidate === 101 && zombie ? 'Z' : 'S',
+      bootId: () => 'boot-1',
+      startTime: (candidate: number) => String(candidate),
+      now: () => 1,
+      selfPid: () => pid,
+    }
+    const guardDir = join(root, 'guards')
+    const first = bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })
+    pid = 202
+    zombie = true
+    const second = bootstrapDaemonInstance({ acquireGuards: true, guardDir, guardIo: io })
+    first.releaseGuards()
+    expect(JSON.parse(readFileSync(join(root, 'daemon.lock'), 'utf8')).pid).toBe(202)
+    expect(JSON.parse(readFileSync(join(guardDir, second.instanceUuid), 'utf8')).pid).toBe(202)
+    second.releaseGuards()
+  })
+
   it('moves an overlong Codex hook socket to the bounded instance runtime root', () => {
     const base = mkdtempSync(join(tmpdir(), 'podium-daemon-instance-'))
     roots.push(base)

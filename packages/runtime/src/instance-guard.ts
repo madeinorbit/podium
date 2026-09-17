@@ -82,6 +82,8 @@ export interface InstanceGuardHolder extends ProcessIdentityTriple {
 /** Effects, injected so tests can stage a holder without staging a process. */
 export interface InstanceGuardIo {
   pidAlive(pid: number): boolean
+  /** Linux process state; unavailable on hosts without readable /proc. */
+  processState?(pid: number): string | undefined
   bootId(): string | undefined
   startTime(pid: number): string | undefined
   now(): number
@@ -109,6 +111,14 @@ export function parseProcStatStartTime(stat: string): string | undefined {
   return startTime && /^\d+$/.test(startTime) ? startTime : undefined
 }
 
+/** Field 3 follows comm, whose name may itself contain spaces and parentheses. */
+export function parseProcStatState(stat: string): string | undefined {
+  const close = stat.lastIndexOf(')')
+  if (close < 0) return undefined
+  const state = stat.slice(close + 1).trim().split(/\s+/)[0]
+  return state && /^[A-Za-z]$/.test(state) ? state : undefined
+}
+
 export const defaultInstanceGuardIo: InstanceGuardIo = {
   pidAlive(pid) {
     try {
@@ -118,6 +128,13 @@ export const defaultInstanceGuardIo: InstanceGuardIo = {
       // EPERM means it exists under another uid — alive, and emphatically not
       // ours to displace. Only ESRCH reads as gone.
       return (error as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  },
+  processState(pid) {
+    try {
+      return parseProcStatState(readFileSync(`/proc/${pid}/stat`, 'utf8'))
+    } catch {
+      return undefined
     }
   },
   bootId() {
@@ -163,6 +180,8 @@ export function holderIsLive(
   io: InstanceGuardIo = defaultInstanceGuardIo,
 ): boolean {
   if (!io.pidAlive(holder.pid)) return false
+  // kill(pid, 0) succeeds for unreaped zombies, which can no longer own a guard.
+  if (io.processState?.(holder.pid) === 'Z') return false
   const bootId = io.bootId()
   if (holder.bootId !== undefined && bootId !== undefined && holder.bootId !== bootId) return false
   const startTime = io.startTime(holder.pid)

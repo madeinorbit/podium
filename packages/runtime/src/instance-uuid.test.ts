@@ -22,6 +22,7 @@ import {
   type InstanceGuardIo,
   instanceGuardDir,
   parseProcStatStartTime,
+  parseProcStatState,
   writerLiveness,
 } from './instance-guard'
 
@@ -307,6 +308,21 @@ describe('holder liveness — the identity triple', () => {
     const noProc = stubIo({ bootId: () => undefined, startTime: () => undefined })
     expect(holderIsLive(holder(), noProc)).toBe(true)
     expect(holderIsLive(holder({ bootId: undefined, startTime: undefined }), stubIo())).toBe(true)
+  })
+})
+
+describe('zombie liveness', () => {
+  it('treats an unreaped zombie as dead despite a matching identity and live PID', () => {
+    expect(holderIsLive(holder(), stubIo({ processState: () => 'Z' }))).toBe(false)
+    expect(holderIsLive(holder(), stubIo({ processState: () => 'S' }))).toBe(true)
+    expect(holderIsLive(holder(), stubIo({ processState: () => undefined }))).toBe(true)
+  })
+
+  it('reads state after the last comm parenthesis', () => {
+    expect(parseProcStatState('123 (daemon (old) name) Z 1 2 3')).toBe('Z')
+    expect(parseProcStatState('123 (daemon) S 1 2 3')).toBe('S')
+    expect(parseProcStatState('malformed')).toBeUndefined()
+    expect(parseProcStatState('123 (daemon)')).toBeUndefined()
   })
 })
 

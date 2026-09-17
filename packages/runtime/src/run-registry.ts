@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { stateDir } from './config'
 import {
   defaultInstanceGuardIo,
+  holderIsLive,
   type InstanceGuardIo,
   selfIdentityTriple,
   writerLiveness,
@@ -178,6 +179,8 @@ export interface ReclaimResult {
 export interface ReclaimOptions {
   /** Total time to wait for a graceful SIGTERM before escalating to SIGKILL. */
   graceMs?: number
+  /** Bound the wait for SIGKILL delivery; refuse takeover if still running. */
+  killWaitMs?: number
   pollMs?: number
   kill?: KillFn
   sleepFn?: (ms: number) => Promise<void>
@@ -187,18 +190,26 @@ export interface ReclaimOptions {
 
 /**
  * Reclaim a role before (re)binding it: if a live process holds the pidfile, SIGTERM it, wait up
- * to `graceMs` for it to die, then SIGKILL. Removes the pidfile on success. No live holder →
+ * to `graceMs` for it to die, then SIGKILL and wait up to `killWaitMs` for exit
+ * (including an unreaped zombie). Removes the pidfile only on confirmed termination. No live holder →
  * `{reclaimed:false}` (a stale pidfile is left for the caller's own writeRecord to overwrite).
  *
  * Throws if the holder is alive but unkillable (EPERM) — the caller must NOT proceed to bind, to
  * avoid a double-run.
  */
 export async function reclaim(role: RunRole, opts: ReclaimOptions = {}): Promise<ReclaimResult> {
-  const { graceMs = 3000, pollMs = 100, kill = process.kill, sleepFn = sleep, io = {} } = opts
+  const {
+    graceMs = 3000,
+    killWaitMs = 3000,
+    pollMs = 100,
+    kill = process.kill,
+    sleepFn = sleep,
+    io = {},
+  } = opts
+  if (!Number.isFinite(pollMs) || pollMs <= 0) throw new Error('pollMs must be positive')
   // Fenced by IDENTITY, not by pid: everything below this line sends signals, so
-  // a record from a previous boot must never get past here (POD-3837). Once it
-  // has, the pid names the process we just proved is ours to stop, and the wait
-  // below is a within-boot "is it gone yet" — the bare check, correctly.
+  // a record from a previous boot must never get past here (POD-3837). The same
+  // fence below also recognizes zombies and a PID recycled during the wait.
   const rec = liveRecord(role, kill, io)
   if (!rec) return { reclaimed: false }
 
@@ -215,13 +226,26 @@ export async function reclaim(role: RunRole, opts: ReclaimOptions = {}): Promise
     }
   }
 
+  const holder = { pid: rec.pid, bootId: rec.bootId, startTime: rec.procStartTime }
+  const probes = { ...defaultInstanceGuardIo, pidAlive: (pid: number) => isAlive(pid, kill), ...io }
+  const stillRunning = (): boolean => holderIsLive(holder, probes)
+
   signal('SIGTERM')
   const deadline = Math.max(1, Math.ceil(graceMs / pollMs))
   for (let i = 0; i < deadline; i++) {
-    if (!isAlive(rec.pid, kill)) break
+    if (!stillRunning()) break
     await sleepFn(pollMs)
   }
-  if (isAlive(rec.pid, kill)) signal('SIGKILL')
+  if (stillRunning()) {
+    signal('SIGKILL')
+    const killPolls = Math.max(1, Math.ceil(killWaitMs / pollMs))
+    for (let i = 0; i < killPolls && stillRunning(); i++) await sleepFn(pollMs)
+    if (stillRunning()) {
+      throw new Error(
+        `run-registry: ${role} (pid ${rec.pid}) is still running after SIGKILL — refusing takeover`,
+      )
+    }
+  }
   removeRecord(role)
   return { reclaimed: true, pid: rec.pid }
 }

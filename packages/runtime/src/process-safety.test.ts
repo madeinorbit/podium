@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { InstanceGuardHeldError } from './instance-guard'
 import { makeSafetyHandlers } from './process-safety'
 
 /** A spy in the shape of the one logger method the net uses. */
@@ -41,4 +42,19 @@ describe('makeSafetyHandlers', () => {
     const { onUnhandledRejection } = makeSafetyHandlers(log)
     expect(() => onUnhandledRejection('boom')).not.toThrow()
   })
+})
+
+describe('fatal boot guard failures', () => {
+  it.each(['onUnhandledRejection', 'onUncaughtException'] as const)(
+    '%s exits non-zero even when logging fails', (handler) => {
+      const exit = vi.fn()
+      const log = { error: vi.fn(() => { throw new Error('broken logger') }) }
+      const err = new InstanceGuardHeldError('held', {
+        pid: 123, instanceUuid: 'test', stateDir: '/test', acquiredAtMs: 0,
+      })
+      makeSafetyHandlers(log, exit)[handler](err)
+      expect(exit).toHaveBeenCalledExactlyOnceWith(1)
+      expect(log.error).toHaveBeenCalledWith(expect.stringContaining('fatal instance guard'), { err })
+    },
+  )
 })

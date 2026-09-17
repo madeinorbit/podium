@@ -135,6 +135,43 @@ describe('reclaim', () => {
     expect(alive.has(800)).toBe(false) // SIGKILL got it
   })
 
+  it.each(['Z', undefined])('waits after SIGKILL until the holder is %s', async (terminalState) => {
+    writeRecord({ role: 'daemon', pid: 800, startedAt: 'T0' })
+    let state: string | undefined = 'S'
+    let killed = false
+    let pollsAfterKill = 0
+    const result = await reclaim('daemon', {
+      graceMs: 10,
+      pollMs: 10,
+      kill: (_pid, signal) => {
+        if (signal === 'SIGKILL') killed = true
+        if (signal === 0 && state === undefined) {
+          throw Object.assign(new Error('gone'), { code: 'ESRCH' })
+        }
+      },
+      io: { processState: () => state },
+      sleepFn: async () => {
+        if (killed && ++pollsAfterKill === 2) state = terminalState
+      },
+    })
+    expect(pollsAfterKill).toBe(2)
+    expect(result).toEqual({ reclaimed: true, pid: 800 })
+    expect(readRecordForTest('daemon')).toBeUndefined()
+  })
+
+  it('refuses takeover and retains the record when SIGKILL has not terminated the holder', async () => {
+    writeRecord({ role: 'daemon', pid: 800, startedAt: 'T0' })
+    await expect(reclaim('daemon', {
+      graceMs: 10,
+      killWaitMs: 20,
+      pollMs: 10,
+      kill: () => {},
+      io: { processState: () => 'D' },
+      sleepFn: immediate,
+    })).rejects.toThrow(/still running after SIGKILL/)
+    expect(readRecordForTest('daemon')?.pid).toBe(800)
+  })
+
   it('unkillable holder (EPERM) throws rather than allow a double-run', async () => {
     writeRecord({ role: 'server', pid: 900, startedAt: 'T0' })
     await expect(

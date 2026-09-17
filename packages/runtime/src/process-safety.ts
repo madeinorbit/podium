@@ -14,6 +14,7 @@
  * rather than a `console.error` whose stack was only ever readable by eye.
  */
 import { createLogger } from '@podium/logger'
+import { InstanceGuardHeldError } from './instance-guard'
 
 export interface SafetyHandlers {
   onUnhandledRejection(reason: unknown): void
@@ -32,7 +33,10 @@ export interface SafetyLog {
  * caller builds `createLogger('<label>:safety-net')`, so every record is already
  * attributed and a query can group by it.
  */
-export function makeSafetyHandlers(log: SafetyLog): SafetyHandlers {
+export function makeSafetyHandlers(
+  log: SafetyLog,
+  exit: (code: number) => void = (code) => process.exit(code),
+): SafetyHandlers {
   const safelyLog = (msg: string, err: unknown): void => {
     try {
       log.error(msg, { err })
@@ -40,9 +44,19 @@ export function makeSafetyHandlers(log: SafetyLog): SafetyHandlers {
       // A broken log sink must never become the fatal error we were trying to swallow.
     }
   }
+  const handle = (kind: string, err: unknown): void => {
+    // A refused boot has no functioning daemon to preserve. Surviving here
+    // strands the parent's health gate until timeout instead of reporting exit.
+    if (err instanceof InstanceGuardHeldError) {
+      safelyLog(`${kind} (fatal instance guard)`, err)
+      exit(1)
+      return
+    }
+    safelyLog(`${kind} (surviving)`, err)
+  }
   return {
-    onUnhandledRejection: (reason) => safelyLog('unhandledRejection (surviving)', reason),
-    onUncaughtException: (err) => safelyLog('uncaughtException (surviving)', err),
+    onUnhandledRejection: (reason) => handle('unhandledRejection', reason),
+    onUncaughtException: (err) => handle('uncaughtException', err),
   }
 }
 
