@@ -14,7 +14,6 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { RetiredDriverId } from '@podium/harness'
 import type { DriverCapabilities } from './capabilities.js'
 import { attachKindsForDriver, configureFieldsForDriver } from './configure-catalog.js'
 import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
@@ -29,7 +28,6 @@ const declaredFields = (caps: DriverCapabilities): readonly string[] =>
 const declaredAttach = (caps: DriverCapabilities): readonly string[] =>
   caps.attach.supported ? caps.attach.value.kinds : []
 
-const retiredClaudePty: RetiredDriverId = 'claude-pty'
 
 describe('attachKindsForDriver', () => {
   it.each([
@@ -45,7 +43,7 @@ describe('attachKindsForDriver', () => {
     const live = terminalCapabilities({
       composerReadiness: 'confirmed-turn',
       instrumentationRequired: false,
-      driverId: retiredClaudePty,
+      driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       interactionsFromHooks: true,
       draftReadable: true,
@@ -92,7 +90,7 @@ describe('configureFieldsForDriver', () => {
     const live = terminalCapabilities({
       composerReadiness: 'confirmed-turn',
       instrumentationRequired: false,
-      driverId: retiredClaudePty,
+      driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
       interactionsFromHooks: true,
       draftReadable: true,
