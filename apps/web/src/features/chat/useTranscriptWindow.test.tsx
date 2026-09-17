@@ -11,6 +11,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -213,7 +214,10 @@ describe('useTranscriptWindow optimistic session boundary', () => {
     await flush()
 
     expect(captured?.initialLoaded).toBe(true)
-    expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted'])
+    // The read can settle before asynchronous transcript computation finishes.
+    await waitFor(() =>
+      expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted']),
+    )
     expect(fakeHub.subscribes).toHaveLength(1)
   })
 
