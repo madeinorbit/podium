@@ -243,6 +243,8 @@ it('renders the Bash input as coloured inline text when a work run opens', () =>
   const command = 'echo "$HOME" && printf "%s" 42'
   const { container } = render(
     <TranscriptList
+      live={false}
+      onAnswer={async () => {}}
       items={[
         {
           id: 'bash-row',
