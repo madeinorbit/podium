@@ -391,7 +391,7 @@ export class SessionStore {
     this.accounts = new AccountsRepository(this.queries)
     this.machines = new MachinesRepository(this.queries)
     this.grants = new GrantsRepository(this.queries)
-    this.users = new UsersRepository(this.queries)
+    this.users = new UsersRepository(this.queries, this.machines, this.grants)
     this.telegramBindings = new TelegramBindingsRepository(this.queries)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)

@@ -264,6 +264,13 @@ export class GrantsRepository {
     return removed
   }
 
+  /** Member removal revokes their incoming rights, preserving everyone else's shares. */
+  async removeAllForGrantee(grantee: string): Promise<void> {
+    const result = await this.committed.write(async () => this.db.delete(grants)
+      .where(eq(grants.grantee, grantee)).returning().all(), 'delete')
+    if (result.changes > 0) this.visibilityRevisionValue += 1
+  }
+
   /**
    * Drop every edge on a resource — called when the resource itself goes away.
    *

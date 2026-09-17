@@ -901,6 +901,7 @@
         "src/store/users-disable.test.ts",
         "src/store/users-earliest-admin.test.ts",
         "src/store/users-email.test.ts",
+        "src/store/users-remove.test.ts",
         "src/store/users.ts",
         "src/store/workflows-golden.test.ts",
         "src/store/workflows.ts",

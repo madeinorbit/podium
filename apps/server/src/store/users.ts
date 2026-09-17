@@ -1,4 +1,6 @@
 import { CommittedRows } from './committed-rows'
+import { MachinesRepository } from './machines'
+import { GrantsRepository } from './grants'
 /**
  * THE ACCOUNT ROLE READER (POD-1079) — the first reader the `users` table
  * (POD-1075) has had.
@@ -22,7 +24,7 @@ import { CommittedRows } from './committed-rows'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
-import { clientSessions, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
+import { clientSessions, machines, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
@@ -63,7 +65,11 @@ export class UsersRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
+  constructor(
+    queries: StoreQueries,
+    private readonly machinesRepository = new MachinesRepository(queries),
+    private readonly grantsRepository = new GrantsRepository(queries),
+  ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
     this.committed.subscribe(() => { this.accountsVersion += 1 })
     this.rootDb = queries.rootDb
@@ -444,13 +450,29 @@ export class UsersRepository {
     await this.claimTransaction(async () => {
       if ((await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
       if (userId === actor) throw new Error('You cannot remove yourself')
-      if (!(await this.get(userId))) throw new Error('Member unavailable')
-      // Preserve ownership of issues and sessions; disabled members fail every principal lookup.
-      await this.db
-        .update(users)
-        .set({ disabledAt: new Date().toISOString() })
-        .where(eq(users.id, userId))
-        .run()
+      // Read the retained row: a disabled member can still hold custody, and
+      // retrying removal by member id must succeed without duplicate audits.
+      if (!(await this.accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
+      const at = new Date().toISOString()
+      await this.disable(userId, at, actor)
+      const held = await this.db.select({ id: machines.id }).from(machines)
+        .where(eq(machines.ownerUserId, userId)).all()
+      for (const machine of held) {
+        await this.machinesRepository.setMachineOwner(machine.id, null)
+        await this.db.insert(settingsAuditEvents).values({
+          command: 'members.remove', outcome: 'applied',
+          actorKind: 'user', actorId: actor, onBehalfOf: actor,
+          detailJson: JSON.stringify({
+            memberId: userId, machineId: machine.id,
+            previousOwnerUserId: userId, newOwnerUserId: null,
+          }),
+          createdAt: at,
+        }).run()
+      }
+      // Keep other members' shares, including shares granted by this member.
+      // Only the removed member's incoming grants are invalidated. Session and
+      // issue attribution (and historical grant audiences) are never rewritten.
+      await this.grantsRepository.removeAllForGrantee(userId)
       await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
       await this.db.delete(userCredentials).where(eq(userCredentials.userId, userId)).run()
       await this.db.delete(memberInvites).where(eq(memberInvites.memberId, userId)).run()
