@@ -1,4 +1,4 @@
-// @vitest-environment jsdom-sanitizer
+// @vitest-environment jsdom
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'

@@ -5,7 +5,7 @@ import { sharedVitestConfig } from '../../vitest.config'
 // Web-local vitest config. The repo-root vitest.config.ts excludes **/.claude/**,
 // and this worktree lives under .claude/worktrees/, so the root config would
 // silently skip every test here. Most web tests use happy-dom. Sanitizer-facing
-// suites opt into test/jsdom-sanitizer.environment.mjs: happy-dom 20.10.2 and 20.14.5
+// suites opt into jsdom with @vitest-environment: happy-dom 20.10.2 and 20.14.5
 // lose the first element and leave later scripts/handlers intact (POD-4109).
 // Keep security removal assertions in those jsdom suites, not the default DOM.
 
@@ -23,12 +23,6 @@ export default defineConfig({
   resolve: {
     ...sharedVitestConfig.resolve,
     alias: [
-      {
-        find: /^vitest-environment-jsdom-sanitizer$/,
-        replacement: fileURLToPath(
-          new URL('./test/jsdom-sanitizer.environment.mjs', import.meta.url),
-        ),
-      },
       // The VitePWA plugin mints `virtual:pwa-register/react` at build time and
       // does not run in this lane. Without a stand-in, `src/app/pwa-register.ts`
       // cannot be imported at all — which is why its wrapper went untested

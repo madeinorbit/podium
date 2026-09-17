@@ -1,4 +1,4 @@
-// @vitest-environment jsdom-sanitizer
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
 import {
