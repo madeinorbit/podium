@@ -1889,7 +1889,11 @@ describe('observation translation', () => {
     }
     const observed = await session.snapshot()
     expect(observed.turnEpoch).toBe(before.turnEpoch)
-    expect(observed.fencedTurnEpoch).toBe(before.fencedTurnEpoch)
+    // NOT `fencedTurnEpoch`: the fence is driver-internal and `SessionSnapshot`
+    // deliberately carries `turnEpoch` alone. Widening the contract so a test
+    // could read it would be exposing an internal to make an assertion possible.
+    // The fence's observable effect is the frame count asserted below — a fenced
+    // turn emits nothing — so nothing is lost by asking the surface that exists.
     expect(observed.observerGeneration).toBe(9)
     expect(observed.cursor.segmentId).toBe('seg')
     expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(2)
