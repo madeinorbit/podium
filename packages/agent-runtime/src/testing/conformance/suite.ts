@@ -108,7 +108,7 @@ async function drain(
  * and it stays fast, because it stops at the match instead of waiting out a
  * quota that may never fill.
  */
-const drainUntil = (
+export const drainUntil = (
   stream: AsyncIterable<RuntimeEvent>,
   match: (event: RuntimeEvent) => boolean,
   timeoutMs = 2000,

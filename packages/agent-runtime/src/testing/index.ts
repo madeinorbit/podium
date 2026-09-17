@@ -47,3 +47,6 @@ export {
   defaultAskFor,
   resetFakeRuntime,
 } from './fake-driver.js'
+
+export { describeTerminalEvidenceConformance } from './conformance/terminal-evidence.js'
+export type { TerminalEvidenceControl, TerminalEvidenceTarget } from './conformance/terminal-evidence.js'

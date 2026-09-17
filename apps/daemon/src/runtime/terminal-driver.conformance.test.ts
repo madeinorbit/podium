@@ -1,4 +1,5 @@
 import { pageHistory } from '@podium/agent-runtime'
+import { AGENT_MANIFESTS } from '@podium/harness'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
  *
@@ -8,7 +9,7 @@ import { pageHistory } from '@podium/agent-runtime'
  *
  * Every line of `terminal-driver.ts` and of the ported injection state machine
  * runs here. What is faked is the WORLD the driver's host port describes: a PTY
- * that records what was typed and echoes a user turn back the way a CLI does, a
+ * that records what was typed and can withhold or independently post echoes, a
  * durable host that is alive until something reaps it, and an observation stream
  * a test can post to. That is the same split the corpus's own header describes —
  * "the PROPERTIES stay identical; only the way the world is nudged differs".
@@ -35,14 +36,19 @@ import { pageHistory } from '@podium/agent-runtime'
  */
 
 import type { PendingInteraction } from '@podium/agent-runtime'
-import { ESC, TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
-import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
+import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
+import type {
+  ConformanceControl,
+  TerminalEvidenceControl,
+  TerminalEvidenceTarget,
+} from '@podium/agent-runtime/testing'
 import {
   assertArchiveHonoursItsDeclaration,
   defaultAskFor,
+  describeTerminalEvidenceConformance,
   runConformance,
 } from '@podium/agent-runtime/testing'
-import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -54,29 +60,20 @@ import {
 } from './terminal-driver'
 import { terminalProfileFor } from './registry'
 
-/**
- * A generic-PTY harness: no causal hook channel, submit-verification on, screen
- * classifier interactions.
- *
- * THE HARDEST PROFILE ON PURPOSE. It is the one that has to reach `unverified`
- * honestly, uses the raw first-turn path, and has at-least-once interactions,
- * so it exercises the terminal family's permitted failures and staging decline.
- * Explicit profile overrides also exercise hook-source fixtures without
- * changing this default family's conformance target.
- */
-const PROFILE: TerminalHarnessProfile = {
+function shippedProfile(harness: AgentKind): TerminalHarnessProfile {
+  const profile = terminalProfileFor(harness)
+  if (!profile) throw new Error(`missing manifest terminal profile for ${harness}`)
+  return profile
+}
+
+/** Deliberately adversarial; this matches NO shipped harness. Retain the raw
+ * first turn and verification ladder while disabling instrumentation and using
+ * on-bind readiness. It proves unverified/refusal behavior, not Grok coverage. */
+const ADVERSARIAL_PROFILE: TerminalHarnessProfile = {
+  ...shippedProfile('grok'),
   composerReadiness: 'on-bind',
-  driverId: 'generic-pty',
-  sendProof: ['transcript-echo'],
-  hookAnchoredAccept: false,
   instrumentationRequired: false,
-  needsSubmitVerification: true,
-  usesRawFirstTurn: true,
-  archivable: false,
   reportsContextPercent: false,
-  // The manifest's own answer for a generic PTY harness (esc, never quits).
-  interruptBytes: ESC,
-  interruptQuitsWhenIdle: false,
 }
 
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are
@@ -94,30 +91,24 @@ interface VirtualTimer {
   cancelled: boolean
 }
 
-/** One fixture world plus the driver runtime standing on it. */
-/**
- * A profile override selects the harness facts, including interaction source.
- * The focused archive cases also vary whether the CLI writes a handoff transcript
- * somewhere the daemon can locate and copy.
- *
- * `archivable: false` — the default and the hardest profile — makes
- * `capabilities().archive` an `unsupported` declaration, so this driver reaches
- * only the REFUSAL arm of the corpus's archive judgement. Every terminal harness
- * Podium actually ships (Claude, Codex, Grok) declares a locator and takes the
- * other arm, which nothing here would ever have exercised. See the second
- * `describe` at the bottom of this file.
- */
+/** One fixture world plus the real runtime. Harness identity is explicit and
+ * independent of driverId: five shipped harnesses share generic-pty. */
 interface WorldOptions {
-  profile?: TerminalHarnessProfile
+  harness: AgentKind
+  profile: TerminalHarnessProfile
+  name?: string
   archivable?: boolean
 }
 
-function makeWorld(options: WorldOptions = {}): {
-  target: ConformanceTarget
+function makeWorld(options: WorldOptions): {
+  target: TerminalEvidenceTarget
   profile: TerminalHarnessProfile
 } {
-  const baseProfile = options.profile ?? PROFILE
-  const profile: TerminalHarnessProfile = { ...baseProfile, archivable: options.archivable ?? baseProfile.archivable }
+  const { harness, profile: baseProfile } = options
+  const profile: TerminalHarnessProfile = {
+    ...baseProfile,
+    archivable: options.archivable ?? baseProfile.archivable,
+  }
   let runtime: TerminalRuntime | undefined
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -127,6 +118,9 @@ function makeWorld(options: WorldOptions = {}): {
   const alive = new Map<string, boolean>()
   const phases = new Map<SessionId, AgentRuntimeState>()
   const suppressEcho = new Set<SessionId>()
+  const heldEcho = new Set<SessionId>()
+  const submitted = new Map<SessionId, string[]>()
+  const submissionWaiters = new Set<() => void>()
   const turnEpochs = new Map<SessionId, number>()
   const bridgeOf = new Map<SessionId, { write(dataBase64: string): void; pid: number }>()
   const pendingPaste = new Map<SessionId, string>()
@@ -284,7 +278,7 @@ function makeWorld(options: WorldOptions = {}): {
     const turnEpoch = turnEpochs.get(sessionId) ?? 0
     return {
       podiumSessionId: sessionId,
-      provider: 'claude-code',
+      provider: harness as AgentObservation['provider'],
       providerSessionId: `native-${sessionId}`,
       bindingVersion: 1,
       providerTurnId: null,
@@ -399,6 +393,11 @@ function makeWorld(options: WorldOptions = {}): {
           const pasted = pendingPaste.get(msg.sessionId)
           if (pasted === undefined) return
           pendingPaste.delete(msg.sessionId)
+          const turns = submitted.get(msg.sessionId) ?? []
+          turns.push(pasted)
+          submitted.set(msg.sessionId, turns)
+          for (const notify of [...submissionWaiters]) notify()
+          if (heldEcho.has(msg.sessionId)) return
           // A CLI that is NOT going to accept this turn simply records nothing —
           // which is exactly what an unprovable send looks like from outside.
           if (suppressEcho.delete(msg.sessionId)) return
@@ -513,15 +512,54 @@ function makeWorld(options: WorldOptions = {}): {
     },
   }
 
+  const evidence: TerminalEvidenceControl = {
+    hold: (sessionId) => {
+      heldEcho.add(sessionId)
+    },
+    submitted: (sessionId, count) => new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        submissionWaiters.delete(check)
+        reject(new Error(`expected ${count} submitted turns, saw ${submitted.get(sessionId)?.length ?? 0}`))
+      }, 2000)
+      const check = () => {
+        const turns = submitted.get(sessionId) ?? []
+        if (turns.length < count) return
+        clearTimeout(timeout)
+        submissionWaiters.delete(check)
+        resolve([...turns])
+      }
+      submissionWaiters.add(check)
+      check()
+    }),
+    userTurn: echoUserTurn,
+    hook: (sessionId, text) => runtime?.onHookPayload(sessionId, {
+      hook_event_name: 'UserPromptSubmit', prompt: text,
+    }),
+    boundary: (sessionId, phase, order) => {
+      if (phase === 'working') turnEpochs.set(sessionId, (turnEpochs.get(sessionId) ?? 0) + 1)
+      const event = observation(sessionId, phase === 'working' ? 'turn_opened' : 'turn_terminal', phase)
+      const state: AgentRuntimeState = { phase, since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
+      const postState = () => runtime?.observe({ type: 'agentState', sessionId, state })
+      const postObservation = () => runtime?.observe({ type: 'agentObservation', observation: event })
+      if (order === 'state-first') {
+        postState()
+        postObservation()
+      } else {
+        postObservation()
+        postState()
+      }
+      phases.set(sessionId, state)
+    },
+  }
+
   return {
     profile,
     target: {
-      name: profile.driverId,
+      name: options.name ?? `${harness} (${profile.driverId})`,
       family: 'terminal',
       createDriver: () => {
         runtime = createTerminalRuntime(host)
-        const harness = profile.driverId === 'claude-pty' ? 'claude-code' : 'grok'
-        return { driver: runtime.driverFor(harness, profile), control }
+        return { driver: runtime.driverFor(harness, profile), control, evidence }
       },
       reset: () => {
         runtime?.dispose()
@@ -532,6 +570,9 @@ function makeWorld(options: WorldOptions = {}): {
         alive.clear()
         phases.clear()
         suppressEcho.clear()
+        heldEcho.clear()
+        submitted.clear()
+        submissionWaiters.clear()
         turnEpochs.clear()
         bridgeOf.clear()
         pendingPaste.clear()
@@ -541,7 +582,7 @@ function makeWorld(options: WorldOptions = {}): {
         transcripts.clear()
       },
       spec: () => ({
-        harness: profile.driverId === 'claude-pty' ? 'claude-code' : 'grok',
+        harness,
         selection: { auth: 'subscription', platform: 'linux', available: [profile.driverId] },
         workdir: '/tmp/conformance',
         instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
@@ -553,72 +594,52 @@ function makeWorld(options: WorldOptions = {}): {
   }
 }
 
-const { target } = makeWorld()
-/**
- * The one body of properties, run against the REAL terminal driver.
- *
- * `exemptions` is a CLAIM the suite checks, not a set of skips it obeys: it must
- * equal the terminal family's row in `PERMITTED_FAILURES` exactly, so this
- * driver fails both by claiming a weakness the family does not permit and by
- * exhibiting one it did not claim. A property that does not hold is a driver fix
- * or an argued addition to that table — never a skip here.
- */
-runConformance(target.createDriver, {
-  name: target.name,
-  family: target.family,
-  reset: target.reset,
-  spec: target.spec,
-  exemptions: TERMINAL_PERMITTED_FAILURES,
+/** New axes relative to the original Claude + synthetic arms:
+ * codex: required instrumentation WITHOUT hook acceptance, with on-bind readiness
+ *   and archive/context support;
+ * grok: process-settle readiness, required instrumentation WITHOUT hook acceptance,
+ *   raw first turn, submit nudges and context reporting together;
+ * opencode: poll-state lifecycle alongside the observation lifecycle;
+ * cursor/pi: no instrumentation/context/poll lifecycle, and bracketed first turn.
+ * Every shape runs the same ordinary AND adversarial contract properties. */
+const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const
+const worlds = [
+  makeWorld({
+    harness: 'grok',
+    profile: ADVERSARIAL_PROFILE,
+    name: 'adversarial-pty (synthetic, no shipped harness)',
+  }),
+  ...SHIPPED_ARMS.map((harness) => makeWorld({ harness, profile: shippedProfile(harness) })),
+]
+for (const { target } of worlds) {
+  runConformance(target.createDriver, {
+    name: target.name,
+    family: target.family,
+    reset: target.reset,
+    spec: target.spec,
+    exemptions: TERMINAL_PERMITTED_FAILURES,
+  })
+  describeTerminalEvidenceConformance(target)
+}
+
+describe('shipped terminal profile coverage', () => {
+  it('covers every manifest, with cursor representing the identical pi shape', () => {
+    expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
+    expect(shippedProfile('pi')).toEqual(shippedProfile('cursor'))
+    expect(terminalProfileFor('shell')).toBeUndefined()
+  })
+  it('keeps the adversarial shape distinct from every shipped profile', () => {
+    for (const harness of [...SHIPPED_ARMS, 'pi'] as const) {
+      expect(ADVERSARIAL_PROFILE).not.toEqual(shippedProfile(harness))
+    }
+  })
 })
 
-/**
- * THE SECOND HARNESS PROFILE, FROM THE REAL MANIFEST (POD-3980).
- *
- * The generic arm above proves the screen-classifier shape; this arm proves the
- * claude-pty shape (hook-anchored accept, hook+echo send proof) the real Claude
- * driver ships. Built from `terminalProfileFor('claude-code')` rather than
- * hand-written so the corpus follows future manifest changes. The line-575 note
- * against a second full run applies to the single-branch archive arm only; a
- * harness profile changes send, interaction and steer behaviour across the whole
- * corpus, so it needs the whole corpus.
- */
-const claudeProfile = terminalProfileFor('claude-code')
-if (!claudeProfile) throw new Error('missing manifest profile for claude-code')
-const { target: claudeTarget } = makeWorld({ profile: claudeProfile })
-runConformance(claudeTarget.createDriver, {
-  name: claudeTarget.name,
-  family: claudeTarget.family,
-  reset: claudeTarget.reset,
-  spec: claudeTarget.spec,
-  exemptions: TERMINAL_PERMITTED_FAILURES,
-})
-
-/**
- * THE OTHER ARM, ON THE SAME REAL DRIVER (POD-2703).
- *
- * ---------------------------------------------------------------------------
- * WHY THE ARM WAS UNREACHABLE, AND WHAT THAT LEFT UNGUARDED
- * ---------------------------------------------------------------------------
- *
- * The profile above declares `archivable: false`, deliberately — it is the
- * hardest one, and it is what makes this file exercise the family's permitted
- * failures. But it also makes `capabilities().archive` an `unsupported`
- * declaration, so the run above only ever reaches "export() must reject". Every
- * terminal harness Podium actually ships declares a locator, which means the
- * whole of `terminal-driver.ts`'s `export()` — the locate, the read, the
- * archive-RELATIVE path it builds out of an ABSOLUTE one, the binding it copies
- * field by field so the pid and cgroup scope stay on this machine — was guarded
- * by nothing at all.
- *
- * WHY NOT A SECOND FULL `runConformance`. Nothing else in the corpus reads
- * `archivable`, so a second whole-corpus pass would re-prove ~40 properties to
- * reach one branch. The suite exports its archive judgement for exactly this,
- * and using the exported function rather than a copy is what keeps the two arms
- * from drifting apart.
- */
-describe('generic-pty on a harness that DOES declare a handoff transcript', () => {
+/** Vary only the synthetic profile's archive declaration, keeping both sides
+ * of the shared archive judgement exercised independently of shipped policy. */
+describe('adversarial-pty with a synthetic archive locator', () => {
   it('produces a portable archive rather than refusing', async () => {
-    const world = makeWorld({ archivable: true })
+    const world = makeWorld({ harness: 'grok', profile: ADVERSARIAL_PROFILE, archivable: true })
     world.target.reset()
     const { driver, control } = world.target.createDriver()
     const spec = world.target.spec()
@@ -642,7 +663,7 @@ describe('generic-pty on a harness that DOES declare a handoff transcript', () =
   })
 
   it('still refuses before the harness has written its store', async () => {
-    const world = makeWorld({ archivable: true })
+    const world = makeWorld({ harness: 'grok', profile: ADVERSARIAL_PROFILE, archivable: true })
     world.target.reset()
     const { driver } = world.target.createDriver()
     const session = await driver.create(world.target.spec())
@@ -664,9 +685,8 @@ describe('generic-pty on a harness that DOES declare a handoff transcript', () =
 
 describe('terminal conformance interaction sources', () => {
   it.each([false, true])('injects the profile source (hookAnchoredAccept=%s)', async (hookAnchoredAccept) => {
-    const world = makeWorld({ profile: {
-      ...PROFILE, driverId: hookAnchoredAccept ? 'claude-pty' : 'generic-pty', hookAnchoredAccept,
-    } })
+    const harness = hookAnchoredAccept ? 'claude-code' : 'grok'
+    const world = makeWorld({ harness, profile: shippedProfile(harness) })
     try {
       const { driver, control } = world.target.createDriver()
       const session = await driver.create(world.target.spec())
