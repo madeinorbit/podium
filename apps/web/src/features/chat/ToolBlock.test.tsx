@@ -126,7 +126,8 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
   if (!block) throw new Error('Missing recorded Bash call')
-  const command = records[0]?.message.content[0]?.input?.command
+  const recordedCall = records[0]?.message.content[0]
+  const command = recordedCall && 'input' in recordedCall ? recordedCall.input.command : undefined
   if (typeof command !== 'string') throw new Error('Missing recorded command')
   expect(command.length).toBeGreaterThan(160)
   expect(block.item.toolInput).toBe(`${command.slice(0, 160)}…`)
