@@ -1,7 +1,565 @@
 {
-  "bindings": [
-    { "sessionId": "session-healthy", "claimantMachineId": "machine-host", "onBehalfOf": "user:sole", "state": "bound" },
-    { "sessionId": "session-handoff", "claimantMachineId": "machine-other", "onBehalfOf": "user:sole", "state": "bound" }
+ "session-moved-peer-a": {
+  "schemaVersion": 1,
+  "sessionId": "session-moved-peer-a",
+  "conversationId": null,
+  "agentKind": "claude-code",
+  "claimantMachineId": "machine-host",
+  "attemptId": null,
+  "observationGeneration": 4,
+  "observations": [
+   {
+    "observationId": "id-001",
+    "channel": "resume-ref",
+    "value": "id-002",
+    "nativeKind": "claude-session",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-003",
+    "channel": "transcript-path",
+    "value": "/fixture/transcripts/thread.jsonl",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-004",
+    "channel": "cwd",
+    "value": "/fixture/work",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-005",
+    "channel": "worktree-pin",
+    "value": "/fixture/work",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-006",
+    "channel": "resume-ref",
+    "value": "id-002",
+    "nativeKind": "claude-session",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-11T11:51:43.248Z",
+    "recordedAt": "2026-08-11T11:51:43.249Z",
+    "supersedes": "id-001"
+   }
   ],
-  "legacyReceipt": { "sessionId": "session-deleted", "serverState": "missing" }
+  "delegationHistory": [
+   {
+    "observationId": "id-007",
+    "actor": "session-moved-peer-a",
+    "onBehalfOf": "user:sole",
+    "grantedScope": {
+     "kind": "subtree",
+     "rootId": "iss_fixture"
+    },
+    "parentBindingId": null,
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null,
+    "retired": false
+   }
+  ],
+  "transitionHistory": [
+   {
+    "transitionId": "adopt:id-009:target-claim",
+    "event": "adopt",
+    "recordedAt": "2026-08-11T10:48:45.788Z"
+   },
+   {
+    "transitionId": "adopt:id-009:target-commit",
+    "event": "adopt",
+    "recordedAt": "2026-08-11T10:48:45.815Z"
+   },
+   {
+    "transitionId": "adopt:id-009:target-launch",
+    "event": "adopt",
+    "recordedAt": "2026-08-11T10:48:45.996Z"
+   },
+   {
+    "transitionId": "repin:hook:claude-session:id-002",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-11T11:51:43.249Z"
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-a:3",
+    "event": "reattach",
+    "recordedAt": "2026-08-11T13:07:45.141Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 3,
+     "attemptId": "podium-session-moved-peer-a"
+    }
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-a:4",
+    "event": "reattach",
+    "recordedAt": "2026-08-11T13:36:18.227Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 4,
+     "attemptId": "podium-session-moved-peer-a"
+    }
+   },
+   {
+    "transitionId": "adopt:id-010:source-claim",
+    "event": "adopt",
+    "recordedAt": "2026-08-11T13:46:02.524Z"
+   },
+   {
+    "transitionId": "adopt:id-010:source-commit",
+    "event": "adopt",
+    "recordedAt": "2026-08-11T13:46:20.220Z"
+   }
+  ],
+  "conflictHistory": [],
+  "transfer": {
+   "transferId": "id-010",
+   "side": "source",
+   "phase": "committed",
+   "fromMachineId": "machine-host",
+   "toMachineId": "machine-peer",
+   "claimedAt": "2026-08-11T13:46:02.488Z",
+   "settledAt": "2026-08-11T13:46:20.218Z",
+   "priorState": "bound"
+  },
+  "state": "exported",
+  "createdAt": "2026-08-11T10:48:45.785Z",
+  "retiredAt": null
+ },
+ "session-moved-peer-b": {
+  "schemaVersion": 1,
+  "sessionId": "session-moved-peer-b",
+  "conversationId": null,
+  "agentKind": "codex",
+  "claimantMachineId": "machine-host",
+  "attemptId": null,
+  "observationGeneration": 7,
+  "observations": [
+   {
+    "observationId": "id-011",
+    "channel": "resume-ref",
+    "value": "id-012",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-06T22:37:42.656Z",
+    "recordedAt": "2026-08-06T22:37:42.656Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-013",
+    "channel": "resume-ref",
+    "value": "id-012",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-06T22:37:42.657Z",
+    "recordedAt": "2026-08-06T22:37:42.666Z",
+    "supersedes": "id-011"
+   },
+   {
+    "observationId": "id-014",
+    "channel": "resume-ref",
+    "value": "id-012",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "process",
+    "observedAt": "2026-08-06T22:37:43.181Z",
+    "recordedAt": "2026-08-06T22:37:43.182Z",
+    "supersedes": "id-013"
+   },
+   {
+    "observationId": "id-015",
+    "channel": "process-ownership",
+    "value": "id-012",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "process",
+    "observedAt": "2026-08-06T22:37:43.186Z",
+    "recordedAt": "2026-08-06T22:37:43.189Z",
+    "supersedes": null
+   }
+  ],
+  "delegationHistory": [
+   {
+    "observationId": "id-016",
+    "actor": "session-moved-peer-b",
+    "onBehalfOf": "user:sole",
+    "grantedScope": {
+     "kind": "subtree",
+     "rootId": "iss_fixture"
+    },
+    "parentBindingId": null,
+    "observedAt": "2026-08-06T22:37:37.477Z",
+    "recordedAt": "2026-08-06T22:37:37.477Z",
+    "supersedes": null,
+    "retired": false
+   }
+  ],
+  "transitionHistory": [
+   {
+    "transitionId": "spawn:session-moved-peer-b",
+    "event": "spawn",
+    "recordedAt": "2026-08-06T22:37:37.477Z"
+   },
+   {
+    "transitionId": "repin:hook:codex-thread:id-012",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-06T22:37:42.666Z"
+   },
+   {
+    "transitionId": "repin:process:codex-thread:id-012",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-06T22:37:43.182Z"
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-b:3",
+    "event": "reattach",
+    "recordedAt": "2026-08-06T22:38:23.184Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 3,
+     "attemptId": "podium-session-moved-peer-b"
+    }
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-b:4",
+    "event": "reattach",
+    "recordedAt": "2026-08-06T23:56:29.754Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 4,
+     "attemptId": "podium-session-moved-peer-b"
+    }
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-b:5",
+    "event": "reattach",
+    "recordedAt": "2026-08-07T21:45:11.957Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 5,
+     "attemptId": "podium-session-moved-peer-b"
+    }
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-b:6",
+    "event": "reattach",
+    "recordedAt": "2026-08-07T23:25:54.978Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 6,
+     "attemptId": "podium-session-moved-peer-b"
+    }
+   },
+   {
+    "transitionId": "reattach:session-moved-peer-b:7",
+    "event": "reattach",
+    "recordedAt": "2026-08-08T07:55:41.423Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 7,
+     "attemptId": "podium-session-moved-peer-b"
+    }
+   },
+   {
+    "transitionId": "adopt:id-018:source-claim",
+    "event": "adopt",
+    "recordedAt": "2026-08-10T07:15:39.791Z"
+   },
+   {
+    "transitionId": "adopt:id-018:source-commit",
+    "event": "adopt",
+    "recordedAt": "2026-08-10T07:15:45.951Z"
+   }
+  ],
+  "conflictHistory": [],
+  "transfer": {
+   "transferId": "id-018",
+   "side": "source",
+   "phase": "committed",
+   "fromMachineId": "machine-host",
+   "toMachineId": "machine-peer",
+   "claimedAt": "2026-08-10T07:15:39.788Z",
+   "settledAt": "2026-08-10T07:15:45.945Z",
+   "priorState": "bound"
+  },
+  "state": "exported",
+  "createdAt": "2026-08-06T22:37:37.477Z",
+  "retiredAt": null
+ },
+ "session-exported-stale": {
+  "schemaVersion": 1,
+  "sessionId": "session-exported-stale",
+  "conversationId": null,
+  "agentKind": "codex",
+  "claimantMachineId": "machine-host",
+  "attemptId": null,
+  "observationGeneration": 1,
+  "observations": [
+   {
+    "observationId": "id-019",
+    "channel": "resume-ref",
+    "value": "id-020",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-27T14:49:01.326Z",
+    "recordedAt": "2026-08-27T14:49:01.327Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-021",
+    "channel": "resume-ref",
+    "value": "id-020",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-27T14:49:01.328Z",
+    "recordedAt": "2026-08-27T14:49:01.331Z",
+    "supersedes": "id-019"
+   },
+   {
+    "observationId": "id-022",
+    "channel": "resume-ref",
+    "value": "id-020",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "process",
+    "observedAt": "2026-08-27T14:49:06.811Z",
+    "recordedAt": "2026-08-27T14:49:06.826Z",
+    "supersedes": "id-021"
+   },
+   {
+    "observationId": "id-023",
+    "channel": "process-ownership",
+    "value": "id-020",
+    "nativeKind": "codex-thread",
+    "confidence": "exact",
+    "source": "process",
+    "observedAt": "2026-08-27T14:49:06.828Z",
+    "recordedAt": "2026-08-27T14:49:06.847Z",
+    "supersedes": null
+   }
+  ],
+  "delegationHistory": [
+   {
+    "observationId": "id-024",
+    "actor": "session-exported-stale",
+    "onBehalfOf": "user:sole",
+    "grantedScope": {
+     "kind": "subtree",
+     "rootId": "iss_fixture"
+    },
+    "parentBindingId": null,
+    "observedAt": "2026-08-27T14:48:52.502Z",
+    "recordedAt": "2026-08-27T14:48:52.503Z",
+    "supersedes": null,
+    "retired": false
+   }
+  ],
+  "transitionHistory": [
+   {
+    "transitionId": "spawn:session-exported-stale",
+    "event": "spawn",
+    "recordedAt": "2026-08-27T14:48:52.503Z"
+   },
+   {
+    "transitionId": "repin:hook:codex-thread:id-020",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-27T14:49:01.331Z"
+   },
+   {
+    "transitionId": "repin:process:codex-thread:id-020",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-27T14:49:06.826Z"
+   },
+   {
+    "transitionId": "adopt:id-026:source-claim",
+    "event": "adopt",
+    "recordedAt": "2026-08-27T14:49:25.348Z"
+   },
+   {
+    "transitionId": "adopt:id-026:source-abort",
+    "event": "adopt",
+    "recordedAt": "2026-08-27T14:52:40.931Z"
+   },
+   {
+    "transitionId": "adopt:id-026:source-rollback-launch",
+    "event": "adopt",
+    "recordedAt": "2026-08-27T14:52:40.986Z"
+   },
+   {
+    "transitionId": "adopt:id-027:source-claim",
+    "event": "adopt",
+    "recordedAt": "2026-08-27T14:55:32.069Z"
+   },
+   {
+    "transitionId": "adopt:id-027:source-commit",
+    "event": "adopt",
+    "recordedAt": "2026-08-27T14:55:36.006Z"
+   }
+  ],
+  "conflictHistory": [],
+  "transfer": {
+   "transferId": "id-027",
+   "side": "source",
+   "phase": "committed",
+   "fromMachineId": "machine-host",
+   "toMachineId": "machine-laptop-stale-1",
+   "claimedAt": "2026-08-27T14:55:32.066Z",
+   "settledAt": "2026-08-27T14:55:36.003Z",
+   "priorState": "bound"
+  },
+  "state": "exported",
+  "createdAt": "2026-08-27T14:48:52.502Z",
+  "retiredAt": null
+ },
+ "session-healthy": {
+  "schemaVersion": 1,
+  "sessionId": "session-healthy",
+  "conversationId": null,
+  "agentKind": "codex",
+  "claimantMachineId": "machine-host",
+  "attemptId": null,
+  "observationGeneration": 4,
+  "observations": [
+   {
+    "observationId": "id-001",
+    "channel": "resume-ref",
+    "value": "id-002",
+    "nativeKind": "claude-session",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-003",
+    "channel": "transcript-path",
+    "value": "/fixture/transcripts/thread.jsonl",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-004",
+    "channel": "cwd",
+    "value": "/fixture/work",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-005",
+    "channel": "worktree-pin",
+    "value": "/fixture/work",
+    "confidence": "exact",
+    "source": "handoff-import",
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null
+   },
+   {
+    "observationId": "id-006",
+    "channel": "resume-ref",
+    "value": "id-002",
+    "nativeKind": "claude-session",
+    "confidence": "exact",
+    "source": "native-hook",
+    "observedAt": "2026-08-11T11:51:43.248Z",
+    "recordedAt": "2026-08-11T11:51:43.249Z",
+    "supersedes": "id-001"
+   }
+  ],
+  "delegationHistory": [
+   {
+    "observationId": "id-007",
+    "actor": "session-healthy",
+    "onBehalfOf": "user:sole",
+    "grantedScope": {
+     "kind": "subtree",
+     "rootId": "iss_fixture"
+    },
+    "parentBindingId": null,
+    "observedAt": "2026-08-11T10:48:45.785Z",
+    "recordedAt": "2026-08-11T10:48:45.786Z",
+    "supersedes": null,
+    "retired": false
+   }
+  ],
+  "transitionHistory": [
+   {
+    "transitionId": "repin:hook:claude-session:id-002",
+    "event": "hook-repin",
+    "recordedAt": "2026-08-11T11:51:43.249Z"
+   },
+   {
+    "transitionId": "reattach:session-healthy:3",
+    "event": "reattach",
+    "recordedAt": "2026-08-11T13:07:45.141Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 3,
+     "attemptId": "podium-session-healthy"
+    }
+   },
+   {
+    "transitionId": "reattach:session-healthy:4",
+    "event": "reattach",
+    "recordedAt": "2026-08-11T13:36:18.227Z",
+    "reattachClaim": {
+     "principal": {
+      "kind": "system"
+     },
+     "requestedGeneration": 4,
+     "attemptId": "podium-session-healthy"
+    }
+   }
+  ],
+  "conflictHistory": [],
+  "transfer": null,
+  "state": "bound",
+  "createdAt": "2026-08-11T10:48:45.785Z",
+  "retiredAt": null
+ }
 }

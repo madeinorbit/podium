@@ -1,0 +1,3 @@
+{
+  "session-deleted.json": { "session_id": "native-thread-deleted", "hook_event_name": "PodiumProcessBinding" }
+}

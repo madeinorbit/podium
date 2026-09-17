@@ -1,34 +1,34 @@
 {
   "fixture": "customer-upgrade",
-  "source": "sanitised ~/podium-incidents/2026-09-14-pdm52-quarantine",
-  "customerSchema": "v0.1.1-edge.4",
-  "migrationLedger": "pinned-to-v0.1.1-edge.4",
-  "oldestSupportedDaemon": "v0.1.0",
+  "source": "sanitised ~/podium-incidents/2026-09-14-pdm52-quarantine (ludovico dev.139 -> dev.140, 2026-09-14)",
+  "identityMap": "one deterministic map: every real uuid became a name; user:sole kept because it is the literal under test; paths under /fixture; timestamps preserved",
+  "customerRelease": { "tag": "v0.1.1-edge.4", "lastMigration": "20260824202715_quota-windows" },
+  "oldestSupportedDaemon": { "tag": "v0.1.0", "wireVersion": 2 },
   "retiredPrincipal": "user:sole",
-  "replacementPrincipal": "mem_fixture_customer_upgrade",
+  "hostMachineId": "machine-host",
   "machines": [
-    { "id": "machine-host", "owner": "user:sole", "duplicateOf": null },
-    { "id": "machine-handoff", "owner": "user:sole", "duplicateOf": "machine-host" },
-    { "id": "machine-other", "owner": "user:sole", "duplicateOf": null }
+    { "id": "machine-host", "hostname": "host", "installKind": "supervisor", "inLedger": true, "note": "the server's own machine (ludovico)" },
+    { "id": "machine-laptop-live", "hostname": "laptop", "installKind": "supervisor", "inLedger": true, "note": "live laptop row; duplicate hostname of two stale rows" },
+    { "id": "machine-laptop-stale-1", "hostname": "laptop", "installKind": null, "inLedger": true, "note": "stale duplicate; handoff target of the exported binding" },
+    { "id": "machine-laptop-stale-2", "hostname": "laptop-lan", "installKind": null, "inLedger": true, "note": "stale duplicate" },
+    { "id": "machine-peer", "hostname": "peer", "installKind": "legacy-daemon", "inLedger": false, "note": "flatblock: DB-only row, two stray sessions placed here" },
+    { "id": "machine-laptop-dev", "hostname": "laptop", "installKind": null, "inLedger": false, "note": "DB-only row" }
   ],
   "daemon": {
-    "healthySessions": ["session-healthy"],
-    "handoffSession": "session-handoff",
-    "handoffMachine": "machine-other",
-    "deletedSessionReceipt": "session-deleted",
-    "expectedQuarantineCount": 1
+    "machineId": "machine-host",
+    "bindings": {
+      "session-healthy": "bound on machine-host; server places it on machine-host",
+      "session-moved-peer-a": "bound on machine-host; server places it on machine-peer (handoff residue)",
+      "session-moved-peer-b": "bound on machine-host; server places it on machine-peer (handoff residue)",
+      "session-exported-stale": "exported from machine-host to machine-laptop-stale-1; server places it there"
+    },
+    "receiptOnly": { "session-deleted": "codex receipt for a session the server no longer has" },
+    "inertResidue": "inert.json.123.dead.tmp (interrupted atomic write, POD-3969: not a binding)",
+    "expectedQuarantined": ["session-deleted", "session-exported-stale", "session-moved-peer-a", "session-moved-peer-b"]
   },
   "client": {
-    "oldNamespace": "podium.replica.principal.user%3Asole",
-    "successorNamespace": "podium.replica.principal.mem_fixture_customer_upgrade",
-    "fullStorage": true,
-    "sameIdentityBootstrap": true
-  },
-  "skew": {
-    "oldDaemon": { "tag": "v0.1.0", "commit": "241dd542e1494c68080d5fd2ef441d7c2e195b12", "sourceArchiveSha256": "5a292f4d25c86c602dc474410f40d71b468cd16026d5b9c9db5d8a283331ad5b" },
-    "oldServer": { "tag": "v0.1.1-edge.4", "commit": "d09e5d47a4c3200c2ded231269d91ff0d1d90cd1", "sourceArchiveSha256": "241f8608471cf7020002231314a16b0e20e028ab724775f46bbd12e5b2b1b4a5" },
-    "wireRefusedPair": "v0.1.1-edge.4-server-current-daemon",
-    "build": "scripts/build-bun.ts",
-    "pinRequired": true
+    "basePrefix": "podium.replica",
+    "oldNamespacePrefix": "podium.replica.principal.user%3Asole",
+    "successorPrincipalNote": "the member id the retire migration mints; read from the upgraded database, never hard-coded"
   }
 }
