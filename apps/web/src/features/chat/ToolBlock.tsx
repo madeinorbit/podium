@@ -125,7 +125,7 @@ export function ToolBlock({
   // Parse retained input only when disclosed; collapsed rows use the preview.
   const expanded = useMemo(
     () => (open && isCommand ? expandedCommand(item) : undefined),
-    [open, isCommand, item.toolInputJson, item.toolInput],
+    [open, isCommand, item],
   )
   // The agent's own description of a command it ran — a detail, so it stays
   // behind this row's own disclosure, which is exactly where the operator asked

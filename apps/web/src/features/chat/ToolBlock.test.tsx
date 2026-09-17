@@ -193,7 +193,7 @@ describe('retained Bash command disclosure', () => {
     const item = claudeToolCallItem({
       id: 'large',
       toolName: 'Bash',
-      input: { command: 'echo ' + 'x'.repeat(100_000) },
+      input: { command: `echo ${'x'.repeat(100_000)}` },
     })
     const payload = JSON.parse(item.toolInputJson ?? 'null')
     expect(payload.truncated).toBe(true)
