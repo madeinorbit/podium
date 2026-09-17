@@ -5,6 +5,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -168,7 +169,8 @@ describe('ChatView offline transcript copy', () => {
       reads[0]?.reject(new Error('fetch failed'))
     })
     await flush()
-    expect(container.textContent).toContain('cached hello')
+    // Cached reads settle before asynchronous transcript computation paints the rows.
+    await waitFor(() => expect(container.textContent).toContain('cached hello'))
     expect(container.textContent).toContain('cached world')
     const notice = container.querySelector('[data-notice="offline"]')
     expect(notice?.textContent).toContain('Offline copy')
