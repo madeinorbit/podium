@@ -96,7 +96,11 @@ export interface AgentSessionHandle {
      * derived from item text; use the harness UUID/provider identity first, otherwise
      * record position plus item slot; cursor is an opaque position anchor consumers
      * never decode. See TranscriptItem for the free-form session namespace rule. */
-    history(range: Omit<RuntimeHistoryRange, 'direction'> & { direction?: RuntimeHistoryRange['direction'] }): Promise<RuntimeHistoryPage>
+    history(
+      range: Omit<RuntimeHistoryRange, 'direction'> & {
+        direction?: RuntimeHistoryRange['direction']
+      },
+    ): Promise<RuntimeHistoryPage>
   }
 
   // ---- Attach and lease (CORE) ----

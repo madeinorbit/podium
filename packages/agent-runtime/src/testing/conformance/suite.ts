@@ -1075,8 +1075,11 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           const receipt = await session.send({ text }, { origin: 'human', delivery: 'when-ready' })
           expect(receipt.outcome).toBe('accepted')
           await control.completeTurn(session.binding.sessionId)
-          const events = await drainUntil(session.events(before.cursor), (event) =>
-            event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed'))
+          const events = await drainUntil(
+            session.events(before.cursor),
+            (event) =>
+              event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed'),
+          )
           expect(events.some((event) => event.t === 'turn')).toBe(true)
         }
         const first = await session.transcript.history({ limit: 100 })
@@ -1091,8 +1094,16 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         expect(new Set(repeated.map((item) => item.id)).size).toBe(2)
         expect(first.head).toBeDefined()
         expect(first.tail).toBeDefined()
-        const after = await session.transcript.history({ from: first.head, direction: 'after', limit: 100 })
-        const before = await session.transcript.history({ from: first.tail, direction: 'before', limit: 100 })
+        const after = await session.transcript.history({
+          from: first.head,
+          direction: 'after',
+          limit: 100,
+        })
+        const before = await session.transcript.history({
+          from: first.tail,
+          direction: 'before',
+          limit: 100,
+        })
         expect(after.items.map((item) => item.id)).toEqual(ids.slice(1))
         expect(before.items.map((item) => item.id)).toEqual(ids.slice(0, -1))
       })
@@ -2022,7 +2033,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // The override really did apply, or the next assertion proves nothing:
         // an override that never worked also "does not leak".
         expect(control.model.requested(session.binding.sessionId)).toEqual(
-          expect.objectContaining({ model: next.model, ...(next.effort ? { effort: next.effort } : {}) }),
+          expect.objectContaining({
+            model: next.model,
+            ...(next.effort ? { effort: next.effort } : {}),
+          }),
         )
 
         await session.send({ text: 'and back' }, { origin: 'human', delivery: 'when-ready' })

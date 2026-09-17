@@ -150,7 +150,7 @@ export function mergeTranscriptItems(
     const item = items[root.winner]
     if (!item) throw new Error('transcript alias root lost its winning item')
     transcriptAliases.set(item, { ids: root.ids, cursors: root.cursors, order: root.order })
-    return { item, order: root.order }
+    return { item, order: root.order, position: root.winner }
   })
   merged.sort((a, b) => {
     const aTimestamp = transcriptTimestamp(a.item)
@@ -161,7 +161,9 @@ export function mergeTranscriptItems(
     if (aTimestamp === undefined && bTimestamp !== undefined) return -1
     if (aTimestamp !== undefined && bTimestamp === undefined) return 1
     if (a.order !== b.order) return a.order - b.order
-    return a.item.id.localeCompare(b.item.id)
+    // Equal retained orders can occur when an item is reused in another merge.
+    // Preserve this merge's observed order; opaque cursors have no sort meaning.
+    return a.position - b.position
   })
   const result = merged.map(({ item }) => item)
   return result.length > limit ? result.slice(-limit) : result
@@ -173,11 +175,7 @@ export function mergeLatestTranscriptPage(
   limit: number,
 ): { items: TranscriptItem[]; hasMore: boolean } {
   const boundedLimit = Math.max(0, limit)
-  const allItems = mergeTranscriptItems(
-    providerItems,
-    runtimeItems,
-    Number.MAX_SAFE_INTEGER,
-  )
+  const allItems = mergeTranscriptItems(providerItems, runtimeItems, Number.MAX_SAFE_INTEGER)
   return {
     items: boundedLimit === 0 ? [] : allItems.slice(-boundedLimit),
     hasMore: allItems.length > boundedLimit,
@@ -1010,7 +1008,11 @@ export class SessionTerminal {
     const visible = client.viewVisible.has(sessionId)
     const mode = client.viewModes[sessionId] ?? 'native'
     if (!visible || mode !== 'native') {
-      this.gateRequest(clientId, legacyRequest({ cols, rows }, visible, mode), visible ? 'not-native' : 'not-visible')
+      this.gateRequest(
+        clientId,
+        legacyRequest({ cols, rows }, visible, mode),
+        visible ? 'not-native' : 'not-visible',
+      )
       return
     }
     if (clientId !== this.controllerId) {

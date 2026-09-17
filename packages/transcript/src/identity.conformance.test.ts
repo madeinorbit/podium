@@ -83,7 +83,7 @@ for (const [family, mapper, record] of families) {
           uuid: `record-${index}`,
           id: `record-${index}`,
         }))
-        const bytes = records.map((value) => JSON.stringify(value)).join('\n') + '\n'
+        const bytes = `${records.map((value) => JSON.stringify(value)).join('\n')}\n`
         await writeFile(path, bytes)
         const first = await readFileItems(path, fileId, mapper)
         expect(first).toHaveLength(3)
