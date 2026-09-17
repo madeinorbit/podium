@@ -25,6 +25,7 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../manifest.js'
+import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { claudeTranscriptClassifierRules } from './claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from './claude-login-status.js'
 
@@ -236,6 +237,10 @@ export const claudeCodeManifest: AgentManifest = {
     }),
     terminal: {
       driverId: 'generic-pty',
+      acceptCorrelation: {
+        hook: claudeHookAcceptCorrelation,
+        'transcript-echo': transcriptEchoAcceptCorrelation,
+      },
       // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
       // anchors an accept the way a protocol ack would — the same signal
       // reattachment-design anchors turn epochs to. Transcript echo is the
