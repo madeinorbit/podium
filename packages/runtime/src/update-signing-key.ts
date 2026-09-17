@@ -1,7 +1,8 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { stateDir } from './config'
+import { openDatabase, type SqlDatabase } from './sqlite'
 import {
   acceptsUpdateKeyRotation,
   updateKeyRotationPayload,
@@ -86,7 +87,7 @@ function parsePersistedKey(path: string, raw: string): UpdateSigningKey {
   }
 }
 
-function mintKey(): UpdateSigningKey {
+export function mintUpdateSigningKey(): UpdateSigningKey {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   return {
     privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
@@ -95,125 +96,136 @@ function mintKey(): UpdateSigningKey {
   }
 }
 
-function writeKey(path: string, key: UpdateSigningKey, flag: 'wx' | 'w'): void {
-  writeFileSync(path, JSON.stringify(key, null, 2) + '\n', { mode: 0o600, flag })
+const KEY = 'updates.signingKey'
+const ANCHOR = 'updates.signingKeyAnchor'
+const IMPORT_MARKER = 'update_signing_key_imported_v1'
+
+function readSecret(db: SqlDatabase, name: string): string | undefined {
+  return (db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(name) as
+    { value: string } | undefined)?.value
 }
 
-/**
- * Read the server's update key, or mint it once in the instance state directory.
- *
- * An existing but malformed file is an availability failure, not permission to
- * mint a replacement: replacing it would make every daemon's pairing pin stale.
- * `wx` also makes simultaneous server starts converge on the same first key.
+function writeSecret(db: SqlDatabase, name: string, value: string): void {
+  db.prepare('INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?) ' +
+    'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(name, value, new Date().toISOString())
+}
+
+function assertAnchor(anchor: string | undefined, key: UpdateSigningKey): void {
+  if (anchor !== undefined && anchor !== key.publicKey &&
+      !acceptsUpdateKeyRotation(anchor, key.publicKey, key.rotations)) {
+    throw new Error('persisted update signing key does not match its public anchor')
+  }
+}
+
+/** One-time upgrade, called only from the store's exclusive migration lane.
+ * The committed marker makes database authority irreversible. The intermediate
+ * phase lets a crash after commit finish deleting files without re-importing them.
  */
-export function readOrCreateUpdateSigningKey(
-  dir: string = stateDir(),
-  opts: { allowCreate?: boolean; confirmNoPins?: boolean } = {},
-): UpdateSigningKey {
+export function importUpdateSigningKey(db: SqlDatabase, dir: string): void {
+  const marker = () => (db.prepare('SELECT value FROM meta WHERE key = ?')
+    .get(IMPORT_MARKER) as { value: string } | undefined)?.value
+  if (marker() === 'complete') return
   const path = join(dir, FILE_NAME)
   const anchorPath = join(dir, PUBLIC_ANCHOR_FILE_NAME)
+  db.exec('BEGIN IMMEDIATE')
   try {
-    const key = parsePersistedKey(path, readFileSync(path, 'utf8'))
-    try {
-      ensurePublicAnchor(anchorPath, key)
-    } catch (error) {
-      if (!opts.confirmNoPins) throw error
-      replacePublicAnchor(anchorPath, key.publicKey)
+    if (marker() === undefined) {
+      const raw = existsSync(path) ? readFileSync(path, 'utf8') : undefined
+      const anchor = existsSync(anchorPath) ? readFileSync(anchorPath, 'utf8').trim() : undefined
+      if (anchor === '') throw new Error('invalid update signing key anchor')
+      if (raw !== undefined) {
+        const key = parsePersistedKey(path, raw)
+        assertAnchor(anchor, key)
+        const existing = readSecret(db, KEY)
+        if (existing !== undefined && JSON.stringify(parsePersistedKey(KEY, existing)) !== JSON.stringify(key)) {
+          throw new Error('update signing key import conflicts with database key')
+        }
+        assertAnchor(readSecret(db, ANCHOR), key)
+        writeSecret(db, KEY, JSON.stringify(key))
+        writeSecret(db, ANCHOR, anchor ?? key.publicKey)
+      } else if (anchor !== undefined) {
+        // Preserve evidence of a lost key; ordinary startup must not mint over a pin.
+        writeSecret(db, ANCHOR, anchor)
+      }
+      db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(IMPORT_MARKER, 'files-pending')
+    }
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  rmSync(path, { force: true })
+  rmSync(anchorPath, { force: true })
+  db.prepare('UPDATE meta SET value = ? WHERE key = ?').run('complete', IMPORT_MARKER)
+}
+
+/** A directory addresses an existing, migrated installation database, never a key file. */
+function withDatabase<T>(source: SqlDatabase | string, fn: (db: SqlDatabase) => T): T {
+  if (typeof source !== 'string') return fn(source)
+  const path = join(source, 'podium.db')
+  if (!existsSync(path)) throw new Error('update signing key requires an initialized installation database')
+  const db = openDatabase(path)
+  try { return fn(db) } finally { db.close() }
+}
+
+function readOrCreate(db: SqlDatabase, opts: { allowCreate?: boolean; confirmNoPins?: boolean }): UpdateSigningKey {
+  const raw = readSecret(db, KEY)
+  const anchor = readSecret(db, ANCHOR)
+  if (raw !== undefined) {
+    const key = parsePersistedKey(KEY, raw)
+    if (!opts.confirmNoPins) {
+      if (anchor === undefined) throw new Error('persisted update signing key is missing its public anchor')
+      assertAnchor(anchor, key)
+    } else {
+      writeSecret(db, ANCHOR, key.publicKey)
     }
     return key
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-
-  const anchoredPublicKey = readPublicAnchor(anchorPath)
-  if (opts.allowCreate === false || (anchoredPublicKey !== undefined && !opts.confirmNoPins)) {
-    throw new Error(
-      `refusing to mint a replacement update signing key at ${path}: enrolled machines ` +
-        'may still trust the missing key. Restore update-signing-key.json from backup; if ' +
-        'no machine ever pinned it, run `podium update-key initialize --confirm-no-pins`.',
-    )
+  if (opts.allowCreate === false || (anchor !== undefined && !opts.confirmNoPins)) {
+    throw new Error('refusing to mint a replacement update signing key: enrolled machines may still trust the missing key. Restore the installation database; if no machine ever pinned it, run `podium update-key initialize --confirm-no-pins`.')
   }
-
-  const key = mintKey()
-  mkdirSync(dir, { recursive: true })
-  try {
-    writeKey(path, key, 'wx')
-    if (anchoredPublicKey === undefined) ensurePublicAnchor(anchorPath, key)
-    else replacePublicAnchor(anchorPath, key.publicKey)
-    return key
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    const winner = parsePersistedKey(path, readFileSync(path, 'utf8'))
-    if (opts.confirmNoPins) replacePublicAnchor(anchorPath, winner.publicKey)
-    else ensurePublicAnchor(anchorPath, winner)
-    return winner
-  }
+  const key = mintUpdateSigningKey()
+  writeSecret(db, KEY, JSON.stringify(key))
+  writeSecret(db, ANCHOR, key.publicKey)
+  return key
 }
 
-/**
- * Rotate deliberately while the old private key still exists. The complete
- * chain is persisted with the new private key, so an offline daemon can verify
- * every missed transition from its own pin on its next authenticated hello.
- */
-export function rotateUpdateSigningKey(dir: string = stateDir()): UpdateSigningKey {
-  const path = join(dir, FILE_NAME)
-  const current = readOrCreateUpdateSigningKey(dir, { allowCreate: false })
-  const next = mintKey()
-  const privateKey = createPrivateKey({
-    key: Buffer.from(current.privateKey, 'base64'),
-    format: 'der',
-    type: 'pkcs8',
-  })
-  const rotation: UpdateKeyRotation = {
-    from: current.publicKey,
-    to: next.publicKey,
-    signature: sign(
-      null,
-      updateKeyRotationPayload(current.publicKey, next.publicKey),
-      privateKey,
-    ).toString('base64'),
-  }
-  const rotated: UpdateSigningKey = {
-    ...next,
-    rotations: [...current.rotations, rotation],
-  }
-  const temporary = `${path}.next`
-  writeKey(temporary, rotated, 'w')
-  renameSync(temporary, path)
-  return rotated
-}
-
-function readPublicAnchor(path: string): string | undefined {
+function transaction<T>(db: SqlDatabase, fn: () => T): T {
+  db.exec('BEGIN IMMEDIATE')
   try {
-    const publicKey = readFileSync(path, 'utf8').trim()
-    if (publicKey.length === 0) throw new Error(`invalid update signing key anchor at ${path}`)
-    return publicKey
+    const result = fn()
+    db.exec('COMMIT')
+    return result
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    db.exec('ROLLBACK')
     throw error
   }
 }
 
-function ensurePublicAnchor(path: string, key: UpdateSigningKey): void {
-  try {
-    writeFileSync(path, key.publicKey + '\n', { mode: 0o600, flag: 'wx' })
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    const anchoredPublicKey = readPublicAnchor(path)
-    if (anchoredPublicKey === undefined) {
-      throw new Error(`update signing key anchor disappeared at ${path}`)
-    }
-    if (
-      anchoredPublicKey !== key.publicKey &&
-      !acceptsUpdateKeyRotation(anchoredPublicKey, key.publicKey, key.rotations)
-    ) {
-      throw new Error(`persisted update signing key does not match its public anchor at ${path}`)
-    }
-  }
+/** Read or initialize the installation's key atomically in server_secrets. */
+export function readOrCreateUpdateSigningKey(
+  source: SqlDatabase | string = stateDir(),
+  opts: { allowCreate?: boolean; confirmNoPins?: boolean } = {},
+): UpdateSigningKey {
+  return withDatabase(source, db => transaction(db, () => readOrCreate(db, opts)))
 }
 
-function replacePublicAnchor(path: string, publicKey: string): void {
-  const temporary = `${path}.next`
-  writeFileSync(temporary, publicKey + '\n', { mode: 0o600, flag: 'w' })
-  renameSync(temporary, path)
+/** Deliberate rotation preserves the full old-key-signed path for offline pins. */
+export function rotateUpdateSigningKey(source: SqlDatabase | string = stateDir()): UpdateSigningKey {
+  return withDatabase(source, db => transaction(db, () => {
+    const current = readOrCreate(db, { allowCreate: false })
+    const next = mintUpdateSigningKey()
+    const privateKey = createPrivateKey({
+      key: Buffer.from(current.privateKey, 'base64'), format: 'der', type: 'pkcs8',
+    })
+    const rotation: UpdateKeyRotation = {
+      from: current.publicKey,
+      to: next.publicKey,
+      signature: sign(null, updateKeyRotationPayload(current.publicKey, next.publicKey), privateKey).toString('base64'),
+    }
+    const rotated = { ...next, rotations: [...current.rotations, rotation] }
+    writeSecret(db, KEY, JSON.stringify(rotated))
+    return rotated
+  }))
 }

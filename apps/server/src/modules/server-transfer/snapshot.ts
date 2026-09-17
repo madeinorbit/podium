@@ -12,12 +12,11 @@ import {
 
 /**
  * Server authority moves through the authenticated transfer channel: both the
- * update-signing key and the database-backed Connect identity belong to the server,
+ * database-backed update-signing key and Connect identity belong to the server,
  * unlike machine credentials and runtime files. Neither is a generic file RPC.
  */
 const ROOT_FILES = [
   'podium.db',
-  'update-signing-key.json',
 ] as const
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024

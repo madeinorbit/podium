@@ -1,3 +1,4 @@
+import { mintUpdateSigningKey, readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { existsSync } from 'node:fs'
 import {
   bumpInstallationGeneration,
@@ -60,11 +61,10 @@ describe('portable server snapshot', () => {
     expect(isSafeRelativePath(path)).toBe(false)
   })
 
-  it('carries installation identity inside podium.db, never as a separate file', () => {
+  it('carries installation identities inside podium.db, never as separate files', () => {
     expect(isSafeRelativePath('installation.json')).toBe(false)
     expect(isSafeRelativePath('podium.db')).toBe(true)
-    // Both server identities move; host credentials stay behind.
-    expect(isSafeRelativePath('update-signing-key.json')).toBe(true)
+    expect(isSafeRelativePath('update-signing-key.json')).toBe(false)
     for (const hostFile of ['machine.id', 'daemon.secret', 'config.json']) {
       expect(isSafeRelativePath(hostFile)).toBe(false)
     }
@@ -75,7 +75,8 @@ describe('portable server snapshot', () => {
     roots.push(root)
     const identity = { ...mintInstallationIdentity(), generation: 12 }
     await writeFile(join(root, 'installation.json'), JSON.stringify(identity))
-    await writeFile(join(root, 'update-signing-key.json'), 'server-key')
+    const signingKey = mintUpdateSigningKey()
+    await writeFile(join(root, 'update-signing-key.json'), JSON.stringify(signingKey))
     const source = await openTestStore(join(root, 'podium.db'))
     const targetRoot = join(root, '.server-transfer', 'snapshot')
     try {
@@ -97,6 +98,8 @@ describe('portable server snapshot', () => {
       })
       expect(snapshot.files.map((file) => file.path)).toContain('podium.db')
       expect(snapshot.files.map((file) => file.path)).not.toContain('installation.json')
+      expect(snapshot.files.map((file) => file.path)).not.toContain('update-signing-key.json')
+      expect(readOrCreateUpdateSigningKey(targetRoot, { allowCreate: false })).toEqual(signingKey)
       const promotedDb = openDatabase(join(targetRoot, 'podium.db'))
       try {
         bumpInstallationGeneration(promotedDb)

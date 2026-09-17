@@ -1,3 +1,4 @@
+import { openDatabase } from '@podium/runtime/sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -363,7 +364,8 @@ describe('daemon connection credential state machine', () => {
   })
 
   it('accepts a changed key only through a valid old-key-signed rotation', async () => {
-    const signingDir = temp()
+    const signingDir = openDatabase(':memory:')
+    signingDir.exec('CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)')
     const original = readOrCreateUpdateSigningKey(signingDir)
     const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
     const identityDir = firstOptions.identityDir as string
@@ -383,6 +385,7 @@ describe('daemon connection credential state machine', () => {
     await first.close()
 
     const rotated = rotateUpdateSigningKey(signingDir)
+    signingDir.close()
     const secondOptions = localOptions(() => {}, { identityDir })
     secondOptions.localLink = {
       attach: async () => ({

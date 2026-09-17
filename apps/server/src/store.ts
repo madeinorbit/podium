@@ -62,6 +62,7 @@ import {
   setStoreTransferFence,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
+import { importUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
@@ -299,7 +300,10 @@ export class SessionStore {
       const applied = await executor.exclusive(async () => {
         const result = migrateStoreConnection(database, path)
         importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
-        if (path !== ':memory:') importEnrollmentLedger(database, dirname(path))
+        if (path !== ':memory:') {
+          importEnrollmentLedger(database, dirname(path))
+          importUpdateSigningKey(database, dirname(path))
+        }
         return result
       })
       if (applied.length > 0) log.info('applied migrations', { applied })

@@ -624,9 +624,6 @@ export async function startServer(
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
-  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
-    allowCreate: true,
-  })
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
@@ -651,6 +648,9 @@ export async function startServer(
       serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
     enabled: () => resolveConnectEnabled(loadConfig(), process.env),
     log: createLogger('server:connect'),
+  })
+  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+    allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
   })
   const activeServerMove = (await store.operations.active()).find(
     (row) => row.kind === 'server-move',

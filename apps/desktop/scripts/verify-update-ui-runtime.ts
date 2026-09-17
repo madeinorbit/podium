@@ -42,6 +42,7 @@ import {
   readOrCreateDevArtifactToken,
   readOrCreateUpdateSigningKey,
 } from '../../server/src/modules/updates/signing-key'
+import { SessionStore } from '../../server/src/store'
 import type { AppRouter } from '../../server/src/router'
 
 const repoRoot = resolve(import.meta.dirname, '../../..')
@@ -1002,9 +1003,11 @@ async function pair(
 
 function copyPublicationIdentity(from: string, to: string, sha: string, version: string): void {
   mkdirSync(to, { recursive: true })
-  for (const name of ['update-signing-key.json', 'update-signing-key.pub', 'dev-artifact-token']) {
-    cpSync(join(from, name), join(to, name))
-  }
+  // Seed the old binary's legacy format. Its upgrade imports this exact pin.
+  const key = readOrCreateUpdateSigningKey(from, { allowCreate: false })
+  writeFileSync(join(to, 'update-signing-key.json'), JSON.stringify(key), { mode: 0o600 })
+  writeFileSync(join(to, 'update-signing-key.pub'), key.publicKey, { mode: 0o600 })
+  cpSync(join(from, 'dev-artifact-token'), join(to, 'dev-artifact-token'))
   const state = readDevPublisherState(from)
   if (!state) throw new Error(`cached publication state is missing from ${from}`)
   writeDevPublisherState(
@@ -1239,6 +1242,8 @@ async function prepareCandidate(buildRoot: string): Promise<{
   run('bun', ['scripts/preflight.ts'], desktopDir)
   const publicationState = join(buildRoot, 'publication-state')
   mkdirSync(publicationState, { recursive: true })
+  const publicationStore = await SessionStore.open(join(publicationState, 'podium.db'))
+  await publicationStore.close()
   const key = readOrCreateUpdateSigningKey(publicationState)
   const token = readOrCreateDevArtifactToken(publicationState)
   const targetVersion = allocateDevPublishVersion({

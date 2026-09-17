@@ -234,6 +234,12 @@ export interface OpenerSpec {
  */
 export const SPAN_OPENERS: readonly OpenerSpec[] = [
   {
+    file: 'packages/runtime/src/update-signing-key.ts',
+    symbol: 'transaction',
+    body: 'arg1',
+    label: 'UpdateSigningKey.transaction',
+  },
+  {
     file: 'apps/server/src/store/committed-rows.ts',
     symbol: 'write',
     body: 'arg0',

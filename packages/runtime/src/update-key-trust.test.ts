@@ -1,12 +1,20 @@
 import { generateKeyPairSync } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { openDatabase, type SqlDatabase } from './sqlite'
 import { readOrCreateUpdateSigningKey, rotateUpdateSigningKey } from './update-signing-key'
 import { acceptsUpdateKeyRotation, trustDaemonUpdateKey } from './update-key-trust'
 
 const dirs: string[] = []
+const databases: SqlDatabase[] = []
+function database(): SqlDatabase {
+  const db = openDatabase(':memory:')
+  db.exec('CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)')
+  databases.push(db)
+  return db
+}
 
 function temp(): string {
   const dir = mkdtempSync(join(tmpdir(), 'podium-update-trust-'))
@@ -15,17 +23,18 @@ function temp(): string {
 }
 
 afterEach(() => {
+  for (const db of databases.splice(0)) db.close()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('update signing trust', () => {
   it('carries an offline daemon across every old-key-signed rotation', () => {
-    const dir = temp()
+    const dir = database()
     const first = readOrCreateUpdateSigningKey(dir)
     rotateUpdateSigningKey(dir)
     const third = rotateUpdateSigningKey(dir)
 
-    expect(readFileSync(join(dir, 'update-signing-key.pub'), 'utf8').trim()).toBe(first.publicKey)
+    expect((dir.prepare("SELECT value FROM server_secrets WHERE key = 'updates.signingKeyAnchor'").get() as { value: string }).value).toBe(first.publicKey)
     expect(third.rotations).toHaveLength(2)
     expect(acceptsUpdateKeyRotation(first.publicKey, third.publicKey, third.rotations)).toBe(true)
     expect(
@@ -37,23 +46,23 @@ describe('update signing trust', () => {
   })
 
   it('refuses to mint when durable fleet state says a key may already be pinned', () => {
-    const dir = temp()
+    const dir = database()
     expect(() => readOrCreateUpdateSigningKey(dir, { allowCreate: false })).toThrow(
       /refusing to mint a replacement/,
     )
   })
 
   it('detects a deleted private key through its durable public anchor', () => {
-    const dir = temp()
+    const dir = database()
     const first = readOrCreateUpdateSigningKey(dir)
-    expect(readFileSync(join(dir, 'update-signing-key.pub'), 'utf8').trim()).toBe(first.publicKey)
+    expect((dir.prepare("SELECT value FROM server_secrets WHERE key = 'updates.signingKeyAnchor'").get() as { value: string }).value).toBe(first.publicKey)
 
-    unlinkSync(join(dir, 'update-signing-key.json'))
+    dir.prepare("DELETE FROM server_secrets WHERE key = 'updates.signingKey'").run()
     expect(() => readOrCreateUpdateSigningKey(dir)).toThrow(/refusing to mint a replacement/)
 
     const replacement = readOrCreateUpdateSigningKey(dir, { confirmNoPins: true })
     expect(replacement.publicKey).not.toBe(first.publicKey)
-    expect(readFileSync(join(dir, 'update-signing-key.pub'), 'utf8').trim()).toBe(
+    expect((dir.prepare("SELECT value FROM server_secrets WHERE key = 'updates.signingKeyAnchor'").get() as { value: string }).value).toBe(
       replacement.publicKey,
     )
   })

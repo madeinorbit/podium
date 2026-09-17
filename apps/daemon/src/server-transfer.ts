@@ -49,7 +49,6 @@ const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
 const PORTABLE_ROOT_FILES = [
   'podium.db',
   'enrollment.ledger',
-  'update-signing-key.json',
 ] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
