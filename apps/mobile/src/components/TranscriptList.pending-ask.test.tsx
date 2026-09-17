@@ -9,7 +9,7 @@
  */
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { type ComponentType, Suspense, act, startTransition, useState } from 'react'
+import { act, type ComponentType, Suspense, startTransition, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
@@ -237,4 +237,28 @@ describe('TranscriptList pendingAsk', () => {
     await waitFor(() => expect(committed).toHaveBeenCalledTimes(1))
     expect(abandoned).not.toHaveBeenCalled()
   })
+})
+
+it('renders the Bash input as coloured inline text when a work run opens', () => {
+  const command = 'echo "$HOME" && printf "%s" 42'
+  const { container } = render(
+    <TranscriptList
+      items={[
+        {
+          id: 'bash-row',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolTitle: 'Check home',
+          toolInput: command,
+        },
+      ]}
+    />,
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  const description = Array.from(container.querySelectorAll('div')).find(
+    (node) => node.textContent === command && node.children.length > 2,
+  )
+  expect(description).toBeDefined()
+  expect(getComputedStyle(description as HTMLElement).whiteSpace).toBe('nowrap')
 })

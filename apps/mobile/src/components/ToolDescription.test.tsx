@@ -20,7 +20,10 @@ it('uses Bash tokens and preserves the command exactly', () => {
   expect(container.textContent).toBe(command)
   expect(container.firstElementChild?.children.length).toBeGreaterThan(3)
   const colours = new Set(
-    Array.from(container.firstElementChild!.children, (node) => (node as HTMLElement).style.color),
+    Array.from(
+      (container.firstElementChild as HTMLElement).children,
+      (node) => (node as HTMLElement).style.color,
+    ),
   )
   expect(colours.size).toBeGreaterThan(2)
 })

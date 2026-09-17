@@ -12,7 +12,6 @@ import {
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
 import {
   memo,
   type ReactElement,
@@ -77,12 +76,13 @@ import {
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Icon } from './Icon'
+import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
-import { WorkingMark } from './WorkingMark'
 import { ToolDescription } from './ToolDescription'
+import { WorkingMark } from './WorkingMark'
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
