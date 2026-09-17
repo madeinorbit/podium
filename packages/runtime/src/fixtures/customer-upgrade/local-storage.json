@@ -1,0 +1,7 @@
+{
+  "podium.replica.principal.user%3Asole.namespace.v1": "{\"principal\":\"user:sole\",\"lastUsedAt\":1}",
+  "podium.replica.principal.user%3Asole.cursor.v1": "999",
+  "podium.replica.principal.user%3Asole.sessions.v1": "[\"retired-session\"]",
+  "podium.replica.principal.user%3Asole.outbox.v1": "[\"queued-write\"]",
+  "podium.replica.principal.mem_fixture_customer_upgrade.namespace.v1": "{\"principal\":\"mem_fixture_customer_upgrade\",\"lastUsedAt\":2}"
+}

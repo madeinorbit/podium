@@ -382,6 +382,7 @@
         "src/migrations/change-provenance-upgrade.test.ts",
         "src/migrations/column-modes.test.ts",
         "src/migrations/convergence.test.ts",
+        "src/migrations/customer-upgrade-fixture.test.ts",
         "src/migrations/dead-sync-feed.test.ts",
         "src/migrations/drizzle-manifest.generated.ts",
         "src/migrations/index.ts",

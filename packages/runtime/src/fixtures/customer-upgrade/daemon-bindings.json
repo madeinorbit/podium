@@ -1,0 +1,7 @@
+{
+  "bindings": [
+    { "sessionId": "session-healthy", "claimantMachineId": "machine-host", "onBehalfOf": "user:sole", "state": "bound" },
+    { "sessionId": "session-handoff", "claimantMachineId": "machine-other", "onBehalfOf": "user:sole", "state": "bound" }
+  ],
+  "legacyReceipt": { "sessionId": "session-deleted", "serverState": "missing" }
+}

@@ -1,0 +1,4 @@
+{"v":1,"kind":"header","pairingRoot":"fixture-pairing-root","createdAt":"2026-08-03T21:37:10.194Z"}
+{"v":1,"kind":"enroll","id":"enroll-host","machineId":"machine-host","serial":1,"ownerUserId":"user:sole","at":"2026-08-27T14:04:16.607Z"}
+{"v":1,"kind":"enroll","id":"enroll-handoff","machineId":"machine-handoff","serial":1,"ownerUserId":"user:sole","at":"2026-08-30T16:02:58.057Z"}
+{"v":1,"kind":"enroll","id":"enroll-other","machineId":"machine-other","serial":1,"ownerUserId":"user:sole","at":"2026-08-31T09:26:43.304Z"}

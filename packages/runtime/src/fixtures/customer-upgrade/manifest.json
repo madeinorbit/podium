@@ -1,0 +1,34 @@
+{
+  "fixture": "customer-upgrade",
+  "source": "sanitised ~/podium-incidents/2026-09-14-pdm52-quarantine",
+  "customerSchema": "v0.1.1-edge.4",
+  "migrationLedger": "pinned-to-v0.1.1-edge.4",
+  "oldestSupportedDaemon": "v0.1.0",
+  "retiredPrincipal": "user:sole",
+  "replacementPrincipal": "mem_fixture_customer_upgrade",
+  "machines": [
+    { "id": "machine-host", "owner": "user:sole", "duplicateOf": null },
+    { "id": "machine-handoff", "owner": "user:sole", "duplicateOf": "machine-host" },
+    { "id": "machine-other", "owner": "user:sole", "duplicateOf": null }
+  ],
+  "daemon": {
+    "healthySessions": ["session-healthy"],
+    "handoffSession": "session-handoff",
+    "handoffMachine": "machine-other",
+    "deletedSessionReceipt": "session-deleted",
+    "expectedQuarantineCount": 1
+  },
+  "client": {
+    "oldNamespace": "podium.replica.principal.user%3Asole",
+    "successorNamespace": "podium.replica.principal.mem_fixture_customer_upgrade",
+    "fullStorage": true,
+    "sameIdentityBootstrap": true
+  },
+  "skew": {
+    "oldDaemon": { "tag": "v0.1.0", "commit": "241dd542e1494c68080d5fd2ef441d7c2e195b12", "sourceArchiveSha256": "5a292f4d25c86c602dc474410f40d71b468cd16026d5b9c9db5d8a283331ad5b" },
+    "oldServer": { "tag": "v0.1.1-edge.4", "commit": "d09e5d47a4c3200c2ded231269d91ff0d1d90cd1", "sourceArchiveSha256": "241f8608471cf7020002231314a16b0e20e028ab724775f46bbd12e5b2b1b4a5" },
+    "wireRefusedPair": "v0.1.1-edge.4-server-current-daemon",
+    "build": "scripts/build-bun.ts",
+    "pinRequired": true
+  }
+}
