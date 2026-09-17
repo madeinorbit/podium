@@ -28,7 +28,8 @@ import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { addSink, createRingBufferSink } from '@podium/logger'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { PairingManager } from '../../hub/pairing'
@@ -571,6 +572,47 @@ describe('the derived fleet router actually calls the gate', () => {
     actorKind: 'user',
     actorId: 'someone-else',
     onBehalfOf: 'someone-else',
+  })
+
+  it.each(['authorization', 'service'] as const)('logs a revoke %s refusal with authenticated actor and reason', async (stage) => {
+    const { call, registry, store } = await caller(firstAdminMemberId())
+    const sink = createRingBufferSink()
+    const dispose = addSink(sink)
+    const guard = stage === 'service'
+      ? vi.spyOn(registry.modules.machines, 'revokeMachine').mockRejectedValue(new Error('machine transition refused'))
+      : undefined
+    const id = stage === 'authorization' ? 'missing-machine' : 'm1'
+    try {
+      const error = await call.machines.revoke({ id }).catch((error: Error) => error)
+      expect(error).toBeInstanceOf(Error)
+      const reason = (error as Error).message
+      expect(sink.snapshot().filter((record) => record.msg === 'machine revoke refused')).toEqual([
+        expect.objectContaining({
+          level: 'warn', machineId: id, stage, reason,
+          actorKind: 'user', actorId: firstAdminMemberId(), onBehalfOf: firstAdminMemberId(),
+        }),
+      ])
+      expect((await store.machines.getMachine('m1'))?.revokedAt).toBeNull()
+      expect((await store.settingsAudit.list()).filter((event) => event.command === 'machines.revoke')).toEqual([])
+    } finally {
+      guard?.mockRestore()
+      dispose()
+      await store.close()
+    }
+  })
+
+  it('returns the retained revoked row without a refusal log on success', async () => {
+    const { call, store } = await caller(firstAdminMemberId())
+    const sink = createRingBufferSink()
+    const dispose = addSink(sink)
+    try {
+      const rows = await call.machines.revoke({ id: 'm1' })
+      expect(rows.find((row) => row.id === 'm1')).toMatchObject({ revokedAt: expect.any(String), online: false })
+      expect(sink.snapshot().filter((record) => record.msg === 'machine revoke refused')).toEqual([])
+    } finally {
+      dispose()
+      await store.close()
+    }
   })
 
   it('renames a machine the caller owns', async () => {

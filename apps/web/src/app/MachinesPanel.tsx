@@ -997,6 +997,7 @@ function MachineRow({
   const [renaming, setRenaming] = useState(false)
   const [revokeOpen, setRevokeOpen] = useState(false)
   const [revoking, setRevoking] = useState(false)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
   // POD-1495 transfer dialog: the recipient's account name, the typed-name
   // confirmation, and the server's refusal when there is one.
   const [adopting, setAdopting] = useState(false)
@@ -1099,7 +1100,9 @@ function MachineRow({
       services?.agentExecution.policy === 'disabled' ||
       services?.agentExecutionLockout === true ||
       agentChangesOnRestart)
-  const fleetState = !machine.online
+  const fleetState = machine.revokedAt
+    ? { label: 'Revoked', tone: 'offline' as const }
+    : !machine.online
     ? {
         label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
         tone: 'offline' as const,
@@ -1151,11 +1154,14 @@ function MachineRow({
 
   const revoke = async () => {
     setRevoking(true)
+    setRevokeError(null)
     try {
       await trpc.machines.revoke.mutate({ id: machine.id })
+      setRevokeOpen(false)
+    } catch (error) {
+      setRevokeError(error instanceof Error ? error.message : String(error))
     } finally {
       setRevoking(false)
-      setRevokeOpen(false)
     }
   }
 
@@ -1213,7 +1219,9 @@ function MachineRow({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               {/* Name — inline editable */}
-              {editing ? (
+              {machine.revokedAt ? (
+                <span className="settings-label truncate">{machine.name}</span>
+              ) : editing ? (
                 <Input
                   className="h-7 w-full max-w-[22rem] px-1.5"
                   value={name}
@@ -1387,6 +1395,7 @@ function MachineRow({
           </div>
         </div>
 
+        {!machine.revokedAt && (
         <div className="flex flex-wrap items-center gap-1 sm:flex-none sm:justify-end">
           {/* Discover this machine's repos (POD-787) */}
           {onFindRepos && (
@@ -1532,7 +1541,10 @@ function MachineRow({
           )}
 
           {/* Revoke */}
-          <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
+          <Dialog open={revokeOpen} onOpenChange={(open) => {
+            setRevokeOpen(open)
+            if (open) setRevokeError(null)
+          }}>
             <DialogTrigger
               render={
                 <Button
@@ -1557,6 +1569,9 @@ function MachineRow({
                   they finish.
                 </DialogDescription>
               </DialogHeader>
+              {revokeError && (
+                <p className="settings-prose text-destructive!" role="alert">{revokeError}</p>
+              )}
               <DialogFooter showCloseButton>
                 <Button
                   type="button"
@@ -1571,9 +1586,10 @@ function MachineRow({
             </DialogContent>
           </Dialog>
         </div>
+        )}
       </div>
 
-      {machine.podiumManaged !== false && (
+      {!machine.revokedAt && machine.podiumManaged !== false && (
         <MachineUpdateControls
           machine={machine}
           trpc={trpc}

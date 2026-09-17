@@ -36,9 +36,11 @@
  */
 
 import { FLEET_CONTRACTS } from '@podium/commands'
+import { createLogger } from '@podium/logger'
 import type { TRPCMutationProcedure } from '@trpc/server'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
+import { settingsAuditAttribution } from '../../store/settings-audit'
 import { t } from '../../trpc'
 import { fleetAuthzDeps, fleetAuthzFailure } from './authz'
 import type { FleetHandler, FleetPorts } from './handlers'
@@ -98,6 +100,8 @@ export type FleetProcedures = {
 // The builder
 // ---------------------------------------------------------------------------
 
+const log = createLogger('server:fleet')
+
 function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   const { contract, handler } = FLEET_COMMANDS[name]
   const base = contract.serverRole === 'hub' ? hubProc : t.procedure
@@ -117,9 +121,24 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
     // to forget; this is one, and `authz.ts`'s target table makes a new command
     // that declares a verb a COMPILE error until it says how its machine is
     // named.
-    const refusal = await fleetAuthzFailure(name, input, await fleetAuthzDeps(ctx))
-    if (refusal) throw refusal
-    return run({ ctx, input, ports })
+    const authz = await fleetAuthzDeps(ctx)
+    let stage: 'authorization' | 'service' = 'authorization'
+    try {
+      const refusal = await fleetAuthzFailure(name, input, authz)
+      if (refusal) throw refusal
+      stage = 'service'
+      return await run({ ctx, input, ports })
+    } catch (error) {
+      if (name === 'machines.revoke') {
+        log.warn('machine revoke refused', {
+          machineId: (input as { id: string }).id,
+          ...settingsAuditAttribution(authz.principal),
+          stage,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+      throw error
+    }
   })
 }
 

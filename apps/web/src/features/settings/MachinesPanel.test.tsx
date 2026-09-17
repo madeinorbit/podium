@@ -1,6 +1,6 @@
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -828,5 +828,46 @@ describe('daemon recovery status', () => {
     expect(screen.getAllByText('2 quarantined').length).toBeGreaterThan(0)
     expect(screen.queryByText('Online')).toBeNull()
     expect(screen.queryByText(/Restart Podium on this machine/)).toBeNull()
+  })
+})
+
+
+describe('MachinesPanel revoke result', () => {
+  function setRevoke(mutate: () => Promise<unknown>) {
+    setTrpc(vi.fn())
+    storeState.trpc.machines.revoke = { mutate } as unknown as Store['trpc']['machines']['revoke']
+    storeState.machines = [machine({ name: 'builder' })]
+  }
+
+  it('keeps a refused revoke open, shows the server reason, and permits retry', async () => {
+    const mutate = vi.fn().mockRejectedValueOnce(new Error('machines.revoke requires an admin account')).mockResolvedValue([])
+    setRevoke(mutate)
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'machines.revoke requires an admin account')
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Revoke' })).toHaveProperty('disabled', false)
+    expect(storeState.machines[0]?.revokedAt).toBeUndefined()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(mutate).toHaveBeenCalledTimes(2)
+    expect(mutate).toHaveBeenLastCalledWith({ id: 'm-1' })
+  })
+
+  it('keeps the successful revoke row and displays its authoritative revoked state', async () => {
+    const mutate = vi.fn().mockResolvedValue([])
+    setRevoke(mutate)
+    const view = render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    storeState.machines = [machine({ name: 'builder', revokedAt: '2026-09-17T12:00:00.000Z', online: false })]
+    view.rerender(<MachinesPanel />)
+    expect(screen.getByText('builder')).toBeTruthy()
+    expect(screen.getByText('Revoked')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Revoke' })).toBeNull()
+    expect(screen.queryByText(/Offline · Last seen/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /apply update/i })).toBeNull()
   })
 })
