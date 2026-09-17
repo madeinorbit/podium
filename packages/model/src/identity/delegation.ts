@@ -64,7 +64,7 @@
 
 import { z } from 'zod'
 import type { IssueScope } from '../authz/issue-authz'
-import { AgentIdentityIdField, IssueIdField, UserIdField } from '../ids'
+import { AgentIdentityIdField, IssueIdField, SessionIdField, UserIdField } from '../ids'
 
 /**
  * The declared scope of a delegation, as a schema over `IssueScope`'s closed
@@ -140,3 +140,14 @@ export type AgentDelegation = z.infer<typeof AgentDelegation>
  * to a constant.
  */
 export const DELEGATION_DECLARED_OPERAND_KEYS = ['scope'] as const
+
+/** Canonical server-authored session delegation. Revision orders replacement records;
+ * history on a daemon is evidence only and never supplies the current value. */
+export const SessionDelegation = z.object({
+  actor: AgentIdentityIdField,
+  onBehalfOf: UserIdField.nullable(),
+  grantedScope: DelegationScope,
+  parentBindingId: SessionIdField.nullable(),
+  revision: z.number().int().positive(),
+})
+export type SessionDelegation = z.infer<typeof SessionDelegation>

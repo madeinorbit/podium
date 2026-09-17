@@ -1,3 +1,4 @@
+import { SessionDelegation } from '@podium/model'
 import {
   AgentKind,
   Attribution,
@@ -376,6 +377,7 @@ export const BindingMachineAccess = z.enum(['allowed', 'denied', 'unreachable'])
 export type BindingMachineAccess = z.infer<typeof BindingMachineAccess>
 
 export const SessionBindingSpawnInstruction = z.object({
+  delegation: SessionDelegation.optional(),
   transitionId: z.string().min(1),
   machineAccess: BindingMachineAccess,
   principal: SessionBindingSpawnPrincipal,
@@ -392,6 +394,7 @@ export const SessionBindingSpawnInstruction = z.object({
 export type SessionBindingSpawnInstruction = z.infer<typeof SessionBindingSpawnInstruction>
 
 export const SessionBindingReattachInstruction = z.object({
+  delegation: SessionDelegation.optional(),
   transitionId: z.string().min(1),
   machineAccess: BindingMachineAccess,
   /** Already policy-collapsed: invisible and nonexistent are both not-found. */

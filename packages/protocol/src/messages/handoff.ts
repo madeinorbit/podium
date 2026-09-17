@@ -1,3 +1,4 @@
+import { SessionDelegation } from '@podium/model'
 import {
   AgentIdentityIdField,
   AgentKind,
@@ -29,6 +30,7 @@ import { BindingMachineAccess } from './terminal'
 /** The immutable binding operand copied from the source daemon. It deliberately
  * contains no native artifact id and no resolved authorization result. */
 export const HandoffBindingTransfer = z.object({
+  serverDelegation: SessionDelegation.optional(),
   transferId: z.string().min(1),
   sessionId: SessionIdField,
   agentKind: AgentKind,

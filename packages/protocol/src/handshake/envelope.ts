@@ -1,3 +1,4 @@
+import { SessionDelegation } from '@podium/model'
 /**
  * THE COMMON PEER FRAMING ENVELOPE — ADR 5 D3, with the reserved node surface of
  * ADR 5 D4.
@@ -231,6 +232,7 @@ export type DeliveryCap = (typeof DELIVERY_CAPS)[number]
  */
 /** Server facts for each inventoried binding; absence is never a closed verdict. */
 export const BindingConfirmation = z.object({
+  delegation: SessionDelegation.optional(),
   owner: z.string().min(1).nullable(),
   machineId: z.string().min(1).nullable(),
   closed: z.boolean(),
