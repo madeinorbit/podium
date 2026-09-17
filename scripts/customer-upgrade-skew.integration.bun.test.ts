@@ -20,13 +20,13 @@
  * refuses the wire-3 daemon (versionSupport(3, wire 2)=too-new → 426).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { randomUUID } from 'node:crypto'
 import { type ChildProcess, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { encodeJoin } from '@podium/runtime/join'
 import type { AppRouter } from '../apps/server/src/router'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -47,8 +47,16 @@ function requireCheckout(dir: string, tag: string): string {
 }
 
 const children: ChildProcess[] = []
-afterAll(() => {
-  for (const child of children.splice(0)) child.kill('SIGKILL')
+afterAll(async () => {
+  await Promise.all(children.splice(0).map(async (child) => {
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+    // Each runtime owns a process group, including any server/daemon children.
+    if (child.pid) {
+      try { process.kill(-child.pid, 'SIGKILL') } catch {}
+    }
+    if (child.exitCode === null && child.signalCode === null) await closed
+  }))
+  rmSync(TEST_ROOT, { recursive: true, force: true })
 })
 
 function cleanEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
@@ -74,6 +82,9 @@ function freePort(): number {
 
 const baseEnv = (stateDir: string): Record<string, string> => ({
   PODIUM_STATE_DIR: stateDir,
+  PODIUM_AGENT_HOME: join(stateDir, 'agent-home'),
+  PODIUM_HOOK_PORT: String(freePort()),
+  PODIUM_AGENT_RELAY_PORT: String(freePort()),
   PODIUM_HOST: '127.0.0.1',
   PODIUM_NO_RELAY: '1',
   PODIUM_NO_SCOPE: '1',
@@ -82,14 +93,14 @@ const baseEnv = (stateDir: string): Record<string, string> => ({
   PODIUM_ABDUCO: join(TEST_ROOT, 'no-abduco'),
 })
 
-async function waitFor<T>(fn: () => Promise<T | undefined>, label: string, timeoutMs = 45_000): Promise<T> {
+async function waitFor<T>(fn: () => Promise<T | undefined>, label: string | (() => string), timeoutMs = 45_000): Promise<T> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const value = await fn().catch(() => undefined)
     if (value !== undefined && value !== false) return value as T
     await Bun.sleep(400)
   }
-  throw new Error(`timed out waiting for ${label}`)
+  throw new Error(`timed out waiting for ${typeof label === 'function' ? label() : label}`)
 }
 
 interface Server {
@@ -107,7 +118,7 @@ async function bootServer(cli: string, cwd: string, tag: string): Promise<Server
   const child = spawn(
     process.execPath,
     ['--conditions=@podium/source', cli, '--instance', `skew-${tag}`, 'parent', '--takeover'],
-    { cwd, env: cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`, PODIUM_PORT: String(port) }), stdio: ['ignore', 'pipe', 'pipe'] },
+    { cwd, detached: true, env: cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`, PODIUM_PORT: String(port) }), stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let log = ''
   child.stdout?.on('data', (c) => (log += c))
@@ -120,26 +131,34 @@ async function bootServer(cli: string, cwd: string, tag: string): Promise<Server
       return false
     }
   }
-  await waitFor(async () => (await reachable()) || undefined, `${tag} server boot\n${log.slice(-1500)}`)
+  await waitFor(async () => (await reachable()) || undefined, () => `${tag} server boot\n${log.slice(-1500)}`)
   const api = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `http://127.0.0.1:${port}/trpc` })] })
   return { port, api, reachable }
 }
 
-/** Configure and launch a daemon from a tree, joined to a server by a real pair code. */
-async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: number, pairCode: string): Promise<{ log: () => string }> {
+/** Run the tree's real daemon in the foreground, never its host persistence launcher. */
+async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: number, pairCode: string): Promise<{ machineId: string; log: () => string }> {
   const stateDir = join(TEST_ROOT, `daemon-${tag}`)
   mkdirSync(stateDir, { recursive: true })
-  const env = cleanEnv(baseEnv(stateDir))
-  const token = encodeJoin({ v: 1, serverUrl: `ws://127.0.0.1:${serverPort}`, pairCode })
-  const join1 = spawn(process.execPath, ['--conditions=@podium/source', cli, 'join-config', token], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
-  await new Promise((r) => join1.once('exit', r))
-  const child = spawn(process.execPath, ['--conditions=@podium/source', cli], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const machineId = randomUUID()
+  // Both release generations persist the daemon HELLO identity here. Seed it
+  // independently of the server so an unrelated online host cannot satisfy us.
+  writeFileSync(join(stateDir, 'daemon.json'), JSON.stringify({ machineId }), { mode: 0o600 })
+  const env = cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}` })
+  // join-config chooses systemd persistence. A bare CLI then delegates launch to
+  // the host service manager; an explicit daemon subcommand stays in this group.
+  const child = spawn(process.execPath, [
+    '--conditions=@podium/source', cli, 'daemon',
+    '--server', `ws://127.0.0.1:${serverPort}`, '--pair', pairCode,
+  ], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''
   child.stdout?.on('data', (c) => (log += c))
   child.stderr?.on('data', (c) => (log += c))
+  child.on('error', (error) => (log += `\nspawn failed: ${error.message}`))
   children.push(child)
   return {
-    log: () => log + (existsSync(join(stateDir, 'logs', 'daemon.log')) ? `\n${readFileSync(join(stateDir, 'logs', 'daemon.log'), 'utf8').slice(-1500)}` : ''),
+    machineId,
+    log: () => `machine ${machineId}; exit=${child.exitCode}; signal=${child.signalCode}\n${log}` + (existsSync(join(stateDir, 'logs', 'daemon.log')) ? `\n${readFileSync(join(stateDir, 'logs', 'daemon.log'), 'utf8').slice(-1500)}` : ''),
   }
 }
 
@@ -161,12 +180,13 @@ describe('customer upgrade skew lane', () => {
     const online = await waitFor(
       async () => {
         const machines = (await server.api.machines.list.query()) as { id: string; online: boolean; ownerUserId?: string | null }[]
-        const row = machines.find((m) => m.online)
+        const row = machines.find((m) => m.id === daemon.machineId && m.online)
         return row ?? undefined
       },
-      `old daemon to connect\n${daemon.log()}`,
+      () => `old daemon to connect\n${daemon.log()}`,
     )
     // The real oldest executable connected and is served — no whole-fleet barrier.
+    expect(online.id).toBe(daemon.machineId)
     expect(online.online).toBe(true)
     // Its owner resolved to a member, never left as the retired literal or NULL.
     expect(online.ownerUserId ?? null).not.toBe('user:sole')
@@ -186,12 +206,13 @@ describe('customer upgrade skew lane', () => {
 
     const online = await waitFor(
       async () => {
-        const machines = (await server.api.machines.list.query()) as { online: boolean }[]
-        return machines.some((m) => m.online) || undefined
+        const machines = (await server.api.machines.list.query()) as { id: string; online: boolean }[]
+        return machines.find((m) => m.id === daemon.machineId && m.online)
       },
-      `new daemon to connect to the old server\n${daemon.log()}`,
+      () => `new daemon to connect to the old server\n${daemon.log()}`,
     )
-    expect(online).toBe(true)
+    expect(online.id).toBe(daemon.machineId)
+    expect(online.online).toBe(true)
     expect(await server.reachable()).toBe(true)
   }, 120_000)
 
