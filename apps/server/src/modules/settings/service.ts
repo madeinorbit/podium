@@ -21,7 +21,7 @@ import type { SessionStore } from '../../store'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
-import { readOrCreateFingerprintKey, secretPresence } from './secret-fingerprint'
+import { secretPresence } from './secret-fingerprint'
 
 const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
 
@@ -211,7 +211,7 @@ type SettingsStore = Pick<
  */
 type SecretStore = Pick<
   SessionStore['secrets'],
-  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor'
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor' | 'fingerprintKey'
 >
 
 export interface SettingsServiceOptions {
@@ -239,12 +239,8 @@ export interface SettingsServiceOptions {
    * {@link apiKeyFor} already carries.
    */
   audit: SettingsAuditPort
-  /** The server-held MAC key the secret fingerprint is derived under. Injected so
-   *  a test can pin a fingerprint without touching the real state dir; defaults
-   *  to the persistent key beside `daemon.secret`. Read LAZILY (a thunk, not a
-   *  Buffer) so constructing a service never creates a key file as a side
-   *  effect — only a secret write does. */
-  fingerprintKey?: () => Buffer
+  /** Override the database-held MAC key in tests. */
+  fingerprintKey?: () => Buffer | Promise<Buffer>
 }
 
 /**
@@ -290,7 +286,7 @@ export class SettingsService {
   private readonly telegramBindings: TelegramBindingWriter
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
-  private readonly fingerprintKey: () => Buffer
+  private readonly fingerprintKey: () => Buffer | Promise<Buffer>
   private readonly audit: SettingsAuditPort
   // SWR cache of live per-agent model lists (grok/cursor/opencode), keyed by
   // machineId. Query-driven: nothing probes until a client asks via
@@ -308,7 +304,7 @@ export class SettingsService {
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
-    this.fingerprintKey = options.fingerprintKey ?? (() => readOrCreateFingerprintKey())
+    this.fingerprintKey = options.fingerprintKey ?? (() => this.secrets.fingerprintKey())
     this.modelCatalog = new ModelCatalog(options.modelProbe, {
       now: this.now,
       // Persist per machine so the first picker-open after a restart/redeploy serves
@@ -561,7 +557,7 @@ export class SettingsService {
     // their own dependency rather than off this payload.
     const settings = await this.store.getSettings()
     await this.bus.emitSettled('settings.changed', { previous: settings, next: settings })
-    return secretPresence(key, value, this.fingerprintKey(), updatedAt)
+    return secretPresence(key, value, await this.fingerprintKey(), updatedAt)
   }
 
   /**
@@ -577,7 +573,7 @@ export class SettingsService {
     await this.secrets.clear(key)
     const settings = await this.store.getSettings()
     await this.bus.emitSettled('settings.changed', { previous: settings, next: settings })
-    return secretPresence(key, '', this.fingerprintKey())
+    return secretPresence(key, '', await this.fingerprintKey())
   }
 
   /**
@@ -593,7 +589,7 @@ export class SettingsService {
     // thing that knows them); this adds the fingerprint, which needs the
     // server-held MAC key. `secretPresence` returns all-null for an empty value,
     // so an absent row cannot acquire a fingerprint by accident.
-    const serverKey = this.fingerprintKey()
+    const serverKey = await this.fingerprintKey()
     return await Promise.all(
       (await this.secrets.presence()).map(async (row) =>
         secretPresence(row.key, await this.secrets.getOrEmpty(row.key), serverKey, row.updatedAt),

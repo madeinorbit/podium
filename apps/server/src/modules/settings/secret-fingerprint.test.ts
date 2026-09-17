@@ -13,18 +13,20 @@
  * against `sha256(value).slice(0, 16)` — the exact thing being ruled out.
  */
 
-import { createHash, randomBytes } from 'node:crypto'
-import { mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   FINGERPRINT_BYTES,
-  FINGERPRINT_KEY_FILE,
-  readOrCreateFingerprintKey,
   secretFingerprint,
   secretPresence,
 } from './secret-fingerprint'
+
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { importFingerprintKey, FINGERPRINT_KEY_FILE, FINGERPRINT_SECRET_KEY, FINGERPRINT_IMPORT_MARKER } from '../../fingerprint-key-import'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const SERVER_KEY = Buffer.from('a'.repeat(64), 'hex')
 const OTHER_KEY = Buffer.from('b'.repeat(64), 'hex')
@@ -115,55 +117,89 @@ describe('the presence projection carries presence, a mac and a time — and no 
   })
 })
 
-describe('the server-held key is persistent and owner-only', () => {
-  const dir = (): string => mkdtempSync(join(tmpdir(), 'podium-fp-'))
+describe('database fingerprint key migration', () => {
+  const roots: string[] = []
+  const databases: SqlDatabase[] = []
+  function fixture() {
+    const root = mkdtempSync(join(tmpdir(), 'podium-fp-'))
+    roots.push(root)
+    const db = openDatabase(':memory:')
+    databases.push(db)
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)')
+    return { root, db, path: join(root, FINGERPRINT_KEY_FILE) }
+  }
+  function key(db: SqlDatabase): Buffer {
+    const row = db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(FINGERPRINT_SECRET_KEY) as { value: string }
+    return Buffer.from(row.value, 'hex')
+  }
+  afterEach(() => {
+    for (const db of databases.splice(0)) db.close()
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  })
 
-  it('creates it once and returns the SAME key on the next call', () => {
-    const d = dir()
-    const first = readOrCreateFingerprintKey(d)
-    const second = readOrCreateFingerprintKey(d)
-    expect(first.toString('hex')).toBe(second.toString('hex'))
+  it.each(['a'.repeat(64), ' ABCDEF0123\n', 'abcdzz', ''])('preserves the legacy decoded key and fingerprint (%s)', (raw) => {
+    const { root, db, path } = fixture()
+    writeFileSync(path, raw)
+    const before = secretFingerprint('apiKeys.openai', MATERIAL, Buffer.from(raw.trim(), 'hex'))
+    importFingerprintKey(db, root)
+    expect(secretFingerprint('apiKeys.openai', MATERIAL, key(db))).toBe(before)
+    expect(existsSync(path)).toBe(false)
+    importFingerprintKey(db, root)
+    expect(secretFingerprint('apiKeys.openai', MATERIAL, key(db))).toBe(before)
+  })
+
+  it('retains the file and rolls back the marker if the database write fails', () => {
+    const { root, db, path } = fixture()
+    writeFileSync(path, SERVER_KEY.toString('hex'))
+    db.exec("CREATE TRIGGER refuse_key BEFORE INSERT ON server_secrets BEGIN SELECT RAISE(ABORT, 'key failed'); END")
+    expect(() => importFingerprintKey(db, root)).toThrow('key failed')
+    expect(existsSync(path)).toBe(true)
+    expect(db.prepare('SELECT * FROM meta').all()).toEqual([])
+    db.exec('DROP TRIGGER refuse_key')
+    importFingerprintKey(db, root)
+    expect(key(db)).toEqual(SERVER_KEY)
+    expect(existsSync(path)).toBe(false)
+  })
+
+  it('resumes committed cleanup without importing a replacement file', () => {
+    const { root, db, path } = fixture()
+    db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(FINGERPRINT_SECRET_KEY, SERVER_KEY.toString('hex'), 'now')
+    db.prepare('INSERT INTO meta VALUES (?, ?)').run(FINGERPRINT_IMPORT_MARKER, 'pending-cleanup')
+    writeFileSync(path, OTHER_KEY.toString('hex'))
+    importFingerprintKey(db, root)
+    expect(key(db)).toEqual(SERVER_KEY)
+    expect(existsSync(path)).toBe(false)
+    writeFileSync(path, OTHER_KEY.toString('hex'))
+    importFingerprintKey(db, root)
+    expect(key(db)).toEqual(SERVER_KEY)
+  })
+
+  it('creates distinct persistent database keys without creating files', () => {
+    const a = fixture()
+    const b = fixture()
+    importFingerprintKey(a.db, a.root)
+    importFingerprintKey(b.db, b.root)
+    const first = key(a.db)
     expect(first.length).toBe(32)
+    expect(first).not.toEqual(key(b.db))
+    importFingerprintKey(a.db, a.root)
+    expect(key(a.db)).toEqual(first)
+    expect(existsSync(a.path)).toBe(false)
   })
 
-  it('writes it 0600 — the same posture as daemon.secret', () => {
-    const d = dir()
-    readOrCreateFingerprintKey(d)
-    expect(statSync(join(d, FINGERPRINT_KEY_FILE)).mode & 0o777).toBe(0o600)
-  })
-
-  it('two state dirs get DIFFERENT keys, so fingerprints do not cross instances', () => {
-    const a = readOrCreateFingerprintKey(dir())
-    const b = readOrCreateFingerprintKey(dir())
-    expect(a.toString('hex')).not.toBe(b.toString('hex'))
-  })
-
-  it('persistence is what makes rotation detectable — a fresh key would change everything', () => {
-    // The positive control for the paragraph in the module doc: with the SAME
-    // stored key, an unrotated secret keeps its fingerprint across "restarts".
-    const d = dir()
-    const before = secretFingerprint('apiKeys.openai', MATERIAL, readOrCreateFingerprintKey(d))
-    const after = secretFingerprint('apiKeys.openai', MATERIAL, readOrCreateFingerprintKey(d))
-    expect(after).toBe(before)
-    // …and a DIFFERENT state dir (a lost key file) changes it, which is the
-    // blast radius the doc names.
-    expect(
-      secretFingerprint('apiKeys.openai', MATERIAL, readOrCreateFingerprintKey(dir())),
-    ).not.toBe(before)
-  })
-
-  it('the stored file is the key and nothing else', () => {
-    const d = dir()
-    const key = readOrCreateFingerprintKey(d)
-    expect(readFileSync(join(d, FINGERPRINT_KEY_FILE), 'utf8')).toBe(key.toString('hex'))
-  })
-
-  it('a random 32-byte key really is what production uses', () => {
-    // Guard against a default that silently degraded to a constant: two fresh
-    // keys must differ, and the generator under test is the module's own.
-    expect(randomBytes(32).length).toBe(32)
-    expect(readOrCreateFingerprintKey(dir()).toString('hex')).not.toBe(
-      readOrCreateFingerprintKey(dir()).toString('hex'),
-    )
+  it('imports through store migration and reads the same key after reopening', async () => {
+    const { root, path } = fixture()
+    writeFileSync(path, SERVER_KEY.toString('hex'))
+    const dbPath = join(root, 'podium.db')
+    const before = secretFingerprint('apiKeys.openai', MATERIAL, SERVER_KEY)
+    for (let n = 0; n < 2; n++) {
+      const store = await openTestStore(dbPath)
+      try {
+        expect(secretFingerprint('apiKeys.openai', MATERIAL, await store.secrets.fingerprintKey())).toBe(before)
+        expect(existsSync(path)).toBe(false)
+      } finally {
+        await store.close()
+      }
+    }
   })
 })

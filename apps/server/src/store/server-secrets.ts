@@ -46,6 +46,7 @@ import {
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import { PortableCredentialBundle } from '@podium/protocol'
 import { eq, sql } from 'drizzle-orm'
+import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
 import { meta, serverSecrets } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
@@ -158,6 +159,14 @@ export class ServerSecretsRepository {
       'database',
       JSON.stringify({ ...JSON.parse(row.metadata), privateKey: row.privateKey }),
     )
+  }
+
+  /** Private installation MAC key; never included in settings presence. */
+  async fingerprintKey(): Promise<Buffer> {
+    const row = await this.db.select({ value: serverSecrets.value })
+      .from(serverSecrets).where(eq(serverSecrets.key, FINGERPRINT_SECRET_KEY)).get()
+    if (!row) throw new Error('secret fingerprint key is missing from the database')
+    return Buffer.from(row.value, 'hex')
   }
 
   async get(key: ServerSecretKey): Promise<string | undefined> {

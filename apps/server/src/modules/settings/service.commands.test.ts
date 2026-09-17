@@ -71,6 +71,7 @@ function makeSecrets() {
     clear: async (key: ServerSecretKey): Promise<void> => {
       rows.delete(key)
     },
+    fingerprintKey: async () => FINGERPRINT_KEY,
     apiKeyFor: async (provider: string): Promise<string | undefined> => rows.get(`apiKeys.${provider}`)?.value,
     presence: async (): Promise<SecretPresenceWire[]> =>
       SERVER_SECRET_KEYS.map((key) => ({

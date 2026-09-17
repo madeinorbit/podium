@@ -52,11 +52,8 @@
  * consumer that COULD do it would be a consumer already holding the material.
  */
 
-import { createHmac, randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { createHmac } from 'node:crypto'
 import type { SecretPresenceWire, ServerSecretKey } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
 
 /**
  * Bytes of MAC published, before hex encoding. 8 bytes = 64 bits = 16 hex chars.
@@ -88,42 +85,6 @@ const SEP = String.fromCharCode(0)
  * one use today; the tag is what keeps that true when there is a second.
  */
 const DOMAIN = 'podium.settings.secret.fingerprint.v1'
-
-/** Filename of the server-held key, in the state dir beside `daemon.secret`. */
-export const FINGERPRINT_KEY_FILE = 'secret-fingerprint.key'
-
-/**
- * The server-held MAC key: 32 random bytes, persistent, owner-only.
- *
- * PERSISTENT AND NOT PER-BOOT, deliberately. A per-boot key would re-fingerprint
- * every secret on every restart, and a fingerprint that changes when nothing was
- * rotated answers the ONE question it exists for with a lie — "the key changed"
- * when it did not. Persistence is what makes the field mean anything.
- *
- * `wx` and the re-read on failure are `readOrCreateDaemonSecret`'s shape, for
- * the same reason: two processes sharing a state dir must not have one clobber
- * the other's key, and the loser of the race reads the winner's value. If this
- * file is ever lost, every fingerprint changes once and then stabilises — the
- * material is untouched and nothing is unrecoverable, which is the correct blast
- * radius for a key that authenticates nothing.
- */
-export function readOrCreateFingerprintKey(dir: string = stateDir()): Buffer {
-  const path = join(dir, FINGERPRINT_KEY_FILE)
-  try {
-    const existing = readFileSync(path, 'utf8').trim()
-    if (existing) return Buffer.from(existing, 'hex')
-  } catch {
-    // not created yet — fall through and create it
-  }
-  const key = randomBytes(32)
-  mkdirSync(dir, { recursive: true })
-  try {
-    writeFileSync(path, key.toString('hex'), { mode: 0o600, flag: 'wx' })
-    return key
-  } catch {
-    return Buffer.from(readFileSync(path, 'utf8').trim(), 'hex')
-  }
-}
 
 /**
  * The fingerprint of one configured secret.
