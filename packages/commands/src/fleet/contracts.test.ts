@@ -36,6 +36,7 @@ const DECLARED: readonly FleetContractName[] = [
   'machines.unshare',
   'machines.transferOwnership',
   'machines.adopt',
+  'machines.supersede',
   'machines.revoke',
   'machines.moveServer',
   'machines.pairingCode',
@@ -139,6 +140,7 @@ describe('the fleet contracts', () => {
       'machines.share': 'machine',
       'machines.transferOwnership': 'machine',
       'machines.adopt': 'machine',
+      'machines.supersede': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
       'machines.moveServer': 'machine',
@@ -201,6 +203,7 @@ describe('the fleet contracts', () => {
       // else. `manage` would refuse every caller — nobody holds it on an
       // unowned machine.
       'machines.adopt': 'manage',
+      'machines.supersede': 'manage',
       'machines.unshare': 'manage',
       'machines.revoke': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.
@@ -265,6 +268,7 @@ describe('the fleet contracts', () => {
       'machines.transferOwnership': 'hub',
       'machines.moveServer': 'hub',
       'machines.adopt': 'hub',
+      'machines.supersede': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',
       'machines.pairingCode': 'hub',
@@ -349,7 +353,7 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.adopt', 'machines.moveServer']
+    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.adopt', 'machines.supersede', 'machines.moveServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])

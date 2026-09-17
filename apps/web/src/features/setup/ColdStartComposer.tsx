@@ -11,7 +11,7 @@ import {
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { agentLoginCondition, asMachineId } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId, preferredMachineChoices } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -299,10 +299,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         repo.path === draft.repoPath || repo.machines?.some(({ path }) => path === draft.repoPath),
     ) ?? repoChoices[0]
   const repoMachineIds = new Set(selectedRepo?.machines?.map(({ machineId }) => machineId) ?? [])
+  const preferredMachines = preferredMachineChoices(machines)
   const targetMachines =
     repoMachineIds.size > 0
-      ? machines.filter((machine) => repoMachineIds.has(machine.id))
-      : machines
+      ? preferredMachines.filter((machine) => repoMachineIds.has(machine.id))
+      : preferredMachines
   // AN UNAUTHORIZED HOST IS LISTED, NEVER DEFAULTED. Removing it would collapse
   // "ask its owner" into "that machine does not exist", which is the reading M5
   // spends its whole argument keeping apart — and the operator would have no way
@@ -609,8 +610,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     const repoMachines = new Set(repo?.machines?.map(({ machineId }) => machineId) ?? [])
     const candidates =
       repoMachines.size > 0
-        ? machines.filter((candidate) => repoMachines.has(candidate.id))
-        : machines
+        ? preferredMachineChoices(machines).filter((candidate) => repoMachines.has(candidate.id))
+        : preferredMachineChoices(machines)
     const machine =
       candidates.find((candidate) => usable.has(candidate.id)) ??
       candidates.find((candidate) => authorized.has(candidate.id)) ??

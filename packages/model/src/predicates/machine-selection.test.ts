@@ -7,6 +7,8 @@ import {
   agentLoginCondition,
   machinesForAgent,
   machinesForRepoOrClone,
+  machineByRef,
+  preferredMachineChoices,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
 } from './machine-selection'
@@ -422,5 +424,45 @@ describe('handoffAvailability (POD-821)', () => {
     expect(handoffAvailability(macSession, fresh, machines, staleIssue)).toEqual({
       candidates: [{ machine: machines[0] }],
     })
+  })
+})
+
+
+describe('machine name preference without identity inference', () => {
+  const old = { id: 'old', name: 'laptop', hostname: 'old.local', online: false, ...daemonFacts }
+  const fresh = { ...old, id: 'fresh', hostname: 'new.local', online: true }
+
+  it('prefers online names in either input order and preserves explicit IDs', () => {
+    for (const rows of [[old, fresh], [fresh, old]]) {
+      expect(machineByRef(rows, 'laptop')?.id).toBe('fresh')
+      expect(machineByRef(rows, 'old')?.id).toBe('old')
+      expect(preferredMachineChoices(rows).map((row) => row.id)).toEqual(['fresh'])
+    }
+  })
+
+  it('does not merge online identities or guess identity from a hostname', () => {
+    const second = { ...fresh, id: 'second' }
+    const other = { ...old, name: 'other laptop', hostname: fresh.hostname }
+    expect(preferredMachineChoices([old, fresh, second, other]).map((row) => row.id)).toEqual(['fresh', 'second', 'old'])
+    expect(old.online).toBe(false)
+  })
+
+  it('prefers an assigned and available daemon among online names', () => {
+    const supervisor = { ...fresh, id: 'supervisor', availability: { daemon: false } }
+    expect(machineByRef([supervisor, fresh], 'laptop')?.id).toBe('fresh')
+    expect(preferredMachineChoices([supervisor, fresh]).map((row) => row.id)).toEqual(['fresh', 'supervisor'])
+  })
+
+  it('does not offer a stale repo holder when the online identity has no checkout', () => {
+    const repo = { machines: [{ machineId: asMachineId('old'), path: '/repo' }] }
+    expect(machinesForRepoOrClone(repo, [old, fresh])).toEqual([])
+    expect(machinesForRepoOrClone({ ...repo, originUrl: 'https://example.test/repo' }, [old, fresh])).toEqual([fresh])
+  })
+
+  it('excludes superseded and revoked identities from choices and name resolution', () => {
+    const retired = { ...fresh, supersededBy: 'replacement' }
+    expect(preferredMachineChoices([retired])).toEqual([])
+    expect(machineByRef([retired], 'laptop')).toBeNull()
+    expect(preferredMachineChoices([{ ...fresh, revokedAt: 'now' }])).toEqual([])
   })
 })

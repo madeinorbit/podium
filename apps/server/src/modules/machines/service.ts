@@ -1,3 +1,4 @@
+import { supersedeMachine } from './supersession'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { DaemonReadiness } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
@@ -214,7 +215,7 @@ export interface PairingGrant {
  */
 type MachineCapabilityFacts = Pick<
   MachineListing,
-  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt' | 'daemonReadiness'
+  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt' | 'supersededBy' | 'daemonReadiness'
 >
 
 export interface MachineFactsSnapshot {
@@ -921,6 +922,7 @@ export class MachinesService {
     return credentials.withMachineTransition(this.enrollmentHost, id, async () => {
       const row = await this.deps.store.machines.getMachine(id)
       if (!row?.revokedAt) throw new Error('replacement requires a revoked machine')
+      if (row.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
       if (!byAdmin && (!grant.ownerUserId || row.ownerUserId !== grant.ownerUserId)) {
         throw new Error('replacement requires an administrator or the machine grantee')
       }
@@ -992,8 +994,12 @@ export class MachinesService {
     await credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, actor, context)
   }
 
-  /** Give an owner to a machine that has none (POD-1494) — the product surface
-   *  behind `machines.adopt`. See {@link credentials.adoptMachine}. */
+  /** Retire an explicitly selected identity; names never establish replacement. */
+  async supersedeMachine(id: MachineId, replacementId: MachineId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
+    await supersedeMachine(this.enrollmentHost, id, replacementId, actor, context)
+  }
+
+  /** Give an owner to an explicitly unowned machine. */
   async adoptMachine(id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
     await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId, actor, context)
   }
@@ -1414,6 +1420,7 @@ export class MachinesService {
       id: m.id,
       online: !m.revokedAt && this.isMachineOnline(m.id),
       revokedAt: m.revokedAt,
+      supersededBy: m.supersededBy,
       ...(services ? { services } : {}),
       // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
       // Omitted when the row has NOT been evaluated, which is how a reader

@@ -871,3 +871,43 @@ describe('MachinesPanel revoke result', () => {
     expect(screen.queryByRole('button', { name: /apply update/i })).toBeNull()
   })
 })
+
+describe('explicit machine supersession', () => {
+  it('requires a selected replacement ID, explains cancellation, and retains server errors for retry', async () => {
+    const mutate = vi.fn().mockRejectedValueOnce(new Error('replacement is retired')).mockResolvedValueOnce([])
+    storeState.machines = [
+      machine({ id: asMachineId('old'), name: 'old laptop', supersedable: true }),
+      machine({ id: asMachineId('new'), name: 'new laptop', supersedable: true, online: true }),
+      machine({ id: asMachineId('retired'), name: 'retired', supersedable: true, revokedAt: 'now' }),
+    ]
+    setTrpc(vi.fn())
+    Object.assign(storeState.trpc.machines, { supersede: { mutate } })
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Supersede' })[0]!)
+    expect(screen.getByText(/cancels its grants and queued work/)).toBeTruthy()
+    const confirm = screen.getByRole('button', { name: 'Supersede machine' })
+    expect(confirm.hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByRole('option', { name: /retired/ })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Replacement machine'), { target: { value: 'new' } })
+    fireEvent.click(confirm)
+    expect((await screen.findByRole('alert')).textContent).toContain('replacement is retired')
+    expect(mutate).toHaveBeenCalledWith({ id: 'old', replacementId: 'new' })
+    fireEvent.click(screen.getByRole('button', { name: 'Supersede machine' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('keeps the replacement pointer visible on the retained revoked row', () => {
+    storeState.machines = [machine({ revokedAt: 'now', supersededBy: asMachineId('replacement') })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(screen.getByText('Superseded by replacement')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Supersede' })).toBeNull()
+  })
+
+  it('does not offer supersession without projected admin authority', () => {
+    storeState.machines = [machine({ transferable: true })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(screen.queryByRole('button', { name: 'Supersede' })).toBeNull()
+  })
+})

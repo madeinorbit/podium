@@ -106,6 +106,7 @@ type MachineSelect = Pick<
   typeof machines.$inferSelect,
   | 'id'
   | 'revokedAt'
+  | 'supersededBy'
   | 'name'
   | 'hostname'
   | 'createdAt'
@@ -131,6 +132,7 @@ type MachineSelect = Pick<
 /** The columns every machine read projects — the same list, spelled once. */
 const MACHINE_COLUMNS = {
   revokedAt: machines.revokedAt,
+  supersededBy: machines.supersededBy,
   id: machines.id,
   name: machines.name,
   hostname: machines.hostname,
@@ -159,6 +161,7 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
   return {
     id: r.id,
     revokedAt: r.revokedAt,
+    supersededBy: r.supersededBy,
     harnessVersions: r.harnessVersionsJson
       ? Object.values(JSON.parse(r.harnessVersionsJson)).map((row) =>
           MachineHarnessVersion.parse(row),
@@ -597,9 +600,17 @@ export class MachinesRepository {
           inventoryJson: null, harnessVersionsJson: null, serviceReportJson: null,
           appVersion: null, wireSchemaDigest: null, deliveryCapsJson: null,
           presenceSource: null, buildReportedAt: null })
-        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), sql`CASE WHEN ${machines.credentialKind} = 'ed25519' THEN ${machines.publicKey} ELSE ${machines.tokenHash} END = ${replaceIncarnation ?? ''}`))
+        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), isNull(machines.supersededBy), sql`CASE WHEN ${machines.credentialKind} = 'ed25519' THEN ${machines.publicKey} ELSE ${machines.tokenHash} END = ${replaceIncarnation ?? ''}`))
         .returning().all(), 'upsert')
     return result.changes === 1
+  }
+
+  /** Supersession is terminal, including for previously issued replacement codes. */
+  async supersedeMachine(id: MachineId, replacementId: MachineId): Promise<void> {
+    await this.committed.write(async () => this.db.update(machines)
+      .set({ supersededBy: replacementId,
+        revokedAt: sql`COALESCE(${machines.revokedAt}, ${new Date().toISOString()})`, availabilityJson: null })
+      .where(eq(machines.id, id)).returning().all(), 'upsert')
   }
 
   /** Retain identity and attribution while permanently refusing this credential. */

@@ -311,3 +311,20 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   }
 })
+
+
+describe('explicit machine supersession', () => {
+  it('requires IDs and sends only the named identity pair', async () => {
+    const old = { ...quiet, id: 'old-id', name: 'same laptop' } as MachineWire
+    const fresh = { ...ludovico, id: 'new-id', name: 'same laptop' } as MachineWire
+    const calls: unknown[] = []
+    const client = fakeClient([old, fresh])
+    client.machines.supersede = { mutate: async (input) => { calls.push(input) } }
+    await expect(runMachineCli(['supersede', 'same laptop', '--by', 'new-id'], client)).rejects.toThrow(/IDs/)
+    await expect(runMachineCli(['supersede', 'old-id', '--by', 'old-id'], client)).rejects.toThrow(/different/)
+    await expect(runMachineCli(['supersede', 'old-id'], client)).rejects.toThrow(/usage/)
+    const result = JSON.parse(await runMachineCli(['supersede', 'old-id', '--by', 'new-id', '--json'], client))
+    expect(calls).toEqual([{ id: 'old-id', replacementId: 'new-id' }])
+    expect(result.data).toEqual({ machineId: 'old-id', supersededBy: 'new-id' })
+  })
+})

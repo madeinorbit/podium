@@ -205,6 +205,11 @@ export const machineAdoptInput = z.object({
   newOwnerUserId: UserIdField.optional(),
 })
 
+export const machineSupersedeInput = z.object({
+  id: MachineIdField,
+  replacementId: MachineIdField,
+})
+
 export const machinePairingCodeInput = z
   .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional() })
   .optional()
@@ -693,6 +698,29 @@ export const machineAdoptContract = {
   conflictRule:
     'As machines.transferOwnership, with an unowned precondition inside the database transaction',
 } as const satisfies FleetCommandContract<typeof machineAdoptInput>
+
+/** Explicit identity retirement. Names are display data, never transition evidence. */
+export const machineSupersedeContract = {
+  ...machineAdoptContract,
+  name: 'machines.supersede',
+  input: machineSupersedeInput,
+  policy: {
+    action: 'manage', roleFloor: 'admin', resource: 'machine', machineVerb: 'manage',
+    confirmation: 'none',
+    rationale: 'An admin explicitly identifies both machines and must manage both. Supersession cancels the old grants and queued work; replacement authority is unchanged.',
+  },
+  ownership: {
+    ...machineAdoptContract.ownership,
+    creates: ['machine supersession audit event'],
+    note: 'Retain the old row with an explicit replacement id and revoked credential; remove grants and cancel queued work without inferring identity or changing replacement custody.',
+  },
+  errorConsistency: {
+    ...machineAdoptContract.errorConsistency,
+    note: 'Admin and manage gates apply to both supplied ids. Unknown or invisible targets share a refusal; self replacement and retired replacements are rejected.',
+  },
+  cli: { summary: 'Supersede an old machine identity with an explicitly named replacement' },
+  conflictRule: 'Serialize both machine transitions; retire the old credential, cancel grants and append the audit in one database transaction',
+} as const satisfies FleetCommandContract<typeof machineSupersedeInput>
 
 /**
  * Remove a machine from the fleet. M1's `manage` again ("unpair", "remove from
@@ -1294,6 +1322,7 @@ export const FLEET_CONTRACTS = {
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,
   'machines.adopt': machineAdoptContract,
+  'machines.supersede': machineSupersedeContract,
   'machines.applyUpdate': machineApplyUpdateContract,
   'machines.revoke': machineRevokeContract,
   'machines.moveServer': machineMoveServerContract,

@@ -363,6 +363,7 @@ export function MachinesPanel({
                 <MachineRow
                   key={m.id}
                   machine={m}
+                  replacementMachines={machines}
                   now={now}
                   trpc={trpc}
                   isThisMachine={m.id === thisMachineId}
@@ -958,6 +959,7 @@ function ServerMoveDialog({
 
 function MachineRow({
   machine,
+  replacementMachines = [],
   now,
   trpc,
   isThisMachine = false,
@@ -971,6 +973,7 @@ function MachineRow({
   onConvergenceChanged = () => {},
 }: {
   machine: MachineWire
+  replacementMachines?: readonly MachineWire[]
   now: number
   trpc: Store['trpc']
   /** [spec:SP-3701] True when this row is the device the app is running on. */
@@ -1000,6 +1003,24 @@ function MachineRow({
   const [revokeError, setRevokeError] = useState<string | null>(null)
   // POD-1495 transfer dialog: the recipient's account name, the typed-name
   // confirmation, and the server's refusal when there is one.
+  const [supersedeOpen, setSupersedeOpen] = useState(false)
+  const [replacementId, setReplacementId] = useState('')
+  const [superseding, setSuperseding] = useState(false)
+  const [supersedeError, setSupersedeError] = useState<string | null>(null)
+  const supersede = async () => {
+    if (!replacementId) return
+    setSuperseding(true)
+    setSupersedeError(null)
+    try {
+      await trpc.machines.supersede.mutate({ id: machine.id, replacementId })
+      setSupersedeOpen(false)
+      onConvergenceChanged()
+    } catch (error) {
+      setSupersedeError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSuperseding(false)
+    }
+  }
   const [adopting, setAdopting] = useState(false)
   const [adoptError, setAdoptError] = useState<string | null>(null)
   const adopt = async () => {
@@ -1395,6 +1416,40 @@ function MachineRow({
           </div>
         </div>
 
+          {machine.supersededBy && <p className="settings-prose">Superseded by {machine.supersededBy}</p>}
+          {machine.supersedable === true && !machine.supersededBy && (
+            <Dialog open={supersedeOpen} onOpenChange={(open) => { if (!superseding) setSupersedeOpen(open) }}>
+              <DialogTrigger render={<Button type="button" variant="outline" size="sm" />}>Supersede</DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Supersede {machine.name}?</DialogTitle>
+                  <DialogDescription>
+                    Choose the replacement machine explicitly. This retires {machine.id}, disconnects it,
+                    and cancels its grants and queued work. The replacement keeps its existing access.
+                    Matching names do not prove these are the same device.
+                  </DialogDescription>
+                </DialogHeader>
+                <label className="settings-label" htmlFor={`replacement-${machine.id}`}>Replacement machine</label>
+                <select id={`replacement-${machine.id}`} value={replacementId} disabled={superseding}
+                  onChange={(event) => setReplacementId(event.target.value)} className="rounded border p-2">
+                  <option value="">Choose a machine</option>
+                  {replacementMachines.filter((candidate) => candidate.id !== machine.id &&
+                    !candidate.revokedAt && !candidate.supersededBy && candidate.supersedable === true).map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name} · {candidate.id} · {candidate.online ? 'online' : 'offline'}
+                    </option>
+                  ))}
+                </select>
+                {supersedeError && <p role="alert" className="text-destructive">{supersedeError}</p>}
+                <DialogFooter>
+                  <Button variant="outline" disabled={superseding} onClick={() => setSupersedeOpen(false)}>Cancel</Button>
+                  <Button variant="destructive" disabled={superseding || !replacementId} onClick={() => void supersede()}>
+                    {superseding ? 'Superseding…' : 'Supersede machine'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         {!machine.revokedAt && (
         <div className="flex flex-wrap items-center gap-1 sm:flex-none sm:justify-end">
           {/* Discover this machine's repos (POD-787) */}

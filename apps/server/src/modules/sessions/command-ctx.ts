@@ -191,6 +191,9 @@ export async function machinesForPrincipal(
       return {
         ...visible,
         ...(machine.use === 'granted' ? { inventory, harnessVersions } : {}),
+        supersedable: !machine.supersededBy && principal.kind !== 'system' &&
+          principal.capability.role === 'admin' &&
+          machineVerbsFor(principal, machine.id, resolvedOwnership).has('manage'),
         transferable: !machine.revokedAt && canManageMachineCustody(principal, machine.id, resolvedOwnership),
         unowned,
         adoptable: unowned && principal.kind !== 'system' &&

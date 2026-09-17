@@ -33,6 +33,8 @@ export interface RepoMachines {
 
 export interface SelectableMachine {
   revokedAt?: string | null
+  supersededBy?: string | null
+  name?: string
   id: string
   online: boolean
   /** Compatibility list of desired components; never evidence of availability. */
@@ -61,6 +63,11 @@ export interface NameableMachine {
   id: string
   name: string
   hostname: string
+  online?: boolean
+  revokedAt?: string | null
+  supersededBy?: string | null
+  serviceAssignment?: MachineServiceAssignment
+  availability?: { daemon: boolean }
 }
 
 /**
@@ -84,12 +91,26 @@ export interface NameableMachine {
  * never name a machine the caller could not otherwise name.
  */
 export function machineByRef<M extends NameableMachine>(machines: M[], ref: string): M | null {
-  return (
-    machines.find((machine) => machine.id === ref) ??
-    machines.find((machine) => machine.name === ref) ??
-    machines.find((machine) => machine.hostname === ref) ??
-    null
-  )
+  const exact = machines.find((machine) => machine.id === ref)
+  if (exact) return exact
+  const live = machines.filter((machine) => !machine.revokedAt && !machine.supersededBy)
+  const preferred = (matches: M[]) => matches.sort((a, b) => selectionRank(b) - selectionRank(a))[0]
+  return preferred(live.filter((machine) => machine.name === ref)) ??
+    preferred(live.filter((machine) => machine.hostname === ref)) ?? null
+}
+
+/** Prefer observed online rows without asserting that equal names share identity. */
+function selectionRank(machine: Pick<NameableMachine, 'online' | 'serviceAssignment' | 'availability'>): number {
+  return (machine.online ? 4 : 0) +
+    (machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true ? 2 : 0)
+}
+
+/** Presentation only: retain distinct online identities, hide stale offline names. */
+export function preferredMachineChoices<M extends SelectableMachine>(machines: M[]): M[] {
+  const live = machines.filter((machine) => !machine.revokedAt && !machine.supersededBy)
+  const onlineNames = new Set(live.filter((machine) => machine.online && machine.name).map((machine) => machine.name))
+  return live.filter((machine) => machine.online || !machine.name || !onlineNames.has(machine.name))
+    .sort((a, b) => selectionRank(b) - selectionRank(a))
 }
 
 /** Machines that have this repo, regardless of online status. */
@@ -98,7 +119,7 @@ export function machinesWithRepo<M extends SelectableMachine>(
   machines: M[],
 ): M[] {
   const repoMachineIds = new Set<string>((repo.machines ?? []).map((m) => m.machineId))
-  return machines.filter((m) => !m.revokedAt && repoMachineIds.has(m.id))
+  return preferredMachineChoices(machines).filter((m) => repoMachineIds.has(m.id))
 }
 
 /** Online machines that have this repo. */
@@ -114,7 +135,7 @@ export function machinesForRepoOrClone<M extends SelectableMachine>(
   repo: RepoMachines,
   machines: M[],
 ): M[] {
-  return repo.originUrl ? machines : machinesWithRepo(repo, machines)
+  return repo.originUrl ? preferredMachineChoices(machines) : machinesWithRepo(repo, machines)
 }
 
 /** Online machines that have this repo or can clone it on first use. */
@@ -236,7 +257,7 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   machine: M,
   agentKind: string,
 ): AgentCapabilityRejection | undefined {
-  if (machine.revokedAt || machine.use === 'denied') return 'unauthorized'
+  if (machine.revokedAt || machine.supersededBy || machine.use === 'denied') return 'unauthorized'
   const structural = structuralRejection(machine)
   if (structural !== undefined) return structural
   if (!machine.online || machine.availability?.daemon !== true) return 'offline'
@@ -336,7 +357,9 @@ export function resolveTargetMachine<S extends RecentSession, M extends Selectab
   sessions: S[],
   machines: M[],
 ): string | undefined {
-  const eligible = machinesForRepo(repo, machines)
+  const online = machinesForRepo(repo, machines)
+  const ready = online.filter((machine) => machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true)
+  const eligible = ready.length ? ready : online
   if (eligible.length === 0) return undefined
   return lastUsedMachine(sessions, eligible) ?? eligible[0]?.id
 }

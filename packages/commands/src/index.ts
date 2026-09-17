@@ -155,6 +155,8 @@ export {
   fleetServerRoleOf,
   machineAdoptContract,
   machineAdoptInput,
+  machineSupersedeContract,
+  machineSupersedeInput,
   machineApplyUpdateContract,
   machineApplyUpdateInput,
   machinePairingCodeContract,

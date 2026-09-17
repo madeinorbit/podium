@@ -285,6 +285,7 @@ export interface SessionRow {
 
 /** One row of the machines table (token_hash is internal — not included here). */
 export interface MachineRecord {
+  supersededBy?: MachineId | null
   revokedAt: string | null
   harnessVersions?: import('@podium/model').MachineHarnessVersion[]
   id: MachineId

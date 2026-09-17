@@ -104,7 +104,7 @@ function deps(
 }
 
 /** Any input that satisfies every extractor in the table. */
-const anyInput = { id: 'laptop', machineId: 'laptop', path: '/repo', paths: ['/repo'], prefix: 'X' }
+const anyInput = { id: 'laptop', replacementId: 'laptop', machineId: 'laptop', path: '/repo', paths: ['/repo'], prefix: 'X' }
 
 const NAMES = Object.keys(FLEET_CONTRACTS) as FleetContractName[]
 const MACHINE_COMMANDS = NAMES.filter(
@@ -115,8 +115,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(22)
-    expect(MACHINE_COMMANDS).toHaveLength(21)
+    expect(NAMES).toHaveLength(23)
+    expect(MACHINE_COMMANDS).toHaveLength(22)
   })
 })
 
@@ -690,6 +690,18 @@ describe('the derived fleet router actually calls the gate', () => {
     expect(after.find((machine) => machine.id === 'm1')?.owned).toBe(true)
   })
 
+  it('supersedes through the served procedure and projects admin recovery authority', async () => {
+    const { call, store } = await caller(firstAdminMemberId())
+    await store.machines.upsertMachine({ id: asMachineId('replacement'), name: 'replacement', hostname: 'other.local',
+      tokenHash: 'hash', ownerUserId: firstAdminMemberId(), assignment: { server: false, agentExecution: true } })
+    const before = await call.machines.list()
+    expect(before.find((row) => row.id === 'm1')?.supersedable).toBe(true)
+    await expect(call.machines.supersede({ id: 'm1', replacementId: 'missing' })).rejects.toThrow()
+    const after = await call.machines.supersede({ id: 'm1', replacementId: 'replacement' })
+    expect(after.find((row) => row.id === 'm1')).toMatchObject({ supersededBy: 'replacement', supersedable: false, use: 'denied' })
+    expect((await store.settingsAudit.list()).at(-1)?.command).toBe('machines.supersede')
+  })
+
   it('ADOPTS an unowned machine through the SERVED procedure, and the ledger holds it', async () => {
     // THE ACCEPTANCE TEST FOR POD-1494, and the counterfactual for every
     // decision-level adoption test above: those drive a function, and a function
@@ -864,4 +876,12 @@ describe('explicit replacement pairing authority', () => {
     expect(await fleetAuthzFailure('machines.pairingCode', input, deps(user(COLLEAGUE), { role: 'member' }))).toMatchObject({ code: 'FORBIDDEN' })
     expect(await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'member' }))).toMatchObject({ code: 'FORBIDDEN' })
   })
+})
+
+
+it('supersession fleet gate checks both supplied identities after the admin floor', async () => {
+  const input = { id: 'laptop', replacementId: 'replacement' }
+  expect((await fleetAuthzFailure('machines.supersede', input, deps(user(OWNER), { role: 'member', machines: ['laptop', 'replacement'] })))?.code).toBe('FORBIDDEN')
+  expect(await fleetAuthzFailure('machines.supersede', input, deps(user(OWNER), { role: 'admin', machines: ['laptop', 'replacement'] }))).toBeUndefined()
+  expect((await fleetAuthzFailure('machines.supersede', input, deps(user(OWNER), { role: 'admin' })))?.code).toBe('NOT_FOUND')
 })

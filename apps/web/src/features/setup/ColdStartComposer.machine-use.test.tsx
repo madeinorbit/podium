@@ -155,3 +155,19 @@ describe('the launch box — use is a code-execution boundary', () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+
+it('hides stale offline names while preserving distinct online machine IDs', async () => {
+  const before = store.machines
+  store.machines = [
+    machine('old', { name: 'mine', online: false, use: 'granted' }),
+    machine('fresh', { name: 'mine', online: true, use: 'granted',
+      serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true } }),
+  ]
+  try {
+    render(<ColdStartComposer />)
+    const rows = await machineRows()
+    expect(rows.filter((row) => row.textContent?.includes('mine'))).toHaveLength(1)
+    expect(rows.some((row) => row.textContent?.includes('offline'))).toBe(false)
+  } finally { store.machines = before }
+})

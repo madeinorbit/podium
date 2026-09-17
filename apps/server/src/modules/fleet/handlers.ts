@@ -206,6 +206,20 @@ export const machineAdoptHandler = async ({
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
+export const machineSupersedeHandler = async ({ ctx, input }: FleetArgs<{ id: MachineId; replacementId: MachineId }>) => {
+  const authz = await fleetAuthzDeps(ctx)
+  const actor = onBehalfOfUser(authz.principal)
+  if (actor === null) throw new TRPCError({ code: 'FORBIDDEN', message: 'supersession requires a human administrator' })
+  try {
+    await mods(ctx).machines.supersedeMachine(input.id, input.replacementId, actor, {
+      manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal),
+    })
+  } catch (error) {
+    return badRequest(error)
+  }
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
+}
+
 export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
   await mods(ctx).machines.revokeMachine(asMachineId(input.id), { attribution: settingsAuditAttribution((await fleetAuthzDeps(ctx)).principal) })
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)

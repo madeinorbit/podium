@@ -15,6 +15,7 @@ vi.mock('@/app/store', () => {
     repos: [
       {
         path: '/repo',
+        originUrl: 'https://example.test/repo.git',
         branch: 'main',
         machineId: 'mine',
         worktrees: [
@@ -236,4 +237,21 @@ describe('NewIssueDialog start-work band', () => {
     )
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('linear')
   })
+})
+
+
+it('offers the online name instead of stale offline rows in the new-task picker', async () => {
+  const facts = { name: 'same laptop', hostname: 'same.local',
+    serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true },
+    inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] } }
+  machines.push({ ...facts, id: 'mine', online: false }, { ...facts, id: 'fresh', online: true })
+  render(<NewIssueDialog onClose={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Machine' }))
+  const row = await screen.findByRole('menuitem', { name: /same laptop/ })
+  expect(screen.getAllByRole('menuitem', { name: /same laptop/ })).toHaveLength(1)
+  expect(row.getAttribute('aria-disabled')).not.toBe('true')
+  fireEvent.click(row)
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Online laptop task' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+  await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'fresh' })))
 })

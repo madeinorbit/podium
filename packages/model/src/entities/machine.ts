@@ -456,6 +456,9 @@ export type MachineHarnessVersion = z.infer<typeof MachineHarnessVersion>
 export const MachineWire = z.object({
   /** Retained audit identity; revoked machines cannot execute or receive control. */
   revokedAt: z.string().nullable().optional(),
+  /** Explicit admin-selected replacement; never inferred from display names. */
+  supersededBy: MachineIdField.nullable().optional(),
+  supersedable: z.boolean().optional(),
   daemonReadiness: DaemonReadiness.optional(),
   /** USE: harness installation history is hidden without execution consent. */
   harnessVersions: z.array(MachineHarnessVersion).optional(),

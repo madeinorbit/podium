@@ -76,6 +76,7 @@ import { mods } from '../../trpc'
  * all because it fans out over the whole fleet.
  */
 export type FleetTarget =
+  | { readonly kind: 'machine-pair'; readonly machineIds: readonly MachineId[] }
   /** A machine named by the caller. */
   | { readonly kind: 'machine'; readonly machineId: MachineId }
   /** The selector was omitted: the handler resolves `machines.defaultMachine()`,
@@ -112,6 +113,10 @@ export const FLEET_TARGETS = {
   'machines.transferOwnership': (input: unknown) => named((input as { id: MachineId }).id),
   // Same asymmetry as transfer: the target is the machine being adopted, never
   // the person it is being adopted FOR.
+  'machines.supersede': (input: unknown): FleetTarget => {
+    const pair = input as { id: MachineId; replacementId: MachineId }
+    return { kind: 'machine-pair', machineIds: [pair.id, pair.replacementId] }
+  },
   'machines.adopt': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.revoke': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.moveServer': (input: unknown) =>
@@ -258,6 +263,12 @@ export async function fleetAuthzFailure(
   const target = (FLEET_TARGETS[name] as (i: unknown) => FleetTarget)(input)
   switch (target.kind) {
     case 'none':
+      return undefined
+    case 'machine-pair':
+      for (const id of target.machineIds) {
+        const refusal = await machineRefusal(id, verb, deps)
+        if (refusal) return refusal
+      }
       return undefined
     case 'machine': {
       const refusal = await machineRefusal(target.machineId, verb, deps)

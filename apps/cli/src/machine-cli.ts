@@ -41,7 +41,7 @@ type Mutation = { mutate(input?: unknown): Promise<unknown> }
  * `repos.listDetailed` would disclose paths on machines the caller cannot see.
  */
 export interface MachineClient {
-  machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation }
+  machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation; supersede?: Mutation }
 }
 
 interface FleetView {
@@ -64,6 +64,7 @@ export function machineHelpText(): string {
     'Show the machines this session may see, so you can decide where to run work.',
     '',
     'Commands:',
+    '  supersede <old-id> --by <new-id> Retire an old identity; cancel its grants and queued work.',
     '  adopt <name|id> [--for <member>] Adopt an unowned machine (default: yourself).',
     '  harnesses [--json]     Recorded harness versions, first and last seen.',
     '  list [--json]           Every visible machine, one block each (default).',
@@ -88,6 +89,11 @@ export function machineHelpText(): string {
 
 function argumentError(argv: string[]): string | undefined {
   const [command, ...rest] = argv
+  if (command === 'supersede') {
+    const args = rest.filter((arg) => arg !== '--json')
+    return args.length === 3 && args[0] && !args[0].startsWith('-') && args[1] === '--by' && args[2] && !args[2].startsWith('-')
+      ? undefined : 'usage: podium machine supersede <old-id> --by <new-id> [--json]'
+  }
   if (command === 'adopt') {
     const args = rest.filter((arg) => arg !== '--json')
     if (!args[0] || args[0].startsWith('-') ||
@@ -253,6 +259,18 @@ export async function runMachineCli(
 
   const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
   const json = argv.includes('--json')
+
+  if (argv[0] === 'supersede') {
+    const args = argv.slice(1).filter((arg) => arg !== '--json')
+    const old = machines.find((machine) => machine.id === args[0])
+    const replacement = machines.find((machine) => machine.id === args[2])
+    if (!old || !replacement) throw new MachineCliError('supersede requires two visible machine IDs; names are not accepted')
+    if (old.id === replacement.id) throw new MachineCliError('replacement must be a different machine')
+    if (!client.machines.supersede) throw new MachineCliError('machine supersession is unavailable')
+    await client.machines.supersede.mutate({ id: old.id, replacementId: replacement.id })
+    return json ? JSON.stringify({ command: 'machines supersede', ok: true, data: { machineId: old.id, supersededBy: replacement.id } })
+      : `Superseded ${old.name} (${old.id}) by ${replacement.name} (${replacement.id}). Old grants and queued work cancelled.`
+  }
 
   if (argv[0] === 'adopt') {
     const args = argv.slice(1).filter((arg) => arg !== '--json')
