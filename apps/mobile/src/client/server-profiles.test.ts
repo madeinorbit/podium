@@ -38,6 +38,8 @@ describe('native server profiles', () => {
       httpOrigin: 'https://alice.example',
       instanceId: 'instance-a',
       userId: 'user:alice',
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:alice',
       mode: 'protected' as const,
       transport: 'trusted-https' as const,
       createdAt: '2026-08-13T12:00:00.000Z',
@@ -73,11 +75,13 @@ describe('native server profiles', () => {
     expect(isTailscaleIpv4('100.128.0.1')).toBe(false)
   })
 
-  it('partitions the same server user by immutable local profile id', () => {
+  it('partitions members by the server-issued sync boundary', () => {
     expect(profilePrincipal('alice-vps', 'user:admin')).not.toBe(
       profilePrincipal('colleague-vps', 'user:admin'),
     )
-    expect(profilePrincipal('alice/vps', 'user:admin')).toBe('server:alice%2Fvps:user:user%3Aadmin')
+    expect(profilePrincipal('alice/vps', 'user:admin')).toBe(
+      JSON.stringify(['alice/vps', 'user:admin']),
+    )
   })
 
   it('never reuses a trust boundary across origins that report the same instance id', () => {
@@ -218,4 +222,41 @@ describe('native server profiles', () => {
       reusableProfileAtOrigin([blue], blue.httpOrigin, blue.userId, 'ws_green'),
     ).toBeUndefined()
   })
+})
+
+it('round-trips a server identity and re-pairs into the same replica namespace', async () => {
+  const now = new Date().toISOString()
+  const original = {
+    id: 'local-first',
+    name: 'Podium',
+    httpOrigin: 'https://podium.example',
+    instanceId: 'instance',
+    mode: 'protected' as const,
+    transport: 'trusted-https' as const,
+    userId: 'member-a',
+    memberId: 'member-a',
+    syncBoundaryId: 'installation-a',
+    createdAt: now,
+    updatedAt: now,
+  }
+  const paired = { ...original, id: 'local-repaired' }
+  await saveServerProfiles({ activeProfileId: paired.id, profiles: [original, paired] })
+  const loaded = await loadServerProfiles()
+  expect(loaded.profiles).toEqual([original, paired])
+  expect(profilePrincipal(loaded.profiles[0]!.syncBoundaryId!, loaded.profiles[0]!.memberId!)).toBe(
+    profilePrincipal(paired.syncBoundaryId, paired.memberId),
+  )
+  const cleanup = await enqueuePendingProfileCleanup(paired.id, paired.userId, paired)
+  expect(cleanup.principal).toBe(profilePrincipal(original.syncBoundaryId, original.memberId))
+  expect(await loadPendingProfileCleanups()).toEqual([cleanup])
+})
+
+it('keeps each profile removal intent when re-paired profiles share a namespace', async () => {
+  const identity = { syncBoundaryId: 'installation-a', memberId: 'member-a' }
+  const first = await enqueuePendingProfileCleanup('first-profile', 'member-a', identity)
+  const second = await enqueuePendingProfileCleanup('second-profile', 'member-a', identity)
+  expect(first.principal).toBe(second.principal)
+  expect(await loadPendingProfileCleanups()).toEqual([first, second])
+  await completePendingProfileCleanup(first)
+  expect(await loadPendingProfileCleanups()).toEqual([second])
 })

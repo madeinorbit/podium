@@ -58,6 +58,36 @@ export interface PrincipalNamespace {
 
 const MARKER_SUFFIX = '.namespace.v1'
 
+/** Server-authored logical identity. Neither field is inferred from a local profile or URL. */
+export interface ReplicaIdentity {
+  readonly syncBoundaryId: string
+  readonly memberId: string
+}
+
+export function replicaNamespaceKey(identity: ReplicaIdentity): string {
+  if (!identity.syncBoundaryId || !identity.memberId) {
+    throw new Error('replica identity requires a sync boundary and member')
+  }
+  return JSON.stringify([identity.syncBoundaryId, identity.memberId])
+}
+
+/** Only tuple markers can authorize offline startup after the namespace upgrade. */
+export function parseReplicaNamespaceKey(key: string): ReplicaIdentity | undefined {
+  try {
+    const value: unknown = JSON.parse(key)
+    if (
+      Array.isArray(value) &&
+      value.length === 2 &&
+      value.every((part) => typeof part === 'string' && part.length > 0)
+    ) {
+      return { syncBoundaryId: value[0], memberId: value[1] }
+    }
+  } catch {
+    /* A legacy namespace remains subject to normal retention. */
+  }
+  return undefined
+}
+
 export function principalKeyPrefix(basePrefix: string, principal: string): string {
   if (principal.length === 0) throw new Error('replica principal must not be empty')
   return `${basePrefix}.principal.${encodeURIComponent(principal)}`

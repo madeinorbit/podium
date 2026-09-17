@@ -1,3 +1,5 @@
+import { asUserId } from '@podium/model'
+import { asClientPrincipal, samePrincipal, principalKey } from '../principal'
 import { addSink } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
 import type { StorageApi, StorageEventApi } from './contract'
@@ -6,6 +8,8 @@ import {
   type PrincipalNamespacePolicy,
   preparePrincipalNamespace,
   principalKeyPrefix,
+  replicaNamespaceKey,
+  parseReplicaNamespaceKey,
 } from './principal-storage'
 import { createReplica } from './replica'
 
@@ -336,3 +340,32 @@ function storageEvents(): {
     },
   }
 }
+
+describe('server-authored replica namespace tuples', () => {
+  it('is unambiguous even for delimiters and distinguishes members and boundaries', () => {
+    const identity = { syncBoundaryId: 'installation:/[%]', memberId: 'member:/[%]' }
+    const key = replicaNamespaceKey(identity)
+    expect(parseReplicaNamespaceKey(key)).toEqual(identity)
+    expect(replicaNamespaceKey({ syncBoundaryId: 'a:b', memberId: 'c' })).not.toBe(
+      replicaNamespaceKey({ syncBoundaryId: 'a', memberId: 'b:c' }),
+    )
+    expect(replicaNamespaceKey({ ...identity, memberId: 'renamed' })).not.toBe(key)
+    expect(
+      parseReplicaNamespaceKey(replicaNamespaceKey({ ...identity, memberId: 'renamed' }))
+        ?.syncBoundaryId,
+    ).toBe(identity.syncBoundaryId)
+    expect(parseReplicaNamespaceKey('legacy-member')).toBeUndefined()
+    expect(() => replicaNamespaceKey({ syncBoundaryId: '', memberId: 'member' })).toThrow()
+  })
+})
+
+it('rebinds a member when the server boundary changes without changing attribution', () => {
+  const first = asClientPrincipal(asUserId('member-a'), 'installation-a')
+  const other = asClientPrincipal(asUserId('member-a'), 'installation-b')
+  expect(samePrincipal(first, other)).toBe(false)
+  expect(samePrincipal(first, asClientPrincipal(asUserId('member-a'), 'installation-a'))).toBe(true)
+  expect(principalKey(first)).toBe(
+    replicaNamespaceKey({ syncBoundaryId: 'installation-a', memberId: 'member-a' }),
+  )
+  expect(first.userId).toBe('member-a')
+})

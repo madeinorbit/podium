@@ -31,7 +31,7 @@ export interface ServerProfileContextValue {
   renameProfile(profileId: string, name: string): Promise<void>
   removeProfile(profileId: string): Promise<void>
   updateCredential(bearer: string | null): Promise<void>
-  recordUser(userId: string): Promise<void>
+  recordUser(userId: string, identity: { syncBoundaryId: string; memberId: string }): Promise<void>
   /** Revalidate an offline-opened profile before releasing its saved bearer or
    *  allowing the parked outbox to drain. */
   revalidateOfflineProfile(): Promise<void>

@@ -284,14 +284,15 @@ export function LoginView({
           setShaking(true)
           return
         }
-        if (typeof body.userId !== 'string' || body.userId.length === 0) {
+        const outcome = classifyAuthStatus(body)
+        if (!('principal' in outcome)) {
           setError("✗ couldn't verify the signed-in account")
           setShaking(true)
           return
         }
         setBusy(false)
         setOk(true)
-        onLoggedIn(body.userId)
+        onLoggedIn(outcome.principal)
         return
       }
       setError(

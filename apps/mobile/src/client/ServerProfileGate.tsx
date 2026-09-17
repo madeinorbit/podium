@@ -701,6 +701,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const nextProfile: ServerProfile = existing
           ? {
               ...existing,
+              // A fresh sign-in must confirm both fields before offline reuse.
+              syncBoundaryId: undefined,
+              memberId: undefined,
               httpOrigin: result.httpOrigin,
               instanceId: result.instanceId,
               ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
@@ -1156,8 +1159,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setCredentialReleased(true)
         setRevision((value) => value + 1)
       },
-      recordUser: async (userId) => {
-        if (Platform.OS === 'web' || profile.userId === userId || config.override) return
+      recordUser: async (userId, identity) => {
+        if (
+          Platform.OS === 'web' ||
+          (profile.userId === userId &&
+            profile.syncBoundaryId === identity.syncBoundaryId &&
+            profile.memberId === identity.memberId) ||
+          config.override
+        )
+          return
         if (
           switchOperation.current !== credentialOwnerOperation ||
           activeProfileIdRef.current !== profile.id
@@ -1181,7 +1191,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           const merged: ServerProfileState = {
             ...current,
             profiles: current.profiles.map((row) =>
-              row.id === profile.id ? { ...row, userId, updatedAt: new Date().toISOString() } : row,
+              row.id === profile.id
+                ? { ...row, userId, ...identity, updatedAt: new Date().toISOString() }
+                : row,
             ),
           }
           await saveServerProfiles(merged)
@@ -1372,7 +1384,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               // Commit the exact local-erasure intent before making either the
               // profile or its credential unreachable. A failure leaves the
               // saved profile intact and the tombstone retryable.
-              await enqueuePendingProfileCleanup(profile.id, profile.userId)
+              await enqueuePendingProfileCleanup(
+                profile.id,
+                profile.userId,
+                profile.syncBoundaryId && profile.memberId
+                  ? { syncBoundaryId: profile.syncBoundaryId, memberId: profile.memberId }
+                  : undefined,
+              )
               await profileWrites.run(() => saveServerProfiles(next))
             }
             // This recovery path deliberately does not call logout: identity

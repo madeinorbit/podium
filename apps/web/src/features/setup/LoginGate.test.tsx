@@ -29,14 +29,20 @@ describe('LoginGate', () => {
   })
 
   it('renders the app when already authed', async () => {
-    const fetchMock = statusFetch({ needsAuth: true, authed: true, userId: 'alice' })
+    const fetchMock = statusFetch({
+      needsAuth: true,
+      authed: true,
+      userId: 'alice',
+      memberId: 'alice',
+      syncBoundaryId: 'installation-a',
+    })
     vi.stubGlobal('fetch', fetchMock)
     render(
       <LoginGate>
         {(auth) => <div>{auth.kind === 'principal' ? `APP-${auth.principal}` : 'APP-FAILED'}</div>}
       </LoginGate>,
     )
-    expect(await screen.findByText('APP-alice')).toBeTruthy()
+    expect(await screen.findByText('APP-["installation-a","alice"]')).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       expect.stringMatching(/\/auth\/status$/),
@@ -121,13 +127,20 @@ describe('LoginView', () => {
     const login = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ ok: true, userId: 'alice' }),
+      json: async () => ({
+        ok: true,
+        userId: 'alice',
+        memberId: 'alice',
+        syncBoundaryId: 'installation-a',
+      }),
     })
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
     render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
     typePasswordAndSubmit('hunter2')
-    await waitFor(() => expect(onLoggedIn).toHaveBeenCalledWith('alice'))
+    await waitFor(() =>
+      expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
+    )
     expect(login).toHaveBeenCalledWith(
       'http://x/auth/login',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
@@ -190,7 +203,16 @@ describe('LoginView', () => {
     fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
     expect(status.textContent).toContain('verifying')
-    release({ ok: true, status: 200, json: async () => ({ ok: true, userId: 'alice' }) })
+    release({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        userId: 'alice',
+        memberId: 'alice',
+        syncBoundaryId: 'installation-a',
+      }),
+    })
     await waitFor(() => expect(status.textContent).toContain('signed in'))
   })
 
@@ -233,7 +255,12 @@ describe('LoginGate success reveal', () => {
         .mockResolvedValue({
           ok: true,
           status: 200,
-          json: async () => ({ ok: true, userId: 'alice' }),
+          json: async () => ({
+            ok: true,
+            userId: 'alice',
+            memberId: 'alice',
+            syncBoundaryId: 'installation-a',
+          }),
         })
       vi.stubGlobal('fetch', fetchMock)
       render(<LoginGate>{child}</LoginGate>)
@@ -318,6 +345,8 @@ describe('cloud login gate', () => {
         authed: true,
         mode: 'cloud',
         userId: 'alice',
+        memberId: 'alice',
+        syncBoundaryId: 'installation-a',
         providerSignedIn: true,
         deniedReason: 'not a member of this workspace',
       }),
@@ -450,7 +479,13 @@ function handoffFetch(status: Parameters<typeof statusFetch>[0]) {
 }
 
 it('returns to the existing sign-in flow when HTTP sync reports expired auth', async () => {
-  const fetchMock = statusFetch({ needsAuth: true, authed: true, userId: 'alice' })
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    userId: 'alice',
+    memberId: 'alice',
+    syncBoundaryId: 'installation-a',
+  })
   vi.stubGlobal('fetch', fetchMock)
   render(<LoginGate>{child}</LoginGate>)
   expect(await screen.findByText('APP-READY')).toBeTruthy()

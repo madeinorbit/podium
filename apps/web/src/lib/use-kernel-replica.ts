@@ -12,7 +12,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  */
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
-import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
+import { inspectPrincipalNamespaces, parseReplicaNamespaceKey } from '@podium/client-core/replica'
 import { createLogger } from '@podium/logger'
 import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
 import { useEffect, useState } from 'react'
@@ -90,7 +90,9 @@ function offlineReplicaPrincipal(inspectNamespaces?: () => readonly string[]): s
         enumerateKeys: () => Object.keys(globalThis.localStorage),
         basePrefix: KERNEL_SIDE_CACHE_PREFIX,
       }))
-  const identities = [...new Set(inspect())]
+  const identities = [...new Set(inspect())].filter(
+    (key) => parseReplicaNamespaceKey(key) !== undefined,
+  )
   if (identities.length === 1 && identities[0] !== undefined) return identities[0]
   throw identities.length === 0
     ? new ReplicaGateError('offline replica has no authenticated principal namespace', {

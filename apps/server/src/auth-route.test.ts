@@ -116,6 +116,7 @@ describe('auth-route', () => {
       needsAuth: false,
       authed: true,
       userId: firstAdminMemberId(),
+      memberId: firstAdminMemberId(),
     })
   })
 
@@ -126,6 +127,7 @@ describe('auth-route', () => {
       needsAuth: false,
       authed: true,
       userId: firstAdminMemberId(),
+      memberId: firstAdminMemberId(),
     })
   })
 
@@ -189,6 +191,7 @@ describe('auth-route', () => {
       needsAuth: true,
       authed: true,
       userId: firstAdminMemberId(),
+      memberId: firstAdminMemberId(),
       // And the screen behind this login is told WHY it is stale, by name.
       readiness: { state: 'activation_pending', stale: ['persistence'] },
     })
@@ -426,6 +429,7 @@ describe('auth-route', () => {
       needsAuth: true,
       authed: true,
       userId: firstAdminMemberId(),
+      memberId: firstAdminMemberId(),
     })
 
     const logout = await app.request('/auth/logout', {
@@ -1058,7 +1062,11 @@ describe('email sign-in', () => {
     expect((await store.users.get(firstAdminMemberId()))?.displayName).toBe(before?.displayName)
     const response = await login(app, ' ALICE@example.com ')
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, userId: firstAdminMemberId() })
+    expect(await response.json()).toEqual({
+      ok: true,
+      userId: firstAdminMemberId(),
+      memberId: firstAdminMemberId(),
+    })
     expect(cookieValue(response)).toBeTruthy()
     expect((await login(app, 'user:sole')).status).toBe(401)
     expect(
@@ -1201,14 +1209,17 @@ describe('email sign-in', () => {
     expect((await login(app, 'missing-0@example.com')).status).toBe(401)
   })
 
-  test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
-    'rejects an invalid throttle capacity: %s',
-    (maxTracked) => {
-      expect(() => makeApp({ throttle: { maxTracked } })).toThrow(
-        'throttle.maxTracked must be a positive safe integer',
-      )
-    },
-  )
+  test.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects an invalid throttle capacity: %s', (maxTracked) => {
+    expect(() => makeApp({ throttle: { maxTracked } })).toThrow(
+      'throttle.maxTracked must be a positive safe integer',
+    )
+  })
 
   test('native delivery accepts an email and returns that member session', async () => {
     await setPassword('hunter2')
@@ -1318,5 +1329,28 @@ describe('phone client against the real auth route', () => {
     expect(await signIn()).toMatchObject({ ok: false })
     expect(await signIn('user:sole')).toMatchObject({ ok: false })
     await expectMember(await signIn('upgraded@example.com'), firstAdminMemberId())
+  })
+})
+
+test.each([
+  'pdm_installation',
+  'ws_hosted',
+])('auth reports the server boundary %s and member separately', async (boundary) => {
+  const app = makeApp({ syncBoundaryId: () => boundary, resolveUserId: () => firstAdminMemberId() })
+  const response = await app.request('/auth/status')
+  expect(await response.json()).toMatchObject({
+    syncBoundaryId: boundary,
+    memberId: firstAdminMemberId(),
+    userId: firstAdminMemberId(),
+  })
+  await setPassword('hunter2')
+  const login = await app.request('/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password: 'hunter2' }),
+  })
+  expect(await login.json()).toMatchObject({
+    syncBoundaryId: boundary,
+    memberId: firstAdminMemberId(),
   })
 })

@@ -25,6 +25,8 @@ function offlineProfile(): ServerProfileContextValue {
       mode: 'protected',
       transport: 'trusted-https',
       userId: 'user:alice',
+      memberId: 'user:alice',
+      syncBoundaryId: 'installation-a',
       createdAt: '2026-08-01T00:00:00.000Z',
       updatedAt: '2026-08-01T00:00:00.000Z',
     },

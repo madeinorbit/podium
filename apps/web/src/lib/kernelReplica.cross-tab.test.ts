@@ -68,7 +68,7 @@ describe('kernel replica cross-tab convergence', () => {
       databaseName,
       onDegraded: () => {},
     })
-    seeded.viewFor('alice').cache.applyAtomic({
+    seeded.viewFor(JSON.stringify(['installation-a', 'alice'])).cache.applyAtomic({
       operations: [],
       cursor: { feedId: 'feed-1', epoch: 'epoch-1', seq: 0 },
     })
@@ -81,7 +81,7 @@ describe('kernel replica cross-tab convergence', () => {
       factory: factory as never,
       databaseName,
       evidence: { kind: 'single-account', principal: 'default' } as const,
-      principal: 'alice',
+      principal: JSON.stringify(['installation-a', 'alice']),
       broadcastChannelFactory: (name: string) => {
         const channel = new FakeBroadcastChannel(name)
         channels.push(channel)
@@ -93,7 +93,7 @@ describe('kernel replica cross-tab convergence', () => {
     first.feed.connected(true)
     second.feed.connected(true)
 
-    const observer = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
+    const observer = second.createReplicaFn(asClientPrincipal(asUserId('alice'), 'installation-a'))
     const changed = vi.fn()
     const unsubscribe = observer.subscribeRows('issues', changed)
 
@@ -143,7 +143,7 @@ describe('kernel replica cross-tab convergence', () => {
       factory: factory as never,
       databaseName,
       evidence: { kind: 'single-account', principal: 'default' } as const,
-      principal: 'alice',
+      principal: JSON.stringify(['installation-a', 'alice']),
       broadcastChannelFactory: (name: string) => new FakeBroadcastChannel(name),
     }
     first = await openKernelAssembly(options)
@@ -168,8 +168,12 @@ describe('kernel replica cross-tab convergence', () => {
     first.feed.connected(false)
     second.feed.connected(false)
 
-    const firstObserver = first.createReplicaFn(asClientPrincipal(asUserId('alice')))
-    const secondObserver = second.createReplicaFn(asClientPrincipal(asUserId('alice')))
+    const firstObserver = first.createReplicaFn(
+      asClientPrincipal(asUserId('alice'), 'installation-a'),
+    )
+    const secondObserver = second.createReplicaFn(
+      asClientPrincipal(asUserId('alice'), 'installation-a'),
+    )
     await vi.waitFor(() => {
       expect(firstObserver.rows('issues')).toHaveLength(1)
       expect(secondObserver.rows('issues')).toHaveLength(1)

@@ -1615,6 +1615,7 @@ export async function startServer(
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
+    syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
     mode: () => resolveAuthMode(),
     signInUrl: () => resolveAuthSignInUrl(),
     // Read through the live object, not captured at registration: a plugin sets

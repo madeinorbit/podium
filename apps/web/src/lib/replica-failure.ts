@@ -12,6 +12,7 @@
  * whoever will file the bug [POD-1304].
  */
 
+import { replicaNamespaceKey } from '@podium/client-core/replica'
 import type { ServerReadiness } from '@podium/model'
 
 export type ReplicaFailure =
@@ -67,13 +68,25 @@ export function replicaFailureOf(error: unknown): ReplicaFailure {
  */
 export function classifyAuthStatus(status: {
   userId?: unknown
+  syncBoundaryId?: unknown
+  memberId?: unknown
   needsAuth?: unknown
   readiness?: unknown
 }): { readonly principal: string } | ReplicaFailure {
   const readiness = status.readiness as ServerReadiness | undefined
   if (readiness && readiness.dataPlane === 'blocked') return { kind: 'server-starting', readiness }
-  if (typeof status.userId === 'string' && status.userId.length > 0) {
-    return { principal: status.userId }
+  if (
+    typeof status.memberId === 'string' &&
+    status.memberId.length > 0 &&
+    typeof status.syncBoundaryId === 'string' &&
+    status.syncBoundaryId.length > 0
+  ) {
+    return {
+      principal: replicaNamespaceKey({
+        syncBoundaryId: status.syncBoundaryId,
+        memberId: status.memberId,
+      }),
+    }
   }
   if (status.needsAuth === true) return { kind: 'signed-out' }
   return { kind: 'account-missing' }

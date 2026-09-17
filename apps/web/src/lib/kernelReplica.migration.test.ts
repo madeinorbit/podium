@@ -20,17 +20,21 @@
  * on real disks today, and the raw-key case would pass without them.
  */
 
-import { principalKeyPrefix } from '@podium/client-core/replica'
+import {
+  principalKeyPrefix,
+  preparePrincipalNamespace,
+  inspectPrincipalNamespaces,
+} from '@podium/client-core/replica'
+import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, describe, expect, it } from 'vitest'
 import { KERNEL_SIDE_CACHE_PREFIX, openKernelAssembly } from './kernelReplica'
 
 const trpc = {
-
   pins: { set: { mutate: async () => ({}) } },
 } as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
-const PRINCIPAL = 'alice'
+const PRINCIPAL = JSON.stringify(['installation-a', 'alice'])
 /** Derived through the SAME function the root uses, not respelled: a hand-written
  *  prefix that drifted would make this case pass against a key nobody writes. */
 const SIDE_PREFIX = principalKeyPrefix(KERNEL_SIDE_CACHE_PREFIX, PRINCIPAL)
@@ -100,7 +104,7 @@ describe('the web root carries pre-kernel queued writes into the kernel Outbox',
     await assembly.dispose()
   })
 
-  it('adopts entries an EARLIER KERNEL BUILD folded into the side cache', async () => {
+  it('adopts legacy-shaped entries already in the acting tuple side cache', async () => {
     globalThis.localStorage.setItem(
       `${SIDE_PREFIX}.outbox.v1`,
       JSON.stringify([entry('m-folded', 'pinSet', RECENTLY + 2)]),
@@ -121,7 +125,7 @@ describe('the web root carries pre-kernel queued writes into the kernel Outbox',
     // mutationId for the Authority to dedupe (D11.7). So the state at rest here
     // is `queued`, and that is the kernel's rule rather than a lossy import —
     // asserted so a change to it shows up as this case going red.
-    const durable = await assembly.store.viewFor(assembly.principal.userId).outbox.read()
+    const durable = await assembly.store.viewFor(PRINCIPAL).outbox.read()
     expect(new Map(durable.map((r) => [r.mutationId as string, r.state]))).toEqual(
       new Map([
         ['m-folded', 'queued'],
@@ -129,6 +133,7 @@ describe('the web root carries pre-kernel queued writes into the kernel Outbox',
       ]),
     )
     expect(queued(assembly)).toEqual(['m-folded', 'm-held'])
+    expect(durable.every((row) => row.attribution.onBehalfOf === 'alice')).toBe(true)
     expect(migrationReport(degraded)?.adopted).toBe(2)
     expect(globalThis.localStorage.getItem(`${SIDE_PREFIX}.outbox.v1`)).toBeNull()
     await assembly.dispose()
@@ -231,6 +236,89 @@ describe('the web root carries pre-kernel queued writes into the kernel Outbox',
       await assembly.dispose()
     } finally {
       Object.defineProperty(globalThis, 'localStorage', { value: real, configurable: true })
+    }
+  })
+})
+
+describe('member-only namespace upgrade', () => {
+  it.each([
+    false,
+    true,
+  ])('cold-starts once and preserves retention (quota full: %s)', async (full) => {
+    const original = globalThis.localStorage
+    const values: Record<string, string> = {}
+    const storage = Object.create(null) as Storage
+    for (const [name, fn] of Object.entries({
+      getItem: (key: string) => values[key] ?? null,
+      setItem: (key: string, value: string) => {
+        if (full && key.includes(encodeURIComponent(PRINCIPAL)) && values[oldDataKey]) {
+          throw new Error('QuotaExceededError')
+        }
+        values[key] = value
+        Object.defineProperty(storage, key, { value, configurable: true, enumerable: true })
+      },
+      removeItem: (key: string) => {
+        delete values[key]
+        Reflect.deleteProperty(storage, key)
+      },
+      clear: () => {
+        for (const key of Object.keys(values)) storage.removeItem(key)
+      },
+    }))
+      Object.defineProperty(storage, name, { value: fn })
+    const oldRoot = principalKeyPrefix(KERNEL_SIDE_CACHE_PREFIX, 'alice')
+    const oldDataKey = oldRoot + '.outbox.v1'
+    Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true })
+    const factory = new IDBFactory()
+    const databaseName = 'tuple-upgrade'
+    let assembly: Awaited<ReturnType<typeof openKernelAssembly>> | undefined
+    try {
+      preparePrincipalNamespace({
+        storage,
+        enumerateKeys: () => Object.keys(storage),
+        basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+        principal: 'alice',
+      })
+      storage.setItem(oldDataKey, JSON.stringify([entry('old-queued', 'rename', RECENTLY)]))
+      const old = await IndexedDbSyncStore.open({
+        factory: factory as never,
+        databaseName,
+        onDegraded() {},
+      })
+      old
+        .viewFor('alice')
+        .cache.applyAtomic({ operations: [], cursor: { feedId: 'old', epoch: 'old', seq: 99 } })
+      await old.settled()
+      old.close()
+      const options = {
+        trpc,
+        factory: factory as never,
+        databaseName,
+        principal: PRINCIPAL,
+        evidence: { kind: 'single-account' as const, principal: PRINCIPAL },
+      }
+      assembly = await openKernelAssembly(options)
+      expect(assembly.store.viewFor(PRINCIPAL).cache.readCursor()).toBeNull()
+      expect(queued(assembly)).toEqual([])
+      expect(storage.getItem(oldDataKey) !== null).toBe(!full)
+      expect(assembly.store.viewFor('alice').cache.readCursor() !== null).toBe(!full)
+      const cursor = { feedId: 'new', epoch: 'new', seq: 7 }
+      assembly.store.viewFor(PRINCIPAL).cache.applyAtomic({ operations: [], cursor })
+      await assembly.dispose()
+      assembly = await openKernelAssembly(options)
+      expect(assembly.store.viewFor(PRINCIPAL).cache.readCursor()).toEqual(cursor)
+      await assembly.erasePrincipalData()
+      expect(
+        inspectPrincipalNamespaces({
+          storage,
+          enumerateKeys: () => Object.keys(storage),
+          basePrefix: KERNEL_SIDE_CACHE_PREFIX,
+        }),
+      ).toEqual(full ? [] : ['alice'])
+      expect(storage.getItem(oldDataKey) !== null).toBe(!full)
+    } finally {
+      await assembly?.dispose()
+      Object.defineProperty(globalThis, 'localStorage', { value: original, configurable: true })
     }
   })
 })

@@ -199,6 +199,8 @@ function storedProfiles() {
         mode: 'protected' as const,
         transport: 'trusted-https' as const,
         userId: 'user:a',
+        syncBoundaryId: 'installation-a',
+        memberId: 'user:a',
         createdAt: '2026-08-01T00:00:00.000Z',
         updatedAt: '2026-08-01T00:00:00.000Z',
       },
@@ -210,6 +212,8 @@ function storedProfiles() {
         mode: 'protected' as const,
         transport: 'trusted-https' as const,
         userId: 'user:b',
+        syncBoundaryId: 'installation-b',
+        memberId: 'user:b',
         createdAt: '2026-08-01T00:00:00.000Z',
         updatedAt: '2026-08-01T00:00:00.000Z',
       },
@@ -600,7 +604,9 @@ describe('handoff profile selection', () => {
         <ProfileProbe />
       </ServerProfileGate>,
     )
-    await waitFor(() => expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined))
+    await waitFor(() =>
+      expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined),
+    )
     expect(seams.activeContext).toBeNull()
 
     act(() => {
@@ -1154,7 +1160,10 @@ describe('profile credential completion races', () => {
       }
       seams.durableProfiles = state
     })
-    const recording = recordUserA('user:a-late').then(
+    const recording = recordUserA('user:a-late', {
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:a-late',
+    }).then(
       () => null,
       (error: unknown) => error,
     )
@@ -1207,7 +1216,10 @@ describe('profile credential completion races', () => {
       }
       seams.durableProfiles = state
     })
-    const recording = recordUserA('user:a-late')
+    const recording = recordUserA('user:a-late', {
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:a-late',
+    })
     await recordStarted
 
     act(() => {
@@ -1256,7 +1268,10 @@ describe('profile credential completion races', () => {
       }
       seams.durableProfiles = state
     })
-    const recording = recordUserA('user:a-late')
+    const recording = recordUserA('user:a-late', {
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:a-late',
+    })
     await recordStarted
 
     act(() => {
@@ -1310,7 +1325,10 @@ describe('profile credential completion races', () => {
       }
       seams.durableProfiles = state
     })
-    const recording = recordUserA('user:a-late')
+    const recording = recordUserA('user:a-late', {
+      syncBoundaryId: 'installation-a',
+      memberId: 'user:a-late',
+    })
     await recordStarted
 
     seams.parsePairing.mockImplementationOnce(() => {

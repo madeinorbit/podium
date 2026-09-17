@@ -9,6 +9,9 @@ import {
   useKernelReplica,
 } from './use-kernel-replica'
 
+const ALICE = JSON.stringify(['installation-a', 'alice'])
+const BOB = JSON.stringify(['installation-a', 'bob'])
+
 const response = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
@@ -30,18 +33,22 @@ afterEach(() => {
 describe('offline replica principal resolution', () => {
   it('uses the authenticated server principal when reachable', async () => {
     await expect(
-      resolveReplicaPrincipal({ fetchStatus: async () => response({ userId: 'alice' }) }),
-    ).resolves.toBe('alice')
+      resolveReplicaPrincipal({
+        fetchStatus: async () =>
+          response({ userId: 'alice', memberId: 'alice', syncBoundaryId: 'installation-a' }),
+      }),
+    ).resolves.toBe(ALICE)
   })
 
   it('keeps a recovered account switch isolated from a retained namespace', async () => {
-    const inspectNamespaces = vi.fn(() => ['alice'])
+    const inspectNamespaces = vi.fn(() => [ALICE])
     await expect(
       resolveReplicaPrincipal({
-        fetchStatus: async () => response({ userId: 'bob' }),
+        fetchStatus: async () =>
+          response({ userId: 'bob', memberId: 'bob', syncBoundaryId: 'installation-a' }),
         inspectNamespaces,
       }),
-    ).resolves.toBe('bob')
+    ).resolves.toBe(BOB)
     expect(inspectNamespaces).not.toHaveBeenCalled()
   })
 
@@ -51,10 +58,10 @@ describe('offline replica principal resolution', () => {
     const fetched: unknown[][] = []
     vi.stubGlobal('fetch', async (...args: unknown[]) => {
       fetched.push(args)
-      return response({ userId: 'alice' })
+      return response({ userId: 'alice', memberId: 'alice', syncBoundaryId: 'installation-a' })
     })
     await expect(resolveReplicaPrincipal({ httpOrigin: 'http://backend.test:1234' })).resolves.toBe(
-      'alice',
+      ALICE,
     )
     expect(fetched).toEqual([['http://backend.test:1234/auth/status', { credentials: 'include' }]])
   })
@@ -79,9 +86,9 @@ describe('offline replica principal resolution', () => {
         fetchStatus: async () => {
           throw new TypeError('offline')
         },
-        inspectNamespaces: () => ['alice'],
+        inspectNamespaces: () => [ALICE],
       }),
-    ).resolves.toBe('alice')
+    ).resolves.toBe(ALICE)
   })
 
   it('fails closed on a fresh offline browser with no retained account', async () => {
@@ -100,13 +107,13 @@ describe('offline replica principal resolution', () => {
     await expect(
       resolveReplicaPrincipal({
         fetchStatus: offline,
-        inspectNamespaces: () => ['alice', 'bob'],
+        inspectNamespaces: () => [ALICE, BOB],
       }),
     ).rejects.toThrow('principal is ambiguous')
   })
 
   it('never adopts a retained namespace after an authoritative auth refusal', async () => {
-    const inspectNamespaces = vi.fn(() => ['alice'])
+    const inspectNamespaces = vi.fn(() => [ALICE])
     await expect(
       resolveReplicaPrincipal({
         fetchStatus: async () => response({ userId: null }, 401),
@@ -129,8 +136,8 @@ describe('private replica boot failure', () => {
     await expect(
       openKernelAssembly({
         trpc: {} as Trpc,
-        principal: 'alice',
-        evidence: { kind: 'multi-user', signedInAs: 'alice', identitiesEverSignedIn: ['alice'] },
+        principal: ALICE,
+        evidence: { kind: 'multi-user', signedInAs: ALICE, identitiesEverSignedIn: [ALICE] },
         factory: factory as NonNullable<Parameters<typeof openKernelAssembly>[0]['factory']>,
       }),
     ).rejects.toThrow('IndexedDB is blocked')
@@ -138,7 +145,7 @@ describe('private replica boot failure', () => {
 
   it('hands the server origin to the principal resolver', async () => {
     const trpc = {} as Trpc
-    const resolvePrincipal = vi.fn(async () => 'alice')
+    const resolvePrincipal = vi.fn(async () => ALICE)
     const openAssembly = vi.fn(async () => {
       throw new DOMException('IndexedDB is blocked', 'SecurityError')
     })
@@ -163,7 +170,7 @@ describe('private replica boot failure', () => {
     const resolvePrincipal = vi.fn(async () => 'wrong-principal')
     const dispose = vi.fn(async () => {})
     const assembly = {
-      principal: 'alice',
+      principal: ALICE,
       dispose,
     } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
     const openAssembly = vi.fn(async () => assembly)
@@ -171,7 +178,7 @@ describe('private replica boot failure', () => {
     const { result, rerender, unmount } = renderHook(() =>
       useKernelReplica({
         trpc,
-        auth: { kind: 'principal', principal: 'alice' },
+        auth: { kind: 'principal', principal: ALICE },
         httpOrigin: 'http://backend.test:1234',
         resolvePrincipal,
         openAssembly,
@@ -182,7 +189,7 @@ describe('private replica boot failure', () => {
     expect(resolvePrincipal).not.toHaveBeenCalled()
     expect(openAssembly).toHaveBeenCalledOnce()
     expect(openAssembly).toHaveBeenCalledWith(
-      expect.objectContaining({ principal: 'alice', trpc: expect.anything() }),
+      expect.objectContaining({ principal: ALICE, trpc: expect.anything() }),
     )
     rerender()
     expect(resolvePrincipal).not.toHaveBeenCalled()
@@ -195,7 +202,7 @@ describe('private replica boot failure', () => {
   it('a store that was not adopted surfaces as a plain refresh notice, never as the reason code (POD-4002)', async () => {
     const trpc = {} as Trpc
     const assembly = {
-      principal: 'alice',
+      principal: ALICE,
       dispose: async () => {},
     } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
     const openAssembly = vi.fn(async (options: Parameters<typeof openKernelAssembly>[0]) => {
@@ -206,9 +213,9 @@ describe('private replica boot failure', () => {
     const { result, unmount } = renderHook(() =>
       useKernelReplica({
         trpc,
-        auth: { kind: 'principal', principal: 'alice' },
+        auth: { kind: 'principal', principal: ALICE },
         httpOrigin: 'http://backend.test:1234',
-        resolvePrincipal: vi.fn(async () => 'alice'),
+        resolvePrincipal: vi.fn(async () => ALICE),
         openAssembly,
       }),
     )
@@ -229,7 +236,7 @@ describe('private replica boot failure', () => {
       async ({ principal }: Parameters<typeof openKernelAssembly>[0]) =>
         ({
           principal,
-          dispose: principal === 'alice' ? aliceDispose : bobDispose,
+          dispose: principal === ALICE ? aliceDispose : bobDispose,
         }) as unknown as Awaited<ReturnType<typeof openKernelAssembly>>,
     )
 
@@ -241,23 +248,21 @@ describe('private replica boot failure', () => {
           httpOrigin: 'http://backend.test:1234',
           openAssembly,
         }),
-      { initialProps: { principal: 'alice' } },
+      { initialProps: { principal: ALICE } },
     )
 
     await waitFor(() =>
       expect(result.current).toEqual(
-        expect.objectContaining({ status: 'kernel', principal: 'alice' }),
+        expect.objectContaining({ status: 'kernel', principal: ALICE }),
       ),
     )
-    rerender({ principal: 'alice' })
+    rerender({ principal: ALICE })
     expect(openAssembly).toHaveBeenCalledOnce()
     expect(aliceDispose).not.toHaveBeenCalled()
 
-    rerender({ principal: 'bob' })
+    rerender({ principal: BOB })
     await waitFor(() =>
-      expect(result.current).toEqual(
-        expect.objectContaining({ status: 'kernel', principal: 'bob' }),
-      ),
+      expect(result.current).toEqual(expect.objectContaining({ status: 'kernel', principal: BOB })),
     )
     expect(openAssembly).toHaveBeenCalledTimes(2)
     expect(aliceDispose).toHaveBeenCalledOnce()
@@ -269,10 +274,10 @@ describe('private replica boot failure', () => {
 
   it('recovers a provisional first auth failure before opening the replica', async () => {
     const trpc = {} as Trpc
-    const resolvePrincipal = vi.fn(async () => 'alice')
+    const resolvePrincipal = vi.fn(async () => ALICE)
     const dispose = vi.fn(async () => {})
     const assembly = {
-      principal: 'alice',
+      principal: ALICE,
       dispose,
     } as unknown as Awaited<ReturnType<typeof openKernelAssembly>>
     const openAssembly = vi.fn(async () => assembly)
@@ -291,7 +296,7 @@ describe('private replica boot failure', () => {
     expect(resolvePrincipal).toHaveBeenCalledOnce()
     expect(resolvePrincipal).toHaveBeenCalledWith({ httpOrigin: 'http://backend.test:1234' })
     expect(openAssembly).toHaveBeenCalledWith(
-      expect.objectContaining({ principal: 'alice', trpc: expect.anything() }),
+      expect.objectContaining({ principal: ALICE, trpc: expect.anything() }),
     )
     rerender()
     expect(resolvePrincipal).toHaveBeenCalledOnce()
@@ -303,7 +308,7 @@ describe('private replica boot failure', () => {
 
   it('does not re-probe or open after an authoritative auth refusal', async () => {
     const trpc = {} as Trpc
-    const resolvePrincipal = vi.fn(async () => 'alice')
+    const resolvePrincipal = vi.fn(async () => ALICE)
     const openAssembly = vi.fn()
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -334,7 +339,7 @@ describe('private replica boot failure', () => {
 
   it('stays fatal when the supported private replica cannot open', async () => {
     const trpc = {} as Trpc
-    const resolvePrincipal = vi.fn(async () => 'alice')
+    const resolvePrincipal = vi.fn(async () => ALICE)
     const openAssembly = vi.fn(async () => {
       throw new DOMException('IndexedDB is blocked', 'SecurityError')
     })
@@ -356,4 +361,30 @@ describe('private replica boot failure', () => {
     expect(globalThis.__podiumReplicaPath).toBeUndefined()
     unmount()
   })
+})
+
+it('ignores inactive legacy identities for offline tuple selection', async () => {
+  await expect(
+    resolveReplicaPrincipal({
+      fetchStatus: async () => {
+        throw new TypeError('offline')
+      },
+      inspectNamespaces: () => ['alice', ALICE],
+    }),
+  ).resolves.toBe(ALICE)
+})
+
+it('refuses a live server response missing either identity field', async () => {
+  for (const body of [
+    { userId: 'alice' },
+    { memberId: 'alice' },
+    { syncBoundaryId: 'installation-a' },
+  ]) {
+    await expect(
+      resolveReplicaPrincipal({
+        fetchStatus: async () => response(body),
+        inspectNamespaces: () => [ALICE],
+      }),
+    ).rejects.toThrow('authenticated account is unavailable')
+  }
 })

@@ -18,9 +18,7 @@ import { asMutationId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openKernelAssembly } from './kernelReplica'
 
-const trpc = {
-
-} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
+const trpc = {} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
 const entry = { mutationId: asMutationId('m1'), kind: 'rename', input: {}, queuedAt: 1 }
 
@@ -85,7 +83,7 @@ async function open(databaseName: string) {
     factory: new IDBFactory() as never,
     databaseName,
     evidence: { kind: 'single-account', principal: 'default' },
-    principal: 'alice',
+    principal: JSON.stringify(['installation-a', 'alice']),
     onDegraded: (d) => degraded.push(d),
   })
   return { assembly, degraded }

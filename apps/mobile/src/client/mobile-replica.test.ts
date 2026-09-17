@@ -304,6 +304,7 @@ async function open(args: {
    *  arm the cases above exercise); named, the store is opened under that
    *  principal's namespace and nobody else's. */
   principal?: string
+  clientPrincipal?: string
   /** Defaults to a silent authority so cold-start cases cannot be rescued by a feed. */
   httpSync?: MobileReplicaDeps['httpSync']
   pendingPrincipalCleanups?: readonly {
@@ -362,6 +363,7 @@ async function open(args: {
       })
     },
     storage: args.storage,
+    clientPrincipal: args.clientPrincipal,
     ...(args.principal !== undefined ? { principal: args.principal } : {}),
     ...(args.storage.keys !== undefined ? { enumerateKeys: args.storage.keys } : {}),
     ...(args.pendingPrincipalCleanups !== undefined
@@ -1214,4 +1216,23 @@ describe('HTTP sync through the mobile assembly', () => {
     )
     expect(fetch.mock.calls[1]![0]).toBe('https://server/sync/delta?feedId=feed&epoch=e1&from=1')
   })
+})
+
+it('reopens the same boundary/member queue after re-pairing and keeps member attribution', async () => {
+  const file = freshDatabaseFile()
+  const device = legacyDevice({})
+  const principal = JSON.stringify(['installation-a', 'member-a'])
+  const first = await open({ file, storage: device, principal, clientPrincipal: 'member-a' })
+  const queue = engineOutbox(first)
+  await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
+  expect(durableOutbox(file)[0]?.record.attribution).toMatchObject({ onBehalfOf: 'member-a' })
+  queue.dispose()
+  await first.settled()
+  first.store.close()
+  const paired = await open({ file, storage: device, principal, clientPrincipal: 'member-a' })
+  const resumed = engineOutbox(paired)
+  expect(resumed.pending()).toHaveLength(1)
+  resumed.dispose()
+  await paired.erase()
+  expect(durableOutbox(file)).toEqual([])
 })

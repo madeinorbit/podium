@@ -50,8 +50,8 @@ const encode = (record: unknown) => new TextEncoder().encode(JSON.stringify(reco
 async function open() {
   assembly = await openKernelAssembly({
     trpc: {} as never,
-    principal: 'alice',
-    evidence: { kind: 'single-account', principal: 'alice' },
+    principal: JSON.stringify(['installation-a', 'alice']),
+    evidence: { kind: 'single-account', principal: JSON.stringify(['installation-a', 'alice']) },
     factory: new IDBFactory() as never,
     httpOrigin: 'https://sync.test',
     broadcastChannelFactory: () => ({ onmessage: null, postMessage, close() {} }),

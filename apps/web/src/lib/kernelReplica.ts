@@ -32,6 +32,7 @@ import {
   createSideCache,
   FeedSink,
   preparePrincipalNamespace,
+  parseReplicaNamespaceKey,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
 import {
@@ -265,6 +266,9 @@ export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
   const { trpc } = options
+  const identity = parseReplicaNamespaceKey(options.principal)
+  if (!identity) throw new Error('replica requires a server-authored boundary and member')
+  const memberId = identity.memberId
   let unavailableCause: unknown
   const databaseName = options.databaseName ?? KERNEL_REPLICA_DB
   const store = await IndexedDbSyncStore.open({
@@ -305,6 +309,9 @@ export async function openKernelAssembly(
   // Identity evidence now lives in per-principal namespace markers. Retire the
   // old raw ledger; theme is the sole raw pre-auth exception.
   globalThis.localStorage.removeItem('podium-kernel-identity-ledger')
+  // Namespace-format migration is a one-time cold start, not a copy. Old
+  // member-only namespaces (including queued work) stay inactive under POD-401.
+  // Opening the same tuple again reuses its marker and transactional region.
   const view = store.viewFor(options.principal)
 
   // ---- THE ATTRIBUTION GATE, before a single row is read ------------------
@@ -362,8 +369,8 @@ export async function openKernelAssembly(
     // asserted by anything the queue itself carries. A legacy entry carries NO
     // identity at all, which is why this pair is stamped by the importer from the
     // authenticated principal rather than read out of the blob.
-    actor: actorUser(asUserId(options.principal)),
-    onBehalfOf: asUserId(options.principal),
+    actor: actorUser(asUserId(memberId)),
+    onBehalfOf: asUserId(memberId),
   }
   const migrations: LegacyMigrationOutcome[] = []
   for (const legacy of [
@@ -393,7 +400,7 @@ export async function openKernelAssembly(
 
   const createOutboxFn = await openKernelEngineOutbox({
     store: view.outbox,
-    principal: options.principal,
+    principal: memberId,
     api: trpc,
     onDegraded: (detail) => options.onDegraded?.(detail),
   })
@@ -589,9 +596,9 @@ export async function openKernelAssembly(
   }
 
   return {
-    principal: asClientPrincipal(asUserId(options.principal)),
+    principal: asClientPrincipal(asUserId(memberId), identity.syncBoundaryId),
     createReplicaFn: (principal: ClientPrincipal) => {
-      if (principal.userId !== options.principal) {
+      if (principal.userId !== memberId || principal.syncBoundaryId !== identity.syncBoundaryId) {
         throw new Error(
           `kernel replica assembly belongs to a different principal (opened for ${options.principal}); ` +
             'a new principal needs a new assembly, never this one',

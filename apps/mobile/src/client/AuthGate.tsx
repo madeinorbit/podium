@@ -24,15 +24,22 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (demo) return
-    if (activation === 'offline-cache' && profile.userId) {
+    if (
+      activation === 'offline-cache' &&
+      profile.userId &&
+      profile.syncBoundaryId &&
+      profile.memberId
+    ) {
       // The server cannot answer, but this profile already names the exact
-      // profileId + userId namespace the replica was written under. This is a
+      // sync boundary + member namespace the replica was written under. This is a
       // cached identity assertion for local reads only. The first live 401 or
       // unauthenticated status response retires it and returns to sign-in.
       setAuthStatus({
         needsAuth: profile.mode === 'protected',
         authed: true,
-        userId: UserId.parse(profile.userId),
+        userId: UserId.parse(profile.memberId),
+        syncBoundaryId: profile.syncBoundaryId,
+        memberId: profile.memberId,
       })
       setState('open')
       return
@@ -66,6 +73,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     demo,
     profile.mode,
     profile.userId,
+    profile.syncBoundaryId,
+    profile.memberId,
     profile.workspaceId,
   ])
 

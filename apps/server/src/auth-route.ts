@@ -317,6 +317,9 @@ export async function resolveLoginIdentifier(
 }
 
 export interface AuthRouteOptions {
+  /** Installation id for self-hosted, workspace id for hosted. */
+  syncBoundaryId?: () => string
+
   mode?: () => 'local' | 'cloud'
   signInUrl?: () => string | undefined
   /**
@@ -428,7 +431,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       ...(admission?.deniedReason ? { deniedReason: admission.deniedReason } : {}),
       ...(opts.mode ? { mode: opts.mode() } : {}),
       ...(opts.signInUrl ? { signInUrl: opts.signInUrl() } : {}),
-      ...(userId ? { userId } : {}),
+      ...(userId ? { userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() } : {}),
       ...(opts.readiness ? { readiness: opts.readiness() } : {}),
     })
   })
@@ -616,6 +619,8 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       return c.json({
         ok: true as const,
         delivery: 'native' as const,
+        syncBoundaryId: opts.syncBoundaryId?.(),
+        memberId: userId,
         token,
         userId,
         expiresAt,
@@ -625,7 +630,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     reportLogin({ userId, delivery: 'cookie' })
 
     setSessionCookie(c, token, opts.trustedProxyHops)
-    return c.json({ ok: true, userId })
+    return c.json({ ok: true, userId, memberId: userId, syncBoundaryId: opts.syncBoundaryId?.() })
   })
 
   // Enrollment is invite-and-claim; callers can no longer choose member ids or passwords.

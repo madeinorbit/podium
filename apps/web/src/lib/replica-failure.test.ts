@@ -6,8 +6,16 @@ const BLOCKED = { state: 'unconfigured', reason: 'setup_required', dataPlane: 'b
 
 describe('classifying the account answer', () => {
   it('takes the principal when the server names one', () => {
-    expect(classifyAuthStatus({ userId: 'alice', needsAuth: true, readiness: READY })).toEqual({
-      principal: 'alice',
+    expect(
+      classifyAuthStatus({
+        userId: 'alice',
+        memberId: 'alice',
+        syncBoundaryId: 'installation-a',
+        needsAuth: true,
+        readiness: READY,
+      }),
+    ).toEqual({
+      principal: JSON.stringify(['installation-a', 'alice']),
     })
   })
 

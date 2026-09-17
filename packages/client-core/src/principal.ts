@@ -1,3 +1,4 @@
+import { replicaNamespaceKey } from './replica/principal-storage'
 import type { UserId } from '@podium/model'
 /**
  * THE CLIENT'S PRINCIPAL (POD-404, docs/multi-user-readiness.md §3.2).
@@ -7,11 +8,12 @@ import type { UserId } from '@podium/model'
  * ---------------------------------------------------------------------------
  *
  * Server-side the principal is the triple `(user, device, capability)`. The
- * CLIENT half of that triple is exactly one field: the user id the authenticated
- * transport reports. The device is the client session's own cookie — the client
- * never names it — and the capability is decided at apply time by the Authority
+ * CLIENT authorization identity is the user id the authenticated transport reports.
+ * Its separate server-issued sync boundary scopes storage and runtime rebinding.
+ * The device is the client session's own cookie — the client never names it —
+ * and the capability is decided at apply time by the Authority
  * and is never a client input (ADR 3 D8). So `ClientPrincipal` carries the one
- * thing the client legitimately knows and needs: WHOSE SLICE THIS IS.
+ * authorization identity separately from the storage boundary.
  *
  * ---------------------------------------------------------------------------
  * WHERE IT MAY COME FROM — ADR 3 D7, THE CLIENT HALF
@@ -20,8 +22,9 @@ import type { UserId } from '@podium/model'
  * "Principal from authenticated transport only. Payload identity is inert."
  *
  * The value in this object must originate from an AUTHENTICATED SERVER ANSWER
- * (today `/auth/status`'s `userId`, which the server derives from the session
- * cookie). It must NEVER be derived from:
+ * (`/auth/status`'s `memberId` and `syncBoundaryId`; the member is also retained
+ * as `userId` for authorization). Offline, a persisted server-issued tuple can
+ * reopen its own namespace. It must NEVER be derived from:
  *
  *   - the URL (a query param or path segment naming a user),
  *   - local/session storage (a "last signed-in user" key),
@@ -53,6 +56,8 @@ export interface ClientPrincipal {
    * beyond what the server also renders, never constructed locally.
    */
   readonly userId: UserId
+  /** Server-issued boundary, separate from authorization identity. */
+  readonly syncBoundaryId?: string
 }
 
 /**
@@ -64,7 +69,9 @@ export interface ClientPrincipal {
  * cursor was left behind.
  */
 export function principalKey(principal: ClientPrincipal): string {
-  return principal.userId
+  return principal.syncBoundaryId === undefined
+    ? principal.userId
+    : replicaNamespaceKey({ syncBoundaryId: principal.syncBoundaryId, memberId: principal.userId })
 }
 
 /** Identity comparison for the rebind decision. Object identity is NOT enough:
@@ -75,7 +82,7 @@ export function samePrincipal(
   b: ClientPrincipal | null | undefined,
 ): boolean {
   if (a == null || b == null) return a == null && b == null
-  return a.userId === b.userId
+  return a.userId === b.userId && a.syncBoundaryId === b.syncBoundaryId
 }
 
 /**
@@ -86,11 +93,12 @@ export function samePrincipal(
  * namespace exists to prevent. Callers holding a possibly-absent id must decide
  * to FAIL CLOSED (render nothing) rather than pass a placeholder here.
  */
-export function asClientPrincipal(userId: UserId): ClientPrincipal {
+export function asClientPrincipal(userId: UserId, syncBoundaryId?: string): ClientPrincipal {
   if (userId.length === 0) {
     throw new Error(
       'a client principal needs an authenticated user id; an unauthenticated client must fail closed, not adopt a placeholder',
     )
   }
-  return { userId }
+  if (syncBoundaryId === '') throw new Error('sync boundary must not be empty')
+  return { userId, ...(syncBoundaryId === undefined ? {} : { syncBoundaryId }) }
 }

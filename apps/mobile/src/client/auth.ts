@@ -8,6 +8,8 @@ export interface AuthStatus {
   needsAuth: boolean
   authed: boolean
   userId: UserId | null
+  syncBoundaryId?: string
+  memberId?: string
   mode?: 'local' | 'cloud'
   signInUrl?: string
   providerSignedIn?: boolean
@@ -85,6 +87,12 @@ export async function fetchAuthStatus(
       : {}),
     needsAuth: body.needsAuth,
     authed: body.authed,
+    ...(typeof body.syncBoundaryId === 'string' && body.syncBoundaryId.length > 0
+      ? { syncBoundaryId: body.syncBoundaryId }
+      : {}),
+    ...(typeof body.memberId === 'string' && body.memberId.length > 0
+      ? { memberId: body.memberId }
+      : {}),
     userId:
       typeof body.userId === 'string' && body.userId.length > 0 ? UserId.parse(body.userId) : null,
   }

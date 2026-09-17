@@ -1,3 +1,4 @@
+import { replicaNamespaceKey } from '@podium/client-core/replica'
 import { mobileMetadataStorage } from './mobile-metadata-storage'
 
 export const SERVER_PROFILES_KEY = 'podium.mobile.server-profiles.v1'
@@ -11,7 +12,7 @@ export type ServerTransport =
   | 'insecure-http'
 
 export interface ServerProfile {
-  /** Random local identity. Server ids are deliberately not trusted as storage keys. */
+  /** Local profile/credential handle, independent of replica identity. */
   id: string
   name: string
   httpOrigin: string
@@ -20,6 +21,8 @@ export interface ServerProfile {
   workspaceId?: string
   mode: 'open' | 'protected'
   transport: ServerTransport
+  syncBoundaryId?: string
+  memberId?: string
   userId?: string
   createdAt: string
   updatedAt: string
@@ -27,9 +30,18 @@ export interface ServerProfile {
 
 /** Identity for process-local data that must not cross a replaced server instance. */
 export function serverProfileRequestKey(
-  profile: Pick<ServerProfile, 'id' | 'instanceId' | 'userId' | 'workspaceId'>,
+  profile: Pick<
+    ServerProfile,
+    'id' | 'instanceId' | 'userId' | 'workspaceId' | 'syncBoundaryId' | 'memberId'
+  >,
 ): string {
-  const key = [profile.id, profile.userId ?? '', profile.instanceId ?? ''].join('\n')
+  const key = [
+    profile.id,
+    profile.userId ?? '',
+    profile.instanceId ?? '',
+    profile.syncBoundaryId ?? '',
+    profile.memberId ?? '',
+  ].join('\n')
   return profile.workspaceId ? key + '\n' + profile.workspaceId : key
 }
 
@@ -60,6 +72,10 @@ export function canOpenProfileOffline(
     failureKind === 'unreachable' &&
     typeof profile.instanceId === 'string' &&
     profile.instanceId.length > 0 &&
+    typeof profile.syncBoundaryId === 'string' &&
+    profile.syncBoundaryId.length > 0 &&
+    typeof profile.memberId === 'string' &&
+    profile.memberId.length > 0 &&
     typeof profile.userId === 'string' &&
     profile.userId.length > 0 &&
     (profile.transport === 'trusted-https' || profile.transport === 'tailscale-serve')
@@ -70,17 +86,19 @@ export function canOpenProfileOffline(
  * Durable local-erasure intent. A profile may be removed while its server is
  * unreachable or reports a different instance, so neither its bearer nor the
  * server can be trusted during cleanup. Keeping both identities lets the next
- * successfully opened local store erase exactly profileId + userId.
+ * successfully opened local store erase exactly the recorded replica namespace.
  */
 export interface PendingProfileCleanup {
   profileId: string
   userId: string
   principal: string
+  syncBoundaryId?: string
+  memberId?: string
   enqueuedAt: string
 }
 
 /**
- * A profile id is a native storage/replica trust boundary. Only the same
+ * A profile id is a native credential and endpoint trust boundary. Only the same
  * canonical network origin may reuse it; instanceId is public server metadata
  * and must never join cached data or credentials across origins.
  */
@@ -149,6 +167,9 @@ function isProfile(value: unknown): value is ServerProfile {
       (typeof row.workspaceId === 'string' &&
         row.workspaceId.length > 0 &&
         row.workspaceId.length <= 256)) &&
+    (row.syncBoundaryId === undefined ||
+      (typeof row.syncBoundaryId === 'string' && row.syncBoundaryId.length > 0)) &&
+    (row.memberId === undefined || (typeof row.memberId === 'string' && row.memberId.length > 0)) &&
     (row.userId === undefined ||
       (typeof row.userId === 'string' && row.userId.length > 0 && row.userId.length <= 256)) &&
     typeof row.createdAt === 'string' &&
@@ -198,7 +219,15 @@ function isPendingProfileCleanup(value: unknown): value is PendingProfileCleanup
     typeof row.userId === 'string' &&
     row.userId.length > 0 &&
     row.userId.length <= 256 &&
-    row.principal === profilePrincipal(row.profileId, row.userId) &&
+    ((row.syncBoundaryId === undefined && row.memberId === undefined) ||
+      (typeof row.syncBoundaryId === 'string' &&
+        row.syncBoundaryId.length > 0 &&
+        typeof row.memberId === 'string' &&
+        row.memberId.length > 0)) &&
+    row.principal ===
+      (row.syncBoundaryId && row.memberId
+        ? profilePrincipal(row.syncBoundaryId, row.memberId)
+        : legacyProfilePrincipal(row.profileId, row.userId)) &&
     typeof row.enqueuedAt === 'string' &&
     Number.isFinite(Date.parse(row.enqueuedAt))
   )
@@ -223,16 +252,25 @@ export async function loadPendingProfileCleanups(): Promise<PendingProfileCleanu
 export async function enqueuePendingProfileCleanup(
   profileId: string,
   userId: string,
+  identity?: { syncBoundaryId: string; memberId: string },
 ): Promise<PendingProfileCleanup> {
   const cleanup: PendingProfileCleanup = {
     profileId,
     userId,
-    principal: profilePrincipal(profileId, userId),
+    ...(identity ? { syncBoundaryId: identity.syncBoundaryId, memberId: identity.memberId } : {}),
+    principal: identity
+      ? profilePrincipal(identity.syncBoundaryId, identity.memberId)
+      : legacyProfilePrincipal(profileId, userId),
     enqueuedAt: new Date().toISOString(),
   }
   if (!isPendingProfileCleanup(cleanup)) throw new Error('invalid pending profile cleanup')
   const current = await loadPendingProfileCleanups()
-  const next = [...current.filter((row) => row.principal !== cleanup.principal), cleanup]
+  const next = [
+    ...current.filter(
+      (row) => row.principal !== cleanup.principal || row.profileId !== cleanup.profileId,
+    ),
+    cleanup,
+  ]
   await mobileMetadataStorage().setItem(PENDING_PROFILE_CLEANUPS_KEY, JSON.stringify(next))
   return cleanup
 }
@@ -247,7 +285,11 @@ export async function completePendingProfileCleanup(cleanup: PendingProfileClean
   await saveServerProfiles(await loadServerProfiles())
   await mobileMetadataStorage().setItem(
     PENDING_PROFILE_CLEANUPS_KEY,
-    JSON.stringify(current.filter((row) => row.principal !== cleanup.principal)),
+    JSON.stringify(
+      current.filter(
+        (row) => row.principal !== cleanup.principal || row.profileId !== cleanup.profileId,
+      ),
+    ),
   )
 }
 
@@ -307,6 +349,11 @@ export function classifyServerTransport(httpOrigin: string): ServerTransport {
 }
 
 /** One unrelated server's `user:admin` must never name another server's rows. */
-export function profilePrincipal(profileId: string, userId: string): string {
+export function profilePrincipal(syncBoundaryId: string, memberId: string): string {
+  return replicaNamespaceKey({ syncBoundaryId, memberId })
+}
+
+/** Existing cleanup intents must still erase their original legacy namespace. */
+function legacyProfilePrincipal(profileId: string, userId: string): string {
   return `server:${encodeURIComponent(profileId)}:user:${encodeURIComponent(userId)}`
 }

@@ -43,6 +43,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
+  parseReplicaNamespaceKey,
   createKernelReplica,
   createReplica,
   createSideCache,
@@ -438,7 +439,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     // attribution on every row the migration just adopted. The Outbox binds to
     // it, and another principal's rows in the same file are invisible to this
     // instance by construction rather than by a filter someone remembers.
-    principal,
+    principal: clientPrincipal,
     api: deps.api,
     onDegraded: (detail) => deps.onDegraded(String(detail)),
     // ONE clock across the assembly. `migrateLegacyReplica` stamped `queuedAt`
@@ -881,7 +882,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
-        if (status.userId === null) throw new Error('authenticated account is unavailable')
+        if (!status.memberId || !status.syncBoundaryId)
+          throw new Error('authenticated replica identity is unavailable')
         const opened = await openMobileReplica({
           // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
           // times out under Chromium even with COOP/COEP + correct wasm MIME, so
@@ -911,12 +913,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
           flushStorage: bridge.flush,
-          // Browser origins already partition IndexedDB/AsyncStorage. Native
-          // shares one database across unrelated servers and therefore adds
-          // the immutable local profile id to the server-issued user id.
-          principal:
-            Platform.OS === 'web' ? status.userId : profilePrincipal(profileId, status.userId),
-          clientPrincipal: status.userId,
+          // Re-pairing changes the credential handle, not the server-authored replica identity.
+          principal: profilePrincipal(status.syncBoundaryId, status.memberId),
+          clientPrincipal: status.memberId,
           pendingPrincipalCleanups: pendingCleanups.map((cleanup: PendingProfileCleanup) => ({
             principal: cleanup.principal,
             complete: () => completePendingProfileCleanup(cleanup),
@@ -935,7 +934,10 @@ function LiveProvider({ children }: { children: ReactNode }) {
           },
           onDegraded: (message, tone) => setNotice({ message, tone: tone ?? 'warning' }),
         })
-        await recordUserRef.current?.(status.userId)
+        await recordUserRef.current?.(status.memberId, {
+          syncBoundaryId: status.syncBoundaryId,
+          memberId: status.memberId,
+        })
         if (!alive) {
           opened.store.close()
           return
@@ -1052,9 +1054,16 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // it. The factory REFUSES any other principal rather than handing back
       // the store it happens to hold: on a shared device that would give one
       // account another's slice and cursor (POD-404).
-      principal={asClientPrincipal(asUserId(openedReplica.clientPrincipal))}
+      principal={asClientPrincipal(
+        asUserId(openedReplica.clientPrincipal),
+        parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId,
+      )}
       createReplicaFn={(principal) => {
-        if (principal.userId !== openedReplica.clientPrincipal) {
+        if (
+          principal.userId !== openedReplica.clientPrincipal ||
+          principal.syncBoundaryId !==
+            parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId
+        ) {
           throw new Error(
             `mobile replica belongs to a different principal (opened for ${openedReplica.clientPrincipal})`,
           )
