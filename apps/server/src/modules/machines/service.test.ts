@@ -593,6 +593,21 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     )
   })
 
+  test('an inventory lookup failure leaves the one-use pairing code retryable', async () => {
+    const { svc, store } = await pairingService()
+    const code = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
+    const lookup = vi.spyOn(store.sessions, 'bindingConfirmations')
+      .mockRejectedValueOnce(new Error('lookup unavailable'))
+    const frame = { type: 'pair' as const, code, machineId: MACHINE, hostname: 'vmi.local' }
+    await expect(svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })).rejects.toThrow('lookup unavailable')
+    const retried = await svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })
+    expect(retried).toMatchObject({ ok: true, bindingConfirmations: {
+      missing: { owner: null, machineId: null, closed: false },
+    } })
+    expect(lookup).toHaveBeenCalledTimes(2)
+    lookup.mockRestore()
+  })
+
   test('a hello’s restamped hostname is visible without a manual invalidate', async () => {
     const { svc, store } = await pairingService()
     const token = 'tok-vmi'

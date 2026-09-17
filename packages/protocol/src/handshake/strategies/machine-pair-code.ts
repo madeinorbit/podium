@@ -70,6 +70,7 @@ export const createMachinePairCodeStrategy = (
       name: paired.name,
       assignedId: paired.machine,
       legacyBindingOwners: paired.legacyBindingOwners,
+      bindingConfirmations: paired.bindingConfirmations,
       ...(paired.directoryContext === undefined
         ? {}
         : { directoryContext: paired.directoryContext }),

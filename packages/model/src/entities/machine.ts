@@ -249,6 +249,8 @@ export type HostLoadWire = z.infer<typeof HostLoadWire>
 
 /** `SEE` — health/liveness sample, plus the machine identity it is about. */
 export const HostMetricsWire = z.object({
+  /** Bindings withheld from new work pending server confirmation. */
+  quarantinedBindings: z.number().int().nonnegative().optional(),
   hostname: z.string(),
   machineId: MachineIdField.optional(), // server-filled before broadcast
   name: z.string().optional(), // server-filled before broadcast

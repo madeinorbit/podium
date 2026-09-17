@@ -136,9 +136,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       at: '2026-08-18T00:01:00.000Z',
     })
   }
-  // DATABASE AUTHORITY (POD-3958): a revoked machine has NO row — revoke deletes it,
-  // and the ledger revoke above is history the runtime no longer reads.
-  if (options.row !== false && !options.revoked) {
+  if (options.row !== false) {
     await seeded.machines.upsertMachine({
       id: machineId,
       name: 'Durable machine',
@@ -578,7 +576,9 @@ describe('recovery-only daemon handshake verification', () => {
       })
       expect(touch).not.toHaveBeenCalled()
       expect(invalidate).not.toHaveBeenCalled()
-      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('stored.local')
+      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe(
+        'stored.local',
+      )
     } finally {
       await world.store.close()
     }
@@ -610,7 +610,9 @@ describe('recovery-only daemon handshake verification', () => {
     const { world, token } = await setup()
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
     try {
-      expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe('rejected')
+      expect((await receiveHello(world.machines, world.machineId, token, true)).kind).toBe(
+        'rejected',
+      )
       expect(touch).not.toHaveBeenCalled()
     } finally {
       await world.store.close()
@@ -618,11 +620,16 @@ describe('recovery-only daemon handshake verification', () => {
   })
 
   it('recovered peer with a missing ledger owner is quarantined', async () => {
-    const world = await enrollmentHandshakeWorld({ queryOnly: false, row: false, ownerUserId: 'user:deleted' })
+    const world = await enrollmentHandshakeWorld({
+      queryOnly: false,
+      row: false,
+      ownerUserId: 'user:deleted',
+    })
     try {
       expect(await world.store.users.get(asUserId('user:deleted'))).toBeUndefined()
-      expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind)
-        .toBe('established')
+      expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind).toBe(
+        'established',
+      )
       expect((await world.store.machines.getMachine(world.machineId))?.ownerUserId).toBeNull()
     } finally {
       await world.store.close()
@@ -666,11 +673,10 @@ describe('recovery-only daemon handshake verification', () => {
         'established',
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
-      // The service cache is maintained by committed machine writes; the one
-      // invalidation this used to count came from the ledger projection path,
-      // which POD-3958 removed. An ordinary handshake invalidates nothing.
-      expect(invalidate).not.toHaveBeenCalled()
-      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('observed.local')
+      expect(invalidate).toHaveBeenCalledOnce()
+      expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe(
+        'observed.local',
+      )
     } finally {
       await world.store.close()
     }
@@ -828,7 +834,7 @@ describe('the machine principal carries owner and grants, and fails closed witho
 })
 
 describe('legacy binding ownership handoff', () => {
-  it('uses durable session owners and excludes sessions on other machines', async () => {
+  it('answers an inventory across machines without trusting identity claims', async () => {
     const store = await openTestStore(':memory:')
     const owner = asUserId((await store.users.earliestAdmin())!.id)
     expect(owner).not.toBe('user:sole')
@@ -874,12 +880,17 @@ describe('legacy binding ownership handoff', () => {
       const dialer = createHandshakeDialer({
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
         claims: { machineId: 'm2' },
+        bindingSessionIds: ['legacy-m1', 'legacy-m2', 'unknown'],
       })
       await ws.emit('message', frame(dialer.hello()))
       const step = dialer.receive(ws.sent[0]!)
       expect(step.action).toBe('established')
       if (step.action !== 'established') throw new Error('machine handshake failed')
-      expect(step.legacyBindingOwners).toEqual({ 'legacy-m1': owner })
+      expect(step.bindingConfirmations).toEqual({
+        'legacy-m1': { owner, machineId: 'm1', closed: false },
+        'legacy-m2': { owner, machineId: 'm2', closed: false },
+        unknown: { owner: null, machineId: null, closed: false },
+      })
       const rejected = fakeWs()
       wireDaemonSocket(rejected as never, registry)
       await rejected.emit(

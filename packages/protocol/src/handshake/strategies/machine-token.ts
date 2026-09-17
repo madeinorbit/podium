@@ -56,6 +56,7 @@ export const createMachineTokenStrategy = (
       name: machine.name,
       assignedId: machine.machine,
       legacyBindingOwners: machine.legacyBindingOwners,
+      bindingConfirmations: machine.bindingConfirmations,
       ...(machine.directoryContext === undefined
         ? {}
         : { directoryContext: machine.directoryContext }),

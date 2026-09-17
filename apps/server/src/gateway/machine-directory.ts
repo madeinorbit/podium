@@ -21,6 +21,7 @@
 
 import { asMachineId, type MachineId } from '@podium/model'
 import type {
+  BindingConfirmations,
   MachineDirectory,
   PairedMachine,
   PairingRequest,
@@ -42,6 +43,7 @@ export interface MachineAuthenticationInput {
 export type MachineAuthenticationResult =
   | {
       ok: true
+      bindingConfirmations?: BindingConfirmations
       legacyBindingOwners?: Readonly<Record<string, string>>
       machineId: MachineId
       name: string
@@ -84,8 +86,10 @@ const resolved = (
   updatePubkey?: string,
   updateKeyRotations?: readonly UpdateKeyRotation[],
   legacyBindingOwners?: Readonly<Record<string, string>>,
+  bindingConfirmations?: BindingConfirmations,
 ): ResolvedMachine => ({
   machine: machineId as MachineId,
+  ...(bindingConfirmations === undefined ? {} : { bindingConfirmations }),
   ...(legacyBindingOwners === undefined ? {} : { legacyBindingOwners }),
   // POD-1079's deliverable. `null` means "grants `use` to nobody" — see the
   // header note and `machineUseAllowed`.
@@ -98,6 +102,7 @@ const resolved = (
 })
 
 export interface MachineDirectoryOptions {
+  readonly bindingSessionIds?: readonly string[]
   readonly verifyOnly?: boolean
   readonly source?: 'supervisor' | 'legacy-daemon'
 }
@@ -145,6 +150,7 @@ export const createMachineDirectory = (
           auth.updatePubkey,
           auth.updateKeyRotations,
           auth.legacyBindingOwners,
+          auth.bindingConfirmations,
         )
       : null
   },
@@ -180,6 +186,7 @@ export const createMachineDirectory = (
           auth.updatePubkey,
           auth.updateKeyRotations,
           auth.legacyBindingOwners,
+          auth.bindingConfirmations,
         )
       : null
   },
@@ -216,6 +223,7 @@ export const createMachineDirectory = (
         auth.updatePubkey,
         auth.updateKeyRotations,
         auth.legacyBindingOwners,
+        auth.bindingConfirmations,
       ),
       issuedToken: auth.token,
     }
@@ -249,6 +257,7 @@ export const createResolvedMachineDirectory = (
           auth.updatePubkey,
           auth.updateKeyRotations,
           auth.legacyBindingOwners,
+          auth.bindingConfirmations,
         )
       : null
   },
@@ -276,6 +285,7 @@ export const createResolvedMachineDirectory = (
           auth.updatePubkey,
           auth.updateKeyRotations,
           auth.legacyBindingOwners,
+          auth.bindingConfirmations,
         )
       : null
   },
@@ -301,6 +311,7 @@ export const createResolvedMachineDirectory = (
         auth.updatePubkey,
         auth.updateKeyRotations,
         auth.legacyBindingOwners,
+        auth.bindingConfirmations,
       ),
       issuedToken: auth.token,
     }

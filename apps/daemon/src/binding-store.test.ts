@@ -23,7 +23,6 @@ import {
   BindingStore,
   type BindingStoreAuthoritySnapshotError,
   BindingStoreVersionError,
-  type LegacyBindingMigrationError,
   SESSION_BINDING_SCHEMA_VERSION,
 } from './binding-store'
 
@@ -646,7 +645,7 @@ describe('legacy daemon-state migration', () => {
     await expect(access(receiptDir)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('fails loudly before writing a placeholder owner when POD-1075 identity is absent', async () => {
+  it('quarantines an unresolved receipt without writing a placeholder owner', async () => {
     const stateDir = await tempRoot()
     const receiptDir = join(stateDir, 'runtime', 'codex-identity-receipts')
     const storeDir = join(stateDir, 'runtime', 'session-bindings')
@@ -657,18 +656,12 @@ describe('legacy daemon-state migration', () => {
       JSON.stringify({ session_id: 'native', hook_event_name: 'SessionStart' }),
     )
 
-    await expect(
-      BindingStore.open({
-        dir: storeDir,
-        legacyStateDir: stateDir,
-        codexReceiptDir: receiptDir,
-      }),
-    ).rejects.toEqual(
-      expect.objectContaining<Partial<LegacyBindingMigrationError>>({
-        name: 'LegacyBindingMigrationError',
-        message: expect.stringContaining('POD-1075 first-admin UserId'),
-      }),
-    )
+    const store = await BindingStore.open({
+      dir: storeDir,
+      legacyStateDir: stateDir,
+      codexReceiptDir: receiptDir,
+    })
+    expect(store.quarantinedCount).toBe(1)
     expect(await readdir(join(storeDir, 'bindings'))).toEqual([])
     expect(await readFile(join(receiptDir, 'pane.json'), 'utf8')).toContain('native')
   })
@@ -722,9 +715,14 @@ describe('server-resolved legacy owners', () => {
     const options = { dir: store.dir, legacyStateDir: root, codexReceiptDir: receipts }
     await expect(
       store.recoverLegacyState({ ...options, legacyOwnerForSession: () => undefined }),
-    ).rejects.toThrow()
+    ).resolves.toBeUndefined()
+    expect(store.quarantinedCount).toBe(1)
     expect(await store.read(asSessionId('orphan'))).toBeNull()
     expect(await readFile(receipt, 'utf8')).toContain('thread')
+    await store.inventory(receipts)
+    store.confirmInventory(asMachineId('machine'), {
+      orphan: { owner: 'mem_owner', machineId: 'machine', closed: false },
+    })
     await store.recoverLegacyState({
       ...options,
       legacyOwnerForSession: () => asUserId('mem_owner'),
@@ -733,5 +731,48 @@ describe('server-resolved legacy owners', () => {
       'mem_owner',
     )
     await expect(access(receipt)).rejects.toThrow()
+  })
+})
+
+describe('connect inventory isolation', () => {
+  it('confirms one binding while retaining unknown, moved, and live closed bindings', async () => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: root })
+    const receipts = join(root, 'receipts')
+    for (const id of ['good', 'unknown', 'moved', 'closed']) {
+      await store.ensureBinding({
+        sessionId: asSessionId(id),
+        agentKind: 'codex',
+        claimantMachineId: machine,
+        delegation: {
+          actor: asAgentIdentityId(id),
+          onBehalfOf: alice,
+          grantedScope: { kind: 'all' },
+          parentBindingId: null,
+        },
+      })
+    }
+    // Interrupted atomic-write residue is not a binding and cannot be adopted.
+    await writeFile(join(root, 'bindings', 'inert.json.123.dead.tmp'), 'user:sole')
+    expect(await store.inventory(receipts)).toEqual(['closed', 'good', 'moved', 'unknown'])
+    store.confirmInventory(machine, {
+      good: { owner: alice, machineId: machine, closed: false },
+      unknown: { owner: null, machineId: null, closed: false },
+      moved: { owner: alice, machineId: 'elsewhere', closed: false },
+      closed: { owner: alice, machineId: machine, closed: true },
+    })
+    expect(store.isQuarantined(asSessionId('good'))).toBe(false)
+    expect(store.quarantinedCount).toBe(3)
+    await store.reapQuarantined(async () => true, receipts)
+    expect(await store.read(asSessionId('closed'))).not.toBeNull()
+    await store.reapQuarantined(async () => false, receipts)
+    expect(await store.read(asSessionId('closed'))).toBeNull()
+    expect(await store.read(asSessionId('unknown'))).not.toBeNull()
+    expect(await store.read(asSessionId('moved'))).not.toBeNull()
+    expect(store.quarantinedCount).toBe(2)
+    await store.inventory(receipts)
+    store.confirmInventory(machine, undefined)
+    expect(store.quarantinedCount).toBe(0)
+    expect(store.isQuarantined(asSessionId('unknown'))).toBe(false)
   })
 })

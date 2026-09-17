@@ -250,6 +250,9 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
           // reserved token (ADR 5 D4.2).
           caps: [...caps.accepted],
           ...(outcome.name === undefined ? {} : { name: outcome.name }),
+          ...(outcome.bindingConfirmations === undefined
+            ? {}
+            : { bindingConfirmations: outcome.bindingConfirmations }),
           ...(outcome.legacyBindingOwners === undefined
             ? {}
             : { legacyBindingOwners: outcome.legacyBindingOwners }),

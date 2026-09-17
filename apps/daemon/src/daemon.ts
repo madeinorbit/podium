@@ -202,6 +202,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     queueDrainOutbox,
     runtimeEventOutbox,
     onConnected: host.connected,
+    bindingSessionIds: host.bindingSessionIds,
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,
   })

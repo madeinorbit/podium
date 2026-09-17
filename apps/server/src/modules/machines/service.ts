@@ -1,3 +1,4 @@
+import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -838,10 +839,15 @@ export class MachinesService {
         name: string
         token?: string
         pairingGrant?: PairingGrant
+        bindingConfirmations?: BindingConfirmations
         legacyBindingOwners?: Readonly<Record<string, string>>
       }
     | { ok: false; reason: string }
   > {
+    // Read inventory before consuming a one-use pairing code. A failed lookup
+    // can retry the entire handshake; none of these facts leave before auth.
+    const bindingConfirmations = options.bindingSessionIds === undefined ? undefined
+      : await this.deps.store.sessions.bindingConfirmations(options.bindingSessionIds)
     const result = await credentials.authenticateDaemon(this.enrollmentHost, frame, {
       ...options,
       ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
@@ -849,7 +855,13 @@ export class MachinesService {
     if (!result.ok) return result
     return {
       ...result,
-      legacyBindingOwners: await this.deps.store.sessions.bindingOwnersForMachine(result.machineId),
+      ...(bindingConfirmations === undefined ? {
+        legacyBindingOwners: await this.deps.store.sessions.bindingOwnersForMachine(result.machineId),
+      } : {
+        bindingConfirmations,
+        legacyBindingOwners: Object.fromEntries(Object.entries(bindingConfirmations)
+          .flatMap(([id, fact]) => fact.owner === null ? [] : [[id, fact.owner]])),
+      }),
     }
   }
 

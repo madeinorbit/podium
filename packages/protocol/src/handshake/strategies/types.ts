@@ -20,6 +20,7 @@ import type { MachineId } from '@podium/model'
 import type { CapabilityRef, DeviceId, Principal, UserId } from '../../planes/principal'
 import type { DelegationDirectory, DelegationScope } from '../delegation-chain'
 import type {
+  BindingConfirmations,
   AuthRole,
   CredentialKind,
   HandshakeRejectReason,
@@ -76,6 +77,7 @@ export type AuthOutcome =
        * the strategy — which is the only thing that knows what it resolved — so
        * the framing never branches on principal shape to find it.
        */
+      readonly bindingConfirmations?: BindingConfirmations
       readonly legacyBindingOwners?: Readonly<Record<string, string>>
       readonly assignedId?: string
       /** Passed through from the directory's resolution; see `directoryContext`. */
@@ -191,6 +193,7 @@ export interface PairingRequest {
 }
 
 export interface ResolvedMachine {
+  readonly bindingConfirmations?: BindingConfirmations
   readonly legacyBindingOwners?: Readonly<Record<string, string>>
   readonly machine: MachineId
   /** Whoever paired it (readiness §3.1.4 M3); `null` for pre-ownership rows. */

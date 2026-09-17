@@ -1,3 +1,4 @@
+import type { BindingConfirmations } from '@podium/protocol'
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
@@ -100,8 +101,10 @@ export interface DaemonConnectionDeps {
   readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
   readonly queueDrainOutbox: QueueDrainOutbox
   readonly runtimeEventOutbox: RuntimeEventOutbox
+  readonly bindingSessionIds?: () => Promise<readonly string[]>
   readonly onConnected: (
     legacyBindingOwners?: Readonly<Record<string, string>>,
+    bindingConfirmations?: BindingConfirmations,
   ) => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
@@ -371,7 +374,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     })
     reconnectTimer = timers.setTimeout(() => {
       reconnectTimer = undefined
-      connectSocket()
+      if (options.localLink) void connectLocal().catch(retryLocalHandshake)
+      else connectSocket()
     }, delay)
     reconnectBackoffMs = Math.min(delay * 2, RECONNECT_MAX_MS)
   }
@@ -431,6 +435,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active?: SocketLike,
     caps: readonly string[] = [],
     legacyBindingOwners?: Readonly<Record<string, string>>,
+    bindingConfirmations?: BindingConfirmations,
   ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
@@ -484,7 +489,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
       ...(recoveredFrom ? { recoveredFrom } : {}),
     })
-    const boot = deps.onConnected(legacyBindingOwners) ?? {}
+    const boot = deps.onConnected(legacyBindingOwners, bindingConfirmations) ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
     report({
       state: 'connected',
@@ -629,6 +634,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         active,
         step.caps.accepted,
         step.legacyBindingOwners,
+        step.bindingConfirmations,
       )
       return
     }
@@ -663,12 +669,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     )
   }
 
-  const makeDialer = () => {
+  const makeDialer = (bindingSessionIds?: readonly string[]) => {
     const selected = credential()
     if (!selected) throw new Error('daemon has no machine credential; pair it first')
     const reportUpdateIdentity = deps.reportUpdateIdentity !== false
     return createHandshakeDialer({
       peerRole: 'machine',
+      ...(bindingSessionIds === undefined ? {} : { bindingSessionIds }),
       credential: selected,
       caps: [
         ...deliveryCaps(deps.build).filter(
@@ -691,7 +698,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     })
   }
 
+  const retryLocalHandshake = (error: unknown): void => {
+    lastSocketError = String(error)
+    scheduleReconnect()
+  }
+
   const connectLocal = async (): Promise<void> => {
+    if (closing) return
     acceptedCaps.clear()
     state = 'connecting'
     report({ state: 'connecting' })
@@ -700,9 +713,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       terminal('blocked', 'configuration', 'local connection requested without a local link')
       return
     }
+    const bindingSessionIds = deps.bindingSessionIds ? await deps.bindingSessionIds() : undefined
+    if (closing) return
     let dialer: ReturnType<typeof createHandshakeDialer>
     try {
-      dialer = makeDialer()
+      dialer = makeDialer(bindingSessionIds)
     } catch (error) {
       terminal('blocked', 'configuration', String(error))
       return
@@ -758,12 +773,21 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         active.terminate()
       }, SOCKET_OPEN_DEADLINE_MS),
     }
-    active.once('open', () => {
+    active.once('open', async () => {
       if (!isCurrent()) return
       clearOpenDeadline(generation)
       if (invalidSockets.has(active)) return
+      let bindingSessionIds: readonly string[] | undefined
       try {
-        dialer = makeDialer()
+        bindingSessionIds = deps.bindingSessionIds ? await deps.bindingSessionIds() : undefined
+      } catch (error) {
+        lastSocketError = String(error)
+        active.terminate()
+        return
+      }
+      try {
+        dialer = makeDialer(bindingSessionIds)
+        if (!isCurrent()) return
         state = 'awaiting-ack'
         report({ state: 'awaiting-ack' })
         acknowledgementDeadline = {
@@ -830,7 +854,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   const probeAuthenticatedEndpointOnce = (publicUrl: string): Promise<void> =>
     new Promise((resolve, reject) => {
-      const candidate = openSocket(workspaceEndpoint(wssFrom(publicUrl), '/daemon', options.workspaceId))
+      const candidate = openSocket(
+        workspaceEndpoint(wssFrom(publicUrl), '/daemon', options.workspaceId),
+      )
       let settled = false
       let dialer: ReturnType<typeof createHandshakeDialer> | undefined
       const timer = setTimeout(
@@ -907,7 +933,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     start() {
       if (!started) {
         started = true
-        if (options.localLink) return connectLocal().then(() => ready)
+        if (options.localLink)
+          return connectLocal()
+            .catch(retryLocalHandshake)
+            .then(() => ready)
         else {
           // Preserve the daemon entrypoint's availability semantics: an offline
           // server does not block boot; the state machine keeps retrying.

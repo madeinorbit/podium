@@ -78,14 +78,51 @@ export class SessionsRepository {
   }
 
   // ---- sessions ----
-  /** Attribution facts for this machine only, including retained tombstones. */
-  async bindingOwnersForMachine(machineId: MachineId): Promise<Record<string, string>> {
+  /** Legacy peers receive their machine map; inventory peers receive every requested id.
+   * Single-member disclosure only; Track B must authorize cross-member inventory. */
+  async bindingOwnersForMachine(
+    machineId: MachineId,
+    sessionIds?: readonly string[],
+  ): Promise<Record<string, string>> {
+    if (sessionIds?.length === 0) return {}
     const rows = await this.db
       .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
       .from(sessionsTable)
-      .where(eq(sessionsTable.machineId, machineId))
+      .where(
+        sessionIds === undefined
+          ? eq(sessionsTable.machineId, machineId)
+          : inArray(sessionsTable.id, sessionIds.map(asSessionId)),
+      )
       .all()
     return Object.fromEntries(rows.map((row) => [row.id, row.owner]))
+  }
+
+  /** Single-member Track A: disclose requested placement facts across machines.
+   * Track B must authorize this inventory before multi-member deployment. */
+  async bindingConfirmations(
+    ids: readonly string[],
+  ): Promise<import('@podium/protocol').BindingConfirmations> {
+    const result: import('@podium/protocol').BindingConfirmations = Object.fromEntries(
+      ids.map((id) => [id, { owner: null, machineId: null, closed: false }]),
+    )
+    if (ids.length === 0) return result
+    const rows = await this.db
+      .select({
+        id: sessionsTable.id,
+        owner: sessionsTable.ownerUserId,
+        machineId: sessionsTable.machineId,
+        deletedAt: sessionsTable.deletedAt,
+      })
+      .from(sessionsTable)
+      .where(inArray(sessionsTable.id, ids.map(asSessionId)))
+      .all()
+    for (const row of rows)
+      result[row.id] = {
+        owner: row.owner,
+        machineId: row.machineId,
+        closed: row.deletedAt !== null,
+      }
+    return result
   }
 
   async loadSessions(): Promise<SessionRow[]> {

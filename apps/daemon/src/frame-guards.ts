@@ -165,6 +165,14 @@ export function createFrameGuard(
         warnDropped(error, 'inbound')
         return
       }
+      if (
+        'sessionId' in msg &&
+        typeof msg.sessionId === 'string' &&
+        ctx.bindingStore.isQuarantined(msg.sessionId)
+      ) {
+        finish(msg.type)
+        return
+      }
       const killStartedAt = msg.type === 'kill' ? performance.now() : undefined
       if (msg.type === 'kill') {
         log.info('session kill received', {
@@ -188,7 +196,7 @@ export function createFrameGuard(
       }
     },
     receiveBinaryInput(metadata, payload) {
-      if (payload.byteLength === 0) return
+      if (payload.byteLength === 0 || ctx.bindingStore.isQuarantined(metadata.sessionId)) return
       const finish = beginControlTurn()
       try {
         timeTask('controlDispatch(input)', () => dispatchInputBytes(ctx, metadata, payload))

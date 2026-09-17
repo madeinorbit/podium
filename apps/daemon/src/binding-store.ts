@@ -17,6 +17,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { BindingConfirmations } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 
 /**
@@ -1041,6 +1042,92 @@ function migrationObservationId(parts: readonly string[]): string {
 }
 
 export class BindingStore {
+  private recoveryGeneration = 0
+  private recovery = new Map<SessionId, 'confirmed' | 'quarantined'>()
+  private closedBindings = new Set<SessionId>()
+  private inventoryOwners = new Map<SessionId, UserId | null>()
+
+  isQuarantined(sessionId: SessionId): boolean {
+    return this.recovery.get(sessionId) === 'quarantined'
+  }
+
+  get quarantinedCount(): number {
+    return [...this.recovery.values()].filter((state) => state === 'quarantined').length
+  }
+
+  async inventory(codexReceiptDir: string): Promise<SessionId[]> {
+    const ids = new Set<SessionId>()
+    this.recoveryGeneration += 1
+    this.inventoryOwners.clear()
+    for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+      const stem = entry.name.slice(0, -5)
+      const id = asSessionId(Buffer.from(stem, 'base64url').toString('utf8'))
+      if (!id || fileStem(id) !== stem) continue
+      ids.add(id)
+      try {
+        const binding = await this.read(id)
+        this.inventoryOwners.set(id, binding ? this.bindingOwner(binding) : null)
+      } catch {
+        this.inventoryOwners.set(id, null)
+      }
+    }
+    for (const receipt of await legacyReceipts(codexReceiptDir)) ids.add(receipt.sessionId)
+    this.recovery = new Map([...ids].map((id) => [id, 'quarantined']))
+    this.closedBindings.clear()
+    return [...ids].sort()
+  }
+
+  confirmInventory(machineId: MachineId, facts?: BindingConfirmations): void {
+    // A missing field means an old server: skip recovery, preserving its behavior.
+    if (facts === undefined) {
+      this.recovery.clear()
+      this.closedBindings.clear()
+      return
+    }
+    for (const id of this.recovery.keys()) {
+      const fact = facts[id]
+      this.recovery.set(
+        id,
+        fact?.owner &&
+          fact.owner !== 'user:sole' &&
+          fact.machineId === machineId &&
+          !fact.closed &&
+          (!this.inventoryOwners.has(id) ||
+            this.inventoryOwners.get(id) === fact.owner ||
+            this.inventoryOwners.get(id) === 'user:sole')
+          ? 'confirmed'
+          : 'quarantined',
+      )
+      if (fact?.closed) this.closedBindings.add(id)
+    }
+  }
+
+  async reapQuarantined(
+    hasProcess: (id: SessionId) => Promise<boolean>,
+    receiptDir: string,
+  ): Promise<void> {
+    const generation = this.recoveryGeneration
+    for (const id of this.closedBindings) {
+      if (!this.isQuarantined(id) || (await hasProcess(id))) continue
+      await this.writes.get(id)
+      if (
+        generation !== this.recoveryGeneration ||
+        !this.closedBindings.has(id) ||
+        !this.isQuarantined(id)
+      )
+        return
+      await rm(this.pathFor(id), { force: true })
+      for (const entry of await readDirectory(receiptDir)) {
+        const match = RECEIPT_NAME.exec(entry.name) ?? CLAIM_NAME.exec(entry.name)
+        if (entry.isFile() && match?.[1] === id)
+          await rm(join(receiptDir, entry.name), { force: true })
+      }
+      this.recovery.delete(id)
+      this.closedBindings.delete(id)
+    }
+  }
+
   private readonly now: () => string
   private manifest: StoreManifestV3
   private readonly writes = new Map<SessionId, Promise<unknown>>()
@@ -1092,13 +1179,18 @@ export class BindingStore {
     if (options.legacyOwnerForSession) {
       for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
         if (!entry.isFile() || !entry.name.endsWith('.json')) continue
-        const row = parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name)))
+        let row: SessionBindingRecord
+        try {
+          row = parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name)))
+        } catch {
+          continue
+        }
         if (this.bindingOwner(row) !== 'user:sole') continue
         const owner = options.legacyOwnerForSession(row.sessionId)
-        if (!owner || owner === 'user:sole')
-          throw new LegacyBindingMigrationError(
-            `server owner unavailable for legacy binding ${row.sessionId}`,
-          )
+        if (!owner || owner === 'user:sole' || this.isQuarantined(row.sessionId)) {
+          this.recovery.set(row.sessionId, 'quarantined')
+          continue
+        }
         await this.update(row.sessionId, (current) => {
           if (!current) throw new Error(`binding ${row.sessionId} disappeared`)
           return {
@@ -1189,7 +1281,11 @@ export class BindingStore {
     const rows: SessionBindingRecord[] = []
     for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue
-      rows.push(parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name))))
+      try {
+        rows.push(parseBinding(await readJson(join(this.dir, BINDINGS_DIR, entry.name))))
+      } catch {
+        // Malformed local state stays on disk, quarantined by the connect inventory.
+      }
     }
     return rows.sort((a, b) => a.sessionId.localeCompare(b.sessionId))
   }
@@ -1211,7 +1307,7 @@ export class BindingStore {
   ): Promise<Array<{ sessionId: SessionId; nativeKind: string; value: string }>> {
     const receipts = new Map<string, { sessionId: SessionId; nativeKind: string; value: string }>()
     for (const binding of await this.allBindings()) {
-      if (this.bindingOwner(binding) !== owner) continue
+      if (this.isQuarantined(binding.sessionId) || this.bindingOwner(binding) !== owner) continue
       for (const observation of binding.observations) {
         const pending = observation.pendingServerAck
         if (!pending) continue
@@ -1366,6 +1462,8 @@ export class BindingStore {
    * delegation reference and identity evidence.
    */
   async transition(input: SessionBindingTransition): Promise<SessionBindingTransitionOutcome> {
+    if (this.isQuarantined(input.sessionId))
+      return transitionRejected(input.event, 'binding-missing')
     // Authorization runs before arbitration. The lower layer therefore never
     // reads the binding for a caller policy has reduced to `not-found`, and its
     // answer is byte-identical to the genuinely missing-row case below.
@@ -2026,22 +2124,28 @@ export class BindingStore {
     singleOperatorUserId?: UserId
   }): Promise<void> {
     const receipts = await legacyReceipts(input.codexReceiptDir)
+    let unresolved = false
     if (receipts.length > 0) {
       const machineId = await daemonMachineId(input.stateDir)
       for (const receipt of receipts) {
+        if (this.isQuarantined(receipt.sessionId)) {
+          unresolved = true
+          continue
+        }
         let binding = await this.read(receipt.sessionId)
         if (!binding) {
-          const owner =
-            input.legacyOwnerForSession?.(receipt.sessionId) ?? input.singleOperatorUserId
+          const owner = input.legacyOwnerForSession
+            ? input.legacyOwnerForSession(receipt.sessionId)
+            : input.singleOperatorUserId
           if (!owner || (owner === 'user:sole' && input.legacyOwnerForSession)) {
-            throw new LegacyBindingMigrationError(
-              'legacy Codex receipts exist but POD-1075 first-admin UserId was not supplied',
-            )
+            this.recovery.set(receipt.sessionId, 'quarantined')
+            unresolved = true
+            continue
           }
           if (!machineId) {
-            throw new LegacyBindingMigrationError(
-              `legacy Codex receipts exist but ${join(input.stateDir, 'daemon.json')} has no machineId`,
-            )
+            this.recovery.set(receipt.sessionId, 'quarantined')
+            unresolved = true
+            continue
           }
           binding = await this.ensureBinding({
             sessionId: receipt.sessionId,
@@ -2060,9 +2164,9 @@ export class BindingStore {
           !this.bindingAcceptsNativeKind(binding, 'codex-thread') ||
           this.bindingOwner(binding) === null
         ) {
-          throw new LegacyBindingMigrationError(
-            `legacy Codex receipt ${receipt.sessionId} does not point at an owned Codex binding`,
-          )
+          this.recovery.set(receipt.sessionId, 'quarantined')
+          unresolved = true
+          continue
         }
         const source = receipt.processOwned ? 'process' : 'native-hook'
         if (receipt.pendingServerAck) {
@@ -2095,7 +2199,12 @@ export class BindingStore {
       )
       for (const receipt of receipts) {
         const key = `${receipt.sessionId}\u0000${receipt.nativeId}`
-        if (receipt.pendingServerAck || activeKeys.has(key)) continue
+        if (
+          this.isQuarantined(receipt.sessionId) ||
+          receipt.pendingServerAck ||
+          activeKeys.has(key)
+        )
+          continue
         const binding = await this.read(receipt.sessionId)
         const owner = binding && this.bindingOwner(binding)
         if (owner) {
@@ -2107,6 +2216,7 @@ export class BindingStore {
       }
     }
 
+    if (unresolved) return
     if (!this.manifest.codexReceiptFold) {
       this.manifest = {
         ...this.manifest,
@@ -2136,17 +2246,8 @@ export class BindingStore {
     if (this.manifest.legacyMigration) return this.manifest.legacyMigration
     const receipts = await legacyReceipts(input.codexReceiptDir)
     const hasBindingFacts = input.bindings.length > 0 || receipts.length > 0
-    if (hasBindingFacts && !input.singleOperatorUserId && !input.legacyOwnerForSession) {
-      throw new LegacyBindingMigrationError(
-        'legacy bindings exist but POD-1075 first-admin UserId was not supplied',
-      )
-    }
     const machineId = await daemonMachineId(input.stateDir)
-    if (hasBindingFacts && !machineId) {
-      throw new LegacyBindingMigrationError(
-        `legacy bindings exist but ${join(input.stateDir, 'daemon.json')} has no machineId`,
-      )
-    }
+    let unresolved = false
     const migratedAt = this.now()
     const snapshots = new Map(input.bindings.map((binding) => [binding.sessionId, binding]))
     for (const receipt of receipts) {
@@ -2202,11 +2303,18 @@ export class BindingStore {
     }
 
     for (const snapshot of snapshots.values()) {
-      const owner = input.legacyOwnerForSession?.(snapshot.sessionId) ?? input.singleOperatorUserId
-      if (!machineId || !owner || (owner === 'user:sole' && input.legacyOwnerForSession)) {
-        throw new LegacyBindingMigrationError(
-          'legacy binding migration lost its validated machine or first-admin identity',
-        )
+      const owner = input.legacyOwnerForSession
+        ? input.legacyOwnerForSession(snapshot.sessionId)
+        : input.singleOperatorUserId
+      if (
+        this.isQuarantined(snapshot.sessionId) ||
+        !machineId ||
+        !owner ||
+        (owner === 'user:sole' && input.legacyOwnerForSession)
+      ) {
+        this.recovery.set(snapshot.sessionId, 'quarantined')
+        unresolved = true
+        continue
       }
       await this.ensureBinding({
         sessionId: snapshot.sessionId,
@@ -2296,6 +2404,7 @@ export class BindingStore {
     }
 
     for (const receipt of receipts) {
+      if (this.isQuarantined(receipt.sessionId)) continue
       await observeLegacy(
         receipt.sessionId,
         receipt.processOwned ? 'process-ownership' : 'resume-ref',
@@ -2335,7 +2444,7 @@ export class BindingStore {
     // an all-zero inventory, and could never look again (POD-1647). Leaving the
     // marker null on an empty run costs a directory scan per boot and keeps the
     // door open; a run that actually found something still closes it.
-    if (!hasBindingFacts) return result
+    if (!hasBindingFacts || unresolved) return result
     this.manifest = { ...this.manifest, legacyMigration: result }
     await atomicJsonWrite(join(this.dir, MANIFEST_NAME), this.manifest)
     return result

@@ -4,7 +4,7 @@
  * names the mux and not a feature.
  */
 
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, asAgentIdentityId } from '@podium/model'
 import {
   AGENT_RELAY_FRAMES,
   attributionOf,
@@ -426,5 +426,60 @@ describe('attach / detach orchestration', () => {
     const bus = { emit: () => calls.push('emit') }
     new DaemonMux({ ports, bus: bus as never }).detachDaemon('m1', () => {})
     expect(calls).toEqual(['detach'])
+  })
+})
+
+describe('retired daemon attribution ingress', () => {
+  const frame = (): DaemonMessage => ({
+    type: 'handoffExportResult',
+    requestId: 'legacy',
+    ok: true,
+    error: 'user:sole is ordinary text here',
+    binding: {
+      transferId: 'transfer',
+      sessionId: asSessionId('old'),
+      agentKind: 'codex',
+      fromMachineId: asMachineId('source'),
+      toMachineId: asMachineId('target'),
+      observationGeneration: 1,
+      delegation: {
+        actor: asAgentIdentityId('old'),
+        onBehalfOf: asUserId('user:sole'),
+        grantedScope: { kind: 'all' },
+        parentBindingId: null,
+      },
+    },
+  })
+  it('maps typed delegation through the recorded row without changing opaque text or transport identity', async () => {
+    const { ports, calls } = fakePorts()
+    const read = vi.fn(async () => asUserId('mem_recorded'))
+    const mux = new DaemonMux({ ports, bus: { emit: vi.fn() }, retiredSoloMemberId: read })
+    await mux.routeDaemonFrame('source', frame())
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(calls[0]?.args).toEqual([
+      asMachineId('source'),
+      expect.objectContaining({
+        error: 'user:sole is ordinary text here',
+        binding: expect.objectContaining({
+          delegation: expect.objectContaining({ onBehalfOf: 'mem_recorded' }),
+        }),
+      }),
+    ])
+  })
+  it('refuses only the legacy frame if the immutable mapping is missing', async () => {
+    const { ports, calls } = fakePorts()
+    const mux = new DaemonMux({
+      ports,
+      bus: { emit: vi.fn() },
+      retiredSoloMemberId: async () => null,
+    })
+    await mux.routeDaemonFrame('source', frame())
+    expect(calls).toHaveLength(0)
+    await mux.routeDaemonFrame('source', {
+      type: 'title',
+      sessionId: asSessionId('good'),
+      title: 'ready',
+    })
+    expect(calls).toHaveLength(1)
   })
 })

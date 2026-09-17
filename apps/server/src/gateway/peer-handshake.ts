@@ -242,7 +242,17 @@ export async function prepareDaemonFrame(
   // recovery-only handshake read-only and what tells the directory which plane
   // this connection is; dropping them here silently reinstated the row-touching
   // write on the recovery path and lost supervisor attribution entirely.
+  let decoded: unknown
+  try {
+    decoded = JSON.parse(raw)
+  } catch {
+    decoded = null
+  }
+  const inventoryHello = PeerHello.safeParse(decoded)
   const carried = {
+    ...(inventoryHello.success && inventoryHello.data.bindingSessionIds !== undefined
+      ? { bindingSessionIds: inventoryHello.data.bindingSessionIds }
+      : {}),
     ...(prepared.deps.verifyOnly ? { verifyOnly: true as const } : {}),
     ...(prepared.deps.source ? { source: prepared.deps.source } : {}),
   }
@@ -309,12 +319,7 @@ const asLegacyFrame = (raw: string): DaemonHandshake | null => {
  */
 export async function recordHelloBuild(
   store: {
-    setMachineBuild: (
-      id: MachineId,
-      build: PeerBuild,
-      caps: string[],
-      at: string,
-    ) => Promise<void>
+    setMachineBuild: (id: MachineId, build: PeerBuild, caps: string[], at: string) => Promise<void>
   },
   machineId: MachineId,
   hello: { build: PeerBuild | undefined; caps: string[]; at: string },

@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
@@ -7,6 +7,7 @@ import { controlFrameByteLength, createFrameGuard, MAX_CONTROL_FRAME_BYTES } fro
 const context = (): DaemonContext =>
   ({
     agentRelayHub: { onResult: vi.fn() },
+    bindingStore: { isQuarantined: vi.fn(() => false) },
     send: vi.fn(),
   }) as unknown as DaemonContext
 
@@ -118,4 +119,28 @@ describe('daemon frame guards', () => {
     ).toBe(false)
     expect(send).not.toHaveBeenCalled()
   })
+})
+
+it('isolates a quarantined session from unrelated control frames and binary input', () => {
+  const ctx = context()
+  ctx.bindingStore.isQuarantined = (id) => id === 'quarantined'
+  const write = vi.fn()
+  ctx.bridges = new Map([[asSessionId('good'), { writeBytes: write } as never]])
+  ctx.composerEngine = { onInputByte: vi.fn() } as never
+  const guard = createFrameGuard(ctx)
+  // A kill for the unconfirmed binding must never reach the process handler.
+  guard.receive(Buffer.from(JSON.stringify({ type: 'kill', sessionId: 'quarantined' })))
+  guard.receiveBinaryInput(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('quarantined'), inputOrigin: 'human' },
+    Buffer.from('x'),
+  )
+  const reply = { type: 'agentRelayResult', requestId: 'unrelated', ok: true, result: null }
+  guard.receive(Buffer.from(JSON.stringify(reply)))
+  expect(ctx.agentRelayHub.onResult).toHaveBeenCalledWith(reply)
+  expect(write).not.toHaveBeenCalled()
+  guard.receiveBinaryInput(
+    { v: 1, type: 'ptyInput', sessionId: asSessionId('good'), inputOrigin: 'human' },
+    Buffer.from('y'),
+  )
+  expect(write).toHaveBeenCalledWith(Buffer.from('y'))
 })

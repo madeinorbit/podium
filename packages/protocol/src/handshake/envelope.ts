@@ -229,8 +229,20 @@ export type DeliveryCap = (typeof DELIVERY_CAPS)[number]
  * The hello envelope. Field-for-field ADR 5 D4.3's shape (`peerRole?`, `caps`,
  * `feedId?`) plus the credential and the inert claims bag.
  */
+/** Server facts for each inventoried binding; absence is never a closed verdict. */
+export const BindingConfirmation = z.object({
+  owner: z.string().min(1).nullable(),
+  machineId: z.string().min(1).nullable(),
+  closed: z.boolean(),
+})
+export type BindingConfirmation = z.infer<typeof BindingConfirmation>
+export const BindingConfirmations = z.record(z.string(), BindingConfirmation)
+export type BindingConfirmations = z.infer<typeof BindingConfirmations>
+
 export const PeerHello = z.object({
   type: z.literal('peerHello'),
+  /** One complete connect-time inventory; older peers ignore this additive field. */
+  bindingSessionIds: z.array(z.string().min(1)).optional(),
   /** Wire version — negotiated against `WIRE_VERSION` / `MIN_SUPPORTED_VERSION`. */
   v: z.number().int(),
   /**
@@ -294,6 +306,7 @@ export const PeerHelloOk = z.object({
    */
   assignedId: z.string().optional(),
   /** Server-owned legacy session attribution, restricted to the authenticated machine. */
+  bindingConfirmations: BindingConfirmations.optional(),
   legacyBindingOwners: z.record(z.string(), z.string().min(1)).optional(),
   /**
    * Set exactly once, on the pairing branch, when the acceptor mints a

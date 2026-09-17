@@ -17,6 +17,7 @@
  */
 
 import {
+  type BindingConfirmations,
   type PeerBuild,
   type PeerCredential,
   type PeerHello,
@@ -37,6 +38,7 @@ export type DialerStep =
       readonly agreedVersion: number
       /** Capabilities the acceptor accepted, intersected with what this end offers. */
       readonly caps: CapabilityNegotiation
+      readonly bindingConfirmations?: BindingConfirmations
       readonly legacyBindingOwners?: Readonly<Record<string, string>>
       readonly name?: string
       /**
@@ -64,6 +66,7 @@ export interface DialerDeps {
   readonly peerRole?: PeerRole
   readonly credential: PeerCredential
   readonly caps?: readonly string[]
+  readonly bindingSessionIds?: readonly string[]
   readonly build?: PeerBuild
   /**
    * INERT identity-shaped fields. Sent for logs and for the operator-facing name
@@ -96,6 +99,9 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
       state = 'awaiting-ack'
       return {
         type: 'peerHello',
+        ...(deps.bindingSessionIds === undefined
+          ? {}
+          : { bindingSessionIds: [...deps.bindingSessionIds] }),
         v: support.wire,
         ...(deps.peerRole === undefined ? {} : { peerRole: deps.peerRole }),
         caps: [...offered],
@@ -146,6 +152,9 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         // Intersect the acceptor's answer with what this end actually offered, so
         // an acceptor cannot switch on a capability this end never advertised.
         caps: negotiateCapabilities(reply.caps, offered),
+        ...(reply.bindingConfirmations === undefined
+          ? {}
+          : { bindingConfirmations: reply.bindingConfirmations }),
         ...(reply.legacyBindingOwners === undefined
           ? {}
           : { legacyBindingOwners: reply.legacyBindingOwners }),

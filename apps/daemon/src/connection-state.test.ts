@@ -198,7 +198,9 @@ describe('daemon connection credential state machine', () => {
       convergedVersion: '2.0.0',
     })
     expect(await probe()).toEqual({
-      connected: true, appVersion: '2.0.0', convergedVersion: '2.0.0',
+      connected: true,
+      appVersion: '2.0.0',
+      convergedVersion: '2.0.0',
     })
     if (options.identityReadOnly || options.bootstrapToken) {
       expect(readConnectivityForTest(options.identityDir)).toEqual(machinePresence)
@@ -223,11 +225,18 @@ describe('daemon connection credential state machine', () => {
     const parent = new ParentProcess({ port: 1, children: ['daemon'], env: {} })
     const probe = () => parent['deps'].probeDaemonHealth()
     const down = { connected: false, appVersion: null, convergedVersion: null }
-    const witness = { state: 'connected' as const, processId: process.pid,
-      appVersion: '2.0.0', convergedVersion: '2.0.0' }
-    const record = (pid: number) => writeRecord({
-      role: 'daemon', pid, startedAt: new Date().toISOString(),
-    })
+    const witness = {
+      state: 'connected' as const,
+      processId: process.pid,
+      appVersion: '2.0.0',
+      convergedVersion: '2.0.0',
+    }
+    const record = (pid: number) =>
+      writeRecord({
+        role: 'daemon',
+        pid,
+        startedAt: new Date().toISOString(),
+      })
     record(process.pid)
     // Even matching legacy machine presence cannot substitute for role health.
     writeConnectivity(witness, dir)
@@ -246,7 +255,13 @@ describe('daemon connection credential state machine', () => {
     removeRecord('daemon')
     expect(await probe()).toEqual(down)
     record(process.pid)
-    for (const state of ['connecting', 'awaiting-ack', 'disconnected', 'unauthorized', 'blocked'] as const) {
+    for (const state of [
+      'connecting',
+      'awaiting-ack',
+      'disconnected',
+      'unauthorized',
+      'blocked',
+    ] as const) {
       writeDaemonHealth({ ...witness, state }, dir)
       expect((await probe()).connected).toBe(false)
     }
@@ -1191,7 +1206,7 @@ describe('authenticated legacy owner handoff', () => {
     })
     try {
       await conn.start()
-      expect(onConnected).toHaveBeenCalledWith(owners)
+      expect(onConnected).toHaveBeenCalledWith(owners, undefined)
     } finally {
       await conn.close()
     }
@@ -1249,4 +1264,57 @@ it('retains the latest harness probe until the machine transport authenticates',
     ),
   ).toHaveLength(1)
   await state.close()
+})
+
+it('retries the entire inventory handshake after a lookup failure and delivers the per-id reply', async () => {
+  const harness = timerHarness()
+  const facts = {
+    good: { owner: 'mem_owner', machineId: MACHINE_ID, closed: false },
+    orphan: { owner: null, machineId: null, closed: false },
+  }
+  const hellos: PeerHello[] = []
+  const inventory = vi.fn(async () => ['good', 'orphan'])
+  const onConnected = vi.fn()
+  const options = localOptions(() => {}, {
+    bootstrapToken: 'local-secret',
+    reconnectTimers: harness.timers,
+  })
+  options.localLink = {
+    attach: async ({ hello }) => {
+      hellos.push(hello)
+      if (hellos.length === 1) throw new Error('owner lookup unavailable')
+      return {
+        established: true,
+        reply: { ...ok, bindingConfirmations: facts },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }
+    },
+  }
+  const conn = createDaemonConnection({
+    options,
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: {},
+    bindingSessionIds: inventory,
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+    onConnected,
+    onTerminal: vi.fn(),
+  })
+  const started = conn.start()
+  await vi.waitFor(() => expect(conn.state).toBe('backoff'))
+  harness.runNext(500)
+  await started
+  expect(inventory).toHaveBeenCalledTimes(2)
+  expect(hellos.map((hello) => hello.bindingSessionIds)).toEqual([
+    ['good', 'orphan'],
+    ['good', 'orphan'],
+  ])
+  expect(onConnected).toHaveBeenCalledWith(undefined, facts)
+  await conn.close()
 })

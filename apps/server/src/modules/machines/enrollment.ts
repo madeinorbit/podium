@@ -65,6 +65,7 @@ export function sha256(s: string): string {
  * in every denial so none of this is an existence oracle.
  */
 export interface DaemonAuthenticationOptions {
+  readonly bindingSessionIds?: readonly string[]
   /** Authenticate existing durable identity without mutating its projection. */
   readonly verifyOnly?: boolean
   readonly source?: 'supervisor' | 'legacy-daemon'

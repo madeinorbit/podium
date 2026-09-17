@@ -31,7 +31,7 @@
  */
 
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
-import type { MachineId, UserId } from '@podium/model'
+import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
@@ -80,6 +80,16 @@ export class SettingsRepository {
    * genuinely instance-wide and most consumers of this method want exactly that
    * (hibernation policy, git workflow, the steward toggle).
    */
+  /** Immutable migration fact, never inferred from the current member roster. */
+  async retiredSoloMemberId(): Promise<UserId | null> {
+    const row = await this.db
+      .select({ value: meta.value })
+      .from(meta)
+      .where(eq(meta.key, 'retired_solo_member_id'))
+      .get()
+    return row?.value ? asUserId(row.value) : null
+  }
+
   async getSettings(): Promise<PodiumSettings> {
     const row = await this.db
       .select({ value: meta.value })

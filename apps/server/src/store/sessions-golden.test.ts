@@ -485,3 +485,25 @@ describe('offers and tab order keep their quarantines', () => {
     expect(await sessions.listTabOrders(owner)).toEqual({})
   })
 })
+
+describe('binding inventory facts', () => {
+  it('answers every requested id across machines and distinguishes tombstones from absence', async () => {
+    await put({ id: 'here', machineId: asMachineId('machine-a') })
+    await put({ id: 'moved', machineId: asMachineId('machine-b'), ownerUserId: BOB })
+    await put({
+      id: 'closed',
+      machineId: asMachineId('machine-b'),
+      deletedAt: '2026-09-17T00:00:00Z',
+    })
+    expect(await sessions.bindingConfirmations(['here', 'moved', 'closed', 'unknown'])).toEqual({
+      here: { owner: ALICE, machineId: 'machine-a', closed: false },
+      moved: { owner: BOB, machineId: 'machine-b', closed: false },
+      closed: { owner: ALICE, machineId: 'machine-b', closed: true },
+      unknown: { owner: null, machineId: null, closed: false },
+    })
+    expect(await sessions.bindingConfirmations([])).toEqual({})
+    expect(
+      await sessions.bindingOwnersForMachine(asMachineId('machine-a'), ['moved', 'unknown']),
+    ).toEqual({ moved: BOB })
+  })
+})

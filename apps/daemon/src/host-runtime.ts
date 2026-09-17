@@ -1,3 +1,4 @@
+import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
@@ -148,7 +149,11 @@ export interface DaemonHostRuntime {
   readonly agentRelayPort: number
   /** Source-transfer seam: pause/drain daemon portable writers, or resume after safe abort. */
   readonly portableState: PortableStateControl
-  connected(legacyBindingOwners?: Readonly<Record<string, string>>): { convergedVersion?: string }
+  bindingSessionIds(): Promise<readonly string[]>
+  connected(
+    legacyBindingOwners?: Readonly<Record<string, string>>,
+    bindingConfirmations?: BindingConfirmations,
+  ): { convergedVersion?: string }
   receive(raw: RawData): void
   receiveBinaryInput(metadata: DaemonPtyInputMetadata, payload: Uint8Array): void
   close(opts?: { reapSessions?: boolean }): Promise<void>
@@ -1338,6 +1343,7 @@ export async function createDaemonHostRuntime(args: {
   let kickedOff = false
   let disposed = false
   const pushHostMetrics = (): void => {
+    void reapBindings().catch((err) => log.warn('quarantined binding cleanup failed', { err }))
     const sessionsMemory = scopeMonitor.sessionsMemory()
     // This daemon's last COMPLETE minute of event-loop accounting (loop-profile
     // design §7.1). Absent at level `off` (the handle is inert), and absent for
@@ -1348,6 +1354,7 @@ export async function createDaemonHostRuntime(args: {
     const loop = loopAccounting?.latestMinute()
     send({
       type: 'hostMetrics',
+      quarantinedBindings: bindingStore.quarantinedCount,
       hostname: hostname(),
       sampledAt: new Date().toISOString(),
       memory: sampleHostMemory(),
@@ -1398,22 +1405,68 @@ export async function createDaemonHostRuntime(args: {
   }
 
   let bindingRecovery: Promise<void> | undefined
-  const connected = (owners?: Readonly<Record<string, string>>): { convergedVersion?: string } => {
-    // Serialize reconnects with recovery and hold application frames behind the
-    // same barrier. A missing owner fails closed and preserves the source files.
-    bindingRecovery = (bindingRecovery ?? Promise.resolve())
-      .catch(() => {})
-      .then(async () => {
-        await bindingStore.recoverLegacyState({
-          dir: bindingStore.dir,
-          legacyStateDir: identityStateDir,
-          codexReceiptDir: instance.codexReceiptDir,
-          legacyOwnerForSession: (sessionId) =>
-            owners && Object.hasOwn(owners, sessionId) ? asUserId(owners[sessionId]!) : undefined,
+  let currentBindingFacts: BindingConfirmations | undefined
+  let reapingBindings = false
+  const reapBindings = async (): Promise<void> => {
+    if (reapingBindings || disposed) return
+    reapingBindings = true
+    try {
+      await bindingStore.reapQuarantined(async (id) => {
+        if (
+          bridges.has(id) ||
+          [...ctx.runningHeadlessTurns.values()].some(
+            (turn) => !turn.identity || turn.identity.sessionId === id,
+          )
+        )
+          return true
+        const handle = ctx.agentRuntime?.handleFor(id)
+        if (handle && (await handle.health()).alive) return true
+        const journal = ctx.agentRuntime?.journalledServerProcess(id)
+        if (journal) {
+          if (journal.identity.pid === undefined) return true
+          try {
+            process.kill(journal.identity.pid, 0)
+            return true
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
+          }
+        }
+        return (await durable?.has(ctx.durableLabels.get(id) ?? ctx.durableLabelFor(id))) ?? false
+      }, instance.codexReceiptDir)
+    } finally {
+      reapingBindings = false
+    }
+  }
+  const connected = (
+    _owners?: Readonly<Record<string, string>>,
+    facts?: BindingConfirmations,
+  ): { convergedVersion?: string } => {
+    currentBindingFacts = facts
+    bindingStore.confirmInventory(machineId, facts)
+    if (facts !== undefined) {
+      bindingRecovery = (bindingRecovery ?? Promise.resolve())
+        .then(() =>
+          bindingStore.recoverLegacyState({
+            dir: bindingStore.dir,
+            legacyStateDir: identityStateDir,
+            codexReceiptDir: instance.codexReceiptDir,
+            legacyOwnerForSession: (id) => {
+              const fact = currentBindingFacts?.[id]
+              return !bindingStore.isQuarantined(id) && fact?.owner
+                ? asUserId(fact.owner)
+                : undefined
+            },
+          }),
+        )
+        .then(async () => {
+          await reapBindings()
+          pushHostMetrics()
+          await replayPendingBindingReceipts()
         })
-        startConnectedServices()
-      })
-    void bindingRecovery.catch((err) => log.error('legacy binding recovery blocked', { err }))
+        .catch((err) => log.error('binding recovery failed', { err }))
+    }
+    startConnectedServices()
+    pushHostMetrics()
     const convergedVersion = reconcilePendingUpdate()
     return convergedVersion ? { convergedVersion } : {}
   }
@@ -1532,18 +1585,9 @@ export async function createDaemonHostRuntime(args: {
     agentRelayPort: agentRelay.port,
     portableState: portableStateFence,
     connected,
-    receive: (raw) => {
-      if (!bindingRecovery) return
-      void bindingRecovery
-        .then(() => withHarnessVersionReporting(send, () => frameGuard.receive(raw)))
-        .catch(() => {})
-    },
-    receiveBinaryInput: (metadata, payload) => {
-      if (!bindingRecovery) return
-      void bindingRecovery
-        .then(() => frameGuard.receiveBinaryInput(metadata, payload))
-        .catch(() => {})
-    },
+    bindingSessionIds: () => bindingStore.inventory(instance.codexReceiptDir),
+    receive: (raw) => withHarnessVersionReporting(send, () => frameGuard.receive(raw)),
+    receiveBinaryInput: (metadata, payload) => frameGuard.receiveBinaryInput(metadata, payload),
     close,
   }
 }
