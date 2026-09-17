@@ -12,9 +12,8 @@
  *  2. THE SPLIT-MODE DAEMON. It reads the SAME `<stateDir>/machine.id` the server
  *     read and presents that id in an ordinary `hello`, credentialed by the
  *     loopback bootstrap secret — the same path a remote takes.
- *  3. NO PLACEHOLDER. A session created before any daemon connects is attributed
- *     to the host from the moment it exists, and its queued control messages are
- *     delivered when that host's daemon attaches.
+ *  3. NO PLACEHOLDER. Implicit session placement refuses until an assigned daemon
+ *     is available; local maintenance credentials require explicit fleet placement.
  */
 
 import { createHash } from 'node:crypto'
