@@ -1626,6 +1626,8 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
+  // PINS A KNOWN BUG: invert this assertion when POD-4139 lands; do not delete it.
+
   it('emits duplicate starts when observation and poll report the same turn', async () => {
     const world = makeWorld()
     const profile: TerminalHarnessProfile = { ...GROK, lifecycleFromState: true }

@@ -318,6 +318,9 @@ export const opencodeManifest: AgentManifest = {
       },
     ],
     embedded: unsupported('opencode ships a server, not a library to host in-process'),
+    // Characterization: when the same turn arrives through agentObservation and
+    // poll agentState, both lifecycle arms emit a started event. This known
+    // duplicate is tracked in POD-4139; keep the fact visible until that fix lands.
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
