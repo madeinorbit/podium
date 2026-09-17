@@ -112,4 +112,74 @@ grep -F 'not an orderable published version' "$WORK/unordered.stderr" >/dev/null
 test "$(tr -d '\n\r' < "$UNORDERED_INSTALL/VERSION")" = 0.1.0
 test ! -e "$UNORDERED_INSTALL.old"
 
+echo '== consolidated identities select role pins and reject corrupt state =='
+# A hostile installed Bun must never be needed by this recovery reader.
+mkdir -p "$WORK/bin"
+cp "$INSTALL.old/podium" "$WORK/bin/bun"
+export PATH="$WORK/bin:$PATH"
+export PODIUM_REPAIR_INVOCATION_LOG="$INVOCATION_LOG"
+PIN=$(cat "$WORK/instance-public.b64")
+WRONG_PIN=$(cat "$WORK/wrong-public.b64")
+
+machine_case() {
+  local name=$1 expected=$2 json=$3
+  local state="$WORK/state-$name" install="$WORK/install-$name"
+  mkdir -p "$state"
+  # A valid legacy pin is deliberately present in every failure case.
+  if [ "$name" != supervisor ]; then
+    cp "$WORK/state/daemon.json" "$state/daemon.json"
+  fi
+  printf '%s\n' "$json" > "$state/machine.json"
+  cp "$state/machine.json" "$WORK/$name.before"
+  make_install "$install"
+  if sh "$ROOT/scripts/repair-stranded-update.sh" --artifact "$ARTIFACT" \
+      --state-dir "$state" --install-dir "$install" >"$WORK/$name.log" 2>&1; then
+    test "$expected" = success
+    test "$(cat "$install/VERSION")" = "$VERSION"
+    test "$(cat "$install.old/VERSION")" = 0.1.0
+  else
+    test "$expected" = failure
+    test "$(cat "$install/VERSION")" = 0.1.0
+    test ! -e "$install.old"
+    grep -F 'refusing repair' "$WORK/$name.log"
+  fi
+  cmp "$state/machine.json" "$WORK/$name.before"
+  if [ "$name" = supervisor ]; then
+    test ! -e "$state/daemon.json"
+  else
+    cmp "$state/daemon.json" "$WORK/state/daemon.json"
+  fi
+  test ! -e "$INVOCATION_LOG"
+}
+
+machine_case daemon success \
+  "{\"version\":1,\"machineId\":\"box\",\"importedFiles\":{},\"daemon\":{\"updatePubkey\":\"$PIN\"},\"connectivity\":{\"nested\":{\"updatePubkey\":\"decoy\"}}}"
+machine_case supervisor success \
+  "{\"version\":1,\"machineId\":\"box\",\"importedFiles\":{},\"supervisor\":{\"updatePubkey\":\"$PIN\"}}"
+machine_case matching success \
+  "{\"version\":1,\"machineId\":\"box\",\"importedFiles\":{},\"daemon\":{\"updatePubkey\":\"$PIN\"},\"supervisor\":{\"updatePubkey\":\"$PIN\"}}"
+machine_case conflicting failure \
+  "{\"version\":1,\"machineId\":\"box\",\"importedFiles\":{},\"daemon\":{\"updatePubkey\":\"$PIN\"},\"supervisor\":{\"updatePubkey\":\"$WRONG_PIN\"}}"
+machine_case corrupt failure '{"version":1,'
+machine_case wrong-shape failure '[]'
+machine_case invalid-envelope failure '{"daemon":{}}'
+machine_case missing-pin failure '{"version":1,"machineId":"box","importedFiles":{}}'
+machine_case invalid-section failure '{"version":1,"machineId":"box","importedFiles":{},"daemon":[]}'
+machine_case invalid-pin failure '{"version":1,"machineId":"box","importedFiles":{},"daemon":{"updatePubkey":null}}'
+machine_case duplicate failure \
+  "{\"version\":1,\"machineId\":\"box\",\"importedFiles\":{},\"daemon\":{\"updatePubkey\":\"$WRONG_PIN\",\"updatePubkey\":\"$PIN\"}}"
+
+echo '== broken consolidated symlink never falls back to legacy =='
+rm "$WORK/state-corrupt/machine.json"
+ln -s "$WORK/missing-machine.json" "$WORK/state-corrupt/machine.json"
+if sh "$ROOT/scripts/repair-stranded-update.sh" --artifact "$ARTIFACT" \
+    --state-dir "$WORK/state-corrupt" --install-dir "$WORK/install-corrupt" \
+    >"$WORK/symlink.log" 2>&1; then
+  echo 'FAIL: broken machine.json symlink fell back to legacy identity' >&2
+  exit 1
+fi
+test "$(cat "$WORK/install-corrupt/VERSION")" = 0.1.0
+test ! -e "$WORK/install-corrupt.old"
+test ! -e "$INVOCATION_LOG"
+
 echo 'repair-stranded-update.sh tests passed'
