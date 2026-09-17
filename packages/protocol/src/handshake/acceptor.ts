@@ -258,6 +258,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
             : { legacyBindingOwners: outcome.legacyBindingOwners }),
           ...(outcome.assignedId === undefined ? {} : { assignedId: outcome.assignedId }),
           ...(outcome.issuedToken === undefined ? {} : { issuedToken: outcome.issuedToken }),
+          ...(outcome.enrolledPublicKey === undefined ? {} : { enrolledPublicKey: outcome.enrolledPublicKey }),
           ...(outcome.updatePubkey === undefined ? {} : { updatePubkey: outcome.updatePubkey }),
           ...(outcome.updateKeyRotations === undefined
             ? {}

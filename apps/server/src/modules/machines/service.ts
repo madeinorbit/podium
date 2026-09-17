@@ -170,6 +170,7 @@ export interface PairingCodes {
 }
 
 export interface PairingGrant {
+  installationId?: string
   /** Explicit replacement authority, scoped to this retained identity at mint. */
   replaceMachineId?: MachineId
   replaceIncarnation?: string
@@ -271,6 +272,7 @@ export interface MachinesDeps {
    */
   hostMachineId: MachineId
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
+  installationId?: string
   pairing?: PairingCodes
   /**
    * Enrollment ledger (POD-1114, D19.4) — pairing root, enrollment serials,
@@ -507,6 +509,8 @@ export class MachinesService {
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
    *  the handshake's machine directory has to name the machine the loopback bootstrap
    *  secret belongs to, and taking it from here keeps ONE answer in the process. */
+  get installationId(): string | undefined { return this.deps.installationId }
+
   get hostMachineId(): MachineId {
     return this.deps.hostMachineId
   }
@@ -933,7 +937,7 @@ export class MachinesService {
    * D19.4 verdict when the row is absent).
    */
   async authenticateDaemon(
-    frame: DaemonHandshake,
+    frame: credentials.MachineAuthenticationFrame,
     options: credentials.DaemonAuthenticationOptions = {},
   ): Promise<
     | {
@@ -941,6 +945,7 @@ export class MachinesService {
         machineId: MachineId
         name: string
         token?: string
+        enrolledPublicKey?: string
         pairingGrant?: PairingGrant
         bindingConfirmations?: BindingConfirmations
         legacyBindingOwners?: Readonly<Record<string, string>>

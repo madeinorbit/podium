@@ -749,7 +749,10 @@ export const machines = sqliteTable('machines', {
   id: text().$type<MachineId>().primaryKey(),
   name: text().notNull(),
   hostname: text().notNull(),
+  // Empty token material is required for a keypair; legacy hashes remain until rotation.
   tokenHash: text('token_hash').notNull(),
+  credentialKind: text('credential_kind').$type<'bearer-hash' | 'ed25519'>().notNull().default('bearer-hash'),
+  publicKey: text('public_key'),
   createdAt: text('created_at').notNull(),
   lastSeenAt: text('last_seen_at').notNull(),
   inventoryJson: text('inventory_json'),
@@ -807,7 +810,11 @@ export const machines = sqliteTable('machines', {
   buildReportedAt: text('build_reported_at'),
   // Legacy versioned migration evidence only; current readers derive components from assignment.
   componentsJson: text('components_json'),
-})
+}, (t) => [check('machines_credential_material', sql`(
+  (${t.credentialKind} = 'bearer-hash' AND ${t.tokenHash} <> '' AND ${t.publicKey} IS NULL)
+  OR (${t.credentialKind} = 'ed25519' AND ${t.tokenHash} = '' AND ${t.publicKey} IS NOT NULL
+      AND length(${t.publicKey}) = 51 AND substr(${t.publicKey}, 1, 8) = 'ed25519:')
+)`)] )
 
 export const repos = sqliteTable(
   'repos',

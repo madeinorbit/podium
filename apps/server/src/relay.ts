@@ -275,6 +275,7 @@ interface SessionRegistryOptions {
   /** Inbound daemon pairing codes — a HUB-role capability injected from server
    *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
+  installationId?: string
   pairing?: PairingCodes
   /**
    * Enrollment ledger (POD-1114, D19.4) — pairing root + append-only enrollment,
@@ -750,6 +751,7 @@ export class SessionRegistry {
       hostMachineId: this.store.hostMachineId,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
+      ...(options.installationId ? { installationId: options.installationId } : {}),
       ...(options.enrollment ? { enrollment: options.enrollment } : {}),
       // Quarantine resolution (D19.4b): an owner that no longer has an account row
       // must not keep use, and must not be rewritten to the first admin.

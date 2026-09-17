@@ -9,6 +9,7 @@ export const PairFrame = z.object({
   hostname: z.string(),
   name: z.string().optional(),
   assignment: MachineServiceAssignment.optional(),
+  publicKey: z.string().optional(),
 })
 export const HelloFrame = z.object({
   type: z.literal('hello'),

@@ -759,7 +759,8 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub ? { pairing: new PairingManager() } : {}),
+    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    installationId: installation.installationId,
     updatePubkey: () => updateSigningKey.publicKey,
     // Under `updateScope: 'fleet-only'` this server's binary belongs to the
     // deployment, so the wave planner drops the coordinator row instead of

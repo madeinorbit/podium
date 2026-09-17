@@ -93,6 +93,7 @@ export const PairCodeCredential = z.object({
   /** ADR 5 D5, machine (remote): one-shot pair code from the join token. */
   kind: z.literal('pairCode'),
   code: z.string().min(1),
+  publicKey: z.string().min(1).max(256).optional(),
 })
 
 export const MachineTokenCredential = z.object({
@@ -102,6 +103,34 @@ export const MachineTokenCredential = z.object({
   /** Lookup hint only — see the note on {@link PeerCredential}. */
   machineHint: z.string().min(1).optional(),
 })
+
+/** Challenge request omits proof; a response carries both nonce and signature. */
+export const MachineKeyCredential = z.object({
+  kind: z.literal('machineKey'),
+  machineHint: z.string().min(1),
+  proof: z.object({
+    nonce: z.string().min(1).max(128),
+    installationId: z.string().min(1),
+    connectionId: z.string().min(1),
+    signature: z.string().min(1).max(256),
+  }).optional(),
+})
+
+export const MachineChallenge = z.object({
+  type: z.literal('machineChallenge'),
+  machineId: z.string().min(1),
+  installationId: z.string().min(1),
+  connectionId: z.string().min(1),
+  nonce: z.string().min(1),
+  expiresAtMs: z.number().int(),
+})
+export type MachineChallenge = z.infer<typeof MachineChallenge>
+
+/** Canonical, unambiguous transcript; the signing primitive adds its machine domain. */
+export const machineHelloTranscript = (challenge: Pick<MachineChallenge,
+  'machineId' | 'installationId' | 'connectionId' | 'nonce'>): string =>
+  JSON.stringify(['hello-v1', challenge.machineId, challenge.installationId,
+    challenge.connectionId, challenge.nonce])
 
 export const DelegationRefCredential = z.object({
   /**
@@ -134,6 +163,7 @@ export const PeerCredential = z.discriminatedUnion('kind', [
   DaemonSecretCredential,
   PairCodeCredential,
   MachineTokenCredential,
+  MachineKeyCredential,
   DelegationRefCredential,
   OperatorChannelCredential,
   NodeCredentialReserved,
@@ -317,6 +347,7 @@ export const PeerHelloOk = z.object({
    * long-lived machine token for the peer to persist (ADR 5 D5, remote row).
    */
   issuedToken: z.string().optional(),
+  enrolledPublicKey: z.string().optional(),
   /** The server update-signing key, sent on pairing and every successful reconnect. */
   updatePubkey: z.string().min(1).optional(),
   /** Old-key-signed path to updatePubkey, ordered from oldest to newest. */

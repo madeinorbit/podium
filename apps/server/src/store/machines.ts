@@ -23,6 +23,7 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
+import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
 import type { MachineRecord } from './types'
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: daemon enrollment and compatibility
@@ -342,7 +343,7 @@ export class MachinesRepository {
       }))
       .onConflictDoUpdate({
         target: machines.id,
-        setWhere: isNull(machines.revokedAt),
+        setWhere: and(isNull(machines.revokedAt), eq(machines.credentialKind, 'bearer-hash'), isNull(machines.publicKey)),
         set: {
           name: m.name,
           hostname: m.hostname,
@@ -524,14 +525,22 @@ export class MachinesRepository {
   /** Constant-time token comparison using sha-256 hex. */
   async getMachineByToken(id: string, token: string): Promise<boolean> {
     const row = await this.db
-      .select({ tokenHash: machines.tokenHash, revokedAt: machines.revokedAt })
+      .select({ tokenHash: machines.tokenHash, revokedAt: machines.revokedAt, kind: machines.credentialKind, publicKey: machines.publicKey })
       .from(machines)
       .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt)))
       .get()
-    if (!row || row.revokedAt !== null) return false
+    if (!row || row.revokedAt !== null || row.kind !== 'bearer-hash' || row.publicKey !== null || !row.tokenHash) return false
     const a = Buffer.from(createHash('sha256').update(token).digest('hex'))
     const b = Buffer.from(row.tokenHash)
     return a.length === b.length && timingSafeEqual(a, b)
+  }
+
+  /** The stored discriminator is authoritative; never attempt another credential kind. */
+  async verifyMachineSignature(id: MachineId, transcript: string, signature: string): Promise<boolean> {
+    const row = await this.db.select().from(machines).where(eq(machines.id, id)).get()
+    return !!row && row.revokedAt === null && row.credentialKind === 'ed25519'
+      && row.tokenHash === '' && row.publicKey !== null
+      && verifyWithMachineKey(row.publicKey, transcript, signature)
   }
 
   /** Persist the operator-selected update authority for one managed machine.
@@ -565,19 +574,22 @@ export class MachinesRepository {
 
   /** Internal credential identity used to scope a replacement code; never projected. */
   async credentialIncarnation(id: MachineId): Promise<string | undefined> {
-    return (await this.db.select({ tokenHash: machines.tokenHash }).from(machines)
-      .where(eq(machines.id, id)).get())?.tokenHash
+    const row = await this.db.select().from(machines).where(eq(machines.id, id)).get()
+    if (!row) return undefined
+    return row.credentialKind === 'ed25519' && row.tokenHash === '' ? row.publicKey ?? undefined
+      : row.credentialKind === 'bearer-hash' && row.publicKey === null ? row.tokenHash : undefined
   }
 
   /** One winner: ordinary enrollment cannot overwrite an existing identity. */
   async enrollMachine(m: {
     id: MachineId; name: string; hostname: string; tokenHash: string;
+    credentialKind?: 'bearer-hash' | 'ed25519'; publicKey?: string | null;
     ownerUserId: UserId | null; podiumManaged: boolean;
     assignment: MachineServiceAssignment; assignmentEvidence: z.infer<typeof AssignmentEvidence>;
   }, replaceRevokedAt?: string, replaceIncarnation?: string): Promise<boolean> {
     const now = new Date().toISOString()
     const { assignment, assignmentEvidence, ...identity } = m
-    const enrollment = { ...identity, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
+    const enrollment = { ...identity, credentialKind: identity.credentialKind ?? 'bearer-hash' as const, publicKey: identity.publicKey ?? null, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
     const result = await this.committed.write(async () => replaceRevokedAt === undefined
       ? this.db.insert(machines).values({ ...enrollment, createdAt: now, lastSeenAt: now })
         .onConflictDoNothing().returning().all()
@@ -585,7 +597,7 @@ export class MachinesRepository {
           inventoryJson: null, harnessVersionsJson: null, serviceReportJson: null,
           appVersion: null, wireSchemaDigest: null, deliveryCapsJson: null,
           presenceSource: null, buildReportedAt: null })
-        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), eq(machines.tokenHash, replaceIncarnation ?? '')))
+        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), sql`CASE WHEN ${machines.credentialKind} = 'ed25519' THEN ${machines.publicKey} ELSE ${machines.tokenHash} END = ${replaceIncarnation ?? ''}`))
         .returning().all(), 'upsert')
     return result.changes === 1
   }

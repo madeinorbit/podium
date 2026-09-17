@@ -45,6 +45,7 @@ export type DialerStep =
        * Present exactly once, on the pairing branch: the long-lived machine token
        * this end must PERSIST before doing anything else (ADR 5 D5).
        */
+      readonly enrolledPublicKey?: string
       readonly issuedToken?: string
       /** The server update-signing key to persist alongside the pairing token. */
       readonly updatePubkey?: string
@@ -160,6 +161,7 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
           : { legacyBindingOwners: reply.legacyBindingOwners }),
         ...(reply.name === undefined ? {} : { name: reply.name }),
         ...(reply.issuedToken === undefined ? {} : { issuedToken: reply.issuedToken }),
+          ...(reply.enrolledPublicKey === undefined ? {} : { enrolledPublicKey: reply.enrolledPublicKey }),
         ...(reply.updatePubkey === undefined ? {} : { updatePubkey: reply.updatePubkey }),
         ...(reply.updateKeyRotations === undefined
           ? {}

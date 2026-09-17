@@ -1,10 +1,9 @@
 import type { MachineId, UserId } from '@podium/model'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { createLogger } from '@podium/logger'
+import { parseWirePublicKey } from '@podium/runtime/signing'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
 import {
-  mintPairingToken,
-  newLedgerTxnId,
   type PairingTokenClaims,
   verdictForMissingRow,
   verifyPairingToken,
@@ -52,6 +51,12 @@ export function sha256(s: string): string {
  * checks precede code consumption; conditional storage supplies a second fence.
  * Hello checks the current, non-revoked credential and never recovers over a row.
  */
+/** A key proof is supplied only by the gateway after consuming its connection nonce.
+ * It is not a wire field on legacy hello; that parser never admits it. */
+export type MachineAuthenticationFrame = DaemonHandshake & {
+  keyProof?: { transcript: string; signature: string }
+}
+
 export interface DaemonAuthenticationOptions {
   readonly bindingSessionIds?: readonly string[]
   /** Authenticate existing durable identity without mutating its projection. */
@@ -77,13 +82,13 @@ export async function withMachineTransition<T>(host: EnrollmentHost, id: Machine
   }
 }
 
-export async function authenticateDaemon(host: EnrollmentHost, frame: DaemonHandshake, options: DaemonAuthenticationOptions = {}) {
+export async function authenticateDaemon(host: EnrollmentHost, frame: MachineAuthenticationFrame, options: DaemonAuthenticationOptions = {}) {
   return withMachineTransition(host, frame.machineId, () => authenticateDaemonUnlocked(host, frame, options))
 }
 
 async function authenticateDaemonUnlocked(
   host: EnrollmentHost,
-  frame: DaemonHandshake,
+  frame: MachineAuthenticationFrame,
   options: DaemonAuthenticationOptions = {},
 ):
   Promise<| {
@@ -91,6 +96,7 @@ async function authenticateDaemonUnlocked(
       machineId: MachineId
       name: string
       token?: string
+      enrolledPublicKey?: string
       pairingGrant?: PairingGrant
       updatePubkey?: string
       updateKeyRotations?: readonly UpdateKeyRotation[]
@@ -105,6 +111,9 @@ async function authenticateDaemonUnlocked(
     // No pairing manager = node role: this server is not a rendezvous point,
     // so new machines can't join it. Returning daemons (`hello`) still work.
     if (!deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
+    if (!frame.publicKey || !parseWirePublicKey(frame.publicKey)) {
+      return { ok: false, reason: 'valid machine public key required' }
+    }
     // Existence check BEFORE redeem: a collision must not burn a single-use code.
     // The peer proposed this id; the directory decides, and an existing row is a
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
@@ -126,14 +135,19 @@ async function authenticateDaemonUnlocked(
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
-    const ownerUserId = pairingGrant.ownerUserId ?? null
-    const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
-    if (existing) host.retireIncarnation(frame.machineId)
+    const ownerUserId = pairingGrant.ownerUserId
+    if (!ownerUserId || !deps.installationId || pairingGrant.installationId !== deps.installationId) {
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
     const now = new Date().toISOString()
-    const tokenHash = sha256(token)
+    const publicKey = frame.publicKey
     const enrolled = await deps.store.transact(async () => {
+      // Re-read in the enrollment transaction: minting a code does not freeze eligibility.
+      const member = await deps.store.users.get(ownerUserId)
+      if (!member || (existing && existing.ownerUserId !== ownerUserId && member.role !== 'admin')) return false
       const changed = await deps.store.machines.enrollMachine({
-        id: frame.machineId, name, hostname: frame.hostname, tokenHash,
+        id: frame.machineId, name, hostname: frame.hostname, tokenHash: '',
+        credentialKind: 'ed25519', publicKey,
         ownerUserId, podiumManaged: pairingGrant.podiumManaged ?? true,
         assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
         assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
@@ -147,21 +161,22 @@ async function authenticateDaemonUnlocked(
       return changed
     })
     if (!enrolled) return { ok: false, reason: 'machine id already registered' }
-    if (ownerUserId === null) log.warn('machine unowned', {
-      machineId: frame.machineId, reason: 'pairing code has no personal grantee',
-    })
+    if (existing) host.retireIncarnation(frame.machineId)
 
     return {
       ok: true,
       machineId: frame.machineId,
       name,
-      token,
+      enrolledPublicKey: publicKey,
       pairingGrant,
       ...(updatePubkey === undefined ? {} : { updatePubkey }),
       ...(updateKeyRotations === undefined ? {} : { updateKeyRotations }),
     }
   }
-  if (await deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
+  const verified = frame.keyProof
+    ? await deps.store.machines.verifyMachineSignature(frame.machineId, frame.keyProof.transcript, frame.keyProof.signature)
+    : await deps.store.machines.getMachineByToken(frame.machineId, frame.token)
+  if (verified) {
     const row = await deps.store.machines.getMachine(frame.machineId)
     if (!row || row.revokedAt) return { ok: false, reason: HELLO_DENIED_REASON }
     if (
@@ -181,54 +196,13 @@ async function authenticateDaemonUnlocked(
       ...(updateKeyRotations ? { updateKeyRotations } : {}),
     }
   }
+  if (frame.keyProof) return { ok: false, reason: HELLO_DENIED_REASON }
   // A retained row is authoritative: never recover a rejected incarnation over it.
   if (await deps.store.machines.getMachine(frame.machineId)) return { ok: false, reason: HELLO_DENIED_REASON }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
   // Verify-only may authenticate durable reality but may not reconstruct it.
   if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
   return await helloMissingRow(host, frame)
-}
-
-/**
- * Mint a root-verifiable token and record enrollment in the ledger. Without an
- * enrollment ledger (socket-only fixtures), falls back to a random UUID so
- * existing unit tests that never open a state root keep working.
- */
-function mintEnrolledToken(
-  host: EnrollmentHost,
-  machineId: MachineId,
-  ownerUserId: UserId | null,
-): string {
-  const ledger = host.deps.enrollment
-  if (!ledger) return randomUUID()
-  const serial = ledger.nextSerial(machineId)
-  const token = mintPairingToken(ledger.pairingRoot, { machineId, serial })
-  appendEnrollment(host, machineId, serial, ownerUserId)
-  return token
-}
-
-/**
- * The one enrollment commit path for paired and server-host machines. Keeping
- * the append here makes ledger provenance mean the same thing regardless of
- * which trusted credential provisioner established it.
- */
-function appendEnrollment(
-  host: EnrollmentHost,
-  machineId: MachineId,
-  serial: number,
-  ownerUserId: UserId | null,
-): void {
-  const ledger = host.deps.enrollment
-  if (!ledger) return
-  // Ledger append is the enrollment commit point (D19.4d). Failure aborts pair.
-  const ok = ledger.appendEnroll({
-    id: newLedgerTxnId(),
-    machineId,
-    serial,
-    ownerUserId,
-    at: new Date().toISOString(),
-  })
-  if (!ok) throw new Error('enrollment ledger refused the enroll append')
 }
 
 /**

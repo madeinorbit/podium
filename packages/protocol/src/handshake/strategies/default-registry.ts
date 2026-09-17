@@ -18,6 +18,7 @@ import { createAgentRelayStrategy } from './agent-relay-delegation'
 import { createConsoleCookieStrategy } from './console-cookie'
 import { createMachineLocalSecretStrategy } from './machine-local-secret'
 import { createMachinePairCodeStrategy } from './machine-pair-code'
+import { createMachineKeyStrategy } from './machine-key'
 import { createMachineTokenStrategy } from './machine-token'
 import { createNodeReservedStrategy } from './node-reserved'
 import { createOperatorChannelStrategy } from './operator-channel'
@@ -60,6 +61,9 @@ export const createDefaultAuthRegistry = (ports: StrategyPorts): AuthStrategyReg
     ports.machines === undefined
       ? unavailableStrategy('machine', 'machineToken', 'MachineDirectory')
       : createMachineTokenStrategy({ machines: ports.machines, mint: ports.mint }),
+    ports.machines === undefined
+      ? unavailableStrategy('machine', 'machineKey', 'MachineDirectory')
+      : createMachineKeyStrategy({ machines: ports.machines, mint: ports.mint }),
     // node — ADR 5 D5 row 4: reserved, inert, refuses
     createNodeReservedStrategy(),
     // agent relay — ADR 3 Am.1 D14, NOT a peer role (ADR 5 D7 keeps them apart)

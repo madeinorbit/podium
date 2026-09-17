@@ -49,6 +49,7 @@ export const createMachinePairCodeStrategy = (
   name: 'machine-pair-code',
   authenticate({ credential, hello, transport }: AuthInput<Credential>): AuthOutcome {
     const paired = deps.machines.redeemPairCode(credential.code, {
+      ...(credential.publicKey === undefined ? {} : { publicKey: credential.publicKey }),
       // A brand-new machine has no prior identity to authenticate, so these are
       // its REQUEST. The directory decides what row results (see PairingRequest).
       ...(hello.claims?.machineId === undefined
@@ -78,6 +79,7 @@ export const createMachinePairCodeStrategy = (
       // Handed back exactly once; the peer persists it and reconnects with the
       // machine-token strategy from then on.
       issuedToken: paired.issuedToken,
+      enrolledPublicKey: paired.enrolledPublicKey,
       ...(paired.updatePubkey === undefined ? {} : { updatePubkey: paired.updatePubkey }),
       ...(paired.updateKeyRotations === undefined
         ? {}

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 /**
  * THE GATEWAY'S HANDSHAKE COMPOSITION ROOT — where `wsServer` meets the shared
  * framing of ADR 5 D3 and the strategy modules of D5.
@@ -27,6 +28,8 @@ import {
   isLegacyDaemonFrame,
   legacyReplyFor,
   type MachinePrincipal,
+  type MachineChallenge,
+  localVersionSupport,
   type PeerBuild,
   PeerHello,
   type PeerHelloReply,
@@ -75,6 +78,8 @@ interface ResolvedDaemonAcceptorDeps {
 export interface PreparedDaemonAcceptor {
   readonly kind: 'preparedDaemonAcceptor'
   readonly deps: DaemonAcceptorDeps
+  challenge?: MachineChallenge
+  challenged?: boolean
 }
 
 /**
@@ -139,6 +144,7 @@ export const createMachineSupervisorAcceptor = (
 
 export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }
+  | { readonly kind: 'challenge'; readonly reply: MachineChallenge }
   | {
       readonly kind: 'established'
       /**
@@ -249,6 +255,37 @@ export async function prepareDaemonFrame(
     decoded = null
   }
   const inventoryHello = PeerHello.safeParse(decoded)
+  if (inventoryHello.success && inventoryHello.data.credential.kind === 'machineKey') {
+    const hello = inventoryHello.data
+    const credential = inventoryHello.data.credential
+    const refuse = (): PreparedDaemonFrame => ({ outcome: { kind: 'rejected',
+      reply: { type: 'peerHelloRejected', reason: 'auth-failed' } } })
+    const support = localVersionSupport()
+    if ((hello.peerRole !== undefined && hello.peerRole !== 'machine')
+      || hello.v < support.min || hello.v > support.wire) return refuse()
+    if (!credential.proof) {
+      if (prepared.challenged || !prepared.deps.machines.installationId) return refuse()
+      prepared.challenged = true
+      const challenge: MachineChallenge = {
+        type: 'machineChallenge', machineId: credential.machineHint,
+        installationId: prepared.deps.machines.installationId,
+        connectionId: prepared.deps.connectionId,
+        nonce: randomBytes(32).toString('base64url'), expiresAtMs: Date.now() + 30_000,
+      }
+      prepared.challenge = challenge
+      return { outcome: { kind: 'challenge', reply: challenge } }
+    }
+    const challenge = prepared.challenge
+    // Consume before any async work, including a failed signature verification.
+    delete prepared.challenge
+    if (!challenge || Date.now() >= challenge.expiresAtMs
+      || challenge.machineId !== credential.machineHint
+      || challenge.installationId !== prepared.deps.machines.installationId
+      || challenge.installationId !== credential.proof.installationId
+      || challenge.connectionId !== prepared.deps.connectionId
+      || challenge.connectionId !== credential.proof.connectionId
+      || challenge.nonce !== credential.proof.nonce) return refuse()
+  }
   const carried = {
     ...(inventoryHello.success && inventoryHello.data.bindingSessionIds !== undefined
       ? { bindingSessionIds: inventoryHello.data.bindingSessionIds }

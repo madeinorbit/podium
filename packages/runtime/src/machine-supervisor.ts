@@ -21,6 +21,9 @@ import {
 } from '@podium/model'
 import {
   createHandshakeDialer,
+  MachineChallenge,
+  machineHelloTranscript,
+  type PeerHello,
   MachineSupervisorControlMessage,
   type MachineSupervisorMessage,
   type PeerBuild,
@@ -32,6 +35,7 @@ import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-t
 import { writeConnectivity } from './connectivity'
 import { stateDir, type PodiumConfig } from './config'
 import type { MachineUpdateAuthority } from './machine-update'
+import { createMachineCredential, readMachineCredential, machinePublicKeyWire, signWithMachine } from './machine-credential'
 import { workspaceEndpoint } from './workspace-target'
 
 const log = createLogger('runtime:machine-supervisor')
@@ -49,6 +53,7 @@ export interface SupervisorState {
   workspaceId?: string
   machineId: MachineId
   token?: string
+  enrolledPublicKey?: string
   updatePubkey?: string
   assignment?: MachineServiceAssignment
   /**
@@ -74,6 +79,7 @@ function parseState(raw: unknown): SupervisorState | null {
     machineId: asMachineId(value.machineId),
     ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}),
     ...(typeof value.token === 'string' ? { token: value.token } : {}),
+    ...(typeof value.enrolledPublicKey === 'string' ? { enrolledPublicKey: value.enrolledPublicKey } : {}),
     ...(typeof value.updatePubkey === 'string' ? { updatePubkey: value.updatePubkey } : {}),
     ...(assignment.success ? { assignment: assignment.data } : {}),
     ...(typeof value.generation === 'number' && Number.isSafeInteger(value.generation)
@@ -336,10 +342,17 @@ export function createMachineSupervisorConnection(
   const credential = (): PeerCredential => {
     const bootstrapToken =
       typeof deps.bootstrapToken === 'function' ? deps.bootstrapToken() : deps.bootstrapToken
+    if (deps.state.enrolledPublicKey) {
+      const key = readMachineCredential(deps.stateDir)
+      if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey) throw new Error('enrolled machine key unavailable')
+      return { kind: 'machineKey', machineHint: deps.state.machineId }
+    }
     if (bootstrapToken) return { kind: 'daemonSecret', secret: bootstrapToken }
     if (deps.state.token)
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
-    if (deps.pairCode) return { kind: 'pairCode', code: deps.pairCode }
+    if (deps.pairCode) return { kind: 'pairCode', code: deps.pairCode,
+      publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)) }
+    if (readMachineCredential(deps.stateDir)) return { kind: 'machineKey', machineHint: deps.state.machineId }
     throw new Error('machine supervisor has no credential; pair it first')
   }
 
@@ -347,8 +360,14 @@ export function createMachineSupervisorConnection(
     issuedToken?: string,
     updatePubkey?: string,
     rotations: readonly UpdateKeyRotation[] = [],
+    enrolledPublicKey?: string,
   ): boolean => {
-    if (issuedToken) deps.state.token = issuedToken
+    if (enrolledPublicKey) {
+      const key = readMachineCredential(deps.stateDir)
+      if (!key || machinePublicKeyWire(key) !== enrolledPublicKey) return false
+      deps.state.enrolledPublicKey = enrolledPublicKey
+      delete deps.state.token
+    } else if (issuedToken) deps.state.token = issuedToken
     if (updatePubkey !== undefined) {
       if (
         deps.state.updatePubkey &&
@@ -361,7 +380,7 @@ export function createMachineSupervisorConnection(
     }
     deps.state.assignment = loadSupervisorState(deps.stateDir).assignment
     saveSupervisorState(deps.stateDir, deps.state)
-    if (issuedToken) deps.onPaired?.()
+    if (issuedToken || enrolledPublicKey) deps.onPaired?.()
     return true
   }
 
@@ -386,6 +405,8 @@ export function createMachineSupervisorConnection(
   const connect = (): void => {
     if (closed) return
     let dialer: ReturnType<typeof createHandshakeDialer>
+    let hello: PeerHello | undefined
+    let challengeAnswered = false
     try {
       dialer = createHandshakeDialer({
         peerRole: 'machine',
@@ -413,13 +434,28 @@ export function createMachineSupervisorConnection(
     const active = new WebSocket(workspaceEndpoint(activeServerUrl, '/machine', resolveWorkspaceId()))
     socket = active
     active.addEventListener('open', () => {
-      if (socket === active) active.send(JSON.stringify(dialer.hello()))
+      if (socket === active) { hello = dialer.hello(); active.send(JSON.stringify(hello)) }
     })
     active.addEventListener('message', (event) => {
       if (socket !== active) return
+      let decoded: unknown
+      try { decoded = JSON.parse(String(event.data)) } catch { decoded = null }
+      const challenge = MachineChallenge.safeParse(decoded)
+      if (challenge.success) {
+        if (connected || challengeAnswered || hello?.credential.kind !== 'machineKey'
+          || challenge.data.machineId !== deps.state.machineId) { active.close(); return }
+        const key = readMachineCredential(deps.stateDir)
+        if (!key) { active.close(); return }
+        challengeAnswered = true
+        const { nonce, installationId, connectionId } = challenge.data
+        active.send(JSON.stringify({ ...hello, credential: { ...hello.credential,
+          proof: { nonce, installationId, connectionId,
+            signature: signWithMachine(key, machineHelloTranscript(challenge.data)) } } }))
+        return
+      }
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
-        if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations)) {
+        if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations, step.enrolledPublicKey)) {
           active.close()
           return
         }

@@ -26,7 +26,8 @@ import {
 } from './machine-supervisor'
 import { loadConfig, saveConfig } from './config'
 import { readConnectivityForTest } from './connectivity'
-import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
+import { readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
+import { SERVER_MOVE_CAPABILITY, wireSchemaDigest, machineHelloTranscript } from '@podium/protocol'
 
 const dirs: string[] = []
 
@@ -538,5 +539,61 @@ describe('supervisor endpoint reconfiguration', () => {
     } finally {
       connection.close()
     }
+  })
+})
+
+
+describe('supervisor keypair enrollment and hello', () => {
+  it('enrolls only its public key and signs a fresh connection challenge on reconnect', () => {
+    vi.useFakeTimers()
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static all: Socket[] = []
+      readyState = 1
+      sent: Array<Record<string, any>> = []
+      constructor(readonly url: string) { super(); Socket.all.push(this) }
+      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      close() {}
+      open() { this.dispatchEvent(new Event('open')) }
+      message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
+      drop() { this.dispatchEvent(new Event('close')) }
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
+    const onPaired = vi.fn()
+    const connection = createMachineSupervisorConnection({
+      serverUrl: 'ws://coordinator.example', pairCode: 'PAIR-CODE', stateDir: dir, state,
+      build: { appVersion: 'test' }, deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(), onPaired,
+    })
+    try {
+      connection.start()
+      const first = Socket.all[0]!
+      first.open()
+      const key = readMachineCredential(dir)!
+      const publicKey = machinePublicKeyWire(key)
+      expect(first.sent[0]!.credential).toEqual({ kind: 'pairCode', code: 'PAIR-CODE', publicKey })
+      expect(JSON.stringify(first.sent)).not.toContain(key.privateKey)
+      first.message({ type: 'peerHelloOk', v: first.sent[0]!.v, caps: [], enrolledPublicKey: publicKey })
+      expect(onPaired).toHaveBeenCalledOnce()
+      expect(loadSupervisorState(dir).enrolledPublicKey).toBe(publicKey)
+      expect(loadSupervisorState(dir).token).toBeUndefined()
+      first.drop()
+      vi.advanceTimersByTime(600)
+      const second = Socket.all[1]!
+      second.open()
+      expect(second.sent[0]!.credential).toEqual({ kind: 'machineKey', machineHint: state.machineId })
+      const challenge = { type: 'machineChallenge', machineId: state.machineId,
+        installationId: 'installation', connectionId: 'connection', nonce: 'random-nonce', expiresAtMs: Date.now() + 30_000 }
+      second.message(challenge)
+      const credential = second.sent[1]!.credential
+      expect(credential.kind).toBe('machineKey')
+      expect(verifyWithMachineKey(publicKey, machineHelloTranscript(challenge), credential.proof.signature)).toBe(true)
+      expect(verifyWithMachineKey(publicKey, machineHelloTranscript({ ...challenge, connectionId: 'other' }), credential.proof.signature)).toBe(false)
+      second.message(challenge)
+      expect(second.sent).toHaveLength(2)
+    } finally { connection.close() }
   })
 })

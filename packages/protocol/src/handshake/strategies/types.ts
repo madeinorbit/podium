@@ -65,6 +65,7 @@ export type AuthOutcome =
       readonly ok: true
       readonly principal: Principal
       /** Set only by the pairing branch: a minted token the peer must persist. */
+      readonly enrolledPublicKey?: string
       readonly issuedToken?: string
       /** Current server update key; the daemon persists it only when pairing issues a token. */
       readonly updatePubkey?: string
@@ -151,6 +152,10 @@ export interface ResolvedClientSession {
  * is {@link machineUseAllowed}, and it fails closed.
  */
 export interface MachineDirectory {
+  verifyMachineKey?(
+    credential: Extract<import('../envelope').PeerCredential, { kind: 'machineKey' }>,
+    observed?: PeerObservations,
+  ): ResolvedMachine | null
   /** ADR 5 D5, machine (local): verify the shared host secret. */
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null
   /** ADR 5 D5, machine (remote reconnect): verify a long-lived machine token. */
@@ -188,6 +193,7 @@ export interface PeerObservations {
  * rebind an existing row (server refuses pair when the id is already registered).
  */
 export interface PairingRequest {
+  readonly publicKey?: string
   readonly machineId?: MachineId
   readonly name?: string
   readonly hostname?: string
@@ -219,7 +225,8 @@ export interface ResolvedMachine {
 
 export interface PairedMachine extends ResolvedMachine {
   /** Handed to the peer exactly once; the peer persists it. */
-  readonly issuedToken: string
+  readonly issuedToken?: string
+  readonly enrolledPublicKey?: string
 }
 
 export type MachineVerb = 'see' | 'use' | 'manage'

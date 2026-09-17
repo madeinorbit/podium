@@ -239,6 +239,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       const outcome = prepared.outcome
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
+      if (outcome.kind === 'challenge') { ws.send(JSON.stringify(outcome.reply)); return }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         // Terminal at the daemon (`daemon.ts` treats helloRejected / pairRejected as
@@ -506,6 +507,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     resolved = prepared.acceptor ?? resolved
     const outcome = prepared.outcome
     if (principal === undefined) {
+      if (outcome.kind === 'challenge') { sendEncoded(outcome.reply); return }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         sendEncoded(outcome.reply)

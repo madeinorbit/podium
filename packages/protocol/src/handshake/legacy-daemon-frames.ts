@@ -84,6 +84,8 @@ export const legacyReplyFor = (
       ? { type: 'pairRejected', reason }
       : { type: 'helloRejected', reason }
   }
+  if (frame.type === 'pair' && !reply.issuedToken)
+    return { type: 'pairRejected', reason: 'update required for keypair enrollment' }
   if (frame.type === 'pair')
     return {
       type: 'paired',

@@ -19,6 +19,7 @@
  * POD-1079 fills them in without touching the handshake.
  */
 
+import { machineHelloTranscript } from '@podium/protocol'
 import { asMachineId, type MachineId } from '@podium/model'
 import type {
   BindingConfirmations,
@@ -36,6 +37,8 @@ export interface MachineAuthenticationInput {
   code?: string
   machineId: MachineId
   token?: string
+  publicKey?: string
+  keyProof?: { transcript: string; signature: string }
   hostname: string
   name?: string
   assignment?: import('@podium/model').MachineServiceAssignment
@@ -49,6 +52,7 @@ export type MachineAuthenticationResult =
       machineId: MachineId
       name: string
       token?: string
+      enrolledPublicKey?: string
       pairingGrant?: PairingGrant
       updatePubkey?: string
       updateKeyRotations?: readonly UpdateKeyRotation[]
@@ -65,6 +69,7 @@ export interface MachineAuthenticator {
    *  written as a constant here: the directory must not be a second opinion about who
    *  the host is, and there is no id in this process that is not minted material. */
   readonly hostMachineId: MachineId
+  readonly installationId?: string
   authenticateDaemon(
     frame: MachineAuthenticationInput,
     options?: MachineDirectoryOptions,
@@ -209,6 +214,7 @@ export const createMachineDirectory = (
       {
         type: 'pair',
         code,
+        ...(request.publicKey === undefined ? {} : { publicKey: request.publicKey }),
         machineId: request.machineId,
         hostname: request.hostname ?? request.machineId,
         ...(request.assignment === undefined ? {} : { assignment: request.assignment }),
@@ -216,7 +222,7 @@ export const createMachineDirectory = (
       },
       options,
     )
-    if (!auth.ok || auth.token === undefined) return null
+    if (!auth.ok || (auth.token === undefined && auth.enrolledPublicKey === undefined)) return null
     return {
       ...resolved(
         auth.machineId,
@@ -228,6 +234,7 @@ export const createMachineDirectory = (
         auth.bindingConfirmations,
       ),
       issuedToken: auth.token,
+      enrolledPublicKey: auth.enrolledPublicKey,
     }
   },
 })
@@ -264,6 +271,17 @@ export const createResolvedMachineDirectory = (
       : null
   },
 
+  verifyMachineKey(credential, observed) {
+    if (!credential.proof) return null
+    const auth = machines.authenticateDaemon({
+      type: 'hello', machineId: asMachineId(credential.machineHint), token: '',
+      hostname: observed?.hostname ?? credential.machineHint,
+      keyProof: { transcript: machineHelloTranscript({ machineId: credential.machineHint, ...credential.proof }), signature: credential.proof.signature },
+    }, options)
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey,
+      auth.updateKeyRotations, auth.legacyBindingOwners, auth.bindingConfirmations) : null
+  },
+
   verifyMachineToken(
     token: string,
     machineHint?: string,
@@ -298,6 +316,7 @@ export const createResolvedMachineDirectory = (
       {
         type: 'pair',
         code,
+        ...(request.publicKey === undefined ? {} : { publicKey: request.publicKey }),
         machineId: request.machineId,
         hostname: request.hostname ?? request.machineId,
         ...(request.assignment === undefined ? {} : { assignment: request.assignment }),
@@ -305,7 +324,7 @@ export const createResolvedMachineDirectory = (
       },
       options,
     )
-    if (!auth.ok || auth.token === undefined) return null
+    if (!auth.ok || (auth.token === undefined && auth.enrolledPublicKey === undefined)) return null
     return {
       ...resolved(
         auth.machineId,
@@ -317,6 +336,7 @@ export const createResolvedMachineDirectory = (
         auth.bindingConfirmations,
       ),
       issuedToken: auth.token,
+      enrolledPublicKey: auth.enrolledPublicKey,
     }
   },
 })
