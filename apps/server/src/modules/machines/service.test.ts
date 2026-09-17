@@ -1002,7 +1002,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('admin SEE discloses management and health but no USE detail; agent scope only narrows', async () => {
     const { svc, dir } = await transferWorld()
     try {
-      const inventory: Inventory = { os: 'linux', arch: 'x64', agents: [{ kind: 'claude', installed: true, path: '/private/bin/claude', login: { state: 'in', account: 'private@example.com' } }], tools: [] }
+      const inventory: Inventory = { os: 'linux', arch: 'x64', agents: [{ kind: 'claude-code', installed: true, path: '/private/bin/claude', login: { state: 'in', account: 'private@example.com' } }], tools: [] }
       await svc.recordInventory(MACHINE, inventory)
       const principal: CommandPrincipal = { kind: 'user', user: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' } } }
       const ownership: MachineOwnershipIndex = { rowFor: (id) => id === MACHINE ? { machine: id, owner: asUserId(OWNER_A), grants: [], daemonAssigned: true, daemonAvailable: true } : undefined }
