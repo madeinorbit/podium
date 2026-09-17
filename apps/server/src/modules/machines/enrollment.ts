@@ -137,12 +137,6 @@ export async function authenticateDaemon(
     }
   }
   if (await deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
-    // Even with a live row, a ledger revoke that outranks the token must win
-    // (crash-after-append / DB rollback of the tombstone — D19.4a / D19.4d).
-    if (isTokenRevoked(host, frame.machineId, frame.token)) {
-      logVerdict(host, 'revoked', frame.machineId)
-      return { ok: false, reason: HELLO_DENIED_REASON }
-    }
     const row = await deps.store.machines.getMachine(frame.machineId)
     if (!row) return { ok: false, reason: HELLO_DENIED_REASON }
     if (
@@ -208,52 +202,6 @@ function appendEnrollment(
     at: new Date().toISOString(),
   })
   if (!ok) throw new Error('enrollment ledger refused the enroll append')
-}
-
-/**
- * Establish durable enrollment provenance for the trusted server host.
- *
- * A fresh host appends through the same commit path as pairing. A promoted
- * host already has active pairing provenance and keeps its recorded owner.
- * Reboot is a no-op. Revocation wins permanently until an explicit re-pair
- * appends a newer serial; boot must never turn an old enroll line (or a forged
- * database row with no enroll line) into fresh authority.
- */
-export async function ensureHostEnrollment(
-  host: EnrollmentHost,
-  machineId: MachineId,
-  initialOwnerUserId: UserId | null,
-): Promise<UserId | null> {
-  const ledger = host.deps.enrollment
-  if (!ledger) return initialOwnerUserId
-
-  if (ledger.isActivelyEnrolled(machineId)) {
-    const recordedOwner = ledger.recordedOwner(machineId)
-    if (recordedOwner === undefined) {
-      throw new Error(`host machine '${machineId}' has enrollment without an owner record`)
-    }
-    return await resolveOwnerForRecovery(host, recordedOwner)
-  }
-
-  // Any prior serial or revoke is durable negative evidence. In particular, a
-  // revoke-without-row must not be bypassed by ordinary server boot.
-  if (ledger.nextSerial(machineId) > 1 || ledger.revokeSerial(machineId) !== undefined) {
-    throw new Error(`host machine '${machineId}' enrollment is revoked`)
-  }
-
-  appendEnrollment(host, machineId, 1, initialOwnerUserId)
-  return await resolveOwnerForRecovery(host, initialOwnerUserId)
-}
-
-function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: string): boolean {
-  const ledger = host.deps.enrollment
-  if (!ledger) return false
-  const claims = verifyPairingToken(ledger.pairingRoot, token)
-  // Non-root tokens (host bootstrap secret, pre-upgrade UUID) have no serial
-  // in this ledger; they cannot be re-enrolled and are not ledger-revoked here.
-  if (!claims || claims.machineId !== machineId) return false
-  const revokedAt = ledger.revokeSerial(machineId)
-  return revokedAt !== undefined && revokedAt >= claims.serial
 }
 
 /**
@@ -369,81 +317,16 @@ function logVerdict(
   })
 }
 
-/**
- * Project ledger owners (and revocations) onto the machines table.
- * Ledger-first commit point (D19.4d): after a crash between append and row
- * update, boot repair makes the NEW owner effective with no manual step.
- * Also drops rows whose enrollment has been revoked at a serial that covers
- * the stored credential when we can tell — projection of the revoke append.
- */
-export async function reconcileOwnersFromLedger(host: EnrollmentHost): Promise<void> {
-  const ledger = host.deps.enrollment
-  if (!ledger) return
-  for (const machineId of ledger.enrolledMachineIds()) {
-    const row = await host.deps.store.machines.getMachine(machineId)
-    const revokedAt = ledger.revokeSerial(machineId)
-    const lastSerial = ledger.nextSerial(machineId) - 1
-    // A revoke at serial S covers every token with serial <= S. If the latest
-    // enroll serial is still covered, the machine is revoked and the row is a
-    // stale projection — remove it (grants die with it).
-    if (revokedAt !== undefined && lastSerial > 0 && revokedAt >= lastSerial) {
-      if (row) {
-        await host.deps.store.grants.removeAllForResource('machine', machineId)
-        await host.deps.store.machines.deleteMachine(machineId)
-      }
-      continue
-    }
-    if (!row) continue
-    const recorded = ledger.recordedOwner(machineId)
-    if (recorded === undefined) continue
-    const resolved = await resolveOwnerForRecovery(host, recorded)
-    if (row.ownerUserId !== resolved) {
-      await host.deps.store.machines.setMachineOwner(machineId, resolved)
-      if (resolved === null) log.warn('machine unowned', {
-        machineId,
-        reason: recorded === null ? 'no recorded personal grantee' : 'recorded personal grantee no longer exists',
-      })
-    }
-  }
-}
-
-/**
- * Ownership transfer — ledger append is the commit point (D19.4d).
- *
- * Ordering: append first; only then project onto `machines.owner`. Failure of
- * the append leaves the old owner effective and throws. Crash after append,
- * before the row write, is repaired by {@link reconcileOwnersFromLedger} on
- * the next boot (and the NEW owner is already effective for any check that
- * re-reads the ledger first — see {@link effectiveOwner}).
- *
- * `opts.skipRowUpdate` is the crash-injection seam for the required
- * regression sequence #5; production callers never pass it.
- */
+/** Database-owned ownership transfer. */
 export async function transferOwnership(
   host: EnrollmentHost,
   machineId: MachineId,
   newOwnerUserId: UserId,
   opts: { skipRowUpdate?: boolean; txnId?: string } = {},
 ): Promise<void> {
-  const ledger = host.deps.enrollment
-  if (!ledger) throw new Error('ownership transfer requires the enrollment ledger')
-  const row = await host.deps.store.machines.getMachine(machineId)
-  if (!row) throw new Error(`unknown machine '${machineId}'`)
-  const txnId = opts.txnId ?? newLedgerTxnId()
-  const appended = ledger.appendOwner({
-    id: txnId,
-    machineId,
-    ownerUserId: newOwnerUserId,
-    at: new Date().toISOString(),
-  })
-  // Idempotent retry: a re-append of the same id is a no-op but the row may
-  // still need projecting.
-  if (!appended && ledger.recordedOwner(machineId) !== newOwnerUserId) {
-    throw new Error('ownership transfer ledger append failed')
-  }
+  if (!(await host.deps.store.machines.getMachine(machineId))) throw new Error(`unknown machine '${machineId}'`)
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
-
   await host.broadcastMachines()
 }
 
@@ -474,7 +357,7 @@ export async function transferMachineOwnership(
   }
   // An unknown or unreadable recipient is REFUSED rather than written. The
   // projection would otherwise record an owner `userExists` cannot resolve,
-  // and the next `reconcileOwnersFromLedger` would quarantine the machine
+  // and a later database read would otherwise expose stale grants
   // (owner null, usable by nobody) — a typo silently bricking someone's Mac.
   //
   // `?.` — a deps bundle with no `userExists` resolves to `undefined`, which
@@ -514,10 +397,14 @@ export async function transferMachineOwnership(
  * reachable from more than one transport must not depend on every one of them
  * remembering.
  */
+export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
+  return (await host.deps.store.machines.getMachine(machineId))?.ownerUserId
+}
+
 export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId): Promise<void> {
   const machine = await host.deps.store.machines.getMachine(id)
   if (!machine) throw new Error(`unknown machine '${id}'`)
-  // THE LEDGER DECIDES, not `machine.ownerUserId`. The row is a projection
+  // The database row is the ownership authority.
   // (D19.4d) and this is the one question adoption must not ask it: a row
   // still showing a stale owner between a transfer's append and its projection
   // would refuse a legitimate adoption, and — the direction that matters — a
@@ -533,7 +420,7 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
   }
   // Same fail-closed reading as transfer: a deps bundle with no `userExists`
   // resolves to `undefined`, which REFUSES. Adopting to an unresolvable id
-  // would append an owner the next `reconcileOwnersFromLedger` re-quarantines
+  // would append an owner that the database would not contain
   // — the machine would come out of adoption exactly as stuck as it went in.
   if (!await host.deps.userExists?.(newOwnerUserId)) {
     throw new Error(`unknown user: ${newOwnerUserId}`)
@@ -546,22 +433,4 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
   // — the closed state is the safe one to be interrupted in.
   await host.deps.store.grants.removeAllForResource('machine', id)
   await transferOwnership(host, id, newOwnerUserId)
-}
-
-/**
- * Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
- * Callers that authorize `use`/`manage` should prefer this over the raw row
- * when a ledger is present; {@link reconcileOwnersFromLedger} keeps the row
- * in sync, but a concurrent transfer can land between reconcile and check.
- */
-export async function effectiveOwner(
-  host: EnrollmentHost,
-  machineId: MachineId,
-): Promise<UserId | null | undefined> {
-  const ledger = host.deps.enrollment
-  if (ledger) {
-    const recorded = ledger.recordedOwner(machineId)
-    if (recorded !== undefined) return await resolveOwnerForRecovery(host, recorded)
-  }
-  return (await host.deps.store.machines.getMachine(machineId))?.ownerUserId
 }

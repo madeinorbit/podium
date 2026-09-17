@@ -61,6 +61,7 @@ import {
   setStoreTransferFence,
 } from './migrations/store-lifecycle'
 import { syncServerTables } from './migrations/sync-server-tables'
+import { importEnrollmentLedger } from './enrollment-ledger-import'
 import { OperationStore } from './modules/operations/store'
 import { UpdateRecoveryStore } from './modules/updates/recovery-store'
 import { AccountsRepository } from './store/accounts'
@@ -294,7 +295,11 @@ export class SessionStore {
     let database = await openStoreDatabase(path)
     let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
     try {
-      const applied = await executor.exclusive(async () => migrateStoreConnection(database, path))
+      const applied = await executor.exclusive(async () => {
+        const result = migrateStoreConnection(database, path)
+        if (path !== ':memory:') importEnrollmentLedger(database, dirname(path))
+        return result
+      })
       if (applied.length > 0) log.info('applied migrations', { applied })
       if (path !== ':memory:') {
         // Migration owns its connection, including the OFF/ON bracket. Runtime

@@ -104,7 +104,7 @@ import { captureServerBuildVersion, serverBuildSourceDigest } from './build-vers
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { hasEnrollmentHistory, openEnrollmentLedger } from './enrollment-ledger'
+import { openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -629,7 +629,7 @@ export async function startServer(
   // reads the same file in its own process; all-in-one is handed it in memory.
   const hostMachineId = readOrCreateLocalMachineId()
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
-    allowCreate: !hasEnrollmentHistory(stateDir()),
+    allowCreate: true,
   })
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'

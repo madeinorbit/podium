@@ -17,7 +17,6 @@ import {
  */
 const ROOT_FILES = [
   'podium.db',
-  'enrollment.ledger',
   'update-signing-key.json',
   'installation.json',
 ] as const

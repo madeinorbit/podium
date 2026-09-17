@@ -41,8 +41,7 @@ import type {
 import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
-import { deviceGradeSoleOwner } from '../../device-grade-owner'
-import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
+import { type EnrollmentLedger } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
@@ -854,12 +853,8 @@ export class MachinesService {
     }
   }
 
-  /** Project ledger owners and revocations onto the machines table (D19.4d).
-   *  See {@link credentials.reconcileOwnersFromLedger}. */
-  async reconcileOwnersFromLedger(): Promise<void> {
-    if (this.presenceReadOnly) return
-    await credentials.reconcileOwnersFromLedger(this.enrollmentHost)
-  }
+  /** Retained as a compatibility no-op for older callers; ownership is imported once during upgrade. */
+  async reconcileOwnersFromLedger(): Promise<void> {}
 
   /** Transfer ownership, ledger append first (D19.4d).
    *  See {@link credentials.transferOwnership}. */
@@ -883,8 +878,7 @@ export class MachinesService {
     await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
   }
 
-  /** Effective owner for authorization: ledger wins over the row (D19.4d rule 4).
-   *  See {@link credentials.effectiveOwner}. */
+  /** Effective owner for authorization from the database row. */
   async effectiveOwner(machineId: MachineId): Promise<UserId | null | undefined> {
     return await credentials.effectiveOwner(this.enrollmentHost, machineId)
   }
@@ -1629,7 +1623,7 @@ export class MachinesService {
   }
 
   /**
-   * Revoke a machine. The ledger append is the revocation (D19.4d); the row
+   * Revoke a machine. The database row is the revocation authority; the row
    * delete is a projection of it. Without a durable revoke entry, a later DB
    * restore would let the old token re-enrol automatically (the hole D19.4a closes).
    *
@@ -1640,20 +1634,6 @@ export class MachinesService {
     id: MachineId,
     opts: { by?: string | null; skipRowDelete?: boolean; txnId?: string } = {},
   ): Promise<void> {
-    const ledger = this.deps.enrollment
-    if (ledger) {
-      // Serial at revoke: cover the latest enrollment serial so that token is denied.
-      // nextSerial-1 is the last enrolled serial; if never enrolled, use 1 so a
-      // future token with serial 1 is still covered once we have no better number.
-      const serial = Math.max(1, ledger.nextSerial(id) - 1)
-      ledger.appendRevoke({
-        id: opts.txnId ?? newLedgerTxnId(),
-        machineId: id,
-        serial,
-        by: opts.by ?? null,
-        at: new Date().toISOString(),
-      })
-    }
     if (opts.skipRowDelete) return
     // The grant edges die WITH the machine (POD-1079). A daemon keeps its
     // machineId across a revoke/re-pair, so an edge that outlived the row would
@@ -1700,26 +1680,12 @@ export class MachinesService {
   ): Promise<string> {
     const id = this.deps.hostMachineId
     const existing = await this.deps.store.machines.getMachine(id)
-    const enrollmentOwner = this.deps.enrollment
-      ? (existing?.ownerUserId ?? (await deviceGradeSoleOwner(this.deps.store)))
-      : (await deviceGradeSoleOwner(this.deps.store))
-    // Ledger first: this is the durable commit point shared with pairing. A
-    // revoked host throws before its row or credential can be recreated.
-    const ownerUserId = await credentials.ensureHostEnrollment(
-      this.enrollmentHost,
-      id,
-      enrollmentOwner,
-    )
+    const ownerUserId = existing?.ownerUserId ?? null
     await this.deps.store.machines.upsertMachine({
       id,
       name: hostname,
       hostname,
       tokenHash: sha256(secret),
-      // NOBODY PAIRED THIS ONE. It is provisioned at boot by the server process,
-      // with no principal in scope to attribute it to, so its owner is the
-      // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
-      // `upsertMachine` means a later real owner is never overwritten by this
-      // boot-time write.
       ownerUserId,
     })
     if (assignment) this.deps.store.machines.setServiceAssignment(id, assignment)
@@ -1731,14 +1697,6 @@ export class MachinesService {
         server: false,
         agentExecution: true,
       })
-    }
-    // The ledger owner wins over a stale or restored row. `upsertMachine`
-    // deliberately preserves an existing owner, so project explicitly here.
-    if (this.deps.enrollment) {
-      await this.deps.store.machines.setMachineOwner(id, ownerUserId)
-      if (ownerUserId === null && existing?.ownerUserId !== null) {
-        log.warn('machine unowned', { machineId: id, reason: 'host enrollment has no resolvable personal grantee' })
-      }
     }
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at

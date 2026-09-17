@@ -1,0 +1,148 @@
+import { readFileSync, renameSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import type { MachineId, UserId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+
+const VERSION = 1
+export const RETIRED_MEMBER_MAPPING = 'retired_solo_member_id'
+export const LEDGER_IMPORT_MARKER = 'enrollment_ledger_imported'
+
+export type ValidatedLedgerEvent =
+  | { kind: 'enroll'; id: string; machineId: MachineId; serial: number; ownerUserId: UserId | null; at: string }
+  | { kind: 'revoke'; id: string; machineId: MachineId; serial: number; by: string | null; at: string }
+  | { kind: 'owner'; id: string; machineId: MachineId; ownerUserId: UserId; at: string }
+
+export interface ValidatedLedgerSnapshot {
+  pairingRoot: string
+  events: ValidatedLedgerEvent[]
+}
+
+function fail(line: number, message: string): never {
+  throw new Error(`enrollment ledger line ${line}: ${message}`)
+}
+
+function stringField(value: unknown, name: string, line: number): string {
+  if (typeof value !== 'string' || value.length === 0) fail(line, `${name} must be a non-empty string`)
+  return value
+}
+
+function serialField(value: unknown, line: number): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) fail(line, 'serial must be a positive integer')
+  return value as number
+}
+
+/** Parse the complete prefix of a ledger. Only an incomplete final JSON line
+ * without a newline is tolerated; every interior or complete malformed record
+ * refuses before the caller can mutate the database. */
+export function readValidatedEnrollmentLedger(path: string): ValidatedLedgerSnapshot {
+  const text = readFileSync(path, 'utf8')
+  const rawLines = text.split('\n')
+  const trailingTorn = rawLines.length > 1 && rawLines.at(-1) !== ''
+  const seen = new Set<string>()
+  let pairingRoot: string | undefined
+  const events: ValidatedLedgerEvent[] = []
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const raw = rawLines[i]!.trim()
+    if (raw === '') continue
+    let value: unknown
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      if (trailingTorn && i === rawLines.length - 1) break
+      fail(i + 1, 'invalid JSON record')
+    }
+    if (!value || typeof value !== 'object') fail(i + 1, 'record must be an object')
+    const record = value as Record<string, unknown>
+    if (record.v !== VERSION) fail(i + 1, 'unsupported version')
+    if (record.kind !== 'header' && pairingRoot === undefined) fail(i + 1, 'header must be first')
+    if (record.kind === 'header') {
+      if (pairingRoot !== undefined) fail(i + 1, 'duplicate header')
+      pairingRoot = stringField(record.pairingRoot, 'pairingRoot', i + 1)
+      continue
+    }
+    const id = stringField(record.id, 'id', i + 1)
+    if (seen.has(id)) fail(i + 1, `duplicate event id ${id}`)
+    seen.add(id)
+    const machineId = stringField(record.machineId, 'machineId', i + 1) as MachineId
+    const at = stringField(record.at, 'at', i + 1)
+    if (record.kind === 'enroll') {
+      if (record.ownerUserId !== null && typeof record.ownerUserId !== 'string') fail(i + 1, 'ownerUserId must be string or null')
+      events.push({ kind: 'enroll', id, machineId, serial: serialField(record.serial, i + 1), ownerUserId: record.ownerUserId as UserId | null, at })
+    } else if (record.kind === 'revoke') {
+      if (record.by !== null && typeof record.by !== 'string') fail(i + 1, 'by must be string or null')
+      events.push({ kind: 'revoke', id, machineId, serial: serialField(record.serial, i + 1), by: record.by as string | null, at })
+    } else if (record.kind === 'owner') {
+      events.push({ kind: 'owner', id, machineId, ownerUserId: stringField(record.ownerUserId, 'ownerUserId', i + 1) as UserId, at })
+    } else {
+      fail(i + 1, 'unknown record kind')
+    }
+  }
+  if (pairingRoot === undefined) throw new Error('enrollment ledger has no header')
+  return { pairingRoot, events }
+}
+
+function latestState(snapshot: ValidatedLedgerSnapshot): Map<string, { serial: number; revoked: boolean; owner: string | null | undefined }> {
+  const state = new Map<string, { serial: number; revoked: boolean; owner: string | null | undefined }>()
+  for (const event of snapshot.events) {
+    const current = state.get(event.machineId) ?? { serial: 0, revoked: false, owner: undefined }
+    if (event.kind === 'enroll') {
+      if (event.serial >= current.serial) {
+        current.serial = event.serial
+        current.revoked = false
+        current.owner = event.ownerUserId
+      }
+    } else if (event.kind === 'revoke') {
+      if (event.serial >= current.serial) current.revoked = true
+    } else if (!current.revoked) {
+      current.owner = event.ownerUserId
+    }
+    state.set(event.machineId, current)
+  }
+  return state
+}
+
+/** Apply a validated snapshot atomically. Rows absent from the database are
+ * deliberately ignored: the machine must pair again, so no credential is
+ * invented. The caller owns the exclusive upgrade lane. */
+export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boolean {
+  const marker = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEDGER_IMPORT_MARKER) as { value: string } | undefined
+  if (marker) return false
+  const path = join(stateDir, 'enrollment.ledger')
+  if (!existsSync(path)) {
+    db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
+    return false
+  }
+  const snapshot = readValidatedEnrollmentLedger(path)
+  const mapping = (db.prepare('SELECT value FROM meta WHERE key = ?').get(RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
+  const users = new Set((db.prepare('SELECT id FROM users').all() as { id: string }[]).map((row) => row.id))
+  const states = latestState(snapshot)
+  for (const state of states.values()) {
+    if (state.owner === 'user:sole') { if (mapping === undefined) throw new Error(`enrollment ledger requires ${RETIRED_MEMBER_MAPPING}`); state.owner = mapping }
+    if (state.owner !== undefined && state.owner !== null && !users.has(state.owner)) {
+      throw new Error(`enrollment ledger owner '${state.owner}' has no matching member`)
+    }
+  }
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    for (const [machineId, state] of states) {
+      if (state.revoked) {
+        db.prepare('DELETE FROM grants WHERE resource_type = ? AND resource_id = ?').run('machine', machineId)
+        db.prepare('DELETE FROM machines WHERE id = ?').run(machineId)
+      } else if (state.owner !== undefined) {
+        db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(state.owner, machineId)
+      }
+    }
+    db.prepare('UPDATE feed_identity SET epoch = ? WHERE singleton = 1').run(`ledger-import-${Date.now()}`)
+    db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  try {
+    renameSync(path, `${path}.imported`)
+  } catch {
+    // The marker makes the file operation safely re-runnable and non-fatal.
+  }
+  return true
+}
