@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { piRecordToItems, piRuntime } from '@podium/transcript'
+import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { observePiState, piStateProvider } from '../agent-state/pi.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { createPiConversationProvider } from '../discovery/providers/pi.js'
@@ -310,7 +311,11 @@ export const piManifest: AgentManifest = {
     embedded: unsupported('pi ships an SDK, but it is not hosted in-process yet'),
     // Pi's poll observer reports assistant stop/error/aborted boundaries through
     // the shared observation path; do not add a second lifecycle source.
-    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    terminal: {
+      driverId: 'generic-pty',
+      sendProof: ['transcript-echo'],
+      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+    },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
 

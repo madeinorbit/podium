@@ -5,6 +5,7 @@ import {
   stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
+import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
@@ -324,6 +325,7 @@ export const opencodeManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
+      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
       // SQLite polling calls onStateEvents, never onObservation; opencode is
       // not a causal ObservationProvider. Keep poll state as the sole lifecycle
       // and epoch authority until a causal observer replaces that producer.

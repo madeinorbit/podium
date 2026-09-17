@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { codexRecordToItems, codexRuntime } from '@podium/transcript'
+import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import {
   codexStateProvider,
   findCodexRolloutPath,
@@ -434,7 +435,11 @@ export const codexManifest: AgentManifest = {
     // terminal driver instead of stranding them (spec §3, churn stance).
     // Deferred pending POD-4076: Codex hook trust determines whether poll is
     // primary or reconciliation, so lifecycleFromState remains unset for now.
-    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    terminal: {
+      driverId: 'generic-pty',
+      sendProof: ['transcript-echo'],
+      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+    },
     // App-server is the default for every LOGGED-IN Codex auth mode when the
     // version probe admits it. A logged-out session needs the PTY's interactive
     // login affordance; the terminal driver also remains the permanent

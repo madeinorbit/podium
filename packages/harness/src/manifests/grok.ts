@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '@podium/transcript'
+import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { locateGrokChatHistory } from '../agent-state/grok-locate.js'
 import { withStateChannel } from '../agent-state/types.js'
@@ -260,7 +261,11 @@ export const grokManifest: AgentManifest = {
     // Poll is Grok's only terminal state channel, but its turn boundary is
     // already translated by the shared observation path. Keep the optional
     // state lifecycle path off so it cannot emit a duplicate boundary.
-    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    terminal: {
+      driverId: 'generic-pty',
+      sendProof: ['transcript-echo'],
+      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+    },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,
     // resume and durable cursors. Logged-out sessions stay on the PTY because

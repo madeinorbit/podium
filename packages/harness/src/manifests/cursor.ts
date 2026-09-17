@@ -1,6 +1,7 @@
 import { resolveCursorBin } from '../cursor/cli.js'
 import { join } from 'node:path'
 import { cursorRecordToItems } from '@podium/transcript'
+import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
@@ -134,7 +135,11 @@ export const cursorManifest: AgentManifest = {
     embedded: unsupported('cursor-agent ships no library to host in-process'),
     // Cursor's poll observer reports turn_ended through the shared observation
     // path; leave lifecycleFromState unset to avoid duplicate turn events.
-    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    terminal: {
+      driverId: 'generic-pty',
+      sendProof: ['transcript-echo'],
+      acceptCorrelation: { 'transcript-echo': transcriptEchoAcceptCorrelation },
+    },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({

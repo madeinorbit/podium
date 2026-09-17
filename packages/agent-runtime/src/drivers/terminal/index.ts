@@ -32,6 +32,8 @@ export {
   stampRuntimeEvent,
 } from './envelope.js'
 export {
+  type AcceptPort,
+  type AcceptWatch,
   createTerminalInjection,
   DEFAULT_TERMINAL_INTERRUPT,
   type DeliverOptions,

@@ -652,6 +652,119 @@ describe('send receipts', () => {
     world = makeWorld()
   })
 
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+    'opencode',
+    'cursor',
+    'pi',
+  ] as const)('%s supplies a correlation adapter for every declared send proof', (harness) => {
+    const profile = terminalProfileFor(harness)!
+    expect(Object.keys(profile.acceptCorrelation ?? {}).sort()).toEqual(
+      [...profile.sendProof].sort(),
+    )
+  })
+
+  it('accepts a second harness hook shape using only its supplied adapter', async () => {
+    const driver = world.runtime.driverFor('grok', {
+      ...GROK,
+      usesRawFirstTurn: false,
+      sendProof: ['hook', 'transcript-echo'],
+      acceptCorrelation: {
+        ...GROK.acceptCorrelation,
+        hook: {
+          accepts: (value) =>
+            typeof value === 'object' &&
+            value !== null &&
+            'event' in value &&
+            value.event === 'synthetic-accept',
+          fingerprint: (value) =>
+            typeof value === 'object' &&
+            value !== null &&
+            'submitted' in value &&
+            typeof value.submitted === 'string'
+              ? value.submitted
+              : null,
+          fingerprintText: (text) => text.toUpperCase(),
+        },
+      },
+    })
+    const session = await driver.create(SPEC)
+    world.hookOnSubmit(session.binding.sessionId, {
+      payload: { event: 'synthetic-accept', submitted: 'SHIP IT' },
+    })
+    const receipt = await session.send(
+      { text: 'ship it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt).toMatchObject({ outcome: 'accepted', provenBy: 'hook' })
+  })
+
+  it('uses the supplied echo fingerprint for both the observation and submitted text', async () => {
+    const driver = world.runtime.driverFor('grok', {
+      ...GROK,
+      acceptCorrelation: {
+        'transcript-echo': {
+          accepts: (item) => item.role === 'user' && item.event !== 'interrupt',
+          fingerprint: (item) => item.text.toUpperCase(),
+          fingerprintText: (text) => text.toUpperCase(),
+        },
+      },
+    })
+    const session = await driver.create(SPEC)
+    const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(session.binding.sessionId, 'SHIP IT')
+    expect(await receipt).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
+  })
+
+  it('cannot prove an accept without a supplied matcher even when both channels answer', async () => {
+    const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, acceptCorrelation: {} })
+    const session = await driver.create(SPEC)
+    world.hookOnSubmit(session.binding.sessionId)
+    const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    world.echo(session.binding.sessionId, 'ship it')
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
+  it('fails closed when both observation and submitted fingerprints are null', async () => {
+    const driver = world.runtime.driverFor('claude-code', {
+      ...CLAUDE,
+      acceptCorrelation: {
+        hook: { accepts: () => true, fingerprint: () => null, fingerprintText: () => null },
+      },
+    })
+    const session = await driver.create(SPEC)
+    world.hookOnSubmit(session.binding.sessionId)
+    const receipt = await session.send(
+      { text: 'ship it' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('unverified')
+  })
+
+  it.each(['hook', 'transcript-echo'] as const)(
+    'credits only one identical overlapping send per %s observation',
+    async (proof) => {
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+      const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+      await Promise.resolve()
+      if (proof === 'hook') {
+        world.runtime.onHookPayload(session.binding.sessionId, {
+          hook_event_name: 'UserPromptSubmit', prompt: 'ship it',
+        })
+      } else {
+        world.echo(session.binding.sessionId, 'ship it')
+      }
+      const receipts = await Promise.all([first, second])
+      expect(receipts[0]).toMatchObject({ outcome: 'accepted', provenBy: proof })
+      expect(receipts[1].outcome).toBe('unverified')
+    },
+  )
+
   it('anchors an accept to the causal hook on Claude, ahead of any echo', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)

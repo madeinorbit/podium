@@ -139,55 +139,25 @@ export const DEFAULT_TERMINAL_INTERRUPT: TerminalInterruptConfig = {
 
 export type TimerHandle = { readonly __timer: unique symbol } | unknown
 
-/**
- * A watch for the causal accept signal.
- *
- * SHAPED AS A PORT SO THE HARNESS IMPORT STAYS DAEMON-SIDE. The fingerprint
- * function is `claudePromptHookFingerprint` in `@podium/harness`, whose consumer
- * set the boundary manifest deliberately restricts; injecting the WATCH rather
- * than importing the fingerprint keeps this package free of it and, more
- * importantly, keeps the hook channel itself — which the contract calls out as
- * "deliberately not in the surface" — inside the driver.
- */
-export interface HookAcceptPort {
-  /**
-   * Begin watching for the accept signal that belongs to `text`, and return a
-   * handle. STARTED BEFORE THE FIRST BYTE IS WRITTEN, because a fast CLI can fire
-   * `UserPromptSubmit` before the awaiting side gets a turn on the event loop.
-   */
-  watch(text: string): HookAcceptWatch
+/** A content-correlated accept watch, shared by hooks and transcript echoes.
+ * The daemon supplies matching through manifest adapters; this machine only
+ * arms watches before the first byte and chooses the strongest observed proof.
+ * A counter cannot substitute: unrelated user turns must never credit a send. */
+export interface AcceptPort {
+  watch(text: string): AcceptWatch
 }
 
-export interface HookAcceptWatch {
-  /** Resolves `true` when the causal accept for this prompt is observed. Never
-   *  rejects, and never resolves `false` on its own — the caller's window is
-   *  what ends the wait. */
+export interface AcceptWatch {
+  /** Resolves true only for this prompt. The caller's window ends the wait. */
   readonly accepted: Promise<boolean>
-  /** Idempotent. A watch nobody cancels is a hook listener that leaks. */
+  /** Idempotent; removes the waiter when the send ends. */
   cancel(): void
 }
 
-/**
- * THE TRANSCRIPT-ECHO COUNTERPART OF `HookAcceptPort` (POD-4055).
- *
- * WHY THIS IS A WATCH AND NOT A COUNTER. The echo proof used to be
- * `userTurnCount() > baseline` against a bare running total, which establishes
- * only "the harness's user-turn count went up at some point in the window" —
- * satisfied by a person typing at the attached terminal, by a queue drain
- * overlapping a chat send, or by an aborted turn's own marker. None of those
- * typed the caller's text, and reporting `accepted` for them is a false accept
- * the caller cannot see through: it stops looking, and the turn never happened.
- *
- * So the echo is matched to CONTENT, exactly as the hook is, and for the same
- * reason. A watch is the shape that can do that, because the text to compare
- * against has to be remembered from before the write.
- */
-export interface EchoAcceptPort {
-  /** Armed with `payload.body` BEFORE the first byte goes out, for the same
-   *  reason the hook watch is: a fast harness can record the turn before the
-   *  awaiting side gets a turn on the event loop. */
-  watch(text: string): HookAcceptWatch
-}
+/** Channel names retained for hosts using the existing injection ports. */
+export type HookAcceptPort = AcceptPort
+export type EchoAcceptPort = AcceptPort
+export type HookAcceptWatch = AcceptWatch
 
 /** Everything the machine needs from the world, and nothing more. Each one is a
  *  READ or a WRITE on the session's terminal; none of them is a mechanism the
@@ -220,14 +190,14 @@ export interface TerminalInjectionPorts {
   setTimer(fn: () => void, delayMs: number): TimerHandle
   clearTimer(handle: TimerHandle): void
   /** Absent for harnesses with no causal hook channel; present for Claude. */
-  hookAccept?: HookAcceptPort
+  hookAccept?: AcceptPort
   /**
    * The transcript-echo channel. Absent only where nothing can observe the
    * harness's transcript at all — and an absent channel means the echo proof
    * cannot be produced, so a send with no hook degrades to `unverified`. That
    * is the honest answer: the bytes went out and nothing confirmed them.
    */
-  echoAccept?: EchoAcceptPort
+  echoAccept?: AcceptPort
   /** Grok's fresh TUI ignores bracketed paste until a native first turn
    *  (POD-549/POD-901): type the first prompt as raw keystrokes instead. */
   rawFirstTurn(): boolean
@@ -397,8 +367,8 @@ export function createTerminalInjection(
    * Returns the proof that landed, or null when the window closed without one.
    */
   async function awaitProof(
-    hookWatch: HookAcceptWatch | undefined,
-    echoWatch: HookAcceptWatch | undefined,
+    hookWatch: AcceptWatch | undefined,
+    echoWatch: AcceptWatch | undefined,
     signal?: AbortSignal,
   ): Promise<'hook' | 'transcript-echo' | null> {
     let hookFired = false

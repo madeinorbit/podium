@@ -468,7 +468,7 @@ function makeWorld(options: WorldOptions): {
         askedAt: iso(),
         // Match the profile's declared source so hook-backed drivers actually
         // receive the injected ask (POD-3741 Finding 4).
-        source: profile.hookAnchoredAccept ? 'hook' : 'screen-classifier',
+        source: profile.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
         answerable: 'keystroke-emulated',
       }
       runtime?.control.askInteraction(sessionId, interaction)

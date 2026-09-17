@@ -59,11 +59,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     instrumentationRequired: manifest.capabilities.hookInstall !== 'none',
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
-    // HOOK-ANCHORED ACCEPT IS READ, NOT ASSUMED. A harness gets it exactly when
-    // its manifest lists `hook` in the proof order it can actually produce —
-    // which today is Claude and only Claude, because `UserPromptSubmit` is the
-    // only causal accept signal in the fleet.
-    hookAnchoredAccept: terminal.sendProof.includes('hook'),
+    acceptCorrelation: terminal.acceptCorrelation,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),

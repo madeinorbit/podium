@@ -55,6 +55,7 @@ import {
 
 import { randomUUID } from 'node:crypto'
 import type {
+  AcceptPort,
   ActingPrincipal,
   AgentSessionHandle,
   AttachEndpoint,
@@ -63,10 +64,7 @@ import type {
   ConfigureRequest,
   DriverCapabilities,
   DriverId,
-  EchoAcceptPort,
   EventStreamStart,
-  HookAcceptPort,
-  HookAcceptWatch,
   InteractionAnswerOutcome,
   InteractionAskSpec,
   PendingInteraction,
@@ -106,7 +104,11 @@ import {
   terminalCapabilities,
 } from '@podium/agent-runtime'
 
-import { type AgentStateEvent, claudePromptHookFingerprint } from '@podium/harness'
+import type {
+  AgentStateEvent,
+  TerminalAcceptCorrelation,
+  TerminalAcceptCorrelations,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -381,8 +383,8 @@ export interface TerminalHarnessProfile {
   instrumentationRequired: boolean
   driverId: DriverId
   sendProof: DriverCapabilities['send']['proof']
-  /** Claude's `UserPromptSubmit` is the only causal accept in the fleet today. */
-  hookAnchoredAccept: boolean
+  /** Manifest-owned content matchers; absence means no proof on that channel. */
+  acceptCorrelation?: TerminalAcceptCorrelations
   /** Provider-poll agentState owns lifecycle and epochs; causal observations are ignored. */
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
@@ -771,7 +773,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       sessionId: session.sessionId,
       ...kindAndPayload,
       askedAt: observation.providerAt ?? observation.receivedAt,
-      source: profile?.hookAnchoredAccept ? 'hook' : 'screen-classifier',
+      source: profile?.acceptCorrelation?.hook ? 'hook' : 'screen-classifier',
       // Even a hook-SOURCED ask is answered by typing digits into a native menu,
       // and a keystroke cannot prove which menu it acted on.
       answerable: 'keystroke-emulated',
@@ -1163,134 +1165,60 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   function onHookPayload(sessionId: SessionId, payload: unknown): void {
     const session = sessions.get(sessionId)
     if (!session) return
-    if (!isPromptSubmitHook(payload)) return
-    // THE CHANNEL ANSWERED, whether or not a send was waiting on it. A payload
-    // with no open waiter still proves the per-session settings file installed
-    // and Claude is calling back — which is the fact the absence warning below
-    // is about.
+    const correlation = profiles.get(sessionId)?.acceptCorrelation?.hook
+    if (!correlation?.accepts(payload)) return
+    // The channel answered even if its content cannot identify an open send.
+    // Preserve that distinction for the absent-instrumentation warning.
     session.hookSeen = true
-    if (session.hookWaiters.size === 0) return
-    // THE HARNESS'S OWN FINGERPRINT, not a comparison invented here. It handles
-    // the shapes a `UserPromptSubmit` prompt actually takes — a plain string, and
-    // an ARRAY of content blocks where the visible text has to be pulled out of
-    // `type: 'text'` entries and `tool_result`s ignored — and it strips Claude's
-    // injected context before hashing, so a prompt that arrives wrapped in a
-    // system reminder still fingerprints as what the caller sent. It is also what
-    // `session-observers.ts` already anchors turn epochs with, so the receipt and
-    // the causal stream agree on which prompt this was by construction.
-    const fingerprint = claudePromptHookFingerprint(payload)
-    // FAIL CLOSED. A payload this cannot fingerprint is one we cannot attribute,
-    // and crediting an arbitrary waiter for it is the exact mis-credit the
-    // content match exists to prevent — worse than the alternative, because the
-    // alternative is `unverified`, which is true. The keystrokes still went out.
+    creditAcceptWaiter(session.hookWaiters, correlation, payload)
+  }
+
+  /**
+   * Both channels credit at most one waiter per observation, by CONTENT.
+   * Two sends can be in flight (a queue drain overlapping a chat send); "the
+   * next observation wins" would report an accept for a turn that never landed.
+   * Unmatched waiters stay open and resolve as `unverified`, the honest answer.
+   */
+  function creditAcceptWaiter<Observation>(
+    waiters: DriverSession['hookWaiters'],
+    correlation: TerminalAcceptCorrelation<Observation>,
+    observation: Observation,
+  ): void {
+    if (waiters.size === 0) return
+    const fingerprint = correlation.fingerprint(observation)
+    // FAIL CLOSED. An unattributable payload cannot credit an arbitrary waiter,
+    // including one whose own fingerprint is null. The keystrokes still went
+    // out; `unverified` is true and a mis-credit would be worse.
     if (fingerprint === null) return
-    for (const waiter of [...session.hookWaiters]) {
-      // MATCHED BY CONTENT, not by "the next hook wins". Two sends can be in
-      // flight (a queue drain overlapping a chat send), and crediting the wrong
-      // one would report an accept for a turn that never landed. An unmatched
-      // hook simply leaves the waiter waiting — which resolves as `unverified`,
-      // the honest answer.
-      if (claudePromptHookFingerprint({ prompt: waiter.text }) !== fingerprint) continue
-      session.hookWaiters.delete(waiter)
+    for (const waiter of [...waiters]) {
+      if (correlation.fingerprintText(waiter.text) !== fingerprint) continue
+      waiters.delete(waiter)
       waiter.resolve(true)
       return
     }
   }
 
-  /**
-   * THE ECHO FINGERPRINT (POD-4055), and it is deliberately NOT the hook's.
-   *
-   * The hook path can hash a structured payload because Claude hands it one.
-   * The echo is a recorded transcript item, so what has to be absorbed is the
-   * set of transformations the RECORDERS apply between the bytes we typed and
-   * the row they write. Those are enumerable, and they are all whitespace:
-   * `codexRecordToItems` trims, `contentToText` joins multi-block content with
-   * newlines, and the several JSONL codecs re-wrap.
-   *
-   * WHAT THIS BUYS AND WHAT IT LETS THROUGH, stated because a tolerance nobody
-   * wrote down is a tolerance nobody can review. It buys immunity to trimming
-   * and to block joins. It lets through two submitted texts that differ ONLY in
-   * whitespace — an overlapping pair differing just in wrapping can cross-credit.
-   * That is a far narrower hole than the counter it replaces, which credited any
-   * user turn from any source at all.
-   *
-   * WHAT IT DOES NOT DO IS MATCH A SUBSTRING. An echo carrying the full text
-   * plus anything else is a different turn, and a truncated echo is not this
-   * turn. Both stay `unverified`, which is true. Note this is safe precisely
-   * because nothing here reads a SCREEN: every producer of these items reads a
-   * structured record (codex/grok/cursor/pi rollout JSONL, opencode's own
-   * SQLite rows, Claude's transcript tail), so a TUI's `> ` prompt marker never
-   * reaches this comparison. An anchored match against a painted line would be
-   * wrong; against a recorded one it is exactly right.
-   */
-  const echoFingerprint = (text: string): string | null => {
-    const collapsed = text.replace(/\s+/gu, ' ').trim()
-    // FAIL CLOSED on an empty item, for the reason the hook path fails closed on
-    // an unfingerprintable payload: an item carrying no text cannot attribute
-    // anything, and crediting an arbitrary waiter for it is the mis-credit this
-    // whole mechanism exists to prevent.
-    return collapsed.length > 0 ? collapsed : null
-  }
-
-  /**
-   * Credit at most one waiter per echoed user item, by CONTENT.
-   *
-   * The structure is the hook path's, deliberately: two sends can be in flight —
-   * a queue drain overlapping a chat send — and crediting the wrong one reports
-   * an accept for a turn that never landed. An unmatched echo leaves every
-   * waiter waiting, which resolves as `unverified`.
-   */
   function creditEchoWaiters(session: DriverSession, items: readonly TranscriptItem[]): void {
-    if (session.echoWaiters.size === 0) return
+    const correlation = profiles.get(session.sessionId)?.acceptCorrelation?.['transcript-echo']
+    if (!correlation || session.echoWaiters.size === 0) return
     for (const item of items) {
-      if (item.role !== 'user') continue
-      // AN ABORTED TURN IS NOT A DELIVERY, and it is the case that most inverts
-      // the meaning of this proof. Codex records a cancelled turn as a user-role
-      // item reading 'Conversation interrupted'; the schema's own note says a
-      // reader may treat an interrupt as a user action "without mistaking it for
-      // a typed prompt". Counting it credited the one item that positively means
-      // the prompt did NOT land.
-      if (item.event === 'interrupt') continue
-      const fingerprint = echoFingerprint(item.text)
-      if (fingerprint === null) continue
-      for (const waiter of [...session.echoWaiters]) {
-        if (echoFingerprint(waiter.text) !== fingerprint) continue
-        session.echoWaiters.delete(waiter)
-        waiter.resolve(true)
-        break
-      }
+      // The manifest adapter excludes non-prompts, including interrupt markers.
+      if (correlation.accepts(item)) creditAcceptWaiter(session.echoWaiters, correlation, item)
     }
   }
 
-  const echoAcceptFor = (session: DriverSession): EchoAcceptPort => ({
+  const acceptFor = (waiters: DriverSession['hookWaiters']): AcceptPort => ({
     watch(text: string) {
       let settle: ((ok: boolean) => void) | undefined
       const accepted = new Promise<boolean>((resolve) => {
         settle = resolve
       })
       const waiter = { text, resolve: (ok: boolean) => settle?.(ok) }
-      session.echoWaiters.add(waiter)
+      waiters.add(waiter)
       return {
         accepted,
         cancel() {
-          session.echoWaiters.delete(waiter)
-        },
-      }
-    },
-  })
-
-  const hookAcceptFor = (session: DriverSession): HookAcceptPort => ({
-    watch(text: string): HookAcceptWatch {
-      let settle: ((ok: boolean) => void) | undefined
-      const accepted = new Promise<boolean>((resolve) => {
-        settle = resolve
-      })
-      const waiter = { text, resolve: (ok: boolean) => settle?.(ok) }
-      session.hookWaiters.add(waiter)
-      return {
-        accepted,
-        cancel() {
-          session.hookWaiters.delete(waiter)
+          waiters.delete(waiter)
         },
       }
     },
@@ -1312,12 +1240,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         now: host.now,
         setTimer: host.setTimer,
         clearTimer: host.clearTimer,
-        ...(profile?.hookAnchoredAccept ? { hookAccept: hookAcceptFor(session) } : {}),
-        // UNCONDITIONAL, because every terminal profile in the fleet declares
-        // `transcript-echo`. Claude declares it too, as the fallback behind its
-        // hook — and that fallback used to be the same bare counter as everyone
-        // else's, so this is six harnesses being fixed, not five.
-        echoAccept: echoAcceptFor(session),
+        ...(profile?.acceptCorrelation?.hook ? { hookAccept: acceptFor(session.hookWaiters) } : {}),
+        ...(profile?.acceptCorrelation?.['transcript-echo']
+          ? { echoAccept: acceptFor(session.echoWaiters) }
+          : {}),
         // READS THE SAME RESET-AWARE COUNT as the echo baseline, and for the same
         // reason: `isRawFirstTurn` in `inbox.ts` asks whether the harness's own
         // transcript has ANY user turn, so an adopted session whose driver-local
@@ -1469,7 +1395,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
      */
     const reportHookAbsenceOnce = (receipt: TurnReceipt): TurnReceipt => {
       if (receipt.outcome !== 'unverified') return receipt
-      if (!profile?.hookAnchoredAccept) return receipt
+      if (!profile?.acceptCorrelation?.hook) return receipt
       if (session.hookSeen || session.hookAbsenceWarned) return receipt
       session.hookAbsenceWarned = true
       log.warn('hook instrumentation channel never reported; sends degrade to unverified', {
@@ -2223,7 +2149,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     composerReadiness: 'on-bind',
     instrumentationRequired: false,
     sendProof: ['transcript-echo'],
-    hookAnchoredAccept: false,
+    acceptCorrelation: {},
     needsSubmitVerification: true,
     usesRawFirstTurn: false,
     archivable: false,
@@ -2240,7 +2166,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     instrumentationRequired: resolved.instrumentationRequired,
     sendProof: resolved.sendProof,
     composerReadiness: resolved.composerReadiness,
-    interactionsFromHooks: resolved.hookAnchoredAccept,
+    interactionsFromHooks: resolved.acceptCorrelation?.hook !== undefined,
     usesRawFirstTurn: resolved.usesRawFirstTurn,
     // Composer sync is a per-session flag, and the capability is a per-DRIVER
     // declaration, so the driver declares what it can do when the engine runs and
@@ -2272,14 +2198,6 @@ function answeredByFor(principal: ActingPrincipal | undefined): 'policy' | 'supe
     default:
       return 'policy'
   }
-}
-
-/** Is this hook payload the causal accept — Claude's `UserPromptSubmit`? */
-function isPromptSubmitHook(payload: unknown): boolean {
-  if (typeof payload !== 'object' || payload === null) return false
-  const record = payload as Record<string, unknown>
-  const name = record.hook_event_name ?? record.hookEventName
-  return name === 'UserPromptSubmit'
 }
 
 /**
