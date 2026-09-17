@@ -837,6 +837,21 @@ export interface EmbeddedRuntimeSpec {
   auth: readonly ('subscription' | 'api-key' | 'bedrock' | 'vertex')[]
 }
 
+/** Content correlation shared by causal hooks and recorded transcript echoes.
+ * `accepts` identifies an accept-shaped observation even when its content cannot
+ * be attributed. Both fingerprints must be non-null and equal to credit a send.
+ * Implementations own harness payload shapes and their normalization policy. */
+export interface TerminalAcceptCorrelation<Observation> {
+  accepts(observation: Observation): boolean
+  fingerprint(observation: Observation): string | null
+  fingerprintText(text: string): string | null
+}
+
+export interface TerminalAcceptCorrelations {
+  hook?: TerminalAcceptCorrelation<unknown>
+  'transcript-echo'?: TerminalAcceptCorrelation<TranscriptItem>
+}
+
 /** Today's stack, named. There is no new mechanism here — `launch()` above is
  *  still the spawn — but the family needs an id and needs to say what it can
  *  prove about a send. */
@@ -849,6 +864,8 @@ export interface TerminalRuntimeSpec {
    * fallback and `unverified` is the honest outcome when even that times out.
    */
   sendProof: readonly ('hook' | 'transcript-echo')[]
+  /** Omitted matchers cannot prove an accept; the driver never guesses one. */
+  acceptCorrelation?: TerminalAcceptCorrelations
   /** Provider-poll state transitions are this terminal driver's lifecycle source. */
   lifecycleFromState?: boolean
 }

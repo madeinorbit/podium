@@ -30,6 +30,10 @@ export * from './issue-system-pointer.js'
 export * from './jsonl-stream.js'
 export * from './launch.js'
 export * from './manifest.js'
+export {
+  claudeHookAcceptCorrelation,
+  transcriptEchoAcceptCorrelation,
+} from './accept-correlation.js'
 export { codexMcpArgs, codexTranscriptPlacement } from './manifests/codex.js'
 export * from './model-probe.js'
 export { opencodeAuthPath } from './opencode/auth.js'
