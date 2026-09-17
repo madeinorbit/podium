@@ -1857,6 +1857,7 @@ export async function main(
          * `abortHandover` — and a reclaim would only offer to SIGTERM whatever
          * process happens to hold that pid now.
          */
+        reclaimUpdateControl: () => updateControl?.publish(),
         reclaimRole: async () => {
           await registerProcess('parent', {
             mode: resolveRunRecordMode(process.env),
@@ -2024,7 +2025,7 @@ export async function main(
       }
       const { startParentWithUpdateConfirmation } = await import('./parent-boot-confirmation')
       await startParentWithUpdateConfirmation(parent, updateRunner, async () => {
-        const control = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter)
+        const control = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter, parent.bootHealthSignal)
         if (parent.bootHealthSignal.aborted) await control.close()
         else updateControl = control
       })

@@ -168,6 +168,7 @@ describe('production startup confirmation after delayed parent health', () => {
   it('keeps committed admission fenced, then confirms exact running identity once without restarting', async () => {
     const b = await boot()
     expect(b.parent.isBootHealthy()).toBe(false)
+    expect(b.afterStart).not.toHaveBeenCalled()
     expect(b.updates.snapshot()?.phase).toBe('restarting')
     await expect(b.updates.accept({ ...grant, grantId: 'next', issuedAt: 2 })).rejects.toThrow(
       'update-committed',
@@ -191,6 +192,7 @@ describe('production startup confirmation after delayed parent health', () => {
     await b.tick()
     expect(b.updates.snapshot()?.phase).toBe('current')
     expect(b.statuses.filter((s) => s.state === 'current')).toHaveLength(1)
+    expect(b.afterStart).toHaveBeenCalledTimes(1)
     expect(b.claimRole).toHaveBeenCalledTimes(1)
     expect(b.finalizePendingGrant).toHaveBeenCalledTimes(1)
     expect(b.notify.mock.calls.filter(([s]) => s === 'READY=1')).toHaveLength(1)
@@ -228,6 +230,7 @@ describe('production startup confirmation after delayed parent health', () => {
     )
     const b = await boot({ children: ['server', 'daemon'], probeHealth: undefined })
     expect(b.parent.isBootHealthy()).toBe(false)
+    expect(b.afterStart).not.toHaveBeenCalled()
     expect(b.updates.snapshot()?.phase).toBe('restarting')
     available = true
     await b.tick()
@@ -267,6 +270,7 @@ describe('production startup confirmation after delayed parent health', () => {
     release()
     await vi.advanceTimersByTimeAsync(500)
     expect(b.parent.isBootHealthy()).toBe(false)
+    expect(b.afterStart).not.toHaveBeenCalled()
     expect(b.updates.snapshot()?.phase).toBe('restarting')
     expect(b.claimRole).not.toHaveBeenCalled()
     expect(b.finalizePendingGrant).not.toHaveBeenCalled()

@@ -1870,6 +1870,23 @@ describe('the step runners', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
+  it('server: reports missing supervisor control without claiming a download failed', async () => {
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error('supervisor control endpoint missing')
+      },
+      createDatabaseSnapshot: () => '/state/podium.db.backup',
+      requestCoordinatorRestart: async () => {},
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).error?.code).toBe('supervisor-control-endpoint-missing')
+    expect((await h.read()).error?.message).toContain('Supervisor control endpoint missing')
+  })
+
   it('server: keeps the cause in the detail without moving the failure code', async () => {
     // POD-3824. The DETAIL half is what this guards: flattening the throw back
     // to `error.message` reds it.

@@ -204,6 +204,7 @@ export const UPDATE_ERROR_CODES = [
    */
   'update-withdrawn',
   'download-failed',
+  'supervisor-control-endpoint-missing',
   'server-did-not-reach-target',
   'web-build-failed',
   'preparation-failed',
@@ -310,7 +311,7 @@ export type UpdateFailure =
       detail?: string
     }
   | {
-      code: 'download-failed'
+      code: 'download-failed' | 'supervisor-control-endpoint-missing'
       places?: string[]
       names?: string[]
       detail?: string
@@ -540,6 +541,12 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
           'nothing was changed there. The detail below is the reason it gave; apply the update ' +
           'again once the server is publishing one.',
         places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'supervisor-control-endpoint-missing':
+      return {
+        code: failure.code,
+        message: 'Supervisor control endpoint missing. The running supervisor cannot receive update grants. Restart the parent service, then retry.',
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'download-failed':
@@ -2315,7 +2322,9 @@ async function runCoordinatorReplacement(
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
-          code: classified === 'artifact-unreachable' ? classified : 'download-failed',
+          code: (error instanceof Error ? error.message : String(error)) === 'supervisor control endpoint missing'
+            ? 'supervisor-control-endpoint-missing'
+            : classified === 'artifact-unreachable' ? classified : 'download-failed',
           detail: describeError(error),
         }),
       }

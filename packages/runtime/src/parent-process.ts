@@ -225,6 +225,9 @@ export interface ParentProcessDeps {
    * simply writes the truth back.
    */
   reclaimRole?: () => Promise<void> | void
+  /** Restore local update discovery before rollback respawns the stack. */
+  reclaimUpdateControl?: () => void
+
   /**
    * STOP SPEAKING FOR THIS MACHINE; START AGAIN (POD-3765).
    *
@@ -1794,6 +1797,11 @@ export class ParentProcess {
       await this.deps.reclaimRole?.()
     } catch (error) {
       log.error('could not take the parent role back after a failed handover', { err: error })
+    }
+    try {
+      this.deps.reclaimUpdateControl?.()
+    } catch (error) {
+      log.error('could not restore supervisor control endpoint after a failed handover', { err: error })
     }
     const decision = oldBundlePresent(this.installDir)
       ? rollbackDecision({

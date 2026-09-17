@@ -25,7 +25,8 @@ export async function startMachineUpdateControl(
   runtimeDir: string,
   executor: MachineUpdateExecutor,
   native?: NativeMachineUpdateAdapter,
-): Promise<{ close(): Promise<void> }> {
+  signal?: AbortSignal,
+): Promise<{ publish(): void; close(): Promise<void> }> {
   mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
   const key = createHash('sha256').update(runtimeDir).digest('hex').slice(0, 20)
   const root = join(tmpdir(), `podium-update-${process.getuid?.() ?? 'user'}-${key}`)
@@ -100,15 +101,19 @@ export async function startMachineUpdateControl(
     server.listen(endpoint.socketPath, resolve)
   })
   if (process.platform !== 'win32') chmodSync(endpoint.socketPath, 0o600)
-  const temporary = `${endpointPath(runtimeDir)}.${process.pid}.tmp`
-  writeFileSync(temporary, JSON.stringify(endpoint), { mode: 0o600 })
-  renameSync(temporary, endpointPath(runtimeDir))
+  const publish = () => {
+    const temporary = `${endpointPath(runtimeDir)}.${process.pid}.tmp`
+    writeFileSync(temporary, JSON.stringify(endpoint), { mode: 0o600 })
+    renameSync(temporary, endpointPath(runtimeDir))
+  }
+  if (!signal?.aborted) publish()
   return {
+    publish,
     async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()))
       rmSync(endpoint.socketPath, { force: true })
       try {
-        if (JSON.parse(readFileSync(endpointPath(runtimeDir), 'utf8')).pid === process.pid)
+        if (JSON.parse(readFileSync(endpointPath(runtimeDir), 'utf8')).token === endpoint.token)
           rmSync(endpointPath(runtimeDir), { force: true })
       } catch {}
       try {
@@ -122,7 +127,15 @@ export async function requestMachineUpdate(
   path: '/grant' | '/prepare' | '/activate' | '/cancel' | '/status',
   body?: unknown,
 ): Promise<unknown> {
-  const endpoint = JSON.parse(readFileSync(endpointPath(runtimeDir), 'utf8')) as Endpoint
+  let endpoint: Endpoint
+  try {
+    endpoint = JSON.parse(readFileSync(endpointPath(runtimeDir), 'utf8')) as Endpoint
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error('supervisor control endpoint missing', { cause: error })
+    }
+    throw error
+  }
   return new Promise((resolve, reject) => {
     const req = request(
       {

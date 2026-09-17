@@ -10,13 +10,16 @@ export async function startParentWithUpdateConfirmation(
   let started = false
   let confirmation: Promise<void> | undefined
   const confirmHealthy = (signal: AbortSignal): Promise<void> =>
-    (confirmation ??= updates.confirmBoot(true, signal))
+    (confirmation ??= (async () => {
+      if (signal.aborted) return
+      // Publish only after the health gate, but before resuming native work.
+      await afterStart()
+      if (!signal.aborted) await updates.confirmBoot(true, signal)
+    })())
   await parent.start((signal) => {
     if (started) return confirmHealthy(signal)
   })
-  // The control endpoint must exist before confirmation can resume native work.
   if (parent.bootHealthSignal.aborted) return
-  await afterStart()
   started = true
   if (parent.isBootHealthy()) await confirmHealthy(parent.bootHealthSignal)
   else await updates.confirmBoot(false, parent.bootHealthSignal)

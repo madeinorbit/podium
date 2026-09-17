@@ -1272,6 +1272,7 @@ describe('ParentProcess', () => {
           claimRole: () => {
             claims.push('boot')
           },
+          reclaimUpdateControl: () => { claims.push('control') },
           reclaimRole: () => {
             claims.push('abort')
           },
@@ -1284,7 +1285,7 @@ describe('ParentProcess', () => {
 
       await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
 
-      expect(claims, 'the abort must take the role back').toEqual(['boot', 'abort'])
+      expect(claims, 'the abort must take the role back').toEqual(['boot', 'abort', 'control'])
       // And it is genuinely supervising again, which is what the record claims.
       expect(kids.length).toBeGreaterThan(0)
       expect(parent.snapshot().phase).toBe('running')

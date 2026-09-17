@@ -9,7 +9,7 @@ import {
   MachineUpdateExecutor,
   type MachineUpdateAdapter,
 } from '../packages/runtime/src/machine-update'
-import { requestMachineUpdate } from '../packages/runtime/src/machine-update-control'
+import { requestMachineUpdate, startMachineUpdateControl } from '../packages/runtime/src/machine-update-control'
 
 const roots: string[] = []
 const root = () => {
@@ -448,3 +448,43 @@ for (const cancel of [true, false]) {
     }
   }, 20000)
 }
+
+
+it('an aborted successor health gate leaves the predecessor endpoint intact and reachable', async () => {
+  const { executor, runtimeDir } = setup()
+  const control = await startMachineUpdateControl(runtimeDir, executor)
+  const path = join(runtimeDir, 'machine-update-control.json')
+  const original = readFileSync(path, 'utf8')
+  try {
+    const env = { ...process.env }
+    for (const name of Object.keys(env)) {
+      if (name.startsWith('PODIUM_') || ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(name))
+        delete env[name]
+    }
+    const child = Bun.spawn([
+      process.execPath, '--conditions=@podium/source',
+      new URL('./fixtures/machine-update-aborted-gate.ts', import.meta.url).pathname,
+      runtimeDir,
+    ], { env: { ...env, PODIUM_STATE_DIR: runtimeDir, PODIUM_LOGGING_MODE: 'foreground' }, stdout: 'pipe', stderr: 'pipe' })
+    try {
+      const [exit, stdout, stderr] = await Promise.all([
+        child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+      ])
+      expect(exit, stdout + stderr).toBe(0)
+    } finally {
+      child.kill()
+      await child.exited
+    }
+    expect(readFileSync(path, 'utf8')).toBe(original)
+    expect(await requestMachineUpdate(runtimeDir, '/status')).toBeNull()
+    expect(await requestMachineUpdate(runtimeDir, '/prepare', grant)).toEqual({ accepted: true })
+    // Recovery also repairs a file lost by an older successor during a mixed-version handover.
+    rmSync(path)
+    await expect(requestMachineUpdate(runtimeDir, '/status')).rejects.toThrow('supervisor control endpoint missing')
+    control.publish()
+    expect(readFileSync(path, 'utf8')).toBe(original)
+    expect(await requestMachineUpdate(runtimeDir, '/status')).not.toBeNull()
+  } finally {
+    await control.close()
+  }
+})
