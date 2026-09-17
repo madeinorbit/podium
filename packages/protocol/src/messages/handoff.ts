@@ -39,7 +39,7 @@ export const HandoffBindingTransfer = z.object({
   observationGeneration: z.number().int().nonnegative(),
   delegation: z.object({
     actor: AgentIdentityIdField,
-    onBehalfOf: UserIdField,
+    onBehalfOf: UserIdField.nullable(),
     grantedScope: DelegationScope,
     parentBindingId: SessionIdField.nullable(),
   }),
@@ -49,6 +49,7 @@ export type HandoffBindingTransfer = z.infer<typeof HandoffBindingTransfer>
 /** Server-authored export instruction. The principal pair comes from the
  * authenticated command transport; the manifest is never allowed to supply it. */
 export const HandoffBindingExportInstruction = z.object({
+  delegation: SessionDelegation.optional(),
   transitionId: z.string().min(1),
   transferId: z.string().min(1),
   targetMachineId: MachineIdField,
