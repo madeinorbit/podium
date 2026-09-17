@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrading a self-hosted installation
+
+This release rekeys every machine and session principal and imports the machine ledger
+into the database. Read this before you update.
+
+- **Back up first, automatically.** Before the new version runs its migrations, the running
+  server writes a snapshot beside the database named
+  `~/.podium/podium.db.backup-vupdate-<from>-to-<to>-<timestamp>`. Rolling back is restoring
+  that file: stop Podium, replace `podium.db` with the snapshot, remove any stale
+  `podium.db-wal` / `podium.db-shm`, and start the previous version again. Podium keeps the
+  newest three verified snapshots.
+- **Every client bootstraps once.** The import rewrites the feed epoch, so every web, desktop
+  and phone client discards its local replica and loads everything again the first time it
+  connects after the update. This is expected, happens once per client, and loses nothing on
+  the server.
+- **If a machine vanishes or shows `inventory pending`.** The import maps each machine to the
+  member who enrolled it. A machine whose ledger record names an owner that no longer exists
+  makes the import refuse and the server stop before it changes anything; the log names the
+  machine and the record, and starting again after the record is corrected completes the
+  upgrade. A machine whose record explicitly has no owner is imported as *unowned*: it stays
+  visible, nobody can use it, and an admin adopts it from Settings → Machines, or with
+  `podium machines adopt <machine> [--for <member>]`. Nothing is guessed on your behalf: an
+  unowned machine stays unowned until an admin adopts it.
+- **Podium Connect is on by default.** A server with a public URL now publishes its
+  installation id and that URL to `connect.podium.do` so clients can find it after a URL
+  change or a server transfer. Nothing else is sent. To opt out, set `PODIUM_CONNECT=off`
+  or `connect.enabled: false` in the config file; `off` also clears the published record.
+- **Update order across the wire bump.** This release raises the daemon wire version. A
+  daemon that updates before its coordinator is refused by the still-old server and reports
+  offline until the coordinator has updated; it does not lose state, and it reconnects on its
+  own once the server is current. Let the managed update finish rather than restarting
+  daemons by hand while the coordinator is still on the old version.
+
 ### Changed
 
 - After this update, a chat scrolled to an older point may lose its saved position once
