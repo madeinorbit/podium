@@ -132,6 +132,8 @@ export const cursorManifest: AgentManifest = {
       'no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec',
     ),
     embedded: unsupported('cursor-agent ships no library to host in-process'),
+    // Cursor's poll observer reports turn_ended through the shared observation
+    // path; leave lifecycleFromState unset to avoid duplicate turn events.
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },

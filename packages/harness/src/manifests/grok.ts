@@ -257,6 +257,9 @@ export const grokManifest: AgentManifest = {
       }),
     }),
     embedded: unsupported('grok ships no library to host in-process'),
+    // Poll is Grok's only terminal state channel, but its turn boundary is
+    // already translated by the shared observation path. Keep the optional
+    // state lifecycle path off so it cannot emit a duplicate boundary.
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,

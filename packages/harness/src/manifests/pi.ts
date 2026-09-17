@@ -308,6 +308,8 @@ export const piManifest: AgentManifest = {
       'pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec',
     ),
     embedded: unsupported('pi ships an SDK, but it is not hosted in-process yet'),
+    // Pi's poll observer reports assistant stop/error/aborted boundaries through
+    // the shared observation path; do not add a second lifecycle source.
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },

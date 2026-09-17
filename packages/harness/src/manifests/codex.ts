@@ -432,6 +432,8 @@ export const codexManifest: AgentManifest = {
     embedded: unsupported('Codex ships a server, not a library to host in-process'),
     // The permanent fallback: a protocol break degrades Codex sessions to the
     // terminal driver instead of stranding them (spec §3, churn stance).
+    // Deferred pending POD-4076: Codex hook trust determines whether poll is
+    // primary or reconciliation, so lifecycleFromState remains unset for now.
     terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
     // App-server is the default for every LOGGED-IN Codex auth mode when the
     // version probe admits it. A logged-out session needs the PTY's interactive
