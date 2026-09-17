@@ -44,7 +44,6 @@ import {
   saveConfig,
   stateDir,
 } from './config'
-import { bumpInstallationGeneration } from './installation-identity'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
 import {
@@ -443,10 +442,6 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
     preserveConfigValue(previousConfig, backupPath)
   }
   saveTransferConfig(cfg)
-  // This box now hosts the installation the snapshot carried: one more
-  // generation, so Connect refuses the demoted source's publishes (PDM-51).
-  // Idempotent with the early return above — a replayed promotion never bumps twice.
-  bumpInstallationGeneration()
   return {
     changed: true,
     config: cfg,

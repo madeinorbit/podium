@@ -5,7 +5,7 @@
  * This is the third identity file in the state dir and it answers a question the
  * other two cannot. `machine.id` names the HOST and deliberately stays behind on a
  * transfer; `update-signing-key.json` is the trust root joined machines pin for
- * update artifacts and stays behind for the same reason. Neither can name "this
+ * update artifacts and moves with server authority. Neither can name "this
  * Podium, wherever it runs today", which is what Podium Connect looks an
  * installation up by and what a client compares a pairing against.
  *
@@ -36,7 +36,7 @@ import { stateDir } from './config'
 
 export const INSTALLATION_FILE = 'installation.json'
 
-/** Domain prefixes, byte for byte what connect.meetpodium.com uses. */
+/** Domain prefixes, byte for byte what connect.podium.do uses. */
 export const CONNECT_REQUEST_PREFIX = 'podium-connect-request-v1\n'
 export const CONNECT_REACHABILITY_PREFIX = 'podium-reachability-v1\n'
 export const CONNECT_PROBE_PREFIX = 'podium-connect-probe-v1\n'

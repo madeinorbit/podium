@@ -132,7 +132,7 @@ describe('signatures', () => {
     expect(verifyWithWireKey(wire, CONNECT_REACHABILITY_PREFIX, 'challenge', '!!')).toBe(false)
   })
 
-  it('agree with connect.meetpodium.com byte for byte (shared vectors)', () => {
+  it('agree with connect.podium.do byte for byte (shared vectors)', () => {
     // The same fixture lives in podium-cloud apps/connect/src/fixtures/vectors.json
     // and is verified there with Web Crypto. If either side drifts, this fails.
     const identity = { privateKey: vectors.privateKeyPkcs8 }

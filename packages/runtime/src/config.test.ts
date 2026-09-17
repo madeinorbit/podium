@@ -761,7 +761,7 @@ describe('the layered keys a cloud deployment sets (PDM-26)', () => {
   })
 
   it('resolveConnectBaseUrl: env → file → the cloud, https origins only', () => {
-    expect(resolveConnectBaseUrl({}, {})).toBe('https://connect.meetpodium.com')
+    expect(resolveConnectBaseUrl({}, {})).toBe('https://connect.podium.do')
     expect(resolveConnectBaseUrl({ connect: { baseUrl: 'https://dev.workers.dev/' } }, {})).toBe(
       'https://dev.workers.dev',
     )

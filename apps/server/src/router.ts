@@ -389,7 +389,7 @@ export const appRouter = t.router({
    */
   hosts: t.router(hostFamilyProcedures()),
   /**
-   * PODIUM CONNECT (PDM-51). `check` asks connect.meetpodium.com to probe a
+   * PODIUM CONNECT (PDM-51). `check` asks connect.podium.do to probe a
    * public URL from the outside and say precisely why it does not work. The
    * result is the cloud's answer verbatim; nothing here is stored — it is a
    * READ of the world, which is why it is a query and this router is in the

@@ -45,7 +45,7 @@ applied by `apps/server`. Today that is `transcriptLake` — see below.
 | `PODIUM_UPDATE_SCOPE` | `updateScope` | `all` | `resolveUpdateScope()` |
 | `PODIUM_TRANSCRIPT_LAKE` | `transcriptLake` | the Settings toggle, else `on` | `resolveTranscriptLake()` |
 | `PODIUM_CONNECT` | `connect.enabled` | `on` | `resolveConnectEnabled()` |
-| `PODIUM_CONNECT_URL` | `connect.baseUrl` | `https://connect.meetpodium.com` | `resolveConnectBaseUrl()` |
+| `PODIUM_CONNECT_URL` | `connect.baseUrl` | `https://connect.podium.do` | `resolveConnectBaseUrl()` |
 | `PODIUM_CONNECT_PROBE_KEYS` | `connect.trustedProbeKeys` | `[]` | `resolveConnectProbeKeys()` |
 
 Every one is optional. With none set, an install behaves exactly as it did
@@ -148,7 +148,7 @@ control at all.
 
 ### `PODIUM_CONNECT`, `PODIUM_CONNECT_URL`, `PODIUM_CONNECT_PROBE_KEYS`
 
-Podium Connect is the small service at `connect.meetpodium.com` that lets a client
+Podium Connect is the small service at `connect.podium.do` that lets a client
 find where this installation is reachable **today** — the URL a quick tunnel handed
 out this morning, or the new server after a transfer — and that checks, from the
 public internet, whether the public URL you typed actually works.

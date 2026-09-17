@@ -406,7 +406,7 @@ export const PodiumConfig = z.object({
    * (PODIUM_TELEMETRY_ENDPOINT → here → signed update manifest → baked-in).
    */
   /**
-   * PODIUM CONNECT (PDM-51): the locator at connect.meetpodium.com that tells a
+   * PODIUM CONNECT (PDM-51): the locator at connect.podium.do that tells a
    * client where this installation is reachable today, and the checker that
    * tells the operator whether a public URL works. ON BY DEFAULT once a public
    * URL exists — nothing is sent before then — and one switch turns it off.
@@ -1755,7 +1755,7 @@ const LAYERED_READERS: {
   },
 }
 
-export const DEFAULT_CONNECT_BASE_URL = 'https://connect.meetpodium.com'
+export const DEFAULT_CONNECT_BASE_URL = 'https://connect.podium.do'
 
 /** An https origin (http only on loopback, for a local worker), no path. */
 function parseConnectBaseUrl(raw: string, name: string): string {
@@ -1923,7 +1923,7 @@ export function resolveConnectEnabled(
 }
 
 /** The Connect origin: PODIUM_CONNECT_URL → config.connect.baseUrl →
- *  https://connect.meetpodium.com. */
+ *  https://connect.podium.do. */
 export function resolveConnectBaseUrl(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,

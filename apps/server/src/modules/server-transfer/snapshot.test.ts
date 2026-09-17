@@ -55,11 +55,11 @@ describe('portable server snapshot', () => {
 
   it('carries installation.json, the identity that moves with the installation (PDM-51)', () => {
     expect(isSafeRelativePath('installation.json')).toBe(true)
-    // What stays behind: the host's own identity and the update trust root.
+    // Both server identities move; host credentials stay behind.
+    expect(isSafeRelativePath('update-signing-key.json')).toBe(true)
     for (const hostFile of [
       'machine.id',
       'daemon.secret',
-      'update-signing-key.json',
       'config.json',
     ]) {
       expect(isSafeRelativePath(hostFile)).toBe(false)

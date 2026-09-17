@@ -20,6 +20,7 @@ import type {
 import { canonicalServerTransferManifest } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { readInstallationIdentity, readOrCreateInstallationIdentity } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
@@ -148,7 +149,10 @@ async function prepareAndValidateCandidate(): Promise<{
   promoteInput: Record<string, unknown>
 }> {
   const transferId = randomUUID()
+  const sourceRoot = join(stateRoot, 'source-identity')
+  readOrCreateInstallationIdentity(sourceRoot)
   const files: Record<string, Buffer> = {
+    'installation.json': await readFile(join(sourceRoot, 'installation.json')),
     ...(await candidateFiles()),
     'transcripts/session.txt': Buffer.from('incoming-transcript'),
   }
@@ -221,6 +225,7 @@ describe('server transfer target daemon', () => {
     await rm(join(stateRoot, 'enrollment.ledger'), { force: true })
     await rm(join(stateRoot, 'machine.id'), { force: true })
     await rm(join(stateRoot, 'daemon.secret'), { force: true })
+    await rm(join(stateRoot, 'installation.json'), { force: true })
     await rm(join(stateRoot, 'transcripts'), { recursive: true, force: true })
     await rm(join(stateRoot, 'outside'), { recursive: true, force: true })
   })
@@ -736,6 +741,7 @@ describe('server transfer target daemon', () => {
     'before-backup',
     'after-backup',
     'after-install-before-config',
+    'after-config-before-health',
     'after-health-before-proof',
   ] as const) {
     it(`recovers idempotently after a simulated process crash at ${point}`, async () => {
@@ -767,7 +773,7 @@ describe('server transfer target daemon', () => {
         },
       )
       const crashAfterMutation =
-        point === 'after-install-before-config' || point === 'after-health-before-proof'
+        point === 'after-install-before-config' || point === 'after-config-before-health' || point === 'after-health-before-proof'
       expect(first).toMatchObject({
         ok: false,
         state: crashAfterMutation ? 'promoting' : 'validated',
@@ -855,6 +861,10 @@ describe('server transfer target daemon', () => {
         },
       })
       expect(await readFile(join(stateRoot, 'podium.db'))).toEqual(files['podium.db'])
+      const incoming = JSON.parse(files['installation.json']!.toString())
+      expect(readInstallationIdentity(stateRoot)).toEqual({ ...incoming, generation: incoming.generation + 1 })
+      expect(await invoke('serverTransferPromoteRequest', promoteInput)).toMatchObject({ ok: true, idempotent: true })
+      expect(readInstallationIdentity(stateRoot)?.generation).toBe(incoming.generation + 1)
       expect(await readFile(backupDb, 'utf8')).toBe('original-target-db')
       expect(JSON.parse(await readFile(backupConfig, 'utf8'))).toMatchObject({
         mode: 'daemon',

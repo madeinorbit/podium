@@ -54,7 +54,7 @@ export type ConnectFailure =
 export type ConnectOutcome = { ok: true } | { ok: false; failure: ConnectFailure }
 
 export interface ConnectClientDeps {
-  /** A bare origin, e.g. https://connect.meetpodium.com. */
+  /** A bare origin, e.g. https://connect.podium.do. */
   baseUrl: string
   identity: () => InstallationIdentity
   fetch?: typeof fetch

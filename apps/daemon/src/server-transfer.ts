@@ -32,6 +32,7 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
+import { bumpInstallationGeneration } from '@podium/runtime/installation-identity'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
 import {
@@ -45,7 +46,7 @@ import type { ControlHandlers, DaemonContext } from './control/context'
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
-const PORTABLE_ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json'] as const
+const PORTABLE_ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json', 'installation.json'] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
 interface PromotionInventoryEntry {
@@ -1048,6 +1049,12 @@ async function promote(
   try {
     await persistRecoveryBackups(ctx, meta)
     for (const entry of meta.manifest.files) await installPortableFile(meta, entry)
+    // Each retry restores the original snapshot first, so this always advances
+    // source generation N to N+1, even after config was saved before a crash.
+    // Older snapshots have no installation identity to advance.
+    if (meta.manifest.files.some((entry) => entry.path === 'installation.json')) {
+      bumpInstallationGeneration()
+    }
     await crashPoint(ctx, 'after-install-before-config')
 
     await stopCandidateListener(msg.transferId)
