@@ -40,6 +40,8 @@ function machine(id: string, over: Record<string, unknown>) {
     name: id,
     hostname: id,
     online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { daemon: over.online !== false },
     lastSeenAt: new Date(0).toISOString(),
     ...over,
   }
@@ -165,7 +167,7 @@ it('hides stale offline names while preserving distinct online machine IDs', asy
       serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true } }),
   ]
   try {
-    render(<ColdStartComposer />)
+    render(<ColdStartComposer first={false} />)
     const rows = await machineRows()
     expect(rows.filter((row) => row.textContent?.includes('mine'))).toHaveLength(1)
     expect(rows.some((row) => row.textContent?.includes('offline'))).toBe(false)

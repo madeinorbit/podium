@@ -1,3 +1,4 @@
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { resolvePrincipal } from '../../command-principal'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
@@ -827,15 +828,17 @@ describe('the derived fleet router actually calls the gate', () => {
 describe('a paired machine belongs to whoever minted its code', () => {
   async function service() {
     const store = await openTestStore(':memory:')
+    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const registry = await SessionRegistry.create(store, undefined, {
-      instanceId: 'default',
-      pairing: new PairingManager(),
+      instanceId: 'default', installationId: 'fixture-installation',
+      pairing: new PairingManager({ installationId: 'fixture-installation' }),
     })
     return { store, machines: registry.modules.machines }
   }
 
   const pairFrame = (code: string) => ({
     type: 'pair' as const,
+    publicKey: publicKeyWire(mintSigningKeyPair()),
     code,
     machineId: asMachineId('joiner'),
     hostname: 'joiner.local',
@@ -850,20 +853,18 @@ describe('a paired machine belongs to whoever minted its code', () => {
     expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(firstAdminMemberId())
   })
 
-  it('a code minted with NO pairer produces an unowned machine — refused, not shared', async () => {
+  it('a code without a pairer is refused without creating a machine', async () => {
     const { store, machines } = await service()
     const code = machines.mintPairingCode({})
 
-    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
-    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBeNull()
-    // Unowned is the fail-CLOSED arm for use/manage: not ambient team compute.
-    // Admins hold `see` (D19.4b quarantine) so rename is FORBIDDEN rather than
-    // NOT_FOUND — the machine is visible to the people who must assign an owner.
+    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(false)
+    expect(await store.machines.getMachine('joiner')).toBeUndefined()
+    // Refused enrollment has no visible identity and confers no authority.
     expect(
       (await fleetAuthzFailure(
         'machines.rename',
         { id: 'joiner' },
-        deps(user(OWNER), { owner: null, machines: ['joiner'] }),
+        deps(user(OWNER), { machines: [] }),
       ))?.code,
     ).toBe('NOT_FOUND')
   })
