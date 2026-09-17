@@ -22,7 +22,8 @@
  * every consumer must branch on it. The spec permits exactly two, both terminal.
  */
 
-import type { DriverFamily, DriverId } from './families.js'
+import { canonicalDriverId } from '@podium/harness'
+import type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 
 /** One named weakness a family may exhibit. */
 export type PermittedFailure =
@@ -146,5 +147,5 @@ export const NO_NATIVE_STEER_DRIVERS = [
   'grok-acp',
 ] as const satisfies readonly DriverId[]
 
-export const permitsNoNativeSteer = (driverId: DriverId): boolean =>
-  (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(driverId)
+export const permitsNoNativeSteer = (driverId: AcceptedDriverId): boolean =>
+  (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(canonicalDriverId(driverId))

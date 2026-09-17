@@ -85,6 +85,21 @@ describe('createAgentRuntime', () => {
     expect(list).toHaveBeenCalledOnce()
   })
 
+  it('resolves retired input ids before consulting current driver sources', () => {
+    const driver = createFakeDriver({ harness: 'claude-code', id: 'generic-pty' })
+    const driverSource = source(driver)
+    const runtime = createAgentRuntime({
+      sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
+      landArchive: async (archive) => archive.resume,
+      list: async () => [],
+      inventory: async () => INVENTORY,
+    })
+
+    expect(runtime.driverFor('claude-code', 'claude-pty')?.id).toBe('generic-pty')
+    expect(runtime.capabilities('claude-code', 'claude-pty')).toEqual(driver.capabilities())
+  })
+
   it('lands an archive before resuming it through the selected driver', async () => {
     const driver = createFakeDriver({ harness: 'codex', id: 'codex-app-server' })
     const driverSource = source(driver)

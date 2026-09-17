@@ -1,7 +1,14 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import { type Declared, type DriverId, manifestFor, unsupported } from '@podium/harness'
+import {
+  type AcceptedDriverId,
+  canonicalDriverId,
+  type Declared,
+  type DriverId,
+  manifestFor,
+  unsupported,
+} from '@podium/harness'
 import type { AgentKind, Inventory, ResumeRef, SessionId } from '@podium/model'
 import type { SessionArchive, SessionBinding } from './binding.js'
 import type { DriverCapabilities } from './capabilities.js'
@@ -80,7 +87,7 @@ export interface AgentRuntime {
   inventory(): Promise<Inventory>
 
   // ---- Capability introspection (CORE) ----
-  capabilities(harness: string, driver: DriverId): DriverCapabilities
+  capabilities(harness: string, driver: AcceptedDriverId): DriverCapabilities
 
   // ---- Accounting (EXTENDED) ----
   /**
@@ -167,7 +174,7 @@ export interface MachineAgentRuntime extends AgentRuntime {
   readonly primitiveSupport: RuntimePrimitiveSupport
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   has(sessionId: SessionId): boolean
-  driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined
+  driverFor(harness: string, driver: AcceptedDriverId): RuntimeDriver | undefined
   /** Every binding currently indexed by a family registry (not process truth). */
   registeredBindings(): readonly SessionBinding[]
 }
@@ -190,11 +197,11 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
 
   const driverMatchFor = (
     harness: string,
-    driver: DriverId,
+    driver: AcceptedDriverId,
   ): { source: AgentRuntimeDriverSource; driver: RuntimeDriver } | undefined => {
     let found: { source: AgentRuntimeDriverSource; driver: RuntimeDriver } | undefined
     for (const source of sources()) {
-      const candidate = source.driverFor(harness, driver)
+      const candidate = source.driverFor(harness, canonicalDriverId(driver))
       if (!candidate) continue
       if (found) {
         throw new Error(
@@ -206,7 +213,7 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
     return found
   }
 
-  const driverFor = (harness: string, driver: DriverId): RuntimeDriver | undefined =>
+  const driverFor = (harness: string, driver: AcceptedDriverId): RuntimeDriver | undefined =>
     driverMatchFor(harness, driver)?.driver
 
   const selectedDriver = (

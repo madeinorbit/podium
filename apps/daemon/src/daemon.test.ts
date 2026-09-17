@@ -375,7 +375,7 @@ describe('daemon multi-bridge', () => {
     // Claude Code declares no server driver, so it never reaches a probe: the
     // answer is its terminal driver and it is knowable without starting
     // anything, which is why this arrives first.
-    expect(selected?.driverId).toBe('claude-pty')
+    expect(selected?.driverId).toBe('generic-pty')
   })
 
   it('spawns independent bridges and tags bind + frames by sessionId', async () => {

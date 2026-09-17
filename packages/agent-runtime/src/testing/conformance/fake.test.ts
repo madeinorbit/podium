@@ -17,6 +17,7 @@ import {
   NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   permits,
+  permitsNoNativeSteer,
   RUNTIME_PRIMITIVE_TIER,
 } from '../../index.js'
 import {
@@ -185,7 +186,6 @@ describe('the permitted-failures table', () => {
     }
     expect([...NO_NATIVE_STEER_DRIVERS]).toEqual([
       'generic-pty',
-      'claude-pty',
       'claude-sdk',
       'opencode-server',
       'grok-acp',
@@ -194,6 +194,7 @@ describe('the permitted-failures table', () => {
     // protocol, so a codex-server declining steer is a bug in the driver, not a
     // weakness of its harness.
     expect(NO_NATIVE_STEER_DRIVERS).not.toContain('codex-app-server')
+    expect(permitsNoNativeSteer('claude-pty')).toBe(true)
   })
 
   it('lets only the embedded family decline attach', () => {

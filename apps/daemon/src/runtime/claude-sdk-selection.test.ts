@@ -1,3 +1,4 @@
+import type { AcceptedDriverId, DriverId } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import {
   availableDriverIds,
@@ -12,15 +13,39 @@ const base = {
 }
 
 describe('Claude SDK runtime selection', () => {
+  it.each([
+    ['claude-pty'],
+    ['generic-pty'],
+    ['claude-pty', 'generic-pty'],
+  ] satisfies AcceptedDriverId[][])('accepts retired preferences with inventory %j', (...available) => {
+    for (const requested of ['claude-pty', true] as const) {
+      const result = resolveRuntimeDriver({
+        ...base,
+        requested,
+        machineDefault: 'claude-pty',
+        available,
+      })
+      expect(result).toEqual({ ok: true, driverId: 'generic-pty' })
+      if (result.ok) {
+        const emitted: DriverId = result.driverId
+        expect(emitted).toBe('generic-pty')
+      }
+    }
+  })
+
+  it('never advertises retired driver ids', () => {
+    expect(availableDriverIds({ opencodeDrivable: false })).not.toContain('claude-pty')
+  })
+
   it('keeps the interactive PTY default even when the SDK is admitted', () => {
     expect(
       resolveRuntimeDriver({
         ...base,
         requested: undefined,
         machineDefault: undefined,
-        available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+        available: ['generic-pty', 'claude-sdk'],
       }),
-    ).toEqual({ ok: true, driverId: 'claude-pty' })
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 
   it('does not let a machine default opt every Claude session into the SDK', () => {
@@ -29,9 +54,9 @@ describe('Claude SDK runtime selection', () => {
         ...base,
         requested: undefined,
         machineDefault: 'claude-sdk',
-        available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+        available: ['generic-pty', 'claude-sdk'],
       }),
-    ).toEqual({ ok: true, driverId: 'claude-pty' })
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 
   it('only an explicit per-spawn SDK request overrides a machine default', () => {
@@ -39,15 +64,15 @@ describe('Claude SDK runtime selection', () => {
       ...base,
       requested: undefined,
       machineDefault: 'claude-sdk',
-      available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+      available: ['generic-pty', 'claude-sdk'],
     })
-    expect(selectedByMachineDefault).toEqual({ ok: true, driverId: 'claude-pty' })
+    expect(selectedByMachineDefault).toEqual({ ok: true, driverId: 'generic-pty' })
 
     const selectedExplicitly = resolveRuntimeDriver({
       ...base,
       requested: 'claude-sdk',
       machineDefault: 'claude-sdk',
-      available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+      available: ['generic-pty', 'claude-sdk'],
     })
     expect(selectedExplicitly).toEqual({ ok: true, driverId: 'claude-sdk' })
   })
@@ -58,7 +83,7 @@ describe('Claude SDK runtime selection', () => {
         ...base,
         requested: 'claude-sdk',
         machineDefault: undefined,
-        available: ['claude-pty', 'generic-pty'],
+        available: ['generic-pty'],
       }),
     ).toEqual({ ok: true, driverId: 'claude-sdk' })
   })
@@ -68,7 +93,7 @@ describe('Claude SDK runtime selection', () => {
   })
 
   it('keeps subscription auth headed until the SDK is explicitly requested', () => {
-    const admitted = ['claude-pty', 'generic-pty', 'claude-sdk'] as const
+    const admitted = ['generic-pty', 'claude-sdk'] as const
     expect(
       resolveRuntimeDriver({
         ...base,
@@ -77,16 +102,16 @@ describe('Claude SDK runtime selection', () => {
         machineDefault: undefined,
         available: admitted,
       }),
-    ).toEqual({ ok: true, driverId: 'claude-pty' })
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
     expect(
       resolveRuntimeDriver({
         ...base,
         auth: 'subscription',
         requested: undefined,
         machineDefault: undefined,
-        available: ['claude-pty', 'generic-pty'],
+        available: ['generic-pty'],
       }),
-    ).toEqual({ ok: true, driverId: 'claude-pty' })
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 
   it('keeps unknown Claude auth on the PTY even when the SDK is admitted', () => {
@@ -96,9 +121,9 @@ describe('Claude SDK runtime selection', () => {
         auth: 'unknown',
         requested: undefined,
         machineDefault: undefined,
-        available: ['claude-pty', 'generic-pty', 'claude-sdk'],
+        available: ['generic-pty', 'claude-sdk'],
       }),
-    ).toEqual({ ok: true, driverId: 'claude-pty' })
+    ).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 })
 

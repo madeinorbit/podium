@@ -21,6 +21,8 @@
 
 import {
   AGENT_MANIFESTS,
+  type AcceptedDriverId,
+  canonicalDriverId,
   type DriverId,
   declaredValue,
   harnessInterrupt,
@@ -227,7 +229,7 @@ export function resolveRuntimeDriver(input: {
   requested: RuntimeContractRequest | undefined
   /** `PODIUM_RUNTIME_DRIVER`, the machine-wide default. */
   machineDefault: string | undefined
-  available: readonly DriverId[]
+  available: readonly AcceptedDriverId[]
   platform: NodeJS.Platform
   auth?: SelectionContext['auth']
 }): DriverResolution {
@@ -237,7 +239,7 @@ export function resolveRuntimeDriver(input: {
     return { ok: true, driverId: manifest.runtime.terminal.driverId }
   }
   const preference = runtimeDriverFor(input.machineDefault, input.requested)
-  if (preference !== undefined && !IMPLEMENTED.has(preference)) {
+  if (preference !== undefined && !IMPLEMENTED.has(canonicalDriverId(preference))) {
     return { ok: false, reason: `unknown runtime driver '${preference}'` }
   }
   // The embedded SDK is an operator experiment, never a policy/default choice.
@@ -263,7 +265,7 @@ export function resolveRuntimeDriver(input: {
     auth: input.auth ?? 'unknown',
     platform: input.platform,
     available: input.available,
-    ...(policyPreference ? { preference: policyPreference as DriverId } : {}),
+    ...(policyPreference ? { preference: policyPreference as AcceptedDriverId } : {}),
   }
   return { ok: true, driverId: manifest.runtime.select(ctx) }
 }
@@ -287,7 +289,7 @@ export function runtimeDriverIntentForSpawn(input: {
 
 /** Does this harness declare a server driver at all, and is it the one selected?
  *  Read off the manifest rather than by comparing strings at each call site. */
-export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolean {
+export function isServerDriver(agentKind: AgentKind, driverId: AcceptedDriverId): boolean {
   const runtime = manifestFor(agentKind)?.runtime
   if (!runtime) return false
   return (
@@ -297,7 +299,7 @@ export function isServerDriver(agentKind: AgentKind, driverId: DriverId): boolea
 }
 
 /** Is this the harness's declared embedded driver? */
-export function isEmbeddedDriver(agentKind: AgentKind, driverId: DriverId): boolean {
+export function isEmbeddedDriver(agentKind: AgentKind, driverId: AcceptedDriverId): boolean {
   const embedded = manifestFor(agentKind)?.runtime.embedded
   return embedded !== undefined && declaredValue(embedded)?.driverId === driverId
 }
@@ -399,7 +401,7 @@ export function unhonouredSpawnDriver(input: {
   /** The per-spawn field ONLY. Folding the env default in here defeats the
    *  point — see above. */
   perSpawn: RuntimeContractRequest | undefined
-  resolved: DriverId
+  resolved: AcceptedDriverId
 }): string | undefined {
   return droppedDriverPreference({
     preference: spawnNamedServerDriver(input.perSpawn),
@@ -423,7 +425,7 @@ export function unhonouredSpawnDriver(input: {
  */
 export function droppedDriverPreference(input: {
   preference: string | undefined
-  resolved: DriverId
+  resolved: AcceptedDriverId
 }): string | undefined {
   const { preference, resolved } = input
   if (preference === undefined || preference === resolved) return undefined

@@ -17,7 +17,7 @@ import {
   type HarnessEnvironment,
   type HarnessLogin,
   type PortableCredential,
-  type DriverId,
+  type AcceptedDriverId,
 } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
@@ -79,7 +79,7 @@ export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabil
  */
 export function clientTerminalFor(
   kind: AgentKind | string,
-  driverId?: DriverId,
+  driverId?: AcceptedDriverId,
 ): ClientTerminalSpec | undefined {
   const runtime = manifestFor(kind)?.runtime
   const primary = runtime?.server && declaredValue(runtime.server)

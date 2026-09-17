@@ -632,6 +632,10 @@ export const DRIVER_IDS = [
 /** Driver ids accepted from older daemons and user preferences during rollout. */
 export const RETIRED_DRIVER_IDS = ['claude-pty'] as const
 export type RetiredDriverId = (typeof RETIRED_DRIVER_IDS)[number]
+/** Known input ids during rollout; declarations and emitted selections stay DriverId. */
+export type AcceptedDriverId = DriverId | RetiredDriverId
+export function canonicalDriverId(driverId: AcceptedDriverId): DriverId
+export function canonicalDriverId(driverId: string): string
 export function canonicalDriverId(driverId: string): string {
   return driverId === 'claude-pty' ? 'generic-pty' : driverId
 }
@@ -651,10 +655,10 @@ export interface SelectionContext {
    *  version in the pinned range. May be EMPTY on a machine that has not been
    *  probed or cannot run this harness at all — see `select()` for what that
    *  answers. */
-  available: readonly (DriverId | RetiredDriverId)[]
+  available: readonly AcceptedDriverId[]
   /** The operator's explicit choice, honoured over the policy's own preference —
    *  but still only if it is available. */
-  preference?: DriverId | RetiredDriverId
+  preference?: AcceptedDriverId
   role?: 'interactive' | 'executor'
 }
 
@@ -893,7 +897,7 @@ export function selectRuntimeDriver(
   ranked: readonly [...DriverId[], DriverId],
 ): DriverId {
   const available = new Set(ctx.available.map(canonicalDriverId))
-  const preference = ctx.preference ? canonicalDriverId(ctx.preference) as DriverId : undefined
+  const preference = ctx.preference ? canonicalDriverId(ctx.preference) : undefined
   // An explicit operator choice wins over the policy — but only if the machine
   // can actually run it AND this harness declares it. Without the second half,
   // a machine-wide preference for one harness's healthy server can route a

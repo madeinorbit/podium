@@ -17,6 +17,7 @@ import {
   type SessionBinding,
   type SessionSpec,
 } from '@podium/agent-runtime'
+import type { AcceptedDriverId } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { RuntimeContractRequest } from '@podium/protocol'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
@@ -80,7 +81,7 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
     agentKind: AgentKind
     requested: RuntimeContractRequest | undefined
     machineDefault: string | undefined
-    available: readonly DriverId[]
+    available: readonly AcceptedDriverId[]
     platform: NodeJS.Platform
     auth?: Parameters<typeof resolveRuntimeDriver>[0]['auth']
   }): DaemonDriverResolution

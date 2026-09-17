@@ -14,6 +14,7 @@
  */
 
 export type {
+  AcceptedDriverId,
   DriverFamily,
   DriverId,
   EmbeddedRuntimeSpec,

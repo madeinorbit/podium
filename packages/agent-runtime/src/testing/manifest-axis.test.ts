@@ -81,7 +81,7 @@ describe('the AgentManifest runtime axis', () => {
     // nothing would push the same fallback decision onto every call site.
     for (const [kind, terminal] of [
       ['codex', 'generic-pty'],
-      ['claude-code', 'claude-pty'],
+      ['claude-code', 'generic-pty'],
       ['grok', 'generic-pty'],
     ] as const) {
       expect(
@@ -125,7 +125,7 @@ describe('per-harness selection (spec §2 matrix)', () => {
         platform: 'linux',
         available: ['claude-pty'],
       }),
-    ).toBe('claude-pty')
+    ).toBe('generic-pty')
   })
 
   it('lets an explicit terminal preference opt out of the admitted SDK', () => {
@@ -136,7 +136,7 @@ describe('per-harness selection (spec §2 matrix)', () => {
         available: ['claude-pty', 'claude-sdk'],
         preference: 'claude-pty',
       }),
-    ).toBe('claude-pty')
+    ).toBe('generic-pty')
   })
 
   it('declares the embedded driver Claude subscription and API-key principals select', () => {

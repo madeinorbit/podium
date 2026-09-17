@@ -64,7 +64,7 @@ export type {
   TranscriptItemDelta,
   WatchLevel,
 } from './events.js'
-export type { DriverFamily, DriverId } from './families.js'
+export type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 export type {
   ElicitationAnswer,
   ElicitationAsk,
