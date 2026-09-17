@@ -1055,8 +1055,9 @@ describe('retained shell commands', () => {
     if (!claude || !codex) throw new Error('Missing command item')
     const live = claudeToolCallItem({ id: 'call', toolName: 'Bash', input })
     expect(live.toolInputJson).toBe(claude.toolInputJson)
-    expect(codex.toolInputJson).toBe(claude.toolInputJson)
-    if (command) expect(codex.toolInput).toBe(claude.toolInput)
+    // Codex already retains cmd verbatim; it needs no duplicate payload.
+    expect(codex.toolInputJson).toBeUndefined()
+    if (command) expect(codex.toolInput).toBe(command)
     return claude
   }
 

@@ -2,7 +2,6 @@ import type { TranscriptItem } from '@podium/model'
 import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { contentToText, isRecord, stringField } from './json-util'
-import { safeToolCommandJson } from './tool-command'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -191,13 +190,9 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     }
   }
   if (wireName === 'exec_command') {
-    const command = recordString(input, 'cmd')
-    const commandInput = command === undefined ? input : { command }
-    const toolInputJson = safeToolCommandJson(wireName, commandInput)
     return {
       toolName: 'Bash',
-      toolInput: toolInputPreview(commandInput) || undefined,
-      ...(toolInputJson ? { toolInputJson } : {}),
+      toolInput: (recordString(input, 'cmd') ?? toolInputPreview(input)) || undefined,
     }
   }
   if (wireName === 'apply_patch') {

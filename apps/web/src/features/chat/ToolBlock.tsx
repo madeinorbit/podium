@@ -37,6 +37,35 @@ function BashCommand({ command }: { command: string }): JSX.Element {
   return <>{spans}</>
 }
 
+/** Old records and other harnesses retain their command in toolInput. Only a
+ * validated shell-command payload supersedes that explicit legacy fallback. */
+function expandedCommand(item: TranscriptItem): {
+  command: string | undefined
+  truncated: boolean
+} {
+  if (item.toolInputJson) {
+    try {
+      const payload: unknown = JSON.parse(item.toolInputJson)
+      if (
+        payload &&
+        typeof payload === 'object' &&
+        'kind' in payload &&
+        payload.kind === 'shell-command' &&
+        'command' in payload &&
+        typeof payload.command === 'string'
+      ) {
+        return {
+          command: payload.command,
+          truncated: 'truncated' in payload && payload.truncated === true,
+        }
+      }
+    } catch {
+      // Malformed retained input must not hide the legacy command.
+    }
+  }
+  return { command: item.toolInput, truncated: false }
+}
+
 /** One tool call inside an expanded batch (Flat Field, POD-159): a muted
  *  one-line mono row — verdict glyph, name, input preview, inline file links —
  *  with a failed call's first result line surfaced beneath it. Click toggles
@@ -93,6 +122,11 @@ export function ToolBlock({
   // clips only what genuinely does not fit and only ever at the end.
   const subject = toolSubject(item, Number.POSITIVE_INFINITY)
   const isCommand = item.toolName === 'Bash'
+  // Parse retained input only when disclosed; collapsed rows use the preview.
+  const expanded = useMemo(
+    () => (open && isCommand ? expandedCommand(item) : undefined),
+    [open, isCommand, item.toolInputJson, item.toolInput],
+  )
   // The agent's own description of a command it ran — a detail, so it stays
   // behind this row's own disclosure, which is exactly where the operator asked
   // for details to live.
@@ -151,10 +185,15 @@ export function ToolBlock({
           The exception is a FAILURE, which is not detail — it is the verdict,
           and a reader who has to click to discover that something broke has been
           told the wrong thing by the row above it. */}
-      {open && isCommand && item.toolInput && (
-        <pre className="tool-result-full tool-cmd">
-          <BashCommand command={item.toolInput} />
-        </pre>
+      {expanded?.command !== undefined && (
+        <>
+          <pre className="tool-result-full tool-cmd">
+            <BashCommand command={expanded.command} />
+          </pre>
+          {expanded.truncated && (
+            <div className="tool-aside">Command truncated — remaining text was not retained.</div>
+          )}
+        </>
       )}
       {aside && open && <div className="tool-aside">{aside}</div>}
       {verdict === 'err' && (

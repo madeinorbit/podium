@@ -126,8 +126,16 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
   if (!block) throw new Error('Missing recorded Bash call')
+  const command = records[0]?.message.content[0]?.input?.command
+  if (typeof command !== 'string') throw new Error('Missing recorded command')
+  expect(command.length).toBeGreaterThan(160)
+  expect(block.item.toolInput).toBe(`${command.slice(0, 160)}…`)
   mount({ ...block.item, toolResult: block.result })
+  expect(host.querySelector('.tool-row .tool-cmd')?.textContent).toBe(block.item.toolInput)
+  expect(host.querySelector('pre.tool-cmd')).toBeNull()
   unfold()
+  expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(command)
+  expect(host.textContent).not.toContain('Command truncated')
   expect(host.textContent).toContain('RESTORED clean')
   const recorded = records[1]?.toolUseResult?.bashEditDiff.files[0]
   if (!recorded) throw new Error('Missing recorded Bash effect')
@@ -165,4 +173,44 @@ it('shows unavailable applied effects instead of requested edits', () => {
   unfold()
   expect(host.textContent).toContain('Applied diff unavailable')
   expect(host.textContent).not.toContain('REQUESTED ONLY')
+})
+
+describe('retained Bash command disclosure', () => {
+  it.each([
+    undefined,
+    '{broken',
+    JSON.stringify({ kind: 'file-edit' }),
+    JSON.stringify({ kind: 'shell-command', command: 42 }),
+  ])('explicitly falls back to the legacy command for unusable payload %s', (toolInputJson) => {
+    mount({ toolInput: 'echo legacy', ...(toolInputJson === undefined ? {} : { toolInputJson }) })
+    unfold()
+    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('echo legacy')
+    expect(host.textContent).not.toContain('Command truncated')
+  })
+
+  it('shows the retained prefix and loss notice when the mapper budget is exceeded', async () => {
+    const { claudeToolCallItem } = await import('@podium/transcript')
+    const item = claudeToolCallItem({
+      id: 'large',
+      toolName: 'Bash',
+      input: { command: 'echo ' + 'x'.repeat(100_000) },
+    })
+    const payload = JSON.parse(item.toolInputJson ?? 'null')
+    expect(payload.truncated).toBe(true)
+    mount(item)
+    expect(host.textContent).not.toContain('Command truncated')
+    expect(host.querySelector('.tool-row .tool-cmd')?.textContent).toBe(item.toolInput)
+    unfold()
+    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(payload.command)
+    expect(host.textContent).toContain('Command truncated — remaining text was not retained.')
+  })
+
+  it('uses a retained empty command even when a legacy preview exists', () => {
+    mount({
+      toolInput: 'legacy',
+      toolInputJson: JSON.stringify({ kind: 'shell-command', command: '' }),
+    })
+    unfold()
+    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('')
+  })
 })
