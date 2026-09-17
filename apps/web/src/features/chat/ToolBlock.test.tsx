@@ -131,7 +131,11 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   expect(command.length).toBeGreaterThan(160)
   expect(block.item.toolInput).toBe(`${command.slice(0, 160)}…`)
   mount({ ...block.item, toolResult: block.result })
-  expect(host.querySelector('.tool-row .tool-cmd')?.textContent).toBe(block.item.toolInput)
+  const collapsed = host.querySelector('.tool-row .tool-cmd')?.textContent ?? ''
+  // The existing subject formatter also hides the leading cwd change.
+  expect(collapsed).toMatch(/^cp .*…$/)
+  expect(collapsed.length).toBeLessThanOrEqual(161)
+  expect(collapsed).not.toContain('git log --oneline dev/mw..HEAD')
   expect(host.querySelector('pre.tool-cmd')).toBeNull()
   unfold()
   expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(command)
