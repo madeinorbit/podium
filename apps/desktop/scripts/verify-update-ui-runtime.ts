@@ -497,7 +497,7 @@ function retainFailureSnapshot(value: Fixture, label: string, managed?: ManagedP
     }
   }
   const files: Json = {}
-  for (const name of ['config.json', 'connectivity.json', 'daemon.json', 'running-version', 'update-ownership']) {
+  for (const name of ['config.json', 'machine.json', 'running-version', 'update-ownership']) {
     try {
       files[name] = readFileSync(join(value.state, name), 'utf8')
     } catch {
@@ -679,7 +679,7 @@ async function readPid(state: string, role: string): Promise<number | undefined>
 
 async function readMachineId(state: string): Promise<string | undefined> {
   try {
-    const value = JSON.parse(await readFile(join(state, 'daemon.json'), 'utf8')) as {
+    const value = JSON.parse(await readFile(join(state, 'machine.json'), 'utf8')) as {
       machineId?: string
     }
     return value.machineId
@@ -2111,7 +2111,7 @@ async function runDaemonTopology(
     capture(display.name, screenshots.daemonCurrent)
     const desktopConfig = readJson(join(desktop.state, 'config.json'))
     const primaryConfig = readJson(join(primary.state, 'config.json'))
-    const connectivity = readJson(join(desktop.state, 'connectivity.json'))
+    const connectivity = readJson(join(desktop.state, 'machine.json')).connectivity as Json | undefined
     const daemonPid = await readPid(desktop.state, 'daemon')
     if (!daemonPid) throw new Error('desktop daemon pid missing after shell restart')
     const daemonEnv = await processEnvironment(daemonPid)
@@ -2121,7 +2121,7 @@ async function runDaemonTopology(
       desktopConfig.mode !== 'daemon' ||
       desktopConfig.updateFeedEndpoint !== `${tls.origin}/updates/feed/dev/latest.json` ||
       primaryConfig.mode !== 'server' ||
-      connectivity.state !== 'connected' ||
+      connectivity?.state !== 'connected' ||
       daemonEnv.PODIUM_DESKTOP_SUPERVISED !== '1' ||
       !directChild
     ) {

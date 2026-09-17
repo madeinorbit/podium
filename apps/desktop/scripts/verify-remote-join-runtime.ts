@@ -458,9 +458,9 @@ try {
     const previousMachineId = previous.join?.serverMachine?.id
     if (!previousMachineId) throw new Error('previous evidence has no joined server machine id')
     const rejectedIdentity = await waitFor(async () => {
-      const value = JSON.parse(await readFile(join(stateDir, 'daemon.json'), 'utf8')) as {
+      const value = JSON.parse(await readFile(join(stateDir, 'machine.json'), 'utf8')) as {
         machineId?: string
-        token?: string
+        daemon?: { token?: string }
       }
       return value.machineId ? value : undefined
     }, 'the reset daemon identity')
@@ -469,12 +469,14 @@ try {
     }
     const connectivity = await waitFor(
       async () => {
-        const value = JSON.parse(await readFile(join(stateDir, 'connectivity.json'), 'utf8')) as {
-          state?: string
-          authorizationReason?: string
-          updatedAt?: string
+        const value = JSON.parse(await readFile(join(stateDir, 'machine.json'), 'utf8')) as {
+          connectivity?: {
+            state?: string
+            authorizationReason?: string
+            updatedAt?: string
+          }
         }
-        return value.state === 'unauthorized' ? value : undefined
+        return value.connectivity?.state === 'unauthorized' ? value.connectivity : undefined
       },
       'the reused pair code to be rejected as unauthorized',
       30_000,
@@ -538,7 +540,7 @@ try {
           id: rejectedIdentity.machineId,
           differsFromFirstMachine: rejectedIdentity.machineId !== previousMachine.id,
           hasServerRow: false,
-          issuedToken: rejectedIdentity.token !== undefined,
+          issuedToken: rejectedIdentity.daemon?.token !== undefined,
         },
         refusal: {
           state: connectivity.state,
