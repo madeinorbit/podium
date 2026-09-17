@@ -732,7 +732,6 @@ export class SessionRegistry {
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
       hostMachineId: this.store.hostMachineId,
-      serverPlacement: options.serverPlacement,
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),

@@ -309,7 +309,6 @@ export async function prepareDaemonFrame(
     connectionId: prepared.deps.connectionId,
     ...carried,
     machines: {
-      serverPlacement: prepared.deps.machines.serverPlacement,
       authenticateDaemon(frame) {
         request = frame
         return { ok: false, reason: 'credential resolution pending' }
@@ -330,7 +329,7 @@ export async function prepareDaemonFrame(
   const acceptor = createResolvedDaemonAcceptor({
     connectionId: prepared.deps.connectionId,
     ...carried,
-    machines: resolvedMachineAuthenticator(prepared.deps.machines, requested, result),
+    machines: resolvedMachineAuthenticator(requested, result),
   })
   const outcome = receiveResolvedDaemonFrame(acceptor, raw)
   if (rotatedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {

@@ -2,7 +2,6 @@ import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { stateDir } from '@podium/runtime/config'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
-import type { ServerPlacement } from '../updates/service'
 import { supersedeMachine } from './supersession'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { DaemonReadiness } from '@podium/model'
@@ -267,7 +266,6 @@ export interface MachinesDeps {
   recoveryOnly?: boolean
   /** Existing self-hosted identity for legacy readers; routing uses explicit placement or daemon availability. */
   hostMachineId: MachineId
-  serverPlacement?: ServerPlacement
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   installationId?: string
   pairing?: PairingCodes
@@ -498,8 +496,6 @@ export class MachinesService {
     return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
   }
 
-
-  get serverPlacement(): ServerPlacement | undefined { return this.deps.serverPlacement }
 
   get hostMachineId(): MachineId {
     return this.deps.hostMachineId

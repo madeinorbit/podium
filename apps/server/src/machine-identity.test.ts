@@ -13,7 +13,7 @@
  *     read and presents that id in an ordinary `hello`, credentialed by the
  *     loopback bootstrap secret — the same path a remote takes.
  *  3. NO PLACEHOLDER. Implicit session placement refuses until an assigned daemon
- *     is available; local maintenance credentials require explicit fleet placement.
+ *     is available; machine authentication requires an explicit enrolled identity.
  */
 
 import { createHash } from 'node:crypto'
@@ -196,24 +196,25 @@ describe('a database that already ran the retired upgrades', () => {
   })
 })
 
-describe('local maintenance authentication requires fleet placement', () => {
-  it.each([{ kind: 'external' as const }, undefined])('refuses %j without consulting credentials', async (serverPlacement) => {
+describe('machine authentication requires an explicit identity', () => {
+  it('refuses an unhinted token without consulting credentials', async () => {
     const authenticateDaemon = vi.fn()
-    const machines = { hostMachineId: HOST, serverPlacement, authenticateDaemon }
-    expect(await createMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toBeNull()
-    expect(createResolvedMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toBeNull()
+    const machines = { authenticateDaemon }
+    expect(await createMachineDirectory(machines).verifyMachineToken('shared-secret')).toBeNull()
+    expect(createResolvedMachineDirectory(machines).verifyMachineToken('shared-secret')).toBeNull()
     expect(authenticateDaemon).not.toHaveBeenCalled()
   })
 
-  it('authenticates the explicitly placed machine and refuses an incorrect token', async () => {
+  it('authenticates the explicitly named machine and refuses an incorrect token', async () => {
     const placed = asMachineId('explicit-fleet-machine')
-    const authenticateDaemon = vi.fn((frame) => frame.machineId === placed && frame.token === 'shared-secret'
+    const authenticateDaemon = vi.fn((frame) => frame.machineId === placed && frame.token === 'machine-token'
       ? { ok: true as const, machineId: placed, name: 'self-hosted' }
       : { ok: false as const, reason: 'invalid credential' })
-    const machines = { hostMachineId: HOST, serverPlacement: { kind: 'fleet' as const, machineId: placed }, authenticateDaemon }
-    expect(await createMachineDirectory({ ...machines, authenticateDaemon: async frame => authenticateDaemon(frame) }).verifyDaemonSecret('shared-secret')).toMatchObject({ machine: placed })
-    expect(createResolvedMachineDirectory(machines).verifyDaemonSecret('shared-secret')).toMatchObject({ machine: placed })
-    expect(await createMachineDirectory({ ...machines, authenticateDaemon: async frame => authenticateDaemon(frame) }).verifyDaemonSecret('wrong')).toBeNull()
+    const machines = { authenticateDaemon }
+    const directory = createMachineDirectory({ authenticateDaemon: async frame => authenticateDaemon(frame) })
+    expect(await directory.verifyMachineToken('machine-token', placed)).toMatchObject({ machine: placed })
+    expect(createResolvedMachineDirectory(machines).verifyMachineToken('machine-token', placed)).toMatchObject({ machine: placed })
+    expect(await directory.verifyMachineToken('wrong', placed)).toBeNull()
   })
 })
 

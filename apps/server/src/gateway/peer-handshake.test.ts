@@ -205,6 +205,17 @@ const authenticatedSocket = async (caps: string[]) => {
 }
 
 describe('the daemon socket speaks the permanent envelope', () => {
+  it('refuses retired shared-secret hello before consulting machine credentials', async () => {
+    const authenticateDaemon = vi.fn()
+    const outcome = await receiveDaemonFrame(
+      createDaemonAcceptor({ machines: { authenticateDaemon }, connectionId: 'retired-secret' }),
+      frame({ type: 'peerHello', v: WIRE_VERSION, caps: [],
+        credential: { kind: 'daemonSecret', secret: 'former-host-secret' } }),
+    )
+    expect(outcome).toMatchObject({ kind: 'rejected' })
+    expect(authenticateDaemon).not.toHaveBeenCalled()
+  })
+
   it('retains offered and actually accepted daemon capabilities separately', async () => {
     const reg = await registryWithMachine()
     const hello = (caps: string[]) =>
