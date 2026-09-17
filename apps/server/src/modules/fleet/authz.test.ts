@@ -1,4 +1,3 @@
-import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { resolvePrincipal } from '../../command-principal'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
@@ -29,10 +28,10 @@ import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { describe, expect, it, vi } from 'vitest'
 import { addSink, createRingBufferSink } from '@podium/logger'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
-import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { PairingManager } from '../../hub/pairing'
 
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
@@ -538,9 +537,6 @@ describe('the derived fleet router actually calls the gate', () => {
     const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
-      // Ownership transfer commits to the ledger, so the wiring arm needs a real
-      // one. Every other command here is indifferent to it.
-      ...(opts.stateDir ? { enrollment: openEnrollmentLedger(opts.stateDir) } : {}),
     })
     await registry.modules.machines.ensureHostMachine('machine-under-test')
     await registry.modules.machines.attach(asMachineId('m1'), () => {})
@@ -548,9 +544,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {
       store,
-      // Exposed so a test can read the LEDGER (`effectiveOwner`) and not only
-      // the row it projects onto — the two are the same in a healthy world and
-      // only the ledger is the commit point.
+      // Expose the service so tests can read database-backed effective ownership.
       registry,
       call: appRouter.createCaller({
         registry,
@@ -826,20 +820,21 @@ describe('the derived fleet router actually calls the gate', () => {
  * seam rather than through an HTTP server.
  */
 describe('a paired machine belongs to whoever minted its code', () => {
+  const pairer = asUserId('user:pairer')
   async function service() {
     const store = await openTestStore(':memory:')
-    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await store.users.create({ id: pairer, displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const registry = await SessionRegistry.create(store, undefined, {
-      instanceId: 'default', installationId: 'fixture-installation',
-      pairing: new PairingManager({ installationId: 'fixture-installation' }),
+      instanceId: 'default', installationId: 'installation-test',
+      pairing: new PairingManager({ installationId: 'installation-test' }),
     })
     return { store, machines: registry.modules.machines }
   }
 
   const pairFrame = (code: string) => ({
     type: 'pair' as const,
-    publicKey: publicKeyWire(mintSigningKeyPair()),
     code,
+    publicKey: publicKeyWire(mintSigningKeyPair()),
     machineId: asMachineId('joiner'),
     hostname: 'joiner.local',
     name: 'joiner',
@@ -847,26 +842,22 @@ describe('a paired machine belongs to whoever minted its code', () => {
 
   it('the pairer named at mint becomes the owner of the machine that redeems the code', async () => {
     const { store, machines } = await service()
-    const code = machines.mintPairingCode({ ownerUserId: firstAdminMemberId() })
-
-    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
-    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(firstAdminMemberId())
+    try {
+      const code = machines.mintPairingCode({ ownerUserId: pairer })
+      expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
+      expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(pairer)
+    } finally { await store.close() }
   })
 
-  it('a code without a pairer is refused without creating a machine', async () => {
+  it('refuses a code without a pairer before creating a machine row', async () => {
     const { store, machines } = await service()
-    const code = machines.mintPairingCode({})
-
-    expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(false)
-    expect(await store.machines.getMachine('joiner')).toBeUndefined()
-    // Refused enrollment has no visible identity and confers no authority.
-    expect(
-      (await fleetAuthzFailure(
-        'machines.rename',
-        { id: 'joiner' },
-        deps(user(OWNER), { machines: [] }),
-      ))?.code,
-    ).toBe('NOT_FOUND')
+    try {
+      const code = machines.mintPairingCode({})
+      expect(await machines.authenticateDaemon(pairFrame(code))).toEqual({ ok: false, reason: 'unknown machine — re-pair' })
+      expect(await store.machines.getMachine('joiner')).toBeUndefined()
+      // Refused enrollment has no visible identity and confers no authority.
+      expect((await fleetAuthzFailure('machines.rename', { id: 'joiner' }, deps(user(OWNER), { machines: [] })))?.code).toBe('NOT_FOUND')
+    } finally { await store.close() }
   })
 })
 

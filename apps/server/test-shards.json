@@ -2698,7 +2698,6 @@
         "src/command-principal.ts",
         "src/composition/reactions.ts",
         "src/enrollment-ledger-import.ts",
-        "src/enrollment-ledger.ts",
         "src/features.ts",
         "src/feed-visibility.ts",
         "src/file-relay-policy.ts",

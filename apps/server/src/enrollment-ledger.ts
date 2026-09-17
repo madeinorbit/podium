@@ -1,23 +1,7 @@
 /**
- * ENROLLMENT LEDGER (POD-1114, ADR 1 Amendment 2 D19.4 / D19.4a / D19.4b / D19.4d).
- *
- * One append-only store at the **state-root tier** (beside `instance.json`, mode
- * `0600`, **outside** the server database). It holds:
- *
- *   - the instance-scoped pairing root
- *   - monotonic enrollment serials
- *   - the recorded machine owner
- *   - revocation entries
- *
- * That these share one durability domain is the correctness condition: where the
- * ledger and the database disagree about enrollment, revocation **or owner**,
- * **the ledger wins**. The ledger is never restored, rewound, or reconciled
- * backwards when the database is.
- *
- * Token shape: a pairing-root MAC over `(machineId, serial, nonce)`. Verification
- * needs only the root — no per-row hash — which is how a missing `machines` row
- * can still be judged (verdict algorithm in D19.4). Client-facing rejection
- * reasons never carry the verdict; server logs do.
+ * Retired enrollment-ledger format, retained for migration readers and historical
+ * test fixtures. Runtime credentials, revocation and custody live in the database;
+ * this file is never an authentication fallback or a source of boot-time repair.
  */
 
 import { asMachineId, type MachineId, type UserId } from '@podium/model'
@@ -347,30 +331,6 @@ export function openEnrollmentLedger(
 /** Convenience: a fresh transition id for an idempotent ledger append. */
 export function newLedgerTxnId(): string {
   return randomUUID()
-}
-
-/**
- * Verdict algorithm for a hello whose machines row is absent (D19.4).
- * Does not mutate the ledger or the database — the caller re-enrols on step 3.
- */
-export function verdictForMissingRow(
-  ledger: EnrollmentLedger,
-  token: string,
-):
-  | { verdict: 're-enroll'; claims: PairingTokenClaims; ownerUserId: UserId | null }
-  | { verdict: 'revoked' | 'unverifiable' } {
-  const claims = verifyPairingToken(ledger.pairingRoot, token)
-  if (!claims) return { verdict: 'unverifiable' }
-  const revokedAt = ledger.revokeSerial(claims.machineId)
-  if (revokedAt !== undefined && revokedAt >= claims.serial) {
-    return { verdict: 'revoked' }
-  }
-  const owner = ledger.recordedOwner(claims.machineId)
-  // No enroll history under this root either — treat as unverifiable rather than
-  // inventing an ambient re-enrol for a token that somehow MAC-verified without
-  // ever having been recorded (should not happen with honest minting).
-  if (owner === undefined) return { verdict: 'unverifiable' }
-  return { verdict: 're-enroll', claims, ownerUserId: owner }
 }
 
 /** Parent directory of a ledger path — useful when tests pass a ledger file path. */

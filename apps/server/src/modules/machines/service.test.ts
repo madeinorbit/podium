@@ -917,7 +917,6 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       instanceId: 'default',
       store,
       hostMachineId: store.hostMachineId,
-      enrollment: openEnrollmentLedger(dir),
       userExists: (id) => known.has(id),
       sessionsChangedForMachine: () => {},
       clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
@@ -1014,7 +1013,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       expect(projected).toMatchObject({ id: MACHINE, hostname: 'vmi.local', owned: false, transferable: true, adoptable: false, use: 'denied' })
       expect(projected).not.toHaveProperty('inventory')
       expect(projected).not.toHaveProperty('harnessVersions')
-      expect(Object.keys(projected).sort()).toEqual([...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)), 'use', 'owned', 'transferable', 'unowned', 'adoptable'].sort())
+      expect(Object.keys(projected).sort()).toEqual([...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)), 'use', 'owned', 'transferable', 'unowned', 'adoptable', 'supersedable'].sort())
       const granted: MachineOwnershipIndex = { rowFor: (id) => { const row = ownership.rowFor(id); return row && { ...row, grants: [{ subject: firstAdminMemberId(), verb: 'use' }] } } }
       expect((await machinesForPrincipal({ machines: svc }, principal, granted))[0]?.inventory).toEqual(inventory)
       const agent: CommandPrincipal = { kind: 'agent', agentSessionId: asSessionId('leaf'), chain: [asSessionId('parent')], onBehalfOf: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') } }
@@ -1151,7 +1150,6 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         instanceId: 'default',
         store,
         hostMachineId: store.hostMachineId,
-        enrollment: openEnrollmentLedger(dir),
         userExists: (id) => known.has(id),
         sessionsChangedForMachine: () => {},
         clients: () => [],

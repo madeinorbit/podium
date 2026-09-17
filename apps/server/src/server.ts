@@ -104,7 +104,6 @@ import { captureServerBuildVersion, serverBuildSourceDigest } from './build-vers
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { openEnrollmentLedger } from './enrollment-ledger'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import {
@@ -751,10 +750,6 @@ export async function startServer(
     // meaning exactly what it means for every test that omits it today.
     ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
     portableStateFence,
-    // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
-    // owner and revocation at the state-root tier, outside podium.db. Opened
-    // before service construction so pair/hello/revoke share one durability domain.
-    ...(!recoveryOnly ? { enrollment: openEnrollmentLedger(stateDir(), portableStateFence) } : {}),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the

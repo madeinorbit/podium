@@ -45,7 +45,6 @@ import type {
 import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
-import { type EnrollmentLedger } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
@@ -275,17 +274,7 @@ export interface MachinesDeps {
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   installationId?: string
   pairing?: PairingCodes
-  /**
-   * Enrollment ledger (POD-1114, D19.4) — pairing root, enrollment serials,
-   * recorded owners, revocation entries. State-root tier, outside the DB.
-   * Absent only in pure socket-bookkeeping fixtures that never pair/hello.
-   */
-  enrollment?: EnrollmentLedger
-  /**
-   * Whether a recorded owner still resolves to a live account. Used on re-enrol
-   * and owner reconcile: an unresolvable owner lands the machine in quarantine
-   * (D19.4b), never auto-assigned to the first admin.
-   */
+  /** Whether a proposed custody recipient exists in the member directory. */
   userExists?(userId: UserId): boolean | Promise<boolean>
   /** Production reaction transport for derived session fields. */
   bus?: EventBus
@@ -500,11 +489,6 @@ export class MachinesService {
   /** Deployment label supplied by the composition root. */
   get instanceId(): string {
     return this.deps.instanceId
-  }
-
-  /** The enrollment ledger, when the composition root supplied one. */
-  get enrollment(): EnrollmentLedger | undefined {
-    return this.deps.enrollment
   }
 
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
@@ -935,8 +919,8 @@ export class MachinesService {
   /**
    * Authenticate a daemon's handshake frame — see
    * {@link credentials.authenticateDaemon} for the pair/hello contract and the
-   * two disjoint guards (POD-1125 row-exists refusal before redeem; POD-1114's
-   * D19.4 verdict when the row is absent).
+   * disjoint guards: pairing checks row collisions before redeeming a code;
+   * hello requires an existing, unrevoked database credential.
    */
   async authenticateDaemon(
     frame: credentials.MachineAuthenticationFrame,
@@ -975,10 +959,7 @@ export class MachinesService {
     }
   }
 
-  /** Retained as a compatibility no-op for older callers; ownership is imported once during upgrade. */
-  async reconcileOwnersFromLedger(): Promise<void> {}
-
-  /** Transfer ownership, ledger append first (D19.4d).
+  /** Transfer ownership in the database.
    *  See {@link credentials.transferOwnership}. */
   async transferOwnership(
     machineId: MachineId,

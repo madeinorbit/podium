@@ -146,8 +146,8 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       ownerUserId: firstAdminMemberId(),
     })
   }
-  // Track A revocation removes the authoritative database row.
-  if (options.revoked) await seeded.machines.deleteMachine(machineId)
+  // Revocation is retained in the authoritative database row.
+  if (options.revoked) await seeded.machines.revokeMachine(machineId)
   await seeded.close()
 
   const store = await SessionStore.open(dbPath, hostMachineId, {
@@ -159,7 +159,6 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
     store,
     hostMachineId,
     pairing,
-    enrollment,
     userExists: async (id) => (await store.users.get(id)) !== undefined,
     sessionsChangedForMachine: () => {},
     clients: () => [],
@@ -622,7 +621,7 @@ describe('recovery-only daemon handshake verification', () => {
     }
   })
 
-  it('recovered peer with a missing ledger owner is quarantined', async () => {
+  it('missing peer row requires re-pairing without recovering its ledger owner', async () => {
     const world = await enrollmentHandshakeWorld({
       queryOnly: false,
       row: false,
@@ -631,9 +630,9 @@ describe('recovery-only daemon handshake verification', () => {
     try {
       expect(await world.store.users.get(asUserId('user:deleted'))).toBeUndefined()
       expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind).toBe(
-        'established',
+        'rejected',
       )
-      expect((await world.store.machines.getMachine(world.machineId))?.ownerUserId).toBeNull()
+      expect(await world.store.machines.getMachine(world.machineId)).toBeUndefined()
     } finally {
       await world.store.close()
     }

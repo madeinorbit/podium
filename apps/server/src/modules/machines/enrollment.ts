@@ -1,34 +1,11 @@
 import type { MachineId, UserId } from '@podium/model'
 import { createHash } from 'node:crypto'
-import { createLogger } from '@podium/logger'
 import { parseWirePublicKey } from '@podium/runtime/signing'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
-import {
-  type PairingTokenClaims,
-  verdictForMissingRow,
-  verifyPairingToken,
-} from '../../enrollment-ledger'
 import type { MachinesDeps, PairingGrant } from './service'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 
-const log = createLogger('server:machines')
-
-/**
- * MACHINE CREDENTIAL LIFECYCLE — the second job MachinesService was doing.
- *
- * The service owns machine INVENTORY: the live daemon sockets, the offline
- * queue, the row caches, selection and routing. This module owns machine
- * IDENTITY over time: how a machine acquires a credential (pair), proves one
- * (hello), recovers one after its row is gone (D19.4 re-enrol), and how the
- * enrollment ledger's record of ownership is projected onto the rows.
- *
- * The seam is real rather than cosmetic: nothing here touches `daemons`,
- * `pendingByMachine`, `machineRecordsCache` or `machineNameCache` — the four
- * fields POD-1385's cohesive-owner argument protects. It reaches the service
- * only through {@link EnrollmentHost}: the injected deps, plus the two effects a
- * credential write has on the inventory side (drop the derived caches, tell
- * connected clients). That is the whole coupling, and it is one-directional.
- */
+/** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
   readonly deps: MachinesDeps
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
@@ -105,7 +82,7 @@ async function authenticateDaemonUnlocked(
   const deps = host.deps
   if (frame.type === 'pair') {
     // Recovery-only holds a query-only database. Pairing necessarily redeems a
-    // code, appends enrollment, and creates a row, so verify-only fails closed
+    // code and creates a row, so verify-only fails closed
     // before any of those effects can begin.
     if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
     // No pairing manager = node role: this server is not a rendezvous point,
@@ -197,125 +174,9 @@ async function authenticateDaemonUnlocked(
     }
   }
   if (frame.keyProof) return { ok: false, reason: HELLO_DENIED_REASON }
-  // A retained row is authoritative: never recover a rejected incarnation over it.
-  if (await deps.store.machines.getMachine(frame.machineId)) return { ok: false, reason: HELLO_DENIED_REASON }
-  // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
-  // Verify-only may authenticate durable reality but may not reconstruct it.
-  if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
-  return await helloMissingRow(host, frame)
-}
-
-/**
- * Hello path when the machines row is gone. Verdict order is fixed by D19.4:
- * unverifiable → deny; revoked → deny permanently; else re-enrol per D19.4b.
- * The client-facing reason never carries the verdict (existence/deployment oracle).
- */
-async function helloMissingRow(
-  host: EnrollmentHost,
-  frame: Extract<DaemonHandshake, { type: 'hello' }>,
-):
-  Promise<| {
-      ok: true
-      machineId: MachineId
-      name: string
-      updatePubkey?: string
-      updateKeyRotations?: readonly UpdateKeyRotation[]
-    }
-  | { ok: false; reason: string }> {
-  const ledger = host.deps.enrollment
-  if (!ledger) return { ok: false, reason: HELLO_DENIED_REASON }
-  const result = verdictForMissingRow(ledger, frame.token)
-  if (result.verdict !== 're-enroll') {
-    logVerdict(host, result.verdict, frame.machineId)
-    return { ok: false, reason: HELLO_DENIED_REASON }
-  }
-  // Frame machineId must match the token's claims — a forged id with a stolen
-  // token for a different machine must not re-enrol under the wrong name.
-  if (result.claims.machineId !== frame.machineId) {
-    logVerdict(host, 'unverifiable', frame.machineId)
-    return { ok: false, reason: HELLO_DENIED_REASON }
-  }
-  const name = frame.hostname
-  await reEnrolMachine(host, {
-    claims: result.claims,
-    ownerUserId: result.ownerUserId,
-    token: frame.token,
-    name,
-    hostname: frame.hostname,
-  })
-  logVerdict(host, 're-enrolled', frame.machineId)
-  const updatePubkey = host.deps.updatePubkey?.()
-  const updateKeyRotations = host.deps.updateKeyRotations?.()
-  return {
-    ok: true,
-    machineId: frame.machineId,
-    name,
-    ...(updatePubkey ? { updatePubkey } : {}),
-    ...(updateKeyRotations ? { updateKeyRotations } : {}),
-  }
-}
-
-/**
- * Recreate a machines row from a pairing-root-verifiable token (D19.4b).
- * MachineId preserved; owner from ledger (or quarantine); grants never restored.
- */
-async function reEnrolMachine(
-  host: EnrollmentHost,
-  input: {
-    claims: PairingTokenClaims
-    ownerUserId: UserId | null
-    token: string
-    name: string
-    hostname: string
-  },
-): Promise<void> {
-  const resolvedOwner = await resolveOwnerForRecovery(host, input.ownerUserId)
-  await host.deps.store.machines.upsertMachine({
-    id: input.claims.machineId,
-    name: input.name,
-    hostname: input.hostname,
-    tokenHash: sha256(input.token),
-    podiumManaged: true,
-    ownerUserId: resolvedOwner,
-  })
-  // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.
-  await host.deps.store.machines.setMachineOwner(input.claims.machineId, resolvedOwner)
-  if (resolvedOwner === null) log.warn('machine unowned', {
-    machineId: input.claims.machineId,
-    reason: input.ownerUserId === null ? 'no recorded personal grantee' : 'recorded personal grantee no longer exists',
-  })
-  // Grants are always dropped on recovery — the row was gone, so edge rows
-  // referencing it should already be gone; belt-and-braces clear.
-  await host.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
-}
-
-/**
- * Ledger owner → row owner. Unresolvable account → quarantine (`null`), never
- * first-admin auto-assign (D19.4b).
- */
-async function resolveOwnerForRecovery(
-  host: EnrollmentHost,
-  recorded: UserId | null,
-): Promise<UserId | null> {
-  if (recorded === null) return null
-  if (host.deps.userExists && !await host.deps.userExists(recorded)) return null
-  return recorded
-}
-
-function logVerdict(
-  host: EnrollmentHost,
-  verdict: 're-enrolled' | 'revoked' | 'unverifiable',
-  machineId: MachineId,
-): void {
-  // Diagnostics follow the decision (D19.4): log the verdict + instance id +
-  // state root the check ran against. Client-facing reason stays opaque.
-  const root = host.deps.enrollment?.path ?? '(no-ledger)'
-  log.info('machine hello', {
-    verdict,
-    machineId,
-    instanceId: host.deps.instanceId,
-    ledger: root,
-  })
+  // A rejected credential or missing database row always requires re-pairing.
+  // Historical ledger files are never authority for credentials or custody.
+  return { ok: false, reason: HELLO_DENIED_REASON }
 }
 
 /** Database-owned ownership transfer. */

@@ -277,13 +277,6 @@ interface SessionRegistryOptions {
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   installationId?: string
   pairing?: PairingCodes
-  /**
-   * Enrollment ledger (POD-1114, D19.4) — pairing root + append-only enrollment,
-   * owner and revocation facts at the state-root tier. Injected from server
-   * assembly so the path is composition-owned; absent only in fixtures that never
-   * exercise pairing durability.
-   */
-  enrollment?: import('./enrollment-ledger').EnrollmentLedger
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -752,9 +745,7 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
-      ...(options.enrollment ? { enrollment: options.enrollment } : {}),
-      // Quarantine resolution (D19.4b): an owner that no longer has an account row
-      // must not keep use, and must not be rewritten to the first admin.
+      // Custody transitions require an existing recipient in the member directory.
       userExists: async (userId) => await this.store.users.get(userId) !== undefined,
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
       clients: () => clientRegistry.values(),
