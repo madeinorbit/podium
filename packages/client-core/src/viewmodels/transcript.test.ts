@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   dedupeTranscriptItems,
   freshOlderTranscriptPage,
-  mergeTranscriptItems,
+  mergeTranscriptFrame,
   prependTranscriptItems,
   reconcileTranscriptSnapshot,
   sameTranscriptItems,
-  transcriptDisplayText,
-} from './transcript'
+} from '../transcript/controller'
+import { transcriptDisplayText } from './transcript'
 
 function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptItem {
   return {
@@ -26,7 +26,7 @@ function cursor(fileId: string, offset: number, sub = 0): string {
 
 describe('shared transcript helpers', () => {
   it('merges live transcript deltas without duplicating ids', () => {
-    const merged = mergeTranscriptItems(
+    const merged = mergeTranscriptFrame(
       [
         item({ id: 'a', cursor: 'c1', text: 'old' }),
         item({ id: 'b', cursor: 'c2', text: 'current' }),
@@ -46,7 +46,7 @@ describe('shared transcript helpers', () => {
   // drops constantly — so a frame can carry items that belong above the held
   // tail. Appending them showed a reply above the message that produced it.
   it('places a replayed OLDER item at its cursor position, not on the end', () => {
-    const merged = mergeTranscriptItems(
+    const merged = mergeTranscriptFrame(
       [item({ id: 'answer', cursor: cursor('f1', 900), text: 'answer' })],
       [
         item({ id: 'prompt', cursor: cursor('f1', 100), text: 'prompt' }),
@@ -57,7 +57,7 @@ describe('shared transcript helpers', () => {
   })
 
   it('still appends across a file roll (a new file is newer, whatever its offsets)', () => {
-    const merged = mergeTranscriptItems(
+    const merged = mergeTranscriptFrame(
       [item({ id: 'old', cursor: cursor('f1', 9000), text: 'pre-roll' })],
       [item({ id: 'new', cursor: cursor('f2', 0), text: 'post-roll' })],
     )
@@ -105,17 +105,17 @@ const it_ = (id: string, cursor?: string): TranscriptItem => ({
   text: id,
 })
 
-describe('mergeTranscriptItems', () => {
+describe('mergeTranscriptFrame', () => {
   it('appends delta items not already present (by id)', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
-    const merged = mergeTranscriptItems(prev, [it_('c', 'c3')])
+    const merged = mergeTranscriptFrame(prev, [it_('c', 'c3')])
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
   it('dedupes a delta item whose id is already in prev (live repeats read window)', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
     // c2 repeats the last read-window item; only the genuinely new c3 appends.
-    const merged = mergeTranscriptItems(prev, [it_('b', 'c2'), it_('c', 'c3')])
+    const merged = mergeTranscriptFrame(prev, [it_('b', 'c2'), it_('c', 'c3')])
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
@@ -123,20 +123,20 @@ describe('mergeTranscriptItems', () => {
     const first = it_('first', cursor('same-file', 10))
     const second = it_('second', cursor('same-file', 20))
 
-    const merged = mergeTranscriptItems([first], [second])
+    const merged = mergeTranscriptFrame([first], [second])
 
     expect(merged.map((item) => item.id)).toEqual(['first', 'second'])
   })
 
   it('returns prev unchanged when every delta item is a duplicate', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
-    const merged = mergeTranscriptItems(prev, [it_('b', 'c2')])
+    const merged = mergeTranscriptFrame(prev, [it_('b', 'c2')])
     expect(merged).toBe(prev)
   })
 
   it('uses id when a cursor is missing', () => {
     const prev = [it_('a')]
-    const merged = mergeTranscriptItems(prev, [it_('a'), it_('b')])
+    const merged = mergeTranscriptFrame(prev, [it_('a'), it_('b')])
     expect(merged.map((i) => i.id)).toEqual(['a', 'b'])
   })
 
@@ -147,7 +147,7 @@ describe('mergeTranscriptItems', () => {
       it_('a', 'c1'),
       { id: 'b', cursor: 'c2', role: 'assistant' as const, text: 'partial' },
     ]
-    const merged = mergeTranscriptItems(prev, [
+    const merged = mergeTranscriptFrame(prev, [
       { id: 'b', cursor: 'c2', role: 'assistant' as const, text: 'partial then complete' },
     ])
     expect(merged.map((i) => i.text)).toEqual(['a', 'partial then complete'])
@@ -156,7 +156,7 @@ describe('mergeTranscriptItems', () => {
 
   it('returns prev unchanged when a same-id re-emit is byte-identical (no re-render)', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
-    const merged = mergeTranscriptItems(prev, [it_('b', 'c2'), it_('c', 'c3')])
+    const merged = mergeTranscriptFrame(prev, [it_('b', 'c2'), it_('c', 'c3')])
     // c2 is identical → no replace; only c3 is genuinely new.
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
@@ -168,7 +168,7 @@ describe('mergeTranscriptItems', () => {
   // above the prompt that produced it.
   it('inserts an item that is OLDER than the held tail at its cursor position', () => {
     const prev = [it_('answer', cursor('f1', 900))]
-    const merged = mergeTranscriptItems(prev, [
+    const merged = mergeTranscriptFrame(prev, [
       it_('prompt', cursor('f1', 100)),
       it_('tool', cursor('f1', 400)),
     ])
@@ -177,7 +177,7 @@ describe('mergeTranscriptItems', () => {
 
   it('keeps a replayed run in transcript order around held items', () => {
     const prev = [it_('b', cursor('f1', 200)), it_('d', cursor('f1', 400))]
-    const merged = mergeTranscriptItems(prev, [
+    const merged = mergeTranscriptFrame(prev, [
       it_('a', cursor('f1', 100)),
       it_('c', cursor('f1', 300)),
       it_('e', cursor('f1', 500)),
@@ -187,7 +187,7 @@ describe('mergeTranscriptItems', () => {
 
   it('orders by sub-index within one record (parallel tool results)', () => {
     const prev = [it_('r2', cursor('f1', 100, 2))]
-    const merged = mergeTranscriptItems(prev, [it_('r1', cursor('f1', 100, 1))])
+    const merged = mergeTranscriptFrame(prev, [it_('r1', cursor('f1', 100, 1))])
     expect(merged.map((i) => i.id)).toEqual(['r1', 'r2'])
   })
 
@@ -195,7 +195,7 @@ describe('mergeTranscriptItems', () => {
     // Post-roll cursors restart at offset 0 in a DIFFERENT file; they must not sort
     // themselves in among the previous file's items.
     const prev = [it_('old', cursor('f1', 9000))]
-    const merged = mergeTranscriptItems(prev, [it_('new', cursor('f2', 0))])
+    const merged = mergeTranscriptFrame(prev, [it_('new', cursor('f2', 0))])
     expect(merged.map((i) => i.id)).toEqual(['old', 'new'])
   })
 })
@@ -314,14 +314,14 @@ describe('item identity is independent of its position anchor', () => {
     const partial = item({ id: 'message', cursor: cursor('f', 10), text: 'Hel' })
     const complete = { ...partial, cursor: cursor('f', 30), text: 'Hello' }
     const held = [partial, item({ id: 'next', cursor: cursor('f', 20) })]
-    expect(mergeTranscriptItems(held, [complete])).toEqual([complete, held[1]])
+    expect(mergeTranscriptFrame(held, [complete])).toEqual([complete, held[1]])
     expect(held[0]).toBe(partial)
   })
 
   it('keeps distinct ids even when cursors are equal', () => {
     const first = it_('first', 'shared-position')
     const second = it_('second', 'shared-position')
-    expect(mergeTranscriptItems([first], [second])).toEqual([first, second])
+    expect(mergeTranscriptFrame([first], [second])).toEqual([first, second])
     expect(dedupeTranscriptItems([first, second])).toEqual([first, second])
     expect(freshOlderTranscriptPage([first], [second])).toEqual([first])
   })
@@ -329,7 +329,7 @@ describe('item identity is independent of its position anchor', () => {
   it('uses the latest value of a repeated new id within one frame', () => {
     const partial = it_('new', 'c1')
     const complete = { ...partial, text: 'complete', cursor: 'c2' }
-    expect(mergeTranscriptItems([], [partial, complete])).toEqual([complete])
+    expect(mergeTranscriptFrame([], [partial, complete])).toEqual([complete])
   })
 
   it('dedupes ids with different or absent cursors, preserving the first value', () => {
@@ -358,9 +358,9 @@ describe('item identity is independent of its position anchor', () => {
     const second: TranscriptItem = JSON.parse(bytes)
     expect(first.id).toBe(second.id)
     const live = { ...first, text: 'partial', cursor: cursor('opencode-session', 90) }
-    const merged = mergeTranscriptItems([live], [first])
+    const merged = mergeTranscriptFrame([live], [first])
     expect(merged).toEqual([first])
-    expect(mergeTranscriptItems(merged, [second])).toBe(merged)
+    expect(mergeTranscriptFrame(merged, [second])).toBe(merged)
     expect(prependTranscriptItems(merged, [second])).toBe(merged)
   })
 

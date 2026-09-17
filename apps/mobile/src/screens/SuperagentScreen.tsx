@@ -1,11 +1,10 @@
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
-  buildImagePrompt,
-  mergeTranscriptItems,
+  mergeTranscriptFrame,
   prependTranscriptItems,
   reconcileTranscriptSnapshot,
-  superagentSlice,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/transcript'
+import { buildImagePrompt, superagentSlice } from '@podium/client-core/viewmodels'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -250,7 +249,7 @@ export function SuperagentScreen() {
         setItems((prev) =>
           meta.reset
             ? reconcileTranscriptSnapshot(prev, delta, delta.at(-1)?.cursor)
-            : mergeTranscriptItems(prev, delta),
+            : mergeTranscriptFrame(prev, delta),
         )
       })
     }
