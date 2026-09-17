@@ -55,7 +55,7 @@ async function fixture() {
         id,
         name: id,
         hostname: id,
-        tokenHash: '',
+        tokenHash: '0'.repeat(64),
         ownerUserId: firstAdminMemberId(),
       })
       await store.machines.setUpdateChannel(id, 'dev')

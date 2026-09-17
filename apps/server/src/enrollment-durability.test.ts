@@ -71,26 +71,21 @@ async function makeWorld(stateDir: string, opts: { dbPath?: string } = {}) {
   return { store, machines, enrollment, pairing, stateDir }
 }
 
-async function pairRemote(
+async function seedStage1Remote(
+  store: SessionStore,
   machines: MachinesService,
   opts: { machineId?: string; ownerUserId?: string; hostname?: string } = {},
 ): Promise<{ machineId: string; token: string; name: string }> {
   const machineId = asMachineId(opts.machineId ?? 'remote-box')
-  const code = machines.mintPairingCode({
-    ...(opts.ownerUserId !== undefined
-      ? { ownerUserId: asUserId(opts.ownerUserId) }
-      : { ownerUserId: OWNER }),
-  })
-  const auth = await machines.authenticateDaemon({
-    type: 'pair',
-    code,
-    machineId,
-    hostname: opts.hostname ?? 'remote.local',
-    name: 'Remote Box',
-  })
-  if (!auth.ok || !auth.token)
-    throw new Error(`pair failed: ${'reason' in auth ? auth.reason : '?'}`)
-  return { machineId: auth.machineId, token: auth.token, name: auth.name }
+  // These recovery cases concern rows issued before the keypair migration, not new enrollment.
+  const enrollment = machines.enrollment!
+  const serial = enrollment.nextSerial(machineId)
+  const ownerUserId = asUserId(opts.ownerUserId ?? OWNER)
+  const token = mintPairingToken(enrollment.pairingRoot, { machineId, serial })
+  enrollment.appendEnroll({ id: `fixture-${machineId}-${serial}`, machineId, serial, ownerUserId, at: new Date().toISOString() })
+  await store.machines.upsertMachine({ id: machineId, name: 'Remote Box', hostname: opts.hostname ?? 'remote.local', tokenHash: sha256(token), ownerUserId,
+    assignment: { server: false, agentExecution: true } })
+  return { machineId, token, name: 'Remote Box' }
 }
 
 async function hello(
@@ -134,7 +129,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
 
   it('host recovery quarantines an enrollment whose recorded owner is missing', async () => {
     const source = await makeWorld(dir)
-    const paired = await pairRemote(source.machines, { machineId: PROMOTED_HOST, ownerUserId: OTHER })
+    const paired = await seedStage1Remote(source.store, source.machines, { machineId: PROMOTED_HOST, ownerUserId: OTHER })
     const store = await openTestStore(':memory:')
     const host = hostWorld(dir, store, PROMOTED_HOST)
     try {
@@ -171,11 +166,11 @@ describe('server host enrollment provenance (POD-2467)', () => {
 
   it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', async () => {
     const source = makeWorld(dir)
-    // AWAITED BEFORE THE READ. pairRemote appends the enrollment; reading
+    // AWAITED BEFORE THE READ. seedStage1Remote appends the enrollment; reading
     // nextSerial while it is still in flight captures the serial from BEFORE the
     // pairing, so the later assertion that promotion did not advance it compares
     // against the wrong baseline and sees 2 where it wants 1.
-    const paired = await pairRemote((await source).machines, {
+    const paired = await seedStage1Remote((await source).store, (await source).machines, {
       machineId: PROMOTED_HOST,
       ownerUserId: OTHER,
     })
@@ -209,7 +204,7 @@ describe('server host enrollment provenance (POD-2467)', () => {
       clients: () => [],
       machinesForPrincipal: async () => [],
     })
-    await pairRemote(source, { machineId: PROMOTED_HOST })
+    await seedStage1Remote(store, source, { machineId: PROMOTED_HOST })
     const promoted = hostWorld(dir, store, PROMOTED_HOST)
     await promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
 
@@ -328,7 +323,7 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('1. LOSS RECOVERS: missing machines row re-enrols unattended with the same MachineId', async () => {
     const w = await makeWorld(dir)
-    const { machineId, token } = await pairRemote(w.machines)
+    const { machineId, token } = await seedStage1Remote(w.store, w.machines)
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
 
     // Accidental loss of the row (DB recreate / restore from before pairing).
@@ -352,7 +347,7 @@ describe('D19.4 regression sequences', () => {
   it('2. REVOKE STAYS DENIED: rolling the DB back before the revoke still denies the old token', async () => {
     const dbPath = join(dir, 'podium.db')
     const w = await makeWorld(dir, { dbPath })
-    const { machineId, token } = await pairRemote(w.machines)
+    const { machineId, token } = await seedStage1Remote(w.store, w.machines)
 
     // Snapshot the row as it was AFTER pair and BEFORE revoke (the "backup").
     const row = await w.store.machines.getMachine(machineId)
@@ -421,8 +416,8 @@ describe('D19.4 regression sequences', () => {
     // A live enrollment on this instance (not revoked) so a foreign token for the
     // same MachineId is a re-enrol candidate if the MAC is skipped — that is the
     // mutant that sequence 3 must catch. Revoke-reason bytes come from a sibling.
-    const { machineId, token } = await pairRemote(w.machines, { machineId: 'remote-box' })
-    const sibling = await pairRemote(w.machines, { machineId: 'sibling-box' })
+    const { machineId, token } = await seedStage1Remote(w.store, w.machines, { machineId: 'remote-box' })
+    const sibling = await seedStage1Remote(w.store, w.machines, { machineId: 'sibling-box' })
     await w.machines.revokeMachine(asMachineId(sibling.machineId))
     const revokeReason = await hello(w.machines, sibling.machineId, sibling.token)
     expect(revokeReason.ok).toBe(false)
@@ -433,7 +428,7 @@ describe('D19.4 regression sequences', () => {
     const otherDir = tempState()
     try {
       const other = await makeWorld(otherDir)
-      const foreign = await pairRemote(other.machines, { machineId })
+      const foreign = await seedStage1Remote(other.store, other.machines, { machineId })
       // Unit-level witness: this instance's root refuses the foreign MAC.
       expect(verifyPairingToken(w.enrollment.pairingRoot, foreign.token)).toBeNull()
       expect(verifyPairingToken(other.enrollment.pairingRoot, foreign.token)).not.toBeNull()
@@ -453,7 +448,7 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('4. RECOVERED ROW IS NOT AMBIENT: owner from ledger, grants empty, non-owner denied', async () => {
     const w = await makeWorld(dir)
-    const { machineId, token } = await pairRemote(w.machines, { ownerUserId: OWNER })
+    const { machineId, token } = await seedStage1Remote(w.store, w.machines, { ownerUserId: OWNER })
 
     // Share use with a colleague, then lose the row (grants go with it or are dropped).
     await w.store.grants.upsert({
@@ -493,7 +488,7 @@ describe('D19.4 regression sequences', () => {
   it('4b. owner account deleted → QUARANTINED (admin see, nobody use)', async () => {
     const w = await makeWorld(dir)
     // Pair under OTHER so the ledger records that owner; then the account is gone.
-    const { machineId, token } = await pairRemote(w.machines, { ownerUserId: OTHER })
+    const { machineId, token } = await seedStage1Remote(w.store, w.machines, { ownerUserId: OTHER })
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
     await w.store.machines.deleteMachine(machineId)
 
@@ -535,7 +530,7 @@ describe('D19.4 regression sequences', () => {
   // ---------------------------------------------------------------------------
   it('5. CRASH BETWEEN THE WRITES: owner transition append without row update; restart repairs', async () => {
     const w = await makeWorld(dir)
-    const { machineId } = await pairRemote(w.machines, { ownerUserId: OWNER })
+    const { machineId } = await seedStage1Remote(w.store, w.machines, { ownerUserId: OWNER })
     expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
 
     // Append owner transition, kill before the machines row is updated.

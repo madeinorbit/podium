@@ -161,7 +161,7 @@ describe('daemon socket auth', () => {
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
 
-  it('a pair frame redeems a code, replies once with paired, then attaches', async () => {
+  it('an old daemon pair frame is refused without issuing a new bearer credential', async () => {
     const store = await openTestStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = await SessionRegistry.create(store, undefined, {
@@ -183,18 +183,9 @@ describe('daemon socket auth', () => {
         name: 'newbox',
       }),
     )
-    const paired = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === 'paired')
-    expect(paired).toBeDefined()
-    expect(typeof paired.token).toBe('string')
-    expect(paired.token.length).toBeGreaterThan(0)
-    expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(false)
-    expect(attach).toHaveBeenCalledWith(
-      machinePrincipal('mNew'),
-      expect.objectContaining({ send: expect.any(Function), sendInput: expect.any(Function) }),
-      // POD-3239: the caps THIS socket negotiated travel with the attach, so the
-      // machine registry's answer to "can this daemon do X" is the live one.
-      expect.any(Array),
-    )
+    expect(ws.sent.map((s) => JSON.parse(s))).toContainEqual(expect.objectContaining({ type: 'pairRejected' }))
+    expect(attach).not.toHaveBeenCalled()
+    expect(await store.machines.getMachine('mNew')).toBeUndefined()
   })
 
   it('detaches the machine on close', async () => {

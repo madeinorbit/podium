@@ -1,3 +1,4 @@
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -550,14 +551,15 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
 
   async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
     const store = await openTestStore(':memory:')
+    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
-      instanceId: 'default',
+      instanceId: 'default', installationId: 'installation-test',
       store,
       hostMachineId: store.hostMachineId,
       pairing: {
         mint: (grant = {}) => {
-          codes.set('code-1', grant)
+          codes.set('code-1', { ...grant, installationId: 'installation-test' })
           return 'code-1'
         },
         peek: (code) => codes.get(code),
@@ -586,6 +588,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     const code = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const result = await svc.authenticateDaemon({
       type: 'pair',
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       code,
       machineId: MACHINE,
       hostname: 'vmi.local',
@@ -606,7 +609,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     const code = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const lookup = vi.spyOn(store.sessions, 'bindingConfirmations')
       .mockRejectedValueOnce(new Error('lookup unavailable'))
-    const frame = { type: 'pair' as const, code, machineId: MACHINE, hostname: 'vmi.local' }
+    const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), code, machineId: MACHINE, hostname: 'vmi.local' }
     await expect(svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })).rejects.toThrow('lookup unavailable')
     const retried = await svc.authenticateDaemon(frame, { bindingSessionIds: ['missing'] })
     expect(retried).toMatchObject({ ok: true, bindingConfirmations: {
@@ -1415,18 +1418,20 @@ describe('retained revocation and explicit replacement', () => {
     const codes = new Map<string, PairingGrant>()
     let serial = 0
     const svc = new MachinesService({
-      instanceId: 'revocation-test', store, hostMachineId: store.hostMachineId,
+      instanceId: 'revocation-test', installationId: 'installation-test', store, hostMachineId: store.hostMachineId,
       pairing: {
-        mint: (grant = {}) => { const code = `code-${++serial}`; codes.set(code, grant); return code },
+        mint: (grant = {}) => { const code = `code-${++serial}`; codes.set(code, { ...grant, installationId: 'installation-test' }); return code },
         peek: (code) => codes.get(code),
         redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
       },
       sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
     })
-    const frame = { type: 'pair' as const, machineId: MACHINE, hostname: 'revocation.test' }
-    const enrolled = await svc.authenticateDaemon({ ...frame, code: svc.mintPairingCode({ ownerUserId: firstAdminMemberId() }) })
-    if (!enrolled.ok || !enrolled.token) throw new Error('fixture enrollment failed')
-    return { svc, store, frame, token: enrolled.token, codes }
+    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }
+    // Explicit stage-1 fixture: replacement moves this old bearer row to a keypair.
+    const token = 'stage-1-token'
+    await store.machines.upsertMachine({ id: MACHINE, hostname: frame.hostname, name: 'old machine', tokenHash: sha256(token), ownerUserId: firstAdminMemberId() })
+    return { svc, store, frame, token, codes }
   }
 
   test('revoke retains the audit identity, closes connections, cancels queued control and refuses hello', async () => {
@@ -1466,8 +1471,8 @@ describe('retained revocation and explicit replacement', () => {
       expect(results.filter(r => r.ok)).toHaveLength(1)
       expect(replacementCodes.filter(code => codes.has(code))).toHaveLength(1)
       const winner = results.find(r => r.ok)
-      if (!winner?.ok || !winner.token) throw new Error('no replacement credential')
-      expect(await store.machines.getMachineByToken(MACHINE, winner.token)).toBe(true)
+      if (!winner?.ok || !winner.enrolledPublicKey) throw new Error('no replacement credential')
+      expect(await store.machines.credentialIncarnation(MACHINE)).toBe(winner.enrolledPublicKey)
       expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
       expect((await store.machines.getMachine(MACHINE))?.revokedAt).toBeNull()
       await svc.revokeMachine(MACHINE)

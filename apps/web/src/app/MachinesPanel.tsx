@@ -729,7 +729,7 @@ function PairingCodeDisplay({
           <span className="settings-micro" aria-hidden="true">
             ·
           </span>
-          <span className="settings-micro">The code expires after one use or 1 hour.</span>
+          <span className="settings-micro">The code expires after one use or 10 minutes.</span>
           <Button
             type="button"
             variant="ghost"

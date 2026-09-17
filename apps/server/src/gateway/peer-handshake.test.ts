@@ -1,3 +1,4 @@
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 /**
  * THE GATEWAY END, THROUGH THE REAL SOCKET PATH. `wsServer.daemon.test.ts` already
  * pins today's daemon behaviour and still passes unchanged over the new framing;
@@ -152,9 +153,9 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
   const store = await SessionStore.open(dbPath, hostMachineId, {
     queryOnly: options.queryOnly ?? true,
   })
-  const pairing = new PairingManager()
+  const pairing = new PairingManager({ installationId: 'installation-test' })
   const machines = new MachinesService({
-    instanceId: 'verify-only-test',
+    instanceId: 'verify-only-test', installationId: 'installation-test',
     store,
     hostMachineId,
     pairing,
@@ -640,6 +641,7 @@ describe('recovery-only daemon handshake verification', () => {
 
   it('rejects pairing before consuming its code', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
+    if (!await world.store.users.get(firstAdminMemberId())) await world.store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const code = world.machines.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const machineId = asMachineId('new-machine')
     try {
@@ -656,6 +658,7 @@ describe('recovery-only daemon handshake verification', () => {
       expect(
         await world.machines.authenticateDaemon({
           type: 'pair',
+          publicKey: publicKeyWire(mintSigningKeyPair()),
           code,
           machineId,
           hostname: 'new.local',
@@ -706,23 +709,26 @@ describe('payload identity is inert at the real MachinesService', () => {
     expect(await directory.verifyMachineToken('tok')).toBeNull()
   })
 
-  it('pairing passes the peer name through and mints a token once', async () => {
+  it('pairing passes the peer name through and records a public key once', async () => {
     const store = await openTestStore(':memory:')
-    const pairing = new PairingManager()
+    const pairing = new PairingManager({ installationId: 'installation-test' })
     const reg = await SessionRegistry.create(store, undefined, {
-      instanceId: 'default',
+      instanceId: 'default', installationId: 'installation-test',
       pairing,
       updatePubkey: () => 'server-key-1',
     })
-    const code = pairing.mint({})
+    const owner = asUserId('keypair-owner')
+    await store.users.create({ id: owner, displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    const code = pairing.mint({ ownerUserId: owner })
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = await directory.redeemPairCode(code, {
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       machineId: asMachineId('m-new'),
       name: 'New Box',
       hostname: 'new.local',
     })
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
-    expect(paired).toMatchObject({ issuedToken: expect.any(String), updatePubkey: 'server-key-1' })
+    expect(paired).toMatchObject({ enrolledPublicKey: expect.any(String), updatePubkey: 'server-key-1' })
     // Single use.
     expect(await directory.redeemPairCode(code, { machineId: asMachineId('m-new') })).toBeNull()
   })
@@ -755,15 +761,17 @@ describe('payload identity is inert at the real MachinesService', () => {
       tokenHash: sha256('unowned-tok'),
       ownerUserId: null,
     })
-    const pairing = new PairingManager()
-    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default', pairing })
+    const pairing = new PairingManager({ installationId: 'installation-test' })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'installation-test', pairing })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
+    await store.users.create({ id: 'user:attacker', displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const code = machines.mintPairingCode({ ownerUserId: asUserId('user:attacker') })
 
     // SECOND machine (attacker) attempts rebind under admin-laptop's id.
     const attackOwned = await machines.authenticateDaemon({
       type: 'pair',
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       code,
       machineId: asMachineId('admin-laptop'),
       hostname: 'evil.local',
@@ -774,6 +782,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     // Same code, second victim: unowned existing row must refuse too.
     const attackUnowned = await machines.authenticateDaemon({
       type: 'pair',
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       code,
       machineId: asMachineId('unowned-box'),
       hostname: 'evil.local',
@@ -813,12 +822,13 @@ describe('payload identity is inert at the real MachinesService', () => {
     // (the allowance branch — without it the guard could be "refuse all pairs").
     const directory = createMachineDirectory(machines)
     const paired = await directory.redeemPairCode(code, {
+      publicKey: publicKeyWire(mintSigningKeyPair()),
       machineId: asMachineId('attacker-fresh'),
       name: 'Attacker Box',
       hostname: 'evil.local',
     })
     expect(paired).toMatchObject({ machine: 'attacker-fresh', name: 'Attacker Box' })
-    expect(paired?.issuedToken).toBeTruthy()
+    expect(paired?.enrolledPublicKey).toBeTruthy()
     expect((await store.machines.getMachine('attacker-fresh'))?.ownerUserId).toBe('user:attacker')
   })
 })

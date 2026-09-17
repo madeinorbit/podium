@@ -471,8 +471,8 @@ export function PairingCodeDisplay({
       </div>
       <p className={cn('settings-micro', guidedVps && 'text-[12px] text-[#6f757f]')}>
         {guidedVps
-          ? 'The command expires after one use or 1 hour.'
-          : 'The code expires after one use or 1 hour.'}
+          ? 'The command expires after one use or 10 minutes.'
+          : 'The code expires after one use or 10 minutes.'}
       </p>
     </div>
   )
