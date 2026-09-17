@@ -114,11 +114,28 @@ export class IssueSessionLifecycle {
       log.info('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,
-        // This is a persisted server close intent, not an agent's interactive
-        // stop request. Do not defer the closing session's kill as a self-stop:
-        // this callback has no reply-finalization hook, and leaving that child
-        // alive is the regression this consumer exists to remove.
-        reapParked: true,
+        // ONLY THE CLOSE ITSELF RE-REAPS [POD-3845]. `reapParked` is the sole
+        // way `stopSession` reaches `gracefulStopThenKill` for a row that is
+        // ALREADY parked (session-teardown.ts), so asking for it on every sweep
+        // pass re-killed every parked session on every closed issue, every 15
+        // minutes: 19,039 kill frames in three hours on this box, bunched into
+        // ~11 runs of several hundred a minute, 99.9% of them delivered to a
+        // CONNECTED daemon with nothing left to kill. Each burst wedged the
+        // daemon for tens of seconds. It is not lost-frame repair — it re-kills
+        // the already-dead over a live socket.
+        //
+        // The close keeps it, and that is the case it was introduced for. This
+        // is a persisted server close intent, not an agent's interactive stop
+        // request. Do not defer the closing session's kill as a self-stop: this
+        // callback has no reply-finalization hook, and leaving that child alive
+        // is the regression this consumer exists to remove.
+        //
+        // GIVE-UP, accepted: the boot pass stops re-reaping too, so a close
+        // whose kill was queued to an OFFLINE daemon (machines/service.ts) and
+        // lost to a server restart before the daemon reattached is no longer
+        // re-sent. Rare, and POD-4132 covers it by corroborated identity rather
+        // than by blind re-killing.
+        reapParked: input.reason === 'close',
         principal: systemPrincipal(
           input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep',
         ),
@@ -158,12 +175,57 @@ export class IssueSessionLifecycle {
         log.warn('closed issue sweep could not list issues', { err: error, reason })
         return
       }
-      for (const issue of issues) {
-        await this.stopClosedIssueNow({ issueId: issue.id, reason })
+      for (const issueId of this.closedIssueSweepCandidates(issues)) {
+        await this.stopClosedIssueNow({ issueId, reason })
       }
     } finally {
       this.sweepingClosedIssues = false
     }
+  }
+
+  /**
+   * The closed issues with anything left to stop [POD-3845].
+   *
+   * The sweep used to hand EVERY listed issue to `stopClosedIssueNow`, and each
+   * one costs a `resolveRef` plus an `issues.get`, and then — for the closed
+   * ones — an `issueAccess.getMeta` and a `view.listForIssue` inside
+   * `stopIssue`. On this box that was 2,477 closed issues walked every 15
+   * minutes to act on a handful; filtered, it is 80.
+   *
+   * "Anything left to do" is two facts, both already in hand:
+   *
+   *  - a worktree still attached (the sweep's final pass frees it), or
+   *  - a member session that is not already parked.
+   *
+   * MEMBERSHIP, and why the explicit `issueId` alone is the whole answer here:
+   * `isIssueMember` falls back to cwd containment in the issue's worktree only
+   * for a session with no explicit attachment — and an issue with a worktree is
+   * a candidate by the first clause regardless. So the only issues this set has
+   * to decide are the worktree-less ones, where membership IS the explicit id.
+   *
+   * ONE PASS, NOT ONE QUESTION PER ISSUE. Asking the session map per issue
+   * reintroduces exactly the per-issue cost being removed (~4,100 sessions x
+   * ~2,500 issues). `sessionFacts()` is the cheap read — plain field copies off
+   * the live registry map, no I/O at all — so the set is built once and the
+   * issue loop is then a lookup.
+   */
+  private closedIssueSweepCandidates(issues: readonly IssueWire[]): IssueId[] {
+    const unparked = new Set<string>()
+    for (const facts of this.deps.sessions.sessionFacts()) {
+      if (!facts.issueId) continue
+      if (facts.status === 'hibernated' || facts.status === 'exited') continue
+      unparked.add(facts.issueId)
+    }
+    const candidates: IssueId[] = []
+    for (const issue of issues) {
+      // The snapshot decides CANDIDACY only. `stopClosedIssueNow` still re-reads
+      // the row immediately before acting, so an issue reopened since the list
+      // is still not stopped — that re-read is the authority, not this filter.
+      if (issue.deletedAt || !isIssueClosed(issue)) continue
+      if (!issue.worktreePath && !unparked.has(issue.id)) continue
+      candidates.push(issue.id)
+    }
+    return candidates
   }
 
   /** Start the boot pass and the bounded periodic backstop exactly once. */
