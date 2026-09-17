@@ -466,7 +466,7 @@ describe('MachinesPanel update rows', () => {
 /**
  * POD-1495 — the transfer affordance. The panel's ONE job at this boundary is to
  * not construct a call POD-1480's gate would refuse, and the refusals it must
- * not contradict are all reachable from `MachineWire.owned` alone.
+ * not contradict are all reachable from `MachineWire.transferable` alone.
  */
 function setTransferTrpc(transferMutate: () => Promise<unknown>) {
   storeState.trpc = {
@@ -482,32 +482,32 @@ const transferButton = () => screen.queryByRole('button', { name: 'Transfer' })
 
 describe('MachinesPanel ownership transfer', () => {
   it('keeps the multi-user ownership transfer affordance hidden in production', () => {
-    storeState.machines = [machine({ owned: true })]
+    storeState.machines = [machine({ owned: true, transferable: true })]
     setTransferTrpc(vi.fn())
     render(<MachinesPanel />)
     expect(transferButton()).toBeNull()
   })
 
-  it('offers Transfer on a machine you own', () => {
-    storeState.machines = [machine({ owned: true })]
+  it('offers Transfer when the server authorizes it', () => {
+    storeState.machines = [machine({ owned: true, transferable: true })]
     setTransferTrpc(vi.fn())
     render(<MachinesPanel showOwnershipTransfer />)
     expect(transferButton()).toBeTruthy()
   })
 
-  it('says NOTHING about transfer when you are not the owner — no disabled control, no explanation', () => {
-    // A manage grantee and a see-only admin arrive here identically: `owned`
-    // false. A disabled button or a "you cannot transfer this" line would
+  it('says NOTHING about transfer without transfer authorization — no disabled control, no explanation', () => {
+    // A row without affirmative transfer authorization arrives with
+    // `transferable` false. A disabled button or a "you cannot transfer this" line would
     // contradict the server, which answers absent-shaped for the machines it
     // will not confirm the existence of.
-    storeState.machines = [machine({ owned: false })]
+    storeState.machines = [machine({ owned: false, transferable: false })]
     setTransferTrpc(vi.fn())
     render(<MachinesPanel showOwnershipTransfer />)
     expect(transferButton()).toBeNull()
     expect(screen.queryByText(/transfer/i)).toBeNull()
   })
 
-  it('treats an unevaluated `owned` as NO, never as yes', () => {
+  it('treats an unevaluated `transferable` as NO, never as yes', () => {
     // Absent means NOT EVALUATED — the same closed reading `use` carries. The
     // paired case above proves the row CAN render the button, so this null is
     // about the missing field.
@@ -518,7 +518,7 @@ describe('MachinesPanel ownership transfer', () => {
   })
 
   it('the confirmation names the loss of access AND the dropped shares', () => {
-    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
     setTransferTrpc(vi.fn())
     render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
@@ -533,7 +533,7 @@ describe('MachinesPanel ownership transfer', () => {
 
   it('will not fire until a recipient is named and the machine name is typed back', async () => {
     const transferMutate = vi.fn().mockResolvedValue({})
-    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
     setTransferTrpc(transferMutate)
     render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
@@ -564,7 +564,7 @@ describe('MachinesPanel ownership transfer', () => {
 
   it("surfaces the server's own refusal verbatim rather than a friendlier rewrite", async () => {
     const transferMutate = vi.fn().mockRejectedValue(new Error('unknown recipient'))
-    storeState.machines = [machine({ owned: true, name: 'builder' })]
+    storeState.machines = [machine({ owned: true, transferable: true, name: 'builder' })]
     setTransferTrpc(transferMutate)
     render(<MachinesPanel showOwnershipTransfer />)
     fireEvent.click(screen.getByRole('button', { name: 'Transfer' }))
