@@ -125,7 +125,7 @@ export function availableDriverIds(probe: {
    */
   codexDrivable?: boolean
 }): readonly DriverId[] {
-  const ids: DriverId[] = ['claude-pty', 'generic-pty', 'claude-sdk']
+  const ids: DriverId[] = ['generic-pty', 'claude-sdk']
   if (probe.opencodeDrivable) ids.push('opencode-server')
   if (probe.opencode2Drivable) ids.push('opencode2-server')
   if (probe.grokDrivable) ids.push('grok-acp')
@@ -138,7 +138,6 @@ export function availableDriverIds(probe: {
  *  silently ignored — a spawn that asked for `opencode-sever` and got a terminal
  *  session would look like the override did not work. */
 const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
-  'claude-pty',
   'claude-sdk',
   'generic-pty',
   'grok-acp',

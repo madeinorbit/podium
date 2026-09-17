@@ -67,7 +67,6 @@ const CONFIGURE_BY_DRIVER = {
    * factory and asserts it still refuses — so if a terminal driver ever gains a
    * configure route, this line fails rather than quietly under-reporting it.
    */
-  'claude-pty': () => TERMINAL_CONFIGURE,
   'generic-pty': () => TERMINAL_CONFIGURE,
   /** The in-memory reference driver. Present because the map is total; a fake
    *  that under-reported its own fields would weaken the corpus. */
@@ -104,7 +103,6 @@ const ATTACH_BY_DRIVER = {
   'opencode2-server': () => opencodeServerCapabilities().attach,
   'grok-acp': () => grokAcpCapabilities().attach,
   'claude-sdk': () => claudeSdkCapabilities().attach,
-  'claude-pty': () => supported({ kinds: ['engine'] as const }),
   'generic-pty': () => supported({ kinds: ['engine'] as const }),
   fake: () => supported({ kinds: ['engine'] as const }),
 } satisfies Record<DriverId, () => Declared<AttachCapability>>

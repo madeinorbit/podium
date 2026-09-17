@@ -139,7 +139,6 @@ export const permits = (family: DriverFamily, failure: PermittedFailure): boolea
  */
 export const NO_NATIVE_STEER_DRIVERS = [
   'generic-pty',
-  'claude-pty',
   // The Agent SDK exposes interrupt-and-resend/queueing, not an in-flight steer verb.
   'claude-sdk',
   'opencode-server',

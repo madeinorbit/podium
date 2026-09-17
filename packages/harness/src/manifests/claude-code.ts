@@ -49,12 +49,12 @@ const CLAUDE_SDK_AUTH = new Set(['subscription', 'api-key', 'bedrock', 'vertex']
 
 function selectClaudeRuntime(ctx: SelectionContext): DriverId {
   if (ctx.preference === 'claude-pty' || ctx.preference === 'generic-pty') {
-    return selectRuntimeDriver(ctx, ['claude-pty'])
+    return selectRuntimeDriver(ctx, ['generic-pty'])
   }
   if (ctx.available.includes('claude-sdk')) {
     if (ctx.preference === 'claude-sdk' || CLAUDE_SDK_AUTH.has(ctx.auth)) return 'claude-sdk'
   }
-  return selectRuntimeDriver(ctx, ['claude-pty'])
+  return selectRuntimeDriver(ctx, ['generic-pty'])
 }
 
 export const claudeCodeManifest: AgentManifest = {
@@ -235,7 +235,7 @@ export const claudeCodeManifest: AgentManifest = {
       auth: ['subscription', 'api-key', 'bedrock', 'vertex'],
     }),
     terminal: {
-      driverId: 'claude-pty',
+      driverId: 'generic-pty',
       // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
       // anchors an accept the way a protocol ack would — the same signal
       // reattachment-design anchors turn epochs to. Transcript echo is the

@@ -623,8 +623,6 @@ export const DRIVER_IDS = [
   'grok-acp',
   /** The Claude Agent SDK loop, hosted in a runtime-owned worker child. */
   'claude-sdk',
-  /** Today's interactive Claude CLI under abduco, wrapped (W3). */
-  'claude-pty',
   /** The same terminal mechanism for harnesses with no protocol (grok, cursor). */
   'generic-pty',
   /** The in-memory reference driver the conformance corpus runs against. */
@@ -646,10 +644,10 @@ export interface SelectionContext {
    *  version in the pinned range. May be EMPTY on a machine that has not been
    *  probed or cannot run this harness at all — see `select()` for what that
    *  answers. */
-  available: readonly DriverId[]
+  available: readonly string[]
   /** The operator's explicit choice, honoured over the policy's own preference —
    *  but still only if it is available. */
-  preference?: DriverId
+  preference?: string
   role?: 'interactive' | 'executor'
 }
 
@@ -884,7 +882,7 @@ export function selectRuntimeDriver(
       ctx.preference === 'claude-pty' ||
       ctx.preference === 'generic-pty')
   ) {
-    return ctx.preference
+    return ctx.preference === 'claude-pty' ? 'generic-pty' : ctx.preference
   }
   for (const id of ranked) if (available.has(id)) return id
   return ranked[ranked.length - 1] as DriverId

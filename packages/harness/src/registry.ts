@@ -294,6 +294,8 @@ export function driverIdIsServerFamily(driverId: string): boolean {
  * second flag beside it, the day the first embedded driver binds.
  */
 export function driverFamilyForId(driverId: string): DriverFamily | undefined {
+  // Retired aliases remain accepted during rolling upgrades. Remove this entry only after no supported daemon can still emit the legacy id.
+  if (driverId === 'claude-pty') return 'terminal'
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
     if (manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId))

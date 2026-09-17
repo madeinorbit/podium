@@ -39,7 +39,7 @@ export const DEFAULT_INVENTORY_REFRESH_INTERVAL_MS = 60_000
 
 export function terminalRuntimeDriverInventory(): NonNullable<Inventory['runtimeDrivers']> {
   return [
-    { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+    { harness: 'claude-code', id: 'generic-pty', family: 'terminal' },
     { harness: 'codex', id: 'generic-pty', family: 'terminal' },
     { harness: 'grok', id: 'generic-pty', family: 'terminal' },
     { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
