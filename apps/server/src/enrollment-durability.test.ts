@@ -84,7 +84,7 @@ describe('database-authoritative host credentials', () => {
     await host.ensureHostMachine('original.local', 'original-secret')
     expect(w.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
     expect(w.enrollment.recordedOwner(ORIGINAL_HOST)).toBeUndefined()
-    expect((await w.store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).toBeNull()
+    expect((await w.store.machines.custodian(ORIGINAL_HOST))).toBeNull()
     expect(await w.store.machines.getMachineByToken(ORIGINAL_HOST, 'original-secret')).toBe(true)
   })
 
@@ -94,7 +94,7 @@ describe('database-authoritative host credentials', () => {
     const before = readFileSync(w.enrollment.path, 'utf8')
     await service(w.store, PROMOTED_HOST).ensureHostMachine('promoted.local', 'promoted-secret')
     expect(readFileSync(w.enrollment.path, 'utf8')).toBe(before)
-    expect((await w.store.machines.getMachine(PROMOTED_HOST))?.ownerUserId).toBe(OTHER)
+    expect((await w.store.machines.custodian(PROMOTED_HOST))).toBe(OTHER)
     expect(await w.store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
     expect(await w.store.machines.getMachineByToken(PROMOTED_HOST, paired.token)).toBe(false)
   })
@@ -116,7 +116,7 @@ describe('database-authoritative host credentials', () => {
     w.enrollment.appendRevoke({ id: 'legacy-revoke', machineId: ORIGINAL_HOST, serial: 1, by: OWNER, at: new Date().toISOString() })
     expect(w.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
     expect((await hello(w.machines, ORIGINAL_HOST, paired.token)).ok).toBe(true)
-    expect((await w.store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).toBe(OTHER)
+    expect((await w.store.machines.custodian(ORIGINAL_HOST))).toBe(OTHER)
   })
 
   it('reboots without writing the ledger or inventing an owner', async () => {
@@ -127,7 +127,7 @@ describe('database-authoritative host credentials', () => {
     expect(readFileSync(w.enrollment.path, 'utf8')).toBe(before)
     expect(w.enrollment.nextSerial(ORIGINAL_HOST)).toBe(1)
     expect(w.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
-    expect((await w.store.machines.getMachine(ORIGINAL_HOST))?.ownerUserId).toBeNull()
+    expect((await w.store.machines.custodian(ORIGINAL_HOST))).toBeNull()
   })
 })
 
@@ -250,7 +250,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     expect(await checkMachineUse(admin, asMachineId(machineId), ownership)).toBe('unauthorized')
     expect(await checkMachineVerb(admin, asMachineId(machineId), ownership, 'manage')).toBeUndefined()
     expect(await canSeeMachine(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership)).toBe(false)
-    expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBeNull()
+    expect((await w.store.machines.custodian(machineId))).toBeNull()
   })
 
   it('uses database custody after a legacy owner append and never repairs it at boot', async () => {
@@ -260,7 +260,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     expect(w.enrollment.recordedOwner(asMachineId(machineId))).toBe(OTHER)
     for (const machines of [w.machines, service(w.store)]) {
       expect(await machines.effectiveOwner(asMachineId(machineId))).toBe(OWNER)
-      expect((await w.store.machines.getMachine(machineId))?.ownerUserId).toBe(OWNER)
+      expect((await w.store.machines.custodian(machineId))).toBe(OWNER)
       const ownership = await ownershipSnapshotFromMachines(machines)
       expect(await checkMachineVerb(userCommandPrincipal(OWNER, 'admin'), asMachineId(machineId), ownership, 'manage')).toBeUndefined()
       expect(await checkMachineVerb(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership, 'manage')).toBe('absent')

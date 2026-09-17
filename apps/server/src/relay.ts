@@ -2559,7 +2559,7 @@ export class SessionRegistry {
     this.bus.on('machine.diagnostic', async (diagnostic) => {
       await routeMachineDiagnostic(diagnostic, {
         recipients: async (machineId) => {
-          const owner = (await machines.ownershipRows()).find((row) => row.id === machineId)?.ownerUserId
+          const owner = await machines.effectiveOwner(machineId)
           return [
             ...(owner ? [asUserId(owner)] : []),
             ...(await this.store.users

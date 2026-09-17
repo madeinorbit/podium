@@ -186,20 +186,8 @@ export interface FleetAuthzDeps {
   /** Every machine id this principal might touch on a fleet-wide command. */
   allMachineIds: () => Promise<MachineId[]>
   machineName: (machineId: MachineId) => Promise<string | undefined>
-  /**
-   * The machine's owner AS THE LEDGER HAS IT — `machines.effectiveOwner`, which
-   * reads the enrollment ledger first and falls back to the row (D19.4d rule 4).
-   *
-   * It is a SEPARATE dependency from `ownership` on purpose, and the separation
-   * is the invariant rather than a convenience. `ownership.rowFor` reads
-   * `machines.owner_user_id`, which D19.4d makes a PROJECTION of the ledger; a
-   * gate that decided "is this machine unowned" from the projection would make
-   * the row authoritative on that path, and would answer from a stale
-   * projection in exactly the window `reconcileOwnersFromLedger` exists to
-   * repair. `undefined` means the ledger has no record at all and the row is
-   * absent too — it is unowned, not unknown, and `machineRefusal` has already
-   * decided the unknown-machine case before this ever runs.
-   */
+  /** The custodian read from the durable manage edge. Null means explicitly
+   * unowned; undefined means the machine itself is absent. */
   effectiveOwner: (machineId: MachineId) => Promise<string | null | undefined>
 }
 

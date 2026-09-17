@@ -24,7 +24,7 @@ import { GrantsRepository } from './grants'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
-import { clientSessions, machines, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
+import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
@@ -455,8 +455,8 @@ export class UsersRepository {
       if (!(await this.accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
       const at = new Date().toISOString()
       await this.disable(userId, at, actor)
-      const held = await this.db.select({ id: machines.id }).from(machines)
-        .where(eq(machines.ownerUserId, userId)).all()
+      const held = await this.db.select({ id: grants.resourceId }).from(grants)
+        .where(and(eq(grants.resourceKind, 'machine'), eq(grants.custody, true), eq(grants.grantee, userId))).all()
       for (const machine of held) {
         await this.machinesRepository.setMachineOwner(machine.id, null)
         await this.db.insert(settingsAuditEvents).values({

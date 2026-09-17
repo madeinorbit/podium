@@ -76,7 +76,7 @@ function harness() {
     deps: {},
     listSessions: () => [],
     sessionById: async () => undefined,
-    machines: { ownershipRows: () => [{ id: MACHINE, ownerUserId: asUserId(ISSUE_OWNER) }] },
+    machines: { ownershipRows: () => [{ id: MACHINE }], grantsForMachine: () => [{ grantee: asUserId(ISSUE_OWNER), verb: 'use' }, { grantee: asUserId(ISSUE_OWNER), verb: 'manage', custody: true }] },
     sessions: { get: () => undefined },
     store: {
       users: { get: async () => undefined, roleOf: async () => undefined },

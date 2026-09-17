@@ -81,7 +81,7 @@ export class LoginPropagationService {
     if (!harness) return { status: 'skipped', reason: 'harness does not support propagation' }
 
     const target = await this.deps.store.machines.getMachine(input.targetMachineId)
-    const ownerUserId = target?.ownerUserId ?? undefined
+    const ownerUserId = (await this.deps.store.machines.custodian(input.targetMachineId)) ?? undefined
     if (!target || target.revokedAt || !ownerUserId) return { status: 'skipped', reason: 'target has no owner' }
     if (input.principalUserId && input.principalUserId !== ownerUserId) {
       return { status: 'skipped', reason: 'target owner does not match principal' }
@@ -170,7 +170,9 @@ export class LoginPropagationService {
     // columns through the same mapper with no filter, so an owner read from this
     // map is the row `getMachine` would have returned.
     const machines = await this.deps.store.machines.listMachines()
-    const ownerByMachineId = new Map(machines.map((m) => [m.id, m.ownerUserId]))
+    const ownerByMachineId = new Map((await this.deps.store.grants.listForKind('machine'))
+      .filter((edge) => edge.custody && edge.verb === 'manage')
+      .map((edge) => [edge.resourceId, edge.grantee]))
     const catalog = buildLoginCatalog(machines)
     const isDonor = (machine: { harness: string; machineId: MachineId }): boolean =>
       machine.harness === input.harness &&

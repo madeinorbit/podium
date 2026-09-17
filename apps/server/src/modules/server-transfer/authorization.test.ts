@@ -8,8 +8,8 @@ const admin = asUserId('user:admin')
 
 function machines(owner = admin): MachinesService {
   return {
-    ownershipRows: () => [{ id: targetMachineId, ownerUserId: owner }],
-    grantsForMachine: () => [],
+    ownershipRows: () => [{ id: targetMachineId }],
+    grantsForMachine: () => [{ grantee: owner, verb: 'use' }, { grantee: owner, verb: 'manage', custody: true }],
   } as unknown as MachinesService
 }
 

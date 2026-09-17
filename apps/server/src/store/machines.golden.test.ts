@@ -92,19 +92,19 @@ it('keeps an unowned machine unowned, and never substitutes an owner', async () 
     // POD-1079: null is MEANINGFUL and refuses `use` to everyone. A conversion
     // that coalesced it to a default would be the fail-open shape the nullable
     // column exists to avoid.
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
+    expect((await store.machines.custodian('orphan'))).toBeNull()
 
     // A returning hello does NOT transfer ownership, but it does fill a NULL.
     await register(store, 'orphan', { ownerUserId: owner })
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
+    expect((await store.machines.custodian('orphan'))).toBe(owner)
     await register(store, 'orphan', { ownerUserId: 'user-2' as UserId })
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe(owner)
+    expect((await store.machines.custodian('orphan'))).toBe(owner)
 
     // The forced projection is the path that DOES move it, and null is quarantine.
     await store.machines.setMachineOwner('orphan', 'user-2' as UserId)
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBe('user-2')
+    expect((await store.machines.custodian('orphan'))).toBe('user-2')
     await store.machines.setMachineOwner('orphan', null)
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
+    expect((await store.machines.custodian('orphan'))).toBeNull()
   } finally {
     await store.close()
   }

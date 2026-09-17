@@ -1,74 +1,8 @@
-/**
- * THE machine access gate for the COMMAND layer — `see` / `use` / `manage` over
- * owned compute (ADR 3 Amendment 1 D18, ADR 9 D6, readiness §3.1.4).
- *
- * ---------------------------------------------------------------------------
- * WHAT ALREADY EXISTED, AND WHY THIS IS NOT A SECOND COPY OF IT
- * ---------------------------------------------------------------------------
- *
- * Two halves of this were already landed and are REUSED verbatim rather than
- * restated:
- *
- *  - `@podium/protocol`'s `handshake/strategies/types.ts` owns the vocabulary —
- *    `MachineVerb`, the `MachineGrant` edge `(subject, verb)`, `ResolvedMachine`
- *    with its `owner: UserId | null`, and `machineUseAllowed(machine, subject)`,
- *    the all-in-one guard: an owner-less machine grants `use` to NOBODY.
- *  - `@podium/model`'s `predicates/machine-selection.ts` owns the consumption
- *    side — `MachineUseDecision` with no third "unknown" member (a third state
- *    reads as "probably fine" and the gate fails open), an ABSENT `machine.use`
- *    meaning not-evaluated, and `agentCapabilityRejection` checking the `use`
- *    denial FIRST, before liveness and before any inventory read, so a denied
- *    machine never answers questions about its owner's harnesses.
- *
- * That predicate's header says the decision arrives "at the server projection
- * boundary, which is where the principal lives". THIS MODULE IS THAT BOUNDARY.
- * It resolves a principal's verbs against a machine row and hands the verdict
- * to the predicate; it re-implements neither the ordering nor the guard, and it
- * teaches `packages/model` nothing about principals.
- *
- * ---------------------------------------------------------------------------
- * THE ONE PLACE THIS DIFFERS FROM THE HANDSHAKE, DELIBERATELY
- * ---------------------------------------------------------------------------
- *
- * `gateway/machine-directory.ts` reports `owner: null` for every machine, so
- * `machineUseAllowed` refuses `use` to everyone. That is right THERE: its
- * subject is an authenticating daemon peer, and no daemon should inherit a
- * human's execute rights.
- *
- * Here the subject is a human (or an agent acting for one), and refusing
- * everyone would take the product offline: nobody could spawn.
- *
- * POD-1079 REPLACED THE DEFAULT WITH A COLUMN. {@link ownershipFromMachines} now
- * reads `machines.owner_user_id` and the `grants` edge table, live, and no call
- * site changed — the seam POD-1075 left is exactly the seam that was filled. The
- * qualifier that survives is about the TRANSPORT, not this module: there is
- * still one shared password, so every connection resolves to one `UserId`
- * ({@link deviceGradeSoleOwner}, and `audit:machine-grants` holds its call sites
- * to an allowlist). This gate can refuse a second person; today's login cannot
- * produce one.
- *
- * ---------------------------------------------------------------------------
- * ABSENT vs UNAUTHORIZED vs UNREACHABLE
- * ---------------------------------------------------------------------------
- *
- * Three answers, and collapsing any two is a defect:
- *
- *  - **absent** — the principal cannot `see` it. INDISTINGUISHABLE from a
- *    machine id that was never paired: same code, same message. Otherwise spawn
- *    errors enumerate a colleague's fleet (D20's consistent-error rule).
- *  - **unauthorized** — visible, no `use` grant. "Ask its owner", not "wait".
- *  - **unreachable** — visible, granted, daemon offline. "Wake it up." Owned by
- *    `MachinesService.requireAgent`, not by this module.
- *
- * D18.5 draws the unauthorized/unreachable distinction ONLY inside the `see`
- * set, which is exactly what makes it compatible with the consistent-error
- * rule: outside that set there is nothing to be unreachable, because as far as
- * this principal is concerned there is nothing at all.
- */
+/** Machine access is resolved from durable personal grant edges. Role-based
+ * admin management is layered on top; custody controls transfer and release. */
 
 import type { MachineId, MachineUseDecision, SessionId, UserId } from '@podium/model'
 import type { MachineGrant, MachineVerb, ResolvedMachine } from '@podium/protocol'
-import { machineUseAllowed } from '@podium/protocol'
 import type { CommandPrincipal } from './command-principal'
 import { onBehalfOfUser } from './command-principal'
 import { currentReadScope, inExplicitReadScope, readScopeSlot } from './store/executor/read-scope'
@@ -87,7 +21,7 @@ import { currentReadScope, inExplicitReadScope, readScopeSlot } from './store/ex
  * handshake's own passthrough and nothing here may read it. That narrowing is
  * real; the four keys it keeps are not this module's to define.
  */
-export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'grants' | 'name'> & { revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }
+export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'name'> & { grants: (MachineGrant & { custody?: boolean })[]; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }
 
 /**
  * Where ownership facts come from. A direct index may read live per question;
@@ -113,13 +47,10 @@ export interface MachineOwnershipIndex {
  * a cache: ADR 9 D2 rule 4 evaluates a grant LIVE, so removing the edge must
  * stop the NEXT apply with no invalidation step in between.
  *
- * OPTIONAL ON THE SOURCE, and the omission is the CLOSED direction: a source
- * with no grant table resolves owner-only — fewer verbs, never more. A required
- * method would have forced every fixture to supply an empty one, and an empty
- * fake is exactly what makes a grant test unable to say YES.
+ * Omission of a grant source fails closed: no personal rights are inferred.
  */
 export interface MachineGrantSource {
-  grantsForMachine?(machineId: MachineId): { grantee: string; verb: string }[]
+  grantsForMachine?(machineId: MachineId): { grantee: string; verb: string; custody?: boolean }[]
 }
 
 /**
@@ -134,25 +65,22 @@ export interface MachineGrantSource {
  * The wire carries viewer-relative ownership and an explicit unowned state,
  * never the personal grantee's identity.
  *
- * `ownerUserId` is REQUIRED and nullable rather than optional: a source that
- * cannot say who owns a machine must say `null` — "nobody, so `use` is refused
- * to everyone" — and an absent key would be indistinguishable from a source that
- * simply forgot to thread it.
+ * Custody and personal rights are read separately from the grant edge source.
  */
 export interface MachineRowSource extends MachineGrantSource {
-  ownershipRows(): { id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
+  ownershipRows(): { id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
 }
 
 /** Async repository-backed form, resolved before a synchronous policy pass begins. */
 export interface AsyncMachineRowSource {
   ownershipRows():
-    | { id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
-    | Promise<{ id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]>
+    | { id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
+    | Promise<{ id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]>
   grantsForMachine?(
     machineId: MachineId,
   ):
-    | { grantee: string; verb: string }[]
-    | Promise<{ grantee: string; verb: string }[]>
+    | { grantee: string; verb: string; custody?: boolean }[]
+    | Promise<{ grantee: string; verb: string; custody?: boolean }[]>
 }
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
@@ -179,10 +107,10 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
       if (!row) return undefined
       const edges = (machines.grantsForMachine?.(row.id) ?? [])
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
-        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb }))
+        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
       return {
         machine: row.id,
-        owner: row.ownerUserId,
+        owner: machineCustodian(edges),
         daemonAssigned: row.daemonAssigned === true,
         daemonAvailable: row.daemonAvailable === true,
         revokedAt: row.revokedAt,
@@ -199,17 +127,18 @@ export async function ownershipSnapshotFromMachines(
 ): Promise<MachineOwnershipIndex> {
   const rows = await machines.ownershipRows()
   const resolved = await Promise.all(
-    rows.map(async (row): Promise<MachineOwnershipRow> => ({
-      machine: row.id,
-      owner: row.ownerUserId,
-      daemonAssigned: row.daemonAssigned === true,
-      daemonAvailable: row.daemonAvailable === true,
-        revokedAt: row.revokedAt,
-      grants: ((await machines.grantsForMachine?.(row.id)) ?? [])
+    rows.map(async (row): Promise<MachineOwnershipRow> => {
+      const edges = ((await machines.grantsForMachine?.(row.id)) ?? [])
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
-        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb })),
-      ...(row.name === undefined ? {} : { name: row.name }),
-    })),
+        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
+      return {
+        machine: row.id, owner: machineCustodian(edges), grants: edges,
+        daemonAssigned: row.daemonAssigned === true,
+        daemonAvailable: row.daemonAvailable === true,
+        revokedAt: row.revokedAt,
+        ...(row.name === undefined ? {} : { name: row.name }),
+      }
+    }),
   )
   const byId = new Map(resolved.map((row) => [row.machine, row]))
   return { rowFor: (machineId) => byId.get(machineId) }
@@ -251,25 +180,18 @@ export function ownershipFromMachinesPerPass(machines: MachineRowSource): Machin
   }
 }
 
+/** Custody is an explicit attribute, never an implied verb or row owner. */
+export function machineCustodian(edges: readonly (MachineGrant & { custody?: boolean })[]): UserId | null {
+  const custodians = edges.filter((edge) => edge.custody === true && edge.verb === 'manage')
+  return custodians.length === 1 ? custodians[0]!.subject : null
+}
+
 const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<MachineVerb> => {
   const verbs = new Set<MachineVerb>()
-  // Owner-null is quarantine / unowned (D19.4b): usable by nobody. Admin manage
-  // is layered in {@link machineVerbsFor}, not here — this helper is ownership
-  // and grant edges only.
-  if (subject === null || row.owner === null) return verbs
-  if (row.owner === subject) {
-    // M1: the owner holds all three by default. Sharing is a deliberate act.
-    verbs.add('see')
-    verbs.add('use')
-    verbs.add('manage')
-    return verbs
-  }
+  // Retained shares are inert once custody is released. Every admitted verb is
+  // nevertheless an explicit edge; custody itself never supplies use.
+  if (subject === null || machineCustodian(row.grants) === null) return verbs
   for (const grant of row.grants) if (grant.subject === subject) verbs.add(grant.verb)
-  // `use` goes through the shared guard rather than the loop above, so the
-  // all-in-one rule has exactly one implementation.
-  if (machineUseAllowed(row, subject)) verbs.add('use')
-  // A grant of any verb necessarily discloses existence; `use` and `manage` are
-  // meaningless without it. The converse never holds — see never implies use (M2).
   if (verbs.size > 0) verbs.add('see')
   return verbs
 }
@@ -301,10 +223,10 @@ export function machineVerbsFor(
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()
   if (principal.kind === 'system') {
-    return new Set<MachineVerb>(row.revokedAt || row.owner === null || !row.daemonAssigned || !row.daemonAvailable ? ['see'] : ['see', 'use'])
+    return new Set<MachineVerb>(row.revokedAt || machineCustodian(row.grants) === null || !row.daemonAssigned || !row.daemonAvailable ? ['see'] : ['see', 'use'])
   }
   const held = row.revokedAt
-    ? new Set<MachineVerb>(row.owner === onBehalfOfUser(principal) ? ['see'] : [])
+    ? new Set<MachineVerb>(machineCustodian(row.grants) === onBehalfOfUser(principal) ? ['see'] : [])
     : verbsFromRow(row, onBehalfOfUser(principal))
   if (row.daemonAssigned !== true || row.daemonAvailable !== true) held.delete('use')
   // Administration grants custody, never execution consent (D19.4b).
@@ -353,8 +275,8 @@ export function isMachineOwner(
 ): boolean {
   const row = ownership.rowFor(machineId)
   const human = onBehalfOfUser(principal)
-  if (!row || row.owner === null || human === null) return false
-  return row.owner === human
+  if (!row || machineCustodian(row.grants) === null || human === null) return false
+  return machineCustodian(row.grants) === human
 }
 
 /** Custody authority, narrowed by every agent delegation link just like use/manage. */

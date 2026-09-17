@@ -121,7 +121,7 @@ async function authenticateDaemonUnlocked(
     const enrolled = await deps.store.transact(async () => {
       // Re-read in the enrollment transaction: minting a code does not freeze eligibility.
       const member = await deps.store.users.get(ownerUserId)
-      if (!member || (existing && existing.ownerUserId !== ownerUserId && member.role !== 'admin')) return false
+      if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId && member.role !== 'admin')) return false
       const changed = await deps.store.machines.enrollMachine({
         id: frame.machineId, name, hostname: frame.hostname, tokenHash: '',
         credentialKind: 'ed25519', publicKey,
@@ -213,18 +213,19 @@ export async function transferMachineOwnership(
     await host.deps.store.transact(async () => {
       const machine = await host.deps.store.machines.getMachine(id)
       if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+      const custodian = await host.deps.store.machines.custodian(id)
       const admin = await host.deps.store.users.roleOf(actor) === 'admin'
-      if (!scopeAllowed || (machine.ownerUserId !== actor && !admin)) {
+      if (!scopeAllowed || (custodian !== actor && !admin)) {
         throw new Error('only the machine owner or an admin may transfer ownership')
       }
-      if (newOwnerUserId === machine.ownerUserId) throw new Error('machine is already owned by that user')
+      if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
       await host.deps.store.grants.removeAllForResource('machine', id)
       await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
       await host.deps.store.settingsAudit.append({
         command: admin && newOwnerUserId === actor ? 'takeover' : 'machines.transferOwnership',
         outcome: 'applied',
         ...(context.attribution ?? { actorKind: 'user' as const, actorId: actor, onBehalfOf: actor }),
-        detail: { machineId: id, previousOwnerUserId: machine.ownerUserId, newOwnerUserId },
+        detail: { machineId: id, previousOwnerUserId: custodian, newOwnerUserId },
         redactedPaths: [],
         createdAt: new Date().toISOString(),
       })
@@ -234,7 +235,8 @@ export async function transferMachineOwnership(
 }
 
 export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
-  return (await host.deps.store.machines.getMachine(machineId))?.ownerUserId
+  return await host.deps.store.machines.getMachine(machineId)
+    ? await host.deps.store.machines.custodian(machineId) : undefined
 }
 
 /** Adoption is a separate, admin-only transition from explicitly unowned custody. */
@@ -247,7 +249,7 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
     await host.deps.store.transact(async () => {
       const machine = await host.deps.store.machines.getMachine(id)
       if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-      if (machine.ownerUserId !== null) throw new Error('machine already has an owner — use transfer ownership')
+      if (await host.deps.store.machines.custodian(id) !== null) throw new Error('machine already has an owner — use transfer ownership')
       await host.deps.store.grants.removeAllForResource('machine', id)
       await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
       await host.deps.store.settingsAudit.append({

@@ -24,6 +24,7 @@ export interface GrantRow {
   /** WHOM (a `UserId`; group grantees are ADR 9 D2's deferred additive change). */
   grantee: string
   verb: GrantVerb
+  custody?: boolean
   /** The GRANTER — the accountable party, stored in `Ownership.owner`'s column
    *  rather than a second `granter` one (see the model type's header). */
   owner: string
@@ -59,6 +60,7 @@ export function grantFromRow(r: GrantSelection): GrantRow | undefined {
     resourceId: r.resourceId,
     grantee: r.grantee,
     verb,
+    ...(r.custody ? { custody: true } : {}),
     owner: r.owner,
     visibility: r.visibility,
     createdAt: r.createdAt,
@@ -210,9 +212,11 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   async upsert(row: GrantRow): Promise<void> {
-    // `grants` carries its four-column primary key and NO second uniqueness
-    // constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly
-    // (checklist item 1, as amended: every column is named).
+    if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
+      throw new Error('Custody requires a machine manage edge')
+    }
+    // Updating an ordinary share preserves its custody marker. A second
+    // custodian conflicts with the partial unique index and rolls back.
     ;await this.committed.write(async () => {
       await this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
       return (this.db
@@ -222,6 +226,7 @@ export class GrantsRepository {
         resourceId: row.resourceId,
         grantee: row.grantee,
         verb: row.verb,
+        custody: row.custody ?? false,
         owner: row.owner,
         visibility: row.visibility,
         createdAt: row.createdAt,
@@ -232,6 +237,7 @@ export class GrantsRepository {
       .onConflictDoUpdate({
         target: [grants.resourceKind, grants.resourceId, grants.grantee, grants.verb],
         set: {
+          custody: row.custody ?? grants.custody,
           owner: row.owner,
           visibility: row.visibility,
           createdAt: row.createdAt,
@@ -272,16 +278,17 @@ export class GrantsRepository {
   }
 
   /**
-   * Drop every edge on a resource — called when the resource itself goes away.
+   * Drop resource edges. Retained revoked machine rows keep their custody edge
+   * solely for audit visibility and explicit replacement authorization.
    *
    * A machine that is revoked and later re-paired reuses its id (the daemon
    * keeps it), so surviving edges would silently re-grant a machine its previous
    * owner already un-shared. This is not a reaper: it is part of the delete.
    */
-  async removeAllForResource(resourceKind: string, resourceId: string): Promise<void> {
+  async removeAllForResource(resourceKind: string, resourceId: string, retainCustody = false): Promise<void> {
     const result = await this.committed.write(async () => this.db
       .delete(grants)
-      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId))).returning().all(), 'delete')
+      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId), ...(retainCustody ? [eq(grants.custody, false)] : []))).returning().all(), 'delete')
     if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
   }
 }

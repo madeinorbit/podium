@@ -26,7 +26,7 @@ export async function supersedeMachine(
         if (old.supersededBy === replacementId) return
         throw new Error('machine already has a different replacement')
       }
-      await host.deps.store.grants.removeAllForResource('machine', id)
+      await host.deps.store.grants.removeAllForResource('machine', id, true)
       await host.deps.store.machines.supersedeMachine(id, replacementId)
       await host.deps.store.settingsAudit.append({
         command: 'machines.supersede', outcome: 'applied',

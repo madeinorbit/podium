@@ -298,17 +298,8 @@ export interface MachineRecord {
    *  (or when the stored blob fails to parse — defensive). */
   inventory?: import('@podium/model').Inventory
   /**
-   * WHO OWNS IT (POD-1079, ADR 9 D6 M1). `null` is meaningful and is the
-   * default-closed answer: `machineUseAllowed` refuses `use` on an owner-less
-   * machine to everyone. PRESENT-AND-NULL rather than optional, deliberately —
-   * an optional field lets a caller forget it and read "not evaluated" as
-   * "unowned", and the two must not look alike at the type level.
-   */
-  ownerUserId: UserId | null
-  /**
    * PER-MACHINE PIN, or `null` for "follow the fleet default" (POD-1882).
-   * PRESENT-AND-NULL rather than optional, for the same reason as `ownerUserId`
-   * above: absent must not be able to masquerade as answered.
+   * PRESENT-AND-NULL: absent must not masquerade as answered.
    */
   updateChannelOverride: UpdateChannel | null
   appVersion: string | null

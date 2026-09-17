@@ -87,7 +87,7 @@ function harness(issueForCwd: () => Promise<string | null> = async () => null) {
     },
     listSessions: () => ROWS,
     sessionById: get,
-    machines: { ownershipRows: () => [{ id: MACHINE, ownerUserId: USER }] },
+    machines: { ownershipRows: () => [{ id: MACHINE }], grantsForMachine: () => [{ grantee: USER, verb: 'use' }, { grantee: USER, verb: 'manage', custody: true }] },
     sessions: { get },
     store: {
       sessions: { getSession: get },

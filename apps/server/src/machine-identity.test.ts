@@ -180,7 +180,7 @@ describe('a database that already ran the retired upgrades', () => {
       expect(machines[0]?.id).toBe(HOST)
       // The RENAME is why this survived: a fresh insert would have dropped the
       // owner the legacy row carried, and split the fleet in half.
-      expect(machines[0]?.ownerUserId).toBe(firstAdminMemberId())
+      expect(await store.machines.custodian(machines[0]!.id)).toBe(firstAdminMemberId())
       await store.close()
     } finally {
       warn.mockRestore()

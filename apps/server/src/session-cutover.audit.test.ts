@@ -140,7 +140,7 @@ function ownershipTable(
       return {
         machine: machineId as MachineId,
         owner: row.owner,
-        grants: row.grants,
+        grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },

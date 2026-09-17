@@ -608,11 +608,13 @@ function machineWorld(opts: {
   const row = (): MachineOwnershipRow => ({
     machine: 'm1' as MachineOwnershipRow['machine'],
     owner: opts.owner,
-    grants: grants.map((g) => ({
+    grants: [...(opts.owner ? [{ subject: opts.owner, verb: 'use' as const }, { subject: opts.owner, verb: 'manage' as const, custody: true }] : []), ...grants.map((g) => ({
       subject: g.grantee as UserId,
       verb: g.verb as 'see' | 'use' | 'manage',
-    })),
+    }))],
     name: 'workshop',
+    daemonAssigned: true,
+    daemonAvailable: true,
   })
   return {
     rowFor: (machineId) => (machineId === 'm1' ? row() : undefined),

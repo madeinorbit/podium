@@ -828,7 +828,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     })
     expect(paired).toMatchObject({ machine: 'attacker-fresh', name: 'Attacker Box' })
     expect(paired?.enrolledPublicKey).toBeTruthy()
-    expect((await store.machines.getMachine('attacker-fresh'))?.ownerUserId).toBe('user:attacker')
+    expect((await store.machines.custodian('attacker-fresh'))).toBe('user:attacker')
   })
 })
 

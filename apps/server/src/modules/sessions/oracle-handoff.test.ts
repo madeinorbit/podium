@@ -399,15 +399,15 @@ const meta = async (f: HandoffFixture) =>
 const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [], name: 'source' }
+      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
             owner: 'bob' as UserId,
-            grants: m2Grants.map((grant) => ({
+            grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...m2Grants.map((grant) => ({
               subject: grant.subject as UserId,
               verb: grant.verb,
-            })),
+            }))],
             name: 'target',
           }
         : undefined,
@@ -424,12 +424,12 @@ const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'mana
 const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [], name: 'source' }
+      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
             owner: 'bob' as UserId,
-            grants: state.m2.map((verb) => ({ subject: 'alice' as UserId, verb })),
+            grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...state.m2.map((verb) => ({ subject: 'alice' as UserId, verb }))],
             name: 'target',
           }
         : undefined,

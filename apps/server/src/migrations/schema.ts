@@ -778,17 +778,6 @@ export const machines = sqliteTable('machines', {
    * hides, the pin does not move.
    */
   updateChannelOverride: text('update_channel_override'),
-  // MACHINE OWNERSHIP (POD-1079, ADR 9 D6 M1/M3). The person a paired machine
-  // belongs to. NULLABLE and null is MEANINGFUL: `machineUseAllowed` refuses
-  // `use` on an owner-less machine to EVERYONE, which is the default-closed
-  // answer for a row written by a code path that never named an owner. The
-  // upgrade backfills every existing row to the first admin (M3 evaluated in a
-  // world with exactly one pairer), so no install loses access.
-  //
-  // Grants live in the `grants` edge table keyed `('machine', id, grantee,
-  // verb)` — NOT in a column here. ADR 4 D7.1: a grant is its own aggregate and
-  // a granted row never embeds its grants.
-  ownerUserId: text('owner_user_id').$type<UserId>(),
   // BUILD REPORT (POD-1670). What the daemon last told us it is running.
   // ADVISORY: peer-asserted, unverified, never used to grant anything. Additive
   // and nullable because an existing row has simply not reported yet, and that
@@ -953,6 +942,8 @@ export const grants = sqliteTable(
     resourceId: text('resource_id').notNull(),
     grantee: text().notNull(),
     verb: text().notNull(),
+    /** Custody is carried only by a machine manage edge. */
+    custody: integer({ mode: 'boolean' }).notNull().default(false),
     owner: text().notNull(),
     visibility: text().notNull(),
     createdAt: text('created_at').notNull(),
@@ -961,6 +952,7 @@ export const grants = sqliteTable(
     onBehalfOf: text('on_behalf_of'),
   },
   (table) => [
+    uniqueIndex('grants_machine_custodian').on(table.resourceId).where(sql`${table.resourceKind} = 'machine' AND ${table.custody} = 1`),
     primaryKey({
       columns: [table.resourceKind, table.resourceId, table.grantee, table.verb],
       name: 'grants_pk',

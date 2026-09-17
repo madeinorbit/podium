@@ -77,7 +77,7 @@ function deps(
         ? {
             machine: machineId as MachineOwnershipRow['machine'],
             owner: opts.owner === undefined ? OWNER : opts.owner,
-            grants: opts.grants ?? [],
+            grants: [...(opts.owner !== null ? [{ subject: opts.owner ?? OWNER, verb: 'use' as const }, { subject: opts.owner ?? OWNER, verb: 'manage' as const, custody: true }] : []), ...(opts.grants ?? [])],
             daemonAssigned: true,
             daemonAvailable: true,
             name: machineId,
@@ -620,7 +620,7 @@ describe('the derived fleet router actually calls the gate', () => {
     const { call, store } = await caller(firstAdminMemberId())
 
     await call.machines.share({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
-    expect(await store.grants.listForResource('machine', 'm1')).toEqual([
+    expect((await store.grants.listForResource('machine', 'm1')).filter(edge => edge.grantee === COLLEAGUE)).toEqual([
       expect.objectContaining({
         grantee: COLLEAGUE,
         verb: 'use',
@@ -635,7 +635,7 @@ describe('the derived fleet router actually calls the gate', () => {
     ])
 
     await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
-    expect(await store.grants.listForResource('machine', 'm1')).toEqual([])
+    expect((await store.grants.listForResource('machine', 'm1')).filter(edge => edge.grantee === COLLEAGUE)).toEqual([])
   })
 
   it('transfers ownership through the SERVED procedure, executing the projection tail', async () => {
@@ -665,7 +665,7 @@ describe('the derived fleet router actually calls the gate', () => {
 
       // The row moved — the projection half of D19.4d, which no caller had ever
       // reached before this command existed.
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.custodian('m1'))).toBe(COLLEAGUE)
       // Role preserves manage after transfer; execution still needs consent.
       expect(after.map((m) => m.id)).toContain('m1')
       await call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })
@@ -680,7 +680,7 @@ describe('the derived fleet router actually calls the gate', () => {
   it('an admin takes over another member machine through the served procedure', async () => {
     const { call, store } = await caller(COLLEAGUE)
     const after = await call.machines.transferOwnership({ id: 'm1', newOwnerUserId: firstAdminMemberId() })
-    expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(firstAdminMemberId())
+    expect((await store.machines.custodian('m1'))).toBe(firstAdminMemberId())
     expect((await store.settingsAudit.list()).at(-1)).toMatchObject({ command: 'takeover', onBehalfOf: firstAdminMemberId() })
     expect(after.find((machine) => machine.id === 'm1')?.owned).toBe(true)
   })
@@ -719,12 +719,12 @@ describe('the derived fleet router actually calls the gate', () => {
         },
         'hash',
       )
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
+      expect((await store.machines.custodian('m1'))).toBeNull()
 
       const after = await call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })
 
       // The projection moved…
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.custodian('m1'))).toBe(COLLEAGUE)
       // …and the LEDGER — the commit point — is what it moved from.
       expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
       expect(after.map((m) => m.id)).toContain('m1')
@@ -733,7 +733,7 @@ describe('the derived fleet router actually calls the gate', () => {
       await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })).rejects.toThrow(
         /already has an owner/,
       )
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.custodian('m1'))).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -744,10 +744,10 @@ describe('the derived fleet router actually calls the gate', () => {
     try {
       const { call, store, registry } = await caller(null, { stateDir: dir })
       await registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, { skipRowUpdate: true })
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
+      expect((await store.machines.custodian('m1'))).toBeNull()
       expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBeNull()
       await call.machines.adopt({ id: 'm1', newOwnerUserId: OWNER })
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
+      expect((await store.machines.custodian('m1'))).toBe(OWNER)
       expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(OWNER)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
@@ -765,7 +765,7 @@ describe('the derived fleet router actually calls the gate', () => {
     try {
       const { call, store } = await caller(null, { stateDir: dir })
       await call.machines.adopt({ id: 'm1' })
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
+      expect((await store.machines.custodian('m1'))).toBe(OWNER)
       expect((await call.machines.list()).find((m) => m.id === 'm1')).toMatchObject({ unowned: false, adoptable: false, owned: true, use: 'granted' })
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
@@ -845,7 +845,7 @@ describe('a paired machine belongs to whoever minted its code', () => {
     try {
       const code = machines.mintPairingCode({ ownerUserId: pairer })
       expect((await machines.authenticateDaemon(pairFrame(code))).ok).toBe(true)
-      expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(pairer)
+      expect((await store.machines.custodian('joiner'))).toBe(pairer)
     } finally { await store.close() }
   })
 

@@ -21,7 +21,8 @@ import {
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
-import { machines } from '../migrations/schema'
+import { machines, grants } from '../migrations/schema'
+import { GrantsRepository } from './grants'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
@@ -114,7 +115,6 @@ type MachineSelect = Pick<
   | 'lastSeenAt'
   | 'inventoryJson'
   | 'harnessVersionsJson'
-  | 'ownerUserId'
   | 'appVersion'
   | 'wireSchemaDigest'
   | 'installKind'
@@ -141,7 +141,6 @@ const MACHINE_COLUMNS = {
   lastSeenAt: machines.lastSeenAt,
   inventoryJson: machines.inventoryJson,
   harnessVersionsJson: machines.harnessVersionsJson,
-  ownerUserId: machines.ownerUserId,
   appVersion: machines.appVersion,
   wireSchemaDigest: machines.wireSchemaDigest,
   installKind: machines.installKind,
@@ -180,10 +179,6 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
       .catch(null)
       .parse(r.updateChannelOverride) as UpdateChannelValue | null,
     ...(inventory !== undefined ? { inventory } : {}),
-    // POD-1079: no `??` fallback. A row whose column is NULL reads back as
-    // unowned, and unowned refuses `use` to everyone — substituting an owner
-    // here would be the fail-open shape the nullable column exists to avoid.
-    ownerUserId: r.ownerUserId ?? null,
     appVersion: r.appVersion,
     wireSchemaDigest: r.wireSchemaDigest,
     installKind: r.installKind,
@@ -245,7 +240,7 @@ export class MachinesRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
+  constructor(queries: StoreQueries, private readonly grantRepository = new GrantsRepository(queries)) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'machines')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -302,22 +297,8 @@ export class MachinesRepository {
     return rows.map((r) => r.site)
   }
 
-  /**
-   * Register or refresh a machine row.
-   *
-   * `ownerUserId` is REQUIRED at the type level (POD-1079) — every caller must
-   * say who a machine belongs to, and `null` is the way to say "nobody", which
-   * refuses `use` to everyone rather than admitting everyone. An optional field
-   * would let a new pairing path forget, and forgetting would read as unowned
-   * only by luck.
-   *
-   * ON CONFLICT KEEPS AN OWNER THAT ALREADY EXISTS (`COALESCE`). A returning
-   * daemon's `hello`, a boot-time `ensureHostMachine` and a re-pair all run
-   * through here, and none of them is an ownership TRANSFER: letting the latest
-   * writer win would make re-pairing a silent take-over of somebody else's
-   * machine. It fills a NULL, so a row written before this column existed
-   * acquires an owner the first time its owner touches it.
-   */
+  /** Legacy enrollment input names the personal grantee explicitly. Refreshing
+   * an existing custodian never transfers custody. */
   async upsertMachine(m: {
     id: string
     name: string
@@ -328,39 +309,36 @@ export class MachinesRepository {
     assignment?: MachineServiceAssignment
     assignmentEvidence?: z.infer<typeof AssignmentEvidence>
   }): Promise<void> {
-    const now = new Date().toISOString()
-    ;await this.committed.write(async () => (this.db
-      .insert(machines)
-      .values({
-        // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
-        // id as a string; the repository is the write boundary that brands it.
-        id: m.id as MachineId,
-        name: m.name,
-        hostname: m.hostname,
-        tokenHash: m.tokenHash,
-        createdAt: now,
-        lastSeenAt: now,
-        ownerUserId: m.ownerUserId,
-        podiumManaged: m.podiumManaged ?? true,
-        serviceAssignmentJson: JSON.stringify(m.assignment ?? { server: false, agentExecution: false }),
-        assignmentEvidenceJson: JSON.stringify(m.assignmentEvidence ?? { version: 1, source: 'enrollment', requestId: m.id }),
-      }))
-      .onConflictDoUpdate({
-        target: machines.id,
-        setWhere: and(isNull(machines.revokedAt), eq(machines.credentialKind, 'bearer-hash'), isNull(machines.publicKey)),
-        set: {
+    await this.createOrJoinTransaction(async () => {
+      const now = new Date().toISOString()
+      const result = await this.committed.write(async () => (this.db
+        .insert(machines)
+        .values({
+          // EXTERNAL INPUT BRAND DECODE: daemon enrollment supplies its proposed
+          // id as a string; the repository is the write boundary that brands it.
+          id: m.id as MachineId,
           name: m.name,
           hostname: m.hostname,
           tokenHash: m.tokenHash,
+          createdAt: now,
           lastSeenAt: now,
-          // KEEPS AN OWNER THAT ALREADY EXISTS. `sql` fragment because the value
-          // is the EXISTING column, which `set` has no other way to name: a
-          // returning hello, a boot ensureHostMachine and a re-pair all land
-          // here and none of them is an ownership transfer.
-          ownerUserId: sql`COALESCE(${machines.ownerUserId}, ${m.ownerUserId})`,
           podiumManaged: m.podiumManaged ?? true,
-        },
-      }).returning().all(), 'upsert')
+          serviceAssignmentJson: JSON.stringify(m.assignment ?? { server: false, agentExecution: false }),
+          assignmentEvidenceJson: JSON.stringify(m.assignmentEvidence ?? { version: 1, source: 'enrollment', requestId: m.id }),
+        }))
+        .onConflictDoUpdate({
+          target: machines.id,
+          setWhere: and(isNull(machines.revokedAt), eq(machines.credentialKind, 'bearer-hash'), isNull(machines.publicKey)),
+          set: {
+            name: m.name,
+            hostname: m.hostname,
+            tokenHash: m.tokenHash,
+            lastSeenAt: now,
+            podiumManaged: m.podiumManaged ?? true,
+          },
+        }).returning().all(), 'upsert')
+      if (result.changes === 1 && m.ownerUserId && await this.custodian(m.id) === null) await this.setMachineOwner(m.id, m.ownerUserId)
+    })
   }
 
   async listMachines(): Promise<MachineRecord[]> {
@@ -591,17 +569,33 @@ export class MachinesRepository {
       .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
-  /**
-   * Force-write the owner projection (POD-1114 / D19.4d). Unlike
-   * {@link upsertMachine}'s `COALESCE`, this is the path that applies a ledger
-   * owner transition: the ledger append is the commit point, and this method
-   * projects it onto the row. `null` is quarantine (usable by nobody).
-   */
-  async setMachineOwner(id: string, ownerUserId: UserId | null): Promise<void> {
-    await this.committed.write(async () => this.db
-      .update(machines)
-      .set({ ownerUserId })
-      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
+  /** Custody is queried from its sole manage edge; never inferred from a row. */
+  async custodian(id: string): Promise<UserId | null> {
+    const edge = await this.db.select({ grantee: grants.grantee }).from(grants)
+      .where(and(eq(grants.resourceKind, 'machine'), eq(grants.resourceId, id), eq(grants.verb, 'manage'), eq(grants.custody, true))).get()
+    return edge ? edge.grantee as UserId : null
+  }
+
+  /** Change personal custody and its rights in the same transaction. Existing
+   * shares remain records; without a custody edge they confer no machine access. */
+  async setMachineOwner(id: string, grantee: UserId | null): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const machine = await this.getMachine(id)
+      if (!machine || machine.revokedAt) return
+      const previous = await this.custodian(id)
+      if (previous === grantee) return
+      if (previous) {
+        await this.grantRepository.remove('machine', id, previous, 'use')
+        await this.grantRepository.remove('machine', id, previous, 'manage')
+      }
+      if (grantee) {
+        for (const verb of ['use', 'manage'] as const) await this.grantRepository.upsert({
+          resourceKind: 'machine', resourceId: id, grantee, verb, custody: verb === 'manage',
+          owner: grantee, visibility: 'owned-compute', createdAt: new Date().toISOString(),
+          actorKind: 'user', actorId: grantee, onBehalfOf: grantee,
+        })
+      }
+    })
   }
 
   /** Internal credential identity used to scope a replacement code; never projected. */
@@ -620,18 +614,24 @@ export class MachinesRepository {
     assignment: MachineServiceAssignment; assignmentEvidence: z.infer<typeof AssignmentEvidence>;
   }, replaceRevokedAt?: string, replaceIncarnation?: string): Promise<boolean> {
     const now = new Date().toISOString()
-    const { assignment, assignmentEvidence, ...identity } = m
-    const enrollment = { ...identity, credentialKind: identity.credentialKind ?? 'bearer-hash' as const, publicKey: identity.publicKey ?? null, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
-    const result = await this.committed.write(async () => replaceRevokedAt === undefined
-      ? this.db.insert(machines).values({ ...enrollment, createdAt: now, lastSeenAt: now })
-        .onConflictDoNothing().returning().all()
-      : this.db.update(machines).set({ ...enrollment, revokedAt: null, availabilityJson: null, lastSeenAt: now,
-          inventoryJson: null, harnessVersionsJson: null, serviceReportJson: null,
-          appVersion: null, wireSchemaDigest: null, deliveryCapsJson: null,
-          presenceSource: null, buildReportedAt: null })
-        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), isNull(machines.supersededBy), sql`CASE WHEN ${machines.credentialKind} = 'ed25519' THEN ${machines.publicKey} ELSE ${machines.tokenHash} END = ${replaceIncarnation ?? ''}`))
-        .returning().all(), 'upsert')
-    return result.changes === 1
+    return this.createOrJoinTransaction(async () => {
+      const { assignment, assignmentEvidence, ownerUserId, ...identity } = m
+      const enrollment = { ...identity, credentialKind: identity.credentialKind ?? 'bearer-hash' as const, publicKey: identity.publicKey ?? null, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
+      const result = await this.committed.write(async () => replaceRevokedAt === undefined
+        ? this.db.insert(machines).values({ ...enrollment, createdAt: now, lastSeenAt: now })
+          .onConflictDoNothing().returning().all()
+        : this.db.update(machines).set({ ...enrollment, revokedAt: null, availabilityJson: null, lastSeenAt: now,
+            inventoryJson: null, harnessVersionsJson: null, serviceReportJson: null,
+            appVersion: null, wireSchemaDigest: null, deliveryCapsJson: null,
+            presenceSource: null, buildReportedAt: null })
+          .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), isNull(machines.supersededBy), sql`CASE WHEN ${machines.credentialKind} = 'ed25519' THEN ${machines.publicKey} ELSE ${machines.tokenHash} END = ${replaceIncarnation ?? ''}`))
+          .returning().all(), 'upsert')
+      if (result.changes === 1) {
+        await this.grantRepository.removeAllForResource('machine', m.id)
+        if (ownerUserId) await this.setMachineOwner(m.id, ownerUserId)
+      }
+      return result.changes === 1
+    })
   }
 
   /** Supersession is terminal, including for previously issued replacement codes. */

@@ -39,19 +39,19 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
     workState: null, machineId: asMachineId('owned'), lastOutputAt: null, lastInputAt: null, lastResumedAt: null,
   })
   const historical = await store.sessions.getSession(asSessionId('historical'))
-  const shares = await store.grants.listForResource('machine', 'shared')
+  const shares = (await store.grants.listForResource('machine', 'shared')).filter(edge => edge.grantee !== member)
   const index = await WorldIndex.load(store)
   await store.users.removeMember(member, admin)
   await store.users.removeMember(member, admin)
   for (const id of ['owned', 'shared', 'unowned']) {
-    expect((await store.machines.getMachine(id))?.ownerUserId).toBeNull()
-    expect(index.reader.machine(id)?.ownerUserId).toBeNull()
+    expect((await store.machines.custodian(id))).toBeNull()
+    expect((index.reader.grantsFor('machine', id).find(edge => edge.custody)?.grantee ?? null)).toBeNull()
   }
-  expect((await store.machines.getMachine('other-owned'))?.ownerUserId).toBe(admin)
+  expect((await store.machines.custodian('other-owned'))).toBe(admin)
   expect(index.reader.user(member)).toBeUndefined()
   for (const [kind, id] of [['machine', 'other-owned'], ['machine', 'unowned'], ['session', 'historical']] as const) {
-    expect(await store.grants.listForResource(kind, id)).toEqual([])
-    expect(index.reader.grantsFor(kind, id)).toEqual([])
+    expect((await store.grants.listForResource(kind, id)).filter(edge => edge.grantee === member)).toEqual([])
+    expect(index.reader.grantsFor(kind, id).filter(edge => edge.grantee === member)).toEqual([])
   }
   expect(await store.grants.listForResource('machine', 'shared')).toEqual(shares)
   expect(index.reader.grantsFor('machine', 'shared')).toEqual(shares)
@@ -69,7 +69,7 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
   try {
     await svc.adoptMachine(asMachineId('owned'), admin, admin)
     await store.users.removeMember(member, admin)
-    expect((await store.machines.getMachine('owned'))?.ownerUserId).toBe(admin)
+    expect((await store.machines.custodian('owned'))).toBe(admin)
     expect((await store.settingsAudit.list()).filter(row => row.command === 'members.remove')).toHaveLength(2)
   } finally { svc.dispose() }
   await store.users.enable(member, at)
@@ -79,9 +79,9 @@ it('removes custody and incoming grants atomically, preserves shares and attribu
 it('removes an already-disabled member without implicitly transferring custody', async () => {
   const store = await setup()
   await store.users.disable(member, at, admin)
-  expect((await store.machines.getMachine('owned'))?.ownerUserId).toBe(member)
+  expect((await store.machines.custodian('owned'))).toBe(member)
   await store.users.removeMember(member, admin)
-  expect((await store.machines.getMachine('owned'))?.ownerUserId).toBeNull()
+  expect((await store.machines.custodian('owned'))).toBeNull()
   expect((await store.settingsAudit.list()).filter(row => row.command === 'members.disable')).toHaveLength(1)
 })
 
@@ -91,12 +91,12 @@ it('rolls back custody, grants, credentials, invites, sessions, audits and live 
   const grants = await store.grants.loadWorldGrants()
   await expect(store.transact(async () => {
     await store.users.removeMember(member, admin)
-    expect((await store.machines.getMachine('owned'))?.ownerUserId).toBeNull()
-    expect(index.reader.machine('owned')?.ownerUserId).toBe(member)
+    expect((await store.machines.custodian('owned'))).toBeNull()
+    expect((index.reader.grantsFor('machine', 'owned').find(edge => edge.custody)?.grantee ?? null)).toBe(member)
     throw new Error('abort removal')
   })).rejects.toThrow('abort removal')
-  expect((await store.machines.getMachine('owned'))?.ownerUserId).toBe(member)
-  expect(index.reader.machine('owned')?.ownerUserId).toBe(member)
+  expect((await store.machines.custodian('owned'))).toBe(member)
+  expect((index.reader.grantsFor('machine', 'owned').find(edge => edge.custody)?.grantee ?? null)).toBe(member)
   expect(index.reader.user(member)).toBeDefined()
   expect(await store.users.credentialFor(member)).toBeDefined()
   expect(await store.users.inviteByHash('invite-hash')).toBeDefined()

@@ -913,7 +913,7 @@ export class MachinesService {
       const row = await this.deps.store.machines.getMachine(id)
       if (!row?.revokedAt) throw new Error('replacement requires a revoked machine')
       if (row.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
-      if (!byAdmin && (!grant.ownerUserId || row.ownerUserId !== grant.ownerUserId)) {
+      if (!byAdmin && (!grant.ownerUserId || await this.deps.store.machines.custodian(id) !== grant.ownerUserId)) {
         throw new Error('replacement requires an administrator or the machine grantee')
       }
       const incarnation = await this.deps.store.machines.credentialIncarnation(id)
@@ -1039,7 +1039,7 @@ export class MachinesService {
    */
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
     const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
-    if (!row || row.revokedAt || row.ownerUserId !== null) return false
+    if (!row || row.revokedAt || await this.deps.store.machines.custodian(this.deps.hostMachineId) !== null) return false
     await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
     this.invalidateMachineCache()
     return true
@@ -1568,20 +1568,11 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every committed write to the table updates in place.
    */
-  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
-    // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
-    // row when the durable append has already committed a transition.
-    return await Promise.all((await this.machineRecords()).map(async (m) => {
-      const effective = await this.effectiveOwner(m.id)
-      return {
-        id: m.id,
-        revokedAt: m.revokedAt,
-        name: m.name,
-        // Null is an authoritative unowned answer, not a missing lookup.
-        ownerUserId: effective === undefined ? m.ownerUserId : effective,
-        daemonAssigned: m.serviceAssignment.agentExecution,
-        daemonAvailable: this.daemons.has(m.id),
-      }
+  async ownershipRows(): Promise<{ id: MachineId; name: string; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
+    return (await this.machineRecords()).map((m) => ({
+      id: m.id, revokedAt: m.revokedAt, name: m.name,
+      daemonAssigned: m.serviceAssignment.agentExecution,
+      daemonAvailable: this.daemons.has(m.id),
     }))
   }
 
@@ -1594,7 +1585,7 @@ export class MachinesService {
    * the exact failure ADR 9 D2 rule 4 forbids — a revoked share that keeps
    * working until somebody remembers to invalidate.
    */
-  async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string }[]> {
+  async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string; custody?: boolean }[]> {
     return await readResourceGrants(this.deps.store.grants, 'machine', machineId)
   }
 
@@ -1716,7 +1707,7 @@ export class MachinesService {
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-    if (attribution.manage?.(id) === false || (machine.ownerUserId !== attribution.onBehalfOf && await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf)) !== 'admin')) {
+    if (attribution.manage?.(id) === false || (await this.deps.store.machines.custodian(id) !== attribution.onBehalfOf && await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf)) !== 'admin')) {
       throw new Error('only the machine owner or an admin may change sharing')
     }
     const actorKind = attribution.actor.startsWith('session:')
@@ -1745,9 +1736,11 @@ export class MachinesService {
   async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string, context: MachineManagementContext = {}): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-    if (context.manage?.(id) === false || (machine.ownerUserId !== owner && await this.deps.store.users.roleOf(asUserId(owner)) !== 'admin')) {
+    if (context.manage?.(id) === false || (await this.deps.store.machines.custodian(id) !== owner && await this.deps.store.users.roleOf(asUserId(owner)) !== 'admin')) {
       throw new Error('only the machine owner or an admin may change sharing')
     }
+    // Personal custody rights are released through custody transitions, not unshare.
+    if (grantee === await this.deps.store.machines.custodian(id) && (verb === 'use' || verb === 'manage')) return
     await this.deps.store.grants.remove('machine', id, grantee, verb)
     await this.broadcastMachines()
   }
@@ -1769,7 +1762,7 @@ export class MachinesService {
       await this.deps.store.transact(async () => {
         const row = await this.deps.store.machines.getMachine(id)
         if (!row || row.revokedAt) return
-        await this.deps.store.grants.removeAllForResource('machine', id)
+        await this.deps.store.grants.removeAllForResource('machine', id, true)
         await this.deps.store.machines.revokeMachine(id)
         await this.deps.store.settingsAudit.append({
           command: 'machines.revoke', outcome: 'applied',
@@ -1813,7 +1806,7 @@ export class MachinesService {
   ): Promise<string> {
     const id = this.deps.hostMachineId
     const existing = await this.deps.store.machines.getMachine(id)
-    const ownerUserId = existing?.ownerUserId ?? null
+    const ownerUserId = await this.deps.store.machines.custodian(id)
     await this.deps.store.machines.upsertMachine({
       id,
       name: hostname,

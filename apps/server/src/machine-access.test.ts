@@ -29,8 +29,26 @@ import {
   machineAccessMessage,
   machineUseDecision,
   machineVerbsFor,
-  ownershipFromMachines,
+  ownershipFromMachines as ownershipFromGrantEdges,
+  type MachineRowSource,
 } from './machine-access'
+
+/** Seed the same behavioral matrix with the Stage 2 representation. The fixture
+ * names its custodian, but the production gate receives only explicit edges. */
+function ownershipFromMachines(source: Omit<MachineRowSource, 'ownershipRows'> & {
+  ownershipRows(): (ReturnType<MachineRowSource['ownershipRows']>[number] & { ownerUserId: UserId | null })[]
+}): MachineOwnershipIndex {
+  return ownershipFromGrantEdges({
+    ownershipRows: source.ownershipRows,
+    grantsForMachine: (id) => {
+      const owner = source.ownershipRows().find(row => row.id === id)?.ownerUserId
+      return [
+        ...(owner ? [{ grantee: owner, verb: 'use' }, { grantee: owner, verb: 'manage', custody: true }] : []),
+        ...(source.grantsForMachine?.(id) ?? []),
+      ]
+    },
+  })
+}
 
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
@@ -72,7 +90,7 @@ function ownershipTable(
         owner: row.owner,
         daemonAssigned: true,
         daemonAvailable: true,
-        grants: row.grants,
+        grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },
@@ -602,4 +620,15 @@ it('revoked machine custody remains bounded by agent delegation', () => {
   const delegated = { ...agent(asSessionId('limited-revoked'), OWNER), capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
   expect(machineVerbsFor(delegated, id, ownership)).toEqual(new Set(['see']))
   expect(machineVerbsFor(user(OWNER, 'admin'), id, ownership)).toEqual(new Set(['see', 'manage']))
+})
+
+
+it('custody alone never implies use and an owner field cannot invent rights', () => {
+  const id = asMachineId('edge-only')
+  const row: MachineOwnershipRow = { machine: id, owner: OWNER,
+    grants: [{ subject: OWNER, verb: 'manage', custody: true }],
+    daemonAssigned: true, daemonAvailable: true }
+  expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set(['manage', 'see']))
+  row.grants = []
+  expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set())
 })

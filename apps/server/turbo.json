@@ -392,6 +392,7 @@
         "src/migrations/issue-blank-text-backfill.test.ts",
         "src/migrations/ledger-import-mapping.test.ts",
         "src/migrations/machine-assignment-availability.test.ts",
+        "src/migrations/machine-custody-grant-edges.test.ts",
         "src/migrations/member-login-email.test.ts",
         "src/migrations/out-of-order-rebuild.test.ts",
         "src/migrations/per-user-state-family.test.ts",

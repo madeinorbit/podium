@@ -296,7 +296,7 @@ export const machinePairingCodeHandler = async ({
   const principal = (await fleetAuthzDeps(ctx)).principal
   if (input?.replaceMachineId) {
     const row = (await mods(ctx).machines.ownershipRows()).find((m) => m.id === input.replaceMachineId)
-    const authorized = principal.kind !== 'system' && (principal.capability.role === 'admin' || (pairer !== null && row?.ownerUserId === pairer))
+    const authorized = principal.kind !== 'system' && (principal.capability.role === 'admin' || (pairer !== null && await mods(ctx).machines.effectiveOwner(asMachineId(input.replaceMachineId)) === pairer))
     if (!authorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'replacement requires an administrator or the machine grantee' })
     if (!row?.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'replacement requires a revoked machine' })
   } else if (principal.kind === 'system' || principal.capability.role !== 'admin') {

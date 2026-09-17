@@ -257,8 +257,10 @@ describe('world index committed facts', () => {
     const records = () => service['machineRecords']()
     await records()
     const list = vi.spyOn(store.machines, 'listMachines')
+    const enroll = () => store.machines.upsertMachine(machine)
+    const releaseCustody = () => store.machines.setMachineOwner(machine.id, null)
     const writes = [
-      () => store.machines.upsertMachine(machine),
+      enroll,
       () => store.machines.addMachineComponent(machine.id, 'daemon'),
       () => store.machines.setMachineInventory(machine.id, JSON.stringify({ os: 'linux', arch: 'x64', podiumVersion: '1', agents: [], tools: [] })),
       () => store.machines.setMachineInventory(machine.id, '{"invalid":true}'),
@@ -288,7 +290,7 @@ describe('world index committed facts', () => {
       () => store.machines.setPresenceSource(machine.id, 'supervisor'),
       () => store.machines.setUpdateChannel(machine.id, 'edge'),
       () => store.machines.renameMachine(machine.id, 'Renamed'),
-      () => store.machines.setMachineOwner(machine.id, null),
+      releaseCustody,
       () => store.machines.touchMachine(machine.id, 'new-host'),
       () => store.machines.deleteMachine(machine.id),
     ]
@@ -296,7 +298,7 @@ describe('world index committed facts', () => {
       for (const write of writes) {
         apply.mockClear()
         await write()
-        expect(apply).toHaveBeenCalledTimes(1)
+        expect(apply).toHaveBeenCalledTimes(write === enroll ? 3 : write === releaseCustody ? 2 : 1)
         const expected = await store.machines.getMachine(machine.id)
         expect(index.reader.machine(machine.id)).toEqual(expected)
         expect(await records()).toEqual(expected ? [expected] : [])
@@ -470,7 +472,7 @@ describe('world index committed facts', () => {
       ).rejects.toThrow('inner')
     })
     expect(index.reader.machine(machine.id)?.name).toBe('First')
-    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledTimes(3)
   })
 
   it('does not expose half a commit to microtask readers', async () => {
@@ -484,7 +486,7 @@ describe('world index committed facts', () => {
       await store.grants.upsert(grant)
       await store.machines.upsertMachine(machine)
     })
-    expect(observations).toEqual([true])
+    expect(observations).toEqual([true, true, true])
   })
 
   it('counts every message transition and duplicate CAS without before-image reads', async () => {

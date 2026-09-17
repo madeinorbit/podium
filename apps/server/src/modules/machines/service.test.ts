@@ -595,11 +595,15 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       name: 'Builder',
     })
     expect(result.ok).toBe(true)
+    expect((await svc.grantsForMachine(MACHINE)).map(({ grantee, verb, custody }) => ({ grantee, verb, custody: custody === true }))).toEqual([
+      { grantee: firstAdminMemberId(), verb: 'use', custody: false },
+      { grantee: firstAdminMemberId(), verb: 'manage', custody: true },
+    ])
 
     expect(await svc.machineName(MACHINE)).toBe('Builder')
     expect((await svc.listMachines()).find((m) => m.id === MACHINE)?.name).toBe('Builder')
     // Ownership reads the same cache, and it is the authorization input.
-    expect((await svc.ownershipRows()).find((m) => m.id === MACHINE)?.ownerUserId).toBe(
+    expect((await svc.effectiveOwner(MACHINE))).toBe(
       firstAdminMemberId(),
     )
   })
@@ -924,7 +928,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // here is the load-bearing part: it goes through the SAME record cache the
       // transfer must have dropped, so a stale entry lands in this array.
       machinesForPrincipal: async () => {
-        broadcasts.push((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId)
+        broadcasts.push((await svc.effectiveOwner(MACHINE)))
         return []
       },
     } satisfies MachinesDeps)
@@ -958,16 +962,16 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       // Warm on the pre-transfer fleet. Without this the read-back below is a
       // cache MISS that rebuilds anyway and would pass with the invalidate gone.
-      expect((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_A)
       expect(broadcasts).toHaveLength(0)
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // 1 — THE ROW. Read straight from the store, past every cache.
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_B)
+      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_B)
       // 2 — THE FLEET. The same public read that was warmed above, with no
       // manual invalidate in between.
-      expect((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_B)
+      expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_B)
       // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
       // it was built from already showed the new owner — so it was emitted
       // AFTER the transition committed, not before.
@@ -984,16 +988,22 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const admin = firstAdminMemberId()
     try {
       await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: admin, onBehalfOf: admin })
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+      }
       await expect(svc.shareMachine(MACHINE, OWNER_B, 'manage', { actor: OWNER_B, onBehalfOf: OWNER_B })).rejects.toThrow('only the machine owner or an admin')
       await expect(svc.transferMachineOwnership(MACHINE, admin, admin, { manage: () => false })).rejects.toThrow('only the machine owner or an admin')
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
+      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
       await svc.transferMachineOwnership(MACHINE, admin, admin, {
         manage: () => true,
         attribution: { actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin },
       })
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(admin)
-      expect(await svc.grantsForMachine(MACHINE)).toEqual([])
+      expect((await store.machines.custodian(MACHINE))).toBe(admin)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toEqual([])
+      }
       expect(await store.settingsAudit.list()).toEqual([expect.objectContaining({
         command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
         detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
@@ -1007,14 +1017,14 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const inventory: Inventory = { os: 'linux', arch: 'x64', agents: [{ kind: 'claude-code', installed: true, path: '/private/bin/claude', login: { state: 'in', account: 'private@example.com' } }], tools: [] }
       await svc.recordInventory(MACHINE, inventory)
       const principal: CommandPrincipal = { kind: 'user', user: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' } } }
-      const ownership: MachineOwnershipIndex = { rowFor: (id) => id === MACHINE ? { machine: id, owner: asUserId(OWNER_A), grants: [], daemonAssigned: true, daemonAvailable: true } : undefined }
+      const ownership: MachineOwnershipIndex = { rowFor: (id) => id === MACHINE ? { machine: id, owner: asUserId(OWNER_A), grants: [{ subject: asUserId(OWNER_A), verb: 'use' }, { subject: asUserId(OWNER_A), verb: 'manage', custody: true }], daemonAssigned: true, daemonAvailable: true } : undefined }
       const raw = (await svc.listMachines()).find((m) => m.id === MACHINE)!
       const projected = (await machinesForPrincipal({ machines: svc }, principal, ownership))[0]!
       expect(projected).toMatchObject({ id: MACHINE, hostname: 'vmi.local', owned: false, transferable: true, adoptable: false, use: 'denied' })
       expect(projected).not.toHaveProperty('inventory')
       expect(projected).not.toHaveProperty('harnessVersions')
       expect(Object.keys(projected).sort()).toEqual([...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)), 'use', 'owned', 'transferable', 'unowned', 'adoptable', 'supersedable'].sort())
-      const granted: MachineOwnershipIndex = { rowFor: (id) => { const row = ownership.rowFor(id); return row && { ...row, grants: [{ subject: firstAdminMemberId(), verb: 'use' }] } } }
+      const granted: MachineOwnershipIndex = { rowFor: (id) => { const row = ownership.rowFor(id); return row && { ...row, grants: [...row.grants, { subject: firstAdminMemberId(), verb: 'use' }] } } }
       expect((await machinesForPrincipal({ machines: svc }, principal, granted))[0]?.inventory).toEqual(inventory)
       const agent: CommandPrincipal = { kind: 'agent', agentSessionId: asSessionId('leaf'), chain: [asSessionId('parent')], onBehalfOf: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') } }
       const narrowed = { ...granted, delegatedMachines: (id: string) => new Set(id === 'parent' ? [] : [MACHINE]) }
@@ -1031,8 +1041,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
       await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
       append.mockRestore()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+      }
       expect(await store.settingsAudit.list()).toEqual([])
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
@@ -1060,13 +1073,19 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         actorId: 'alice',
         onBehalfOf: OWNER_A,
       })
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+      }
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // Carol's `use` was Alice's deliberate act on Alice's hardware. It is not
       // Bob's, and `use` is a code-execution boundary (readiness M2).
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(0)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(0)
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1081,7 +1100,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
       ).rejects.toThrow('only the machine owner or an admin may transfer ownership')
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
+      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
@@ -1099,7 +1118,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
+      expect((await store.machines.custodian(MACHINE))).toBe(OWNER_A)
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
       expect(broadcasts).toEqual([])
     } finally {
@@ -1182,7 +1201,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       await expect(svc.adoptMachine(MACHINE, ALICE, BOB)).rejects.toThrow('only an admin')
       await expect(svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId(), { manage: () => false })).rejects.toThrow('only an admin')
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
+      expect((await store.machines.custodian(MACHINE))).toBeNull()
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1195,7 +1214,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1212,7 +1231,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
+      expect((await store.machines.custodian(MACHINE))).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1223,7 +1242,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     try {
       known.delete(ALICE)
       const rebooted = await reboot()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
       expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
       await expect(rebooted.adoptMachine(MACHINE, BOB, firstAdminMemberId())).rejects.toThrow('machine already has an owner')
     } finally { rmSync(dir, { recursive: true, force: true }) }
@@ -1245,7 +1264,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
 
       // Refused means SILENT: the ledger was not appended and the row is intact.
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.custodian(MACHINE))).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1273,7 +1292,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // reconcile cannot resolve, so the machine comes out of adoption in
       // exactly the quarantine it went in with. Nothing was appended.
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
+      expect((await store.machines.custodian(MACHINE))).toBeNull()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1291,10 +1310,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         ownerUserId: null,
       })
       expect(await svc.grantHostMachineIfUnowned(asUserId(ALICE))).toBe(true)
-      expect((await store.machines.getMachine(store.hostMachineId))?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.custodian(store.hostMachineId))).toBe(ALICE)
       // Idempotent and never a takeover: an owned row is left exactly as it is.
       expect(await svc.grantHostMachineIfUnowned(asUserId(BOB))).toBe(false)
-      expect((await store.machines.getMachine(store.hostMachineId))?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.custodian(store.hostMachineId))).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1321,7 +1340,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId())
       await store.machines.setMachineOwner(MACHINE, null)
       const rebooted = await reboot()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
+      expect((await store.machines.custodian(MACHINE))).toBeNull()
       expect(await rebooted.effectiveOwner(MACHINE)).toBeNull()
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
@@ -1358,13 +1377,19 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         actorId: 'alice',
         onBehalfOf: ALICE,
       })
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
+      }
 
       await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
 
       // Carol's `use` was approved under a regime that is gone, on hardware that
       // is now Bob's. `use` is a code-execution boundary (readiness M2).
-      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(0)
+      {
+      const currentCustodian = await svc.effectiveOwner(MACHINE)
+      expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(0)
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1442,7 +1467,7 @@ describe('retained revocation and explicit replacement', () => {
       expect(close).toHaveBeenCalledOnce()
       const row = await store.machines.getMachine(MACHINE)
       expect(row?.revokedAt).toEqual(expect.any(String))
-      expect(row?.ownerUserId).toBe(firstAdminMemberId())
+      expect(await store.machines.custodian(MACHINE)).toBe(firstAdminMemberId())
       expect(await svc.authenticateDaemon({ type: 'hello', machineId: MACHINE, hostname: frame.hostname, token })).toMatchObject({ ok: false })
       expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
       expect((await svc.listMachines()).find(m => m.id === MACHINE)).toMatchObject({ revokedAt: row?.revokedAt, online: false })

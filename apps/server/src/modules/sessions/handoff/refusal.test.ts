@@ -35,17 +35,17 @@ const user = (id: UserId): CommandPrincipal => ({
 const ownership: MachineOwnershipIndex = {
   rowFor: (machineId): MachineOwnershipRow | undefined => {
     const rows: Record<string, MachineOwnershipRow> = {
-      mine: { machine: 'mine' as MachineId, owner: firstAdminMemberId(), grants: [] },
+      mine: { machine: 'mine' as MachineId, owner: firstAdminMemberId(), grants: [{ subject: firstAdminMemberId(), verb: 'use' }, { subject: firstAdminMemberId(), verb: 'manage', custody: true }] },
       theirs: {
         machine: 'theirs' as MachineId,
         owner: COLLEAGUE,
-        grants: [],
+        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }],
         name: 'their-laptop',
       },
       shared: {
         machine: 'shared' as MachineId,
         owner: COLLEAGUE,
-        grants: [{ subject: firstAdminMemberId(), verb: 'see' }],
+        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }, { subject: firstAdminMemberId(), verb: 'see' }],
         name: 'shared-box',
       },
     }

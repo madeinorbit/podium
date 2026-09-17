@@ -33,17 +33,17 @@ const pair = async (id: string, ownerUserId: string | null): Promise<void> =>
     ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
   })
 
-describe('machines.owner_user_id', () => {
+describe('machine custody edges', () => {
   it('round-trips an owner, and null means unowned rather than absent', async () => {
     await pair('laptop', firstAdminMemberId())
     await pair('orphan', null)
 
     const rows = await store.machines.listMachines()
-    expect(rows.find((m) => m.id === 'laptop')?.ownerUserId).toBe(firstAdminMemberId())
+    expect(await store.machines.custodian('laptop')).toBe(firstAdminMemberId())
     // Present-and-null, NOT undefined: `MachineRecord.ownerUserId` is required so
     // "unowned" and "nobody threaded the value" cannot look alike.
-    expect(rows.find((m) => m.id === 'orphan')).toHaveProperty('ownerUserId', null)
-    expect((await store.machines.getMachine('orphan'))?.ownerUserId).toBeNull()
+    expect(rows.find((m) => m.id === 'orphan')).not.toHaveProperty('ownerUserId')
+    expect((await store.machines.custodian('orphan'))).toBeNull()
   })
 
   it('a re-pair does NOT transfer ownership — the existing owner survives', async () => {
@@ -54,7 +54,7 @@ describe('machines.owner_user_id', () => {
     // take-over of somebody else's machine.
     await pair('laptop', COLLEAGUE)
 
-    expect((await store.machines.getMachine('laptop'))?.ownerUserId).toBe(firstAdminMemberId())
+    expect((await store.machines.custodian('laptop'))).toBe(firstAdminMemberId())
   })
 
   it('a row that has NO owner acquires one — the COALESCE fills NULL, it does not only preserve', async () => {
@@ -64,7 +64,7 @@ describe('machines.owner_user_id', () => {
     await pair('legacy', null)
     await pair('legacy', COLLEAGUE)
 
-    expect((await store.machines.getMachine('legacy'))?.ownerUserId).toBe(COLLEAGUE)
+    expect((await store.machines.custodian('legacy'))).toBe(COLLEAGUE)
   })
 })
 
@@ -161,4 +161,27 @@ it('rolls historical audiences back with the enclosing grant transaction', async
   })).rejects.toThrow('rollback')
   expect(await store.grants.visibilityAudienceFor('issue', 'rollback')).toEqual([])
   expect(await store.grants.visibilityAudienceResourceIds('issue')).not.toContain('rollback')
+})
+
+
+it('enrollment commits both personal edges and enforces one custodian', async () => {
+  const owner = firstAdminMemberId()
+  const input = { id: asMachineId('enrolled'), name: 'Enrolled', hostname: 'box', tokenHash: 'hash',
+    ownerUserId: owner, podiumManaged: true, assignment: { server: false, agentExecution: true },
+    assignmentEvidence: { version: 1 as const, source: 'pairing', requestId: 'pair-one' } }
+  expect(await store.machines.enrollMachine(input)).toBe(true)
+  const edges = await store.grants.listForResource('machine', input.id)
+  expect(edges.map(edge => [edge.grantee, edge.verb, edge.custody === true])).toEqual([[owner, 'use', false], [owner, 'manage', true]])
+  expect(await store.machines.enrollMachine({ ...input, ownerUserId: asUserId(COLLEAGUE) })).toBe(false)
+  const custodian = edges.find(edge => edge.custody)!
+  await expect(store.grants.upsert({ ...custodian, grantee: COLLEAGUE })).rejects.toThrow()
+  await expect(store.grants.upsert({ ...custodian, verb: 'use' })).rejects.toThrow('Custody requires a machine manage edge')
+  expect(await store.machines.custodian(input.id)).toBe(owner)
+  expect(await store.grants.listForResource('machine', input.id)).toEqual(edges)
+  await expect(store.transact(async () => {
+    await store.machines.enrollMachine({ ...input, id: asMachineId('abort') })
+    throw new Error('abort enrollment')
+  })).rejects.toThrow('abort enrollment')
+  expect(await store.machines.getMachine('abort')).toBeUndefined()
+  expect(await store.grants.listForResource('machine', 'abort')).toEqual([])
 })
