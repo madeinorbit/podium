@@ -61,7 +61,7 @@ const clients = [
 ] as const
 
 describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }) => {
-  it('hydrates cache, reads, pages, replaces a same-cursor record, and writes through', async () => {
+  it('hydrates cache, reads, pages, replaces a same-id record, and writes through', async () => {
     const io = source()
     const write = vi.fn()
     const controller = createTranscriptController({
@@ -93,13 +93,13 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     expect(controller.getSnapshot().subscriptionHealthy).toBe(true)
     expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'c2', expect.any(Function))
 
-    io.emit([item('tail-complete', 'c2', 'complete')])
+    io.emit([item('tail', 'c2', 'complete')])
     expect(controller.getSnapshot().items.map((entry) => entry.text)).toEqual(['a', 'complete'])
 
     const paging = controller.loadOlder()
     expect(io.reads[1]).toMatchObject({ anchor: 'c1', limit: pageLimit })
     io.pending[1]?.resolve({
-      items: [item('older', 'c0'), item('a-copy', 'c1')],
+      items: [item('older', 'c0'), item('a', 'c1')],
       head: 'c0',
       tail: 'c1',
       hasMore: false,
@@ -286,11 +286,11 @@ describe('transcript lifecycle boundaries', () => {
     controller.dispose()
   })
 
-  it('orders replayed cursors and replaces repeated cursors', () => {
+  it('orders replayed cursors and replaces repeated ids', () => {
     const held = [item('answer', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer')]
     const merged = mergeTranscriptFrame(held, [
       item('prompt', 'WyJmIiwxMDAsbnVsbCwwXQ', 'prompt'),
-      item('answer-complete', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer complete'),
+      item('answer', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer complete'),
     ])
     expect(merged.map((entry) => entry.text)).toEqual(['prompt', 'answer complete'])
   })

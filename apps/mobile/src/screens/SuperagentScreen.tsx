@@ -2,6 +2,7 @@ import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
   buildImagePrompt,
   mergeTranscriptItems,
+  reconcileTranscriptSnapshot,
   prependTranscriptItems,
   superagentSlice,
 } from '@podium/client-core/viewmodels'
@@ -249,7 +250,9 @@ export function SuperagentScreen() {
     const attach = (since: string | undefined) => {
       if (!alive) return
       unsubscribe = hub.subscribeTranscript(podiumSid, since, (delta, meta) => {
-        setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
+        setItems((prev) => (meta.reset
+          ? reconcileTranscriptSnapshot(prev, delta, delta.at(-1)?.cursor)
+          : mergeTranscriptItems(prev, delta)))
       })
     }
     readTranscriptPage(trpc, podiumSid)

@@ -1,5 +1,6 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { insertInCursorOrder } from '../viewmodels/cursor-order'
+import { freshOlderTranscriptPage, mergeTranscriptFrame, reconcileTranscriptSnapshot, sameTranscriptItem, sameTranscriptItems } from '../viewmodels/transcript'
+export { freshOlderTranscriptPage, mergeTranscriptFrame, reconcileTranscriptSnapshot, sameTranscriptItem, sameTranscriptItems } from '../viewmodels/transcript'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
@@ -69,111 +70,6 @@ export interface TranscriptRefreshOptions {
 }
 
 type Listener = () => void
-
-export function transcriptItemKey(item: TranscriptItem): string {
-  return item.cursor ?? item.id
-}
-
-function sameValue(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
-    return left.every((value, index) => sameValue(value, right[index]))
-  }
-  const leftRecord = left as Record<string, unknown>
-  const rightRecord = right as Record<string, unknown>
-  const leftKeys = Object.keys(leftRecord)
-  const rightKeys = Object.keys(rightRecord)
-  return (
-    leftKeys.length === rightKeys.length &&
-    leftKeys.every((key) => key in rightRecord && sameValue(leftRecord[key], rightRecord[key]))
-  )
-}
-
-export function sameTranscriptItem(left: TranscriptItem, right: TranscriptItem): boolean {
-  return sameValue(left, right)
-}
-
-export function sameTranscriptItems(
-  left: readonly TranscriptItem[],
-  right: readonly TranscriptItem[],
-): boolean {
-  return (
-    left === right ||
-    (left.length === right.length &&
-      left.every(
-        (item, index) =>
-          transcriptItemKey(item) === transcriptItemKey(right[index] as TranscriptItem) &&
-          sameTranscriptItem(item, right[index] as TranscriptItem),
-      ))
-  )
-}
-
-/**
- * Merge a live frame into a held window. A repeated cursor replaces its earlier
- * value in place, because tailers may first emit an unterminated record and then
- * emit its complete value at the same cursor.
- */
-export function mergeTranscriptFrame(
-  held: readonly TranscriptItem[],
-  frame: readonly TranscriptItem[],
-): TranscriptItem[] {
-  if (frame.length === 0) return held as TranscriptItem[]
-  const positions = new Map<string, number>()
-  held.forEach((item, index) => positions.set(transcriptItemKey(item), index))
-  let next: TranscriptItem[] | null = null
-  const additions: TranscriptItem[] = []
-
-  for (const item of frame) {
-    const key = transcriptItemKey(item)
-    const position = positions.get(key)
-    if (position === -1) continue
-    if (position !== undefined) {
-      const current = (next ?? held)[position]
-      if (current && !sameTranscriptItem(current, item)) {
-        next ??= [...held]
-        next[position] = item
-      }
-      continue
-    }
-    positions.set(key, -1)
-    additions.push(item)
-  }
-
-  if (!next && additions.length === 0) return held as TranscriptItem[]
-  const merged = next ?? [...held]
-  for (const item of additions) insertInCursorOrder(merged, item)
-  return merged
-}
-
-/** Reconcile a newest-window read without dropping a live item beyond its tail. */
-export function reconcileTranscriptSnapshot(
-  held: readonly TranscriptItem[],
-  snapshot: readonly TranscriptItem[],
-  snapshotTail: string | undefined,
-): TranscriptItem[] {
-  if (snapshot.length === 0) return held as TranscriptItem[]
-  const tailIndex =
-    snapshotTail === undefined
-      ? -1
-      : held.findIndex((item) => transcriptItemKey(item) === snapshotTail)
-  if (tailIndex < 0) return snapshot as TranscriptItem[]
-  const newerHeld = held.slice(tailIndex + 1)
-  return newerHeld.length === 0
-    ? (snapshot as TranscriptItem[])
-    : mergeTranscriptFrame(snapshot, newerHeld)
-}
-
-/** Keep only the genuinely older part of an anchored page. */
-export function freshOlderTranscriptPage(
-  page: readonly TranscriptItem[],
-  held: readonly TranscriptItem[],
-): TranscriptItem[] {
-  if (page.length === 0) return page as TranscriptItem[]
-  const heldKeys = new Set(held.map(transcriptItemKey))
-  return page.filter((item) => !heldKeys.has(transcriptItemKey(item)))
-}
 
 export class TranscriptController {
   private readonly listeners = new Set<Listener>()
@@ -314,7 +210,7 @@ export class TranscriptController {
       return true
     }
     const held = this.state.items.find(
-      (item) => transcriptItemKey(item) === transcriptItemKey(remote),
+      (item) => item.id === remote.id,
     )
     if (held && sameTranscriptItem(held, remote)) {
       if (this.state.freshness !== null) this.patch({ freshness: null })

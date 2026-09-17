@@ -1,11 +1,5 @@
 import type { ChatRow } from '@podium/client-core/viewmodels'
 import {
-  freshOlderTranscriptPage,
-  mergeTranscriptFrame,
-  reconcileTranscriptSnapshot,
-  sameTranscriptItem,
-} from '@podium/client-core/transcript'
-import {
   type ConversationPendingTurn,
   pairPendingWithConversationQueue,
   projectConversationQueue,
@@ -14,7 +8,6 @@ import {
   reconcileConversationQueue,
 } from '@podium/client-core/conversation'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
-import { decodeCursor, streamIdOfCursor } from '@podium/transcript/browser'
 import { deadLetterDeliveryLine } from '../messages/message-ledger'
 
 /**
@@ -98,143 +91,6 @@ export class FileLinkPathIndex {
       this.paths.delete(oldest)
     }
   }
-}
-
-/** Identity key for dedup/merge: the transcript contract's stream identity.
- *
- * A full cursor is a POSITION, not always an item identity: OpenCode stamps its
- * mutable `timeUpdated` into the offset, so the same provider part has a new
- * cursor when hydration and the live subscription observe it at different
- * moments. The shared contract zeros that mutable offset while retaining the
- * provider part/sub-item identity; cursor-less families keep using `id`. */
-export function itemKey(item: TranscriptItem): string {
-  if (item.cursor === undefined) return item.id
-  return cursorKey(item.cursor)
-}
-
-/** Offset-zeroed identity is safe only when the provider supplied a stable UUID.
- * A null UUID means the cursor is purely positional, so its full offset remains
- * part of the identity or distinct records at the same file/sub-index collapse. */
-function cursorKey(cursor: string): string {
-  const parts = decodeCursor(cursor)
-  return parts?.uuid != null ? (streamIdOfCursor(cursor) ?? cursor) : cursor
-}
-
-/**
- * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
- * whose key is already present REPLACES the held one in place (preserving its
- * position); a new key lands at its CURSOR POSITION — normally the tail, since
- * deltas are normally newer. Order preserved.
- * Returns `prev` unchanged (referentially) when nothing actually changed, so a
- * no-op delta doesn't trigger a re-render.
- *
- * Replace-not-skip is load-bearing: the live tailer flushes an unterminated
- * trailing record immediately (so a final message surfaces promptly), then
- * re-emits it at the SAME cursor once its newline lands with the complete content.
- * A skip-on-seen (first-wins) merge would pin the earlier, possibly truncated
- * version; replacing lets the completed record supersede it.
- *
- * Position-not-append is load-bearing too [POD-341]: a delta is NOT always newer
- * than the held window. The server replays its whole per-session transcript cache
- * when a (re)subscribing client's `since` cursor isn't in it — after a transcript
- * file roll or a socket drop that is the common case — so a frame can carry items
- * OLDER than the tail we already hold. Appending those put the superagent's answer
- * ABOVE the prompt that produced it. `insertInCursorOrder` (shared with the mobile
- * merge) keeps the held window in transcript order however the frames arrive.
- */
-export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
-  return mergeTranscriptFrame(prev, delta)
-}
-
-/**
- * Whether two held windows are the same transcript, item for item — the guard
- * that makes a REFRESH free (POD-701).
- *
- * `reconcileReset` returns a fresh array on every disk re-read even when the
- * bytes are identical, and a fresh array re-derives blocks, re-derives rows and
- * re-renders every mounted block view. That was affordable while re-reads only
- * happened on session switch; it is not affordable now that the window also
- * refreshes on a liveness signal, so the caller compares first and keeps the
- * old array when nothing moved. Same identity key + same mutable content is
- * exactly the equality `mergeByCursor` already treats as "no change".
- */
-export function sameItems(a: readonly TranscriptItem[], b: readonly TranscriptItem[]): boolean {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]
-    const y = b[i]
-    if (!x || !y) return false
-    if (itemKey(x) !== itemKey(y) || !sameTranscriptItem(x, y)) return false
-  }
-  return true
-}
-
-/**
- * Reconcile a held window against a fresh `reset` snapshot WITHOUT ever dropping
- * messages already on screen. A `reset` (reattach re-seed / file roll / server
- * cache rebuild after a redeploy) used to replace the window outright with a disk
- * re-read — which silently lost (a) a live-tailed but not-yet-newline-terminated
- * trailing record that the disk reader drops, and (b) the WHOLE view when the
- * re-read came back empty (a session with no resume value, or a transient read
- * failure). Both presented as "the newest messages appear, then vanish".
- *
- * Rules, in order:
- *   - Empty snapshot → keep `prev` as-is (referentially). An empty re-read is never
- *     authoritative enough to wipe a populated view; the live tail refills it.
- *   - `snapshotTail` still present in `prev` → SAME conversation continuing: adopt
- *     the snapshot, then re-append any held items that sat AFTER the snapshot's tail
- *     (newer in-flight records the re-read dropped). Order-based, so it needs no
- *     cursor decoding. `mergeByCursor` dedups, so a superset snapshot is a no-op.
- *   - `snapshotTail` absent from `prev` (or undefined) → genuine roll/replacement:
- *     the held cursors are stale, so replace wholesale with the snapshot.
- */
-export function reconcileReset(
-  prev: TranscriptItem[],
-  snapshot: TranscriptItem[],
-  snapshotTail: string | undefined,
-): TranscriptItem[] {
-  if (snapshot.length === 0) return prev
-  const tailKey = snapshotTail !== undefined ? cursorKey(snapshotTail) : undefined
-  const tailIdx = tailKey !== undefined ? prev.findIndex((it) => itemKey(it) === tailKey) : -1
-  // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
-  if (tailIdx < 0) return snapshot
-  // Same conversation: keep items the held window has beyond the snapshot's tail.
-  const newerHeld = prev.slice(tailIdx + 1)
-  return newerHeld.length > 0 ? mergeByCursor(snapshot, newerHeld) : snapshot
-}
-
-/**
- * Drop later items that share a cursor (or id) with an earlier one — keeps the
- * first occurrence, preserving order. Used at the `[...older, ...items]` seam to
- * guard a one-item paging/live overlap.
- */
-export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
-  const seen = new Set<string>()
-  const out: TranscriptItem[] = []
-  for (const it of items) {
-    const key = itemKey(it)
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push(it)
-  }
-  return out
-}
-
-/**
- * The genuinely-older part of a back-page, ready to PREPEND [POD-341].
- *
- * An anchored `before` read can come back as the NEWEST window instead of an
- * older page: the disk reader falls back to the default window when the anchor's
- * cursor names a transcript file that has rolled away (packages/transcript
- * slice.ts — "losing the position is safe"), which is exactly what a client
- * holding a pre-roll head cursor asks for. Prepending that window put newer items
- * above older ones. Items the window already holds can never be "earlier", so
- * filtering against them keeps the legitimate one-item paging seam working and
- * turns the fallback window into an empty page (the caller then stops paging).
- */
-export function freshOlderPage(page: TranscriptItem[], held: TranscriptItem[]): TranscriptItem[] {
-  return freshOlderTranscriptPage(page, held)
 }
 
 // Transcript SEARCH moved to the chat slice (`blockMatches` / `searchBlocks` in
