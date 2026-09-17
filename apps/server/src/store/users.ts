@@ -22,7 +22,7 @@ import { CommittedRows } from './committed-rows'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
-import { clientSessions, memberInvites, userCredentials, users } from '../migrations/schema'
+import { clientSessions, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction, preparedPerDb } from './executor/sync-drizzle'
@@ -65,6 +65,7 @@ export class UsersRepository {
 
   constructor(queries: StoreQueries) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
+    this.committed.subscribe(() => { this.accountsVersion += 1 })
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -86,8 +87,9 @@ export class UsersRepository {
    * `SELECT * FROM users WHERE id = ?` statements — against a table holding ONE
    * row. The answer was identical 1,221 times.
    *
-   * An account cannot change inside a read scope, so the second read inside one
-   * is the first read's answer.
+   * Repeated reads share a scope cache until a member write commits. The commit
+   * version invalidates older scopes too, so a suspended authentication pass
+   * cannot retain an enabled member after disablement.
    *
    * WHAT CHANGED [POD-3261]. The lifetime used to be a `queueMicrotask` — sound
    * only because a microtask cannot run inside a synchronous turn, which is to
@@ -105,10 +107,19 @@ export class UsersRepository {
    * `undefined` is cached as an answer too, because "no account" is the verdict
    * every caller acts on.
    */
-  private readonly accountsSlot = readScopeSlot(() => new Map<string, UserAccountRow | undefined>())
+  private accountsVersion = 0
+  private readonly accountsSlot = readScopeSlot(() => ({
+    version: this.accountsVersion,
+    accounts: new Map<string, UserAccountRow | undefined>(),
+  }))
 
-  private async frameCache(): Promise<Map<string, UserAccountRow | undefined>> {
-    return currentReadScope().slot(this.accountsSlot)
+  private frameCache(): Map<string, UserAccountRow | undefined> {
+    const cached = currentReadScope().slot(this.accountsSlot)
+    if (cached.version !== this.accountsVersion) {
+      cached.accounts.clear()
+      cached.version = this.accountsVersion
+    }
+    return cached.accounts
   }
 
   /**
@@ -118,14 +129,20 @@ export class UsersRepository {
    * to get wrong is how one of them ends up permissive.
    */
   async get(userId: UserId): Promise<UserAccountRow | undefined> {
-    const cache = await this.frameCache()
-    if (cache.has(userId)) {
-      const hit = cache.get(userId)
-      return hit === undefined ? undefined : { ...hit }
+    for (;;) {
+      const cache = this.frameCache()
+      if (cache.has(userId)) {
+        const hit = cache.get(userId)
+        return hit === undefined ? undefined : { ...hit }
+      }
+      const version = this.accountsVersion
+      const account = await this.read(userId)
+      // A read that yielded across a commit must not refill a current cache
+      // with the older member row.
+      if (version !== this.accountsVersion) continue
+      cache.set(userId, account)
+      return account === undefined ? undefined : { ...account }
     }
-    const account = await this.read(userId)
-    cache.set(userId, account)
-    return account === undefined ? undefined : { ...account }
   }
 
   /**
@@ -226,10 +243,47 @@ export class UsersRepository {
       .flatMap((row) => { const account = userFromRow(row); return account ? [account] : [] })
   }
 
-  async disable(userId: UserId, disabledAt: string): Promise<void> {
-    currentReadScope().clear(this.accountsSlot)
-    await this.committed.write(async () => this.db.update(users).set({ disabledAt })
-      .where(eq(users.id, userId)).returning().all(), 'upsert')
+  /**
+   * Disable authority, not custody. Agent principals intersect their delegation
+   * with this live member row, so publishing it invalidates them in the same
+   * commit. Keep delegations and machine grants as historical/access facts.
+   * Running processes may finish; they gain no permission for further Podium
+   * actions. Re-enabling restores rights, but never restores deleted cookies.
+   */
+  async disable(userId: UserId, disabledAt: string, actor?: UserId): Promise<void> {
+    await this.setDisabled(userId, disabledAt, disabledAt, actor)
+  }
+
+  async enable(userId: UserId, enabledAt: string, actor?: UserId): Promise<void> {
+    await this.setDisabled(userId, null, enabledAt, actor)
+  }
+
+  private async setDisabled(
+    userId: UserId, disabledAt: string | null, at: string, actor?: UserId,
+  ): Promise<void> {
+    await this.claimTransaction(async () => {
+      if (actor && (await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
+      const existing = await this.accountById(this.db).get({ id: userId })
+      if (!existing) throw new Error(`unknown user: ${userId}`)
+      if ((existing.disabledAt !== null) === (disabledAt !== null)) return
+      await this.committed.write(async () => {
+        const rows = await this.db.update(users).set({ disabledAt })
+          .where(eq(users.id, userId)).returning().all()
+        if (disabledAt !== null) {
+          await this.db.delete(clientSessions).where(eq(clientSessions.userId, userId)).run()
+        }
+        await this.db.insert(settingsAuditEvents).values({
+          command: disabledAt === null ? 'members.enable' : 'members.disable',
+          outcome: 'applied',
+          actorKind: actor ? 'user' : 'system',
+          actorId: actor ?? null,
+          onBehalfOf: actor ?? null,
+          detailJson: JSON.stringify({ memberId: userId, runningAgentPolicy: 'let-finish' }),
+          createdAt: at,
+        }).run()
+        return rows
+      }, 'upsert')
+    })
   }
 
   async credentialFor(userId: UserId): Promise<UserCredentialRow | undefined> {

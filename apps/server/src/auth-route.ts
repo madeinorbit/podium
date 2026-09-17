@@ -1,3 +1,4 @@
+import { DisabledMemberError } from './store/auth'
 import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
 import { createHash, randomBytes } from 'node:crypto'
 import {
@@ -603,30 +604,35 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     // the instance's one account — passed EXPLICITLY rather than defaulted in the
     // store, so per-user login (POD-315) changes this line and nothing silently
     // keeps writing one id for everybody.
-    if (nativeLogin) {
-      await store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
-        sessionId: randomBytes(18).toString('base64url'),
-        deviceId: nativeLogin.deviceId,
-        deviceName: nativeLogin.deviceName,
-        platform: nativeLogin.platform,
-        lastSeenAt: new Date(at).toISOString(),
-      })
-      reportLogin({
-        userId,
-        delivery: 'native',
-        ...(nativeLogin.platform ? { platform: nativeLogin.platform } : {}),
-      })
-      return c.json({
-        ok: true as const,
-        delivery: 'native' as const,
-        syncBoundaryId: opts.syncBoundaryId?.(),
-        memberId: userId,
-        token,
-        userId,
-        expiresAt,
-      })
+    try {
+      if (nativeLogin) {
+        await store?.createClientSession(hashToken(token), userId, expiresAt, 'mobile', {
+          sessionId: randomBytes(18).toString('base64url'),
+          deviceId: nativeLogin.deviceId,
+          deviceName: nativeLogin.deviceName,
+          platform: nativeLogin.platform,
+          lastSeenAt: new Date(at).toISOString(),
+        })
+        reportLogin({
+          userId,
+          delivery: 'native',
+          ...(nativeLogin.platform ? { platform: nativeLogin.platform } : {}),
+        })
+        return c.json({
+          ok: true as const,
+          delivery: 'native' as const,
+          syncBoundaryId: opts.syncBoundaryId?.(),
+          memberId: userId,
+          token,
+          userId,
+          expiresAt,
+        })
+      }
+      await store?.createClientSession(hashToken(token), userId, expiresAt)
+    } catch (error) {
+      if (error instanceof DisabledMemberError) return c.json({ error: 'invalid password' }, 401)
+      throw error
     }
-    await store?.createClientSession(hashToken(token), userId, expiresAt)
     reportLogin({ userId, delivery: 'cookie' })
 
     setSessionCookie(c, token, opts.trustedProxyHops)

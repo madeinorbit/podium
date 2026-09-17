@@ -26,7 +26,7 @@
 
 import type { UserId } from '@podium/model'
 import { and, desc, eq, lte, sql } from 'drizzle-orm'
-import { clientSessions } from '../migrations/schema'
+import { clientSessions, users } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
@@ -49,6 +49,10 @@ export interface ClientSessionRow {
   deviceName?: string
   platform?: string
   lastSeenAt?: string
+}
+
+export class DisabledMemberError extends Error {
+  constructor() { super('Member disabled') }
 }
 
 export class AuthRepository {
@@ -89,14 +93,19 @@ export class AuthRepository {
     // `onConflictDoUpdate` raises on the other. Rule 31b therefore preserves
     // this atomic statement instead of changing mobile re-pair behaviour on the
     // auth path.
-    await this.db.run(
+    await this.createOrJoinTransaction(async () => {
+      const member = await this.db.select({ disabledAt: users.disabledAt }).from(users)
+        .where(eq(users.id, userId)).get()
+      if (member?.disabledAt != null) throw new DisabledMemberError()
+      await this.db.run(
       // REPLACE-STATEMENT POD-3403 — rule 31b: path + token + SQL shape, all three.
       sql`INSERT OR REPLACE INTO client_sessions
             (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
           VALUES (${tokenHash}, ${userId}, ${new Date().toISOString()}, ${expiresAt}, ${label},
                   ${metadata.sessionId ?? null}, ${metadata.deviceId ?? null}, ${metadata.deviceName ?? null},
                   ${metadata.platform ?? null}, ${metadata.lastSeenAt ?? null})`,
-    )
+      )
+    })
   }
 
   /** Every session row, newest first — the read behind `podium auth sessions`. Returns

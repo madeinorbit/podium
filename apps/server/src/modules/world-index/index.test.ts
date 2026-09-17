@@ -55,6 +55,9 @@ const grant: GrantRow = {
 const account = {
   id: alice,
   displayName: 'Alice',
+  email: null,
+  accountId: null,
+  avatar: null,
   role: 'admin' as const,
   createdAt: at,
   disabledAt: null,
@@ -231,8 +234,8 @@ describe('world index committed facts', () => {
       expect(await store.users.get(alice)).toEqual(account)
       cached()
       await disabled
-      // This pass still has its original snapshot. Writes cannot use it.
-      expect(await store.users.get(alice)).toEqual(account)
+      // A committed disable invalidates even an older authentication read scope.
+      expect(await store.users.get(alice)).toBeUndefined()
       await expect(store.users.setPasswordHash(alice, 'replacement', at)).rejects.toThrow(
         'unknown user',
       )

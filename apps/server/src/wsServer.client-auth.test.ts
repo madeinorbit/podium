@@ -1,3 +1,4 @@
+import { hashToken, requestUserId } from './auth-route'
 import { randomBytes } from 'node:crypto'
 import { request } from 'node:http'
 import { firstAdminMemberId } from '@podium/model'
@@ -184,6 +185,24 @@ async function connectDeltaClient(url: string) {
 }
 
 describe('/client WS auth gate', () => {
+  test('a disabled member cannot hello with their old cookie, even after re-enable', async () => {
+    const url = await start(() => true, undefined, undefined, undefined, async request => {
+      const userId = await requestUserId(store!.auth, request.headers.get('cookie') ?? undefined)
+      const user = userId && await store!.users.get(userId)
+      return user && userId ? { userId, userRole: user.role } : undefined
+    })
+    const member = firstAdminMemberId()
+    const cookie = { cookie: 'podium_session=disable-test-token' }
+    await store!.auth.createClientSession(hashToken('disable-test-token'), member, '2999-01-01T00:00:00Z')
+    expect(await attempt(url, cookie)).toBe('open')
+    await store!.users.disable(member, '2026-09-17T12:00:00Z')
+    expect(await attempt(url, cookie)).toBe('rejected')
+    await store!.users.enable(member, '2026-09-17T13:00:00Z')
+    expect(await attempt(url, cookie)).toBe('rejected')
+    await store!.auth.createClientSession(hashToken('fresh-token'), member, '2999-01-01T00:00:00Z')
+    expect(await attempt(url, { cookie: 'podium_session=fresh-token' })).toBe('open')
+  })
+
   test('accepts the client when the gate authorizes it', async () => {
     const url = await start(() => true)
     expect(await attempt(url)).toBe('open')
@@ -362,7 +381,11 @@ describe('/client WS auth gate', () => {
   })
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
-    if (!registry) throw new Error('missing test registry')
+    if (!registry || !store) throw new Error('missing test registry')
+    await store.machines.upsertMachine({ id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'token', ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
+    await store.machines.setServiceAssignment(store.hostMachineId, { server: true, agentExecution: true })
+    registry.modules.machines.invalidateMachineCache()
+    await registry.gateway.attachDaemon(store.hostMachineId, () => {})
     const sessionId = (
       await registry.modules.sessions.createSession({
         agentKind: 'shell',
