@@ -11,9 +11,17 @@
  * WHY THE REFUSAL ARM IS THE WHOLE TEST. The default evidence on this tree is
  * `single-account`, which always adopts — so a suite that only ever presented
  * the default would pass against a root with no gate at all. That is exactly how
- * this survived being built, verified and merged. Every case here presents
- * evidence that must be REFUSED, with the adopting case beside it as the
- * counterfactual.
+ * this survived being built, verified and merged. The `unknown` case here
+ * presents evidence that must be REFUSED, with the adopting cases beside it as
+ * the counterfactual.
+ *
+ * WHAT CHANGED UNDER POD-4000. The region this root gates is the principal's own
+ * `viewFor` slice, which nobody else can have written. So a device ledger that
+ * names a second person — or fails to name this one — no longer discards it:
+ * there is nothing of anyone else's in it to protect, and every client
+ * bootstraps after the upgrade anyway. Those two cases now assert ADOPTION, and
+ * the gate's teeth are pinned in `adoption.test.ts` against a store that was
+ * demonstrably written by someone else.
  */
 
 import { asMutationId } from '@podium/model'
@@ -22,9 +30,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
 
 /** The gate runs before any row is read, so nothing here needs a live server. */
-const trpc = {
-
-} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
+const trpc = {} as unknown as Parameters<typeof openKernelAssembly>[0]['trpc']
 
 let dbSeq = 0
 
@@ -71,25 +77,23 @@ describe('the kernel store is only adopted when attribution is CERTAIN', () => {
     await assembly.dispose()
   })
 
-  it('REFUSES a device that has held sessions for someone else', async () => {
+  it('ADOPTS on a device that has held sessions for someone else — their rows are not in this slice (POD-4000)', async () => {
     const { assembly, degraded } = await open(
       { kind: 'multi-user', signedInAs: 'alice', identitiesEverSignedIn: ['alice', 'bob'] },
       db,
       factory,
     )
-    expect(degraded).toEqual([
-      { kind: 'store-not-adopted', reason: 'discarded-multiple-identities' },
-    ])
+    expect(degraded).toEqual([])
     await assembly.dispose()
   })
 
-  it('REFUSES a ledger that does not name the signed-in user', async () => {
+  it('ADOPTS under a ledger that does not name the signed-in user — same reason (POD-4000)', async () => {
     const { assembly, degraded } = await open(
       { kind: 'multi-user', signedInAs: 'alice', identitiesEverSignedIn: ['bob'] },
       db,
       factory,
     )
-    expect(degraded).toEqual([{ kind: 'store-not-adopted', reason: 'discarded-foreign-identity' }])
+    expect(degraded).toEqual([])
     await assembly.dispose()
   })
 

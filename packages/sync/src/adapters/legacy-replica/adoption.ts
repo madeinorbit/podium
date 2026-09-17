@@ -61,8 +61,8 @@
  * the set applies here too.
  */
 
-import type { OutboxRecord } from '../../outbox/records'
 import type { OutboxRejectionReason } from '../../outbox/reasons'
+import type { OutboxRecord } from '../../outbox/records'
 import type { LegacyReplicaImportPlan } from './import'
 
 /**
@@ -96,12 +96,44 @@ export type LegacyIdentityEvidence =
    */
   | { readonly kind: 'unknown' }
 
+/**
+ * WHO WROTE THE STORE THIS DECISION GOVERNS (POD-4000).
+ *
+ * The identity ledger says who has used the DEVICE; it says nothing about the
+ * store in front of the gate. Those two came apart once stores became
+ * principal-scoped: a cache under the signed-in user's own namespace was written
+ * only while that user was signed in, whatever the ledger says about the device's
+ * other users. Discarding it protects nobody — there is no second person's row in
+ * it to launder — and after an upgrade that forces every client to bootstrap it
+ * was the first thing a customer saw, dressed as a refusal.
+ *
+ * So the gate now asks a second question: is there anything here to protect?
+ *
+ *  - `unattributed` — the pre-identity key space. It has no owner; the ledger is
+ *    the only evidence, and every rule in the header applies unchanged. This is
+ *    the default, because it is the arm that refuses.
+ *  - `principal-scoped` — a region that can only be written under a named
+ *    principal, so `writtenUnder` is every identity that has ever written it.
+ *    Empty means nothing was ever written. The caller states this from the
+ *    store's own construction (a per-principal namespace or view), never from
+ *    the ledger, or the gate would be agreeing with itself again.
+ */
+export type LegacyStoreProvenance =
+  | { readonly kind: 'unattributed' }
+  | { readonly kind: 'principal-scoped'; readonly writtenUnder: readonly string[] }
+
+export const UNATTRIBUTED_STORE: LegacyStoreProvenance = { kind: 'unattributed' }
+
 /** Which fact decided it. One code per distinguishable situation — see the header. */
 export type LegacyAdoptionReason =
   /** No identities exist system-wide; the sole operator is signed in. */
   | 'adopted-single-account'
   /** Identity exists, and this device has only ever been used by the signed-in user. */
   | 'adopted-sole-identity'
+  /** Identity exists and others have used this device, but the store in front of
+   *  the gate is empty or was written only under the signed-in user — there is
+   *  nothing of anyone else's to protect (POD-4000). */
+  | 'adopted-nothing-to-protect'
   /** This device has held sessions for someone other than the signed-in user. */
   | 'discarded-multiple-identities'
   /** Identity exists, but this device's ledger does not include the signed-in
@@ -143,9 +175,10 @@ export function decideLegacyAdoption(
   plan: LegacyReplicaImportPlan,
   evidence: LegacyIdentityEvidence,
   now: number,
+  store: LegacyStoreProvenance = UNATTRIBUTED_STORE,
 ): LegacyAdoptionDecision {
-  const reason = classify(evidence)
-  const adopt = reason === 'adopted-single-account' || reason === 'adopted-sole-identity'
+  const reason = classify(evidence, writersOf(plan, store))
+  const adopt = reason.startsWith('adopted-')
   if (adopt) {
     return { adopt: true, reason, records: plan.outbox, redactedCount: 0 }
   }
@@ -157,14 +190,42 @@ export function decideLegacyAdoption(
   }
 }
 
-function classify(evidence: LegacyIdentityEvidence): LegacyAdoptionReason {
+/**
+ * Every identity that wrote the store this decision governs, or `undefined`
+ * when that cannot be known — a pre-identity store with entries in it. An
+ * unattributed store with NO entries is `[]`: the decision's only effect is the
+ * records it returns, and there are none to protect.
+ */
+function writersOf(
+  plan: LegacyReplicaImportPlan,
+  store: LegacyStoreProvenance,
+): readonly string[] | undefined {
+  if (store.kind === 'principal-scoped') return store.writtenUnder
+  return plan.outbox.length === 0 ? [] : undefined
+}
+
+function classify(
+  evidence: LegacyIdentityEvidence,
+  writers: readonly string[] | undefined,
+): LegacyAdoptionReason {
   switch (evidence.kind) {
     case 'single-account':
       return 'adopted-single-account'
     case 'unknown':
+      // No evidence at all, so a provenance claim has nothing to stand beside;
+      // the header's rule holds and this arm stays closed (POD-4000 narrows the
+      // multi-user arm only).
       return 'discarded-identity-unknown'
     case 'multi-user': {
-      const seen = new Set(evidence.identitiesEverSignedIn)
+      // Nothing to protect: the store is empty or was written only by the person
+      // signed in. The ledger may name others — that is about the device, and it
+      // does not put their rows in this store.
+      if (writers?.every((who) => who === evidence.signedInAs)) {
+        return 'adopted-nothing-to-protect'
+      }
+      // A store demonstrably written by someone else is itself evidence that
+      // person used this device, whatever the ledger remembered.
+      const seen = new Set([...evidence.identitiesEverSignedIn, ...(writers ?? [])])
       if (seen.size > 1) return 'discarded-multiple-identities'
       // A ledger of exactly the signed-in user is the certainty the header
       // describes. Anything else — empty, or naming someone else — is not, and

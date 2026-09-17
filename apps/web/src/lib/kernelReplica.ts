@@ -34,6 +34,14 @@ import {
   preparePrincipalNamespace,
 } from '@podium/client-core/replica'
 import type { FeedServerFrame, FeedSinkPort } from '@podium/client-core/socket-transport'
+import {
+  createSyncTransferTelemetry,
+  HttpBootstrapSource,
+  HttpDeltaSource,
+  SyncAuthExpiredError,
+  SyncCancelledError,
+  SyncNetworkError,
+} from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { actorUser, asUserId } from '@podium/model/browser'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -51,14 +59,6 @@ import type { OutboxAttribution } from '@podium/sync/outbox'
 import { Replica as KernelReplica } from '@podium/sync/replica'
 import type { Trpc } from '@/app/trpc'
 import { SyncProgressStore } from './sync-progress'
-import {
-  createSyncTransferTelemetry,
-  HttpBootstrapSource,
-  HttpDeltaSource,
-  SyncAuthExpiredError,
-  SyncCancelledError,
-  SyncNetworkError,
-} from '@podium/client-core/sync-stream'
 import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:kernel-replica')
@@ -318,6 +318,11 @@ export async function openKernelAssembly(
     { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
     evidence,
     Date.now(),
+    // WHAT IS IN FRONT OF THE GATE (POD-4000): this principal's own view of the
+    // store, which by `viewFor`'s construction can only ever have been written
+    // under it. Stated from the store's shape, not from the ledger — the ledger
+    // is about the device, and a second person on the device puts no row here.
+    { kind: 'principal-scoped', writtenUnder: [options.principal] },
   )
   if (!adoption.adopt) {
     // FAIL CLOSED. The cache is re-derivable at will, so discarding costs one

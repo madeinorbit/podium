@@ -370,7 +370,16 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   // and re-bootstrapped, never adopted. The outbox migration below is a separate
   // call that parks unattributable queued work; this one governs the entity
   // cache the cold-start paint reads.
-  const adoption = decideLegacyAdoption(EMPTY_ADOPTION_PLAN, evidence, now())
+  const adoption = decideLegacyAdoption(
+    EMPTY_ADOPTION_PLAN,
+    evidence,
+    now(),
+    // WHAT IS IN FRONT OF THE GATE (POD-4000): this principal's own view, which
+    // `viewFor` lets nobody else write. Stated from the store's shape; a second
+    // person in the namespace ledger puts no row here. Without a durable
+    // namespace the claim cannot be made, so the default (unattributed) stands.
+    namespace.durable ? { kind: 'principal-scoped', writtenUnder: [principal] } : undefined,
+  )
   if (!adoption.adopt) {
     view.cache.discardCache()
     deps.onDegraded(`Refreshing from the server after a storage upgrade (${adoption.reason}).`)

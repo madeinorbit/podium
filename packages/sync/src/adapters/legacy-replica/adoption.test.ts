@@ -189,10 +189,71 @@ describe('a discard parks the work — it never evaporates, and never leaks', ()
     expect(parked?.queuedAt).toBe(1_700_000_000_000)
   })
 
-  it('an empty legacy outbox refuses without inventing a parked record', () => {
+  it('an empty legacy outbox has nothing to protect — no verdict of discard, no parked record', () => {
     const decision = decideLegacyAdoption(plan(), REFUSED, NOW)
-    expect(decision.adopt).toBe(false)
+    expect(decision.adopt).toBe(true)
+    expect(decision.reason).toBe('adopted-nothing-to-protect')
     expect(decision.records).toEqual([])
     expect(decision.redactedCount).toBe(0)
+  })
+})
+
+describe('nothing to protect — the store, not the device, is what the gate guards (POD-4000)', () => {
+  // The ledger says two people have used this device. Every case below holds
+  // that fixed and varies only WHAT STORE is in front of the gate.
+  const SHARED_DEVICE: LegacyIdentityEvidence = {
+    kind: 'multi-user',
+    signedInAs: 'u_alice',
+    identitiesEverSignedIn: ['u_alice', 'u_bob'],
+  }
+  const scoped = (...writtenUnder: string[]) =>
+    ({ kind: 'principal-scoped', writtenUnder }) as const
+
+  it('an empty principal-scoped store is adopted: there is no row of anyone’s to launder', () => {
+    const decision = decideLegacyAdoption(plan(), SHARED_DEVICE, NOW, scoped())
+    expect(decision.adopt).toBe(true)
+    expect(decision.reason).toBe('adopted-nothing-to-protect')
+  })
+
+  it('a store written only under the signed-in user is adopted, whoever else used the device', () => {
+    const decision = decideLegacyAdoption(plan(), SHARED_DEVICE, NOW, scoped('u_alice'))
+    expect(decision.adopt).toBe(true)
+    expect(decision.reason).toBe('adopted-nothing-to-protect')
+  })
+
+  it('…even when the ledger does not name the signed-in user at all', () => {
+    const decision = decideLegacyAdoption(
+      plan(),
+      { kind: 'multi-user', signedInAs: 'u_alice', identitiesEverSignedIn: ['u_bob'] },
+      NOW,
+      scoped('u_alice'),
+    )
+    expect(decision.reason).toBe('adopted-nothing-to-protect')
+  })
+
+  it('a genuinely foreign store still discards — and its writer counts as a device identity', () => {
+    // The ledger here names ONLY alice; the store itself is the evidence that bob
+    // was on this device. A gate that trusted the ledger alone would adopt.
+    const decision = decideLegacyAdoption(
+      plan(record('m1', { title: SECRET })),
+      { kind: 'multi-user', signedInAs: 'u_alice', identitiesEverSignedIn: ['u_alice'] },
+      NOW,
+      scoped('u_alice', 'u_bob'),
+    )
+    expect(decision.adopt).toBe(false)
+    expect(decision.reason).toBe('discarded-multiple-identities')
+    expect(JSON.stringify(decision.records)).not.toContain(SECRET)
+  })
+
+  it('a pre-identity store WITH entries on a shared device still discards (the default provenance)', () => {
+    const decision = decideLegacyAdoption(plan(record('m1', { title: SECRET })), SHARED_DEVICE, NOW)
+    expect(decision.adopt).toBe(false)
+    expect(decision.reason).toBe('discarded-multiple-identities')
+  })
+
+  it('no evidence at all still refuses, whatever the store claims about itself', () => {
+    const decision = decideLegacyAdoption(plan(), { kind: 'unknown' }, NOW, scoped('u_alice'))
+    expect(decision.adopt).toBe(false)
+    expect(decision.reason).toBe('discarded-identity-unknown')
   })
 })
