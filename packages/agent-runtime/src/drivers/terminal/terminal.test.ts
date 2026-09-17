@@ -36,7 +36,7 @@ import {
 const PROFILE = {
   composerReadiness: 'confirmed-turn',
   instrumentationRequired: true,
-  driverId: 'claude-pty',
+  driverId: 'generic-pty',
   sendProof: ['hook', 'transcript-echo'],
   interactionsFromHooks: true,
   draftReadable: true,
