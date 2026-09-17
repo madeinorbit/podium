@@ -126,7 +126,7 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
   try {
     for (const [machineId, state] of states) {
       if (state.revoked) {
-        db.prepare('DELETE FROM grants WHERE resource_type = ? AND resource_id = ?').run('machine', machineId)
+        db.prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?').run('machine', machineId)
         db.prepare('DELETE FROM machines WHERE id = ?').run(machineId)
       } else if (state.owner !== undefined) {
         db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(state.owner, machineId)
