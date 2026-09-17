@@ -1,3 +1,4 @@
+import { asAgentIdentityId, type SessionDelegation } from '@podium/model'
 import { readIssue } from '../world-index/issue-reader'
 import { createLogger } from '@podium/logger'
 import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
@@ -158,9 +159,7 @@ export interface SessionStartPorts {
     issueId?: IssueId
     workflowRevisionId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
-  sessionOwner(
-    sessionId: SessionId,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   /** Seed the non-argv creation prompt into the recoverable composer draft. */
   setSessionDraft?(input: { sessionId: SessionId; text: string }): Promise<void>
   queueInitialPrompt(input: { sessionId: SessionId; text: string }): Promise<{
@@ -229,7 +228,7 @@ export class SessionStart {
     const agentKind = requested.success
       ? requested.data
       : resolveRole(
-          await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
+          await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
           'coding',
         ).harness
     // Resolve the target machine before model validation — the catalog is
@@ -285,9 +284,14 @@ export class SessionStart {
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
         : input.binding?.principal.kind === 'agent'
-          ? (await this.ports.sessionOwner(input.binding.principal.parentBindingId))?.owner
+          ? (await this.ports.store.sessions.getSession(input.binding.principal.parentBindingId))
+              ?.delegation?.onBehalfOf
           : undefined
-    const ownerUserId = parentOwner ?? input.ownerUserId ?? bindingOwner ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId =
+      parentOwner ??
+      input.ownerUserId ??
+      bindingOwner ??
+      (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -428,7 +432,7 @@ export class SessionStart {
       input.agentKind === 'shell'
         ? undefined
         : resolveRole(
-            await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
+            await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
             'coding',
           ).accountId
     // A native role default names the CLI whose login it represents. Since the
@@ -452,7 +456,38 @@ export class SessionStart {
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
         : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+    const principal = input.binding?.principal ?? { kind: 'user' as const, userId: ownerUserId }
+    const parent =
+      principal.kind === 'agent'
+        ? (await this.ports.store.sessions.getSession(principal.parentBindingId))?.delegation
+        : undefined
+    if (principal.kind === 'agent' && !parent) throw new Error('parent delegation missing')
+    const narrowDefault: SessionDelegation['grantedScope'] = input.issueId
+      ? { kind: 'subtree', rootId: input.issueId }
+      : { kind: 'none' }
+    const grantedScope = input.binding?.requestedScope ?? narrowDefault
+    if (principal.kind === 'agent' && !scopeWithin(grantedScope, parent!.grantedScope))
+      throw new Error('child delegation cannot widen its parent scope')
+    if (
+      principal.kind === 'user' &&
+      !input.binding?.scopeOverrideConfirmed &&
+      !scopeWithin(grantedScope, narrowDefault)
+    )
+      throw new Error('scope override is not authorized')
+    const delegation: SessionDelegation = {
+      actor: asAgentIdentityId(sessionId),
+      onBehalfOf:
+        principal.kind === 'system'
+          ? null
+          : principal.kind === 'user'
+            ? principal.userId
+            : parent!.onBehalfOf,
+      grantedScope,
+      parentBindingId: principal.kind === 'agent' ? principal.parentBindingId : null,
+      revision: 1,
+    }
     const session = new Session({
+      delegation,
       sessionId,
       durableLabel: await this.ports.durableLabelFor(sessionId),
       ownerUserId,
@@ -536,16 +571,14 @@ export class SessionStart {
       agentKind: input.agentKind,
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       cwd: input.cwd,
-      ...(input.binding
-        ? {
-            binding: {
-              transitionId: `spawn:${sessionId}`,
-              machineAccess: input.bindingMachineAccess ?? 'allowed',
-              ...input.binding,
-              ...(input.issueId ? { issueId: input.issueId } : {}),
-            },
-          }
-        : {}),
+      binding: {
+        ...input.binding,
+        principal,
+        delegation,
+        transitionId: `spawn:${sessionId}`,
+        machineAccess: input.bindingMachineAccess ?? 'allowed',
+        ...(input.issueId ? { issueId: input.issueId } : {}),
+      },
       ...(observationLease
         ? {
             observationGeneration: observationLease.observationGeneration,
@@ -577,5 +610,23 @@ export class SessionStart {
       machineId,
       accountId: accountId ?? null,
     }
+  }
+}
+
+/** Declared-scope containment is checked by the authoring server, never the daemon. */
+function scopeWithin(
+  child: SessionDelegation['grantedScope'],
+  parent: SessionDelegation['grantedScope'],
+): boolean {
+  if (child.kind === 'none' || parent.kind === 'all') return true
+  if (child.kind !== parent.kind) return false
+  switch (child.kind) {
+    case 'subtree':
+      return parent.kind === 'subtree' && child.rootId === parent.rootId
+    case 'owned':
+    case 'self':
+      return parent.kind === child.kind && child.userId === parent.userId
+    default:
+      return false
   }
 }

@@ -405,6 +405,7 @@ export class SessionRevival {
         ? { adoptedBinding }
         : {
             binding: {
+              delegation: session.delegation,
               transitionId: `relaunch:${sessionId}:${observationLease?.observationGeneration ?? 0}`,
               machineAccess: 'allowed' as const,
               principal: { kind: 'user' as const, userId: session.ownerUserId },

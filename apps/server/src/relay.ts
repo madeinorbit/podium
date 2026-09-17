@@ -3513,7 +3513,6 @@ export class SessionRegistry {
       },
     })
     this.gateway = new DaemonMux({
-      retiredSoloMemberId: () => this.store.settings.retiredSoloMemberId(),
       bus: this.bus,
       ports: {
         sessions: sessionsSvc,

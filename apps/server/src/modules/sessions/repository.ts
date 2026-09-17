@@ -828,6 +828,7 @@ export class SessionRepository {
       // The pair survives a restart. Absent on the row = none was ever recorded
       // (a session from before the columns existed); it is not reconstructed here
       // from ownerUserId or spawnedBy, which would invent one.
+      ...(r.delegation ? { delegation: r.delegation } : {}),
       ...(r.createdBy ? { createdBy: r.createdBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),

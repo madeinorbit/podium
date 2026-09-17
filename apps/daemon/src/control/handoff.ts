@@ -63,8 +63,7 @@ async function exportPackage(
 ): Promise<void> {
   let claimed = false
   try {
-    if (!harnessSupportsHandoff(msg.agentKind))
-      throw new Error('unsupported handoff harness')
+    if (!harnessSupportsHandoff(msg.agentKind)) throw new Error('unsupported handoff harness')
     if (!msg.binding) {
       ctx.send({
         type: 'handoffExportResult',
@@ -97,6 +96,7 @@ async function exportPackage(
     if (!bindingApplied(claim)) return
     claimed = true
     const binding = ctx.sessionBinding.adoptTransfer(claim.binding, {
+      delegation: msg.binding.delegation,
       transferId: msg.binding.transferId,
       fromMachineId,
       toMachineId,
@@ -241,6 +241,7 @@ async function importPackage(
         agentKind: transfer.agentKind,
         observationGeneration: transfer.observationGeneration,
         delegation: transfer.delegation,
+        serverDelegation: transfer.serverDelegation,
         observations: ctx.sessionBinding.adoptObservations({
           resume: result.manifest.resume,
           nativeArtifactPath: result.nativeArtifactPath,

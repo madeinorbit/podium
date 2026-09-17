@@ -52,12 +52,17 @@ export class SessionBinding {
     })
   }
 
-  /** Serialize the immutable delegation inside the binding boundary. */
+  /** Return host observations alongside the server-supplied record. */
   adoptTransfer(
     binding: SessionBindingRecord,
-    input: { transferId: string; fromMachineId: MachineId; toMachineId: MachineId },
+    input: {
+      transferId: string
+      fromMachineId: MachineId
+      toMachineId: MachineId
+      delegation?: import('@podium/model').SessionDelegation
+    },
   ): HandoffBindingTransfer | null {
-    const delegation = this.store.currentDelegation(binding)
+    const delegation = input.delegation
     if (!delegation) return null
     return {
       transferId: input.transferId,
@@ -66,6 +71,7 @@ export class SessionBinding {
       fromMachineId: input.fromMachineId,
       toMachineId: input.toMachineId,
       observationGeneration: binding.observationGeneration + 1,
+      serverDelegation: delegation,
       delegation: {
         actor: delegation.actor,
         onBehalfOf: delegation.onBehalfOf,

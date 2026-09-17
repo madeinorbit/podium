@@ -65,6 +65,7 @@ describe('binding receipt crash durability', () => {
           claimantMachineId: machineId,
           attemptId: session.attemptId,
           delegation: {
+            revision: 1,
             actor: session.actor,
             onBehalfOf: owner,
             grantedScope: session.scope,
@@ -114,7 +115,8 @@ describe('binding receipt crash durability', () => {
       ): Promise<AgentCommandPrincipal> => {
         const binding = await bindings.read(sessionId)
         const delegation = binding && bindings.currentDelegation(binding)
-        if (!binding || !delegation) throw new Error(`missing delegation for ${sessionId}`)
+        if (!binding || !delegation?.onBehalfOf)
+          throw new Error(`missing delegation for ${sessionId}`)
         return {
           kind: 'agent',
           agentSessionId: sessionId,
@@ -198,6 +200,13 @@ describe('binding receipt crash durability', () => {
       for (const session of sessions) {
         const outcome = await restarted.transition({
           event: 'reattach',
+          delegation: {
+            actor: session.actor,
+            onBehalfOf: owner,
+            grantedScope: session.scope,
+            parentBindingId: null,
+            revision: 1,
+          },
           transitionId: `restart:${session.sessionId}:2`,
           sessionId: session.sessionId,
           claimantMachineId: machineId,

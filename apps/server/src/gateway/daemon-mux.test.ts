@@ -450,36 +450,11 @@ describe('retired daemon attribution ingress', () => {
       },
     },
   })
-  it('maps typed delegation through the recorded row without changing opaque text or transport identity', async () => {
+  it('routes legacy exports without inferring a delegating member', async () => {
     const { ports, calls } = fakePorts()
-    const read = vi.fn(async () => asUserId('mem_recorded'))
-    const mux = new DaemonMux({ ports, bus: { emit: vi.fn() }, retiredSoloMemberId: read })
-    await mux.routeDaemonFrame('source', frame())
-    expect(read).toHaveBeenCalledTimes(1)
-    expect(calls[0]?.args).toEqual([
-      asMachineId('source'),
-      expect.objectContaining({
-        error: 'user:sole is ordinary text here',
-        binding: expect.objectContaining({
-          delegation: expect.objectContaining({ onBehalfOf: 'mem_recorded' }),
-        }),
-      }),
-    ])
-  })
-  it('refuses only the legacy frame if the immutable mapping is missing', async () => {
-    const { ports, calls } = fakePorts()
-    const mux = new DaemonMux({
-      ports,
-      bus: { emit: vi.fn() },
-      retiredSoloMemberId: async () => null,
-    })
-    await mux.routeDaemonFrame('source', frame())
-    expect(calls).toHaveLength(0)
-    await mux.routeDaemonFrame('source', {
-      type: 'title',
-      sessionId: asSessionId('good'),
-      title: 'ready',
-    })
-    expect(calls).toHaveLength(1)
+    const mux = new DaemonMux({ ports, bus: { emit: vi.fn() } })
+    const message = frame()
+    await mux.routeDaemonFrame('source', message)
+    expect(calls[0]?.args).toEqual([asMachineId('source'), message])
   })
 })

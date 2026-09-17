@@ -266,7 +266,7 @@ async function handoffFixture(
                 observationGeneration: 2,
                 delegation: {
                   actor: asAgentIdentityId(msg.sessionId),
-                  onBehalfOf: asUserId('alice'),
+                  onBehalfOf: asUserId('source-stale-member'),
                   grantedScope: { kind: 'all' },
                   parentBindingId: null,
                 },
@@ -384,7 +384,9 @@ async function handoffFixture(
 }
 
 const meta = async (f: HandoffFixture) =>
-  (await f.reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === f.sessionId)
+  (await f.reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+    (s) => s.sessionId === f.sessionId,
+  )
 
 /**
  * An ownership index that answers for a two-person fleet — POD-381's
@@ -435,14 +437,22 @@ const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
 
 const gateForPrincipal = (user: string, ownership: ReturnType<typeof revocableFleet>) =>
   machineUseGateFor({
-    principal: { kind: 'user', user: user as UserId, capability: TEST_CAPABILITY },
+    principal: {
+      kind: 'user',
+      user: user as UserId,
+      capability: { ...TEST_CAPABILITY, role: 'worker' },
+    },
     ownership,
   })
 
 /** The gate a real transport would build, for a principal that is `alice`. */
 const aliceGate = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) =>
   machineUseGateFor({
-    principal: { kind: 'user', user: 'alice' as UserId, capability: TEST_CAPABILITY },
+    principal: {
+      kind: 'user',
+      user: 'alice' as UserId,
+      capability: { ...TEST_CAPABILITY, role: 'worker' },
+    },
     ownership: twoPersonFleet(m2Grants),
   })
 
@@ -630,7 +640,8 @@ describe('oracle: handoff success across two machines', () => {
     // The case today's machines table cannot express: alice OWNS m1 and merely
     // SEES m2. Driven through POD-381's real resolver over a hand-built ownership
     // index — the rules are theirs, only the rows are the fixture's.
-    f.reg.modules.sessions.machineUseGate = async () => aliceGate([{ subject: 'alice', verb: 'see' }])
+    f.reg.modules.sessions.machineUseGate = async () =>
+      aliceGate([{ subject: 'alice', verb: 'see' }])
 
     expect(
       await messageOf(() =>
@@ -817,7 +828,8 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () =>
+      gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -849,7 +861,8 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () =>
+      gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -882,7 +895,8 @@ describe('oracle: mid-transfer crash', () => {
         fleet.m2 = ['see']
       },
     })
-    f.reg.modules.sessions.machineUseGate = async () => gateForPrincipal('alice', revocableFleet(fleet))
+    f.reg.modules.sessions.machineUseGate = async () =>
+      gateForPrincipal('alice', revocableFleet(fleet))
 
     expect(
       await messageOf(() =>
@@ -928,12 +942,17 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         transfer: {
           delegation: {
             actor: f.sessionId,
-            onBehalfOf: 'alice',
-            grantedScope: { kind: 'all' },
+            onBehalfOf: ((await rowOf(f)).delegation as import('@podium/model').SessionDelegation)
+              .onBehalfOf,
+            grantedScope: { kind: 'none' },
           },
         },
       },
     })
+    expect(
+      importFrame?.type === 'handoffImportRequest' &&
+        importFrame.binding?.transfer.serverDelegation,
+    ).toEqual((await rowOf(f))?.delegation)
     expect(JSON.stringify(importFrame)).not.toContain('"onBehalfOf":"bob"')
   })
 
@@ -1045,7 +1064,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     // the authenticated durable handoff record above.
     const imported = f.target.find((msg) => msg.type === 'handoffImportRequest')
     expect(imported).toMatchObject({
-      binding: { transfer: { delegation: { onBehalfOf: 'alice' } } },
+      binding: { transfer: { delegation: (await rowOf(f)).delegation } },
     })
     expect(JSON.stringify(imported)).not.toContain('mallory')
   })
@@ -1108,9 +1127,11 @@ describe('oracle: duplicate dispatch', () => {
     // exactly why the row count alone was never evidence: the fork was visible
     // only in the daemon legs above.
     expect(
-      (await f.reg.modules.sessions
-        .listSessions(undefined, 'rpc'))
-        .map((s) => ({ machineId: s.machineId, cwd: s.cwd, status: s.status })),
+      (await f.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => ({
+        machineId: s.machineId,
+        cwd: s.cwd,
+        status: s.status,
+      })),
     ).toEqual([{ machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' }])
   })
 

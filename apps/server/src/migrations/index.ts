@@ -278,6 +278,15 @@ export function runDrizzleMigrations(
     drizzle({ client: client as unknown as DrizzleBunClient }),
     pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: mintIdsIn(m.sql) })),
   )
+  if (pending.some((m) => m.name === '20260917185720_session-delegation-record')) {
+    const row = db
+      .prepare('SELECT count(*) AS count FROM sessions WHERE delegation IS NULL')
+      .get() as { count: number }
+    if (row.count > 0)
+      log.warn('legacy sessions lack authoritative delegation; explicit authorization required', {
+        count: row.count,
+      })
+  }
   // AFTER the migrations, never before: the rebuild that drops the column is
   // itself one of the migrations that may have just run.
   if (opts.skipSchemaRepair !== true) reportRepairs(db)

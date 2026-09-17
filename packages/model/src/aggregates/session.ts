@@ -1,3 +1,4 @@
+import { SessionDelegation } from '../identity/delegation'
 /**
  * `SessionAggregate` — the canonical R1 session (POD-365).
  *
@@ -98,6 +99,7 @@ export const SessionAggregate = SessionIdentity.extend(SessionPlacement.shape)
      *  `owner` above is this pair's `onBehalfOf` and never the agent — otherwise
      *  the personal sidebar would not show work your own agent did for you, and
      *  retiring an agent session would orphan its issues. */
+    delegation: SessionDelegation.optional(),
     createdBy: Attribution,
   })
 export type SessionAggregate = z.infer<typeof SessionAggregate>
@@ -113,6 +115,7 @@ export const SESSION_IMMUTABLE_AFTER_CREATE = [
   'origin',
   'spawnedBy',
   'createdBy',
+  'delegation',
   'refIssueId',
   'refLetter',
   'refDraft',

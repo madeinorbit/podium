@@ -1,3 +1,4 @@
+import { DRIZZLE_MIGRATIONS } from '../../server/src/migrations/drizzle-manifest.generated'
 /**
  * THE CUSTOMER UPGRADE, daemon arm [POD-3974]. Acceptance matrix rows (design
  * rev 23, Part B): "Incident fixture … no whole-daemon barrier", "Live process
@@ -21,7 +22,13 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asAgentIdentityId, asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+} from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -56,7 +63,12 @@ async function daemonState(): Promise<{ stateDir: string; storeDir: string; rece
   await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: MACHINE }))
   await writeFile(
     join(storeDir, 'manifest.json'),
-    JSON.stringify({ schemaVersion: 3, createdAt: '2026-08-03T21:37:10.194Z', legacyMigration: null, codexReceiptFold: null }),
+    JSON.stringify({
+      schemaVersion: 3,
+      createdAt: '2026-08-03T21:37:10.194Z',
+      legacyMigration: null,
+      codexReceiptFold: null,
+    }),
   )
   for (const [sessionId, record] of Object.entries(daemonBindings)) {
     await writeFile(join(storeDir, 'bindings', bindingFileName(sessionId)), JSON.stringify(record))
@@ -70,7 +82,8 @@ async function daemonState(): Promise<{ stateDir: string; storeDir: string; rece
 
 const snapshotFiles = async (dir: string): Promise<Record<string, string>> => {
   const out: Record<string, string> = {}
-  for (const name of (await readdir(dir)).sort()) out[name] = await readFile(join(dir, name), 'utf8')
+  for (const name of (await readdir(dir)).sort())
+    out[name] = await readFile(join(dir, name), 'utf8')
   return out
 }
 
@@ -79,7 +92,9 @@ const snapshotFiles = async (dir: string): Promise<Record<string, string>> => {
  * the real `bindingConfirmations` over the shared fixture's session placements,
  * owned by the member the upgrade minted. Not a table typed into this test.
  */
-async function serverFacts(ids: readonly string[]): Promise<{ facts: BindingConfirmations; member: string }> {
+async function serverFacts(
+  ids: readonly string[],
+): Promise<{ facts: BindingConfirmations; member: string }> {
   const root = await mkdtemp(join(tmpdir(), 'podium-customer-upgrade-server-'))
   roots.push(root)
   const path = join(root, 'podium.db')
@@ -90,10 +105,16 @@ async function serverFacts(ids: readonly string[]): Promise<{ facts: BindingConf
     for (const session of serverRows.sessions) {
       const row = { ...session, owner_user_id: member }
       const names = Object.keys(row)
-      db.prepare(`INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(
-        ...names.map((n) => row[n as keyof typeof row] as never),
-      )
+      db.prepare(
+        `INSERT INTO sessions (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
+      ).run(...names.map((n) => row[n as keyof typeof row] as never))
     }
+    // Rows above reproduce the old database after the test store installed its
+    // schema. Run the real new data migration over them, not a fixture mapping.
+    const migration = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_session-delegation-record'))
+    if (!migration) throw new Error('delegation migration missing')
+    for (const statement of migration.sql.split('--> statement-breakpoint').slice(1))
+      db.exec(statement)
   } finally {
     db.close()
   }
@@ -132,30 +153,47 @@ describe('customer upgrade fixture: daemon', () => {
     const store = await BindingStore.open({ dir: storeDir })
     const ids = await store.inventory(receiptDir)
     // Everything the daemon holds is asked about; the inert tmp file is not a binding.
-    expect(ids).toEqual(['session-deleted', 'session-exported-stale', 'session-healthy', 'session-moved-peer-a', 'session-moved-peer-b'])
+    expect(ids).toEqual([
+      'session-deleted',
+      'session-exported-stale',
+      'session-healthy',
+      'session-moved-peer-a',
+      'session-moved-peer-b',
+    ])
     const { facts, member } = await serverFacts(ids)
     expect(facts['session-deleted']).toEqual({ owner: null, machineId: null, closed: false })
     expect(facts['session-moved-peer-a']?.machineId).toBe('machine-peer')
 
     store.confirmInventory(MACHINE, facts)
     // The whole-daemon barrier of the incident is gone: exactly the strays, no more.
-    expect(manifest.daemon.expectedQuarantined.filter((id) => store.isQuarantined(asSessionId(id)))).toEqual(manifest.daemon.expectedQuarantined)
+    expect(
+      manifest.daemon.expectedQuarantined.filter((id) => store.isQuarantined(asSessionId(id))),
+    ).toEqual(manifest.daemon.expectedQuarantined)
     expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length)
     expect(store.isQuarantined(HEALTHY)).toBe(false)
 
     // The connected daemon's recovery, exactly as host-runtime runs it.
-    const legacyOwnerForSession = (id: string) => {
+    const legacyDelegationForSession = (id: string) => {
       const fact = facts[id]
-      return !store.isQuarantined(asSessionId(id)) && fact?.owner ? asUserId(fact.owner) : undefined
+      return !store.isQuarantined(asSessionId(id)) ? fact?.delegation : undefined
     }
-    await store.recoverLegacyState({ dir: storeDir, legacyStateDir: stateDir, codexReceiptDir: receiptDir, legacyOwnerForSession })
+    await store.recoverLegacyState({
+      dir: storeDir,
+      legacyStateDir: stateDir,
+      codexReceiptDir: receiptDir,
+      legacyDelegationForSession,
+    })
     // The healthy binding was re-keyed through the server's answer, nothing inferred.
-    expect((await store.read(HEALTHY))?.delegationHistory.at(-1)?.onBehalfOf).toBe(member)
+    expect((await store.read(HEALTHY))?.delegation?.onBehalfOf).toBe(member)
     // Strays are left alone on disk, still carrying the literal; the receipt survives.
     for (const id of RESIDUE) {
-      expect((await store.read(asSessionId(id)))?.delegationHistory.at(-1)?.onBehalfOf).toBe(RETIRED)
+      expect((await store.read(asSessionId(id)))?.delegationHistory.at(-1)?.onBehalfOf).toBe(
+        RETIRED,
+      )
     }
-    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain('native-thread-deleted')
+    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain(
+      'native-thread-deleted',
+    )
     expect(await store.read(asSessionId('session-deleted'))).toBeNull()
 
     // No new stray work: a quarantined id stays quarantined; unrelated new work proceeds.
@@ -163,7 +201,13 @@ describe('customer upgrade fixture: daemon', () => {
       sessionId: asSessionId('session-new-after-upgrade'),
       agentKind: 'codex',
       claimantMachineId: MACHINE,
-      delegation: { actor: asAgentIdentityId('session-new-after-upgrade'), onBehalfOf: asUserId(member), grantedScope: { kind: 'all' }, parentBindingId: null },
+      delegation: {
+        revision: 1,
+        actor: asAgentIdentityId('session-new-after-upgrade'),
+        onBehalfOf: asUserId(member),
+        grantedScope: { kind: 'all' },
+        parentBindingId: null,
+      },
     })
     expect(await store.read(fresh.sessionId)).not.toBeNull()
     expect(store.isQuarantined(fresh.sessionId)).toBe(false)
@@ -184,7 +228,10 @@ describe('customer upgrade fixture: daemon', () => {
 
     // The server later says one moved session is closed; its process is still alive: kept.
     await store.inventory(receiptDir)
-    store.confirmInventory(MACHINE, { ...facts, 'session-moved-peer-a': { ...facts['session-moved-peer-a']!, closed: true } })
+    store.confirmInventory(MACHINE, {
+      ...facts,
+      'session-moved-peer-a': { ...facts['session-moved-peer-a']!, closed: true },
+    })
     await store.reapQuarantined(alive, receiptDir)
     expect(await store.read(asSessionId('session-moved-peer-a'))).not.toBeNull()
     // Process gone: cleaned up. The other strays and the receipt are untouched.
@@ -192,7 +239,9 @@ describe('customer upgrade fixture: daemon', () => {
     expect(await store.read(asSessionId('session-moved-peer-a'))).toBeNull()
     expect(await store.read(asSessionId('session-moved-peer-b'))).not.toBeNull()
     expect(await store.read(asSessionId('session-exported-stale'))).not.toBeNull()
-    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain('native-thread-deleted')
+    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain(
+      'native-thread-deleted',
+    )
     expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length - 1)
   })
 
@@ -204,9 +253,15 @@ describe('customer upgrade fixture: daemon', () => {
     store.confirmInventory(MACHINE, undefined)
     expect(store.quarantinedCount).toBe(0)
     expect(store.isQuarantined(HEALTHY)).toBe(false)
-    await store.recoverLegacyState({ dir: storeDir, legacyStateDir: stateDir, codexReceiptDir: receiptDir })
+    await store.recoverLegacyState({
+      dir: storeDir,
+      legacyStateDir: stateDir,
+      codexReceiptDir: receiptDir,
+    })
     expect(await snapshotFiles(join(storeDir, 'bindings'))).toEqual(before)
-    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain('native-thread-deleted')
+    expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain(
+      'native-thread-deleted',
+    )
   })
 
   it('long-offline return: a second connect reaches the same result', async () => {
@@ -220,14 +275,18 @@ describe('customer upgrade fixture: daemon', () => {
         dir: storeDir,
         legacyStateDir: stateDir,
         codexReceiptDir: receiptDir,
-        legacyOwnerForSession: (id) => (!store.isQuarantined(id) && facts[id]?.owner ? asUserId(facts[id]!.owner!) : undefined),
+        legacyDelegationForSession: (id) =>
+          !store.isQuarantined(id) ? facts[id]?.delegation : undefined,
       })
     }
     await connect()
-    const first = { count: store.quarantinedCount, files: await snapshotFiles(join(storeDir, 'bindings')) }
+    const first = {
+      count: store.quarantinedCount,
+      files: await snapshotFiles(join(storeDir, 'bindings')),
+    }
     await connect()
     expect(store.quarantinedCount).toBe(first.count)
     expect(await snapshotFiles(join(storeDir, 'bindings'))).toEqual(first.files)
-    expect((await store.read(HEALTHY))?.delegationHistory.at(-1)?.onBehalfOf).toBe(member)
+    expect((await store.read(HEALTHY))?.delegation?.onBehalfOf).toBe(member)
   })
 })

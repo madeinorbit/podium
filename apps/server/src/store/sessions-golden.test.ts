@@ -1,3 +1,4 @@
+import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 /**
  * GOLDEN TESTS FOR THE SESSIONS AGGREGATE — written BEFORE the drizzle
  * conversion, against the synchronous code, so they are the oracle it is judged
@@ -23,6 +24,7 @@
  */
 
 import {
+  asAgentIdentityId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -487,6 +489,70 @@ describe('offers and tab order keep their quarantines', () => {
 })
 
 describe('binding inventory facts', () => {
+  it.each([
+    1, 2,
+  ])('backfills pre-attribution records only with exactly one member (%s members)', async (memberCount) => {
+    const member = asUserId((db.prepare('SELECT id FROM users LIMIT 1').get() as { id: string }).id)
+    if (memberCount === 2)
+      db.prepare(
+        "INSERT INTO users (id, display_name, role, created_at) VALUES ('second-member', 'Second', 'member', 'now')",
+      ).run()
+    await put({ id: 'legacy', ownerUserId: member })
+    await put({
+      id: 'attributed',
+      ownerUserId: member,
+      createdBy: {
+        actor: { kind: 'agent', id: asAgentIdentityId('parent') },
+        onBehalfOf: BOB,
+      },
+    })
+    const migration = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_session-delegation-record'))!
+    for (const statement of migration.sql.split('--> statement-breakpoint').slice(1))
+      db.exec(statement)
+    const legacy = (await sessions.getSession(asSessionId('legacy')))?.delegation
+    if (memberCount === 1)
+      expect(legacy).toEqual({
+        actor: 'legacy',
+        onBehalfOf: member,
+        grantedScope: { kind: 'none' },
+        parentBindingId: null,
+        revision: 1,
+      })
+    else expect(legacy).toBeUndefined()
+    expect((await sessions.getSession(asSessionId('attributed')))?.delegation).toEqual({
+      actor: 'attributed',
+      onBehalfOf: BOB,
+      grantedScope: { kind: 'none' },
+      parentBindingId: 'parent',
+      revision: 1,
+    })
+  })
+
+  it('persists the complete delegation and returns it independently of the session owner', async () => {
+    const delegation: import('@podium/model').SessionDelegation = {
+      actor: asAgentIdentityId('child'),
+      onBehalfOf: BOB,
+      grantedScope: { kind: 'subtree', rootId: asIssueId('task') },
+      parentBindingId: asSessionId('remote-parent'),
+      revision: 4,
+    }
+    await put({ id: 'child', ownerUserId: ALICE, machineId: asMachineId('target'), delegation })
+    expect((await sessions.getSession(asSessionId('child')))?.delegation).toEqual(delegation)
+    expect((await sessions.bindingConfirmations(['child'])).child).toEqual({
+      owner: ALICE,
+      machineId: 'target',
+      closed: false,
+      delegation,
+    })
+    await put({
+      id: 'child',
+      ownerUserId: ALICE,
+      machineId: asMachineId('target'),
+      title: 'renamed',
+    })
+    expect((await sessions.getSession(asSessionId('child')))?.delegation).toEqual(delegation)
+  })
+
   it('answers every requested id across machines and distinguishes tombstones from absence', async () => {
     await put({ id: 'here', machineId: asMachineId('machine-a') })
     await put({ id: 'moved', machineId: asMachineId('machine-b'), ownerUserId: BOB })

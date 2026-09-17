@@ -115,6 +115,7 @@ export interface SessionInit {
   /** The ADR 9 D5 A3 attribution pair, stamped at spawn from the transport
    *  principal. Optional ONLY so a session reloaded from a pre-POD-1516 row can
    *  exist without one; every live spawn supplies it. */
+  delegation?: import('@podium/model').SessionDelegation
   createdBy?: Attribution
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
@@ -237,6 +238,7 @@ export class Session {
   readonly spawnedBy: string | undefined
   /** WHO created this session and FOR WHOM. Immutable after create
    *  (`SESSION_IMMUTABLE_AFTER_CREATE`): nothing re-attributes a live session. */
+  readonly delegation: import('@podium/model').SessionDelegation | undefined
   readonly createdBy: Attribution | undefined
   /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
   readonly model: string | undefined
@@ -474,6 +476,7 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.delegation = init.delegation
     this.createdBy = init.createdBy
     this.model = init.model
     this.effort = init.effort
@@ -1052,6 +1055,7 @@ export class Session {
       lastInputAt: Session.msToIso(this.terminal.lastInputAtMs),
       lastResumedAt: Session.msToIso(this.terminal.lastResumedAtMs),
       spawnedBy: this.spawnedBy ?? null,
+      ...(this.delegation ? { delegation: this.delegation } : {}),
       ...(this.createdBy ? { createdBy: this.createdBy } : {}),
       machineId: d.machineId,
       headless: this.headless,
@@ -1199,6 +1203,7 @@ export class Session {
       // it is projected from the durable pair, and nothing a client sends reaches
       // it. Omitted when none was ever recorded — which is the ONLY thing its
       // absence means, because the spawn path always stamps one.
+      ...(this.delegation ? { delegation: this.delegation } : {}),
       ...(this.createdBy ? { createdBy: this.createdBy } : {}),
       ...(this.headless ? { headless: true } : {}),
       ...(d.issueId ? { issueId: d.issueId } : {}),

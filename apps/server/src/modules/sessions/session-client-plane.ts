@@ -92,6 +92,7 @@ export class SessionClientPlane {
       // the size a surviving agent has actually been running at.
       lastKnownGeometry: session.terminal.geometry,
       binding: {
+        delegation: session.delegation,
         transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
         machineAccess: recoveryMachineAccess,
         sessionAccess: 'allowed',

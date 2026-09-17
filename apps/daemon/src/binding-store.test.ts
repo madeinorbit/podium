@@ -11,13 +11,17 @@ import {
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 
-/**
- * The owner the legacy-binding migration stamps: the RETIRED LITERAL, matching
- * what `host-runtime.ts` passes (A2). The rows this path recovers were written
- * when the one human on the instance WAS `'user:sole'` — frozen history, and the
- * daemon is a separate process with no database to resolve a member from.
- */
 const SINGLE_OPERATOR = asUserId(SOLE_USER_ID)
+const serverDelegation = (
+  id: string,
+  owner = SINGLE_OPERATOR,
+): import('@podium/model').SessionDelegation => ({
+  actor: asAgentIdentityId(id),
+  onBehalfOf: owner,
+  grantedScope: { kind: 'none' },
+  parentBindingId: null,
+  revision: 1,
+})
 import {
   BINDING_STORE_SCHEMA_VERSION,
   BindingStore,
@@ -83,7 +87,7 @@ describe('BindingStore schema lifecycle', () => {
     const second = await BindingStore.open({
       dir,
       legacyStateDir: stateDir,
-      singleOperatorUserId: SINGLE_OPERATOR,
+      legacyDelegationForSession: (id) => serverDelegation(id),
       legacyBindings: [
         {
           sessionId: asSessionId('late-arrival'),
@@ -165,6 +169,7 @@ describe('BindingStore records', () => {
       agentKind: 'codex',
       claimantMachineId: machine,
       delegation: {
+        revision: 1,
         actor: asAgentIdentityId('agent-history'),
         onBehalfOf: alice,
         grantedScope: { kind: 'subtree', rootId: asIssueId('issue-a') },
@@ -224,6 +229,7 @@ describe('BindingStore records', () => {
       agentKind: 'claude-code',
       claimantMachineId: machine,
       delegation: {
+        revision: 1,
         actor: asAgentIdentityId('agent-alice'),
         onBehalfOf: alice,
         grantedScope: { kind: 'subtree', rootId: asIssueId('issue-a') },
@@ -235,6 +241,7 @@ describe('BindingStore records', () => {
       agentKind: 'grok',
       claimantMachineId: machine,
       delegation: {
+        revision: 1,
         actor: asAgentIdentityId('agent-bob'),
         onBehalfOf: bob,
         grantedScope: { kind: 'subtree', rootId: asIssueId('issue-b') },
@@ -246,6 +253,7 @@ describe('BindingStore records', () => {
       agentKind: 'claude-code',
       claimantMachineId: machine,
       delegation: {
+        revision: 1,
         actor: asAgentIdentityId('agent-alice'),
         onBehalfOf: alice,
         grantedScope: { kind: 'owned', userId: alice },
@@ -257,7 +265,7 @@ describe('BindingStore records', () => {
       aliceSession,
     ])
     expect((await store.bindingsForOwner(bob)).map((row) => row.sessionId)).toEqual([bobSession])
-    expect((await store.read(aliceSession))?.delegationHistory).toHaveLength(2)
+    expect((await store.read(aliceSession))?.delegationHistory).toEqual([])
     expect(
       store.currentDelegation(requiredBinding(await store.read(bobSession)))?.parentBindingId,
     ).toBe(aliceSession)
@@ -281,6 +289,7 @@ describe('BindingStore records', () => {
       agentKind: 'shell',
       claimantMachineId: machine,
       delegation: {
+        revision: 1,
         actor: asAgentIdentityId('agent-audit'),
         onBehalfOf: alice,
         grantedScope: { kind: 'owned', userId: alice },
@@ -309,7 +318,7 @@ describe('BindingStore records', () => {
 
     // `grantedScope` is the declared spawn-time operand. Any second match is a
     // cached authorization result and must make this exact pin fail.
-    expect(found).toEqual(['delegationHistory[].grantedScope'])
+    expect(found).toEqual(['delegation.grantedScope'])
   })
 
   it('fails closed on a planted authority snapshot without rewriting its bytes', async () => {
@@ -350,6 +359,7 @@ describe('BindingStore records', () => {
         agentKind: 'codex',
         claimantMachineId: machine,
         delegation: {
+          revision: 1,
           actor: asAgentIdentityId(actor),
           onBehalfOf: owner,
           grantedScope: { kind: 'owned', userId: owner },
@@ -419,6 +429,7 @@ describe('BindingStore records', () => {
         agentKind: 'codex',
         claimantMachineId: machine,
         delegation: {
+          revision: 1,
           actor: asAgentIdentityId(`agent-${instance}`),
           onBehalfOf: owner,
           grantedScope: { kind: 'owned', userId: owner },
@@ -533,7 +544,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: SINGLE_OPERATOR,
+      legacyDelegationForSession: (id) => serverDelegation(id),
       now,
       legacyBindings,
     })
@@ -590,7 +601,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: SINGLE_OPERATOR,
+      legacyDelegationForSession: (id) => serverDelegation(id),
       now,
       legacyBindings: [{ sessionId: asSessionId('later-snapshot'), agentKind: 'grok' }],
     })
@@ -625,7 +636,7 @@ describe('legacy daemon-state migration', () => {
       dir: storeDir,
       legacyStateDir: stateDir,
       codexReceiptDir: receiptDir,
-      singleOperatorUserId: SINGLE_OPERATOR,
+      legacyDelegationForSession: (id) => serverDelegation(id),
     })
 
     const binding = requiredBinding(await store.read(asSessionId('same-pane')))
@@ -680,6 +691,7 @@ describe('server-resolved legacy owners', () => {
         agentKind: 'codex',
         claimantMachineId: asMachineId('machine'),
         delegation: {
+          revision: 1,
           actor: asAgentIdentityId(id),
           onBehalfOf: asUserId(owner),
           grantedScope: { kind: 'all' },
@@ -691,10 +703,11 @@ describe('server-resolved legacy owners', () => {
     const modern = await store.read(asSessionId('modern'))
     await store.recoverLegacyState({
       dir: root,
-      legacyOwnerForSession: () => asUserId('mem_rekeyed'),
+      legacyDelegationForSession: (id) =>
+        id === 'old' ? serverDelegation(id, asUserId('mem_rekeyed')) : undefined,
     })
     const repaired = await store.read(asSessionId('old'))
-    expect(repaired?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_rekeyed')
+    expect(repaired?.delegation?.onBehalfOf).toBe('mem_rekeyed')
     expect(repaired?.observations).toEqual(old?.observations)
     expect(await store.read(asSessionId('modern'))).toEqual(modern)
     const reopened = await BindingStore.open({ dir: root })
@@ -714,22 +727,25 @@ describe('server-resolved legacy owners', () => {
     const store = await BindingStore.open({ dir: join(root, 'bindings') })
     const options = { dir: store.dir, legacyStateDir: root, codexReceiptDir: receipts }
     await expect(
-      store.recoverLegacyState({ ...options, legacyOwnerForSession: () => undefined }),
+      store.recoverLegacyState({ ...options, legacyDelegationForSession: () => undefined }),
     ).resolves.toBeUndefined()
     expect(store.quarantinedCount).toBe(1)
     expect(await store.read(asSessionId('orphan'))).toBeNull()
     expect(await readFile(receipt, 'utf8')).toContain('thread')
     await store.inventory(receipts)
     store.confirmInventory(asMachineId('machine'), {
-      orphan: { owner: 'mem_owner', machineId: 'machine', closed: false },
+      orphan: {
+        owner: 'mem_owner',
+        machineId: 'machine',
+        closed: false,
+        delegation: serverDelegation('orphan', asUserId('mem_owner')),
+      },
     })
     await store.recoverLegacyState({
       ...options,
-      legacyOwnerForSession: () => asUserId('mem_owner'),
+      legacyDelegationForSession: (id) => serverDelegation(id, asUserId('mem_owner')),
     })
-    expect((await store.read(asSessionId('orphan')))?.delegationHistory.at(-1)?.onBehalfOf).toBe(
-      'mem_owner',
-    )
+    expect((await store.read(asSessionId('orphan')))?.delegation?.onBehalfOf).toBe('mem_owner')
     await expect(access(receipt)).rejects.toThrow()
   })
 })
@@ -745,6 +761,7 @@ describe('connect inventory isolation', () => {
         agentKind: 'codex',
         claimantMachineId: machine,
         delegation: {
+          revision: 1,
           actor: asAgentIdentityId(id),
           onBehalfOf: alice,
           grantedScope: { kind: 'all' },
@@ -756,9 +773,19 @@ describe('connect inventory isolation', () => {
     await writeFile(join(root, 'bindings', 'inert.json.123.dead.tmp'), 'user:sole')
     expect(await store.inventory(receipts)).toEqual(['closed', 'good', 'moved', 'unknown'])
     store.confirmInventory(machine, {
-      good: { owner: alice, machineId: machine, closed: false },
+      good: {
+        owner: alice,
+        machineId: machine,
+        closed: false,
+        delegation: serverDelegation('good', asUserId(alice)),
+      },
       unknown: { owner: null, machineId: null, closed: false },
-      moved: { owner: alice, machineId: 'elsewhere', closed: false },
+      moved: {
+        owner: alice,
+        machineId: 'elsewhere',
+        closed: false,
+        delegation: serverDelegation('moved', asUserId(alice)),
+      },
       closed: { owner: alice, machineId: machine, closed: true },
     })
     expect(store.isQuarantined(asSessionId('good'))).toBe(false)
@@ -777,25 +804,36 @@ describe('connect inventory isolation', () => {
   })
 })
 
-
 it('folds a confirmed receipt using handshake placement without a legacy identity file', async () => {
   const root = await tempRoot()
   const receipts = join(root, 'receipts')
   await mkdir(receipts)
   for (const id of ['healthy', 'orphan']) {
-    await writeFile(join(receipts, `${id}.json`), JSON.stringify({
-      session_id: `native-${id}`, hook_event_name: 'PodiumProcessBinding',
-    }))
+    await writeFile(
+      join(receipts, `${id}.json`),
+      JSON.stringify({
+        session_id: `native-${id}`,
+        hook_event_name: 'PodiumProcessBinding',
+      }),
+    )
   }
   const store = await BindingStore.open({ dir: join(root, 'bindings') })
   expect(await store.inventory(receipts)).toEqual(['healthy', 'orphan'])
   store.confirmInventory(machine, {
-    healthy: { owner: alice, machineId: machine, closed: false },
+    healthy: {
+      owner: alice,
+      machineId: machine,
+      closed: false,
+      delegation: serverDelegation('healthy', asUserId(alice)),
+    },
     orphan: { owner: null, machineId: null, closed: false },
   })
   await store.recoverLegacyState({
-    dir: store.dir, legacyStateDir: root, codexReceiptDir: receipts,
-    legacyOwnerForSession: (id) => id === 'healthy' ? alice : undefined,
+    dir: store.dir,
+    legacyStateDir: root,
+    codexReceiptDir: receipts,
+    legacyDelegationForSession: (id) =>
+      id === 'healthy' ? serverDelegation(id, alice) : undefined,
   })
   expect((await store.read(asSessionId('healthy')))?.claimantMachineId).toBe(machine)
   expect(store.isQuarantined(asSessionId('healthy'))).toBe(false)

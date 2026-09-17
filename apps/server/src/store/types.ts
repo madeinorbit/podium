@@ -234,6 +234,7 @@ export interface SessionRow {
    *  it unconditionally, so no live write can produce an absence. Distinct from
    *  `spawnedBy` above, which carries at most the ACTOR half and often only its
    *  role, and from `ownerUserId`, which is who the session BELONGS to. */
+  delegation?: import('@podium/model').SessionDelegation
   createdBy?: Attribution
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */

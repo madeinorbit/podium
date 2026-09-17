@@ -112,6 +112,7 @@ export class SessionsRepository {
         owner: sessionsTable.ownerUserId,
         machineId: sessionsTable.machineId,
         deletedAt: sessionsTable.deletedAt,
+        delegation: sessionsTable.delegation,
       })
       .from(sessionsTable)
       .where(inArray(sessionsTable.id, ids.map(asSessionId)))
@@ -121,6 +122,7 @@ export class SessionsRepository {
         owner: row.owner,
         machineId: row.machineId,
         closed: row.deletedAt !== null,
+        ...(row.delegation ? { delegation: row.delegation } : {}),
       }
     return result
   }
@@ -178,9 +180,11 @@ export class SessionsRepository {
    * the filter `loadSessions` applied, not an added condition.
    */
   async findSessionByResumeValue(resumeValue: string): Promise<SessionRow | undefined> {
-    return (await this.readSessions(
-      and(eq(sessionsTable.resumeValue, resumeValue), isNull(sessionsTable.deletedAt)),
-    ))[0]
+    return (
+      await this.readSessions(
+        and(eq(sessionsTable.resumeValue, resumeValue), isNull(sessionsTable.deletedAt)),
+      )
+    )[0]
   }
 
   /**
@@ -205,7 +209,9 @@ export class SessionsRepository {
    * resume value is exactly the row returned by
    * {@link findSessionByResumeValue} when duplicate values exist.
    */
-  async findSessionsByResumeValues(resumeValues: readonly string[]): Promise<Map<string, SessionRow>> {
+  async findSessionsByResumeValues(
+    resumeValues: readonly string[],
+  ): Promise<Map<string, SessionRow>> {
     const out = new Map<string, SessionRow>()
     for (const chunk of chunked(resumeValues)) {
       for (const row of await this.readSessions(await this.liveByResumeValue(chunk))) {
@@ -230,7 +236,9 @@ export class SessionsRepository {
    * candidates and lets the caller state its own preference, leaving the
    * visibility answer above untouched.
    */
-  async listSessionsByResumeValues(resumeValues: readonly string[]): Promise<Map<string, SessionRow[]>> {
+  async listSessionsByResumeValues(
+    resumeValues: readonly string[],
+  ): Promise<Map<string, SessionRow[]>> {
     const out = new Map<string, SessionRow[]>()
     for (const chunk of chunked(resumeValues)) {
       for (const row of await this.readSessions(await this.liveByResumeValue(chunk))) {
@@ -260,9 +268,9 @@ export class SessionsRepository {
     const out: SessionRow[] = []
     for (const chunk of chunked(issueIds)) {
       out.push(
-        ...await this.readSessions(
+        ...(await this.readSessions(
           and(inArray(sessionsTable.issueId, chunk), isNull(sessionsTable.deletedAt)),
-        ),
+        )),
       )
     }
     return out
@@ -290,13 +298,14 @@ export class SessionsRepository {
    * declared once (see {@link findSessionByResumeValue}).
    */
   private async readSessions(where: SQL | undefined): Promise<SessionRow[]> {
-    return (await this.db
-      .select()
-      .from(sessionsTable)
-      .where(where)
-      .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
-      .all())
-      .map(mapSession)
+    return (
+      await this.db
+        .select()
+        .from(sessionsTable)
+        .where(where)
+        .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+        .all()
+    ).map(mapSession)
   }
 
   async upsertSession(row: SessionRow): Promise<void> {
@@ -375,13 +384,14 @@ export class SessionsRepository {
       refIssueId: row.refIssueId ?? null,
       refLetter: row.refLetter ?? null,
       refDraft: row.refDraft ?? null,
+      delegation: row.delegation ?? null,
       createdByActorKind: createdBy ? createdBy.kind : null,
       createdByActorId: createdBy ? createdBy.id : null,
       createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
     }
-    ;await (this.db
+    await this.db
       .insert(sessionsTable)
-      .values(values))
+      .values(values)
       .onConflictDoUpdate({
         target: sessionsTable.id,
         set: {
@@ -450,6 +460,7 @@ export class SessionsRepository {
           // change, a rename, a reattach — must not be able to re-attribute the
           // session to whoever happened to trigger it. It can only FILL a pair
           // that was never recorded, never overwrite one that was.
+          delegation: sql`COALESCE(${sessionsTable.delegation}, excluded."delegation")`,
           createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
           createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
           createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
@@ -570,7 +581,10 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   async purgeSession(id: SessionId): Promise<void> {
-    await this.db.delete(runtimeEventCheckpoints).where(eq(runtimeEventCheckpoints.sessionId, id)).run()
+    await this.db
+      .delete(runtimeEventCheckpoints)
+      .where(eq(runtimeEventCheckpoints.sessionId, id))
+      .run()
     this.purgeObservationCheckpoint(id)
     await this.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
     await this.db
@@ -631,9 +645,9 @@ export class SessionsRepository {
       //               the `PIN_KINDS` membership throw, `id` by the empty-string
       //               throw on the trimmed value, and `pinned_at` is a freshly
       //               built ISO string.
-      ;await (this.db
+      await this.db
         .insert(pinsTable)
-        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() }))
+        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
         .onConflictDoNothing()
         .run()
     } else {
@@ -686,9 +700,9 @@ export class SessionsRepository {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
-    ;await (this.db
+    await this.db
       .insert(sessionUserState)
-      .values({ userId, sessionId: asSessionId(id), readAt }))
+      .values({ userId, sessionId: asSessionId(id), readAt })
       .onConflictDoUpdate({
         target: [sessionUserState.userId, sessionUserState.sessionId],
         set: { readAt },
@@ -764,14 +778,14 @@ export class SessionsRepository {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
-    ;await (this.db
+    await this.db
       .insert(snoozesTable)
       .values({
         userId,
         sessionId: asSessionId(id),
         snoozedUntil: until,
         createdAt: new Date().toISOString(),
-      }))
+      })
       .onConflictDoUpdate({
         target: [snoozesTable.userId, snoozesTable.sessionId],
         set: { snoozedUntil: until },
@@ -794,12 +808,12 @@ export class SessionsRepository {
 
   async hasAnySnooze(sessionId: SessionId): Promise<boolean> {
     return (
-      await this.db
+      (await this.db
         .select({ present: sql<number>`1` })
         .from(snoozesTable)
         .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
         .limit(1)
-        .get() !== undefined
+        .get()) !== undefined
     )
   }
 
@@ -856,9 +870,9 @@ export class SessionsRepository {
         offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
       createdAt: offer.createdAt,
     }
-    ;await (this.db
+    await this.db
       .insert(offersTable)
-      .values(values))
+      .values(values)
       .onConflictDoUpdate({
         target: offersTable.sessionId,
         set: {
@@ -924,9 +938,9 @@ export class SessionsRepository {
     }
     const ids = JSON.stringify(sessionIds)
     const updatedAt = new Date().toISOString()
-    ;await (this.db
+    await this.db
       .insert(tabOrder)
-      .values({ userId, worktree: cleanWorktree, ids, updatedAt }))
+      .values({ userId, worktree: cleanWorktree, ids, updatedAt })
       .onConflictDoUpdate({
         target: [tabOrder.userId, tabOrder.worktree],
         set: { ids, updatedAt },
@@ -1008,9 +1022,9 @@ export class SessionsRepository {
     if (!id) return undefined
     if (text) {
       const updatedAt = new Date().toISOString()
-      ;await (this.db
+      await this.db
         .insert(sessionDrafts)
-        .values({ sessionId: asSessionId(id), text, updatedAt }))
+        .values({ sessionId: asSessionId(id), text, updatedAt })
         .onConflictDoUpdate({ target: sessionDrafts.sessionId, set: { text, updatedAt } })
         .run()
       return updatedAt
@@ -1076,9 +1090,9 @@ export class SessionsRepository {
       origin: doc.origin,
       history: JSON.stringify(doc.history),
     }
-    ;await (this.db
+    await this.db
       .insert(sessionDrafts)
-      .values(values))
+      .values(values)
       .onConflictDoUpdate({
         target: sessionDrafts.sessionId,
         set: {
@@ -1180,6 +1194,7 @@ function mapSession(r: SessionSelect): SessionRow {
     // a row carrying `createdBy: null` beside rows that simply omit the key
     // would be two encodings of "nobody recorded this", and the whole point of
     // this field is that its absence has a single unambiguous meaning.
+    ...(r.delegation ? { delegation: r.delegation } : {}),
     ...(r.createdByActorKind != null && r.createdByActorId != null
       ? {
           createdBy: {

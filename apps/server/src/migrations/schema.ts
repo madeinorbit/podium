@@ -271,6 +271,7 @@ export const sessions = sqliteTable(
     // one (it is the on-behalf-of human even when an AGENT acted, so borrowing
     // it would assert "a human did it" for exactly the rows the pair exists to
     // tell apart). NULL reads as "from before the pair existed".
+    delegation: text('delegation', { mode: 'json' }).$type<import('@podium/model').SessionDelegation>(),
     createdByActorKind: text('created_by_actor_kind'),
     /** The actor's id — or, for a `system` actor, its JOB name (ADR 9 D8 S5
      *  gives that arm no id). Decoded through the model's `ActorRef`. */

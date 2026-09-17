@@ -1450,12 +1450,8 @@ export async function createDaemonHostRuntime(args: {
             dir: bindingStore.dir,
             legacyStateDir: identityStateDir,
             codexReceiptDir: instance.codexReceiptDir,
-            legacyOwnerForSession: (id) => {
-              const fact = currentBindingFacts?.[id]
-              return !bindingStore.isQuarantined(id) && fact?.owner
-                ? asUserId(fact.owner)
-                : undefined
-            },
+            legacyDelegationForSession: (id) =>
+              !bindingStore.isQuarantined(id) ? currentBindingFacts?.[id]?.delegation : undefined,
           }),
         )
         .then(async () => {

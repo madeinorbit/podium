@@ -29,6 +29,15 @@
       "schema": "HandoffBindingExportInstruction",
       "variant": "full/arm0",
       "wire": {
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "all"
+          },
+          "parentBindingId": "delegation.parentBindingId",
+          "revision": 1
+        },
         "transitionId": "transitionId",
         "transferId": "transferId",
         "targetMachineId": "targetMachineId",
@@ -46,12 +55,21 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"personal\"}"
+      "encoded": "{\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"personal\"}"
     },
     {
       "schema": "HandoffBindingExportInstruction",
       "variant": "full/arm1",
       "wire": {
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "none"
+          },
+          "parentBindingId": "delegation.parentBindingId",
+          "revision": 2
+        },
         "transitionId": "transitionId",
         "transferId": "transferId",
         "targetMachineId": "targetMachineId",
@@ -69,12 +87,22 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\"}"
+      "encoded": "{\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"per-user-state\"}"
     },
     {
       "schema": "HandoffBindingExportInstruction",
       "variant": "full/arm2",
       "wire": {
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "subtree",
+            "rootId": "delegation.grantedScope.rootId"
+          },
+          "parentBindingId": "delegation.parentBindingId",
+          "revision": 3
+        },
         "transitionId": "transitionId",
         "transferId": "transferId",
         "targetMachineId": "targetMachineId",
@@ -92,12 +120,22 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"owned-compute\"}"
+      "encoded": "{\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"exportedBy.actor.id\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"owned-compute\"}"
     },
     {
       "schema": "HandoffBindingExportInstruction",
       "variant": "full/arm3",
       "wire": {
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "owned",
+            "userId": "delegation.grantedScope.userId"
+          },
+          "parentBindingId": "delegation.parentBindingId",
+          "revision": 4
+        },
         "transitionId": "transitionId",
         "transferId": "transferId",
         "targetMachineId": "targetMachineId",
@@ -115,7 +153,40 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"exportedBy.actor.job\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\"}"
+      "encoded": "{\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"exportedBy.actor.job\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"deployment-substrate\"}"
+    },
+    {
+      "schema": "HandoffBindingExportInstruction",
+      "variant": "full/arm4",
+      "wire": {
+        "delegation": {
+          "actor": "delegation.actor",
+          "onBehalfOf": "delegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "self",
+            "userId": "delegation.grantedScope.userId"
+          },
+          "parentBindingId": "delegation.parentBindingId",
+          "revision": 5
+        },
+        "transitionId": "transitionId",
+        "transferId": "transferId",
+        "targetMachineId": "targetMachineId",
+        "machineAccess": "unreachable",
+        "exportedBy": {
+          "actor": {
+            "kind": "system",
+            "job": "exportedBy.actor.job"
+          },
+          "onBehalfOf": "exportedBy.onBehalfOf"
+        },
+        "owner": "owner",
+        "visibility": "secret"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"transitionId\",\"transferId\":\"transferId\",\"targetMachineId\":\"targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"exportedBy.actor.job\"},\"onBehalfOf\":\"exportedBy.onBehalfOf\"},\"owner\":\"owner\",\"visibility\":\"secret\"}"
     },
     {
       "schema": "HandoffBindingFinalizeRequestMessage",
@@ -201,7 +272,7 @@
           "observationGeneration": 1,
           "delegation": {
             "actor": "transfer.delegation.actor",
-            "onBehalfOf": "transfer.delegation.onBehalfOf",
+            "onBehalfOf": null,
             "grantedScope": {
               "kind": "all"
             },
@@ -212,7 +283,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":null,\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}}"
     },
     {
       "schema": "HandoffBindingImportInstruction",
@@ -221,6 +292,15 @@
         "transitionId": "transitionId",
         "machineAccess": "allowed",
         "transfer": {
+          "serverDelegation": {
+            "actor": "transfer.serverDelegation.actor",
+            "onBehalfOf": "transfer.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": "transfer.serverDelegation.parentBindingId",
+            "revision": 1
+          },
           "transferId": "transfer.transferId",
           "sessionId": "transfer.sessionId",
           "agentKind": "claude-code",
@@ -240,7 +320,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"serverDelegation\":{\"actor\":\"transfer.serverDelegation.actor\",\"onBehalfOf\":\"transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"transfer.serverDelegation.parentBindingId\",\"revision\":1},\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
     },
     {
       "schema": "HandoffBindingImportInstruction",
@@ -249,6 +329,15 @@
         "transitionId": "transitionId",
         "machineAccess": "denied",
         "transfer": {
+          "serverDelegation": {
+            "actor": "transfer.serverDelegation.actor",
+            "onBehalfOf": "transfer.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "none"
+            },
+            "parentBindingId": "transfer.serverDelegation.parentBindingId",
+            "revision": 2
+          },
           "transferId": "transfer.transferId",
           "sessionId": "transfer.sessionId",
           "agentKind": "codex",
@@ -268,7 +357,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"serverDelegation\":{\"actor\":\"transfer.serverDelegation.actor\",\"onBehalfOf\":\"transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"transfer.serverDelegation.parentBindingId\",\"revision\":2},\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
     },
     {
       "schema": "HandoffBindingImportInstruction",
@@ -277,6 +366,16 @@
         "transitionId": "transitionId",
         "machineAccess": "unreachable",
         "transfer": {
+          "serverDelegation": {
+            "actor": "transfer.serverDelegation.actor",
+            "onBehalfOf": "transfer.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "subtree",
+              "rootId": "transfer.serverDelegation.grantedScope.rootId"
+            },
+            "parentBindingId": "transfer.serverDelegation.parentBindingId",
+            "revision": 3
+          },
           "transferId": "transfer.transferId",
           "sessionId": "transfer.sessionId",
           "agentKind": "grok",
@@ -297,7 +396,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"transfer.serverDelegation.actor\",\"onBehalfOf\":\"transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"transfer.serverDelegation.grantedScope.rootId\"},\"parentBindingId\":\"transfer.serverDelegation.parentBindingId\",\"revision\":3},\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
     },
     {
       "schema": "HandoffBindingImportInstruction",
@@ -306,6 +405,16 @@
         "transitionId": "transitionId",
         "machineAccess": "unreachable",
         "transfer": {
+          "serverDelegation": {
+            "actor": "transfer.serverDelegation.actor",
+            "onBehalfOf": "transfer.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "owned",
+              "userId": "transfer.serverDelegation.grantedScope.userId"
+            },
+            "parentBindingId": "transfer.serverDelegation.parentBindingId",
+            "revision": 4
+          },
           "transferId": "transfer.transferId",
           "sessionId": "transfer.sessionId",
           "agentKind": "opencode",
@@ -326,7 +435,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"transfer.serverDelegation.actor\",\"onBehalfOf\":\"transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"transfer.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.serverDelegation.parentBindingId\",\"revision\":4},\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
     },
     {
       "schema": "HandoffBindingImportInstruction",
@@ -335,6 +444,16 @@
         "transitionId": "transitionId",
         "machineAccess": "unreachable",
         "transfer": {
+          "serverDelegation": {
+            "actor": "transfer.serverDelegation.actor",
+            "onBehalfOf": "transfer.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "self",
+              "userId": "transfer.serverDelegation.grantedScope.userId"
+            },
+            "parentBindingId": "transfer.serverDelegation.parentBindingId",
+            "revision": 5
+          },
           "transferId": "transfer.transferId",
           "sessionId": "transfer.sessionId",
           "agentKind": "cursor",
@@ -355,7 +474,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
+      "encoded": "{\"transitionId\":\"transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"transfer.serverDelegation.actor\",\"onBehalfOf\":\"transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"transfer.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.serverDelegation.parentBindingId\",\"revision\":5},\"transferId\":\"transfer.transferId\",\"sessionId\":\"transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"transfer.fromMachineId\",\"toMachineId\":\"transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"transfer.delegation.actor\",\"onBehalfOf\":\"transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"transfer.delegation.parentBindingId\"}}}"
     },
     {
       "schema": "HandoffBindingTransfer",
@@ -369,7 +488,7 @@
         "observationGeneration": 1,
         "delegation": {
           "actor": "delegation.actor",
-          "onBehalfOf": "delegation.onBehalfOf",
+          "onBehalfOf": null,
           "grantedScope": {
             "kind": "all"
           },
@@ -379,12 +498,21 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}"
+      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":null,\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":null}}"
     },
     {
       "schema": "HandoffBindingTransfer",
       "variant": "full/arm0",
       "wire": {
+        "serverDelegation": {
+          "actor": "serverDelegation.actor",
+          "onBehalfOf": "serverDelegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "all"
+          },
+          "parentBindingId": "serverDelegation.parentBindingId",
+          "revision": 1
+        },
         "transferId": "transferId",
         "sessionId": "sessionId",
         "agentKind": "claude-code",
@@ -403,12 +531,21 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+      "encoded": "{\"serverDelegation\":{\"actor\":\"serverDelegation.actor\",\"onBehalfOf\":\"serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"serverDelegation.parentBindingId\",\"revision\":1},\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
     },
     {
       "schema": "HandoffBindingTransfer",
       "variant": "full/arm1",
       "wire": {
+        "serverDelegation": {
+          "actor": "serverDelegation.actor",
+          "onBehalfOf": "serverDelegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "none"
+          },
+          "parentBindingId": "serverDelegation.parentBindingId",
+          "revision": 2
+        },
         "transferId": "transferId",
         "sessionId": "sessionId",
         "agentKind": "codex",
@@ -427,12 +564,22 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+      "encoded": "{\"serverDelegation\":{\"actor\":\"serverDelegation.actor\",\"onBehalfOf\":\"serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"serverDelegation.parentBindingId\",\"revision\":2},\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
     },
     {
       "schema": "HandoffBindingTransfer",
       "variant": "full/arm2",
       "wire": {
+        "serverDelegation": {
+          "actor": "serverDelegation.actor",
+          "onBehalfOf": "serverDelegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "subtree",
+            "rootId": "serverDelegation.grantedScope.rootId"
+          },
+          "parentBindingId": "serverDelegation.parentBindingId",
+          "revision": 3
+        },
         "transferId": "transferId",
         "sessionId": "sessionId",
         "agentKind": "grok",
@@ -452,12 +599,22 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+      "encoded": "{\"serverDelegation\":{\"actor\":\"serverDelegation.actor\",\"onBehalfOf\":\"serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"serverDelegation.grantedScope.rootId\"},\"parentBindingId\":\"serverDelegation.parentBindingId\",\"revision\":3},\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"delegation.grantedScope.rootId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
     },
     {
       "schema": "HandoffBindingTransfer",
       "variant": "full/arm3",
       "wire": {
+        "serverDelegation": {
+          "actor": "serverDelegation.actor",
+          "onBehalfOf": "serverDelegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "owned",
+            "userId": "serverDelegation.grantedScope.userId"
+          },
+          "parentBindingId": "serverDelegation.parentBindingId",
+          "revision": 4
+        },
         "transferId": "transferId",
         "sessionId": "sessionId",
         "agentKind": "opencode",
@@ -477,12 +634,22 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+      "encoded": "{\"serverDelegation\":{\"actor\":\"serverDelegation.actor\",\"onBehalfOf\":\"serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"serverDelegation.parentBindingId\",\"revision\":4},\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
     },
     {
       "schema": "HandoffBindingTransfer",
       "variant": "full/arm4",
       "wire": {
+        "serverDelegation": {
+          "actor": "serverDelegation.actor",
+          "onBehalfOf": "serverDelegation.onBehalfOf",
+          "grantedScope": {
+            "kind": "self",
+            "userId": "serverDelegation.grantedScope.userId"
+          },
+          "parentBindingId": "serverDelegation.parentBindingId",
+          "revision": 5
+        },
         "transferId": "transferId",
         "sessionId": "sessionId",
         "agentKind": "cursor",
@@ -502,7 +669,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
+      "encoded": "{\"serverDelegation\":{\"actor\":\"serverDelegation.actor\",\"onBehalfOf\":\"serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"serverDelegation.parentBindingId\",\"revision\":5},\"transferId\":\"transferId\",\"sessionId\":\"sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"fromMachineId\",\"toMachineId\":\"toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\"}}"
     },
     {
       "schema": "HandoffChunkReadRequestMessage",
@@ -608,6 +775,15 @@
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
         "binding": {
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId",
+            "revision": 1
+          },
           "transitionId": "binding.transitionId",
           "transferId": "binding.transferId",
           "targetMachineId": "binding.targetMachineId",
@@ -626,7 +802,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"personal\"}}"
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"allowed\",\"exportedBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"personal\"}}"
     },
     {
       "schema": "HandoffExportRequestMessage",
@@ -649,6 +825,15 @@
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
         "binding": {
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "none"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId",
+            "revision": 2
+          },
           "transitionId": "binding.transitionId",
           "transferId": "binding.transferId",
           "targetMachineId": "binding.targetMachineId",
@@ -667,7 +852,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"per-user-state\"}}"
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"denied\",\"exportedBy\":{\"actor\":{\"kind\":\"agent\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"per-user-state\"}}"
     },
     {
       "schema": "HandoffExportRequestMessage",
@@ -690,6 +875,16 @@
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
         "binding": {
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "subtree",
+              "rootId": "binding.delegation.grantedScope.rootId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId",
+            "revision": 3
+          },
           "transitionId": "binding.transitionId",
           "transferId": "binding.transferId",
           "targetMachineId": "binding.targetMachineId",
@@ -708,7 +903,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"grok\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"owned-compute\"}}"
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"grok\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"machine\",\"id\":\"binding.exportedBy.actor.id\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"owned-compute\"}}"
     },
     {
       "schema": "HandoffExportRequestMessage",
@@ -731,6 +926,16 @@
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
         "binding": {
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "owned",
+              "userId": "binding.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId",
+            "revision": 4
+          },
           "transitionId": "binding.transitionId",
           "transferId": "binding.transferId",
           "targetMachineId": "binding.targetMachineId",
@@ -749,7 +954,58 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"opencode\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"binding.exportedBy.actor.job\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"deployment-substrate\"}}"
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"opencode\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"binding.exportedBy.actor.job\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"deployment-substrate\"}}"
+    },
+    {
+      "schema": "HandoffExportRequestMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "handoffExportRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "cwd": "cwd",
+        "fallbackCwd": "fallbackCwd",
+        "agentKind": "cursor",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "branch": "branch",
+        "baseShas": ["baseShas[0]"],
+        "repoId": "repoId",
+        "title": "title",
+        "issueId": "issueId",
+        "sourceMachineId": "sourceMachineId",
+        "binding": {
+          "delegation": {
+            "actor": "binding.delegation.actor",
+            "onBehalfOf": "binding.delegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "self",
+              "userId": "binding.delegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.delegation.parentBindingId",
+            "revision": 5
+          },
+          "transitionId": "binding.transitionId",
+          "transferId": "binding.transferId",
+          "targetMachineId": "binding.targetMachineId",
+          "machineAccess": "unreachable",
+          "exportedBy": {
+            "actor": {
+              "kind": "system",
+              "job": "binding.exportedBy.actor.job"
+            },
+            "onBehalfOf": "binding.exportedBy.onBehalfOf"
+          },
+          "owner": "binding.owner",
+          "visibility": "secret"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"handoffExportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"cwd\":\"cwd\",\"fallbackCwd\":\"fallbackCwd\",\"agentKind\":\"cursor\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"branch\":\"branch\",\"baseShas\":[\"baseShas[0]\"],\"repoId\":\"repoId\",\"title\":\"title\",\"issueId\":\"issueId\",\"sourceMachineId\":\"sourceMachineId\",\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"transferId\":\"binding.transferId\",\"targetMachineId\":\"binding.targetMachineId\",\"machineAccess\":\"unreachable\",\"exportedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"binding.exportedBy.actor.job\"},\"onBehalfOf\":\"binding.exportedBy.onBehalfOf\"},\"owner\":\"binding.owner\",\"visibility\":\"secret\"}}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -798,6 +1054,15 @@
         "sizeBytes": 1,
         "stagePath": "stagePath",
         "binding": {
+          "serverDelegation": {
+            "actor": "binding.serverDelegation.actor",
+            "onBehalfOf": "binding.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "all"
+            },
+            "parentBindingId": "binding.serverDelegation.parentBindingId",
+            "revision": 1
+          },
           "transferId": "binding.transferId",
           "sessionId": "binding.sessionId",
           "agentKind": "claude-code",
@@ -819,7 +1084,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unauthorized\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":1,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"claude-code\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exportedAt\":\"manifest.exportedAt\"},\"sizeBytes\":1,\"stagePath\":\"stagePath\",\"binding\":{\"serverDelegation\":{\"actor\":\"binding.serverDelegation.actor\",\"onBehalfOf\":\"binding.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.serverDelegation.parentBindingId\",\"revision\":1},\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unauthorized\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -866,6 +1131,15 @@
         "sizeBytes": 2,
         "stagePath": "stagePath",
         "binding": {
+          "serverDelegation": {
+            "actor": "binding.serverDelegation.actor",
+            "onBehalfOf": "binding.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "none"
+            },
+            "parentBindingId": "binding.serverDelegation.parentBindingId",
+            "revision": 2
+          },
           "transferId": "binding.transferId",
           "sessionId": "binding.sessionId",
           "agentKind": "codex",
@@ -887,7 +1161,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"per-user-state\"},\"sizeBytes\":2,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unreachable\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"agent\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"per-user-state\"},\"sizeBytes\":2,\"stagePath\":\"stagePath\",\"binding\":{\"serverDelegation\":{\"actor\":\"binding.serverDelegation.actor\",\"onBehalfOf\":\"binding.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.serverDelegation.parentBindingId\",\"revision\":2},\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unreachable\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -934,6 +1208,16 @@
         "sizeBytes": 3,
         "stagePath": "stagePath",
         "binding": {
+          "serverDelegation": {
+            "actor": "binding.serverDelegation.actor",
+            "onBehalfOf": "binding.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "subtree",
+              "rootId": "binding.serverDelegation.grantedScope.rootId"
+            },
+            "parentBindingId": "binding.serverDelegation.parentBindingId",
+            "revision": 3
+          },
           "transferId": "binding.transferId",
           "sessionId": "binding.sessionId",
           "agentKind": "grok",
@@ -956,7 +1240,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"owned-compute\"},\"sizeBytes\":3,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"machine\",\"id\":\"manifest.exported.by.actor.id\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"owned-compute\"},\"sizeBytes\":3,\"stagePath\":\"stagePath\",\"binding\":{\"serverDelegation\":{\"actor\":\"binding.serverDelegation.actor\",\"onBehalfOf\":\"binding.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.serverDelegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.serverDelegation.parentBindingId\",\"revision\":3},\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -1003,6 +1287,16 @@
         "sizeBytes": 4,
         "stagePath": "stagePath",
         "binding": {
+          "serverDelegation": {
+            "actor": "binding.serverDelegation.actor",
+            "onBehalfOf": "binding.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "owned",
+              "userId": "binding.serverDelegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.serverDelegation.parentBindingId",
+            "revision": 4
+          },
           "transferId": "binding.transferId",
           "sessionId": "binding.sessionId",
           "agentKind": "opencode",
@@ -1025,7 +1319,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"deployment-substrate\"},\"sizeBytes\":4,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":false,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"deployment-substrate\"},\"sizeBytes\":4,\"stagePath\":\"stagePath\",\"binding\":{\"serverDelegation\":{\"actor\":\"binding.serverDelegation.actor\",\"onBehalfOf\":\"binding.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"binding.serverDelegation.parentBindingId\",\"revision\":4},\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffExportResultMessage",
@@ -1072,6 +1366,16 @@
         "sizeBytes": 5,
         "stagePath": "stagePath",
         "binding": {
+          "serverDelegation": {
+            "actor": "binding.serverDelegation.actor",
+            "onBehalfOf": "binding.serverDelegation.onBehalfOf",
+            "grantedScope": {
+              "kind": "self",
+              "userId": "binding.serverDelegation.grantedScope.userId"
+            },
+            "parentBindingId": "binding.serverDelegation.parentBindingId",
+            "revision": 5
+          },
           "transferId": "binding.transferId",
           "sessionId": "binding.sessionId",
           "agentKind": "cursor",
@@ -1094,7 +1398,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"secret\"},\"sizeBytes\":5,\"stagePath\":\"stagePath\",\"binding\":{\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
+      "encoded": "{\"type\":\"handoffExportResult\",\"requestId\":\"requestId\",\"ok\":true,\"manifest\":{\"format\":2,\"sessionId\":\"manifest.sessionId\",\"agentKind\":\"codex\",\"resume\":{\"kind\":\"manifest.resume.kind\",\"value\":\"manifest.resume.value\"},\"transcriptFilename\":\"manifest.transcriptFilename\",\"transcriptRelativeDir\":\"manifest.transcriptRelativeDir\",\"repoId\":\"manifest.repoId\",\"branch\":\"manifest.branch\",\"headSha\":\"manifest.headSha\",\"snapshotSha\":\"manifest.snapshotSha\",\"snapshotFlattened\":true,\"worktreeName\":\"manifest.worktreeName\",\"worktreeRelativePath\":\"manifest.worktreeRelativePath\",\"cwdSubpath\":\"manifest.cwdSubpath\",\"bundleBase\":[\"manifest.bundleBase[0]\"],\"title\":\"manifest.title\",\"issueId\":\"manifest.issueId\",\"sourceMachineId\":\"manifest.sourceMachineId\",\"exported\":{\"at\":\"manifest.exported.at\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"manifest.exported.by.actor.job\"},\"onBehalfOf\":\"manifest.exported.by.onBehalfOf\"}},\"owner\":\"manifest.owner\",\"visibility\":\"secret\"},\"sizeBytes\":5,\"stagePath\":\"stagePath\",\"binding\":{\"serverDelegation\":{\"actor\":\"binding.serverDelegation.actor\",\"onBehalfOf\":\"binding.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"binding.serverDelegation.parentBindingId\",\"revision\":5},\"transferId\":\"binding.transferId\",\"sessionId\":\"binding.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.fromMachineId\",\"toMachineId\":\"binding.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\"}},\"error\":\"error\",\"refusal\":\"unknown-target\"}"
     },
     {
       "schema": "HandoffImportChunkMessage",
@@ -1183,6 +1487,15 @@
           "transitionId": "binding.transitionId",
           "machineAccess": "allowed",
           "transfer": {
+            "serverDelegation": {
+              "actor": "binding.transfer.serverDelegation.actor",
+              "onBehalfOf": "binding.transfer.serverDelegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "all"
+              },
+              "parentBindingId": "binding.transfer.serverDelegation.parentBindingId",
+              "revision": 1
+            },
             "transferId": "binding.transfer.transferId",
             "sessionId": "binding.transfer.sessionId",
             "agentKind": "claude-code",
@@ -1203,7 +1516,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"transfer\":{\"serverDelegation\":{\"actor\":\"binding.transfer.serverDelegation.actor\",\"onBehalfOf\":\"binding.transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.transfer.serverDelegation.parentBindingId\",\"revision\":1},\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"claude-code\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":1,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportRequestMessage",
@@ -1219,6 +1532,15 @@
           "transitionId": "binding.transitionId",
           "machineAccess": "denied",
           "transfer": {
+            "serverDelegation": {
+              "actor": "binding.transfer.serverDelegation.actor",
+              "onBehalfOf": "binding.transfer.serverDelegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "none"
+              },
+              "parentBindingId": "binding.transfer.serverDelegation.parentBindingId",
+              "revision": 2
+            },
             "transferId": "binding.transfer.transferId",
             "sessionId": "binding.transfer.sessionId",
             "agentKind": "codex",
@@ -1239,7 +1561,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"transfer\":{\"serverDelegation\":{\"actor\":\"binding.transfer.serverDelegation.actor\",\"onBehalfOf\":\"binding.transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.transfer.serverDelegation.parentBindingId\",\"revision\":2},\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"codex\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":2,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportRequestMessage",
@@ -1255,6 +1577,16 @@
           "transitionId": "binding.transitionId",
           "machineAccess": "unreachable",
           "transfer": {
+            "serverDelegation": {
+              "actor": "binding.transfer.serverDelegation.actor",
+              "onBehalfOf": "binding.transfer.serverDelegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "subtree",
+                "rootId": "binding.transfer.serverDelegation.grantedScope.rootId"
+              },
+              "parentBindingId": "binding.transfer.serverDelegation.parentBindingId",
+              "revision": 3
+            },
             "transferId": "binding.transfer.transferId",
             "sessionId": "binding.transfer.sessionId",
             "agentKind": "grok",
@@ -1276,7 +1608,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"binding.transfer.serverDelegation.actor\",\"onBehalfOf\":\"binding.transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.transfer.serverDelegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.transfer.serverDelegation.parentBindingId\",\"revision\":3},\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"grok\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":3,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.transfer.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportRequestMessage",
@@ -1292,6 +1624,16 @@
           "transitionId": "binding.transitionId",
           "machineAccess": "unreachable",
           "transfer": {
+            "serverDelegation": {
+              "actor": "binding.transfer.serverDelegation.actor",
+              "onBehalfOf": "binding.transfer.serverDelegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "owned",
+                "userId": "binding.transfer.serverDelegation.grantedScope.userId"
+              },
+              "parentBindingId": "binding.transfer.serverDelegation.parentBindingId",
+              "revision": 4
+            },
             "transferId": "binding.transfer.transferId",
             "sessionId": "binding.transfer.sessionId",
             "agentKind": "opencode",
@@ -1313,7 +1655,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"binding.transfer.serverDelegation.actor\",\"onBehalfOf\":\"binding.transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.transfer.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.serverDelegation.parentBindingId\",\"revision\":4},\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"opencode\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":4,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportRequestMessage",
@@ -1329,6 +1671,16 @@
           "transitionId": "binding.transitionId",
           "machineAccess": "unreachable",
           "transfer": {
+            "serverDelegation": {
+              "actor": "binding.transfer.serverDelegation.actor",
+              "onBehalfOf": "binding.transfer.serverDelegation.onBehalfOf",
+              "grantedScope": {
+                "kind": "self",
+                "userId": "binding.transfer.serverDelegation.grantedScope.userId"
+              },
+              "parentBindingId": "binding.transfer.serverDelegation.parentBindingId",
+              "revision": 5
+            },
             "transferId": "binding.transfer.transferId",
             "sessionId": "binding.transfer.sessionId",
             "agentKind": "cursor",
@@ -1350,7 +1702,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
+      "encoded": "{\"type\":\"handoffImportRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"repoPath\":\"repoPath\",\"worktreeName\":\"worktreeName\",\"occupiedWorktreePaths\":[\"occupiedWorktreePaths[0]\"],\"binding\":{\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"transfer\":{\"serverDelegation\":{\"actor\":\"binding.transfer.serverDelegation.actor\",\"onBehalfOf\":\"binding.transfer.serverDelegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.transfer.serverDelegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.serverDelegation.parentBindingId\",\"revision\":5},\"transferId\":\"binding.transfer.transferId\",\"sessionId\":\"binding.transfer.sessionId\",\"agentKind\":\"cursor\",\"fromMachineId\":\"binding.transfer.fromMachineId\",\"toMachineId\":\"binding.transfer.toMachineId\",\"observationGeneration\":5,\"delegation\":{\"actor\":\"binding.transfer.delegation.actor\",\"onBehalfOf\":\"binding.transfer.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.transfer.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.transfer.delegation.parentBindingId\"}}}}"
     },
     {
       "schema": "HandoffImportResultMessage",

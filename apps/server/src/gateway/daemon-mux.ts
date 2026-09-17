@@ -1,4 +1,3 @@
-import { mapLegacyBindingAttribution, needsLegacyBindingAttribution } from './legacy-binding-attribution'
 /**
  * THE DAEMON SOCKET MUX (POD-389, under POD-317's gateway).
  *
@@ -50,7 +49,7 @@ import { mapLegacyBindingAttribution, needsLegacyBindingAttribution } from './le
  */
 
 import { createLogger } from '@podium/logger'
-import { asMachineId, type MachineId, type UserId } from '@podium/model'
+import { asMachineId, type MachineId } from '@podium/model'
 import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -263,7 +262,6 @@ export interface DaemonMuxBus {
 }
 
 export interface DaemonMuxDeps {
-  readonly retiredSoloMemberId?: () => Promise<UserId | null>
   readonly ports: DaemonFeaturePorts
   readonly bus: DaemonMuxBus
 }
@@ -367,13 +365,7 @@ export class DaemonMux {
     ) => void | Promise<void>
     // Production ingress deliberately does not wait. Return the catch-handled
     // completion so tests can observe handler effects without timers or polling.
-    const routed =
-      needsLegacyBindingAttribution(msg)
-        ? mapLegacyBindingAttribution(
-            msg,
-            this.deps.retiredSoloMemberId ?? (async () => null),
-          ).then((mapped) => dispatch(this.deps.ports, principal, mapped))
-        : Promise.resolve(dispatch(this.deps.ports, principal, msg))
+    const routed = Promise.resolve(dispatch(this.deps.ports, principal, msg))
     return routed.catch((err: unknown) => {
       log.error('a daemon frame handler failed', { frameType: msg.type, err })
     })

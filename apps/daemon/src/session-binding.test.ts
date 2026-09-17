@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -43,8 +43,20 @@ function applied(outcome: SessionBindingTransitionOutcome): SessionBindingRecord
   return outcome.binding
 }
 
+const serverDelegation = (
+  id: string,
+  extra: Partial<import('@podium/model').SessionDelegation> = {},
+): import('@podium/model').SessionDelegation => ({
+  actor: asAgentIdentityId(id),
+  onBehalfOf: alice,
+  grantedScope: { kind: 'subtree', rootId: issueA },
+  parentBindingId: null,
+  revision: 1,
+  ...extra,
+})
+
 const delegationOperand = (binding: SessionBindingRecord) => {
-  const delegation = binding.delegationHistory.at(-1)
+  const delegation = binding.delegation
   if (!delegation) throw new Error('delegation missing')
   return {
     actor: delegation.actor,
@@ -70,12 +82,64 @@ async function spawn(
       machineAccess: 'allowed',
       principal: { kind: 'user', userId: alice },
       issueId: issueA,
+      delegation: serverDelegation(session, {
+        grantedScope: extra.requestedScope ?? { kind: 'subtree', rootId: issueA },
+      }),
       ...extra,
     }),
   )
 }
 
 describe('SessionBinding transition vocabulary', () => {
+  it('replaces the current record on reattach without rewriting historical observations', async () => {
+    const bindings = await store()
+    const before = await spawn(bindings, 'history', 'codex')
+    const history = [
+      {
+        observationId: 'historical',
+        actor: asAgentIdentityId('history'),
+        onBehalfOf: alice,
+        grantedScope: { kind: 'all' },
+        parentBindingId: null,
+        observedAt: '2026-01-01',
+        recordedAt: '2026-01-01',
+        supersedes: null,
+        retired: false,
+      },
+    ]
+    await writeFile(
+      bindings.pathFor(before.sessionId),
+      JSON.stringify({ ...before, delegationHistory: history }),
+    )
+    const delegation = serverDelegation('history', {
+      onBehalfOf: bob,
+      grantedScope: { kind: 'none' },
+      revision: 2,
+    })
+    const request = {
+      event: 'reattach' as const,
+      transitionId: 'history:2',
+      sessionId: before.sessionId,
+      claimantMachineId: machineA,
+      machineAccess: 'allowed' as const,
+      sessionAccess: 'allowed' as const,
+      principal: { kind: 'system' as const },
+      requestedGeneration: 2,
+      delegation,
+    }
+    const after = applied(await bindings.transition(request))
+    expect(bindings.currentDelegation(after)).toEqual(delegation)
+    expect(after.delegationHistory).toEqual(history)
+    expect(
+      await bindings.transition({
+        ...request,
+        transitionId: 'history:stale',
+        requestedGeneration: 3,
+        delegation: serverDelegation('history'),
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'delegation-revision-conflict' })
+  })
+
   it('is exactly the six lifecycle events, including adopt and terminal retire', () => {
     expect(SESSION_BINDING_EVENTS).toEqual([
       'spawn',
@@ -106,7 +170,7 @@ describe('SessionBinding transition vocabulary', () => {
     expect(row).not.toHaveProperty('rights')
   })
 
-  it('SPAWN admits a broad human scope only after the existing confirmation path', async () => {
+  it('SPAWN requires the server record and stores its authorized scope', async () => {
     const bindings = await store()
     const rejected = await bindings.transition({
       event: 'spawn',
@@ -121,7 +185,7 @@ describe('SessionBinding transition vocabulary', () => {
     })
     expect(rejected).toMatchObject({
       status: 'rejected',
-      reason: 'scope-widening-denied',
+      reason: 'delegation-missing',
       terminal: true,
     })
     expect(await bindings.read(asSessionId('wide-no'))).toBeNull()
@@ -144,6 +208,7 @@ describe('SessionBinding transition vocabulary', () => {
     expect(
       await bindings.transition({
         event: 'spawn',
+        delegation: serverDelegation(born.sessionId),
         transitionId: 'spawn:relaunch-me:dup',
         sessionId: born.sessionId,
         agentKind: 'claude-code',
@@ -175,6 +240,7 @@ describe('SessionBinding transition vocabulary', () => {
     const bindings = await store()
     const outcome = await bindings.transition({
       event: 'reattach',
+      delegation: serverDelegation(asSessionId('survivor')),
       transitionId: 'reattach:survivor:1',
       sessionId: asSessionId('survivor'),
       claimantMachineId: machineA,
@@ -203,6 +269,7 @@ describe('SessionBinding transition vocabulary', () => {
     expect(
       await bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(asSessionId('nobody')),
         transitionId: 'reattach:nobody:1',
         sessionId: asSessionId('nobody'),
         claimantMachineId: machineA,
@@ -223,44 +290,21 @@ describe('SessionBinding transition vocabulary', () => {
     expect(bindings.currentDelegation(row)).toMatchObject({ onBehalfOf: alice })
   })
 
-  it('SUB-AGENT SPAWN chains the root human, narrows, and rejects widening visibly', async () => {
+  it('places a child with full server delegation on a machine without its parent', async () => {
     const bindings = await store()
-    const parent = await spawn(bindings, 'parent', 'claude-code')
-    const child = applied(
-      await bindings.transition({
-        event: 'spawn',
-        transitionId: 'spawn:child',
-        sessionId: asSessionId('child'),
-        agentKind: 'codex',
-        claimantMachineId: machineA,
-        machineAccess: 'allowed',
-        principal: { kind: 'agent', parentBindingId: parent.sessionId },
-        requestedScope: { kind: 'none' },
-      }),
-    )
-    expect(bindings.currentDelegation(child)).toMatchObject({
-      onBehalfOf: alice,
+    const delegation = serverDelegation('child', {
+      onBehalfOf: bob,
+      parentBindingId: asSessionId('remote-parent'),
       grantedScope: { kind: 'none' },
-      parentBindingId: parent.sessionId,
+      revision: 7,
     })
-
-    const widening = await bindings.transition({
-      event: 'spawn',
-      transitionId: 'spawn:child-wide',
-      sessionId: asSessionId('child-wide'),
-      agentKind: 'grok',
-      claimantMachineId: machineA,
-      machineAccess: 'allowed',
-      principal: { kind: 'agent', parentBindingId: parent.sessionId },
-      requestedScope: { kind: 'all' },
-      scopeOverrideConfirmed: true,
+    const child = await spawn(bindings, 'child', 'codex', {
+      principal: { kind: 'agent', parentBindingId: asSessionId('remote-parent') },
+      delegation,
     })
-    expect(widening).toMatchObject({
-      status: 'rejected',
-      reason: 'scope-widening-denied',
-      terminal: true,
-    })
-    expect(await bindings.read(asSessionId('child-wide'))).toBeNull()
+    expect(await bindings.read(asSessionId('remote-parent'))).toBeNull()
+    expect(bindings.currentDelegation(child)).toEqual(delegation)
+    expect(child.delegationHistory).toEqual([])
   })
 
   it.each(AgentKind.options)('REATTACH carries delegation byte-for-byte for %s', async (kind) => {
@@ -270,6 +314,7 @@ describe('SessionBinding transition vocabulary', () => {
     const after = applied(
       await bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId: `reattach:${kind}:2`,
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -290,6 +335,7 @@ describe('SessionBinding transition vocabulary', () => {
     const request = (transitionId: string) =>
       bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId,
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -320,6 +366,7 @@ describe('SessionBinding transition vocabulary', () => {
       (
         await persisted.transition({
           event: 'reattach',
+          delegation: serverDelegation(before.sessionId),
           transitionId: 'race:same:after-restart',
           sessionId: before.sessionId,
           claimantMachineId: machineA,
@@ -339,6 +386,7 @@ describe('SessionBinding transition vocabulary', () => {
     const request = () =>
       bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId: 'race:same-transition',
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -392,6 +440,7 @@ describe('SessionBinding transition vocabulary', () => {
       sessions.map((session, index) =>
         bindings.transition({
           event: 'reattach',
+          delegation: serverDelegation(session.sessionId),
           transitionId: `burst:reattach:${index}`,
           sessionId: session.sessionId,
           claimantMachineId: machineA,
@@ -445,6 +494,7 @@ describe('SessionBinding transition vocabulary', () => {
     const reattach = () =>
       bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId: `mixed:${order}:reattach`,
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -508,6 +558,7 @@ describe('SessionBinding transition vocabulary', () => {
     const request = (transitionId: string, userId: typeof alice) =>
       bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId,
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -544,6 +595,7 @@ describe('SessionBinding transition vocabulary', () => {
 
     const unreachable = await bindings.transition({
       event: 'reattach',
+      delegation: serverDelegation(before.sessionId),
       transitionId: `race:${_case}:offline`,
       sessionId: before.sessionId,
       claimantMachineId: machineA,
@@ -761,11 +813,12 @@ describe('SessionBinding transition vocabulary', () => {
         toMachineId: machineB,
         at: '2026-07-31T12:00:00.500Z',
         adoption: {
+          serverDelegation: carried,
           agentKind: kind,
           observationGeneration: before.observationGeneration + 1,
           delegation: {
             actor: carried.actor,
-            onBehalfOf: carried.onBehalfOf,
+            onBehalfOf: bob,
             grantedScope: carried.grantedScope,
             parentBindingId: carried.parentBindingId,
           },
@@ -777,6 +830,7 @@ describe('SessionBinding transition vocabulary', () => {
         },
       }),
     )
+    expect(target.currentDelegation(targetClaim)).toEqual(carried)
     expect(targetClaim).toMatchObject({
       sessionId: before.sessionId,
       claimantMachineId: machineB,
@@ -877,6 +931,7 @@ describe('SessionBinding transition vocabulary', () => {
           toMachineId,
           at: '2026-07-31T13:00:00.100Z',
           adoption: {
+            serverDelegation: delegation,
             agentKind: 'codex',
             observationGeneration: generation,
             delegation: {
@@ -979,6 +1034,7 @@ describe('SessionBinding transition vocabulary', () => {
         toMachineId: machineB,
         at: '2026-07-31T13:59:59.000Z',
         adoption: {
+          serverDelegation: serverDelegation(sessionId),
           agentKind: 'codex',
           observationGeneration: 2,
           delegation: {
@@ -1133,7 +1189,7 @@ describe('SessionBinding transition vocabulary', () => {
       retiredAt: '2026-08-02T09:01:00.000Z',
     })
     expect(retired.observations).toEqual(bound.observations)
-    expect(retired.delegationHistory.at(-1)).toMatchObject({ retired: true })
+    expect(retired.delegationHistory).toEqual([])
     expect(bindings.currentDelegation(retired)).toBeNull()
 
     const repeated = await bindings.transition({
@@ -1152,6 +1208,7 @@ describe('SessionBinding transition vocabulary', () => {
     expect(
       await bindings.transition({
         event: 'reattach',
+        delegation: serverDelegation(before.sessionId),
         transitionId: 'reattach:after-retire',
         sessionId: before.sessionId,
         claimantMachineId: machineA,
@@ -1168,6 +1225,7 @@ describe('SessionBinding transition vocabulary', () => {
     const repeated = applied(
       await bindings.transition({
         event: 'spawn',
+        delegation: serverDelegation(first.sessionId),
         transitionId: 'spawn:idempotent',
         sessionId: first.sessionId,
         agentKind: 'opencode',
@@ -1198,6 +1256,6 @@ describe('SessionBinding transition vocabulary', () => {
       }
     }
     walk(persisted)
-    expect(found).toEqual(['delegationHistory[].grantedScope'])
+    expect(found).toEqual(['delegation.grantedScope'])
   })
 })

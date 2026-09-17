@@ -1,3 +1,4 @@
+import { SessionDelegation } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -93,8 +94,8 @@ export interface BindingObservation {
 }
 
 /**
- * Delegation history stores the REFERENCE used for live resolution, never the
- * resolved result. `grantedScope` is the declared left-hand operand; no rights,
+ * Historical delegation observations are retained as evidence, never used as
+ * the current server-authored record. `grantedScope` is the declared left-hand operand; no rights,
  * capability, permission, role, grant list or cached allow-bit belongs here.
  */
 export interface BindingDelegationObservation {
@@ -160,6 +161,7 @@ export interface SessionBindingRecord {
   attemptId: string | null
   observationGeneration: number
   observations: BindingObservation[]
+  delegation?: SessionDelegation
   delegationHistory: BindingDelegationObservation[]
   transitionHistory: BindingTransitionReceipt[]
   conflictHistory: BindingConflictMarker[]
@@ -251,9 +253,8 @@ export interface OpenBindingStoreOptions {
   /** Live in-memory facts harvested at cutover; absent on later boots. */
   legacyBindings?: readonly LegacyBindingSnapshot[]
   /** Authenticated server ownership for each legacy session; missing owners fail closed. */
-  legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
-  /** Explicit single-operator identity for offline cutover callers and fixtures. */
-  singleOperatorUserId?: UserId
+  legacyDelegationForSession?: (sessionId: SessionId) => SessionDelegation | undefined
+
   /** Runtime/fixture override for the SP-15aa receipt directory. */
   codexReceiptDir?: string
   now?: () => string
@@ -266,12 +267,7 @@ export interface EnsureBindingInput {
   attemptId?: string | null
   conversationId?: ConversationId | null
   observationGeneration?: number
-  delegation?: {
-    actor: AgentIdentityId
-    onBehalfOf: UserId
-    grantedScope: DelegationScope
-    parentBindingId: SessionId | null
-  }
+  delegation?: SessionDelegation
   createdAt?: string
 }
 
@@ -291,7 +287,7 @@ export interface ObserveBindingInput {
  * no resolved permission/capability is representable here. */
 export interface BindingAdoptDelegation {
   actor: AgentIdentityId
-  onBehalfOf: UserId
+  onBehalfOf: UserId | null
   grantedScope: DelegationScope
   parentBindingId: SessionId | null
 }
@@ -307,6 +303,7 @@ export interface BindingAdoption {
   agentKind: AgentKind
   observationGeneration: number
   delegation: BindingAdoptDelegation
+  serverDelegation?: SessionDelegation
   observations: readonly BindingAdoptObservation[]
 }
 /**
@@ -349,6 +346,7 @@ interface BindingTransitionBase {
 export type SessionBindingTransition =
   | (BindingTransitionBase & {
       event: 'spawn'
+      delegation?: SessionDelegation
       agentKind: AgentKind
       claimantMachineId: MachineId
       machineAccess: BindingMachineAccess
@@ -367,6 +365,7 @@ export type SessionBindingTransition =
     })
   | (BindingTransitionBase & {
       event: 'reattach'
+      delegation?: SessionDelegation
       claimantMachineId: MachineId
       machineAccess: BindingMachineAccess
       sessionAccess: BindingSessionAccess
@@ -424,6 +423,8 @@ export type BindingTransitionRejection =
   | 'binding-retired'
   | 'scope-widening-denied'
   | 'parent-binding-missing'
+  | 'delegation-missing'
+  | 'delegation-revision-conflict'
   | 'parent-delegation-missing'
   | 'delegating-human-mismatch'
   | 'stale-generation'
@@ -661,6 +662,7 @@ function parseBinding(value: unknown): SessionBindingRecord {
     attemptId: optionalNullableString(value.attemptId, 'binding.attemptId'),
     observationGeneration: Number(observationGeneration),
     observations: value.observations.map(parseObservation),
+    ...(value.delegation ? { delegation: SessionDelegation.parse(value.delegation) } : {}),
     delegationHistory: value.delegationHistory.map(parseDelegation),
     transitionHistory: ((value.transitionHistory ?? []) as unknown[]).map((entry, index) => {
       if (!isRecord(entry)) throw new Error(`transitionHistory[${index}] must be an object`)
@@ -764,20 +766,6 @@ function bindsNativeArtifact(channel: BindingObservationChannel): boolean {
     channel === 'process-ownership'
   )
 }
-function scopeWithin(child: DelegationScope, parent: DelegationScope): boolean {
-  if (child.kind === 'none') return true
-  if (parent.kind === 'all') return true
-  if (child.kind !== parent.kind) return false
-  switch (child.kind) {
-    case 'subtree':
-      return parent.kind === 'subtree' && child.rootId === parent.rootId
-    case 'owned':
-    case 'self':
-      return parent.kind === child.kind && child.userId === parent.userId
-    default:
-      return false
-  }
-}
 
 function machineAccessOutcome(
   event: 'spawn' | 'reattach' | 'adopt',
@@ -832,12 +820,7 @@ function newBindingRecord(input: {
   observationGeneration?: number
   createdAt: string
   recordedAt: string
-  delegation: {
-    actor: AgentIdentityId
-    onBehalfOf: UserId
-    grantedScope: DelegationScope
-    parentBindingId: SessionId | null
-  } | null
+  delegation: SessionDelegation
 }): SessionBindingRecord {
   return {
     schemaVersion: 1,
@@ -848,18 +831,8 @@ function newBindingRecord(input: {
     attemptId: input.attemptId ?? null,
     observationGeneration: input.observationGeneration ?? 1,
     observations: [],
-    delegationHistory: input.delegation
-      ? [
-          {
-            observationId: randomUUID(),
-            ...input.delegation,
-            observedAt: input.createdAt,
-            recordedAt: input.recordedAt,
-            supersedes: null,
-            retired: false,
-          },
-        ]
-      : [],
+    delegation: input.delegation,
+    delegationHistory: [],
     transitionHistory: [],
     conflictHistory: [],
     transfer: null,
@@ -1046,7 +1019,6 @@ export class BindingStore {
   private recoveryGeneration = 0
   private recovery = new Map<SessionId, 'confirmed' | 'quarantined'>()
   private closedBindings = new Set<SessionId>()
-  private inventoryOwners = new Map<SessionId, UserId | null>()
 
   isQuarantined(sessionId: SessionId): boolean {
     return this.recovery.get(sessionId) === 'quarantined'
@@ -1060,19 +1032,12 @@ export class BindingStore {
     const ids = new Set<SessionId>()
     this.confirmedMachineId = undefined
     this.recoveryGeneration += 1
-    this.inventoryOwners.clear()
     for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue
       const stem = entry.name.slice(0, -5)
       const id = asSessionId(Buffer.from(stem, 'base64url').toString('utf8'))
       if (!id || fileStem(id) !== stem) continue
       ids.add(id)
-      try {
-        const binding = await this.read(id)
-        this.inventoryOwners.set(id, binding ? this.bindingOwner(binding) : null)
-      } catch {
-        this.inventoryOwners.set(id, null)
-      }
     }
     for (const receipt of await legacyReceipts(codexReceiptDir)) ids.add(receipt.sessionId)
     this.recovery = new Map([...ids].map((id) => [id, 'quarantined']))
@@ -1096,9 +1061,7 @@ export class BindingStore {
           fact.owner !== 'user:sole' &&
           fact.machineId === machineId &&
           !fact.closed &&
-          (!this.inventoryOwners.has(id) ||
-            this.inventoryOwners.get(id) === fact.owner ||
-            this.inventoryOwners.get(id) === 'user:sole')
+          fact.delegation !== undefined
           ? 'confirmed'
           : 'quarantined',
       )
@@ -1179,7 +1142,7 @@ export class BindingStore {
 
   /** Run only after the server has supplied authoritative session ownership. */
   async recoverLegacyState(options: OpenBindingStoreOptions): Promise<void> {
-    if (options.legacyOwnerForSession) {
+    if (options.legacyDelegationForSession) {
       for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
         if (!entry.isFile() || !entry.name.endsWith('.json')) continue
         let row: SessionBindingRecord
@@ -1188,22 +1151,11 @@ export class BindingStore {
         } catch {
           continue
         }
-        if (this.bindingOwner(row) !== 'user:sole') continue
-        const owner = options.legacyOwnerForSession(row.sessionId)
-        if (!owner || owner === 'user:sole' || this.isQuarantined(row.sessionId)) {
-          this.recovery.set(row.sessionId, 'quarantined')
-          continue
-        }
+        const delegation = options.legacyDelegationForSession(row.sessionId)
+        if (!delegation || this.isQuarantined(row.sessionId)) continue
         await this.update(row.sessionId, (current) => {
           if (!current) throw new Error(`binding ${row.sessionId} disappeared`)
-          return {
-            ...current,
-            delegationHistory: current.delegationHistory.map((delegation) =>
-              delegation.onBehalfOf === 'user:sole'
-                ? { ...delegation, onBehalfOf: owner }
-                : delegation,
-            ),
-          }
+          return { ...current, delegation: SessionDelegation.parse(delegation) }
         })
       }
     }
@@ -1211,8 +1163,9 @@ export class BindingStore {
       await this.migrateLegacyState({
         stateDir: options.legacyStateDir,
         bindings: options.legacyBindings ?? [],
-        singleOperatorUserId: options.singleOperatorUserId,
-        legacyOwnerForSession: options.legacyOwnerForSession,
+
+        legacyDelegationForSession: options.legacyDelegationForSession,
+
         codexReceiptDir:
           options.codexReceiptDir ??
           join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
@@ -1224,8 +1177,8 @@ export class BindingStore {
         codexReceiptDir:
           options.codexReceiptDir ??
           join(options.legacyStateDir, 'runtime', 'codex-identity-receipts'),
-        singleOperatorUserId: options.singleOperatorUserId,
-        legacyOwnerForSession: options.legacyOwnerForSession,
+
+        legacyDelegationForSession: options.legacyDelegationForSession,
       })
     }
   }
@@ -1267,7 +1220,7 @@ export class BindingStore {
   }
 
   private bindingOwner(binding: SessionBindingRecord): UserId | null {
-    return binding.delegationHistory.at(-1)?.onBehalfOf ?? null
+    return this.currentDelegation(binding)?.onBehalfOf ?? null
   }
 
   private bindingAcceptsNativeKind(binding: SessionBindingRecord, nativeKind: string): boolean {
@@ -1435,9 +1388,8 @@ export class BindingStore {
     })
   }
 
-  currentDelegation(binding: SessionBindingRecord): BindingDelegationObservation | null {
-    const latest = binding.delegationHistory.at(-1)
-    return latest && !latest.retired ? latest : null
+  currentDelegation(binding: SessionBindingRecord): SessionDelegation | null {
+    return binding.state === 'retired' ? null : (binding.delegation ?? null)
   }
 
   private async update(
@@ -1485,9 +1437,25 @@ export class BindingStore {
         return { status: 'unchanged', event: input.event, binding: current }
       }
 
+      const supplied =
+        input.event === 'spawn' || input.event === 'reattach'
+          ? input.delegation
+          : input.event === 'adopt'
+            ? input.adoption?.serverDelegation
+            : undefined
+      if (
+        supplied &&
+        current?.delegation &&
+        (supplied.revision < current.delegation.revision ||
+          (supplied.revision === current.delegation.revision &&
+            !stableEqual(supplied, current.delegation)))
+      )
+        return transitionRejected(input.event, 'delegation-revision-conflict')
+
       let changed: SessionBindingRecord | null = null
       switch (input.event) {
         case 'spawn': {
+          if (!input.delegation) return transitionRejected(input.event, 'delegation-missing')
           if (current) {
             // A BIRTH over an existing binding is a duplicate spawn — refuse it.
             // A RELAUNCH is the resurrect path: the row, the delegation and the
@@ -1516,50 +1484,6 @@ export class BindingStore {
             break
           }
           const createdAt = input.createdAt ?? this.now()
-          const narrowDefault: DelegationScope = input.issueId
-            ? { kind: 'subtree', rootId: input.issueId }
-            : { kind: 'none' }
-          let delegation: {
-            actor: AgentIdentityId
-            onBehalfOf: UserId
-            grantedScope: DelegationScope
-            parentBindingId: SessionId | null
-          } | null = null
-
-          if (input.principal.kind === 'user') {
-            const grantedScope = input.requestedScope ?? narrowDefault
-            if (
-              input.requestedScope &&
-              !input.scopeOverrideConfirmed &&
-              !scopeWithin(grantedScope, narrowDefault)
-            ) {
-              return transitionRejected(input.event, 'scope-widening-denied')
-            }
-            delegation = {
-              actor: asAgentIdentityId(input.sessionId),
-              onBehalfOf: input.principal.userId,
-              grantedScope,
-              parentBindingId: null,
-            }
-          } else if (input.principal.kind === 'agent') {
-            const parent = await this.read(input.principal.parentBindingId)
-            if (!parent) return transitionRejected(input.event, 'parent-binding-missing')
-            const parentDelegation = this.currentDelegation(parent)
-            if (!parentDelegation) {
-              return transitionRejected(input.event, 'parent-delegation-missing')
-            }
-            const grantedScope = input.requestedScope ?? narrowDefault
-            if (!scopeWithin(grantedScope, parentDelegation.grantedScope)) {
-              return transitionRejected(input.event, 'scope-widening-denied')
-            }
-            delegation = {
-              actor: asAgentIdentityId(input.sessionId),
-              onBehalfOf: parentDelegation.onBehalfOf,
-              grantedScope,
-              parentBindingId: input.principal.parentBindingId,
-            }
-          }
-
           const base = newBindingRecord({
             sessionId: input.sessionId,
             agentKind: input.agentKind,
@@ -1570,13 +1494,14 @@ export class BindingStore {
               : {}),
             createdAt,
             recordedAt: this.now(),
-            delegation,
+            delegation: input.delegation,
           })
           changed = withTransitionReceipt(base, input, this.now())
           break
         }
 
         case 'reattach': {
+          if (!input.delegation) return transitionRejected(input.event, 'delegation-missing')
           if (!current) {
             // ADOPT A SURVIVOR. Every session minted before this store existed
             // has no record, so a bare refusal here left a whole pre-upgrade
@@ -1587,7 +1512,7 @@ export class BindingStore {
             // Without that identity we still refuse: minting from the reattach
             // caller (a system probe) would replace a real human delegation
             // with a placeholder, which reads as adopted and enforces nothing.
-            if (!input.adopt || !input.agentKind) {
+            if (!input.agentKind) {
               return { status: 'denied', event: 'reattach', reason: 'not-found', terminal: true }
             }
             changed = withTransitionReceipt(
@@ -1602,17 +1527,7 @@ export class BindingStore {
                 // fabricate history this store never observed.
                 createdAt: this.now(),
                 recordedAt: this.now(),
-                delegation: {
-                  actor: asAgentIdentityId(input.sessionId),
-                  onBehalfOf: input.adopt.ownerUserId,
-                  // Same narrow default a spawn would grant: the issue subtree,
-                  // or nothing for an issueless session. An adopted survivor
-                  // gets no more reach than it would have been born with.
-                  grantedScope: input.adopt.issueId
-                    ? { kind: 'subtree', rootId: input.adopt.issueId }
-                    : { kind: 'none' },
-                  parentBindingId: null,
-                },
+                delegation: input.delegation,
               }),
               input,
               this.now(),
@@ -1828,21 +1743,8 @@ export class BindingStore {
             ) {
               return transitionRejected(input.event, 'transfer-conflict')
             }
-            const priorDelegation = current?.delegationHistory.at(-1)
-            if (
-              priorDelegation &&
-              !stableEqual(
-                {
-                  actor: priorDelegation.actor,
-                  onBehalfOf: priorDelegation.onBehalfOf,
-                  grantedScope: priorDelegation.grantedScope,
-                  parentBindingId: priorDelegation.parentBindingId,
-                },
-                adoption.delegation,
-              )
-            ) {
-              return transitionRejected(input.event, 'adoption-identity-mismatch')
-            }
+            if (!adoption.serverDelegation)
+              return transitionRejected(input.event, 'delegation-missing')
             const recordedAt = this.now()
             const observations = [...(current?.observations ?? [])]
             for (const imported of adoption.observations) {
@@ -1859,18 +1761,6 @@ export class BindingStore {
                 supersedes: predecessor?.observationId ?? null,
               })
             }
-            const delegationHistory = current?.delegationHistory.length
-              ? current.delegationHistory
-              : [
-                  {
-                    observationId: randomUUID(),
-                    ...adoption.delegation,
-                    observedAt: input.at,
-                    recordedAt,
-                    supersedes: null,
-                    retired: false,
-                  },
-                ]
             changed = {
               schemaVersion: 1,
               ...(current ?? {}),
@@ -1881,7 +1771,8 @@ export class BindingStore {
               attemptId: null,
               observationGeneration: adoption.observationGeneration,
               observations,
-              delegationHistory,
+              delegation: SessionDelegation.parse(adoption.serverDelegation),
+              delegationHistory: current?.delegationHistory ?? [],
               transitionHistory: current?.transitionHistory ?? [],
               conflictHistory: current?.conflictHistory ?? [],
               transfer: {
@@ -1952,7 +1843,7 @@ export class BindingStore {
           if (current.state === 'retired') {
             return { status: 'unchanged', event: input.event, binding: current }
           }
-          const head = this.currentDelegation(current)
+          const head = current.delegationHistory.at(-1)
           changed = withTransitionReceipt(
             {
               ...current,
@@ -1981,6 +1872,9 @@ export class BindingStore {
       }
 
       if (!changed) throw new Error(`binding transition ${input.event} produced no outcome`)
+      if ((input.event === 'spawn' || input.event === 'reattach') && input.delegation) {
+        changed.delegation = SessionDelegation.parse(input.delegation)
+      }
       await atomicBindingWrite(this.pathFor(input.sessionId), changed)
       return { status: 'applied', event: input.event, binding: changed }
     })
@@ -2027,36 +1921,9 @@ export class BindingStore {
             retiredAt: null,
           }
       if (input.delegation) {
-        const head = this.currentDelegation(next)
-        const identity = {
-          actor: input.delegation.actor,
-          onBehalfOf: input.delegation.onBehalfOf,
-          grantedScope: input.delegation.grantedScope,
-          parentBindingId: input.delegation.parentBindingId,
-        }
-        if (
-          !head ||
-          !stableEqual(identity, {
-            actor: head.actor,
-            onBehalfOf: head.onBehalfOf,
-            grantedScope: head.grantedScope,
-            parentBindingId: head.parentBindingId,
-          })
-        ) {
-          const observedAt = createdAt
-          next.delegationHistory = [
-            ...next.delegationHistory,
-            {
-              observationId: randomUUID(),
-              ...identity,
-              observedAt,
-              recordedAt: this.now(),
-              supersedes: head?.observationId ?? null,
-              retired: false,
-            },
-          ]
-        }
+        next.delegation = SessionDelegation.parse(input.delegation)
       }
+
       return next
     })
   }
@@ -2123,13 +1990,12 @@ export class BindingStore {
   private async foldLegacyCodexReceipts(input: {
     stateDir: string
     codexReceiptDir: string
-    legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
-    singleOperatorUserId?: UserId
+    legacyDelegationForSession?: (sessionId: SessionId) => SessionDelegation | undefined
   }): Promise<void> {
     const receipts = await legacyReceipts(input.codexReceiptDir)
     let unresolved = false
     if (receipts.length > 0) {
-      const machineId = this.confirmedMachineId ?? await daemonMachineId(input.stateDir)
+      const machineId = this.confirmedMachineId ?? (await daemonMachineId(input.stateDir))
       for (const receipt of receipts) {
         if (this.isQuarantined(receipt.sessionId)) {
           unresolved = true
@@ -2137,10 +2003,8 @@ export class BindingStore {
         }
         let binding = await this.read(receipt.sessionId)
         if (!binding) {
-          const owner = input.legacyOwnerForSession
-            ? input.legacyOwnerForSession(receipt.sessionId)
-            : input.singleOperatorUserId
-          if (!owner || (owner === 'user:sole' && input.legacyOwnerForSession)) {
+          const delegation = input.legacyDelegationForSession?.(receipt.sessionId)
+          if (!delegation) {
             this.recovery.set(receipt.sessionId, 'quarantined')
             unresolved = true
             continue
@@ -2155,12 +2019,7 @@ export class BindingStore {
             agentKind: 'codex',
             claimantMachineId: machineId,
             createdAt: receipt.observedAt,
-            delegation: {
-              actor: asAgentIdentityId(receipt.sessionId),
-              onBehalfOf: owner,
-              grantedScope: { kind: 'all' },
-              parentBindingId: null,
-            },
+            delegation,
           })
         }
         if (
@@ -2242,14 +2101,14 @@ export class BindingStore {
   async migrateLegacyState(input: {
     stateDir: string
     bindings: readonly LegacyBindingSnapshot[]
-    legacyOwnerForSession?: (sessionId: SessionId) => UserId | undefined
-    singleOperatorUserId?: UserId
+    legacyDelegationForSession?: (sessionId: SessionId) => SessionDelegation | undefined
+
     codexReceiptDir: string
   }): Promise<LegacyMigrationResult> {
     if (this.manifest.legacyMigration) return this.manifest.legacyMigration
     const receipts = await legacyReceipts(input.codexReceiptDir)
     const hasBindingFacts = input.bindings.length > 0 || receipts.length > 0
-    const machineId = this.confirmedMachineId ?? await daemonMachineId(input.stateDir)
+    const machineId = this.confirmedMachineId ?? (await daemonMachineId(input.stateDir))
     let unresolved = false
     const migratedAt = this.now()
     const snapshots = new Map(input.bindings.map((binding) => [binding.sessionId, binding]))
@@ -2306,15 +2165,8 @@ export class BindingStore {
     }
 
     for (const snapshot of snapshots.values()) {
-      const owner = input.legacyOwnerForSession
-        ? input.legacyOwnerForSession(snapshot.sessionId)
-        : input.singleOperatorUserId
-      if (
-        this.isQuarantined(snapshot.sessionId) ||
-        !machineId ||
-        !owner ||
-        (owner === 'user:sole' && input.legacyOwnerForSession)
-      ) {
+      const delegation = input.legacyDelegationForSession?.(snapshot.sessionId)
+      if (this.isQuarantined(snapshot.sessionId) || !machineId || !delegation) {
         this.recovery.set(snapshot.sessionId, 'quarantined')
         unresolved = true
         continue
@@ -2330,14 +2182,7 @@ export class BindingStore {
         conversationId: snapshot.conversationId,
         observationGeneration: snapshot.observationGeneration,
         createdAt: migratedAt,
-        delegation: {
-          actor: asAgentIdentityId(snapshot.sessionId),
-          onBehalfOf: owner,
-          // Legacy agents had the one operator's full reach. Preserve that
-          // declared scope, still intersected with this human's CURRENT rights.
-          grantedScope: { kind: 'all' },
-          parentBindingId: null,
-        },
+        delegation,
       })
       if (snapshot.control?.cwd) {
         await observeLegacy(snapshot.sessionId, 'cwd', snapshot.control.cwd, 'legacy-control')

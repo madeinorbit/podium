@@ -1,3 +1,4 @@
+import { SessionDelegation } from '../identity/delegation'
 /**
  * The session aggregate and its value objects — relocated verbatim from
  * `@podium/protocol`'s `messages/runtime-state.ts` and `messages/terminal.ts`
@@ -696,6 +697,7 @@ export const SessionMetaEntity = z.object({
    * "no human behind this" for the machine and system arms (ADR 9 D8 S5), never
    * a failure to record one.
    */
+  delegation: SessionDelegation.optional(),
   createdBy: Attribution.optional(),
 })
 export type SessionMetaEntity = z.infer<typeof SessionMetaEntity>

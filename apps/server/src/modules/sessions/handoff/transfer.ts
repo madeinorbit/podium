@@ -106,6 +106,7 @@ export class HandoffTransfer {
       sourceRepo,
       issueWorktree,
     } = placement
+    const delegation = requireDelegation(session)
     const { targetRepo, branch, baseShas } = prepared
     const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
     const wasRunning =
@@ -161,6 +162,7 @@ export class HandoffTransfer {
             targetMachineId,
             machineAccess: 'allowed',
             ...exportIdentity,
+            delegation,
             visibility: 'personal',
           },
         },
@@ -218,7 +220,16 @@ export class HandoffTransfer {
         {
           transitionId: `adopt:${transferId}:target-claim`,
           machineAccess: 'allowed',
-          transfer: exported.binding,
+          transfer: {
+            ...exported.binding,
+            sessionId: session.sessionId,
+            agentKind,
+            fromMachineId: sourceMachineId,
+            toMachineId: targetMachineId,
+            transferId,
+            delegation,
+            serverDelegation: delegation,
+          },
         },
       )
       if (!imported.ok || !imported.newCwd || imported.observationGeneration === undefined)
@@ -392,4 +403,9 @@ export class HandoffTransfer {
       throw error
     }
   }
+}
+
+function requireDelegation(session: { delegation?: import('@podium/model').SessionDelegation }) {
+  if (!session.delegation) throw new Error('server session delegation missing')
+  return session.delegation
 }
