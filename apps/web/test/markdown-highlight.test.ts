@@ -33,3 +33,19 @@ it('preserves worker token classes through real transcript sanitization', () => 
   expect(container.querySelector('code')?.textContent).toContain('"<script>"')
   expect(container.querySelector('script')).toBeNull()
 })
+
+// POD-4109: happy-dom retained both attack nodes after a highlighted fence, even
+// though its first-element loss made the older image-only sanitizer guard pass.
+it('strips executable markup after a highlighted fence while preserving safe elements', () => {
+  const source = '```ts\nconst n = 1\n```'
+  const unsafe = createMarkdownRenderer(highlightCode)(source)
+  const html = sanitizeRenderedMarkdown(
+    `${unsafe}<img src="x" onerror="alert(1)"><script>alert(1)</script>`,
+  )
+  const container = document.createElement('div')
+  container.innerHTML = html
+  expect(container.querySelector('pre code.language-ts .hljs-keyword')?.textContent).toBe('const')
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('x')
+  expect(html).not.toContain('onerror')
+  expect(container.querySelector('script')).toBeNull()
+})

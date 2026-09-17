@@ -74,6 +74,8 @@ describe('renderMarkdown', () => {
 
   it('sanitizes unsafe worker HTML before it reaches the DOM', () => {
     const html = sanitizeRenderedMarkdown('<img src="x" onerror="alert(1)"><p>safe</p>')
+    // Attribute removal alone passed under happy-dom because it lost the whole image.
+    expect(html).toContain('<img src="x">')
     expect(html).not.toContain('onerror')
     expect(html).toContain('safe')
   })
