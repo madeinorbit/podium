@@ -127,6 +127,50 @@ export function preparePrincipalNamespace(init: PrincipalNamespaceInit): Princip
     eraseRoot(init.storage, safeKeys(init.enumerateKeys), root)
   }
 
+  // QUOTA SELF-HEAL (POD-3967, incident root cause 2). The marker write above
+  // ran BEFORE any eviction, so a storage full of another principal's namespace
+  // threw QuotaExceededError, durable stayed false, and the replica gate refused
+  // to boot — while the eviction that would have made room could never run
+  // because it needed the marker. Retry the marker now that retention has
+  // evicted what it was going to evict; if it still does not fit, evict the
+  // remaining INACTIVE namespaces one at a time, least recently used first,
+  // retrying after each. The active namespace is never evicted, and nothing
+  // about the retention policy itself changes: this only decides what gives
+  // way when the device is genuinely out of room.
+  const writeMarker = (): boolean => {
+    try {
+      init.storage.setItem(
+        markerKey,
+        JSON.stringify({ principal: init.principal, lastUsedAt: now } satisfies NamespaceMarker),
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (!durable) {
+    let fits = writeMarker()
+    if (!fits) {
+      const inactive = [...markers.values()]
+        .filter((entry) => entry.principal !== init.principal && !staleRoots.has(entry.keyPrefix))
+        .sort((a, b) => a.lastUsedAt - b.lastUsedAt)
+      for (const entry of inactive) {
+        staleRoots.add(entry.keyPrefix)
+        evictedPrincipals.push(entry.principal)
+        eraseRoot(init.storage, safeKeys(init.enumerateKeys), entry.keyPrefix)
+        fits = writeMarker()
+        if (fits) break
+      }
+    }
+    if (fits) {
+      durable = true
+      markers.set(keyPrefix, { keyPrefix, principal: init.principal, lastUsedAt: now })
+      log.info('principal namespace marker written after evicting inactive namespaces for quota', {
+        evicted: evictedPrincipals.length,
+      })
+    }
+  }
+
   const survivors = [...markers.values()]
     .filter((entry) => !staleRoots.has(entry.keyPrefix))
     .map((entry) => entry.principal)

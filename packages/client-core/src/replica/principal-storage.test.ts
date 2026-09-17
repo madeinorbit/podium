@@ -239,6 +239,75 @@ describe('principal replica storage', () => {
   })
 })
 
+describe('quota self-heal (POD-3967)', () => {
+  /** A storage with a byte budget: setItem throws QuotaExceededError once the
+   *  budget is spent, exactly like a full localStorage. */
+  function quotaStorage(budget: number): { api: StorageApi; keys: () => string[] } {
+    const values = new Map<string, string>()
+    const used = () => [...values.entries()].reduce((n, [k, v]) => n + k.length + v.length, 0)
+    return {
+      api: {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => {
+          const next = used() - (values.get(key)?.length ?? 0) - (values.has(key) ? key.length : 0)
+          if (next + key.length + value.length > budget) {
+            const err = new Error('QuotaExceededError')
+            err.name = 'QuotaExceededError'
+            throw err
+          }
+          values.set(key, value)
+        },
+        removeItem: (key) => void values.delete(key),
+      },
+      keys: () => [...values.keys()],
+    }
+  }
+
+  it('a full storage under a recent foreign namespace boots: evict it, retry the marker', () => {
+    const memory = quotaStorage(400)
+    // The old principal's namespace fills the device; its marker is RECENT, so
+    // time-based retention alone would keep it.
+    const old = preparePrincipalNamespace({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      principal: 'user:sole',
+      now: () => 1,
+      policy: POLICY,
+    })
+    expect(old.durable).toBe(true)
+    memory.api.setItem(`${old.keyPrefix}.blob`, 'x'.repeat(250))
+    expect(() => memory.api.setItem('probe', 'y'.repeat(100))).toThrow('QuotaExceededError')
+
+    const successor = preparePrincipalNamespace({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      principal: 'mem_successor',
+      now: () => 2,
+      policy: POLICY,
+    })
+    expect(successor.durable).toBe(true)
+    expect(successor.evictedPrincipals).toEqual(['user:sole'])
+    expect(memory.keys().some((key) => key.startsWith(old.keyPrefix))).toBe(false)
+    expect(memory.keys()).toContain(`${successor.keyPrefix}.namespace.v1`)
+  })
+
+  it('never evicts the active namespace and stays non-durable when nothing can give way', () => {
+    const memory = quotaStorage(60)
+    const only = preparePrincipalNamespace({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      basePrefix: 'podium.replica',
+      principal: 'mem_only',
+      now: () => 1,
+      policy: POLICY,
+    })
+    expect(only.durable).toBe(false)
+    expect(only.evictedPrincipals).toEqual([])
+  })
+})
+
 function keyedStorage(): { api: StorageApi; keys: () => string[] } {
   const values = new Map<string, string>()
   return {
