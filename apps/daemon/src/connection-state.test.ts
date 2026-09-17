@@ -93,12 +93,11 @@ function connection(
 describe('daemon connection credential state machine', () => {
   it.each([
     [
-      'daemon secret',
-      { bootstrapToken: 'local-secret' },
+      'explicit stage-one bearer',
+      { machineToken: 'local-secret' },
       {},
-      { kind: 'daemonSecret', secret: 'local-secret' },
+      { kind: 'machineToken', token: 'local-secret', machineHint: MACHINE_ID },
     ],
-    ['pair code', { pairCode: 'PAIR-1' }, {}, { kind: 'pairCode', code: 'PAIR-1' }],
     [
       'machine token',
       {},
@@ -141,7 +140,7 @@ describe('daemon connection credential state machine', () => {
       installKind: 'installed' as const,
     }
     const state = createDaemonConnection({
-      options: localOptions((value) => (hello = value), { bootstrapToken: 'local-secret' }),
+      options: localOptions((value) => (hello = value), { machineToken: 'local-secret' }),
       build,
       reportUpdateIdentity: false,
       machineId: MACHINE_ID,
@@ -165,7 +164,7 @@ describe('daemon connection credential state machine', () => {
   it.each([
     {},
     { identityReadOnly: true },
-    { bootstrapToken: 'local-secret' },
+    { machineToken: 'local-secret' },
   ])('publishes role health independently of machine presence (%j)', async (extra) => {
     const options = localOptions(() => {}, extra)
     vi.stubEnv('PODIUM_STATE_DIR', options.identityDir!)
@@ -203,7 +202,7 @@ describe('daemon connection credential state machine', () => {
       appVersion: '2.0.0',
       convergedVersion: '2.0.0',
     })
-    if (options.identityReadOnly || options.bootstrapToken) {
+    if (options.identityReadOnly || options.machineToken) {
       expect(readConnectivityForTest(options.identityDir)).toEqual(machinePresence)
     } else {
       expect(readConnectivityForTest(options.identityDir)?.processId).toBe(process.pid)
@@ -211,7 +210,7 @@ describe('daemon connection credential state machine', () => {
     await state.close()
     expect(readDaemonHealth(options.identityDir)?.state).toBe('disconnected')
     expect((await probe()).connected).toBe(false)
-    if (options.identityReadOnly || options.bootstrapToken) {
+    if (options.identityReadOnly || options.machineToken) {
       expect(readConnectivityForTest(options.identityDir)).toEqual(machinePresence)
     }
     const next = connection(options, { token: 'token' })
@@ -269,7 +268,7 @@ describe('daemon connection credential state machine', () => {
   })
 
   it('pins the server key on first bootstrap and refuses later rotation', async () => {
-    const firstOptions = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+    const firstOptions = localOptions(() => {}, { machineToken: 'local-secret' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
       attach: async () => ({
@@ -287,7 +286,7 @@ describe('daemon connection credential state machine', () => {
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
     await first.close()
 
-    const secondOptions = localOptions(() => {}, { bootstrapToken: 'local-secret', identityDir })
+    const secondOptions = localOptions(() => {}, { machineToken: 'local-secret', identityDir })
     secondOptions.localLink = {
       attach: async () => ({
         established: true,
@@ -304,8 +303,8 @@ describe('daemon connection credential state machine', () => {
     expect(loadIdentity({ dir: identityDir }).updatePubkey).toBe('server-key-1')
   })
 
-  it('pins the key on pairing and leaves it unchanged on reconnect', async () => {
-    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+  it('pins the update key for an existing bearer and leaves it unchanged on reconnect', async () => {
+    const firstOptions = localOptions(() => {}, { machineToken: 'stage-one-token' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
       attach: async () => ({
@@ -367,7 +366,7 @@ describe('daemon connection credential state machine', () => {
     const signingDir = openDatabase(':memory:')
     signingDir.exec('CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)')
     const original = readOrCreateUpdateSigningKey(signingDir)
-    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const firstOptions = localOptions(() => {}, { machineToken: 'stage-one-token' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
       attach: async () => ({
@@ -410,7 +409,7 @@ describe('daemon connection credential state machine', () => {
   })
 
   it('refuses a changed server key on ordinary reconnect', async () => {
-    const firstOptions = localOptions(() => {}, { pairCode: 'PAIR-1' })
+    const firstOptions = localOptions(() => {}, { machineToken: 'stage-one-token' })
     const identityDir = firstOptions.identityDir as string
     firstOptions.localLink = {
       attach: async () => ({
@@ -452,7 +451,7 @@ describe('daemon connection credential state machine', () => {
   it('classifies authorization denial as terminal and never enters reconnect backoff', async () => {
     const setTimeout = vi.fn()
     const timers: ReconnectTimers = { setTimeout, clearTimeout: vi.fn() }
-    const options = localOptions(() => {}, { pairCode: 'bad', reconnectTimers: timers })
+    const options = localOptions(() => {}, { machineToken: 'bad', reconnectTimers: timers })
     options.localLink = {
       attach: async () => ({
         established: false,
@@ -817,7 +816,7 @@ it('clears accepted binary selection before a reconnect handshake', async () => 
 it('delivers local typed output by reference without changing JSON sends', async () => {
   const deliver = vi.fn()
   const deliverOutput = vi.fn()
-  const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+  const options = localOptions(() => {}, { machineToken: 'local-secret' })
   options.localLink = {
     attach: async () => ({
       established: true,
@@ -1184,7 +1183,7 @@ describe('authenticated legacy owner handoff', () => {
   it('passes the parsed server map to host recovery on the local transport', async () => {
     const owners = { 'legacy-session': 'mem_owner' }
     const onConnected = vi.fn()
-    const options = localOptions(() => {}, { bootstrapToken: 'local-secret' })
+    const options = localOptions(() => {}, { machineToken: 'local-secret' })
     options.localLink = {
       attach: async () => ({
         established: true,
@@ -1279,7 +1278,7 @@ it('retries the entire inventory handshake after a lookup failure and delivers t
   const inventory = vi.fn(async () => ['good', 'orphan'])
   const onConnected = vi.fn()
   const options = localOptions(() => {}, {
-    bootstrapToken: 'local-secret',
+    machineToken: 'local-secret',
     reconnectTimers: harness.timers,
   })
   options.localLink = {
@@ -1324,7 +1323,7 @@ it('retries the entire inventory handshake after a lookup failure and delivers t
 
 
 it('retries the whole local handshake when host recovery fails', async () => {
-  const state = connection(localOptions(() => {}, { bootstrapToken: 'local-secret' }))
+  const state = connection(localOptions(() => {}, { machineToken: 'local-secret' }))
   try {
     await state.start()
     expect(state.state).toBe('connected')

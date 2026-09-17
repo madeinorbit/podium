@@ -96,7 +96,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
@@ -260,7 +260,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,
@@ -335,7 +335,7 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       launch: fixtureLaunch,

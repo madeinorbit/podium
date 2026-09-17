@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
@@ -75,7 +75,7 @@ describe('e2e: daemon -> server -> client', () => {
     // Start daemon first so it is attached before we create the session.
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: srv.bootstrapToken,
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       hooks: { port: 0 },
       agentRelay: { port: 0 },

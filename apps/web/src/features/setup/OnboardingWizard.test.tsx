@@ -9,6 +9,9 @@ const scan = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }
 
 const desktop = vi.hoisted(() => ({ launchMode: undefined as string | undefined }))
 
+const fleet = vi.hoisted(() => ({ ready: true }))
+vi.mock('@/app/store', () => ({ useStoreSelector: () => fleet.ready }))
+
 vi.mock('@/lib/nativeDesktop', () => ({
   nativeDesktopBridge: () => (desktop.launchMode ? { launchMode: desktop.launchMode } : undefined),
 }))
@@ -30,6 +33,7 @@ vi.mock('./RepoScanFlow', () => ({
 }))
 
 afterEach(() => {
+  fleet.ready = true;
   cleanup()
   scan.props = null
   desktop.launchMode = undefined
@@ -58,6 +62,14 @@ function trpc(): Trpc {
 }
 
 describe('OnboardingWizard setup routes', () => {
+  it('holds project intake until enrollment and daemon readiness are available', () => {
+    fleet.ready = false
+    render(<OnboardingWizard route="local-project" onRouteChange={vi.fn()} onComplete={vi.fn()}
+      onConnectionConfigured={vi.fn()} onEnterVps={vi.fn()} trpc={trpc()} vps={vpsController()} />)
+    expect(screen.getByRole('heading', { name: 'Waiting for your machine' })).toBeTruthy()
+    expect(screen.queryByTestId('repo-scan-flow')).toBeNull()
+  })
+
   it('opens on two answers and no way out of setup', () => {
     const onRouteChange = vi.fn()
     const onEnterVps = vi.fn().mockResolvedValue(undefined)

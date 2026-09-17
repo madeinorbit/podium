@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
-import { type ServerHandle, startServer } from '../../../apps/server/src/server'
+import { type ServerHandle, startServer } from '../../../apps/server/src/test-support/enrolled-server'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -21,7 +21,7 @@ export async function startRelay(): Promise<Relay> {
   const server: ServerHandle = await startServer()
   const daemon: DaemonHandle = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
-    bootstrapToken: server.bootstrapToken,
+    machineToken: server.machineToken,
     machineId: readOrCreateLocalMachineId(),
     hooks: { port: 0 },
     agentRelay: { port: 0 },

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { resolveServerRole } from './roles'
 import type { AppRouter } from './router'
-import { startServer } from './server'
+import { startServer } from './test-support/enrolled-server'
 
 // Role composition (docs/offline-sync-architecture.md §4, issue #157): one
 // server binary, hub surfaces activated by role. These tests boot a REAL
@@ -193,7 +193,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
     const auth = await handle.registry.modules.machines.authenticateDaemon({
       type: 'hello',
       machineId: handle.registry.modules.machines.hostMachineId,
-      token: handle.bootstrapToken,
+      token: handle.machineToken,
       hostname: 'same-host',
     })
     expect(auth.ok).toBe(true)
@@ -202,7 +202,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
   it('local raw output stays asynchronous and preserves batch references', async () => {
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
-      credential: { kind: 'daemonSecret', secret: handle.bootstrapToken },
+      credential: { kind: 'machineToken', token: handle.machineToken, machineHint: handle.registry.modules.machines.hostMachineId },
       claims: { machineId: handle.registry.modules.machines.hostMachineId, hostname: 'same-host' },
     })
     const attachment = await handle.localDaemonLink.attach({ hello: dialer.hello(), deliver: vi.fn() })

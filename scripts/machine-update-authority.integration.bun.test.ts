@@ -292,9 +292,8 @@ it('binds grants to the established configured coordinator and revokes queued co
   const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
   const connection = createMachineSupervisorConnection({
     serverUrl: () => endpoint,
-    bootstrapToken: 'private-test-secret',
     stateDir: runtimeDir,
-    state: loadSupervisorState(runtimeDir),
+    state: { ...loadSupervisorState(runtimeDir), token: 'private-test-secret' },
     build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest() },
     deliveryCaps: ['update.delivery.feed'],
     report: () => ({ server: service, agentExecution: service }),

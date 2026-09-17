@@ -44,9 +44,10 @@ import {
   resolveUpdateFeed,
   selectInstance,
   stateDir,
+  saveConfig,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import {
   claimSupervisorGeneration,
   createMachineSupervisorConnection,
@@ -75,6 +76,7 @@ import { declareFlags, type FlagDeclaration, tryParseFlags } from './argv'
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
 export interface ModePlan {
   mode: PodiumMode
+  bindHost?: '127.0.0.1' | '0.0.0.0'
   serverUrl?: string
   workspaceId?: string
   pairCode?: string
@@ -173,6 +175,7 @@ export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan 
   return {
     mode,
     showSetupHint,
+    ...(config.bindHost ? { bindHost: config.bindHost } : {}),
     ...(config.workspaceId ? { workspaceId: config.workspaceId } : {}),
     ...(serverUrl ? { serverUrl } : {}),
     ...(pairCode ? { pairCode } : {}),
@@ -184,15 +187,7 @@ export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan 
 export type EnvSnapshot = Readonly<Record<string, string | undefined>>
 
 /** How the in-process daemon authenticates to its server (see the launch matrix). */
-export type DaemonAuthKind =
-  /** all-in-one: same process as the server — handed its in-memory bootstrap token. */
-  | 'in-process-local'
-  /** `podium daemon --local`: the split daemon on a host box — NOT in-process with the
-   *  server, so it can't be handed the in-memory token; it authenticates as the LOCAL
-   *  machine via the shared secret file both sides read (exactly like scripts/daemon.ts). */
-  | 'local-split'
-  /** a remote/join daemon that auths via the config's pair code / token. */
-  | 'remote'
+export type DaemonAuthKind = 'machine'
 
 /**
  * The one typed launch decision. Every branch `main()` can take is a variant here,
@@ -300,6 +295,7 @@ export type LaunchPlan =
       logSinkMode: 'systemd' | 'detached' | 'foreground'
       /** Present iff roles.daemon. */
       daemonAuth: DaemonAuthKind | undefined
+      localDaemon?: boolean
       /** Mode + connection inputs (feeds daemonOptionsForPlan at execute time). */
       modePlan: ModePlan
       /** Print the setup-URL hint after the server comes up. */
@@ -930,13 +926,7 @@ export function resolvePlan(
           : undefined
   const runRecordMode = resolveRunRecordMode(env)
   const logSinkMode = resolveLoggingMode(env)
-  const daemonAuth = !runDaemon
-    ? undefined
-    : modePlan.mode === 'daemon'
-      ? argv.includes('--local')
-        ? ('local-split' as const)
-        : ('remote' as const)
-      : ('in-process-local' as const)
+  const daemonAuth = runDaemon ? ('machine' as const) : undefined
   return {
     kind: 'in-process',
     port,
@@ -945,6 +935,7 @@ export function resolvePlan(
     runRecordMode,
     logSinkMode,
     daemonAuth,
+    ...(argv.includes('--local') ? { localDaemon: true } : {}),
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
     takeover: argv.includes('--takeover'),
@@ -1108,7 +1099,6 @@ export async function resolveCliFeatures(
 export interface DaemonStartOptions {
   serverUrl: string
   workspaceId?: string
-  bootstrapToken?: string
   machineId?: MachineId
   pairCode?: string
   name?: string
@@ -1131,7 +1121,6 @@ export interface DaemonStartOptions {
 export function daemonOptionsForPlan(
   plan: ModePlan,
   serverPort: number,
-  localBootstrapToken?: string,
   /** This host's minted id (`<stateDir>/machine.id`), when already known. */
   hostMachineId?: MachineId,
   /** Injected only so tests can prove remote planning never touches local identity. */
@@ -1141,15 +1130,7 @@ export function daemonOptionsForPlan(
   if (!serverUrl)
     throw new Error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
 
-  const localAuth = (() => {
-    if (plan.mode !== 'all-in-one') return {}
-    if (!localBootstrapToken)
-      throw new Error('podium all-in-one daemon needs local bootstrap token')
-    return {
-      bootstrapToken: localBootstrapToken,
-      machineId: hostMachineId ?? readHostMachineId(),
-    }
-  })()
+  const localAuth = plan.mode === 'all-in-one' ? { machineId: hostMachineId ?? readHostMachineId() } : {}
 
   return {
     serverUrl,
@@ -1211,7 +1192,6 @@ export function alreadyRunningMessage(
 export interface HostModules {
   startServer(opts: { port: number }): Promise<{
     port: number
-    bootstrapToken?: string
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
@@ -1287,7 +1267,7 @@ async function runInProcess(
     // a prior daemon role, never retire the supervisor that launched this child.
     if (
       plan.claimRole === 'daemon' &&
-      plan.daemonAuth === 'remote' &&
+      modePlan.mode === 'daemon' &&
       plan.takeover &&
       process.env.PODIUM_UNDER_PARENT !== '1'
     ) {
@@ -1326,7 +1306,6 @@ async function runInProcess(
   }
 
   let serverPort = port
-  let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
   let recoveryOnly = false
   const host = roles.server || roles.daemon ? await loadHost() : undefined
@@ -1346,7 +1325,6 @@ async function runInProcess(
       throw err
     }
     serverPort = server.port
-    localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
     recoveryOnly = server.recoveryOnly
     if (recoveryOnly) lifecycle?.degraded('recovery-only: serving without a local daemon')
@@ -1358,24 +1336,18 @@ async function runInProcess(
   }
   if (roles.daemon && host && !recoveryOnly) {
     let daemonOptions: DaemonStartOptions
-    if (plan.daemonAuth === 'local-split') {
-      // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine
-      // via the shared secret file, connect to the local server.
-      // The split-mode local daemon reads BOTH state-dir files the server read: the
-      // shared secret it presents, and the host id it presents it AS. Same host, same
-      // state dir, same identity — an ordinary `hello`, not a bootstrap special case.
-      const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
+    if (modePlan.mode === 'daemon' && plan.localDaemon) {
+      // --local selects the loopback endpoint; credentials use the same parent signing path.
       daemonOptions = {
         serverUrl: modePlan.serverUrl ?? localServerWsUrl(port),
         ...(modePlan.workspaceId ? { workspaceId: modePlan.workspaceId } : {}),
-        bootstrapToken: readOrCreateDaemonSecret(),
         machineId: readOrCreateLocalMachineId(),
         installCodexHooks: true,
         installGrokHooks: true,
       }
     } else {
       try {
-        daemonOptions = daemonOptionsForPlan(modePlan, serverPort, localBootstrapToken)
+        daemonOptions = daemonOptionsForPlan(modePlan, serverPort)
       } catch (e) {
         console.error((e as Error).message)
         process.exit(2)
@@ -1390,7 +1362,7 @@ async function runInProcess(
     // A REMOTE daemon whose handshake is terminally rejected must exit with a distinct
     // code (not crash-loop): the systemd unit's RestartPreventExitStatus matches it and
     // stops restarting; `podium status` then explains the blocked state (#19).
-    const remoteDaemon = plan.daemonAuth === 'remote'
+    const remoteDaemon = modePlan.mode === 'daemon'
     await startDaemon({
       ...daemonOptions,
       ...(remoteDaemon
@@ -1530,7 +1502,7 @@ export async function main(
     const { applyLocalSetupDefault } = await import('@podium/runtime/setup')
     applyLocalSetupDefault()
   }
-  const config = loadConfig()
+  let config = loadConfig()
 
   // Logging sinks, then the crash net BEFORE anything else (mirror
   // packages/runtime/src/boot.ts, audit P0-1). The crash net reports through the
@@ -1556,7 +1528,16 @@ export async function main(
   const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
   installProcessSafetyNet('podium')
 
-  const plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
+  let plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
+  // A direct remote daemon launch still needs a supervisor to own pairing and the key.
+  if (plan.kind === 'in-process' && plan.modePlan.mode === 'daemon' && !plan.localDaemon
+    && process.env.PODIUM_UNDER_PARENT !== '1') {
+    if (!plan.modePlan.serverUrl) throw new Error('daemon mode needs a server URL')
+    config = { ...config, mode: 'daemon', serverUrl: plan.modePlan.serverUrl,
+      ...(plan.modePlan.pairCode ? { pairCode: plan.modePlan.pairCode } : {}) }
+    saveConfig(config)
+    plan = { kind: 'parent', port: plan.port, includeDaemon: true, includeServer: false, takeover: plan.takeover }
+  }
 
   switch (plan.kind) {
     case 'help': {
@@ -1715,12 +1696,6 @@ export async function main(
         saveSupervisorState(stateDir(), supervisorState)
       }
       const targetRecovery = targetTransferRecovery(supervisorState, config)
-      const localBootstrapToken = plan.includeServer ? readOrCreateDaemonSecret() : undefined
-      if (plan.includeServer && !targetRecovery) {
-        supervisorState.machineId = readOrCreateLocalMachineId()
-        supervisorState.token = localBootstrapToken
-        saveSupervisorState(stateDir(), supervisorState)
-      }
       let configuredAssignment = reconcileSupervisorAssignment(supervisorState, config)
       supervisorState.assignment = configuredAssignment
       saveSupervisorState(stateDir(), supervisorState)
@@ -1772,6 +1747,12 @@ export async function main(
         port: plan.port,
         children,
         daemonLocal: runningAssignment.server && !targetRecovery,
+        onEnrollment: (confirmed) => {
+          const persisted = loadSupervisorState(stateDir())
+          Object.assign(supervisorState, persisted)
+          if (!persisted.token) delete supervisorState.token
+          if (confirmed) supervisorConnection?.reconfigure()
+        },
         onTopology: (desired) => {
           topologyConfig = loadConfig()
           configuredAssignment = reconcileSupervisorAssignment(
@@ -1804,12 +1785,9 @@ export async function main(
           PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
           PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
           PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),
-          ...(supervisorState.token
-            ? { PODIUM_SUPERVISOR_MACHINE_TOKEN: supervisorState.token }
-            : {}),
-          ...(supervisorState.updatePubkey
-            ? { PODIUM_SUPERVISOR_UPDATE_PUBKEY: supervisorState.updatePubkey }
-            : {}),
+          // An absent credential must clear any enclosing runtime's environment.
+          PODIUM_SUPERVISOR_MACHINE_TOKEN: supervisorState.token,
+          PODIUM_SUPERVISOR_UPDATE_PUBKEY: supervisorState.updatePubkey,
         }),
         onSnapshot: () => supervisorConnection?.report(),
         // POD-3765: from the moment a successor is spawned until the handover
@@ -1957,7 +1935,6 @@ export async function main(
         state: supervisorState,
         workspaceId: () => loadConfig().workspaceId ?? supervisorState.workspaceId,
         ...(config.pairCode ? { pairCode: config.pairCode } : {}),
-        bootstrapToken: () => (runningAssignment.server ? readOrCreateDaemonSecret() : undefined),
         build: {
           appVersion,
           wireSchemaDigest: wireSchemaDigest(),

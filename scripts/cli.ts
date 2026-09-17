@@ -40,7 +40,10 @@ async function loadHost(): Promise<HostModules> {
   return {
     startServer: server.startServer,
     isAddressInUseError: server.isAddressInUseError,
-    startDaemon: daemon.startDaemon as HostModules['startDaemon'],
+    startDaemon: async (opts) => {
+      const { promoteMachineAssignment } = await import('../apps/server/src/transfer-machine-assignment')
+      return daemon.startDaemon({ ...opts, promoteMachineAssignment })
+    },
   }
 }
 

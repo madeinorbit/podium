@@ -32,8 +32,16 @@ describe('durable operation actors', () => {
     })
   })
 
+  it.each(['mem_000000000000000000000000001', 'user:alice'])('round-trips persisted member identity %s', (id) => {
+    const userId = asUserId(id)
+    const encoded = encodeOperationActor(userCommandPrincipal(userId, 'admin'))
+    expect(encoded).toBe(id)
+    expect(decodeOperationActor(encoded)).toEqual({ kind: 'user', userId })
+  })
+
   it('refuses malformed durable actor strings', () => {
     expect(decodeOperationActor('')).toBeUndefined()
+    expect(decodeOperationActor('mem_')).toBeUndefined()
     expect(decodeOperationActor('user:')).toBeUndefined()
     expect(decodeOperationActor('admin:alice')).toBeUndefined()
   })

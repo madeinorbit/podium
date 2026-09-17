@@ -85,7 +85,7 @@ describe.skipIf(!live)('e2e: POD-2114 — a server session is readable through s
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       backend: 'none',

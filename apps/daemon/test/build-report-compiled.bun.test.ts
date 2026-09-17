@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { noJanitorWorkerForTests } from '../../server/src/janitor-host'
-import { startServer } from '../../server/src/server'
+import { startServer } from '../../server/src/test-support/enrolled-server'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const installedVersion = '0.1.2-edge.1'
@@ -68,7 +68,7 @@ describe('compiled installed daemon build report', () => {
       delete childEnv.PODIUM_APP_VERSION
       const startedChild = spawn(
         bin,
-        [`ws://127.0.0.1:${server.port}`, server.bootstrapToken, join(dir, 'daemon-hooks')],
+        [`ws://127.0.0.1:${server.port}`, server.machineToken, join(dir, 'daemon-hooks')],
         { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] },
       )
       child = startedChild

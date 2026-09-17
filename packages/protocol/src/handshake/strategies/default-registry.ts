@@ -16,7 +16,6 @@
 import type { PeerCredential } from '../envelope'
 import { createAgentRelayStrategy } from './agent-relay-delegation'
 import { createConsoleCookieStrategy } from './console-cookie'
-import { createMachineLocalSecretStrategy } from './machine-local-secret'
 import { createMachinePairCodeStrategy } from './machine-pair-code'
 import { createMachineKeyStrategy } from './machine-key'
 import { createMachineTokenStrategy } from './machine-token'
@@ -52,9 +51,8 @@ export const createDefaultAuthRegistry = (ports: StrategyPorts): AuthStrategyReg
       ? unavailableStrategy('console', 'sessionCookie', 'ClientSessionDirectory (POD-1075)')
       : createConsoleCookieStrategy({ clientSessions: ports.clientSessions, mint: ports.mint }),
     // machine — ADR 5 D5 rows 2 and 3
-    ports.machines === undefined
-      ? unavailableStrategy('machine', 'daemonSecret', 'MachineDirectory')
-      : createMachineLocalSecretStrategy({ machines: ports.machines, mint: ports.mint }),
+    // Retired wire kind: parsed only to return an explicit refusal to old clients.
+    unavailableStrategy('machine', 'daemonSecret', 'retired local-secret authentication'),
     ports.machines === undefined
       ? unavailableStrategy('machine', 'pairCode', 'MachineDirectory')
       : createMachinePairCodeStrategy({ machines: ports.machines, mint: ports.mint }),

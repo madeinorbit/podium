@@ -241,7 +241,7 @@ describe('e2e harness: a daemon in its own process', () => {
         dir: join(tmp, 'harness'),
         options: {
           serverUrl: `ws://localhost:${srv.port}`,
-          bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+          machineToken: readOrCreateDaemonSecret(stateDir()),
           machineId: hostMachineId(),
           identityDir: tmp,
           backend: 'none',
@@ -288,7 +288,7 @@ describe.skipIf(!live)('e2e: an opencode session outlives its daemon', () => {
     const srv = await startServer()
     const daemonOptions = {
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       // No `launch` override is possible across a process boundary, and none is

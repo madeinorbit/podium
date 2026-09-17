@@ -1,3 +1,5 @@
+import { requestParentHelloSignature } from '@podium/runtime/parent-control'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import type { BindingConfirmations } from '@podium/protocol'
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
@@ -8,6 +10,8 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
+  MachineChallenge,
+  type PeerHello,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   DaemonPtyInputMetadata,
   type DaemonPtyOutputBatch,
@@ -189,7 +193,6 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
   let started = false
-  let pairFallbackTried = false
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
   let activeServerUrl = options.serverUrl
@@ -219,7 +222,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   })
 
   const connectivityDir =
-    options.bootstrapToken || options.identityReadOnly
+    options.machineToken || options.identityReadOnly
       ? undefined
       : (options.identityDir ?? stateDir())
   const report = (
@@ -249,11 +252,29 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const credential = (): PeerCredential | null => {
-    if (options.bootstrapToken) return { kind: 'daemonSecret', secret: options.bootstrapToken }
-    if (identity.token)
-      return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
-    if (options.pairCode) return { kind: 'pairCode', code: options.pairCode }
+    const supervisor = loadSupervisorState(options.identityDir ?? stateDir())
+    if (supervisor.enrolledPublicKey) return { kind: 'machineKey', machineHint: deps.machineId }
+    if (options.machineToken) return { kind: 'machineToken', token: options.machineToken, machineHint: deps.machineId }
+    if (identity.token) return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     return null
+  }
+  const hellos = new WeakMap<ReturnType<typeof createHandshakeDialer>, PeerHello>()
+  const challenged = new WeakSet<ReturnType<typeof createHandshakeDialer>>()
+  const firstHello = (dialer: ReturnType<typeof createHandshakeDialer>): PeerHello => {
+    const hello = dialer.hello()
+    hellos.set(dialer, hello)
+    return hello
+  }
+  const signChallenge = async (dialer: ReturnType<typeof createHandshakeDialer>, challenge: import('@podium/protocol').MachineChallenge): Promise<PeerHello> => {
+    const hello = hellos.get(dialer)
+    if (!hello || hello.credential.kind !== 'machineKey' || challenged.has(dialer)
+      || challenge.machineId !== deps.machineId) throw new Error('unexpected machine key challenge')
+    challenged.add(dialer)
+    const signature = await requestParentHelloSignature(challenge, { stateDir: options.identityDir ?? stateDir() })
+    return { ...hello, credential: { ...hello.credential, proof: {
+      nonce: challenge.nonce, installationId: challenge.installationId,
+      connectionId: challenge.connectionId, signature,
+    } } }
   }
 
   const clearOpenDeadline = (generation?: number): void => {
@@ -622,6 +643,15 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       deps.receiveBinaryInput?.(decoded.metadata, decoded.payload)
       return
     }
+    let decoded: unknown
+    try { decoded = JSON.parse(normalizeRawData(raw).toString()) } catch { decoded = undefined }
+    const challenge = MachineChallenge.safeParse(decoded)
+    if (challenge.success && active) {
+      void signChallenge(dialer, challenge.data).then((hello) => {
+        if (!closing && socket === active && state === 'awaiting-ack') active.send(JSON.stringify(hello))
+      }).catch((error) => { lastSocketError = String(error); active.terminate() })
+      return
+    }
     const step = dialer.receive(normalizeRawData(raw).toString())
     if (step.action === 'deliver') {
       deps.receiveApplicationFrame(Buffer.from(step.raw))
@@ -647,19 +677,6 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (rejection.reason === 'unsupported-version') {
       if (active) handleProtocolMismatch(active, 'handshake-rejection')
       else terminal('blocked', 'protocol-mismatch', rejection.message ?? rejection.reason)
-      return
-    }
-    // A stale stored token may fall back exactly once to the supplied pair code.
-    if (
-      rejection.reason === 'auth-failed' &&
-      identity.token &&
-      options.pairCode &&
-      !pairFallbackTried
-    ) {
-      pairFallbackTried = true
-      identity.token = undefined
-      log.warn('stored token rejected — retrying once with the supplied pair code')
-      active?.close()
       return
     }
     terminal(
@@ -720,13 +737,14 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     try {
       dialer = makeDialer(bindingSessionIds)
     } catch (error) {
-      terminal('blocked', 'configuration', String(error))
+      retryLocalHandshake(error)
       return
     }
     state = 'awaiting-ack'
     report({ state: 'awaiting-ack' })
     const attachment = await localLink.attach({
-      hello: dialer.hello(),
+      hello: firstHello(dialer),
+      signChallenge: (challenge) => signChallenge(dialer, challenge),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
       deliverInput: (input) => {
         if (!acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
@@ -801,10 +819,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
             active.terminate()
           }, PEER_HELLO_ACK_DEADLINE_MS),
         }
-        active.send(JSON.stringify(dialer.hello()))
+        active.send(JSON.stringify(firstHello(dialer)))
       } catch (error) {
         clearAcknowledgementDeadline(generation)
-        terminal('blocked', 'configuration', String(error), active)
+        lastSocketError = String(error)
+        active.terminate()
       }
     })
     active.on('message', (raw, isBinary) => {
@@ -884,13 +903,22 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       candidate.once('open', () => {
         try {
           dialer = makeDialer()
-          candidate.send(JSON.stringify(dialer.hello()))
+          candidate.send(JSON.stringify(firstHello(dialer)))
         } catch (error) {
           finish(socketError(error))
         }
       })
       candidate.on('message', (raw) => {
         if (!dialer || settled) return
+        let decoded: unknown
+        try { decoded = JSON.parse(raw.toString()) } catch { decoded = undefined }
+        const challenge = MachineChallenge.safeParse(decoded)
+        if (challenge.success) {
+          void signChallenge(dialer, challenge.data).then((hello) => {
+            if (!settled) candidate.send(JSON.stringify(hello))
+          }).catch((error) => finish(socketError(error)))
+          return
+        }
         const step = dialer.receive(raw.toString())
         if (step.action === 'established') finish()
         else if (step.action === 'protocol-error') finish(new Error(step.error))

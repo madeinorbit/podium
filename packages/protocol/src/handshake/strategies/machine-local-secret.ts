@@ -56,10 +56,10 @@ export const createMachineLocalSecretStrategy = (
     // never from `hello.claims.machineId`, which this module does not read. The
     // hostname is passed through as host METADATA (the directory records it) and
     // takes no part in resolving who the peer is.
-    const machine = deps.machines.verifyDaemonSecret(credential.secret, {
+    const machine = deps.machines.verifyDaemonSecret?.(credential.secret, {
       ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
     })
-    if (machine === null)
+    if (machine == null)
       return { ok: false, reason: 'auth-failed', diagnostic: 'daemon secret did not verify' }
     return {
       ok: true,

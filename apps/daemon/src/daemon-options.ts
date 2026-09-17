@@ -46,8 +46,8 @@ export interface DaemonOptions {
   installCodexHooks?: boolean
   /** @deprecated Terminal creation now installs required instrumentation. */
   installGrokHooks?: boolean
-  /** Local machine secret (`daemonSecret` credential), never ambient trust. */
-  bootstrapToken?: string
+  /** Explicit stage-one bearer credential for existing enrollments. New enrollment uses the supervisor key. */
+  machineToken?: string
   /** In-process transport; it still performs the common machine handshake. */
   localLink?: LocalDaemonLink
   /** One-time `pairCode` credential for a new remote daemon. */
@@ -81,6 +81,7 @@ export interface DaemonOptions {
    *  daemon — unless nothing would restart it, see {@link exitStopsServer}. */
   restartAfterUpdate?: () => void
   /** Starts the promoted role and echoes the expected proof only after it is serving. */
+  promoteMachineAssignment?: (input: { sourceMachineId: string; targetMachineId: string; requestId: string }) => Promise<void>
   restartAfterTransfer?: (
     expected: ServerTransferServingProof,
   ) => Promise<ServerTransferServingProof> | ServerTransferServingProof

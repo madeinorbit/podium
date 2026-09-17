@@ -1,3 +1,4 @@
+import { loadSupervisorState } from './machine-supervisor'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -324,6 +325,7 @@ describe('setup core', () => {
   it('applyLocalSetupDefault persists all-in-one on a fresh box and preserves config', () => {
     saveConfig({ updateChannel: 'edge' })
     expect(applyLocalSetupDefault()).toBe('applied')
+    expect(loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment).toMatchObject({ preauthorized: true, agentExecution: true })
     expect(loadConfig()).toMatchObject({ mode: 'all-in-one', updateChannel: 'edge' })
   })
   it('applyLocalSetupDefault never replaces an explicit advanced choice', () => {

@@ -1,3 +1,4 @@
+import { MachineChallenge } from '@podium/protocol'
 /**
  * Parent ←→ server control channel for update swap and self-handover [POD-2505].
  *
@@ -49,7 +50,7 @@ import { liveRecord } from './run-registry'
 
 export const PARENT_HANDOVER_SIGNAL: NodeJS.Signals = 'SIGUSR1'
 
-export const ParentRequestKind = z.enum(['swap', 'handover', 'topology'])
+export const ParentRequestKind = z.enum(['swap', 'handover', 'topology', 'enrollment', 'signHello'])
 export type ParentRequestKind = z.infer<typeof ParentRequestKind>
 
 export const ParentRequest = z.object({
@@ -88,6 +89,14 @@ export const ParentRequest = z.object({
   children: z.array(z.enum(['server', 'daemon'])).optional(),
   restartDaemon: z.boolean().optional(),
   topologyHealth: z.enum(['server', 'daemon', 'none']).optional(),
+  challenge: MachineChallenge.optional(),
+  enrollment: z.object({
+    action: z.enum(['prepare', 'confirm']),
+    agentExecution: z.boolean(),
+    setupRequestId: z.string().optional(),
+    publicKey: z.string().optional(),
+    installationId: z.string().optional(),
+  }).optional(),
 })
 export type ParentRequest = z.infer<typeof ParentRequest>
 
@@ -104,6 +113,14 @@ export const ParentResult = z.object({
    * reads the target's declared migrations against the live ledger.
    */
   releaseHadMigrations: z.boolean().optional(),
+  enrollment: z.object({
+    requestId: z.string().min(1),
+    machineId: z.string().min(1),
+    publicKey: z.string().min(1),
+    agentExecution: z.boolean(),
+    preauthorized: z.boolean(),
+  }).optional(),
+  signature: z.string().optional(),
   completedAt: z.string(),
 })
 export type ParentResult = z.infer<typeof ParentResult>
@@ -532,4 +549,40 @@ export async function requestParentSwap(
       })()
   if (!result.ok) throw new Error(result.error ?? 'the parent could not install this update')
   return { releaseHadMigrations: result.releaseHadMigrations === true }
+}
+
+/** Setup credentials travel only on the supervisor's private socket. */
+export async function requestParentEnrollment(
+  enrollment: NonNullable<ParentRequest['enrollment']>,
+  opts: ParentRequestOptions = {},
+): Promise<NonNullable<ParentResult['enrollment']>> {
+  const link = onTheLine(opts)
+  if (!link) {
+    // A direct, unsupervised launcher owns its local supervisor state in process.
+    // A supervised child may never turn a broken socket into a disk fallback.
+    if (processLink || process.env.PODIUM_UNDER_PARENT === '1') throw new Error('setup enrollment parent channel is unavailable')
+    const { prepareSetupEnrollment, confirmSetupEnrollment } = await import('./setup-enrollment')
+    return enrollment.action === 'prepare'
+      ? prepareSetupEnrollment(enrollment.agentExecution, false, opts.stateDir)
+      : confirmSetupEnrollment(enrollment.setupRequestId ?? '', enrollment.publicKey ?? '', opts.stateDir)
+  }
+  const result = await askOnLine(link, {
+    requestId: mintId('enrollment', opts), kind: 'enrollment', expectedVersion: 'setup',
+    requestedAt: new Date(opts.now?.() ?? Date.now()).toISOString(), enrollment,
+  })
+  if (!result.ok || !result.enrollment) throw new Error(result.error ?? 'setup enrollment failed')
+  return result.enrollment
+}
+
+export async function requestParentHelloSignature(challenge: import('@podium/protocol').MachineChallenge, opts: ParentRequestOptions = {}): Promise<string> {
+  const link = onTheLine(opts)
+  if (!link) {
+    if (processLink || process.env.PODIUM_UNDER_PARENT === '1') throw new Error('machine signing parent channel is unavailable')
+    const { signMachineHello } = await import('./setup-enrollment')
+    return signMachineHello(challenge, opts.stateDir)
+  }
+  const result = await askOnLine(link, { requestId: mintId('signHello', opts), kind: 'signHello',
+    expectedVersion: 'machine', requestedAt: new Date().toISOString(), challenge })
+  if (!result.ok || !result.signature) throw new Error(result.error ?? 'machine signing failed')
+  return result.signature
 }

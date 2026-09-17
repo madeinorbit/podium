@@ -1,3 +1,4 @@
+import { prepareSetupEnrollment } from './setup-enrollment'
 import {
   type EnvSource,
   type FleetUpdateChannel,
@@ -492,6 +493,7 @@ export function applyLocalSetupDefault(): 'applied' | 'configured' | 'blocked' {
   const config = inspection.config
   if (config.mode) return 'configured'
   try {
+    prepareSetupEnrollment(true, true)
     saveConfig({ ...config, mode: 'all-in-one' })
     return 'applied'
   } catch {

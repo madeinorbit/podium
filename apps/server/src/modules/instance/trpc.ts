@@ -39,6 +39,7 @@ const instanceService = (state: {
         machines: {
           refreshFleetChannel(): void | Promise<void>
           grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
+          completeHostSetup(ownerUserId: UserId, agentExecution: boolean, passwordHash?: string): Promise<void>
         }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
@@ -57,6 +58,9 @@ const instanceService = (state: {
     // call so a Settings write shows up without a restart.
     transcriptMirrorSetting: async () =>
       (await state.store?.settings.getSettings())?.transcripts.mirror,
+    completeHostSetup: state.modules
+      ? async (actor, agentExecution, passwordHash) => await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
+      : undefined,
     // POD-4179: setup.complete records the host machine's grantee.
     grantHostMachine: state.modules
       ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)

@@ -502,18 +502,6 @@ export class SessionRegistry {
    * a list in one place rather than three lines in three constructors.
    */
   private async hydrate(): Promise<void> {
-    // Ledger-wins owner projection before any use/manage decision can run (D19.4d).
-    // The host row must exist before the completed registry can serve a request,
-    // but provisioning it is a store write and therefore belongs in async boot,
-    // after composition and before every other hydration step.
-    //
-    // GUARDED, and the guard is the point. dev/mw put these two steps in the
-    // constructors behind `if (!recoveryOnly)`, because a recovery-only registry
-    // holds a QUERY-ONLY store and may not run boot WRITERS against it. The flip
-    // moved the steps here -- a constructor cannot await -- so the guard has to
-    // travel with them. Without it a recovery-only boot writes to a read-only
-    // store and fails with SQLITE_READONLY.
-    if (!this.recoveryOnly) await this.modules.machines.ensureHostMachine(hostname())
     // Session rows must be restored before any issue or message reconciliation
     // can inspect their targets. Recovery-only serves operations, history, action
     // and health, so it neither needs nor may run session restoration's writers.

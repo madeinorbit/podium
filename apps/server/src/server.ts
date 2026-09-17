@@ -1,3 +1,8 @@
+import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
+import { completePreauthorizedSetup } from './setup-enrollment'
+import { requestParentEnrollment } from '@podium/runtime/parent-control'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { readLegacyInstancePasswordHash, deleteLegacyInstancePasswordFile, hashPassword } from '@podium/runtime/auth-store'
 import { registerSyncRoutes } from './sync/routes'
 import { syncFeedPrincipal } from './sync/route-support'
 import { MemberInvites } from './member-invites'
@@ -13,7 +18,6 @@ import {
   asMachineId,
   asUserId,
   controlPlaneAvailable,
-  MachineServiceAssignment,
 } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
@@ -69,7 +73,6 @@ import {
   takeProfileRequest,
 } from '@podium/runtime/loop-profile-capture'
 import {
-  SUPERVISOR_SERVICE_ASSIGNMENT_ENV,
   targetTransferRecovery,
 } from '@podium/runtime/machine-supervisor'
 import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
@@ -132,7 +135,6 @@ import {
 import { serverMoveFaultHook } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import {
-  readNewestTargetPromotionMetadata,
   readPromotedTargetMetadata,
 } from './modules/server-transfer/target-status'
 import { SuperagentService } from './modules/superagent'
@@ -238,12 +240,8 @@ export interface ServerHandle {
   registry: SessionRegistry
   /** True when this process exposes only durable server-move recovery APIs. */
   recoveryOnly: boolean
-  /**
-   * The persistent same-host shared secret the bundled local daemon presents (as its
-   * `hello` token) to authenticate as the local machine. Exposed so the in-process
-   * daemon (host.ts) can pass it straight through without re-reading the file.
-   */
-  bootstrapToken: string
+  /** Server-owned maintenance channel credential; never accepted for machine authentication. */
+  maintenanceToken: string
   /**
    * In-process daemon seam [POD-196]: hands the all-in-one daemon a direct
    * message channel so per-frame traffic skips the loopback WebSocket + JSON +
@@ -660,14 +658,6 @@ export async function startServer(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
-  // THE FIRST ADMIN'S PASSWORD, from wherever it was left before this boot, and before
-  // anything can serve a login. Order matters between these two: a hash staged in
-  // auth.json by `podium setup` is the operator's REAL password and wins, so it is
-  // adopted first; the PODIUM_PASSWORD seam then finds a credential and stays the no-op
-  // it has always been on an instance that already has one.
-  // MOVED below `ensureHostMachine` (POD-4179): adopting the first admin's password is
-  // the setup transaction that may also give the host row its grantee, so the row has to
-  // exist first. Login is not served until both have run.
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
@@ -790,56 +780,35 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
-  // The persistent same-host shared secret, read (or created 0600) from the state dir.
-  // The server hashes it into the local machine's stored credential below; the bundled
-  // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
-  // and presents it as its `hello` token — so the local daemon authenticates with no
-  // pairing step and no per-boot token race.
-  const bootstrapToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
-  // Provision THIS HOST as a machine NOW, at startup: register it under the id read
-  // above with the server-owned credential (sha256 of the shared secret), and fold any
-  // pre-POD-318 rows onto that id in one transaction. Rows are therefore attributed
-  // from the first write, regardless of whether/when the daemon connects — the
-  // structural guard against the regression where data vanished because no daemon ever
-  // registered. The same-host daemon then authenticates through the normal hello path
-  // (wsServer) presenting this same id.
-  let bootstrapAssignment: MachineServiceAssignment | undefined
-  const encodedAssignment = process.env[SUPERVISOR_SERVICE_ASSIGNMENT_ENV]
-  if (encodedAssignment) {
-    try {
-      bootstrapAssignment = MachineServiceAssignment.parse(JSON.parse(encodedAssignment))
-    } catch (error) {
-      throw new Error('invalid parent-supplied machine service assignment', { cause: error })
-    }
-  }
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
-  if (!recoveryOnly)
-    // AWAITED: this is the idempotent UPDATE that puts the REAL hostname and the
-    // bootstrap secret on the host row. Unawaited it raced the listMachines read
-    // twenty lines below and everything the server serves after it.
-    await registry.modules.machines.ensureHostMachine(
-      hostname(),
-      bootstrapToken,
-      bootstrapAssignment,
-      targetTransferRecovery({ machineId: hostMachineId }, config) &&
-        bootTargetPromotion?.targetMachineId === hostMachineId &&
-        bootTargetPromotion.publicUrl === config.publicUrl
-        ? bootTargetPromotion.sourceMachineId
-        : undefined,
-    )
-  // THE FIRST ADMIN'S PASSWORD, from wherever it was left before this boot, and before
-  // anything can serve a login. Order matters between these two: a hash staged in
-  // auth.json by `podium setup` is the operator's REAL password and wins, so it is
-  // adopted first; the PODIUM_PASSWORD seam then finds a credential and stays the no-op
-  // it has always been on an instance that already has one. Either one that WRITES a
-  // credential is a setup act and records the host machine's grantee (POD-4179).
+  // Maintenance is a separate server-owned channel; this secret is never a machine credential.
+  const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
   if (!recoveryOnly) {
-    const adopted = await adoptStagedFirstAdminPassword({ users: store.users })
-    if (adopted.outcome === 'adopted' && adopted.userId)
-      await registry.modules.machines.grantHostMachineIfUnowned(adopted.userId)
-    const applied = await applyEnvFirstAdminPassword({ users: store.users })
-    if (applied.applied && applied.userId)
-      await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
+    const supervisorSetup = loadSupervisorState(stateDir())
+    const setupRequest = supervisorSetup.setupEnrollment
+    if (setupRequest && !supervisorSetup.enrolledPublicKey) {
+      const stagedHash = readLegacyInstancePasswordHash()
+      const passwordHash = stagedHash ?? (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
+      const receipt = await completePreauthorizedSetup(store, installation.installationId, setupRequest, passwordHash)
+      if (receipt) {
+        // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
+        if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
+        try {
+          await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
+            setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+        } catch (error) {
+          log.warn('setup enrollment committed; parent confirmation will retry', { err: error })
+        }
+      }
+    } else if (!setupRequest) {
+      // Existing installations may still have a staged login password. This never creates a machine.
+      const adopted = await adoptStagedFirstAdminPassword({ users: store.users })
+      if (adopted.outcome === 'adopted' && adopted.userId)
+        await registry.modules.machines.grantHostMachineIfUnowned(adopted.userId)
+      const applied = await applyEnvFirstAdminPassword({ users: store.users })
+      if (applied.applied && applied.userId)
+        await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
+    }
   }
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
@@ -2062,7 +2031,7 @@ export async function startServer(
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
-        token: bootstrapToken,
+        token: maintenanceToken,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {
@@ -2295,7 +2264,7 @@ export async function startServer(
     // other's call stack (the ordering the WS transport implied).
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
-      attach: async ({ hello, deliver, deliverInput }) => {
+      attach: async ({ hello, deliver, deliverInput, signChallenge }) => {
         const credentialCurrent = registry.modules.machines.credentialFence()
         let credentialLive = true
         const acceptor = createDaemonAcceptor({
@@ -2303,7 +2272,11 @@ export async function startServer(
           connectionId: `local-daemon-${randomUUID()}`,
           verifyOnly: registry.recoveryOnly,
         })
-        const { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
+        let { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
+        if (outcome.kind === 'challenge' && signChallenge) {
+          const signed = await signChallenge(outcome.reply)
+          ;({ outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(signed)))
+        }
         if (outcome.kind !== 'established' || !credentialCurrent(outcome.principal.machine)) {
           const reply =
             outcome.kind === 'rejected'
@@ -2445,7 +2418,7 @@ export async function startServer(
         instanceId,
         registry,
         recoveryOnly,
-        bootstrapToken,
+        maintenanceToken,
         localDaemonLink,
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist

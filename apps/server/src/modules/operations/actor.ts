@@ -18,7 +18,8 @@ export function encodeOperationActor(principal: CommandPrincipal): string {
 }
 
 export function decodeOperationActor(value: string): DurableOperationActor | undefined {
-  if (value.startsWith('user:') && value.length > 'user:'.length) {
+  if ((value.startsWith('mem_') && value.length > 'mem_'.length)
+    || (value.startsWith('user:') && value.length > 'user:'.length)) {
     return { kind: 'user', userId: value as UserId }
   }
   if (value.startsWith('session:') && value.length > 'session:'.length) {

@@ -1,3 +1,5 @@
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { readMachineCredential, machinePublicKeyWire } from '@podium/runtime/machine-credential'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -83,6 +85,20 @@ describe('runCliSetup', () => {
     start(answers, setPw).done
 
   describe('first run (mode menu)', () => {
+    it.each(['all-in-one', 'server'] as const)('persists the %s setup request and key before starting the backend', async (mode) => {
+      const { io } = scriptedIO([mode, net(3), 'https://hub.example', 's3cret', true])
+      const startBackend = vi.fn(async (options: { persistence: 'systemd' | 'detached' }) => {
+        const state = loadSupervisorState(dir)
+        expect(state.setupEnrollment).toMatchObject({ machineId: state.machineId,
+          preauthorized: true, agentExecution: mode === 'all-in-one' })
+        expect(state.setupEnrollment?.publicKey).toBe(machinePublicKeyWire(readMachineCredential(dir)!))
+        expect(state.enrolledPublicKey).toBeUndefined()
+        return { effectivePersistence: options.persistence, message: 'started' }
+      })
+      await runCliSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend, activateImmediately: true })
+      expect(startBackend).toHaveBeenCalled()
+    })
+
     it('sets up a fresh VPS directly as all-in-one without asking topology or telemetry', async () => {
       const startBackend = vi.fn(async () => ({
         effectivePersistence: 'systemd' as const,

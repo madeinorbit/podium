@@ -1,3 +1,6 @@
+import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import { completePreauthorizedSetup } from '../apps/server/src/setup-enrollment'
+import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 /**
  * Process-level acceptance proof for independent Podium instances [spec:SP-15aa].
  * Starts two real all-in-one runtimes and exercises their public CLI and APIs.
@@ -131,19 +134,17 @@ function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
 async function seedNamedState(spec: InstanceSpec): Promise<void> {
   mkdirSync(spec.stateDir, { recursive: true })
   const path = join(spec.stateDir, 'podium.db')
-  // Isolation starts from a supported database. Retired sentinel IDs are refused
-  // by store boot; machine-identity.test.ts owns that refusal contract. Keep the
-  // unowned host row so this lane still proves boot assigns its admin owner.
+  // Explicit setup commits before a second member is added. Leave confirmation
+  // pending so the real first boot also proves recovery after a lost setup reply.
   const machineId = '00000000-0000-4000-8000-000000000734'
   writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
-  await (await openTestStore(path, asMachineId(machineId))).close()
+  const request = prepareSetupEnrollment(true, true, spec.stateDir)
+  const store = await openTestStore(path, asMachineId(machineId))
+  const installation = await store.secrets.installationIdentity()
+  readOrCreateUpdateSigningKey(spec.stateDir, { allowCreate: true })
+  await completePreauthorizedSetup(store, installation.installationId, request)
+  await store.close()
   const db = openDatabase(path)
-  db.prepare('DELETE FROM machines').run()
-  db.prepare(
-    `INSERT INTO machines
-      (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
-      VALUES (?, 'named-host', 'named-host', 'named-token', 't', 't', NULL)`,
-  ).run(machineId)
   db.prepare(
     `INSERT INTO users (id, display_name, role, created_at, disabled_at)
      VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
@@ -166,6 +167,12 @@ function instanceEnv(
     'PODIUM_SESSION_ID',
     'PODIUM_SESSION_INSTANCE',
     'PODIUM_HOME',
+    'PODIUM_UNDER_PARENT',
+    'PODIUM_SUPERVISOR_MACHINE_ID',
+    'PODIUM_SUPERVISOR_MACHINE_TOKEN',
+    'PODIUM_SUPERVISOR_UPDATE_PUBKEY',
+    'PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT',
+    'PODIUM_PARENT_GENERATION',
     // Packaged isolation cases must not inherit the hosting dev publisher opt-in.
     'PODIUM_DEV_SOURCE_ROOT',
     'PODIUM_DEV_ARTIFACT_BASE_URL',
@@ -244,6 +251,7 @@ function startInstance(
   // Say so explicitly now that an unconfigured process intentionally withholds
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
+  prepareSetupEnrollment(true, true, spec.stateDir)
   const configFile = join(spec.stateDir, 'config.json')
   const existingConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
   writeFileSync(configFile, JSON.stringify({ ...existingConfig, mode: 'all-in-one' }))
@@ -773,6 +781,7 @@ describe('multi-instance runtime isolation', () => {
       const digest = 'sha256-canary-startup-fixture'
       const machineId = asMachineId(randomUUID())
       writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
+      prepareSetupEnrollment(true, true, spec.stateDir)
       writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
       writeFileSync(join(installDir, 'VERSION'), '9.9.9')
       writeFileSync(join(installDir, 'ARTIFACT.sha256'), digest)
@@ -950,10 +959,10 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(joined.stdout).toContain('podium joined as')
     const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
-      token?: string
+      enrolledPublicKey?: string
       updatePubkey?: string
     }
-    expect(identity.token).toBeTruthy()
+    expect(identity.enrolledPublicKey).toBeTruthy()
     expect(identity.updatePubkey).toBeTruthy()
     await waitUntil(
       async () =>
@@ -1104,25 +1113,31 @@ exec "$CANARY_REAL_CLI" "$@"
 
     const stopped = await runPackagedCli(executable, fleet, ['stop'])
     expect(stopped.code, `${stopped.stdout}\n${stopped.stderr}`).toBe(0)
-    const legacyIdentity = {
+    const persistedIdentity = {
       machineId: identity.machineId,
-      token: identity.token,
+      enrolledPublicKey: identity.enrolledPublicKey,
       updatePubkey: identity.updatePubkey,
     }
-    writeFileSync(join(fleet.stateDir, 'daemon.json'), JSON.stringify(legacyIdentity))
-    rmSync(join(fleet.stateDir, 'supervisor.json'))
     expect(
       JSON.parse(readFileSync(join(fleet.stateDir, 'config.json'), 'utf8')),
     ).not.toHaveProperty('pairCode')
 
+    const previousParentPid = record('supervisor-ready.json').pid
     const restarted = await runPackagedCli(executable, fleet, [])
     expect(restarted.code, `${restarted.stdout}\n${restarted.stderr}`).toBe(0)
+    // Fleet presence has a disconnect grace period. It can still describe the
+    // stopped parent while the detached replacement has not registered yet.
+    // Prove this incarnation is ready before issuing the next stop.
+    await waitUntil(() => {
+      const ready = record('supervisor-ready.json')
+      return ready.pid !== previousParentPid && ready.pid === record('parent.pid').pid
+    }, 'restarted keypair parent production health gate')
     await waitUntil(
       () => existsSync(join(fleet.stateDir, 'supervisor.json')),
-      'legacy credential import',
+      'persisted machine credential',
     )
     expect(JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8'))).toMatchObject(
-      legacyIdentity,
+      persistedIdentity,
     )
     await waitUntil(
       async () =>
@@ -1132,7 +1147,7 @@ exec "$CANARY_REAL_CLI" "$@"
             machine.online &&
             machine.presenceSource === 'supervisor',
         ),
-      'legacy machine supervisor restart',
+      'keypair machine supervisor restart',
     )
     expect(
       (await sourceApi.machines.list.query()).filter(
@@ -1333,6 +1348,7 @@ exec "$CANARY_REAL_CLI" "$@"
   it('keeps a compiled server-only machine online and updateable without a daemon', async () => {
     const spec = makeSpec('blue', 'packaged-server-only')
     mkdirSync(spec.stateDir, { recursive: true })
+    prepareSetupEnrollment(false, true, spec.stateDir)
     writeFileSync(
       join(spec.stateDir, 'config.json'),
       JSON.stringify({ mode: 'server', persistence: 'detached', port: spec.port }),
@@ -1424,6 +1440,7 @@ exec "$CANARY_REAL_CLI" "$@"
         }
       }
       mkdirSync(source.stateDir, { recursive: true })
+      prepareSetupEnrollment(true, true, source.stateDir)
       writeFileSync(
         join(source.stateDir, 'config.json'),
         JSON.stringify({
@@ -1552,7 +1569,7 @@ exec "$CANARY_REAL_CLI" "$@"
           `${label} durable finalization`,
           120_000,
         )
-        const assertTopology = async () => {
+        const assertTopology = async (targetAgentState: 'stopped' | 'available') => {
           await waitForTransfer(
             async () => {
               try {
@@ -1564,7 +1581,7 @@ exec "$CANARY_REAL_CLI" "$@"
                     ),
                   ) &&
                   rows.find((row) => row.id === targetId)?.services?.agentExecution.state ===
-                    'stopped' &&
+                    targetAgentState &&
                   rows.find((row) => row.id === sourceId)?.services?.agentExecution.state ===
                     'available'
                 )
@@ -1579,9 +1596,10 @@ exec "$CANARY_REAL_CLI" "$@"
             server: false,
             agentExecution: true,
           })
+          // Moving the server preserves the target's existing agent assignment.
           expect(read(target, 'supervisor.json').assignment).toEqual({
             server: true,
-            agentExecution: false,
+            agentExecution: true,
           })
           for (const spec of specs) {
             expect(read(spec, 'connectivity.json')).toMatchObject({
@@ -1597,16 +1615,16 @@ exec "$CANARY_REAL_CLI" "$@"
           })
           expect(rows.find((row) => row.id === targetId)?.serviceAssignment).toEqual({
             server: true,
-            agentExecution: false,
+            agentExecution: true,
           })
         }
-        await assertTopology()
+        await assertTopology('stopped')
         for (const spec of [source, target]) await run(spec, ['stop'])
         // Restart the actual finalized durable state. The focused runtime tests
         // separately inject the config/assignment atomic-write crash window.
         await run(target, [])
         await run(source, [])
-        await assertTopology()
+        await assertTopology('available')
         // A completed move must not hide failed presence callbacks behind the
         // SQLite fence. Check both the live seal and recovery-only reconnects.
         for (const spec of specs) {
@@ -1760,7 +1778,8 @@ exec "$CANARY_REAL_CLI" "$@"
     const inspectBoot = (spec: InstanceSpec) => {
       const db = openDatabase(join(spec.stateDir, 'podium.db'))
       const rows = db
-        .prepare('SELECT id, owner_user_id AS ownerUserId FROM machines ORDER BY id')
+        .prepare(`SELECT m.id, g.grantee AS ownerUserId FROM machines m LEFT JOIN grants g
+          ON g.resource_kind = 'machine' AND g.resource_id = m.id AND g.custody = 1 ORDER BY m.id`)
         .all() as { id: string; ownerUserId: string | null }[]
       const columns = db.prepare('PRAGMA table_info(machines)').all() as { name: string }[]
       const owner = earliestAdminMember(db)

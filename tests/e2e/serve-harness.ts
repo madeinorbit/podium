@@ -37,7 +37,7 @@ import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { inProcessMachinePrincipal } from '../../apps/server/src/gateway/daemon-mux'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import type { SessionStore } from '../../apps/server/src/store'
 import { writeCodexStartupFixture } from './codex-fixture'
 import {
@@ -376,7 +376,7 @@ if (process.env.PODIUM_E2E_HANDOFF === '1' || process.env.PODIUM_E2E_MULTI_MACHI
 
 const daemonOptions: Parameters<typeof startDaemon>[0] = {
   serverUrl: `ws://localhost:${server.port}`,
-  bootstrapToken: server.bootstrapToken,
+  machineToken: server.machineToken,
   machineId: hostMachineId(),
   installCodexHooks: REAL_AGENTS,
   // The fixture is isolated by its per-port state root. TCP callbacks are

@@ -1,3 +1,4 @@
+import type { SetupEnrollmentRequest } from './setup-enrollment'
 import { hostname } from 'node:os'
 import {
   closeSync,
@@ -55,6 +56,7 @@ export interface SupervisorState {
   machineId: MachineId
   token?: string
   enrolledPublicKey?: string
+  setupEnrollment?: SetupEnrollmentRequest
   updatePubkey?: string
   assignment?: MachineServiceAssignment
   /**
@@ -71,6 +73,14 @@ export interface SupervisorState {
  */
 export const PARENT_GENERATION_ENV = 'PODIUM_PARENT_GENERATION'
 
+function validSetupRequest(value: unknown, machineId: string): value is SetupEnrollmentRequest {
+  if (!value || typeof value !== 'object') return false
+  const request = value as Partial<SetupEnrollmentRequest>
+  return request.machineId === machineId && typeof request.requestId === 'string' && request.requestId.length > 0
+    && typeof request.publicKey === 'string' && request.publicKey.length > 0
+    && typeof request.agentExecution === 'boolean' && typeof request.preauthorized === 'boolean'
+}
+
 function parseState(raw: unknown): SupervisorState | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
@@ -78,6 +88,7 @@ function parseState(raw: unknown): SupervisorState | null {
   const assignment = MachineServiceAssignment.safeParse(value.assignment)
   return {
     machineId: asMachineId(value.machineId),
+    ...(validSetupRequest(value.setupEnrollment, value.machineId) ? { setupEnrollment: value.setupEnrollment } : {}),
     ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}),
     ...(typeof value.token === 'string' ? { token: value.token } : {}),
     ...(typeof value.enrolledPublicKey === 'string' ? { enrolledPublicKey: value.enrolledPublicKey } : {}),
@@ -272,7 +283,6 @@ export interface MachineSupervisorConnectionDeps {
   state: SupervisorState
   workspaceId?: string | (() => string | undefined)
   pairCode?: string
-  bootstrapToken?: string | (() => string | undefined)
   name?: string
   build: PeerBuild
   deliveryCaps: readonly string[]
@@ -343,17 +353,18 @@ export function createMachineSupervisorConnection(
   }
 
   const credential = (): PeerCredential => {
-    const bootstrapToken =
-      typeof deps.bootstrapToken === 'function' ? deps.bootstrapToken() : deps.bootstrapToken
+    // The parent can confirm setup while this connection is already waiting to dial.
+    const persisted = loadSupervisorState(deps.stateDir)
+    if (persisted.enrolledPublicKey) deps.state.enrolledPublicKey = persisted.enrolledPublicKey
     if (readMachineCredential(deps.stateDir)?.pendingRotation) {
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
+    if (persisted.setupEnrollment && !persisted.enrolledPublicKey) throw new Error('setup enrollment is awaiting confirmation')
     if (deps.state.enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
       if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey) throw new Error('enrolled machine key unavailable')
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
-    if (bootstrapToken) return { kind: 'daemonSecret', secret: bootstrapToken }
     if (deps.state.token)
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
     if (deps.pairCode) return { kind: 'pairCode', code: deps.pairCode,
@@ -384,7 +395,9 @@ export function createMachineSupervisorConnection(
       }
       deps.state.updatePubkey = updatePubkey
     }
-    deps.state.assignment = loadSupervisorState(deps.stateDir).assignment
+    const persistedState = loadSupervisorState(deps.stateDir)
+    deps.state.assignment = persistedState.assignment
+    deps.state.setupEnrollment = persistedState.setupEnrollment
     saveSupervisorState(deps.stateDir, deps.state)
     if (enrolledPublicKey && readMachineCredential(deps.stateDir)?.pendingRotation) {
       // Make the new-key reference durable before dropping the only old private key.
@@ -440,6 +453,7 @@ export function createMachineSupervisorConnection(
       log.error('machine supervisor cannot connect', { err: error })
       reportConnectivity({ state: 'blocked', blockedReason: String(error) })
       settleFirst(false)
+      scheduleReconnect()
       return
     }
     activeServerUrl = resolveServerUrl()

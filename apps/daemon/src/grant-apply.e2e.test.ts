@@ -11,7 +11,7 @@ import { noJanitorWorkerForTests } from '../../server/src/janitor-host'
 import { registerDevFeedRoutes } from '../../server/src/modules/updates/artifact-route'
 import { developmentArtifactUrl } from '../../server/src/modules/updates/dev-publisher-wiring'
 import { readOrCreateUpdateSigningKey } from '../../server/src/modules/updates/signing-key'
-import { startServer } from '../../server/src/server'
+import { startServer } from '../../server/src/test-support/enrolled-server'
 import { startDaemon } from './daemon'
 import { readPendingGrant } from './pending-grant'
 
@@ -171,7 +171,7 @@ describe('daemon update grant over the live server socket', () => {
       const machineId = server.registry.sessionStore.hostMachineId
       daemon = await startDaemon({
         serverUrl: `ws://127.0.0.1:${server.port}`,
-        bootstrapToken: server.bootstrapToken,
+        machineToken: server.machineToken,
         machineId,
         identityDir,
         hooks: { port: 0, settingsDir: runtimeDir },

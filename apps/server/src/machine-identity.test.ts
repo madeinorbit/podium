@@ -207,7 +207,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
       (await bootedRegistry('shared-secret')).modules.machines,
     )
 
-    const resolved = await directory.verifyDaemonSecret('shared-secret', { hostname: 'this-host' })
+    const resolved = await directory.verifyMachineToken('shared-secret', HOST, { hostname: 'this-host' })
 
     expect(resolved).toMatchObject({ machine: HOST, name: 'this-host' })
   })
@@ -219,7 +219,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
       (await bootedRegistry('shared-secret')).modules.machines,
     )
 
-    expect(await directory.verifyDaemonSecret('not-the-secret')).toBeNull()
+    expect(await directory.verifyMachineToken('not-the-secret', HOST)).toBeNull()
   })
 
   it('the directory names the host from the service, not from a constant', async () => {
@@ -231,7 +231,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
     await registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
     expect(
-      await createMachineDirectory(registry.modules.machines).verifyDaemonSecret('other-secret'),
+      await createMachineDirectory(registry.modules.machines).verifyMachineToken('other-secret', other),
     ).toMatchObject({ machine: other })
   })
 })

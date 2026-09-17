@@ -1,3 +1,4 @@
+import { promoteMachineAssignment } from '../apps/server/src/transfer-machine-assignment'
 /**
  * Live agent daemon process (split deployment): owns ALL per-agent work — abduco
  * PTY attach, transcript tailing, agent-state observation, discovery scans, host metrics.
@@ -20,7 +21,7 @@
 
 import { bootProcess } from '@podium/runtime/boot'
 import { resolveLocalServerHost, resolvePort } from '@podium/runtime/config'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { parseBackendArg } from '../apps/daemon/src/durable-backend'
 
@@ -38,8 +39,8 @@ await bootProcess({
   // `machine_id='__local__'` sessions/repos are never adopted — they vanish on restart.
   start: () =>
     startDaemon({
+      promoteMachineAssignment,
       serverUrl: `ws://${host}:${port}`,
-      bootstrapToken: readOrCreateDaemonSecret(),
       // Same host, same state dir, same identity file the server read: this daemon
       // attaches AS this host rather than as a constant that stood for it.
       machineId: readOrCreateLocalMachineId(),

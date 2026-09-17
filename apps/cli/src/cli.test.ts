@@ -258,7 +258,7 @@ describe('resolvePlan — launch matrix', () => {
       kind: 'in-process',
       roles: { server: true, daemon: true },
       claimRole: 'all-in-one',
-      daemonAuth: 'in-process-local',
+      daemonAuth: 'machine',
       runRecordMode: 'foreground',
       showSetupHint: false,
     })
@@ -355,14 +355,14 @@ describe('resolvePlan — launch matrix', () => {
       kind: 'in-process',
       roles: { server: false, daemon: true },
       claimRole: 'daemon',
-      daemonAuth: 'local-split',
+      daemonAuth: 'machine',
     })
   })
   it('`podium daemon` against a remote server → remote auth (blocked-exit wiring)', () => {
     expect(plan({ mode: 'daemon', serverUrl: 'wss://relay' }, ['daemon'])).toMatchObject({
       kind: 'in-process',
       roles: { server: false, daemon: true },
-      daemonAuth: 'remote',
+      daemonAuth: 'machine',
     })
   })
   it('run record mode: NOTIFY_SOCKET → systemd; PODIUM_RUN_MODE=detached → detached', () => {
@@ -975,17 +975,15 @@ describe('daemonOptionsForPlan', () => {
     // The id comes from `<stateDir>/machine.id` (POD-318) — the same file the
     // split-mode daemon and the server read — so it is passed in here rather than
     // asserted as a constant. What this pins is that the option carries the HOST's
-    // identity and the loopback secret together.
+    // identity with the normal machine credential path.
     expect(
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },
         18787,
-        'local-secret',
         asMachineId('host-machine-id'),
       ),
     ).toEqual({
       serverUrl: 'ws://localhost:18787',
-      bootstrapToken: 'local-secret',
       machineId: 'host-machine-id',
       exitStopsServer: true,
       installCodexHooks: true,
@@ -1003,7 +1001,6 @@ describe('daemonOptionsForPlan', () => {
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },
         18787,
-        'local-secret',
         asMachineId('host-machine-id'),
       ).exitStopsServer,
     ).toBe(true)
@@ -1016,7 +1013,6 @@ describe('daemonOptionsForPlan', () => {
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },
         18787,
-        'local-secret',
         undefined,
         readHostMachineId,
       ).machineId,
@@ -1032,7 +1028,6 @@ describe('daemonOptionsForPlan', () => {
       daemonOptionsForPlan(
         { mode: 'daemon', serverUrl: 'wss://relay.example', showSetupHint: false },
         18787,
-        'local-secret',
       ).exitStopsServer,
     ).toBeUndefined()
   })
@@ -1049,7 +1044,6 @@ describe('daemonOptionsForPlan', () => {
           showSetupHint: false,
         },
         18787,
-        'local-secret',
         undefined,
         readHostMachineId,
       ),

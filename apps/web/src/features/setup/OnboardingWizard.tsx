@@ -1,3 +1,5 @@
+import { HOST_REPOS, machineRejection } from '@podium/model'
+import { useStoreSelector } from '@/app/store'
 import { ArrowRight, Check, Laptop, Link2, Server, Terminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
@@ -52,6 +54,14 @@ export function OnboardingWizard({
   trpc: Trpc
   vps: ConfirmedVpsActivation
 }): JSX.Element {
+  const machineReady = useStoreSelector((state) => state.machines.some((machine) => machineRejection(machine, HOST_REPOS) === undefined))
+  if (!machineReady && (route === 'local-project' || route === 'agent' || route === 'first-task')) {
+    return <ActivationShell eyebrow="Set up Podium" title="Waiting for your machine"
+      description="Finish enrolling a machine and wait for its daemon to connect before choosing a project."
+      icon={<Laptop aria-hidden="true" />}>
+      <Button onClick={() => onRouteChange('welcome')}>Back to setup</Button>
+    </ActivationShell>
+  }
   if (isExistingPodiumRoute(route)) {
     return (
       <ExistingPodiumActivation

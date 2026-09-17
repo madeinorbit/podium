@@ -51,7 +51,7 @@ describe('server move durable reauthorization', () => {
     }
   })
 
-  it('refuses an admin whose target manage grant was revoked', async () => {
+  it('keeps administrator management authority when another member has custody', async () => {
     const authorization = serverMoveAuthorization({
       authorizedBy: admin,
       targetMachineId,
@@ -59,8 +59,6 @@ describe('server move durable reauthorization', () => {
       roleOf: async () => 'admin',
     })
 
-    await expect(authorization.reauthorize('commit')).rejects.toMatchObject({
-      code: 'reauthorization-denied',
-    })
+    await expect(authorization.reauthorize('commit')).resolves.toBeUndefined()
   })
 })

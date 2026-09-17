@@ -115,7 +115,6 @@ export interface MachineDirectoryOptions {
 }
 
 export interface AsyncMachineDirectory {
-  verifyDaemonSecret(secret: string, observed?: PeerObservations): Promise<ResolvedMachine | null>
   verifyMachineToken(
     token: string,
     machineHint?: string,
@@ -128,40 +127,6 @@ export const createMachineDirectory = (
   machines: MachineAuthenticator,
   options: MachineDirectoryOptions = {},
 ): AsyncMachineDirectory => ({
-  /**
-   * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
-   * (`ensureHostMachine` registers this host with it at startup), so verifying the
-   * secret is verifying that machine's credential — the same hello path as any
-   * remote, not a bootstrap special case. The id comes from the service, so the
-   * split-mode daemon presenting the id it read from the same state dir and the
-   * server checking the credential are talking about the same row by construction.
-   */
-  async verifyDaemonSecret(
-    secret: string,
-    observed?: PeerObservations,
-  ): Promise<ResolvedMachine | null> {
-    const auth = await machines.authenticateDaemon(
-      {
-        type: 'hello',
-        machineId: machines.hostMachineId,
-        token: secret,
-        hostname: observed?.hostname ?? machines.hostMachineId,
-      },
-      options,
-    )
-    return auth.ok
-      ? resolved(
-          auth.machineId,
-          auth.name,
-          undefined,
-          auth.updatePubkey,
-          auth.updateKeyRotations,
-          auth.legacyBindingOwners,
-          auth.bindingConfirmations,
-        )
-      : null
-  },
-
   /**
    * ADR 5 D5 row 3, reconnect. The hint narrows the lookup because today's store
    * indexes a credential per machine row (`getMachineByToken(machineId, token)`);
@@ -249,29 +214,6 @@ export const createResolvedMachineDirectory = (
   machines: ResolvedMachineAuthenticator,
   options: MachineDirectoryOptions = {},
 ): MachineDirectory => ({
-  verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
-    const auth = machines.authenticateDaemon(
-      {
-        type: 'hello',
-        machineId: machines.hostMachineId,
-        token: secret,
-        hostname: observed?.hostname ?? machines.hostMachineId,
-      },
-      options,
-    )
-    return auth.ok
-      ? resolved(
-          auth.machineId,
-          auth.name,
-          undefined,
-          auth.updatePubkey,
-          auth.updateKeyRotations,
-          auth.legacyBindingOwners,
-          auth.bindingConfirmations,
-        )
-      : null
-  },
-
   verifyMachineKey(credential, observed) {
     if (!credential.proof) return null
     const auth = machines.authenticateDaemon({

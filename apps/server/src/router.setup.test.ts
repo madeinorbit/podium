@@ -1,3 +1,8 @@
+import { setParentControlLink, type ParentRequest } from '@podium/runtime/parent-control'
+import { prepareSetupEnrollment, confirmSetupEnrollment } from '@podium/runtime/setup-enrollment'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { openTestStore } from './test-support/open-test-store'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,13 +28,34 @@ import { OPERATOR } from './test-support/capabilities'
  */
 let harness: Awaited<ReturnType<typeof makeHarness>> | undefined
 
+function installSetupParent() {
+    setParentControlLink({
+      open: () => true,
+      post: async () => {},
+      request: async (requestId, raw) => {
+        const request = raw as unknown as ParentRequest
+        const enrollment = request.enrollment!
+        return {
+          requestId, kind: 'enrollment', ok: true,
+          enrollment: enrollment.action === 'prepare'
+            ? prepareSetupEnrollment(enrollment.agentExecution, false, process.env.PODIUM_STATE_DIR)
+            : confirmSetupEnrollment(enrollment.setupRequestId!, enrollment.publicKey!, process.env.PODIUM_STATE_DIR),
+          completedAt: new Date().toISOString(),
+        }
+      },
+    })
+}
+
 async function makeHarness() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  installSetupParent()
+  const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   return {
+    registry,
     users,
     caller: appRouter.createCaller({
       registry,
@@ -56,7 +82,8 @@ async function activationHarness(opts: {
   readiness: () => ServerReadiness
   requestCoordinatorRestart?: () => void | Promise<void>
 }) {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -121,10 +148,20 @@ describe('setup tRPC', () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'))
   })
   afterEach(() => {
+    setParentControlLink(undefined)
     process.env.PODIUM_STATE_DIR = priorStateDir
     harness = undefined
     vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('has no host row before setup and confirms the enrolled key only after completion', async () => {
+    const api = await caller()
+    const machines = harness!.registry.modules.machines
+    expect(await harness!.registry.sessionStore.machines.getMachine(machines.hostMachineId)).toBeUndefined()
+    await api.setup.complete({ publicUrl: 'https://setup.example', acknowledgeNoPassword: true })
+    expect(await harness!.registry.sessionStore.machines.custodian(machines.hostMachineId)).toBe(firstAdminMemberId())
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeTruthy()
   })
 
   it('lists network options', async () => {
@@ -371,6 +408,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
     harness = undefined
   })
   afterEach(() => {
+    setParentControlLink(undefined)
     process.env.PODIUM_STATE_DIR = priorStateDir
     harness = undefined
     rmSync(dir, { recursive: true, force: true })
@@ -443,6 +481,7 @@ describe('setup.activate — the restart an operator can actually reach [POD-276
     harness = undefined
   })
   afterEach(() => {
+    setParentControlLink(undefined)
     process.env.PODIUM_STATE_DIR = priorStateDir
     harness = undefined
     rmSync(dir, { recursive: true, force: true })

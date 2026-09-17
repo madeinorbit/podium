@@ -68,7 +68,7 @@ try {
   })
   daemon = await startDaemon({
     serverUrl: `ws://localhost:${port}`,
-    bootstrapToken: 'test',
+    machineToken: 'test',
     hooks: { port: 0, settingsDir },
     agentRelay: { port: 0 },
     backend: 'none',

@@ -64,14 +64,14 @@ const fileEntry = (path: string, content: Buffer | string): ServerTransferManife
   sha256: createHash('sha256').update(content).digest('hex'),
 })
 
-async function candidateFiles(machineId = targetMachineId, identity?: InstallationIdentity): Promise<Record<string, Buffer>> {
+async function candidateFiles(machineId = targetMachineId, identity?: InstallationIdentity, revoked = false): Promise<Record<string, Buffer>> {
   const path = join(stateRoot, `candidate-${randomUUID()}.db`)
   const db = openDatabase(path)
   try {
     db.exec(`
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE machines (id TEXT PRIMARY KEY);
+      CREATE TABLE machines (id TEXT PRIMARY KEY, revoked_at TEXT);
       CREATE TABLE feed_identity (
         singleton INTEGER PRIMARY KEY,
         feed_id TEXT NOT NULL,
@@ -84,7 +84,7 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
       db.prepare('INSERT INTO meta VALUES (?, ?)').run(INSTALLATION_META_KEY, JSON.stringify(metadata))
       db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(INSTALLATION_PRIVATE_KEY, privateKey, identity.createdAt)
     }
-    db.prepare('INSERT INTO machines (id) VALUES (?)').run(machineId)
+    db.prepare('INSERT INTO machines (id, revoked_at) VALUES (?, ?)').run(machineId, revoked ? 'now' : null)
     db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch) VALUES (1, ?, ?)').run(
       'feed-1',
       'epoch-1',
@@ -95,10 +95,7 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
   }
   const podiumDb = await readFile(path)
   await rm(path, { force: true })
-  const enrollmentLedger = Buffer.from(
-    `${JSON.stringify({ v: 1, kind: 'header', pairingRoot: 'a'.repeat(64), createdAt: 'now' })}\n${JSON.stringify({ v: 1, kind: 'enroll', id: 'enroll-1', machineId, serial: 1, ownerUserId: 'owner-1', at: 'now' })}\n`,
-  )
-  return { 'enrollment.ledger': enrollmentLedger, 'podium.db': podiumDb }
+  return { 'podium.db': podiumDb }
 }
 
 function readDatabaseIdentity(path: string): InstallationIdentity | undefined {
@@ -111,17 +108,6 @@ function readDatabaseIdentity(path: string): InstallationIdentity | undefined {
   } finally { db.close() }
 }
 
-function ledgerEvent(kind: 'enroll' | 'revoke', serial: number, id: string): string {
-  return JSON.stringify({
-    v: 1,
-    kind,
-    id,
-    machineId: targetMachineId,
-    serial,
-    ...(kind === 'enroll' ? { ownerUserId: 'owner-1' } : { by: 'owner-1' }),
-    at: 'now',
-  })
-}
 
 async function invoke(
   type:
@@ -142,6 +128,7 @@ async function invoke(
   return new Promise((resolve) => {
     const ctx = {
       machineId: targetMachineId,
+      promoteMachineAssignment: async () => {},
       send: (response: DaemonMessage) => {
         if (response.type === 'serverTransferResult') resolve(response)
       },
@@ -664,9 +651,7 @@ describe('server transfer target daemon', () => {
   })
 
   it('rejects a staged candidate whose SQLite schema cannot produce proof', async () => {
-    const valid = await candidateFiles()
     const files: Record<string, Buffer> = {
-      'enrollment.ledger': valid['enrollment.ledger']!,
       'podium.db': Buffer.from('not-a-sqlite-database'),
     }
     const manifest = Object.entries(files)
@@ -713,15 +698,10 @@ describe('server transfer target daemon', () => {
   })
 
   it.each([
-    ['revoked', `${ledgerEvent('revoke', 1, 'revoke-1')}\n`, false],
-    [
-      're-enrolled',
-      `${ledgerEvent('revoke', 1, 'revoke-1')}\n${ledgerEvent('enroll', 2, 'enroll-2')}\n`,
-      true,
-    ],
-  ] as const)('requires an active target enrollment in a %s candidate', async (_, suffix, ok) => {
-    const files = await candidateFiles()
-    files['enrollment.ledger'] = Buffer.concat([files['enrollment.ledger']!, Buffer.from(suffix)])
+    ['revoked', true, false],
+    ['active', false, true],
+  ] as const)('requires an active target enrollment in a %s candidate', async (_, revoked, ok) => {
+    const files = await candidateFiles(targetMachineId, undefined, revoked)
     const manifest = Object.entries(files)
       .map(([path, content]) => fileEntry(path, content))
       .sort((a, b) => a.path.localeCompare(b.path))

@@ -1,5 +1,5 @@
 import type { Attribution, MachineId, SessionId } from '@podium/model'
-import type { PeerHello, PeerHelloReply } from '../handshake/envelope'
+import type { MachineChallenge, PeerHello, PeerHelloReply } from '../handshake/envelope'
 import type { ControlMessage } from './control'
 import type { DaemonMessage } from './daemon'
 import type { ObservationInputOrigin } from './runtime-state'
@@ -59,6 +59,7 @@ export interface LocalPortableStateControl {
 export interface LocalDaemonLink {
   attach(opts: {
     hello: PeerHello
+    signChallenge?: (challenge: MachineChallenge) => Promise<PeerHello>
     deliver: (msg: ControlMessage) => void
     /** Optional during rolling compatibility; absent uses the legacy control frame. */
     deliverInput?: (input: DaemonPtyInputBatch) => void

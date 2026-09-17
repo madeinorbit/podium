@@ -36,6 +36,7 @@ import {
   NODE_CHANNEL_FD_ENV,
   type ParentIdentity,
 } from './lifecycle-channel'
+import { prepareSetupEnrollment, confirmSetupEnrollment, signMachineHello } from './setup-enrollment'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   clearParentRequest,
@@ -159,6 +160,7 @@ export interface ParentProcessDeps {
   daemonLocal?: boolean
   /** Refresh parent-owned assignment/endpoint before changed children are spawned. */
   onTopology?: (children: readonly SupervisedChild[]) => void
+  onEnrollment?: (confirmed: boolean) => void
   /**
    * Who this parent is, sent to every child the moment it is spawned
    * (POD-3761). Evaluated per spawn so a topology change reaches the next
@@ -728,6 +730,10 @@ export class ParentProcess {
       log.warn('parent signalled but no request file present')
       return
     }
+    if (request.kind === 'enrollment' || request.kind === 'signHello') {
+      clearParentRequest()
+      throw new Error('setup enrollment requires the private server channel')
+    }
     await this.handleParentRequest(
       request,
       (result) => {
@@ -752,6 +758,7 @@ export class ParentProcess {
       log.error('child sent a control request this parent cannot read', { child })
       return
     }
+    if (parsed.data.kind === 'enrollment' && child !== 'server') return
     void this.handleParentRequest(
       parsed.data,
       (result) => {
@@ -781,6 +788,39 @@ export class ParentProcess {
     respond: (result: ParentResult) => void,
     consume: () => void,
   ): Promise<void> {
+    // Credential requests are synchronous and may be needed while a topology
+    // transition waits for child readiness. They do not acquire the handover lock.
+    if (request.kind === 'signHello') {
+      try {
+        if (!request.challenge) throw new Error('missing machine hello challenge')
+        const signature = signMachineHello(request.challenge, this.deps.stateDir ?? stateDir())
+        respond({ requestId: request.requestId, kind: request.kind, ok: true, signature,
+          completedAt: new Date(this.deps.now()).toISOString() })
+      } catch (error) {
+        respond({ requestId: request.requestId, kind: request.kind, ok: false, error: String(error),
+          completedAt: new Date(this.deps.now()).toISOString() })
+      }
+      consume()
+      return
+    }
+    if (request.kind === 'enrollment') {
+      try {
+        const input = request.enrollment
+        if (!input) throw new Error('missing enrollment request')
+        const dir = this.deps.stateDir ?? stateDir()
+        const enrollment = input.action === 'prepare'
+          ? prepareSetupEnrollment(input.agentExecution, false, dir)
+          : confirmSetupEnrollment(input.setupRequestId ?? '', input.publicKey ?? '', dir)
+        this.deps.onEnrollment?.(input.action === 'confirm')
+        respond({ requestId: request.requestId, kind: request.kind, ok: true,
+          enrollment, completedAt: new Date(this.deps.now()).toISOString() })
+      } catch (error) {
+        respond({ requestId: request.requestId, kind: request.kind, ok: false,
+          error: String(error), completedAt: new Date(this.deps.now()).toISOString() })
+      }
+      consume()
+      return
+    }
     /**
      * BUSY IS AN ANSWER (POD-3763). This used to `return` silently, which left
      * the caller polling a result file that would never appear until its own

@@ -228,7 +228,7 @@ describe('daemon connectivity state (#19)', () => {
         setTimeout(() => ws.close(), 10)
       })
     })
-    // A stored token (not bootstrapToken — that disables the status file) → hello path.
+    // A stored token (not machineToken — that disables the status file) → hello path.
     const { writeFileSync, mkdirSync } = await import('node:fs')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'm-1', token: 't-1' }))

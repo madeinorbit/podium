@@ -1,3 +1,4 @@
+import { promoteMachineAssignment } from '../apps/server/src/transfer-machine-assignment'
 /**
  * Backend for the single-origin dev host: relay server + live agent daemon in one process.
  *
@@ -41,8 +42,8 @@ await bootProcess({
       localSetupDefault: localDefault,
     })
     const daemon = await startDaemon({
+      promoteMachineAssignment,
       serverUrl: `ws://localhost:${server.port}`,
-      bootstrapToken: server.bootstrapToken,
       // Same host, same state dir, same identity file the server read.
       machineId: readOrCreateLocalMachineId(),
       installCodexHooks: true,

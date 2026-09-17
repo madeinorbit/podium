@@ -83,7 +83,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       janitor = await startJanitor({
         serverUrl: `http://127.0.0.1:${server.port}`,
-        token: server.bootstrapToken,
+        token: server.maintenanceToken,
         dbPath,
       })
 

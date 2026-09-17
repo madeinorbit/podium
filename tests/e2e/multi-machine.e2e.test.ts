@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
@@ -55,7 +55,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     // daemon1: the local/bootstrap machine
     const daemon1 = await startDaemon({
       serverUrl,
-      bootstrapToken: srv.bootstrapToken,
+      machineToken: srv.machineToken,
       machineId: hostMachineId(),
       identityDir: tmp1,
       launch: fixtureLaunch,

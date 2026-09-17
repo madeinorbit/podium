@@ -154,7 +154,7 @@ describe.skipIf(!live)('e2e: an opencode session on the SERVER driver', () => {
     const srv = await startServer()
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+      machineToken: readOrCreateDaemonSecret(stateDir()),
       machineId: hostMachineId(),
       identityDir: tmp,
       // NO `launch` OVERRIDE, and that is the point: a server-family session

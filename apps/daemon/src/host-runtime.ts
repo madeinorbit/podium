@@ -1030,6 +1030,7 @@ export async function createDaemonHostRuntime(args: {
     usageMemo: {},
     portableStateFence,
     shipping,
+    promoteMachineAssignment: opts.promoteMachineAssignment,
     restartAfterTransfer:
       opts.restartAfterTransfer ??
       (async (expected) => {

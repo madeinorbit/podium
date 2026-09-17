@@ -1,7 +1,7 @@
 import { startDaemon } from '../../src/daemon.js'
 
-const [serverUrl, bootstrapToken, settingsDir] = process.argv.slice(2)
-if (!serverUrl || !bootstrapToken || !settingsDir) {
+const [serverUrl, machineToken, settingsDir] = process.argv.slice(2)
+if (!serverUrl || !machineToken || !settingsDir) {
   throw new Error('usage: build-report-compiled <server-url> <bootstrap-token> <settings-dir>')
 }
 
@@ -9,7 +9,7 @@ let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
 try {
   daemon = await startDaemon({
     serverUrl,
-    bootstrapToken,
+    machineToken,
     hooks: { port: 0, settingsDir },
     agentRelay: { port: 0 },
     backend: 'none',

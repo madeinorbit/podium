@@ -90,6 +90,16 @@ export class SettingsRepository {
     return row?.value ? asUserId(row.value) : null
   }
 
+  /** Setup enrollment receipts share the database transaction with their machine row. */
+  async setupEnrollmentReceipt(key: string): Promise<string | undefined> {
+    return (await this.db.select({ value: meta.value }).from(meta)
+      .where(eq(meta.key, `setup_enrollment:${key}`)).get())?.value
+  }
+
+  async recordSetupEnrollment(key: string, receipt: string): Promise<void> {
+    await this.writeMeta(`setup_enrollment:${key}`, receipt)
+  }
+
   async getSettings(): Promise<PodiumSettings> {
     const row = await this.db
       .select({ value: meta.value })

@@ -157,7 +157,7 @@ export interface MachineDirectory {
     observed?: PeerObservations,
   ): ResolvedMachine | null
   /** ADR 5 D5, machine (local): verify the shared host secret. */
-  verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null
+  verifyDaemonSecret?(secret: string, observed?: PeerObservations): ResolvedMachine | null
   /** ADR 5 D5, machine (remote reconnect): verify a long-lived machine token. */
   verifyMachineToken(
     token: string,

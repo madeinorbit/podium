@@ -8,7 +8,7 @@ import { asSessionId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { ServerHandle } from './server'
-import { startServer } from './server'
+import { startServer } from './test-support/enrolled-server'
 
 const LARGE_JSON = JSON.stringify({
   rows: Array.from({ length: 2_000 }, (_, i) => ({ id: i, value: 'transport-proof-value' })),
@@ -266,7 +266,7 @@ async function frameOfType(
 
 describe('transport compression on real Bun wires', () => {
   let stateDir: string
-  let server: ServerHandle
+  let server: Awaited<ReturnType<typeof startServer>>
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-transport-compression-'))
@@ -381,7 +381,7 @@ describe('transport compression on real Bun wires', () => {
         JSON.stringify({
           type: 'hello',
           machineId,
-          token: server.bootstrapToken,
+          token: server.machineToken,
           hostname: 'transport-proof',
         }),
       ),

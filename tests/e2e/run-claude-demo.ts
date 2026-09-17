@@ -11,7 +11,7 @@ import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -39,7 +39,7 @@ const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)
 const server = await startServer({ port: SERVER_PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
-  bootstrapToken: server.bootstrapToken,
+  machineToken: server.machineToken,
   machineId: hostMachineId(),
   hooks: { port: 0 },
   agentRelay: { port: 0 },

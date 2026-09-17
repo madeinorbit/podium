@@ -252,7 +252,7 @@ type AgentFrameBatch = Extract<DaemonMessage, { type: 'agentFrameBatch' }>
 type FlatFrame = { sessionId: SessionId; data: string }
 
 // The daemon now authenticates before doing anything: its FIRST frame is a `hello`
-// handshake (driven by bootstrapToken: 'test' below) and it waits for `helloOk` before
+// handshake (driven by machineToken: 'test' below) and it waits for `helloOk` before
 // starting background work / accepting control messages. Every fake server here must
 // therefore answer the handshake. This helper replies `helloOk` to the first frame (the
 // hello), then records every subsequent DaemonMessage — exactly what the old bare
@@ -302,7 +302,7 @@ describe('daemon multi-bridge', () => {
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       // direct Bun.Terminal path keeps these fixtures/assertions deterministic
@@ -813,7 +813,7 @@ describe('daemon multi-bridge', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -913,7 +913,7 @@ describe('daemon multi-bridge', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -1435,7 +1435,7 @@ describe('default server-driver spawn integration', () => {
       })
       daemon = await startDaemon({
         serverUrl: `ws://localhost:${port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         identityDir: trackTmp('podium-codex-identity-'),
         hooks: { port: 0, settingsDir: trackTmp('podium-codex-hooks-') },
         agentRelay: { port: 0 },
@@ -1868,7 +1868,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: DURABLE_BACKEND,
@@ -1980,7 +1980,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
 
     const daemonOpts = {
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       agentRelay: { port: 0 },
       backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
@@ -2123,7 +2123,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
           .join('')
       const base = {
         serverUrl: `ws://localhost:${port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         agentRelay: { port: 0 },
         discovery: { background: false, cachePath: ':memory:' },
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
@@ -2205,7 +2205,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'abduco',
@@ -2315,7 +2315,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
     const a = await startServer()
     const daemonA = await startDaemon({
       serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir },
       agentRelay: { port: 0 },
       backend: 'abduco',
@@ -2338,7 +2338,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
     const b = await startServer()
     const daemonB = await startDaemon({
       serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir },
       agentRelay: { port: 0 },
       backend: 'abduco',
@@ -2442,7 +2442,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
       const a = await startServer()
       const daemonA = await startDaemon({
         serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         hooks: { port: 0, settingsDir },
         agentRelay: { port: 0 },
         backend: 'abduco',
@@ -2462,7 +2462,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
       const b = await startServer()
       const daemonB = await startDaemon({
         serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         hooks: { port: 0, settingsDir },
         agentRelay: { port: 0 },
         backend: 'abduco',
@@ -2525,7 +2525,7 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'abduco',
@@ -2581,7 +2581,7 @@ describe('daemon conversation discovery', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2631,7 +2631,7 @@ describe('daemon conversation discovery', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2684,7 +2684,7 @@ describe('daemon conversation discovery', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2752,7 +2752,7 @@ describe('daemon conversation discovery', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2791,7 +2791,7 @@ describe('daemon host metrics', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2829,7 +2829,7 @@ describe('daemon host metrics', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
@@ -2861,7 +2861,7 @@ describe('daemon memory breakdown', () => {
       })
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         agentRelay: { port: 0 },
         backend: 'none',
@@ -2931,7 +2931,7 @@ describe('Codex identity receipt recovery', () => {
       })
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
-        bootstrapToken: 'test',
+        machineToken: 'test',
         backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
@@ -3005,7 +3005,7 @@ describe('agent state instrumentation', () => {
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
@@ -3427,7 +3427,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   const startTestDaemon = async (server: TestServer, homeDir: string): Promise<DaemonHandle> => {
     const d = await startDaemon({
       serverUrl: `ws://localhost:${(server.wss.address() as { port: number }).port}`,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',

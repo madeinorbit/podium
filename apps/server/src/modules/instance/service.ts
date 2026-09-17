@@ -118,6 +118,7 @@ export interface InstanceDeps {
    * the row is still unowned. Optional: an instance assembled without machines
    * (tests, the in-process MCP caller) simply records nothing.
    */
+  readonly completeHostSetup?: ((ownerUserId: UserId, agentExecution: boolean, passwordHash?: string) => Promise<void>) | undefined
   readonly grantHostMachine?: ((ownerUserId: UserId) => Promise<boolean>) | undefined
 }
 
@@ -354,20 +355,17 @@ export class InstanceService {
     // Honours the kill switches: an env that says "do not track" wins over an
     // answer the UI should not have collected.
     if (input.telemetry && shouldAskForConsent()) setConsent(input.telemetry)
-    // Setup's optional password is the caller's own credential, same as auth.setPassword.
-    if (password) {
-      const { users, callerUserId } = this.requireAccountStore()
-      await users.setPasswordHash(
-        callerUserId,
-        await hashPassword(password),
-        new Date().toISOString(),
-      )
-    }
-    // The caller completing setup is the host machine's grantee if it has none yet
-    // (POD-4179): the one write that replaces the boot-time owner inference the
-    // database cutover removed. Idempotent — an owned row is left alone.
-    if (this.deps.grantHostMachine && this.deps.callerUserId) {
-      await this.deps.grantHostMachine(this.deps.callerUserId)
+    const passwordHash = password ? await hashPassword(password) : undefined
+    if (this.deps.completeHostSetup && this.deps.callerUserId) {
+      await this.deps.completeHostSetup(this.deps.callerUserId, cfg.mode !== 'server', passwordHash)
+    } else {
+      if (passwordHash) {
+        const { users, callerUserId } = this.requireAccountStore()
+        await users.setPasswordHash(callerUserId, passwordHash, new Date().toISOString())
+      }
+      if (this.deps.grantHostMachine && this.deps.callerUserId) {
+        await this.deps.grantHostMachine(this.deps.callerUserId)
+      }
     }
     return cfg
   }

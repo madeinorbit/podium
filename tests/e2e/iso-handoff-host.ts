@@ -34,7 +34,7 @@ import { OPERATOR } from '../../apps/server/src/issue-authz'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { sha256 } from '../../apps/server/src/modules/machines/service'
 import { RepoRegistry } from '../../apps/server/src/repo-registry'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import type { SessionStore } from '../../apps/server/src/store'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -119,7 +119,7 @@ const repoRegistry = new RepoRegistry(server.registry, store)
 
 const daemon = await startDaemon({
   serverUrl: `ws://127.0.0.1:${server.port}`,
-  bootstrapToken: server.bootstrapToken,
+  machineToken: server.machineToken,
   machineId: readOrCreateLocalMachineId(),
   launch,
   hooks: { port: 0 },

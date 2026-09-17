@@ -206,6 +206,7 @@ export interface DaemonContext {
   shipping: ShippingExecutionPlane
 
   /** Starts the promoted server and returns only after the expected state is serving. */
+  promoteMachineAssignment?: (input: { sourceMachineId: string; targetMachineId: string; requestId: string }) => Promise<void>
   restartAfterTransfer?: (
     expected: ServerTransferServingProof,
   ) => Promise<ServerTransferServingProof> | ServerTransferServingProof

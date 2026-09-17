@@ -14,7 +14,7 @@ import { connectHost, hostSocketPath } from '../../packages/pty/src/host'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 import { seedOpencodeLogin } from './opencode-login'
 
@@ -56,7 +56,7 @@ describe.skipIf(process.env.PODIUM_OPENCODE_LIVE !== '1')('OpenCode terminal fir
       const machineId = readOrCreateLocalMachineId()
       daemon = await startDaemon({
         serverUrl: `ws://localhost:${srv.port}`,
-        bootstrapToken: srv.bootstrapToken,
+        machineToken: srv.machineToken,
         machineId,
         identityDir: home,
         backend: 'host',

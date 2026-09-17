@@ -94,7 +94,7 @@ describe('daemon boot with a taken hook port', () => {
     const settingsDir = mkdtempSync(join(tmpdir(), 'podium-portconflict-'))
     const daemon = await startDaemon({
       serverUrl: opts.serverUrl,
-      bootstrapToken: 'test',
+      machineToken: 'test',
       hooks: { port: opts.hookPort, settingsDir },
       agentRelay: { port: opts.relayPort },
       backend: 'none',

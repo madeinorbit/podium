@@ -107,7 +107,7 @@ describe('e2e: split server/daemon local transition', () => {
       // presents the stable local id) authenticates and attaches to the SAME machine.
       const daemon = await startDaemon({
         serverUrl,
-        bootstrapToken: readOrCreateDaemonSecret(stateDir()),
+        machineToken: readOrCreateDaemonSecret(stateDir()),
         machineId: hostMachineId(),
         identityDir: tmp,
         launch: fixtureLaunch,

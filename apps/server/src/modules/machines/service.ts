@@ -1,3 +1,7 @@
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { stateDir } from '@podium/runtime/config'
+import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
+import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { supersedeMachine } from './supersession'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { DaemonReadiness } from '@podium/model'
@@ -1028,15 +1032,37 @@ export class MachinesService {
       : accountId
   }
 
-  /**
-   * SETUP RECORDS THE HOST GRANTEE (POD-4179, design rule 3's named exception).
-   * The host row is created at boot with NO owner; the transaction that creates
-   * or activates the first admin — `setup.complete`, a staged `podium setup`
-   * password adopted at the next boot, or PODIUM_PASSWORD applied at boot — is
-   * the one that may give the row its personal grantee. Only an UNOWNED row is
-   * written: an upgraded install already carries its owner from the ledger
-   * import, and nothing here infers an owner at read time or on every boot.
-   */
+  /** The password and host enrollment are one setup transition; parent effects stay outside it. */
+  async completeHostSetup(actor: UserId, agentExecution: boolean, passwordHash?: string): Promise<void> {
+    const supervisor = loadSupervisorState(stateDir())
+    const pending = supervisor.setupEnrollment
+    const committed = pending && this.deps.installationId
+      ? await readSetupEnrollment(this.deps.store, this.deps.installationId, pending) : undefined
+    if (committed && !supervisor.enrolledPublicKey) {
+      await requestParentEnrollment({ action: 'confirm', agentExecution: committed.agentExecution,
+        setupRequestId: committed.requestId, publicKey: committed.publicKey, installationId: committed.installationId })
+    }
+    const existing = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
+    // Reconfiguring an enrolled server never replaces its credential or personal grantee.
+    if (existing) {
+      if (existing.revokedAt) throw new Error('host machine is revoked; explicit replacement enrollment required')
+      await this.deps.store.transact(async () => {
+        if (passwordHash) await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+        await this.grantHostMachineIfUnowned(actor)
+      })
+      return
+    }
+    if (!this.deps.installationId) throw new Error('setup enrollment requires installation identity')
+    const request = await requestParentEnrollment({ action: 'prepare', agentExecution })
+    if (request.machineId !== this.deps.hostMachineId) throw new Error('parent setup machine identity mismatch')
+    const receipt = await this.deps.store.transact(async () => {
+      if (passwordHash) await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+      return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
+    })
+    await requestParentEnrollment({ action: 'confirm', agentExecution,
+      setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+  }
+
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
     const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
     if (!row || row.revokedAt || await this.deps.store.machines.custodian(this.deps.hostMachineId) !== null) return false
@@ -1091,7 +1117,7 @@ export class MachinesService {
    * capability before any durable session or spawn side effect is created.
    *
    * Boot-before-daemon still QUEUES rather than refusing: the host machine's row
-   * exists from `ensureHostMachine`, so the pick resolves to it, the capability
+   * exists after setup enrollment, so the pick resolves to it, the capability
    * check sees an offline machine with no inventory yet, and the last branch below
    * lets it through to `toMachine`'s offline queue — which flushes when the host
    * daemon attaches under that same id. What is gone is the branch that let the
@@ -1776,33 +1802,12 @@ export class MachinesService {
     })
   }
 
-  /**
-   * Provision THIS HOST as a machine at SERVER STARTUP, under the id minted in
-   * `<stateDir>/machine.id`.
-   *
-   * The host is just a normally registered machine: the server owns its credential
-   * (`tokenHash = sha256(secret)`, where `secret` is the value it wrote to the
-   * state-dir file for the same-host daemon to read), so the local daemon
-   * authenticates through the regular hello path — exactly like a paired remote,
-   * with no bootstrap special case. Its id is minted material for the same reason.
-   *
-   * IT RUNS BEFORE ANY ROW IS WRITTEN, and that ordering is the whole design: with
-   * the host's row in place at boot, a session created a millisecond later has a
-   * real machine to belong to whether or not the daemon has connected. Nothing
-   * adopts anything afterwards.
-   *
-   * The legacy `'local'` machines row is NOT dealt with here: the store folded it
-   * onto this id (`migrateLegacyMachineIdentity`) when it opened, before anything
-   * could read it, so by the time this runs the row is already the host's — and the
-   * upsert below therefore UPDATES it, carrying its credential, owner and grant
-   * edges forward rather than inserting a rival. Idempotent. Tests omit `secret`
-   * (a random throwaway — they attach via the registry without authenticating).
-   */
+  /** Explicit legacy-bearer fixture enrollment. Production setup uses completeHostSetup;
+   * server startup must never call this method or create a host row. */
   async ensureHostMachine(
     hostname: string,
     secret: string = randomUUID(),
     assignment?: MachineServiceAssignment,
-    transferredFrom?: MachineId,
   ): Promise<string> {
     const id = this.deps.hostMachineId
     const existing = await this.deps.store.machines.getMachine(id)
@@ -1817,12 +1822,6 @@ export class MachinesService {
       assignmentEvidence: { version: 1, source: 'setup', requestId: id },
     })
     if (assignment && !existing?.assignmentEvidence) await this.deps.store.machines.setServiceAssignment(id, assignment, { version: 1, source: 'setup', requestId: id })
-    // Only the exact imported source is demoted; ordinary machine policy is unchanged.
-    // The composition root supplies this from durable target promotion evidence and
-    // never calls writable host bootstrap in recoveryOnly mode.
-    if (transferredFrom && transferredFrom !== id) {
-      await this.deps.store.machines.transferServerAssignment(transferredFrom, id, `transfer:${transferredFrom}:${id}`)
-    }
     await this.recordAvailability(id)
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw

@@ -259,9 +259,8 @@ describe('supervisor refused as superseded', () => {
     }
     const connection = createMachineSupervisorConnection({
       serverUrl: 'ws://coordinator.example',
-      bootstrapToken: () => 'secret',
       stateDir: dir,
-      state: loadSupervisorState(dir),
+      state: { ...loadSupervisorState(dir), token: 'secret' },
       build: {
         appVersion: 'test',
         wireSchemaDigest: wireSchemaDigest(),
@@ -344,9 +343,8 @@ describe('supervisor socket ceded and taken back', () => {
     }
     return createMachineSupervisorConnection({
       serverUrl: 'ws://coordinator.example',
-      bootstrapToken: () => 'secret',
       stateDir: dir,
-      state: loadSupervisorState(dir),
+      state: { ...loadSupervisorState(dir), token: 'secret' },
       build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest(), supervisorGeneration: 7 },
       deliveryCaps: ['update.delivery.feed'],
       report: () => ({ server: service, agentExecution: service }),
@@ -484,6 +482,7 @@ describe('supervisor endpoint reconfiguration', () => {
     let endpoint = 'ws://old.example'
     state.workspaceId = 'ws_test'
     let token = 'old-secret'
+    state.token = token
     let acceptAssignment = true
     const service = {
       policy: 'enabled' as const,
@@ -492,7 +491,6 @@ describe('supervisor endpoint reconfiguration', () => {
     }
     const connection = createMachineSupervisorConnection({
       serverUrl: () => endpoint,
-      bootstrapToken: () => token,
       stateDir: dir,
       state,
       build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest() },
@@ -508,11 +506,12 @@ describe('supervisor endpoint reconfiguration', () => {
       expect(old.url).toBe('ws://old.example/machine?workspace=ws_test')
       expect(old.sent[0]!.caps).toEqual([SERVER_MOVE_CAPABILITY, 'update.delivery.feed'])
       token = 'new-secret'
+    state.token = token
       connection.reconfigure()
       const same = Socket.all[1]!
       expect(same.url).toBe(old.url)
       same.accept()
-      expect(same.sent[0]!.credential).toEqual({ kind: 'daemonSecret', secret: 'new-secret' })
+      expect(same.sent[0]!.credential).toEqual({ kind: 'machineToken', token: 'new-secret', machineHint: state.machineId })
       endpoint = 'ws://new.example'
       connection.reconfigure()
       const fresh = Socket.all[2]!

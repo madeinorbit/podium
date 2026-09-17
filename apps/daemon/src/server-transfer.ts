@@ -48,7 +48,6 @@ const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
 const PORTABLE_ROOT_FILES = [
   'podium.db',
-  'enrollment.ledger',
 ] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
@@ -403,47 +402,7 @@ export async function writeFully(
 
 async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
   const dbEntry = meta.manifest.files.find((entry) => entry.path === 'podium.db')
-  const ledgerEntry = meta.manifest.files.find((entry) => entry.path === 'enrollment.ledger')
-  if (!dbEntry || !ledgerEntry)
-    fail('candidate-invalid', 'portable state must include podium.db and enrollment.ledger')
-
-  const ledgerLines = (await readFile(stagePath(meta.transferId, ledgerEntry.path), 'utf8'))
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as Record<string, unknown>
-      } catch {
-        return fail('candidate-invalid', 'enrollment ledger contains invalid JSON')
-      }
-    })
-  const header = ledgerLines.find((line) => line.kind === 'header')
-  if (
-    header?.v !== 1 ||
-    typeof header.pairingRoot !== 'string' ||
-    !/^[a-f0-9]{64,}$/i.test(header.pairingRoot)
-  )
-    fail('candidate-invalid', 'enrollment ledger has no valid pairing root')
-  const seenIds = new Set<string>()
-  let enrolledAt = 0
-  let revokedAt = 0
-  for (const line of ledgerLines) {
-    if (
-      line.v !== 1 ||
-      (line.kind !== 'enroll' && line.kind !== 'revoke' && line.kind !== 'owner') ||
-      typeof line.id !== 'string' ||
-      typeof line.machineId !== 'string' ||
-      seenIds.has(line.id)
-    ) {
-      continue
-    }
-    seenIds.add(line.id)
-    if (line.machineId !== meta.targetMachineId || typeof line.serial !== 'number') continue
-    if (line.kind === 'enroll' && line.serial > enrolledAt) enrolledAt = line.serial
-    if (line.kind === 'revoke' && line.serial > revokedAt) revokedAt = line.serial
-  }
-  if (enrolledAt === 0 || revokedAt >= enrolledAt)
-    fail('identity-mismatch', 'target machine has no active enrollment in the candidate ledger')
+  if (!dbEntry) fail('candidate-invalid', 'portable state must include podium.db')
 
   let db: ReturnType<typeof openDatabase> | undefined
   try {
@@ -453,8 +412,8 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
       | undefined
     if (integrity?.integrity_check !== 'ok')
       fail('candidate-invalid', 'candidate database failed integrity_check')
-    const target = db.prepare('SELECT id FROM machines WHERE id = ?').get(meta.targetMachineId)
-    if (!target) fail('identity-mismatch', 'target machine is absent from the candidate database')
+    const target = db.prepare('SELECT id FROM machines WHERE id = ? AND revoked_at IS NULL').get(meta.targetMachineId)
+    if (!target) fail('identity-mismatch', 'target machine has no active enrollment in the candidate database')
     const feed = db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get() as
       | { feed_id?: string; epoch?: string }
       | undefined
@@ -1058,6 +1017,9 @@ async function promote(
     const identityDb = openDatabase(join(stateDir(), 'podium.db'))
     try { bumpInstallationGeneration(identityDb) }
     finally { identityDb.close() }
+    if (!ctx.promoteMachineAssignment) fail('uncertain-commit', 'target has no server assignment transition')
+    await ctx.promoteMachineAssignment({ sourceMachineId: meta.sourceMachineId,
+      targetMachineId: meta.targetMachineId, requestId: meta.transferId })
     await crashPoint(ctx, 'after-install-before-config')
 
     await stopCandidateListener(msg.transferId)

@@ -41,7 +41,6 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },
         23000,
-        'tok',
         asMachineId('mid'),
       ),
     ).toMatchObject({ serverUrl: `ws://${HOST}:23000` })
@@ -90,7 +89,6 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },
         23000,
-        'tok',
         asMachineId('mid'),
       ),
     ).toMatchObject({ serverUrl: 'ws://localhost:23000' })

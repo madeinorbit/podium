@@ -14,7 +14,7 @@ import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
@@ -90,7 +90,7 @@ async function main() {
   const server = await startServer({ port: PORT })
   const daemon = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
-    bootstrapToken: server.bootstrapToken,
+    machineToken: server.machineToken,
     machineId: hostMachineId(),
     hooks: { port: 0 },
     agentRelay: { port: 0 },

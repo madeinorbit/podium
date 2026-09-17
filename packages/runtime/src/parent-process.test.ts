@@ -2051,6 +2051,31 @@ describe('control requests on a child line', () => {
     return { parent, server }
   }
 
+  it('answers repeated enrollment and signing requests without holding the handover lock', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-parent-enrollment-'))
+    roots.push(dir)
+    const { server } = await parentWithChild({ stateDir: dir })
+    const ask = (requestId: string, fields: Record<string, unknown>) => server.deliver(encodeLifecycle({
+      type: 'control-request', requestId,
+      request: { requestId, expectedVersion: 'setup', requestedAt: new Date().toISOString(), ...fields },
+    }))
+    ask('prepare', { kind: 'enrollment', enrollment: { action: 'prepare', agentExecution: true } })
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(1))
+    const enrollment = answers(server)[0]?.enrollment as { requestId: string; publicKey: string; machineId: string }
+    expect(enrollment.publicKey).toBeTruthy()
+    ask('confirm', { kind: 'enrollment', enrollment: { action: 'confirm', agentExecution: true,
+      setupRequestId: enrollment.requestId, publicKey: enrollment.publicKey } })
+    await vi.waitFor(() => expect(answers(server)).toHaveLength(2))
+    expect(answers(server)[1]).toMatchObject({ ok: true })
+    for (let n = 0; n < 2; n++) {
+      ask(`sign-${n}`, { kind: 'signHello', challenge: { type: 'machineChallenge',
+        machineId: enrollment.machineId, installationId: 'installation', connectionId: `connection-${n}`,
+        nonce: `nonce-${n}`, expiresAtMs: Date.now() + 30_000 } })
+      await vi.waitFor(() => expect(answers(server)).toHaveLength(3 + n))
+      expect(answers(server)[2 + n]).toMatchObject({ ok: true, signature: expect.any(String) })
+    }
+  })
+
   it('runs the same swap for a request that arrived on the line, and answers on it', async () => {
     const swapped: string[] = []
     const { server } = await parentWithChild({

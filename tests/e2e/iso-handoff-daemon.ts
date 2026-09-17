@@ -17,7 +17,7 @@ if (!serverUrl) throw new Error('ISO_SERVER required (ws://host:port)')
 
 const daemon = await startDaemon({
   serverUrl,
-  bootstrapToken: process.env.ISO_TOKEN ?? 'iso-handoff-498-vmi-token',
+  machineToken: process.env.ISO_TOKEN ?? 'iso-handoff-498-vmi-token',
   machineId: process.env.ISO_MACHINE_ID ?? 'vmi-e2e',
   hooks: { port: 0 },
   agentRelay: { port: 0 },

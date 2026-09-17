@@ -442,3 +442,40 @@ describe('supervisorLineOpen', () => {
     }
   })
 })
+
+describe('setup enrollment parent requests', () => {
+  it('reuses the key and request after a lost prepare reply and only confirms the matching key', async () => {
+    const { prepareSetupEnrollment, confirmSetupEnrollment } = await import('./setup-enrollment')
+    const { loadSupervisorState } = await import('./machine-supervisor')
+    const dir = tempState()
+    const first = prepareSetupEnrollment(true, true, dir)
+    expect(prepareSetupEnrollment(false, false, dir)).toEqual(first)
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeUndefined()
+    expect(() => confirmSetupEnrollment(first.requestId, 'another-key', dir)).toThrow('does not match')
+    confirmSetupEnrollment(first.requestId, first.publicKey, dir)
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBe(first.publicKey)
+  })
+
+  it('signs a server challenge over the private parent link without sending a private key', async () => {
+    const { prepareSetupEnrollment, signMachineHello } = await import('./setup-enrollment')
+    const { requestParentHelloSignature } = await import('./parent-control')
+    const { verifyWithMachineKey } = await import('./machine-credential')
+    const { machineHelloTranscript } = await import('@podium/protocol')
+    const dir = tempState()
+    const setup = prepareSetupEnrollment(true, true, dir)
+    const challenge = { type: 'machineChallenge' as const, machineId: setup.machineId,
+      installationId: 'installation', connectionId: 'connection', nonce: 'nonce', expiresAtMs: Date.now() + 30_000 }
+    const link: ParentControlLink = {
+      open: () => true, post: async () => {},
+      request: async (requestId, request) => {
+        expect(request.kind).toBe('signHello')
+        expect(JSON.stringify(request)).not.toContain('privateKey')
+        return { requestId, kind: 'signHello', ok: true, completedAt: new Date().toISOString(),
+          signature: signMachineHello(challenge, dir) }
+      },
+    }
+    const signature = await requestParentHelloSignature(challenge, { link })
+    expect(verifyWithMachineKey(setup.publicKey, machineHelloTranscript(challenge), signature)).toBe(true)
+    expect(() => signMachineHello({ ...challenge, machineId: 'other' }, dir)).toThrow('invalid')
+  })
+})

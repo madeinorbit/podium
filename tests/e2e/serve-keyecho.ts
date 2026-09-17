@@ -15,7 +15,7 @@ import type { LaunchOptions, LaunchSpec } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { startServer } from '../../apps/server/src/server'
+import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 
 /** THIS HOST's machine id (POD-318) — read from `<stateDir>/machine.id`, the same
  *  file the server and the split-mode daemon read. There is no `'local'` constant
@@ -55,7 +55,7 @@ function lanIp(): string {
 const server = await startServer({ port: PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
-  bootstrapToken: server.bootstrapToken,
+  machineToken: server.machineToken,
   machineId: hostMachineId(),
   hooks: { port: 0 },
   agentRelay: { port: 0 },

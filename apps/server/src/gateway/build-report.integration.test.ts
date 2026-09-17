@@ -11,7 +11,7 @@ import {
   machineCanTakeTargetPlatform,
   type WaveMachine,
 } from '../modules/updates/wave'
-import { startServer } from '../server'
+import { startServer } from '../test-support/enrolled-server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR
 const priorAppVersion = process.env.PODIUM_APP_VERSION
@@ -48,7 +48,7 @@ describe('machine build report over a live daemon socket', () => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/${options.endpoint ?? 'daemon'}`)
     const dialer = createHandshakeDialer({
       peerRole: 'machine',
-      credential: { kind: 'daemonSecret', secret: server.bootstrapToken },
+      credential: { kind: 'machineToken', token: server.machineToken, machineHint: server.registry.modules.machines.hostMachineId },
       caps: options.caps ?? (build ? ['update.delivery.feed'] : []),
       ...(build === undefined ? {} : { build }),
     })

@@ -1,3 +1,5 @@
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
 import {
@@ -7,6 +9,7 @@ import {
   inspectConfig,
   loadConfig,
   saveConfig,
+  stateDir,
 } from '@podium/runtime/config'
 import { connectivityPath, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
@@ -515,6 +518,8 @@ async function hostStep(
     io.error('Nothing saved — re-run `podium setup` to start over.')
     return
   }
+  const supervisor = loadSupervisorState(stateDir())
+  if (!supervisor.enrolledPublicKey && !supervisor.token) prepareSetupEnrollment(mode === 'all-in-one', true)
   saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
   io.success(`Saved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
