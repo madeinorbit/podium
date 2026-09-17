@@ -170,6 +170,44 @@ describe('opencode identity contract', () => {
     messageData: JSON.stringify({ role: 'assistant' }),
     partData: JSON.stringify({ type: 'text', text: 'same words' }),
   }))
+  it('reads the same row fixture under two storage paths without reminting identity', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'opencode-identity-'))
+    try {
+      const a = join(directory, 'original.json')
+      const b = join(directory, 'relocated.json')
+      const bytes = JSON.stringify(rows)
+      await writeFile(a, bytes)
+      await writeFile(b, bytes)
+      const parse = async (path: string) =>
+        stampOpencodeItems(JSON.parse(await readFile(path, 'utf8')), sessionId)
+      const first = await parse(a)
+      expect(coordinates(await parse(a))).toEqual(coordinates(first))
+      expect(coordinates(await parse(b))).toEqual(coordinates(first))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+  it('gives tool call and result distinct stable slots that join their live identities', () => {
+    const row: OpencodeMessagePartRow = {
+      ...(rows[0] as OpencodeMessagePartRow),
+      partData: JSON.stringify({
+        type: 'tool',
+        tool: 'read',
+        callID: 'call-1',
+        state: { input: {}, output: 'same words' },
+      }),
+    }
+    const parse = () => stampOpencodeItems(JSON.parse(JSON.stringify([row])), sessionId)
+    const first = parse()
+    expect(first).toHaveLength(2)
+    expect(coordinates(parse())).toEqual(coordinates(first))
+    expect(new Set(ids(first)).size).toBe(2)
+    for (const [sub, item] of first.entries()) {
+      expect(streamItemIdOf(item)).toBe(
+        encodeCursor({ fileId: opencodeFileId(sessionId), offset: 0, uuid: row.partId, sub }),
+      )
+    }
+  })
   it('replays distinct positional ids, reanchors rewritten rows, and joins stream items', () => {
     const bytes = JSON.stringify(rows)
     const parse = () => stampOpencodeItems(JSON.parse(bytes), sessionId)
