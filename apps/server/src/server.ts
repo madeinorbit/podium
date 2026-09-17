@@ -49,10 +49,7 @@ import {
   resolveUpdateScope,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
-import {
-  installationPublicKeyWire,
-  readOrCreateInstallationIdentity,
-} from '@podium/runtime/installation-identity'
+import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -633,8 +630,13 @@ export async function startServer(
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
+  const portableStateFence = new PortableStateFence()
+  if (recoveryOnly) await portableStateFence.acquire()
+  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
+    queryOnly: recoveryOnly,
+  })
   // The installation identity follows server authority across transfers.
-  const installation = readOrCreateInstallationIdentity(stateDir())
+  const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
   // Keeps Connect's record of where this server is reachable current. Started
   // once the listener is up (below); reads PODIUM_CONNECT and the public URL
@@ -649,11 +651,6 @@ export async function startServer(
       serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
     enabled: () => resolveConnectEnabled(loadConfig(), process.env),
     log: createLogger('server:connect'),
-  })
-  const portableStateFence = new PortableStateFence()
-  if (recoveryOnly) await portableStateFence.acquire()
-  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
-    queryOnly: recoveryOnly,
   })
   const activeServerMove = (await store.operations.active()).find(
     (row) => row.kind === 'server-move',

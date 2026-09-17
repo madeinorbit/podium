@@ -30,6 +30,12 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  parseInstallationIdentity,
+  type InstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   SERVER_SECRET_KEYS,
@@ -39,8 +45,8 @@ import {
 } from '@podium/model'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import { PortableCredentialBundle } from '@podium/protocol'
-import { eq } from 'drizzle-orm'
-import { serverSecrets } from '../migrations/schema'
+import { eq, sql } from 'drizzle-orm'
+import { meta, serverSecrets } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
@@ -131,6 +137,27 @@ export class ServerSecretsRepository {
         set: { value: JSON.stringify(bundle), updatedAt },
       })
       .run()
+  }
+
+  /** Installation key is outside the settings-secret vocabulary and presence projection.
+   * Read both rows in one statement so callers never observe mismatched halves. */
+  async installationIdentity(): Promise<InstallationIdentity> {
+    // Both tables call the column `value`; explicit aliases keep the executor's
+    // named-row adapter from collapsing them before Drizzle decodes the result.
+    const row = await this.db
+      .select({
+        metadata: sql<string>`${meta.value}`.as('installation_metadata'),
+        privateKey: sql<string>`${serverSecrets.value}`.as('installation_private_key'),
+      })
+      .from(meta)
+      .innerJoin(serverSecrets, eq(serverSecrets.key, INSTALLATION_PRIVATE_KEY))
+      .where(eq(meta.key, INSTALLATION_META_KEY))
+      .get()
+    if (!row) throw new Error('installation identity is missing from the database')
+    return parseInstallationIdentity(
+      'database',
+      JSON.stringify({ ...JSON.parse(row.metadata), privateKey: row.privateKey }),
+    )
   }
 
   async get(key: ServerSecretKey): Promise<string | undefined> {

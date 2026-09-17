@@ -1,19 +1,14 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  bumpInstallationGeneration,
   CONNECT_PROBE_PREFIX,
   CONNECT_REACHABILITY_PREFIX,
   CONNECT_REQUEST_PREFIX,
   connectRequestMessage,
-  INSTALLATION_FILE,
   installationPublicKeyWire,
-  isInstallationId,
-  readInstallationIdentity,
-  readOrCreateInstallationIdentity,
+  mintInstallationIdentity,
   signWithInstallation,
   verifyWithWireKey,
 } from './installation-identity'
@@ -33,93 +28,9 @@ const vectors = JSON.parse(
   reachabilitySignature: string
 }
 
-const dirs: string[] = []
-const stateDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), 'podium-installation-'))
-  dirs.push(dir)
-  return dir
-}
-afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-})
-
-describe('readOrCreateInstallationIdentity', () => {
-  it('mints once and reuses forever', () => {
-    const dir = stateDir()
-    const first = readOrCreateInstallationIdentity(dir)
-    expect(isInstallationId(first.installationId)).toBe(true)
-    expect(first.generation).toBe(1)
-    expect(first.version).toBe(1)
-    expect(readOrCreateInstallationIdentity(dir)).toEqual(first)
-    expect(readInstallationIdentity(dir)).toEqual(first)
-    expect(statSync(join(dir, INSTALLATION_FILE)).mode & 0o777).toBe(0o600)
-  })
-
-  it('is absent, not minted, on a plain read', () => {
-    expect(readInstallationIdentity(stateDir())).toBeUndefined()
-  })
-
-  it('is per state dir', () => {
-    expect(readOrCreateInstallationIdentity(stateDir()).installationId).not.toBe(
-      readOrCreateInstallationIdentity(stateDir()).installationId,
-    )
-  })
-
-  it('the wx loser re-reads the winner', () => {
-    const dir = stateDir()
-    const winner = readOrCreateInstallationIdentity(stateDir())
-    // Plant the "other process's" file after a fresh dir has been chosen, so the
-    // next call decides to mint and then loses the write.
-    writeFileSync(join(dir, INSTALLATION_FILE), JSON.stringify(winner))
-    expect(readOrCreateInstallationIdentity(dir)).toEqual(winner)
-  })
-
-  it.each([
-    ['not json', '{'],
-    ['wrong version', JSON.stringify({ version: 2 })],
-    [
-      'bad id',
-      JSON.stringify({
-        version: 1,
-        installationId: 'x',
-        privateKey: 'a',
-        publicKey: 'b',
-        generation: 1,
-        createdAt: 'c',
-      }),
-    ],
-  ])('refuses a corrupt file (%s) rather than re-minting', (_name, raw) => {
-    const dir = stateDir()
-    writeFileSync(join(dir, INSTALLATION_FILE), raw)
-    expect(() => readOrCreateInstallationIdentity(dir)).toThrow(
-      /invalid persisted installation identity/,
-    )
-    expect(() => readInstallationIdentity(dir)).toThrow()
-  })
-
-  it('refuses a file whose halves disagree', () => {
-    const dir = stateDir()
-    const a = readOrCreateInstallationIdentity(dir)
-    const b = readOrCreateInstallationIdentity(stateDir())
-    writeFileSync(join(dir, INSTALLATION_FILE), JSON.stringify({ ...a, publicKey: b.publicKey }))
-    expect(() => readInstallationIdentity(dir)).toThrow(/invalid persisted installation identity/)
-  })
-})
-
-describe('bumpInstallationGeneration', () => {
-  it('increments durably and is a no-op without an identity', () => {
-    const dir = stateDir()
-    expect(bumpInstallationGeneration(dir)).toBeUndefined()
-    const first = readOrCreateInstallationIdentity(dir)
-    expect(bumpInstallationGeneration(dir)?.generation).toBe(2)
-    expect(readInstallationIdentity(dir)).toEqual({ ...first, generation: 2 })
-    expect(bumpInstallationGeneration(dir)?.generation).toBe(3)
-  })
-})
-
 describe('signatures', () => {
   it('round-trip through the wire public key and are bound to their prefix', () => {
-    const identity = readOrCreateInstallationIdentity(stateDir())
+    const identity = mintInstallationIdentity()
     const wire = installationPublicKeyWire(identity)
     expect(wire).toMatch(/^ed25519:[A-Za-z0-9_-]{43}$/)
     const sig = signWithInstallation(identity, CONNECT_REACHABILITY_PREFIX, 'challenge')

@@ -1,30 +1,7 @@
-/**
- * THE INSTALLATION'S OWN IDENTITY — a random id and an Ed25519 key, minted once,
- * that TRAVEL WITH THE INSTALLATION through a server transfer.
- *
- * This is the third identity file in the state dir and it answers a question the
- * other two cannot. `machine.id` names the HOST and deliberately stays behind on a
- * transfer; `update-signing-key.json` is the trust root joined machines pin for
- * update artifacts and moves with server authority. Neither can name "this
- * Podium, wherever it runs today", which is what Podium Connect looks an
- * installation up by and what a client compares a pairing against.
- *
- * The id is 256 random bits, so it cannot be enumerated; the key proves that a
- * write to Connect came from the installation that registered the id. The two are
- * SEPARATE so that a key can one day rotate under a stable id.
- *
- * `generation` counts server transfers. The target bumps it when it promotes; a
- * source that keeps running keeps the old number and is refused by Connect with
- * GENERATION_BEHIND, which is the one signal that says "this installation moved".
- *
- * Same conventions as its neighbours: `wx` so concurrent cold starts converge on one
- * file, 0600, and a corrupt file is an availability failure, never re-minted —
- * re-minting would silently make this a different installation.
- */
+/** Installation identity wire types and signing helpers. Persistence belongs to
+ * the installation database; only the one-time server import reads the old file. */
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { stateDir } from './config'
+import type { SqlDatabase } from './sqlite'
 
 import { isSigningKeyPair, mintSigningKeyPair } from './signing'
 export {
@@ -35,6 +12,8 @@ export {
 } from './signing'
 
 export const INSTALLATION_FILE = 'installation.json'
+export const INSTALLATION_META_KEY = 'installation_identity'
+export const INSTALLATION_PRIVATE_KEY = 'installation.privateKey'
 
 /** Domain prefixes, byte for byte what connect.podium.do uses. */
 export const CONNECT_REQUEST_PREFIX = 'podium-connect-request-v1\n'
@@ -63,7 +42,7 @@ function invalid(path: string): Error {
   return new Error(`invalid persisted installation identity at ${path}`)
 }
 
-function parse(path: string, raw: string): InstallationIdentity {
+export function parseInstallationIdentity(path: string, raw: string): InstallationIdentity {
   let value: unknown
   try {
     value = JSON.parse(raw)
@@ -88,7 +67,7 @@ function parse(path: string, raw: string): InstallationIdentity {
   }
 }
 
-function mint(now: Date): InstallationIdentity {
+export function mintInstallationIdentity(now: Date = new Date()): InstallationIdentity {
   return {
     version: 1,
     installationId: `pdm_${randomBytes(32).toString('base64url')}`,
@@ -98,56 +77,26 @@ function mint(now: Date): InstallationIdentity {
   }
 }
 
-function write(path: string, identity: InstallationIdentity, flag: 'wx' | 'w'): void {
-  writeFileSync(path, `${JSON.stringify(identity, null, 2)}\n`, { mode: 0o600, flag })
-}
-
-/** The identity if this state dir has one; undefined when it was never minted. */
-export function readInstallationIdentity(
-  dir: string = stateDir(),
-): InstallationIdentity | undefined {
-  const path = join(dir, INSTALLATION_FILE)
-  try {
-    return parse(path, readFileSync(path, 'utf8'))
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw error
+/** The transfer target owns this offline database before it starts the server.
+ * Each promotion retry reinstalls the source snapshot, so N always becomes N+1.
+ * An older database without an installation identity has nothing to advance. */
+export function bumpInstallationGeneration(db: SqlDatabase): void {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as
+    | { value: string }
+    | undefined
+  if (!row) return
+  const metadata = JSON.parse(row.value)
+  if (
+    !Number.isSafeInteger(metadata.generation) ||
+    metadata.generation < 1 ||
+    metadata.generation === Number.MAX_SAFE_INTEGER
+  ) {
+    throw new Error('invalid persisted installation generation')
   }
-}
-
-/** Read the identity or mint it once. Only a SERVER should call this: a daemon has
- *  no installation of its own, and minting one on a paired box would make a later
- *  transfer's restore look like a change of identity. */
-export function readOrCreateInstallationIdentity(dir: string = stateDir()): InstallationIdentity {
-  const existing = readInstallationIdentity(dir)
-  if (existing) return existing
-  const identity = mint(new Date())
-  mkdirSync(dir, { recursive: true })
-  try {
-    write(join(dir, INSTALLATION_FILE), identity, 'wx')
-    return identity
-  } catch {
-    // Lost the wx race: the winner's file is the identity.
-    return parse(join(dir, INSTALLATION_FILE), readFileSync(join(dir, INSTALLATION_FILE), 'utf8'))
-  }
-}
-
-/**
- * Advance the generation by one, durably. Called by the transfer target when it
- * promotes; undefined when there is nothing to bump (a target whose snapshot
- * carried no identity, which is every transfer from a server older than this).
- */
-export function bumpInstallationGeneration(
-  dir: string = stateDir(),
-): InstallationIdentity | undefined {
-  const existing = readInstallationIdentity(dir)
-  if (!existing) return undefined
-  const next = { ...existing, generation: existing.generation + 1 }
-  const path = join(dir, INSTALLATION_FILE)
-  const temp = `${path}.${process.pid}.tmp`
-  write(temp, next, 'w')
-  renameSync(temp, path)
-  return next
+  db.prepare('UPDATE meta SET value = ? WHERE key = ?').run(
+    JSON.stringify({ ...metadata, generation: metadata.generation + 1 }),
+    INSTALLATION_META_KEY,
+  )
 }
 
 export const connectRequestMessage = (

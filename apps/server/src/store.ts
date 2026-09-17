@@ -47,6 +47,7 @@ import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
+import { importInstallationIdentity } from './installation-identity-import'
 import { backupDatabase } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
 import {
@@ -297,6 +298,7 @@ export class SessionStore {
     try {
       const applied = await executor.exclusive(async () => {
         const result = migrateStoreConnection(database, path)
+        importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
         if (path !== ':memory:') importEnrollmentLedger(database, dirname(path))
         return result
       })

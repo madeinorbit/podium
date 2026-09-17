@@ -1,3 +1,10 @@
+import { existsSync } from 'node:fs'
+import {
+  bumpInstallationGeneration,
+  mintInstallationIdentity,
+} from '@podium/runtime/installation-identity'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { openTestStore } from '../../test-support/open-test-store'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,16 +60,59 @@ describe('portable server snapshot', () => {
     expect(isSafeRelativePath(path)).toBe(false)
   })
 
-  it('carries installation.json, the identity that moves with the installation (PDM-51)', () => {
-    expect(isSafeRelativePath('installation.json')).toBe(true)
+  it('carries installation identity inside podium.db, never as a separate file', () => {
+    expect(isSafeRelativePath('installation.json')).toBe(false)
+    expect(isSafeRelativePath('podium.db')).toBe(true)
     // Both server identities move; host credentials stay behind.
     expect(isSafeRelativePath('update-signing-key.json')).toBe(true)
-    for (const hostFile of [
-      'machine.id',
-      'daemon.secret',
-      'config.json',
-    ]) {
+    for (const hostFile of ['machine.id', 'daemon.secret', 'config.json']) {
       expect(isSafeRelativePath(hostFile)).toBe(false)
+    }
+  })
+
+  it('transfers an upgraded identity with the database and advances only the target generation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-upgraded-transfer-'))
+    roots.push(root)
+    const identity = { ...mintInstallationIdentity(), generation: 12 }
+    await writeFile(join(root, 'installation.json'), JSON.stringify(identity))
+    await writeFile(join(root, 'update-signing-key.json'), 'server-key')
+    const source = await openTestStore(join(root, 'podium.db'))
+    const targetRoot = join(root, '.server-transfer', 'snapshot')
+    try {
+      expect(await source.secrets.installationIdentity()).toEqual(identity)
+      expect(existsSync(join(root, 'installation.json'))).toBe(false)
+      const snapshot = await createPortableSnapshot({
+        stateRoot: root,
+        packageDir: targetRoot,
+        operationId: 'operation-upgraded',
+        transferId: 'transfer-upgraded',
+        sourceInstanceId: 'instance-source',
+        sourceMachineId: asMachineId('source'),
+        targetMachineId: asMachineId('target'),
+        sourceFeedId: 'feed',
+        sourceFeedEpoch: 'epoch',
+        sourceApplicationVersion: 'test',
+        sourceSchemaVersion: 'test',
+        checkpoint: () => source.checkpointForTransfer(),
+      })
+      expect(snapshot.files.map((file) => file.path)).toContain('podium.db')
+      expect(snapshot.files.map((file) => file.path)).not.toContain('installation.json')
+      const promotedDb = openDatabase(join(targetRoot, 'podium.db'))
+      try {
+        bumpInstallationGeneration(promotedDb)
+      } finally {
+        promotedDb.close()
+      }
+      const target = await openTestStore(join(targetRoot, 'podium.db'))
+      try {
+        expect(await target.secrets.installationIdentity()).toEqual({ ...identity, generation: 13 })
+        expect(existsSync(join(targetRoot, 'installation.json'))).toBe(false)
+      } finally {
+        await target.close()
+      }
+      expect(await source.secrets.installationIdentity()).toEqual(identity)
+    } finally {
+      await source.close()
     }
   })
 

@@ -1,21 +1,16 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   CONNECT_REACHABILITY_PREFIX,
   connectProbeMessage,
   installationPublicKeyWire,
-  readOrCreateInstallationIdentity,
+  mintInstallationIdentity,
   verifyWithWireKey,
 } from '@podium/runtime/installation-identity'
 import { Hono } from 'hono'
-import { afterAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { registerWellKnownRoute } from './well-known-route'
 
-const dir = mkdtempSync(join(tmpdir(), 'podium-well-known-'))
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
-const identity = readOrCreateInstallationIdentity(dir)
+const identity = mintInstallationIdentity()
 const NOW = 1_800_000_000
 const CHALLENGE = 'c2FtcGxlLWNoYWxsZW5nZS1ieXRlcw'
 

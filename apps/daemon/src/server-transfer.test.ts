@@ -21,8 +21,10 @@ import { canonicalServerTransferManifest } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import {
-  readInstallationIdentity,
-  readOrCreateInstallationIdentity,
+  mintInstallationIdentity,
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  type InstallationIdentity,
 } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -62,11 +64,13 @@ const fileEntry = (path: string, content: Buffer | string): ServerTransferManife
   sha256: createHash('sha256').update(content).digest('hex'),
 })
 
-async function candidateFiles(machineId = targetMachineId): Promise<Record<string, Buffer>> {
+async function candidateFiles(machineId = targetMachineId, identity?: InstallationIdentity): Promise<Record<string, Buffer>> {
   const path = join(stateRoot, `candidate-${randomUUID()}.db`)
   const db = openDatabase(path)
   try {
     db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE machines (id TEXT PRIMARY KEY);
       CREATE TABLE feed_identity (
         singleton INTEGER PRIMARY KEY,
@@ -75,6 +79,11 @@ async function candidateFiles(machineId = targetMachineId): Promise<Record<strin
       );
       CREATE TABLE __drizzle_migrations (name TEXT NOT NULL);
     `)
+    if (identity) {
+      const { privateKey, ...metadata } = identity
+      db.prepare('INSERT INTO meta VALUES (?, ?)').run(INSTALLATION_META_KEY, JSON.stringify(metadata))
+      db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(INSTALLATION_PRIVATE_KEY, privateKey, identity.createdAt)
+    }
     db.prepare('INSERT INTO machines (id) VALUES (?)').run(machineId)
     db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch) VALUES (1, ?, ?)').run(
       'feed-1',
@@ -90,6 +99,16 @@ async function candidateFiles(machineId = targetMachineId): Promise<Record<strin
     `${JSON.stringify({ v: 1, kind: 'header', pairingRoot: 'a'.repeat(64), createdAt: 'now' })}\n${JSON.stringify({ v: 1, kind: 'enroll', id: 'enroll-1', machineId, serial: 1, ownerUserId: 'owner-1', at: 'now' })}\n`,
   )
   return { 'enrollment.ledger': enrollmentLedger, 'podium.db': podiumDb }
+}
+
+function readDatabaseIdentity(path: string): InstallationIdentity | undefined {
+  const db = openDatabase(path)
+  try {
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as { value: string } | undefined
+    if (!row) return undefined
+    const secret = db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(INSTALLATION_PRIVATE_KEY) as { value: string }
+    return { ...JSON.parse(row.value), privateKey: secret.value }
+  } finally { db.close() }
 }
 
 function ledgerEvent(kind: 'enroll' | 'revoke', serial: number, id: string): string {
@@ -150,13 +169,12 @@ async function prepareAndValidateCandidate(): Promise<{
   files: Record<string, Buffer>
   manifestDigest: string
   promoteInput: Record<string, unknown>
+  incomingIdentity: InstallationIdentity
 }> {
   const transferId = randomUUID()
-  const sourceRoot = join(stateRoot, 'source-identity')
-  readOrCreateInstallationIdentity(sourceRoot)
+  const incomingIdentity = mintInstallationIdentity()
   const files: Record<string, Buffer> = {
-    'installation.json': await readFile(join(sourceRoot, 'installation.json')),
-    ...(await candidateFiles()),
+    ...(await candidateFiles(targetMachineId, incomingIdentity)),
     'transcripts/session.txt': Buffer.from('incoming-transcript'),
   }
   const entries = Object.entries(files)
@@ -197,6 +215,7 @@ async function prepareAndValidateCandidate(): Promise<{
   return {
     transferId,
     files,
+    incomingIdentity,
     manifestDigest,
     promoteInput: {
       type: 'serverTransferPromoteRequest',
@@ -374,6 +393,7 @@ describe('server transfer target daemon', () => {
       ),
     ).toBeUndefined()
 
+    saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example.com' })
     await writeFile(join(stateRoot, 'daemon.secret'), 'target-daemon-secret')
     let readinessObserved = false
     const promoteInput = {
@@ -748,7 +768,7 @@ describe('server transfer target daemon', () => {
     'after-health-before-proof',
   ] as const) {
     it(`recovers idempotently after a simulated process crash at ${point}`, async () => {
-      const { transferId, files, manifestDigest, promoteInput } =
+      const { transferId, files, manifestDigest, promoteInput, incomingIdentity } =
         await prepareAndValidateCandidate()
       await writeFile(join(stateRoot, 'podium.db'), 'original-target-db')
       await writeFile(join(stateRoot, 'enrollment.ledger'), 'original-target-ledger')
@@ -865,9 +885,8 @@ describe('server transfer target daemon', () => {
           health: 'serving',
         },
       })
-      expect(await readFile(join(stateRoot, 'podium.db'))).toEqual(files['podium.db'])
-      const incoming = JSON.parse(files['installation.json']!.toString())
-      expect(readInstallationIdentity(stateRoot)).toEqual({
+      const incoming = incomingIdentity
+      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))).toEqual({
         ...incoming,
         generation: incoming.generation + 1,
       })
@@ -875,7 +894,7 @@ describe('server transfer target daemon', () => {
         ok: true,
         idempotent: true,
       })
-      expect(readInstallationIdentity(stateRoot)?.generation).toBe(incoming.generation + 1)
+      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))?.generation).toBe(incoming.generation + 1)
       expect(await readFile(backupDb, 'utf8')).toBe('original-target-db')
       expect(JSON.parse(await readFile(backupConfig, 'utf8'))).toMatchObject({
         mode: 'daemon',
@@ -1092,6 +1111,7 @@ describe('server transfer target daemon', () => {
       await readFile(join(stateRoot, '.server-transfer', transferId, 'state.json'), 'utf8'),
     )
     expect(rolledBackJournal).not.toHaveProperty('promotion')
-    expect(rolledBackJournal).not.toHaveProperty('publicUrl')
+    // The reachability endpoint was already persisted by prepare, before promotion.
+    expect(rolledBackJournal.publicUrl).toBe('https://podium.example.com')
   })
 })

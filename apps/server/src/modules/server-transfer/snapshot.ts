@@ -12,16 +12,13 @@ import {
 
 /**
  * Server authority moves through the authenticated transfer channel: both the
- * update-signing key and the Connect installation identity belong to the server,
+ * update-signing key and the database-backed Connect identity belong to the server,
  * unlike machine credentials and runtime files. Neither is a generic file RPC.
  */
 const ROOT_FILES = [
   'podium.db',
   'update-signing-key.json',
-  'installation.json',
 ] as const
-/** Older sources may not yet have minted a Connect installation identity. */
-const OPTIONAL_ROOT_FILES: ReadonlySet<string> = new Set(['installation.json'])
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
@@ -73,7 +70,6 @@ async function regularFiles(stateRoot: string): Promise<string[]> {
       result.push(name)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        if (OPTIONAL_ROOT_FILES.has(name)) continue
         throw new Error(`portable state is missing required file: ${name}`)
       }
       throw error

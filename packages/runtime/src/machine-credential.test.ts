@@ -16,7 +16,7 @@ import {
 } from './machine-credential'
 import {
   CONNECT_REQUEST_PREFIX,
-  readOrCreateInstallationIdentity,
+  mintInstallationIdentity,
   installationPublicKeyWire,
   signWithInstallation,
 } from './installation-identity'
@@ -58,7 +58,7 @@ it('reads without minting and creates a stable private key only on explicit enro
 
 it('keeps machine and installation storage and trust roots separate', () => {
   const dir = directory()
-  const installation = readOrCreateInstallationIdentity(dir)
+  const installation = mintInstallationIdentity()
   const machine = createMachineCredential(join(dir, 'credentials'))
   expect(machine.publicKey).not.toBe(installation.publicKey)
   expect(

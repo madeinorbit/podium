@@ -50,7 +50,6 @@ const PORTABLE_ROOT_FILES = [
   'podium.db',
   'enrollment.ledger',
   'update-signing-key.json',
-  'installation.json',
 ] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
@@ -1057,9 +1056,9 @@ async function promote(
     // Each retry restores the original snapshot first, so this always advances
     // source generation N to N+1, even after config was saved before a crash.
     // Older snapshots have no installation identity to advance.
-    if (meta.manifest.files.some((entry) => entry.path === 'installation.json')) {
-      bumpInstallationGeneration()
-    }
+    const identityDb = openDatabase(join(stateDir(), 'podium.db'))
+    try { bumpInstallationGeneration(identityDb) }
+    finally { identityDb.close() }
     await crashPoint(ctx, 'after-install-before-config')
 
     await stopCandidateListener(msg.transferId)

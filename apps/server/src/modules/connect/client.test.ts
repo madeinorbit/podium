@@ -1,8 +1,10 @@
+import { tmpdir } from 'node:os'
+import { openTestStore } from '../../test-support/open-test-store'
 import { createHash, createPublicKey, verify } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { InstallationIdentity } from '@podium/runtime/installation-identity'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { connectClient } from './client'
 
 const vectors = JSON.parse(
@@ -20,7 +22,7 @@ const vectors = JSON.parse(
   signature: string
 }
 
-const identity: InstallationIdentity = {
+const legacyIdentity: InstallationIdentity = {
   version: 1,
   installationId: vectors.installationId,
   privateKey: vectors.privateKeyPkcs8,
@@ -33,6 +35,19 @@ const identity: InstallationIdentity = {
   generation: 1,
   createdAt: '2026-09-04T00:00:00.000Z',
 }
+
+let identity: InstallationIdentity
+const identityRoot = mkdtempSync(join(tmpdir(), 'connect-db-identity-'))
+beforeAll(async () => {
+  writeFileSync(join(identityRoot, 'installation.json'), JSON.stringify(legacyIdentity))
+  const store = await openTestStore(join(identityRoot, 'podium.db'))
+  try {
+    identity = await store.secrets.installationIdentity()
+  } finally {
+    await store.close()
+  }
+})
+afterAll(() => rmSync(identityRoot, { recursive: true, force: true }))
 
 type Seen = { url: string; init: RequestInit }
 function client(respond: (seen: Seen) => Response | Promise<Response>, now = vectors.timestamp) {
