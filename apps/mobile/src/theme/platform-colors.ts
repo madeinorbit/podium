@@ -4,7 +4,12 @@ export function semanticColor(_iosName: string, fallback: string): string {
 }
 
 /** Podium keeps its established dark palette outside the supported iOS app. */
-export function adaptiveColor(_light: string, dark: string): string {
+export function adaptiveColor(
+  _light: string,
+  dark: string,
+  _highContrastLight: string,
+  _highContrastDark: string,
+): string {
   return dark
 }
 

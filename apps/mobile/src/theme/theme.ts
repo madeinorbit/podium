@@ -97,7 +97,7 @@ export const color = {
   /** Every accent `color:` — tinted labels, the lit ⏎ key, attention text.
    *  Same value as {@link accent} since the swap (rule 3), kept under its own
    *  name because the call sites mean different things by it. */
-  accentTint: adaptiveColor('#765114', '#d9b477'),
+  accentTint: adaptiveColor('#765114', '#d9b477', '#5e4110', '#e1c392'),
   // Legacy alias
   accentText: '#16171a',
 
@@ -109,28 +109,28 @@ export const color = {
   /** "Waiting on you" as a `color:` — the write of {@link accentTint}, kept
    *  under its own name so the SIGNAL stays legible at the call site.
    *  `needsYou` above remains the fill (dots, spines, bars). */
-  needsYouText: adaptiveColor('#765114', '#d9b477'),
+  needsYouText: adaptiveColor('#765114', '#d9b477', '#5e4110', '#e1c392'),
   /** What is MOVING — spinners, live rings, meters. Superade has no green. */
   working: '#6f9dff',
-  workingText: adaptiveColor('#0057b8', '#6f9dff'),
+  workingText: adaptiveColor('#0057b8', '#6f9dff', '#004693', '#99b9ff'),
   workingSoft: 'rgba(111, 157, 255, 0.13)',
   workingBg: 'rgba(111, 157, 255, 0.13)',
   /** Host/health dots, quota bars, done ✓ — the settled blue behind the
    *  moving one; blue is the calm "all good". */
   success: '#2a62f0',
-  successText: adaptiveColor('#1d4ed8', '#6f9dff'),
+  successText: adaptiveColor('#1d4ed8', '#6f9dff', '#173ead', '#99b9ff'),
   idle: '#949aa4',
   idleSoft: 'rgba(148, 154, 164, 0.12)',
   idleBg: 'rgba(148, 154, 164, 0.12)',
   danger: '#e5303f',
-  dangerText: adaptiveColor('#b42318', '#ff6673'),
+  dangerText: adaptiveColor('#b42318', '#ff6673', '#8e1c13', '#ff9fa7'),
   dangerSoft: 'rgba(229, 48, 63, 0.12)',
   dangerBg: 'rgba(229, 48, 63, 0.12)',
   /** User / YOU rail blue. */
   info: '#2a62f0',
   /** Claude brand terracotta. */
   claude: '#d97757',
-  claudeText: adaptiveColor('#9f3e23', '#e58d70'),
+  claudeText: adaptiveColor('#9f3e23', '#e58d70', '#7e311c', '#ecaa94'),
   /** Neutral no-colour issue flow — a TRUE grey, not slate: a blue-grey
    *  default tint over neutral ink reads as an issue colour nobody chose. */
   flow: '#949aa4',

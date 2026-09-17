@@ -1,16 +1,21 @@
-import { DynamicColorIOS, Platform, PlatformColor, type ColorValue } from 'react-native'
+import { type ColorValue, DynamicColorIOS, Platform, PlatformColor } from 'react-native'
 
 export function semanticColor(iosName: string, fallback: string): string {
   return (Platform.OS === 'ios' ? PlatformColor(iosName) : fallback) as unknown as string
 }
 
-export function adaptiveColor(light: string, dark: string): string {
+export function adaptiveColor(
+  light: string,
+  dark: string,
+  highContrastLight: string,
+  highContrastDark: string,
+): string {
   return (Platform.OS === 'ios'
     ? DynamicColorIOS({
         light,
         dark,
-        highContrastLight: light,
-        highContrastDark: dark,
+        highContrastLight,
+        highContrastDark,
       })
     : dark) as unknown as string
 }

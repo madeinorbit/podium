@@ -16,12 +16,12 @@ import { adaptiveColor, color } from './theme'
  * "waiting on you" (The Signal Rule), and a stage is never an ask.
  */
 export const STAGE_COLOR: Readonly<Record<IssueStatus, string>> = {
-  proposed: adaptiveColor('#a21caf', '#d946ef'),
+  proposed: adaptiveColor('#a21caf', '#d946ef', '#7d1687', '#eb9ff7'),
   backlog: color.textFaint,
   planning: color.textDim,
-  in_progress: adaptiveColor('#1d4ed8', '#3b82f6'),
-  review: adaptiveColor('#0369a1', '#0ea5e9'),
-  shipping: adaptiveColor('#6d28d9', '#a78bfa'),
+  in_progress: adaptiveColor('#1d4ed8', '#3b82f6', '#173ead', '#95bcfa'),
+  review: adaptiveColor('#0369a1', '#0ea5e9', '#024d76', '#65c5f1'),
+  shipping: adaptiveColor('#6d28d9', '#a78bfa', '#5720ae', '#c1aefc'),
   done: color.successText,
   // The cancelled family is DIM, never green (POD-1074). Success is the colour
   // of work that landed; an issue closed as cancelled, duplicate or superseded

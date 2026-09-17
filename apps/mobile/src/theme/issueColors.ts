@@ -90,36 +90,53 @@ export function issueSquareFg(hex: string): string {
 export const flow = {
   /** Workspace pane behind content — must stay under the tab-strip tier so a
    *  card still reads above it: 4% over the app bg (was the handoff's 10). */
-  paneBg: (c: string) => adaptiveMix(c, 4, appearancePalette.light.bg, appearancePalette.dark.bg),
+  paneBg: (c: string) =>
+    adaptiveMix(c, 4, appearancePalette.light.bg, appearancePalette.dark.bg, false),
   /** Tinted chrome bar (session header), capped at the raised-cell tier:
    *  8% over the card surface (was 16). */
   headerBg: (c: string) =>
-    adaptiveMix(c, 8, appearancePalette.light.surface, appearancePalette.dark.surface),
+    adaptiveMix(c, 8, appearancePalette.light.surface, appearancePalette.dark.surface, false),
   /** Stronger pane-chrome bar, capped at the tab-strip tier: 6% over the app
    *  bg (was 24). The cap is set by the BRIGHTEST palette slot rather than by
    *  the neutral flow — lime is the one that reaches the sheet first (it clears
    *  it at 8% while slate is still clear), and a bar may not out-rank the sheet
    *  for SOME issues and not others. */
   paneHeaderBg: (c: string) =>
-    adaptiveMix(c, 6, appearancePalette.light.bg, appearancePalette.dark.bg),
+    adaptiveMix(c, 6, appearancePalette.light.bg, appearancePalette.dark.bg, false),
   /** Unselected coloured list row: ~12% over the card surface. */
   rowBg: (c: string) =>
-    adaptiveMix(c, 12, appearancePalette.light.surface, appearancePalette.dark.surface),
+    adaptiveMix(c, 12, appearancePalette.light.surface, appearancePalette.dark.surface, false),
   /** Selected list row: 28% over the card surface (+ .8-alpha border). */
   rowSelectedBg: (c: string) =>
-    adaptiveMix(c, 28, appearancePalette.light.surface, appearancePalette.dark.surface),
+    adaptiveMix(c, 28, appearancePalette.light.surface, appearancePalette.dark.surface, false),
   /** Active row inside a panel menu: 18% over the card surface. */
   rowActiveBg: (c: string) =>
-    adaptiveMix(c, 18, appearancePalette.light.surface, appearancePalette.dark.surface),
+    adaptiveMix(c, 18, appearancePalette.light.surface, appearancePalette.dark.surface, false),
   /** Near-white tinted title text (ctxText). */
-  text: (c: string) => adaptiveMix(c, 8, appearancePalette.light.text, appearancePalette.dark.text),
+  text: (c: string) =>
+    adaptiveMix(c, 8, appearancePalette.light.text, appearancePalette.dark.text, true),
   /** Tinted body text. */
   body: (c: string) =>
-    adaptiveMix(c, 22, appearancePalette.light.body, appearancePalette.dark.body),
+    adaptiveMix(c, 22, appearancePalette.light.body, appearancePalette.dark.body, true),
   /** Tinted muted text (ctxMuted). */
-  muted: (c: string) => adaptiveMix(c, 18, appearancePalette.light.dim, appearancePalette.dark.dim),
+  muted: (c: string) =>
+    adaptiveMix(c, 18, appearancePalette.light.dim, appearancePalette.dark.dim, true),
 } as const
 
-function adaptiveMix(colour: string, percent: number, lightBase: string, darkBase: string): string {
-  return adaptiveColor(mix(colour, percent, lightBase), mix(colour, percent, darkBase))
+function adaptiveMix(
+  colour: string,
+  percent: number,
+  lightBase: string,
+  darkBase: string,
+  foreground: boolean,
+): string {
+  // High contrast halves decorative tint and moves the base to black/white.
+  // Surfaces are not text: a 7:1 surface-to-surface target would destroy the
+  // hierarchy. Instead all three flow inks clear 7:1 on all six flow grounds.
+  return adaptiveColor(
+    mix(colour, percent, lightBase),
+    mix(colour, percent, darkBase),
+    mix(colour, percent / 2, foreground ? '#000000' : '#ffffff'),
+    mix(colour, percent / 2, foreground ? '#ffffff' : '#000000'),
+  )
 }
