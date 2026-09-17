@@ -28,6 +28,7 @@ import { SessionDelegation } from '@podium/model'
  */
 
 import { z } from 'zod'
+import { MachineServiceAssignment } from '@podium/model'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '../version'
 
 /**
@@ -167,6 +168,7 @@ export const PeerIdentityClaims = z
     hostname: z.string().optional(),
     /** Operator-facing display name a pairing peer requests for itself. */
     name: z.string().optional(),
+    assignment: MachineServiceAssignment.optional(),
   })
   .passthrough()
 export type PeerIdentityClaims = z.infer<typeof PeerIdentityClaims>

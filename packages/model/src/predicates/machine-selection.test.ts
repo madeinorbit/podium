@@ -11,6 +11,8 @@ import {
   resolveTargetMachineForAgent,
 } from './machine-selection'
 
+const daemonFacts = { serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true } }
+
 const repos = [
   {
     repoId: asRepoId('r1'),
@@ -45,23 +47,23 @@ describe('agent machine capability', () => {
   const sessions = [{ machineId: asMachineId('a'), createdAt: '2026-01-02' }]
 
   it('separates capability rejection from a logged-out session condition', () => {
-    expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe(
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: false }, 'codex')).toBe('offline')
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true }, 'codex')).toBe(
       'inventory-unavailable',
     )
     expect(
       agentCapabilityRejection(
-        { id: 'a', online: true, inventory: { agents: [agent('in', null)] } },
+        { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('in', null)] } },
         'codex',
       ),
     ).toBe('harness-probe-timed-out')
-    const loggedOut = { id: 'a', online: true, inventory: { agents: [agent('out')] } }
+    const loggedOut = { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('out')] } }
     expect(agentCapabilityRejection(loggedOut, 'codex')).toBeUndefined()
     expect(agentCapabilityRejectionForSelection(loggedOut, 'codex')).toBe('logged-out')
     expect(agentLoginCondition(loggedOut, 'codex')).toBe('logged-out')
     expect(
       agentCapabilityRejection(
-        { id: 'a', online: true, inventory: { agents: [agent('unknown')] } },
+        { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('unknown')] } },
         'codex',
       ),
     ).toBeUndefined()
@@ -79,19 +81,19 @@ describe('agent machine capability', () => {
     // flattened denied into offline, the first two assertions would still pass and
     // only this one would fail.
     expect(
-      agentCapabilityRejection({ id: 'a', online: true, ...runnable }, 'codex'),
+      agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true, ...runnable }, 'codex'),
     ).toBeUndefined()
-    expect(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex')).toBe(
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: false, ...runnable }, 'codex')).toBe(
       'offline',
     )
     expect(
-      agentCapabilityRejection({ id: 'a', online: true, use: 'denied', ...runnable }, 'codex'),
+      agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true, use: 'denied', ...runnable }, 'codex'),
     ).toBe('unauthorized')
     // …and the two reasons are genuinely different values, which is the whole
     // point: a caller can tell "ask the owner for access" from "wake it up".
     expect(
-      agentCapabilityRejection({ id: 'a', online: true, use: 'denied', ...runnable }, 'codex'),
-    ).not.toBe(agentCapabilityRejection({ id: 'a', online: false, ...runnable }, 'codex'))
+      agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true, use: 'denied', ...runnable }, 'codex'),
+    ).not.toBe(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: false, ...runnable }, 'codex'))
   })
 
   it('reports unauthorized ahead of liveness, inventory and the shell shortcut', () => {
@@ -100,21 +102,21 @@ describe('agent machine capability', () => {
     // or it becomes an oracle for it. The counterfactuals are the SAME machine
     // without `use: 'denied'`, which each yield a different, state-revealing answer.
     const denied = { id: 'a', use: 'denied' } as const
-    expect(agentCapabilityRejection({ ...denied, online: false }, 'codex')).toBe('unauthorized')
-    expect(agentCapabilityRejection({ id: 'a', online: false }, 'codex')).toBe('offline')
-    expect(agentCapabilityRejection({ ...denied, online: true }, 'codex')).toBe('unauthorized')
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'codex')).toBe(
+    expect(agentCapabilityRejection({ ...denied, ...daemonFacts, online: false }, 'codex')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: false }, 'codex')).toBe('offline')
+    expect(agentCapabilityRejection({ ...denied, ...daemonFacts, online: true }, 'codex')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true }, 'codex')).toBe(
       'inventory-unavailable',
     )
     expect(
       agentCapabilityRejection(
-        { ...denied, online: true, inventory: { agents: [agent('out')] } },
+        { ...denied, ...daemonFacts, online: true, inventory: { agents: [agent('out')] } },
         'codex',
       ),
     ).toBe('unauthorized')
     // Spawning a shell is `use` too — the shell shortcut must not bypass the gate.
-    expect(agentCapabilityRejection({ ...denied, online: true }, 'shell')).toBe('unauthorized')
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'shell')).toBeUndefined()
+    expect(agentCapabilityRejection({ ...denied, ...daemonFacts, online: true }, 'shell')).toBe('unauthorized')
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true }, 'shell')).toBeUndefined()
   })
 
   it('leaves an unevaluated use decision permissive rather than inventing a grant', () => {
@@ -122,7 +124,7 @@ describe('agent machine capability', () => {
     // that today's behaviour is unchanged (the ONLY reason the field is optional),
     // and pairs the absent case with the explicit ones so a future change that
     // starts defaulting the field has to update this file deliberately.
-    const runnable = { id: 'a', online: true, inventory: { agents: [agent('in')] } }
+    const runnable = { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }
     expect(agentCapabilityRejection(runnable, 'codex')).toBeUndefined()
     expect(agentCapabilityRejection({ ...runnable, use: 'granted' }, 'codex')).toBeUndefined()
     expect(agentCapabilityRejection({ ...runnable, use: 'denied' }, 'codex')).toBe('unauthorized')
@@ -134,7 +136,7 @@ describe('agent machine capability', () => {
     // through a closed switch. The counterfactual is in the same fixture — a
     // machine that DOES carry an installed, logged-in codex — so "degrades" cannot
     // pass by the machine simply having no inventory at all.
-    const machine = { id: 'a', online: true, inventory: { agents: [agent('in')] } }
+    const machine = { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }
     expect(agentCapabilityRejection(machine, 'codex')).toBeUndefined()
     expect(agentCapabilityRejection(machine, 'some-harness-from-2027')).toBe('harness-missing')
     // Excluded from the offer rather than crashing it, and the machine that CAN
@@ -144,10 +146,10 @@ describe('agent machine capability', () => {
   })
 
   it('treats shell as a daemon capability and chooses an agent-capable repo machine', () => {
-    expect(agentCapabilityRejection({ id: 'a', online: true }, 'shell')).toBeUndefined()
+    expect(agentCapabilityRejection({ id: 'a', ...daemonFacts, online: true }, 'shell')).toBeUndefined()
     const machines = [
-      { id: 'a', online: true, inventory: { agents: [agent('out')] } },
-      { id: 'b', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('out')] } },
+      { id: 'b', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
     ]
     expect(resolveTargetMachineForAgent(repo, sessions, machines, 'codex')).toBe('b')
   })
@@ -155,9 +157,9 @@ describe('agent machine capability', () => {
   it('offers online fresh machines when an origin makes the repo cloneable', () => {
     const cloneable = { ...repo, originUrl: 'https://example.test/repo.git' }
     const machines = [
-      { id: 'a', online: true, inventory: { agents: [agent('in')] } },
-      { id: 'fresh', online: true, inventory: { agents: [agent('in')] } },
-      { id: 'offline', online: false, inventory: { agents: [agent('in')] } },
+      { id: 'a', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+      { id: 'fresh', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+      { id: 'offline', ...daemonFacts, online: false, inventory: { agents: [agent('in')] } },
     ]
     expect(machinesForRepoOrClone(cloneable, machines).map((machine) => machine.id)).toEqual([
       'a',
@@ -175,9 +177,9 @@ describe('handoffTargets', () => {
   it('requires another online repo machine with the harness installed', () => {
     const session = { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'codex' }
     const machines = [
-      { id: 'source', online: true, inventory: { agents: [agent('in')] } },
-      { id: 'target', online: true, inventory: { agents: [agent('unknown')] } },
-      { id: 'offline', online: false, inventory: { agents: [agent('in')] } },
+      { id: 'source', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+      { id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('unknown')] } },
+      { id: 'offline', ...daemonFacts, online: false, inventory: { agents: [agent('in')] } },
     ]
     expect(handoffTargets(session, repos, machines).map((m) => m.id)).toEqual(['target'])
     expect(
@@ -188,7 +190,7 @@ describe('handoffTargets', () => {
   })
 
   it('rejects main checkouts, unsupported harnesses, and missing inventory', () => {
-    const target = { id: 'target', online: true }
+    const target = { id: 'target', ...daemonFacts, online: true }
     expect(
       handoffTargets({ cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }, repos, [
         target,
@@ -205,7 +207,7 @@ describe('handoffTargets', () => {
 
   it('offers a drifted session its issue worktree ([spec:SP-3f7a])', () => {
     const drifted = { cwd: '/a', machineId: asMachineId('source'), agentKind: 'codex' }
-    const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
+    const machines = [{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffTargets(drifted, repos, machines)).toEqual([])
     expect(handoffTargets(drifted, repos, machines, issue).map((m) => m.id)).toEqual(['target'])
   })
@@ -294,7 +296,7 @@ describe('handoffAvailability (POD-821)', () => {
   const session = { cwd: '/a/.worktrees/x', machineId: asMachineId('source'), agentKind: 'codex' }
 
   it('names the blocker that stops a session moving anywhere', () => {
-    const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
+    const machines = [{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffAvailability({ ...session, agentKind: 'shell' }, repos, machines)).toEqual({
       blocker: 'harness',
       candidates: [],
@@ -313,8 +315,8 @@ describe('handoffAvailability (POD-821)', () => {
 
   it('reports every other repo machine with its rejection, and none for the eligible', () => {
     const machines = [
-      { id: 'source', online: true, inventory: { agents: [agent('in')] } },
-      { id: 'target', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'source', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+      { id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
     ]
     // The session's own machine is never a candidate — it is not a refusal to explain.
     expect(handoffAvailability(session, repos, machines)).toEqual({
@@ -323,22 +325,22 @@ describe('handoffAvailability (POD-821)', () => {
     const rejected = <T>(list: T[]): unknown[] =>
       handoffAvailability(session, repos, list as never).candidates.map((c) => c.rejection)
     expect(
-      rejected([{ id: 'target', online: false, inventory: { agents: [agent('in')] } }]),
+      rejected([{ id: 'target', ...daemonFacts, online: false, inventory: { agents: [agent('in')] } }]),
     ).toEqual(['offline'])
     expect(
-      rejected([{ id: 'target', online: true, inventory: { agents: [agent('out')] } }]),
+      rejected([{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('out')] } }]),
     ).toEqual([undefined])
     expect(
-      rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', false)] } }]),
+      rejected([{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in', false)] } }]),
     ).toEqual(['harness-missing'])
     expect(
-      rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', null)] } }]),
+      rejected([{ id: 'target', ...daemonFacts, online: true, inventory: { agents: [agent('in', null)] } }]),
     ).toEqual(['harness-probe-timed-out'])
     // No inventory at all is pending rather than evidence that the harness is absent.
-    expect(rejected([{ id: 'target', online: true }])).toEqual(['inventory-unavailable'])
+    expect(rejected([{ id: 'target', ...daemonFacts, online: true }])).toEqual(['inventory-unavailable'])
     // Offline wins over a stale inventory: being offline is the actionable fact.
     expect(
-      rejected([{ id: 'target', online: false, inventory: { agents: [agent('out')] } }]),
+      rejected([{ id: 'target', ...daemonFacts, online: false, inventory: { agents: [agent('out')] } }]),
     ).toEqual(['offline'])
   })
 
@@ -349,9 +351,9 @@ describe('handoffAvailability (POD-821)', () => {
     // BOTH a denied and an eligible target, so "excluded" cannot pass by the list
     // being empty for some other reason.
     const machines = [
-      { id: 'source', online: true, inventory: { agents: [agent('in')] } },
-      { id: 'target', online: true, use: 'denied' as const, inventory: { agents: [agent('in')] } },
-      { id: 'other', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'source', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+      { id: 'target', ...daemonFacts, online: true, use: 'denied' as const, inventory: { agents: [agent('in')] } },
+      { id: 'other', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
     ]
     const withOther = [
       {
@@ -369,13 +371,13 @@ describe('handoffAvailability (POD-821)', () => {
   it('offers no candidates when no other machine has the repo', () => {
     expect(
       handoffAvailability(session, repos, [
-        { id: 'source', online: true, inventory: { agents: [agent('in')] } },
-        { id: 'stranger', online: true, inventory: { agents: [agent('in')] } },
+        { id: 'source', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
+        { id: 'stranger', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
       ]),
     ).toEqual({
       candidates: [
         {
-          machine: { id: 'stranger', online: true, inventory: { agents: [agent('in')] } },
+          machine: { id: 'stranger', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } },
           rejection: 'repo-missing',
         },
       ],
@@ -384,7 +386,7 @@ describe('handoffAvailability (POD-821)', () => {
 
   it('offers a capable machine without the repo when a clone URL is available', () => {
     const cloneable = [{ ...repos[0]!, originUrl: 'https://example.com/repo.git' }]
-    const stranger = { id: 'stranger', online: true, inventory: { agents: [agent('in')] } }
+    const stranger = { id: 'stranger', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }
     expect(handoffAvailability(session, cloneable, [stranger])).toEqual({
       candidates: [{ machine: stranger }],
     })
@@ -401,7 +403,7 @@ describe('handoffAvailability (POD-821)', () => {
       agentKind: 'codex',
     }
     const staleIssue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
-    const machines = [{ id: 'source', online: true, inventory: { agents: [agent('in')] } }]
+    const machines = [{ id: 'source', ...daemonFacts, online: true, inventory: { agents: [agent('in')] } }]
     expect(handoffAvailability(macSession, repos, machines, staleIssue)).toEqual({
       blocker: 'no-worktree',
       candidates: [],

@@ -126,13 +126,12 @@ it('reads an unpinned update channel as null and keeps an unreadable one unpinne
   }
 })
 
-it('distinguishes components NOT RECORDED from components recorded as none', async () => {
+it('derives components from explicit desired assignment', async () => {
   const store = await openTestStore(':memory:')
   try {
     await register(store, 'm1')
-    // NULL is distinct from '[]' (POD-2700): a machine that has not said what it
-    // runs refuses nothing, where one that runs nothing must refuse.
-    expect((await store.machines.getMachine('m1'))?.components).toBeNull()
+    // New enrollment without an assignment is explicitly neither.
+    expect((await store.machines.getMachine('m1'))?.components).toEqual([])
 
     expect(await store.machines.addMachineComponent('m1', 'daemon')).toBe(true)
     expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon'])
@@ -140,9 +139,9 @@ it('distinguishes components NOT RECORDED from components recorded as none', asy
     // ADDITIVE and idempotent: the second writer must not evict the first, and
     // a repeated stamp reports no change so the caller skips its broadcast.
     expect(await store.machines.addMachineComponent('m1', 'server')).toBe(true)
-    expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon', 'server'])
+    expect((await store.machines.getMachine('m1'))?.components).toEqual(['server', 'daemon'])
     expect(await store.machines.addMachineComponent('m1', 'daemon')).toBe(false)
-    expect((await store.machines.getMachine('m1'))?.components).toEqual(['daemon', 'server'])
+    expect((await store.machines.getMachine('m1'))?.components).toEqual(['server', 'daemon'])
 
     expect(await store.machines.addMachineComponent('absent', 'daemon')).toBe(false)
   } finally {

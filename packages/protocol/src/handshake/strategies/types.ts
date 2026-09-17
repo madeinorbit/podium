@@ -178,6 +178,7 @@ export interface MachineDirectory {
  */
 export interface PeerObservations {
   readonly hostname?: string
+  readonly assignment?: import('@podium/model').MachineServiceAssignment
 }
 
 /**
@@ -190,6 +191,7 @@ export interface PairingRequest {
   readonly machineId?: MachineId
   readonly name?: string
   readonly hostname?: string
+  readonly assignment?: import('@podium/model').MachineServiceAssignment
 }
 
 export interface ResolvedMachine {

@@ -78,6 +78,13 @@ const badRequest = (e: unknown): never => {
 // machines.* — hub role
 // ---------------------------------------------------------------------------
 
+export const machineSetAssignmentHandler = async ({ ctx, input }: FleetArgs<{
+  id: string; assignment: import('@podium/model').MachineServiceAssignment; requestId: string
+}>) => {
+  await mods(ctx).machines.changeAssignment(asMachineId(input.id), input.assignment, input.requestId)
+  return await mods(ctx).machines.listMachines()
+}
+
 export const machineRenameHandler = async ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
   await mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
   return await mods(ctx).machines.listMachines()

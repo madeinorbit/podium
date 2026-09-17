@@ -207,7 +207,7 @@ export interface PairingGrant {
  */
 type MachineCapabilityFacts = Pick<
   MachineListing,
-  'id' | 'online' | 'services' | 'components' | 'inventory'
+  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability'
 >
 
 export interface MachineFactsSnapshot {
@@ -298,6 +298,33 @@ export interface MachinesDeps {
 const log = createLogger('server:machines')
 
 export class MachinesService {
+  private readonly availabilityEpoch = randomUUID()
+  private availabilityWrites: Promise<void> = Promise.resolve()
+
+  private observedAvailability(machineId: MachineId) {
+    return { epoch: this.availabilityEpoch, server: machineId === this.deps.hostMachineId,
+      daemon: this.daemons.has(machineId), supervisor: this.supervisors.has(machineId) }
+  }
+
+  /** Serialize snapshots so a delayed detach cannot overwrite a later attach. */
+  private recordAvailability(machineId: MachineId): Promise<void> {
+    if (this.presenceReadOnly) return Promise.resolve()
+    const observed = this.observedAvailability(machineId)
+    const write = this.availabilityWrites.then(() => this.deps.store.machines.setAvailability(machineId, observed))
+    this.availabilityWrites = write.catch((error: unknown) => { log.error('availability write failed', { error }) })
+    return write
+  }
+
+  async changeAssignment(machineId: MachineId, assignment: MachineServiceAssignment, requestId: string): Promise<void> {
+    const result = await this.deps.store.machines.replaceExecutionAssignment(machineId, assignment,
+      { version: 1, source: 'admin-assignment', requestId })
+    if (result === 'missing') throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown machine' })
+    if (result === 'server-transfer-required')
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'move the server through server transfer' })
+    this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
+    await this.broadcastMachines()
+  }
+
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
@@ -454,12 +481,7 @@ export class MachinesService {
     }
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
-    // A DAEMON JUST ATTACHED HERE (POD-2700), so this machine durably runs one —
-    // the structural fact §1.2 asks for, recorded at the same moment the socket
-    // fact is. This is the one place every enrolment path converges on (pair and
-    // hello both end here), which is why it is stamped here rather than in the
-    // handshake, where a second path could be added without one.
-    await this.recordComponent(machineId, 'daemon')
+    await this.recordAvailability(machineId)
   }
 
   /**
@@ -482,7 +504,7 @@ export class MachinesService {
       (await this.machineRecords()).find((machine) => machine.id === machineId)
         ?.serviceAssignment ?? {
         server: false,
-        agentExecution: true,
+        agentExecution: false,
       }
     )
   }
@@ -539,6 +561,7 @@ export class MachinesService {
     // Fenced replacement: the old socket may still close, but cannot detach this one.
     this.supervisors.set(machineId, { send, build, caps: [...caps], generation })
     this.clearPresenceGrace(machineId)
+    await this.recordAvailability(machineId)
     if (this.presenceReadOnly) return 'attached'
     await this.deps.store.machines.setMachineBuild(
       machineId,
@@ -572,6 +595,7 @@ export class MachinesService {
   ): Promise<boolean> {
     if (!this.supervisorHolds(machineId, send)) return false
     this.supervisors.delete(machineId)
+    await this.recordAvailability(machineId)
     if (this.presenceReadOnly) {
         return true
     }
@@ -687,6 +711,7 @@ export class MachinesService {
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
     if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
+    void this.recordAvailability(machineId).catch(() => {})
     this.daemonCaps.delete(machineId)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
@@ -966,34 +991,12 @@ export class MachinesService {
     return [...this.daemons.keys()] as MachineId[]
   }
 
-  /**
-   * The machine a host-scoped request (scan/usage/repoOp/…) targets when the caller
-   * has no machine context: the sole online machine, else THIS HOST.
-   *
-   * The offline arm used to be the placeholder, and that was the load-bearing lie —
-   * a request with no machine context was routed to a name no daemon ever answers
-   * to, so it sat in a queue keyed by nothing until the 35s timeout, and any row it
-   * created was created machine-less. Answering with the host id makes the offline
-   * case a NORMAL offline machine: the message queues under a real id, the host
-   * daemon flushes it on attach, and every caller that checks liveness or `use`
-   * before routing (`requireAgent`, `requireMachineForRepo`, the fleet authz layer)
-   * gets to make that decision against a machine that actually exists.
-   */
+  /** Refuse rather than invent a target when no assigned daemon is attached. */
   async defaultMachine(): Promise<MachineId> {
-    const online = this.onlineMachineIds()
-    if (online[0] !== undefined) return online[0]
-    // NOTHING IS ONLINE. The old answer was always this host — and on a
-    // server-only coordinator that is a machine which can never do the work,
-    // handed out as a default (POD-2700 §2.4). Prefer a machine that DURABLY
-    // runs a daemon: it is offline, so the request queues either way, but it
-    // queues under an id whose daemon can actually flush it, and every caller
-    // that checks capability before routing now gets a truthful answer.
-    //
-    // The host stays the last resort rather than a refusal, because the
-    // boot-before-daemon case is real and must keep queueing: at boot this
-    // host's own daemon is precisely the one about to attach.
-    const durable = (await this.machineRecords()).find((m) => m.components?.includes('daemon'))
-    return durable?.id ?? this.deps.hostMachineId
+    const target = (await this.machineRecords()).find((m) =>
+      m.serviceAssignment.agentExecution && this.daemons.has(m.id))
+    if (!target) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'no assigned and available daemon' })
+    return target.id
   }
 
   /**
@@ -1003,7 +1006,7 @@ export class MachinesService {
    * returns that one machine — single-machine behavior is unchanged.
    */
   async resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId> {
-    if (requested && this.daemons.has(requested)) return asMachineId(requested)
+    if (requested && this.daemons.has(requested) && (await this.serviceAssignment(asMachineId(requested))).agentExecution) return asMachineId(requested)
     return await this.pickMachineForRepo(undefined, cwd)
   }
 
@@ -1057,8 +1060,13 @@ export class MachinesService {
     // During old/single-machine boot no inventory may have arrived yet; preserve
     // the existing queue-and-attach behavior. Once ANY online daemon reports an
     // inventory, lack of the requested harness is authoritative and actionable.
-    if (!machines.some((machine) => machine.online && machine.inventory !== undefined))
-      return legacy
+    if (!machines.some((machine) => machine.online && machine.inventory !== undefined)) {
+      const probing = machines.find((machine) => machine.serviceAssignment?.agentExecution === true &&
+        machine.availability?.daemon === true && machine.use !== 'denied')
+      if (probing) return probing.id
+    }
+    const available = machines.find((machine) => agentCapabilityRejectionForSelection(machine, agentKind) === undefined)
+    if (available) return available.id
     await this.requireAgent(legacy, agentKind, use)
     return legacy
   }
@@ -1326,7 +1334,9 @@ export class MachinesService {
       // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
       // Omitted when the row has NOT been evaluated, which is how a reader
       // tells "we have not recorded this" from "[] — evaluated, runs nothing".
-      ...(m.components !== null ? { components: m.components } : {}),
+      components: m.components ?? [],
+      serviceAssignment: m.serviceAssignment,
+      availability: this.observedAvailability(m.id),
       // A durable snapshot remains useful while OFFLINE, but it is not evidence
       // about a newly attached daemon until that connection reports once.
       ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
@@ -1479,7 +1489,7 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every committed write to the table updates in place.
    */
-  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
+  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
     return await Promise.all((await this.machineRecords()).map(async (m) => {
@@ -1489,6 +1499,8 @@ export class MachinesService {
         name: m.name,
         // Null is an authoritative unowned answer, not a missing lookup.
         ownerUserId: effective === undefined ? m.ownerUserId : effective,
+        daemonAssigned: m.serviceAssignment.agentExecution,
+        daemonAvailable: this.daemons.has(m.id),
       }
     }))
   }
@@ -1523,11 +1535,11 @@ export class MachinesService {
     // SQLite was sealed. The socket maps, not historical rows, own current state.
     for (const machineId of this.daemons.keys()) {
       const id = asMachineId(machineId)
-      await this.recordComponent(id, 'daemon')
-      if (!this.supervisors.has(id)) this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
+      await this.recordAvailability(id)
+      if (!this.supervisors.has(id)) await this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
     }
     for (const [machineId, supervisor] of this.supervisors) {
-      this.attachSupervisor(
+      await this.attachSupervisor(
         asMachineId(machineId),
         supervisor.send,
         supervisor.build,
@@ -1716,26 +1728,17 @@ export class MachinesService {
       hostname,
       tokenHash: sha256(secret),
       ownerUserId,
+      assignment: assignment ?? { server: true, agentExecution: false },
+      assignmentEvidence: { version: 1, source: 'setup', requestId: id },
     })
-    if (assignment) this.deps.store.machines.setServiceAssignment(id, assignment)
+    if (assignment && !existing?.assignmentEvidence) await this.deps.store.machines.setServiceAssignment(id, assignment, { version: 1, source: 'setup', requestId: id })
     // Only the exact imported source is demoted; ordinary machine policy is unchanged.
     // The composition root supplies this from durable target promotion evidence and
     // never calls writable host bootstrap in recoveryOnly mode.
     if (transferredFrom && transferredFrom !== id) {
-      await this.deps.store.machines.setServiceAssignment(transferredFrom, {
-        server: false,
-        agentExecution: true,
-      })
+      await this.deps.store.machines.transferServerAssignment(transferredFrom, id, `transfer:${transferredFrom}:${id}`)
     }
-    // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
-    // for this — no machine self-reports being the server — and stamping it at
-    // boot is what finally makes a server-only host legible as such: a row with
-    // `server` and no `daemon` is structurally incapable of hosting a repo, which
-    // reads as "runs the Podium server only" instead of as a mystery row that is
-    // permanently offline. On the ordinary single-box install the same row also
-    // gains `daemon` when the local daemon attaches; the two writers are additive
-    // precisely so neither erases the other.
-    await this.recordComponent(id, 'server')
+    await this.recordAvailability(id)
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw
     // id). Same seam a rename uses — the derived field has one way to be refreshed,

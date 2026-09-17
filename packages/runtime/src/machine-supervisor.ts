@@ -395,6 +395,10 @@ export function createMachineSupervisorConnection(
         claims: {
           machineId: deps.state.machineId,
           hostname: hostname(),
+          assignment: deps.state.assignment ?? {
+            server: deps.report().server.policy === 'enabled',
+            agentExecution: deps.report().agentExecution.policy === 'enabled',
+          },
           ...(deps.name ? { name: deps.name } : {}),
         },
       })

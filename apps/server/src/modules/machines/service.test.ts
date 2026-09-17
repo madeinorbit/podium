@@ -26,6 +26,7 @@ function makeService(): MachinesService {
     store: {
       machines: {
         addMachineComponent: () => false,
+        setAvailability: async () => {},
         setPresenceSource: () => {},
         // No durable rows in this socket-only fake, so no commit events fire.
         committed: { subscribe: () => () => {} },
@@ -53,6 +54,7 @@ async function storedService(
 ): Promise<{ svc: MachinesService; store: SessionStore }> {
   const store = await SessionStore.open(':memory:')
   await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
     id: MACHINE,
     name: 'vmi',
     hostname: 'vmi.local',
@@ -416,6 +418,7 @@ describe('promoted server host identity', () => {
     const store = await SessionStore.open(':memory:', target)
     for (const id of [source, target]) {
       await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
         id,
         name: id,
         hostname: id,
@@ -449,7 +452,7 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
    *  `use` decision Phase 4 (POD-1079) will eventually put on the projection. */
   function serviceListing(machines: unknown[]): MachinesService {
     const svc = makeService()
-    ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines
+    ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines.map((machine) => ({ serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true }, ...(machine as object) }))
     return svc
   }
   async function refusal(machines: unknown[]): Promise<TRPCError> {
@@ -612,6 +615,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     const { svc, store } = await pairingService()
     const token = 'tok-vmi'
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'old.local',
@@ -678,6 +682,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('async predicate regression: agent placement rejects every incapable repo owner', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE, name: 'Missing', hostname: 'a', tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
     })
@@ -692,6 +697,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('recordInventory persists the report and it survives a hello reconnect', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -711,6 +717,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -738,6 +745,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('records the native identity fingerprint selected on the target machine', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -766,6 +774,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -805,6 +814,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('explicit session placement rejects a missing harness but starts logged out', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -830,6 +840,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const { svc, store } = await makeStoreService()
     const other = 'capable'
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Missing',
       hostname: 'a',
@@ -837,6 +848,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       ownerUserId: firstAdminMemberId(),
     })
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: other,
       name: 'Capable',
       hostname: 'b',
@@ -910,6 +922,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       },
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
@@ -1072,6 +1085,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
@@ -1188,6 +1202,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     const { svc, store, dir } = await adoptWorld()
     try {
       await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
         id: store.hostMachineId,
         name: 'host',
         hostname: 'host.local',
@@ -1293,6 +1308,7 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
     } satisfies MachinesDeps)
     for (const id of ['m-1', 'm-2', 'm-3']) {
       await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
         id,
         name: id,
         hostname: `${id}.local`,

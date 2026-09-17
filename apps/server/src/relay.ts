@@ -1191,7 +1191,7 @@ export class SessionRegistry {
           // POD-2700. `undefined` components mean NOT RECORDED, which must not
           // refuse — same reading as everywhere else — so only an evaluated row
           // that lacks the component answers `false`.
-          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
+          hasDaemon: machine?.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true,
         }
       }
     }
@@ -1229,7 +1229,7 @@ export class SessionRegistry {
           (await machines.listMachines())
             .filter(
               (machine) =>
-                machine.components === undefined || machine.components.includes('daemon'),
+                machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true,
             )
             .map((machine) => machine.id),
         onlineMachineIds: () => machines.onlineMachineIds(),

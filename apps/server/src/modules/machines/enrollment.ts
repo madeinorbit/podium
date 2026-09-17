@@ -119,6 +119,8 @@ export async function authenticateDaemon(
       // default: a code with no owner produces an unowned machine.
       ownerUserId,
       podiumManaged: pairingGrant.podiumManaged ?? true,
+      assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
+      assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
     })
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.

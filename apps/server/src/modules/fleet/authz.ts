@@ -99,6 +99,7 @@ const named = (machineId: MachineId | undefined): FleetTarget =>
  * stops covering the family.
  */
 export const FLEET_TARGETS = {
+  'machines.setAssignment': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.rename': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.applyUpdate': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.setUpdateChannel': (input: unknown) => named((input as { id: MachineId }).id),

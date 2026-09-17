@@ -29,6 +29,7 @@ import {
 // declared somewhere a reviewer reads, not merely somewhere the compiler does.
 const DECLARED: readonly FleetContractName[] = [
   'machines.rename',
+  'machines.setAssignment',
   'machines.applyUpdate',
   'machines.setUpdateChannel',
   'machines.share',
@@ -132,6 +133,7 @@ describe('the fleet contracts', () => {
     // the ones whose class was the hard call.
     const writesInto: Record<FleetContractName, string> = {
       'machines.rename': 'machine',
+      'machines.setAssignment': 'machine',
       'machines.applyUpdate': 'machine',
       'machines.setUpdateChannel': 'machine',
       'machines.share': 'machine',
@@ -187,6 +189,7 @@ describe('the fleet contracts', () => {
     )
     expect(byVerb).toEqual({
       'machines.rename': 'manage',
+      'machines.setAssignment': 'manage',
       'machines.applyUpdate': 'manage',
       'machines.setUpdateChannel': 'manage',
       'machines.share': 'manage',
@@ -255,6 +258,7 @@ describe('the fleet contracts', () => {
     )
     expect(byRole).toEqual({
       'machines.rename': 'hub',
+      'machines.setAssignment': 'hub',
       'machines.applyUpdate': 'hub',
       'machines.setUpdateChannel': 'hub',
       'machines.share': 'hub',
@@ -318,7 +322,7 @@ describe('the fleet contracts', () => {
     }
   })
 
-  it('sets the role floor to admin only where no ownership check could ever admit a member', () => {
+  it('reserves enrollment, adoption, assignment and server transfer for admins', () => {
     const byFloor = Object.fromEntries(
       Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.policy.roleFloor]),
     )
@@ -336,7 +340,7 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.pairingCode', 'machines.adopt', 'machines.moveServer']
+    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.pairingCode', 'machines.adopt', 'machines.moveServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])

@@ -108,7 +108,7 @@ export function machineRejection<M extends HandoffMachine>(
 ): MachineRejection | undefined {
   const structural = structuralEligibility(machine, requirement)
   if (structural !== undefined) return structural
-  if (!machine.online) return 'offline'
+  if (!machine.online || machine.availability?.daemon !== true) return 'offline'
   const execution = agentExecutionRejection(machine)
   if (execution !== undefined) return execution
   switch (requirement.need) {

@@ -38,6 +38,7 @@ export interface MachineAuthenticationInput {
   token?: string
   hostname: string
   name?: string
+  assignment?: import('@podium/model').MachineServiceAssignment
 }
 
 export type MachineAuthenticationResult =
@@ -210,6 +211,7 @@ export const createMachineDirectory = (
         code,
         machineId: request.machineId,
         hostname: request.hostname ?? request.machineId,
+        ...(request.assignment === undefined ? {} : { assignment: request.assignment }),
         ...(request.name === undefined ? {} : { name: request.name }),
       },
       options,
@@ -298,6 +300,7 @@ export const createResolvedMachineDirectory = (
         code,
         machineId: request.machineId,
         hostname: request.hostname ?? request.machineId,
+        ...(request.assignment === undefined ? {} : { assignment: request.assignment }),
         ...(request.name === undefined ? {} : { name: request.name }),
       },
       options,

@@ -35,6 +35,8 @@ const machine = (
   id,
   name: id,
   online: opts.online ?? true,
+  serviceAssignment: { server: opts.components?.includes('server') === true, agentExecution: opts.components?.includes('daemon') === true },
+  availability: { daemon: (opts.online ?? true) && opts.components?.includes('daemon') === true },
   ...(opts.components !== undefined ? { components: opts.components } : {}),
   ...(opts.use ? { use: opts.use } : {}),
   ...(opts.harness === undefined
@@ -59,11 +61,8 @@ describe('structuralRejection', () => {
     expect(structuralRejection(LAPTOP)).toBeUndefined()
   })
 
-  it('does NOT refuse when components were never recorded', () => {
-    // The concession documented on the function: absent means an old producer
-    // has not answered, and reading silence as "incapable" would blank every
-    // picker in the fleet at once — the defect this work removes, restated.
-    expect(structuralRejection(machine('legacy'))).toBeUndefined()
+  it('refuses when assignment was never recorded', () => {
+    expect(structuralRejection(machine('legacy'))).toBe('no-daemon')
   })
 
   it('DOES refuse on an empty array — that is an answer, not a silence', () => {

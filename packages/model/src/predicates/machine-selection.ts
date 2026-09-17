@@ -21,6 +21,7 @@ import {
   type MachineUseDecision,
   probeTimeoutDescription,
   type MachineServiceReport,
+  type MachineServiceAssignment,
 } from '../entities/machine'
 import type { MachineId } from '../ids/brands'
 
@@ -33,17 +34,10 @@ export interface RepoMachines {
 export interface SelectableMachine {
   id: string
   online: boolean
-  /**
-   * The DURABLE components installed here (POD-2700). See
-   * {@link MachineComponent} for what each one means, and
-   * {@link structuralRejection} for why ABSENT is not the same as `[]`.
-   *
-   * It sits on `SelectableMachine` rather than only on the richer
-   * {@link HandoffMachine} because the structural axis is the FIRST question
-   * every selection helper in this file has to answer — including the plain
-   * repo-affinity ones, which is exactly where the coordinator got picked.
-   */
+  /** Compatibility list of desired components; never evidence of availability. */
   components?: readonly MachineComponent[]
+  serviceAssignment?: MachineServiceAssignment
+  availability?: { daemon: boolean }
   /** Live supervisor-owned execution state. Absent during the legacy window. */
   services?: MachineServiceReport
   /**
@@ -244,7 +238,7 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   if (machine.use === 'denied') return 'unauthorized'
   const structural = structuralRejection(machine)
   if (structural !== undefined) return structural
-  if (!machine.online) return 'offline'
+  if (!machine.online || machine.availability?.daemon !== true) return 'offline'
   const execution = agentExecutionRejection(machine)
   if (execution !== undefined) return execution
   return harnessRejection(machine, agentKind)
@@ -270,37 +264,13 @@ export function agentExecutionRejection<M extends SelectableMachine>(
 // THE STRUCTURAL AXIS (POD-2700) — `docs/machine-capability-filtering.md` §1.
 // ---------------------------------------------------------------------------
 
-/**
- * THE STRUCTURAL DIMENSION ALONE: does this machine run a Podium daemon at all?
- *
- * Everything host-shaped — hosting a repo, holding a worktree, running an agent
- * process, opening a PTY, reporting metrics — happens THROUGH a daemon. A row
- * with no `daemon` component has no daemon to ask, now or ever, so it must never
- * be offered for any of them.
- *
- * ## Absent vs empty — the one subtlety, and it is deliberate
- *
- * `components === undefined` means NOT RECORDED and returns `undefined` (no
- * refusal); `components === []` means EVALUATED AND RUNS NOTHING and returns
- * `'no-daemon'`.
- *
- * That asymmetry is the same closed-but-not-refusing reading `use` already has
- * three functions up, and it is chosen for the same reason: the alternative
- * fails the wrong way. Reading silence as "incapable" would mean a client
- * talking to a server that predates the field sees an EMPTY picker on every
- * surface at once — the exact defect this work exists to remove, reintroduced
- * fleet-wide and blamed on capability. The server's own projection
- * (`MachinesService.listMachines`) always supplies the field, so every guard
- * that matters — the action RPCs of §2.5, which run in that same process
- * against that same projection — is armed regardless. The failure this
- * concession admits is narrow and temporary (an old *server*, not an old
- * client), and it degrades to today's behaviour rather than to a new one.
- */
+/** Desired daemon assignment is the structural capability; current attachment
+ * is checked separately so a disconnected assigned daemon reports offline. */
 export function structuralRejection<M extends SelectableMachine>(
   machine: M,
 ): 'no-daemon' | undefined {
-  if (machine.components === undefined) return undefined
-  return machine.components.includes('daemon') ? undefined : 'no-daemon'
+  return machine.serviceAssignment?.agentExecution === true
+    ? undefined : 'no-daemon'
 }
 
 /**

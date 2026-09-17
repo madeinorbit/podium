@@ -314,18 +314,12 @@ export interface MachineRecord {
   installKind: string | null
   deliveryCaps: string[]
   presenceSource: MachinePresenceSource | null
+  assignmentEvidence: { version: 1; source: string; requestId: string } | null
+  availability: { epoch: string; server: boolean; daemon: boolean; supervisor: boolean } | null
   serviceAssignment: MachineServiceAssignment
   serviceReport: MachineServiceReport | null
   buildReportedAt: string | null
-  /**
-   * WHICH PODIUM COMPONENTS RUN HERE (POD-2700) — the DURABLE structural axis.
-   *
-   * PRESENT-AND-NULL rather than optional, for the same reason as `ownerUserId`
-   * above: absent must not be able to masquerade as answered. `null` is "not
-   * recorded" and refuses nothing; `[]` is "evaluated, runs nothing yet". See
-   * `MachineComponent` in `@podium/model` for why this is not folded into
-   * `deliveryCaps`.
-   */
+  /** Compatibility projection derived from desired assignment. */
   components: import('@podium/model').MachineComponent[] | null
 }
 

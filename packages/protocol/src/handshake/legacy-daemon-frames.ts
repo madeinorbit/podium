@@ -61,6 +61,7 @@ export const helloFromLegacyDaemonFrame = (frame: DaemonHandshake): PeerHello =>
       }
 
 const legacyClaims = (frame: z.infer<typeof PairFrame>): PeerHello['claims'] => ({
+  ...(frame.assignment === undefined ? {} : { assignment: frame.assignment }),
   machineId: frame.machineId,
   hostname: frame.hostname,
   ...(frame.name === undefined ? {} : { name: frame.name }),

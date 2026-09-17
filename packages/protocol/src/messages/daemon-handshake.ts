@@ -1,4 +1,4 @@
-import { MachineIdField } from '@podium/model'
+import { MachineIdField, MachineServiceAssignment } from '@podium/model'
 import { z } from 'zod'
 
 // ---- daemon handshake (pre-auth; NOT part of the Control/Daemon unions) ----
@@ -8,6 +8,7 @@ export const PairFrame = z.object({
   machineId: MachineIdField,
   hostname: z.string(),
   name: z.string().optional(),
+  assignment: MachineServiceAssignment.optional(),
 })
 export const HelloFrame = z.object({
   type: z.literal('hello'),

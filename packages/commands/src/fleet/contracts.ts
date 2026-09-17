@@ -105,7 +105,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { MachineIdField, UpdateChannel, UserIdField } from '@podium/model'
+import { MachineIdField, MachineServiceAssignment, UpdateChannel, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -447,6 +447,19 @@ export const machineRenameContract = {
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
+
+const machineSetAssignmentInput = z.object({
+  id: MachineIdField, assignment: MachineServiceAssignment, requestId: z.string().min(1),
+})
+export const machineSetAssignmentContract = {
+  ...machineRenameContract,
+  name: 'machines.setAssignment', input: machineSetAssignmentInput,
+  policy: { ...machineRenameContract.policy, roleFloor: 'admin',
+    rationale: 'Only an administrator changes desired services; availability is observed independently.' },
+  cli: { summary: 'Assign or remove agent execution on a machine' },
+  ownership: { creates: [], note: 'Replaces desired assignment on an enrolled machine.' },
+  conflictRule: 'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
+} as const satisfies FleetCommandContract<typeof machineSetAssignmentInput>
 
 /** Select the centrally controlled update authority for one managed machine. */
 export const machineSetUpdateChannelContract = {
@@ -1371,6 +1384,7 @@ export const discoveryScanMachineContract = {
  */
 export const FLEET_CONTRACTS = {
   'machines.rename': machineRenameContract,
+  'machines.setAssignment': machineSetAssignmentContract,
   'machines.setUpdateChannel': machineSetUpdateChannelContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,

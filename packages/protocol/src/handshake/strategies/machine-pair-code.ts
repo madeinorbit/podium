@@ -54,6 +54,7 @@ export const createMachinePairCodeStrategy = (
       ...(hello.claims?.machineId === undefined
         ? {}
         : { machineId: asMachineId(hello.claims.machineId) }),
+      ...(hello.claims?.assignment === undefined ? {} : { assignment: hello.claims.assignment }),
       ...(hello.claims?.name === undefined ? {} : { name: hello.claims.name }),
       ...(hello.claims?.hostname === undefined ? {} : { hostname: hello.claims.hostname }),
     })

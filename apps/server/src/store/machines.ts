@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { CommittedRows } from './committed-rows'
 /**
  * Machines aggregate — owns the `machines` table (registered daemons and
@@ -50,6 +51,21 @@ function parseCaps(raw: string | null): string[] {
   }
 }
 
+export const AssignmentEvidence = z.object({
+  version: z.literal(1), source: z.string().min(1), requestId: z.string().min(1),
+})
+export const MachineAvailability = z.object({
+  epoch: z.string().min(1), server: z.boolean(), daemon: z.boolean(), supervisor: z.boolean(),
+})
+function parseStored<T>(schema: z.ZodType<T>, raw: unknown): T | null {
+  if (typeof raw !== 'string') return null
+  try { const result = schema.safeParse(JSON.parse(raw)); return result.success ? result.data : null }
+  catch { return null }
+}
+export function assignmentComponents(assignment: MachineServiceAssignment): MachineComponent[] {
+  return [...(assignment.server ? ['server' as const] : []), ...(assignment.agentExecution ? ['daemon' as const] : [])]
+}
+
 function parseAssignment(raw: unknown): MachineServiceAssignment {
   if (typeof raw === 'string') {
     try {
@@ -57,7 +73,7 @@ function parseAssignment(raw: unknown): MachineServiceAssignment {
       if (parsed.success) return parsed.data
     } catch {}
   }
-  return { server: false, agentExecution: true }
+  return { server: false, agentExecution: false }
 }
 
 function parseServiceReport(raw: unknown): MachineServiceReport | null {
@@ -76,28 +92,6 @@ function parsePresenceSource(raw: unknown): MachinePresenceSource | null {
 }
 
 /**
- * Defensive parse of a stored components blob (POD-2700).
- *
- * Distinguishes the three answers the column can hold, and never invents the
- * permissive one: NULL / absent → `null` (not recorded, refuses nothing); a
- * valid array → itself, unknown members dropped so a downgrade from a future
- * server that added a component reads the ones it knows; UNPARSEABLE → `null`
- * rather than `[]`, because a corrupt blob is a thing we do not know, and
- * answering "runs nothing" would blank the machine out of every picker on the
- * strength of a JSON error.
- */
-function parseComponents(raw: unknown): MachineComponent[] | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return null
-    return parsed.filter((c): c is MachineComponent => MachineComponent.safeParse(c).success)
-  } catch {
-    return null
-  }
-}
-
-/**
  * WHAT STILL NEEDS MAPPING [spec §6 rules 3, 4 and 6].
  *
  * Drizzle returns the schema's TypeScript names, the `MachineId` and `UserId`
@@ -105,7 +99,7 @@ function parseComponents(raw: unknown): MachineComponent[] | null {
  * per-column decode this file used to carry is gone. What remains is defensive
  * PARSING of three text blobs and two nullability decisions, and every one of
  * them is a decision the file already documents rather than a driver artefact —
- * see `parseInventory`, `parseCaps`, `parseComponents` and the comments below.
+ * see `parseInventory`, `parseCaps`, `parseAssignment` and the comments below.
  */
 type MachineSelect = Pick<
   typeof machines.$inferSelect,
@@ -123,6 +117,8 @@ type MachineSelect = Pick<
   | 'deliveryCapsJson'
   | 'presenceSource'
   | 'serviceAssignmentJson'
+  | 'assignmentEvidenceJson'
+  | 'availabilityJson'
   | 'serviceReportJson'
   | 'buildReportedAt'
   | 'podiumManaged'
@@ -146,6 +142,8 @@ const MACHINE_COLUMNS = {
   deliveryCapsJson: machines.deliveryCapsJson,
   presenceSource: machines.presenceSource,
   serviceAssignmentJson: machines.serviceAssignmentJson,
+  assignmentEvidenceJson: machines.assignmentEvidenceJson,
+  availabilityJson: machines.availabilityJson,
   serviceReportJson: machines.serviceReportJson,
   buildReportedAt: machines.buildReportedAt,
   podiumManaged: machines.podiumManaged,
@@ -184,9 +182,11 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
     deliveryCaps: parseCaps(r.deliveryCapsJson),
     presenceSource: parsePresenceSource(r.presenceSource),
     serviceAssignment: parseAssignment(r.serviceAssignmentJson),
+    assignmentEvidence: parseStored(AssignmentEvidence, r.assignmentEvidenceJson),
+    availability: parseStored(MachineAvailability, r.availabilityJson),
     serviceReport: parseServiceReport(r.serviceReportJson),
     buildReportedAt: r.buildReportedAt,
-    components: parseComponents(r.componentsJson),
+    components: assignmentComponents(parseAssignment(r.serviceAssignmentJson)),
   }
 }
 
@@ -317,6 +317,8 @@ export class MachinesRepository {
     tokenHash: string
     ownerUserId: UserId | null
     podiumManaged?: boolean
+    assignment?: MachineServiceAssignment
+    assignmentEvidence?: z.infer<typeof AssignmentEvidence>
   }): Promise<void> {
     const now = new Date().toISOString()
     ;await this.committed.write(async () => (this.db
@@ -332,6 +334,8 @@ export class MachinesRepository {
         lastSeenAt: now,
         ownerUserId: m.ownerUserId,
         podiumManaged: m.podiumManaged ?? true,
+        serviceAssignmentJson: JSON.stringify(m.assignment ?? { server: false, agentExecution: false }),
+        assignmentEvidenceJson: JSON.stringify(m.assignmentEvidence ?? { version: 1, source: 'enrollment', requestId: m.id }),
       }))
       .onConflictDoUpdate({
         target: machines.id,
@@ -369,37 +373,21 @@ export class MachinesRepository {
     return machineRecordFromRow(r)
   }
 
-  /**
-   * ADD one durable component to a machine, idempotently (POD-2700).
-   *
-   * ADDITIVE, and read-modify-write on purpose. The two writers answer different
-   * questions and neither knows the other's answer: the server stamps `server`
-   * on its own host row at boot, and a daemon handshake stamps `daemon` — on the
-   * SAME row when the coordinator also runs a daemon, which is the ordinary
-   * single-box install. A last-writer-wins `SET` would make the host machine
-   * flip between "server" and "daemon" depending on boot order, and a
-   * repo-hosting box would lose its repo capability every time the server
-   * restarted. Removal is not an operation here: components die with the machine
-   * row (§1.3 — revoke is the retirement path, not a per-component TTL).
-   *
-   * Returns whether the row actually changed, so the caller can skip a broadcast
-   * on the overwhelmingly common no-op (every hello re-stamps `daemon`).
-   */
+  /** Explicit assignment add/remove; attachment never calls this transition. */
   async addMachineComponent(id: string, component: MachineComponent): Promise<boolean> {
-    const row = await this.db
-      .select({ componentsJson: machines.componentsJson })
-      .from(machines)
-      .where(eq(machines.id, id as MachineId))
-      .get()
-    if (!row) return false
-    const current = parseComponents(row.componentsJson) ?? []
-    if (current.includes(component)) return false
-    const next = [...current, component]
-    await this.committed.write(async () => this.db
-      .update(machines)
-      .set({ componentsJson: JSON.stringify(next) })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+    const row = await this.getMachine(id)
+    if (!row || row.components?.includes(component)) return false
+    await this.setServiceAssignment(id, { ...row.serviceAssignment,
+      ...(component === 'server' ? { server: true } : { agentExecution: true }),
+    }, { version: 1, source: 'assignment-add', requestId: `${id}:${component}:add` })
     return true
+  }
+
+  async setAvailability(id: string, availability: z.infer<typeof MachineAvailability>): Promise<void> {
+    const value = MachineAvailability.parse(availability)
+    await this.committed.write(async () => this.db.update(machines)
+      .set({ availabilityJson: JSON.stringify(value) })
+      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
   /** One atomic replacement per harness; delayed reports cannot roll back the latest version. */
@@ -489,11 +477,37 @@ export class MachinesRepository {
       .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
   }
 
-  async setServiceAssignment(id: string, assignment: MachineServiceAssignment): Promise<void> {
+  async setServiceAssignment(id: string, assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence> = { version: 1, source: 'assignment', requestId: id }): Promise<void> {
+    MachineServiceAssignment.parse(assignment)
+    AssignmentEvidence.parse(evidence)
     await this.committed.write(async () => this.db
       .update(machines)
-      .set({ serviceAssignmentJson: JSON.stringify(assignment) })
+      .set({ serviceAssignmentJson: JSON.stringify(assignment), assignmentEvidenceJson: JSON.stringify(evidence) })
       .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+  }
+
+  /** The server-bit guard and replacement share a transaction with transfer. */
+  async replaceExecutionAssignment(id: string, assignment: MachineServiceAssignment,
+    evidence: z.infer<typeof AssignmentEvidence>): Promise<'updated' | 'missing' | 'server-transfer-required'> {
+    return this.createOrJoinTransaction(async () => {
+      const row = await this.getMachine(id)
+      if (!row) return 'missing'
+      if (row.serviceAssignment.server !== assignment.server) return 'server-transfer-required'
+      await this.setServiceAssignment(id, assignment, evidence)
+      return 'updated'
+    })
+  }
+
+  /** Move only the server bit. S5 moves the caller out of boot provisioning. */
+  async transferServerAssignment(sourceId: string, targetId: string, requestId: string): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const source = await this.getMachine(sourceId)
+      const target = await this.getMachine(targetId)
+      if (!source || !target) throw new Error('server transfer requires both enrolled machines')
+      const evidence = { version: 1 as const, source: 'server-transfer', requestId }
+      await this.setServiceAssignment(sourceId, { ...source.serviceAssignment, server: false }, evidence)
+      await this.setServiceAssignment(targetId, { ...target.serviceAssignment, server: true }, evidence)
+    })
   }
 
   async setPresenceSource(id: string, source: MachinePresenceSource): Promise<void> {
