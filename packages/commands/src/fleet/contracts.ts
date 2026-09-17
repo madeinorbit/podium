@@ -206,7 +206,7 @@ export const machineAdoptInput = z.object({
 })
 
 export const machinePairingCodeInput = z
-  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional() })
+  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional() })
   .optional()
 
 export const repoAddInput = z.object({
@@ -890,18 +890,13 @@ export const machinePairingCodeContract = {
   input: machinePairingCodeInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'Mints credential material that admits arbitrary compute to this instance. ADR 9 D3 rule 5 — ' +
-      '"secret management becomes admin-grade once there is more than one human" — and D1.4’s ' +
-      '`secrets` clause set the floor, and unlike machine `manage` there is no owner column that ' +
-      'could admit a member instead: the machine does not exist yet, so the role floor is the only ' +
-      'gate that exists. Recorded as a FORK: ADR 9 D6 M3 ("pairing runs from that person’s laptop") ' +
-      'reads as self-service, which would argue `member`. The admin floor is the default-closed side ' +
-      'of it and matches the shipped surface (hub role only, Settings → Machines). Nothing enforces ' +
-      'the floor today; POD-1079 owns that.',
+      'New enrollment requires an administrator at the fleet gate and handler. An explicit ' +
+      'replacement may also be authorized by the retained machine personal grantee; the code ' +
+      'is scoped to that machine id, and active-id collisions are refused before redemption.',
   },
   exposure: SERVED_ON,
   delivery: PAIRING_DELIVERY,

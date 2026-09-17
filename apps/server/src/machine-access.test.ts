@@ -581,3 +581,25 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
    const limited = { ...ownership, delegatedMachines: () => new Set<string>() }
    expect(machineVerbsFor(delegated, asMachineId('orphan'), limited)).toEqual(new Set(['see']))
  })
+
+
+describe('retained revoked ownership', () => {
+  it('retains owner visibility but never use or manage', () => {
+    const ownership = ownershipFromMachines({
+      ownershipRows: () => [{ id: asMachineId('revoked-box'), ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' }],
+    })
+    expect([...machineVerbsFor(user(OWNER), asMachineId('revoked-box'), ownership)]).toEqual(['see'])
+  })
+})
+
+
+it('revoked machine custody remains bounded by agent delegation', () => {
+  const id = asMachineId('revoked-delegated')
+  const ownership = {
+    ...ownershipFromMachines({ ownershipRows: () => [{ id, ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' }] }),
+    delegatedMachines: () => new Set<string>(),
+  }
+  const delegated = { ...agent(asSessionId('limited-revoked'), OWNER), capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
+  expect(machineVerbsFor(delegated, id, ownership)).toEqual(new Set(['see']))
+  expect(machineVerbsFor(user(OWNER, 'admin'), id, ownership)).toEqual(new Set(['see', 'manage']))
+})

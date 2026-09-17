@@ -744,6 +744,8 @@ export const superagentThreads = sqliteTable('superagent_threads', {
 })
 
 export const machines = sqliteTable('machines', {
+  /** Retained audit row; only an explicit replacement clears revocation. */
+  revokedAt: text('revoked_at'),
   id: text().$type<MachineId>().primaryKey(),
   name: text().notNull(),
   hostname: text().notNull(),

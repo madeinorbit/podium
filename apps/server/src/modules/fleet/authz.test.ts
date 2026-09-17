@@ -77,6 +77,8 @@ function deps(
             machine: machineId as MachineOwnershipRow['machine'],
             owner: opts.owner === undefined ? OWNER : opts.owner,
             grants: opts.grants ?? [],
+            daemonAssigned: true,
+            daemonAvailable: true,
             name: machineId,
           }
         : undefined,
@@ -112,8 +114,8 @@ describe('the target table covers the contract table, in both directions', () =>
   it('every contract has an extractor and every extractor has a contract', () => {
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
-    expect(NAMES).toHaveLength(21)
-    expect(MACHINE_COMMANDS).toHaveLength(20)
+    expect(NAMES).toHaveLength(22)
+    expect(MACHINE_COMMANDS).toHaveLength(21)
   })
 })
 
@@ -157,14 +159,14 @@ describe('the role floor is read from the contract', () => {
     expect(refusal?.code).toBe('FORBIDDEN')
   })
 
-  it('a system principal clears every floor — in-process only, and it has no account', async () => {
+  it('a system principal cannot mint a human enrollment credential', async () => {
     expect(
       await fleetAuthzFailure(
         'machines.pairingCode',
         {},
         { ...deps(systemPrincipal('boot-reconcile')), role: undefined },
       ),
-    ).toBeUndefined()
+    ).toMatchObject({ code: 'FORBIDDEN' })
   })
 })
 
@@ -512,6 +514,7 @@ describe('the derived fleet router actually calls the gate', () => {
       name: 'machine-one',
       hostname: 'host-one',
       tokenHash: 'h1',
+      assignment: { server: false, agentExecution: true },
       ownerUserId: ownerUserId === null ? null : asUserId(ownerUserId),
     })
     const registry = await SessionRegistry.create(store, undefined, {
@@ -522,6 +525,7 @@ describe('the derived fleet router actually calls the gate', () => {
       ...(opts.stateDir ? { enrollment: openEnrollmentLedger(opts.stateDir) } : {}),
     })
     await registry.modules.machines.ensureHostMachine('machine-under-test')
+    await registry.modules.machines.attach(asMachineId('m1'), () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {
@@ -679,62 +683,17 @@ describe('the derived fleet router actually calls the gate', () => {
     }
   })
 
-  it('the SERVED adoption reads the ledger, not the row — a crashed transfer is not adoptable', async () => {
-    // THIS TEST EXISTS BECAUSE OF A MUTANT THAT DID NOT FIRE, and the reason it
-    // did not is worth writing down. Rewriting `fleetAuthzDeps`'s
-    // `effectiveOwner` to read `ownership.rowFor(...)?.owner` reddened nothing,
-    // while a throw in the same position reddened the wiring test above — so the
-    // line is entered, and the silence is not an assertion gap either. It is
-    // GENUINE EQUIVALENCE, with the argument: `ownershipFromMachines` is built
-    // over `ownershipRows()`, which already overlays `effectiveOwner` for
-    // D19.4d rule 4. The "row" the gate can reach is ALREADY ledger-derived, so
-    // the two expressions cannot disagree in production. The separate dep stays
-    // because it says which question is being asked rather than relying on that
-    // overlay staying in place, but no test can distinguish them and none should
-    // pretend to.
-    //
-    // What this test DOES pin is the served behaviour that matters: a machine
-    // whose ledger has an owner is not adoptable no matter what the row says.
-    //
-    // `skipRowUpdate` is the crash-injection seam D19.4d ships for exactly this
-    // state: the ledger append committed, the row write did not. The machine is
-    // the colleague's as of that append, and the row still says nobody's.
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-stale-'))
+  it('served adoption follows the database when a compatibility transfer skips its write', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-database-'))
     try {
       const { call, store, registry } = await caller(null, { stateDir: dir })
-      // The colleague must RESOLVE, or `effectiveOwner` projects null for the
-      // quarantine reason instead of the stale-row reason and the test would be
-      // measuring the wrong disagreement.
-      await store.users.create(
-        {
-          id: COLLEAGUE,
-          displayName: 'Colleague',
-          role: 'member',
-          createdAt: '2026-07-30T00:00:00.000Z',
-          disabledAt: null,
-        },
-        'hash',
-      )
-      await registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, {
-        skipRowUpdate: true,
-      })
-
-      // The two genuinely disagree. Assert BOTH, or the test proves nothing
-      // about which one was read.
+      await registry.modules.machines.transferOwnership(asMachineId('m1'), COLLEAGUE, { skipRowUpdate: true })
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
-
-      // Effective ownership, not the stale raw row, refuses adoption.
-      await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: OWNER })).rejects.toThrow(
-        /already has an owner/,
-      )
-      // Nothing was written: not the row, and — the one that counts — not the
-      // ledger, which still records the colleague and only the colleague.
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBeNull()
+      await call.machines.adopt({ id: 'm1', newOwnerUserId: OWNER })
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
+      expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(OWNER)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
   it('an admin manages an unowned row without use', async () => {
@@ -761,22 +720,15 @@ describe('the derived fleet router actually calls the gate', () => {
     await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(/do not have access/)
   })
 
-  it('an authoritative null grantee overrides a stale owned row in the client projection', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-quarantined-'))
-    try {
-      const { call, store, registry } = await caller(OWNER, { stateDir: dir })
-      const ledger = registry.modules.machines
-      // A recorded grantee that does not resolve quarantines the machine while
-      // the raw stored row still names its former owner.
-      await ledger.transferOwnership(asMachineId('m1'), asUserId('missing-member'), { skipRowUpdate: true })
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
-      expect(await ledger.effectiveOwner(asMachineId('m1'))).toBeNull()
-      expect((await call.machines.list()).find((m) => m.id === 'm1')).toMatchObject({
-        unowned: true, adoptable: true, owned: false, use: 'denied',
-      })
-      await call.machines.adopt({ id: 'm1' })
-      expect(await ledger.effectiveOwner(asMachineId('m1'))).toBe(OWNER)
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+  it('an authoritative database null grantee is unowned in the client projection', async () => {
+    const { call, store, registry } = await caller(OWNER)
+    await store.machines.setMachineOwner('m1', null)
+    expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBeNull()
+    expect((await call.machines.list()).find((m) => m.id === 'm1')).toMatchObject({
+      unowned: true, adoptable: true, owned: false, use: 'denied',
+    })
+    await call.machines.adopt({ id: 'm1' })
+    expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(OWNER)
   })
 
   it('admin manage survives removal of a share without granting use', async () => {
@@ -853,5 +805,14 @@ describe('a paired machine belongs to whoever minted its code', () => {
         deps(user(OWNER), { owner: null, machines: ['joiner'] }),
       ))?.code,
     ).toBe('NOT_FOUND')
+  })
+})
+
+describe('explicit replacement pairing authority', () => {
+  it('admits the retained identity grantee but refuses another member', async () => {
+    const input = { replaceMachineId: 'laptop' }
+    expect(await fleetAuthzFailure('machines.pairingCode', input, deps(user(OWNER), { role: 'member' }))).toBeUndefined()
+    expect(await fleetAuthzFailure('machines.pairingCode', input, deps(user(COLLEAGUE), { role: 'member' }))).toMatchObject({ code: 'FORBIDDEN' })
+    expect(await fleetAuthzFailure('machines.pairingCode', {}, deps(user(OWNER), { role: 'member' }))).toMatchObject({ code: 'FORBIDDEN' })
   })
 })

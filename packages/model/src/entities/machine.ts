@@ -445,6 +445,8 @@ export const MachineHarnessVersion = z.object({
 export type MachineHarnessVersion = z.infer<typeof MachineHarnessVersion>
 
 export const MachineWire = z.object({
+  /** Retained audit identity; revoked machines cannot execute or receive control. */
+  revokedAt: z.string().nullable().optional(),
   harnessVersions: z.array(MachineHarnessVersion).optional(),
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this

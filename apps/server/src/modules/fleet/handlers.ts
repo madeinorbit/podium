@@ -1,3 +1,4 @@
+import { settingsAuditAttribution } from '../../store/settings-audit'
 /**
  * THE TEN FLEET HANDLERS (POD-384) — L3, joined to their L1 contracts in
  * `registry.ts`.
@@ -200,7 +201,7 @@ export const machineAdoptHandler = async ({
 }
 
 export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
-  await mods(ctx).machines.revokeMachine(asMachineId(input.id))
+  await mods(ctx).machines.revokeMachine(asMachineId(input.id), { attribution: settingsAuditAttribution((await fleetAuthzDeps(ctx)).principal) })
   return await mods(ctx).machines.listMachines()
 }
 
@@ -258,7 +259,7 @@ export const machinePairingCodeHandler = async ({
   ctx,
   input,
   ports,
-}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean } | undefined>): Promise<{
+}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean; replaceMachineId?: string } | undefined>): Promise<{
   code: string
   joinCommand: string | null
 }> => {
@@ -272,11 +273,24 @@ export const machinePairingCodeHandler = async ({
   // no human — carries `null`, and a machine paired with it is owned by nobody
   // and usable by nobody, which is the fail-closed arm rather than a crash.
   const pairer = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
-  const code = mods(ctx).machines.mintPairingCode({
+  const principal = (await fleetAuthzDeps(ctx)).principal
+  if (input?.replaceMachineId) {
+    const row = (await mods(ctx).machines.ownershipRows()).find((m) => m.id === input.replaceMachineId)
+    const authorized = principal.kind !== 'system' && (principal.capability.role === 'admin' || (pairer !== null && row?.ownerUserId === pairer))
+    if (!authorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'replacement requires an administrator or the machine grantee' })
+    if (!row?.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'replacement requires a revoked machine' })
+  } else if (principal.kind === 'system' || principal.capability.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires an administrator' })
+  }
+  const grant = {
     ...(pairer === null ? {} : { ownerUserId: pairer }),
     ...(input?.copyAgentCredentials ? { copyAgentCredentials: true } : {}),
     podiumManaged: input?.podiumManaged ?? true,
-  })
+  }
+  const code = input?.replaceMachineId
+    ? await mods(ctx).machines.mintReplacementPairingCode(asMachineId(input.replaceMachineId), grant, principal.capability.role === 'admin')
+    : mods(ctx).machines.mintPairingCode(grant)
+
   return {
     code,
     joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId),

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
+import { firstAdminMemberId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { wireDaemonSocket } from './gateway/daemon-socket'
 import { PairingManager } from './hub/pairing'
@@ -28,6 +28,7 @@ function fakeWs() {
   return {
     sent,
     readyState: 1,
+    terminate: vi.fn(),
     send: (s: string) => sent.push(s),
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
@@ -238,5 +239,29 @@ describe('daemon socket auth', () => {
     await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }))
     await ws.emit('close')
     expect(detach).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('revoked daemon connection', () => {
+  it('terminates the old socket and refuses its subsequent frames and hello', async () => {
+    const store = await openTestStore(':memory:')
+    const id = asMachineId('revoked-daemon')
+    await store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256('old-token'), ownerUserId: firstAdminMemberId() })
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    await ws.emit('message', frame({ type: 'hello', machineId: id, token: 'old-token', hostname: 'box' }))
+    expect(ws.sent.some(s => s.includes('helloOk'))).toBe(true)
+    const route = vi.spyOn(reg.gateway, 'routeDaemonFrame')
+    await reg.modules.machines.revokeMachine(id)
+    expect(ws.terminate).toHaveBeenCalledOnce()
+    await ws.emit('message', frame({ type: 'inventoryReport', inventory: { os: 'linux', arch: 'x64', agents: [] } }))
+    expect(route).not.toHaveBeenCalled()
+    const retry = fakeWs()
+    wireDaemonSocket(retry as never, reg)
+    await retry.emit('message', frame({ type: 'hello', machineId: id, token: 'old-token', hostname: 'box' }))
+    expect(retry.sent.some(s => s.includes('helloRejected'))).toBe(true)
+    await ws.emit('close')
   })
 })

@@ -87,7 +87,7 @@ import { currentReadScope, inExplicitReadScope, readScopeSlot } from './store/ex
  * handshake's own passthrough and nothing here may read it. That narrowing is
  * real; the four keys it keeps are not this module's to define.
  */
-export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'grants' | 'name'> & { daemonAssigned?: boolean; daemonAvailable?: boolean }
+export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'grants' | 'name'> & { revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }
 
 /**
  * Where ownership facts come from. A direct index may read live per question;
@@ -140,14 +140,14 @@ export interface MachineGrantSource {
  * simply forgot to thread it.
  */
 export interface MachineRowSource extends MachineGrantSource {
-  ownershipRows(): { id: MachineId; name?: string; ownerUserId: UserId | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
+  ownershipRows(): { id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
 }
 
 /** Async repository-backed form, resolved before a synchronous policy pass begins. */
 export interface AsyncMachineRowSource {
   ownershipRows():
-    | { id: MachineId; name?: string; ownerUserId: UserId | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
-    | Promise<{ id: MachineId; name?: string; ownerUserId: UserId | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]>
+    | { id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
+    | Promise<{ id: MachineId; name?: string; ownerUserId: UserId | null; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]>
   grantsForMachine?(
     machineId: MachineId,
   ):
@@ -185,6 +185,7 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
         owner: row.ownerUserId,
         daemonAssigned: row.daemonAssigned === true,
         daemonAvailable: row.daemonAvailable === true,
+        revokedAt: row.revokedAt,
         grants: edges,
         ...(row.name === undefined ? {} : { name: row.name }),
       }
@@ -203,6 +204,7 @@ export async function ownershipSnapshotFromMachines(
       owner: row.ownerUserId,
       daemonAssigned: row.daemonAssigned === true,
       daemonAvailable: row.daemonAvailable === true,
+        revokedAt: row.revokedAt,
       grants: ((await machines.grantsForMachine?.(row.id)) ?? [])
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
         .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb })),
@@ -299,9 +301,11 @@ export function machineVerbsFor(
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()
   if (principal.kind === 'system') {
-    return new Set<MachineVerb>(row.owner === null || !row.daemonAssigned || !row.daemonAvailable ? ['see'] : ['see', 'use'])
+    return new Set<MachineVerb>(row.revokedAt || row.owner === null || !row.daemonAssigned || !row.daemonAvailable ? ['see'] : ['see', 'use'])
   }
-  const held = verbsFromRow(row, onBehalfOfUser(principal))
+  const held = row.revokedAt
+    ? new Set<MachineVerb>(row.owner === onBehalfOfUser(principal) ? ['see'] : [])
+    : verbsFromRow(row, onBehalfOfUser(principal))
   if (row.daemonAssigned !== true || row.daemonAvailable !== true) held.delete('use')
   // Administration grants custody, never execution consent (D19.4b).
   if (principal.capability.role === 'admin') {

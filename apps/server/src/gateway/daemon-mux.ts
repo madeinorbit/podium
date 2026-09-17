@@ -309,7 +309,7 @@ export class DaemonMux {
     // have one shared cause; logging here rather than at the socket also covers
     // the in-process link, and keeps the superseded-socket guard below authoritative.
     log.info('daemon attached — the machine is now online', { machineId })
-    machines.flushQueued(machineId)
+    await machines.flushQueued(machineId)
     await sessions.onMachineAttached(principal)
     machines.scheduleBroadcastMachines()
     this.deps.bus.emit('machine.connected', { machineId })

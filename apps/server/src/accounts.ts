@@ -81,7 +81,7 @@ function nativeFromCatalog(
   return NATIVE_HARNESSES.flatMap(([harness, provider]): AccountView[] => {
     const entries = catalogEntriesForHarness(catalog, harness)
     if (entries.length === 0) {
-      const reports = machines.flatMap((machine) =>
+      const reports = machines.filter((machine) => !machine.revokedAt).flatMap((machine) =>
         (machine.inventory?.agents ?? [])
           .filter((agent) => agent.kind === harness)
           .map((agent) => ({ machine, login: agent.login })),

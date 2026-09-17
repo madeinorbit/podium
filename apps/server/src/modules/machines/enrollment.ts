@@ -34,6 +34,7 @@ export interface EnrollmentHost {
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
   broadcastMachines(): Promise<void>
   hasSupervisor(machineId: MachineId): boolean
+  retireIncarnation(machineId: MachineId): void
 }
 
 /** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */
@@ -45,24 +46,10 @@ export function sha256(s: string): string {
 }
 
 /**
- * Authenticate a daemon's handshake frame (pre-Control/Daemon-union, parsed by
- * wsServer). `pair` redeems a one-time code and mints a fresh **pairing-root-
- * verifiable** token (POD-1114), records the enrollment in the ledger, hashes
- * the token for the row, and returns the plaintext once (the daemon persists
- * it). The peer-chosen `machineId` is a REQUEST only: if that id already has a
- * row, the pair is REFUSED rather than upserting over its credential
- * (POD-1125), and the refusal runs BEFORE redeem so a collision does not burn
- * the single-use code. A revoked machine is gone from the table, so the same id
- * may pair again as a fresh insert.
- *
- * The two guards cover disjoint states and must both stay: POD-1125 refuses
- * when the row EXISTS, POD-1114's D19.4 verdict decides when the row is
- * ABSENT — re-enrol unattended, or deny permanently on a ledger revoke that
- * outranks the token. `hello` verifies a returning daemon's token against the
- * stored hash for its machineId, then attaches as that machineId — the id
- * always comes FROM the frame, never a token lookup, so getMachineByToken
- * returning a boolean is sufficient. The client-facing reason is byte-identical
- * in every denial so none of this is an existence oracle.
+ * Pairing creates one identity. Replacing a retained revoked row requires a code
+ * explicitly scoped to that identity by an authorized administrator. Collision
+ * checks precede code consumption; conditional storage supplies a second fence.
+ * Hello checks the current, non-revoked credential and never recovers over a row.
  */
 export interface DaemonAuthenticationOptions {
   readonly bindingSessionIds?: readonly string[]
@@ -71,7 +58,29 @@ export interface DaemonAuthenticationOptions {
   readonly source?: 'supervisor' | 'legacy-daemon'
 }
 
-export async function authenticateDaemon(
+const transitions = new WeakMap<EnrollmentHost, Map<MachineId, Promise<void>>>()
+
+/** Serialize credential transitions before inspecting or consuming a one-use code. */
+export async function withMachineTransition<T>(host: EnrollmentHost, id: MachineId, run: () => Promise<T>): Promise<T> {
+  let pending = transitions.get(host)
+  if (!pending) { pending = new Map(); transitions.set(host, pending) }
+  const previous = pending.get(id) ?? Promise.resolve()
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const tail = previous.then(() => held)
+  pending.set(id, tail)
+  await previous
+  try { return await run() } finally {
+    release()
+    if (pending.get(id) === tail) pending.delete(id)
+  }
+}
+
+export async function authenticateDaemon(host: EnrollmentHost, frame: DaemonHandshake, options: DaemonAuthenticationOptions = {}) {
+  return withMachineTransition(host, frame.machineId, () => authenticateDaemonUnlocked(host, frame, options))
+}
+
+async function authenticateDaemonUnlocked(
   host: EnrollmentHost,
   frame: DaemonHandshake,
   options: DaemonAuthenticationOptions = {},
@@ -98,8 +107,16 @@ export async function authenticateDaemon(
     // Existence check BEFORE redeem: a collision must not burn a single-use code.
     // The peer proposed this id; the directory decides, and an existing row is a
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
-    if (await deps.store.machines.getMachine(frame.machineId)) {
+    const existing = await deps.store.machines.getMachine(frame.machineId)
+    const proposedGrant = deps.pairing.peek?.(frame.code)
+    if (existing && (!existing.revokedAt || proposedGrant?.replaceMachineId !== frame.machineId)) {
       return { ok: false, reason: 'machine id already registered' }
+    }
+    if (proposedGrant?.replaceMachineId && (!existing || proposedGrant.replaceMachineId !== frame.machineId)) {
+      return { ok: false, reason: 'replacement target does not match' }
+    }
+    if (existing && proposedGrant?.replaceIncarnation !== await deps.store.machines.credentialIncarnation(frame.machineId)) {
+      return { ok: false, reason: 'replacement credential has changed' }
     }
     const pairingGrant = deps.pairing.redeem(frame.code)
     if (!pairingGrant) {
@@ -110,21 +127,25 @@ export async function authenticateDaemon(
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId ?? null
     const token = mintEnrolledToken(host, frame.machineId, ownerUserId)
-    await deps.store.machines.upsertMachine({
-      id: frame.machineId,
-      name,
-      hostname: frame.hostname,
-      tokenHash: sha256(token),
-      // The pairer, carried from mint. `?? null` is the fail-closed arm, not a
-      // default: a code with no owner produces an unowned machine.
-      ownerUserId,
-      podiumManaged: pairingGrant.podiumManaged ?? true,
-      assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
-      assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
+    if (existing) host.retireIncarnation(frame.machineId)
+    const now = new Date().toISOString()
+    const tokenHash = sha256(token)
+    const enrolled = await deps.store.transact(async () => {
+      const changed = await deps.store.machines.enrollMachine({
+        id: frame.machineId, name, hostname: frame.hostname, tokenHash,
+        ownerUserId, podiumManaged: pairingGrant.podiumManaged ?? true,
+        assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
+        assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
+      }, existing?.revokedAt ?? undefined, pairingGrant.replaceIncarnation)
+      if (changed && existing) await deps.store.settingsAudit.append({
+        command: 'machines.replace', outcome: 'applied', actorKind: 'user',
+        actorId: ownerUserId, onBehalfOf: ownerUserId,
+        detail: { machineId: frame.machineId, previousRevokedAt: existing.revokedAt },
+        redactedPaths: [], createdAt: now,
+      })
+      return changed
     })
-    // Force the owner projection: upsert COALESCE would keep a stale owner after
-    // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
-    await deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
+    if (!enrolled) return { ok: false, reason: 'machine id already registered' }
     if (ownerUserId === null) log.warn('machine unowned', {
       machineId: frame.machineId, reason: 'pairing code has no personal grantee',
     })
@@ -141,7 +162,7 @@ export async function authenticateDaemon(
   }
   if (await deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
     const row = await deps.store.machines.getMachine(frame.machineId)
-    if (!row) return { ok: false, reason: HELLO_DENIED_REASON }
+    if (!row || row.revokedAt) return { ok: false, reason: HELLO_DENIED_REASON }
     if (
       !options.verifyOnly &&
       (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
@@ -159,6 +180,8 @@ export async function authenticateDaemon(
       ...(updateKeyRotations ? { updateKeyRotations } : {}),
     }
   }
+  // A retained row is authoritative: never recover a rejected incarnation over it.
+  if (await deps.store.machines.getMachine(frame.machineId)) return { ok: false, reason: HELLO_DENIED_REASON }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
   // Verify-only may authenticate durable reality but may not reconstruct it.
   if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
@@ -327,7 +350,8 @@ export async function transferOwnership(
   newOwnerUserId: UserId,
   opts: { skipRowUpdate?: boolean; txnId?: string } = {},
 ): Promise<void> {
-  if (!(await host.deps.store.machines.getMachine(machineId))) throw new Error(`unknown machine '${machineId}'`)
+  const row = await host.deps.store.machines.getMachine(machineId)
+  if (!row || row.revokedAt) throw new Error(`unknown machine '${machineId}'`)
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
   await host.broadcastMachines()
@@ -355,7 +379,7 @@ export async function transferMachineOwnership(
   currentOwner: UserId,
 ): Promise<void> {
   const machine = await host.deps.store.machines.getMachine(id)
-  if (!machine?.ownerUserId || machine.ownerUserId !== currentOwner) {
+  if (!machine?.ownerUserId || machine.revokedAt || machine.ownerUserId !== currentOwner) {
     throw new Error('only the machine owner may transfer ownership')
   }
   // An unknown or unreadable recipient is REFUSED rather than written. The
@@ -406,7 +430,7 @@ export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId)
 
 export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId): Promise<void> {
   const machine = await host.deps.store.machines.getMachine(id)
-  if (!machine) throw new Error(`unknown machine '${id}'`)
+  if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
   // The database row is the ownership authority.
   // (D19.4d) and this is the one question adoption must not ask it: a row
   // still showing a stale owner between a transfer's append and its projection

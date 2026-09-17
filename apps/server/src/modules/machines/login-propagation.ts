@@ -82,7 +82,7 @@ export class LoginPropagationService {
 
     const target = await this.deps.store.machines.getMachine(input.targetMachineId)
     const ownerUserId = target?.ownerUserId ?? undefined
-    if (!target || !ownerUserId) return { status: 'skipped', reason: 'target has no owner' }
+    if (!target || target.revokedAt || !ownerUserId) return { status: 'skipped', reason: 'target has no owner' }
     if (input.principalUserId && input.principalUserId !== ownerUserId) {
       return { status: 'skipped', reason: 'target owner does not match principal' }
     }

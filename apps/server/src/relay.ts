@@ -790,7 +790,7 @@ export class SessionRegistry {
       recovery: this.store.updateRecovery,
       recoveryOnly,
       machines: async () =>
-        (await machines.listMachines()).map((machine) => ({
+        (await machines.listMachines()).filter((machine) => !machine.revokedAt).map((machine) => ({
           id: machine.id,
           name: machine.name,
           // Already the RESOLVED channel (pin, else fleet default) — see
@@ -1183,7 +1183,7 @@ export class SessionRegistry {
       return (machineId) => {
         const machine = byId.get(machineId)
         return {
-          exists: machine !== undefined,
+          exists: machine !== undefined && !machine.revokedAt,
           online: machines.hasDaemon(machineId),
           capable:
             machine?.wireSchemaDigest === digest &&
@@ -1229,7 +1229,7 @@ export class SessionRegistry {
           (await machines.listMachines())
             .filter(
               (machine) =>
-                machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true,
+                !machine.revokedAt && machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true,
             )
             .map((machine) => machine.id),
         onlineMachineIds: () => machines.onlineMachineIds(),

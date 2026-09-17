@@ -340,7 +340,7 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.pairingCode', 'machines.adopt', 'machines.moveServer']
+    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.adopt', 'machines.moveServer']
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])

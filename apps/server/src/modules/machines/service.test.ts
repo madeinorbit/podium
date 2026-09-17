@@ -25,6 +25,7 @@ function makeService(): MachinesService {
     // tests about sockets.
     store: {
       machines: {
+        getMachine: async () => ({ revokedAt: null }),
         addMachineComponent: () => false,
         setAvailability: async () => {},
         setPresenceSource: () => {},
@@ -166,7 +167,7 @@ describe('MachinesService daemon socket identity', () => {
         events.push('input')
       },
     })
-    svc.flushQueued(MACHINE)
+    await svc.flushQueued(MACHINE)
     expect(events).toEqual(['control', 'input'])
   })
 
@@ -556,6 +557,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
           codes.set('code-1', grant)
           return 'code-1'
         },
+        peek: (code) => codes.get(code),
         redeem: (code) => {
           const grant = codes.get(code)
           codes.delete(code)
@@ -1326,5 +1328,74 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
     expect(listed.length).toBeGreaterThanOrEqual(3)
     expect(listed.every((machine) => machine.updateChannel === 'stable')).toBe(true)
     expect(resolved).toBe(1)
+  })
+})
+
+describe('retained revocation and explicit replacement', () => {
+  async function fixture() {
+    const store = await openTestStore(':memory:')
+    const codes = new Map<string, PairingGrant>()
+    let serial = 0
+    const svc = new MachinesService({
+      instanceId: 'revocation-test', store, hostMachineId: store.hostMachineId,
+      pairing: {
+        mint: (grant = {}) => { const code = `code-${++serial}`; codes.set(code, grant); return code },
+        peek: (code) => codes.get(code),
+        redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
+      },
+      sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
+    })
+    const frame = { type: 'pair' as const, machineId: MACHINE, hostname: 'revocation.test' }
+    const enrolled = await svc.authenticateDaemon({ ...frame, code: svc.mintPairingCode({ ownerUserId: firstAdminMemberId() }) })
+    if (!enrolled.ok || !enrolled.token) throw new Error('fixture enrollment failed')
+    return { svc, store, frame, token: enrolled.token, codes }
+  }
+
+  test('revoke retains the audit identity, closes connections, cancels queued control and refuses hello', async () => {
+    const { svc, store, frame, token } = await fixture()
+    try {
+      const close = vi.fn()
+      svc.registerCredentialConnection(MACHINE, close)
+      svc.toMachine(MACHINE, keystroke)
+      await svc.revokeMachine(MACHINE, { by: firstAdminMemberId() })
+      expect(close).toHaveBeenCalledOnce()
+      const row = await store.machines.getMachine(MACHINE)
+      expect(row?.revokedAt).toEqual(expect.any(String))
+      expect(row?.ownerUserId).toBe(firstAdminMemberId())
+      expect(await svc.authenticateDaemon({ type: 'hello', machineId: MACHINE, hostname: frame.hostname, token })).toMatchObject({ ok: false })
+      expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
+      expect((await svc.listMachines()).find(m => m.id === MACHINE)).toMatchObject({ revokedAt: row?.revokedAt, online: false })
+      expect((await store.settingsAudit.list()).some(e => e.command === 'machines.revoke')).toBe(true)
+      const replacement = await svc.authenticateDaemon({ ...frame, code: await svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() }) })
+      expect(replacement.ok).toBe(true)
+      const got: ControlMessage[] = []
+      await svc.attach(MACHINE, (message) => got.push(message), [])
+      await svc.flushQueued(MACHINE)
+      expect(got).not.toContainEqual(keystroke)
+      expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
+    } finally { await store.close() }
+  })
+
+  test('ordinary pairing cannot replace a revoked row; concurrent explicit replacements have one winner', async () => {
+    const { svc, store, frame, token, codes } = await fixture()
+    try {
+      await svc.revokeMachine(MACHINE)
+      const ordinary = svc.mintPairingCode({ ownerUserId: firstAdminMemberId() })
+      expect(await svc.authenticateDaemon({ ...frame, code: ordinary })).toMatchObject({ ok: false })
+      expect(codes.has(ordinary)).toBe(true)
+      const replacementCodes = await Promise.all([0, 1].map(() => svc.mintReplacementPairingCode(MACHINE, { ownerUserId: firstAdminMemberId() })))
+      const results = await Promise.all(replacementCodes.map(code => svc.authenticateDaemon({ ...frame, code })))
+      expect(results.filter(r => r.ok)).toHaveLength(1)
+      expect(replacementCodes.filter(code => codes.has(code))).toHaveLength(1)
+      const winner = results.find(r => r.ok)
+      if (!winner?.ok || !winner.token) throw new Error('no replacement credential')
+      expect(await store.machines.getMachineByToken(MACHINE, winner.token)).toBe(true)
+      expect(await store.machines.getMachineByToken(MACHINE, token)).toBe(false)
+      expect((await store.machines.getMachine(MACHINE))?.revokedAt).toBeNull()
+      await svc.revokeMachine(MACHINE)
+      const unused = replacementCodes.find(code => codes.has(code))!
+      expect(await svc.authenticateDaemon({ ...frame, code: unused })).toMatchObject({ ok: false, reason: 'replacement credential has changed' })
+      expect(codes.has(unused)).toBe(true)
+    } finally { await store.close() }
   })
 })

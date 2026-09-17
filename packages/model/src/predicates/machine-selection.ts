@@ -32,6 +32,7 @@ export interface RepoMachines {
 }
 
 export interface SelectableMachine {
+  revokedAt?: string | null
   id: string
   online: boolean
   /** Compatibility list of desired components; never evidence of availability. */
@@ -97,7 +98,7 @@ export function machinesWithRepo<M extends SelectableMachine>(
   machines: M[],
 ): M[] {
   const repoMachineIds = new Set<string>((repo.machines ?? []).map((m) => m.machineId))
-  return machines.filter((m) => repoMachineIds.has(m.id))
+  return machines.filter((m) => !m.revokedAt && repoMachineIds.has(m.id))
 }
 
 /** Online machines that have this repo. */
@@ -235,7 +236,7 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   machine: M,
   agentKind: string,
 ): AgentCapabilityRejection | undefined {
-  if (machine.use === 'denied') return 'unauthorized'
+  if (machine.revokedAt || machine.use === 'denied') return 'unauthorized'
   const structural = structuralRejection(machine)
   if (structural !== undefined) return structural
   if (!machine.online || machine.availability?.daemon !== true) return 'offline'
@@ -269,6 +270,7 @@ export function agentExecutionRejection<M extends SelectableMachine>(
 export function structuralRejection<M extends SelectableMachine>(
   machine: M,
 ): 'no-daemon' | undefined {
+  if (machine.revokedAt) return 'no-daemon'
   return machine.serviceAssignment?.agentExecution === true
     ? undefined : 'no-daemon'
 }

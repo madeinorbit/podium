@@ -548,7 +548,7 @@ export class MaintenanceService {
       return this.stale(command, 'precondition')
     }
     const machine = await this.store.machines.getMachine(observed.machineId)
-    if (!machine) return this.stale(command, 'precondition')
+    if (!machine || machine.revokedAt) return this.stale(command, 'precondition')
     // Revalidate durable observation: lastSeenAt must still match (daemon
     // re-handshake would change it → new occurrence). Do NOT require wall-clock
     // freshness — lastSeenAt only updates on handshake, so a still-connected

@@ -156,6 +156,8 @@ function recoveryTransportOnly(registry: SessionRegistry): boolean {
 export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): void {
   // The AUTHENTICATED principal for this socket. Typed as the principal object,
   // not a machine id, so nothing on this path can substitute a payload value.
+  const credentialCurrent = registry.modules.machines.credentialFence()
+  let unregisterCredential: (() => void) | undefined
   let principal: MachinePrincipal | undefined
   // The send fn registered for THIS socket — the identity `close` detaches against.
   let acceptedCaps = new Set<string>()
@@ -247,6 +249,15 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         return
       }
       if (outcome.kind !== 'established') return
+      if (!credentialCurrent(outcome.principal.machine)) {
+        failed = true
+        ws.terminate()
+        return
+      }
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
+        failed = true
+        ws.terminate()
+      })
       principal = outcome.principal
       acceptedCaps = new Set(outcome.acceptedCaps)
       perf.record(
@@ -273,6 +284,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
           new Date().toISOString(),
         )
       }
+      if (failed || !credentialCurrent(outcome.principal.machine)) return
       // A fresh pair hands the minted token back exactly once (the daemon persists
       // it). `paired` is itself the successful handshake reply; sending a second
       // `helloOk` would arrive after the daemon has entered its control-message loop.
@@ -330,7 +342,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       }
       if (recoveryTransportOnly(registry)) {
         await registry.modules.machines.attach(principal.machine, send, [...acceptedCaps])
-        registry.modules.machines.flushQueued(principal.machine)
+        await registry.modules.machines.flushQueued(principal.machine)
       } else {
         await registry.gateway.attachDaemon(principal, transport, [...acceptedCaps])
       }
@@ -437,6 +449,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     return preAuthSerial
   })
   ws.on('close', () => {
+    unregisterCredential?.()
     acceptedCaps.clear()
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
@@ -449,6 +462,8 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
 
 /** Parent-owned machine presence and update plane. */
 export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry): void {
+  const credentialCurrent = registry.modules.machines.credentialFence()
+  let unregisterCredential: (() => void) | undefined
   let principal: MachinePrincipal | undefined
   let send: ((message: MachineSupervisorControlMessage) => void) | undefined
   const acceptor = createMachineSupervisorAcceptor({
@@ -516,6 +531,15 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         ws.terminate()
         return
       }
+      if (!credentialCurrent(outcome.principal.machine)) {
+        failed = true
+        ws.terminate()
+        return
+      }
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
+        failed = true
+        ws.terminate()
+      })
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded
@@ -628,6 +652,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     return preAuthSerial
   })
   ws.on('close', async () => {
+    unregisterCredential?.()
     if (!principal || !send) return
     try {
       // AWAITED: detachSupervisor is async, and a promise in this condition is

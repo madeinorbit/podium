@@ -1,3 +1,4 @@
+import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness'
@@ -163,10 +164,14 @@ export function deriveVersionState(
  */
 export interface PairingCodes {
   mint(grant?: PairingGrant): string
+  peek?(code: string): PairingGrant | undefined
   redeem(code: string): PairingGrant | undefined
 }
 
 export interface PairingGrant {
+  /** Explicit replacement authority, scoped to this retained identity at mint. */
+  replaceMachineId?: MachineId
+  replaceIncarnation?: string
   /**
    * WHO THE MACHINE WILL BELONG TO (POD-1079, ADR 9 D6 M3: "a newly paired
    * machine is private to its pairer").
@@ -207,7 +212,7 @@ export interface PairingGrant {
  */
 type MachineCapabilityFacts = Pick<
   MachineListing,
-  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability'
+  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt'
 >
 
 export interface MachineFactsSnapshot {
@@ -310,7 +315,9 @@ export class MachinesService {
   private recordAvailability(machineId: MachineId): Promise<void> {
     if (this.presenceReadOnly) return Promise.resolve()
     const observed = this.observedAvailability(machineId)
-    const write = this.availabilityWrites.then(() => this.deps.store.machines.setAvailability(machineId, observed))
+    const credentialCurrent = this.credentialFence()
+    const write = this.availabilityWrites.then(() => credentialCurrent(machineId)
+      ? this.deps.store.machines.setAvailability(machineId, observed) : undefined)
     this.availabilityWrites = write.catch((error: unknown) => { log.error('availability write failed', { error }) })
     return write
   }
@@ -392,6 +399,42 @@ export class MachinesService {
    * credential write has. Built once so `./enrollment.ts` never reaches the
    * protected fields.
    */
+  private readonly revokedMachines = new Set<MachineId>()
+  private readonly credentialEpochs = new Map<MachineId, number>()
+  private readonly credentialConnections = new Map<MachineId, Set<() => void>>()
+
+  /** A handshake begun before a revoke cannot attach after it. */
+  credentialFence(): (id: MachineId) => boolean {
+    const epochs = new Map(this.credentialEpochs)
+    return (id) => (epochs.get(id) ?? 0) === (this.credentialEpochs.get(id) ?? 0)
+  }
+
+  registerCredentialConnection(id: MachineId, close: () => void): () => void {
+    if (this.revokedMachines.has(id)) { close(); return () => {} }
+    let connections = this.credentialConnections.get(id)
+    if (!connections) { connections = new Set(); this.credentialConnections.set(id, connections) }
+    connections.add(close)
+    return () => {
+      connections.delete(close)
+      if (connections.size === 0) this.credentialConnections.delete(id)
+    }
+  }
+
+  retireIncarnation(id: MachineId): void {
+    this.pendingByMachine.delete(id)
+    this.daemons.delete(id)
+    this.daemonCaps.delete(id)
+    this.supervisors.delete(id)
+    this.updateParticipants.delete(id)
+    this.legacyBuilds.delete(id)
+    this.inventoryPending.delete(id)
+    this.settleInventoryWaiters(id)
+    this.clearPresenceGrace(id)
+    const connections = this.credentialConnections.get(id)
+    this.credentialConnections.delete(id)
+    for (const close of connections ?? []) close()
+  }
+
   private readonly enrollmentHost: EnrollmentHost
 
   private readonly unsubscribeMachineWrites: () => void
@@ -418,6 +461,7 @@ export class MachinesService {
         await this.broadcastMachines()
       },
       hasSupervisor: (machineId) => this.hasSupervisor(machineId),
+      retireIncarnation: (machineId) => this.retireIncarnation(machineId),
     }
   }
 
@@ -426,6 +470,13 @@ export class MachinesService {
    * No ordinary writer needs invalidation; rollback never reaches this helper.
    */
   private applyMachineWrite(id: string, patch: Readonly<MachineRecord> | undefined): void {
+    if (patch?.revokedAt) {
+      if (!this.revokedMachines.has(asMachineId(id))) {
+        this.revokedMachines.add(asMachineId(id))
+        this.credentialEpochs.set(asMachineId(id), (this.credentialEpochs.get(asMachineId(id)) ?? 0) + 1)
+      }
+      this.retireIncarnation(asMachineId(id))
+    } else this.revokedMachines.delete(asMachineId(id))
     const position = this.machineRecordsCache?.findIndex((row) => row.id === id) ?? -1
     if (!patch) {
       if (position >= 0) this.machineRecordsCache!.splice(position, 1)
@@ -464,6 +515,7 @@ export class MachinesService {
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
   async attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): Promise<void> {
+    if (this.revokedMachines.has(machineId)) throw new Error("machine is revoked")
     this.daemons.set(machineId, transport)
     // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
     // beside `daemons` and cleared with it: the question "does the daemon
@@ -556,7 +608,7 @@ export class MachinesService {
     build: PeerBuild,
     caps: string[],
   ): Promise<SupervisorAttachOutcome> {
-    if (this.supervisorSuperseded(machineId, build)) return 'superseded'
+    if (this.revokedMachines.has(machineId) || this.supervisorSuperseded(machineId, build)) return 'superseded'
     const generation = supervisorGenerationOf(build)
     // Fenced replacement: the old socket may still close, but cannot detach this one.
     this.supervisors.set(machineId, { send, build, caps: [...caps], generation })
@@ -684,7 +736,12 @@ export class MachinesService {
   /** Flush control messages buffered while this machine was offline (e.g. a boot
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
-  flushQueued(machineId: MachineId): void {
+  async flushQueued(machineId: MachineId): Promise<void> {
+    const row = await this.deps.store.machines.getMachine(machineId)
+    if (!row || row.revokedAt) {
+      this.pendingByMachine.delete(machineId)
+      return
+    }
     const transport = this.daemons.get(machineId)
     if (!transport) return
     const pending = this.pendingByMachine.get(machineId)
@@ -791,6 +848,7 @@ export class MachinesService {
   /** Route a control message to the daemon that owns `machineId`; queue it if that
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
+    if (this.revokedMachines.has(machineId)) return
     // Keep target and origin together: aggregate task timings cannot distinguish
     // a repeated target from a sweep, or an offline queue from a fresh request.
     if (msg.type === 'kill') {
@@ -826,6 +884,7 @@ export class MachinesService {
 
   /** Route canonical PTY bytes without re-encoding on a capable daemon transport. */
   readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void => {
+    if (this.revokedMachines.has(machineId)) return
     if (input.bytes.byteLength === 0) return
     const transport = this.daemons.get(machineId)
     if (transport) {
@@ -846,6 +905,20 @@ export class MachinesService {
   mintPairingCode(grant: PairingGrant = {}): string {
     if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
     return this.deps.pairing.mint(grant)
+  }
+
+  /** Bind replacement authority to the revoked credential, never merely its id. */
+  async mintReplacementPairingCode(id: MachineId, grant: PairingGrant, byAdmin = false): Promise<string> {
+    return credentials.withMachineTransition(this.enrollmentHost, id, async () => {
+      const row = await this.deps.store.machines.getMachine(id)
+      if (!row?.revokedAt) throw new Error('replacement requires a revoked machine')
+      if (!byAdmin && (!grant.ownerUserId || row.ownerUserId !== grant.ownerUserId)) {
+        throw new Error('replacement requires an administrator or the machine grantee')
+      }
+      const incarnation = await this.deps.store.machines.credentialIncarnation(id)
+      if (!incarnation) throw new Error('replacement credential is absent')
+      return this.mintPairingCode({ ...grant, replaceMachineId: id, replaceIncarnation: incarnation })
+    })
   }
 
   /**
@@ -963,7 +1036,7 @@ export class MachinesService {
    */
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
     const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
-    if (!row || row.ownerUserId !== null) return false
+    if (!row || row.revokedAt || row.ownerUserId !== null) return false
     await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
     this.invalidateMachineCache()
     return true
@@ -994,7 +1067,7 @@ export class MachinesService {
   /** Refuse rather than invent a target when no assigned daemon is attached. */
   async defaultMachine(): Promise<MachineId> {
     const target = (await this.machineRecords()).find((m) =>
-      m.serviceAssignment.agentExecution && this.daemons.has(m.id))
+      !m.revokedAt && m.serviceAssignment.agentExecution && this.daemons.has(m.id))
     if (!target) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'no assigned and available daemon' })
     return target.id
   }
@@ -1329,7 +1402,8 @@ export class MachinesService {
         : m.serviceReport
     return {
       id: m.id,
-      online: this.isMachineOnline(m.id),
+      online: !m.revokedAt && this.isMachineOnline(m.id),
+      revokedAt: m.revokedAt,
       ...(services ? { services } : {}),
       // POD-2700: the durable structural axis, `SEE`-visible beside `online`.
       // Omitted when the row has NOT been evaluated, which is how a reader
@@ -1373,12 +1447,12 @@ export class MachinesService {
       const facts = this.capabilityFacts(m)
       const serverMoveEligibility = deriveServerMoveEligibility({
         currentServer: m.id === this.deps.hostMachineId,
-        online: this.daemons.has(m.id),
+        online: !m.revokedAt && this.daemons.has(m.id),
         reportedWireSchemaDigest: m.wireSchemaDigest,
         deliveryCaps: m.deliveryCaps,
       })
       listings.push({
-        ...(use ? { use: use(m.id) } : {}),
+        ...(m.revokedAt ? { use: 'denied' as const } : use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
         // omitted means NOT evaluated, and never "yes" by default.
         ...(owned ? { owned: owned(m.id) } : {}),
@@ -1489,13 +1563,14 @@ export class MachinesService {
    * not need to be told who owns it in order to be refused. Served from the same
    * cache, which every committed write to the table updates in place.
    */
-  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
+  async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
     return await Promise.all((await this.machineRecords()).map(async (m) => {
       const effective = await this.effectiveOwner(m.id)
       return {
         id: m.id,
+        revokedAt: m.revokedAt,
         name: m.name,
         // Null is an authoritative unowned answer, not a missing lookup.
         ownerUserId: effective === undefined ? m.ownerUserId : effective,
@@ -1614,7 +1689,7 @@ export class MachinesService {
    *  `null` removes the pin and hands the machine back to the fleet default. */
   async setUpdateChannel(id: MachineId, channel: UpdateChannel | null): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine) throw new Error(`unknown machine '${id}'`)
+    if (!machine || machine.revokedAt) throw new Error(`unknown or revoked machine '${id}'`)
     await this.deps.store.machines.setUpdateChannel(id, channel)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
     else this.deps.sessionsChangedForMachine?.(id)
@@ -1628,7 +1703,7 @@ export class MachinesService {
     attribution: { actor: string; onBehalfOf: string },
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine?.ownerUserId || machine.ownerUserId !== attribution.onBehalfOf) {
+    if (!machine?.ownerUserId || machine.revokedAt || machine.ownerUserId !== attribution.onBehalfOf) {
       throw new Error('only the machine owner may change sharing')
     }
     const actorKind = attribution.actor.startsWith('session:')
@@ -1656,7 +1731,7 @@ export class MachinesService {
 
   async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine?.ownerUserId || machine.ownerUserId !== owner) {
+    if (!machine?.ownerUserId || machine.revokedAt || machine.ownerUserId !== owner) {
       throw new Error('only the machine owner may change sharing')
     }
     await this.deps.store.grants.remove('machine', id, grantee, verb)
@@ -1664,31 +1739,34 @@ export class MachinesService {
   }
 
   /**
-   * Revoke a machine. The database row is the revocation authority; the row
-   * delete is a projection of it. Without a durable revoke entry, a later DB
-   * restore would let the old token re-enrol automatically (the hole D19.4a closes).
+   * Retain the audit identity, atomically remove grants and record revocation.
+   * Committed revocation retires transports and queued work before returning.
    *
    * `opts.skipRowDelete` is the crash-injection seam mirroring transfer's
    * `skipRowUpdate`; production callers never pass it.
    */
   async revokeMachine(
     id: MachineId,
-    opts: { by?: string | null; skipRowDelete?: boolean; txnId?: string } = {},
+    opts: { by?: string | null; attribution?: Pick<SettingsAuditRow, 'actorKind' | 'actorId' | 'onBehalfOf'>; skipRowDelete?: boolean; txnId?: string } = {},
   ): Promise<void> {
     if (opts.skipRowDelete) return
-    // The grant edges die WITH the machine (POD-1079). A daemon keeps its
-    // machineId across a revoke/re-pair, so an edge that outlived the row would
-    // silently re-share a machine its owner had already un-shared.
-    await this.deps.store.grants.removeAllForResource('machine', id)
-    await this.deps.store.machines.deleteMachine(id)
-    this.daemons.delete(id)
-    this.supervisors.delete(id)
-    this.updateParticipants.delete(id)
-    this.legacyBuilds.delete(id)
-    this.clearPresenceGrace(id)
-    if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
-    else this.deps.sessionsChangedForMachine?.(id)
-    await this.broadcastMachines()
+    await credentials.withMachineTransition(this.enrollmentHost, id, async () => {
+      const now = new Date().toISOString()
+      await this.deps.store.transact(async () => {
+        const row = await this.deps.store.machines.getMachine(id)
+        if (!row || row.revokedAt) return
+        await this.deps.store.grants.removeAllForResource('machine', id)
+        await this.deps.store.machines.revokeMachine(id)
+        await this.deps.store.settingsAudit.append({
+          command: 'machines.revoke', outcome: 'applied',
+          ...(opts.attribution ?? { actorKind: opts.by ? 'user' as const : 'system' as const, actorId: opts.by ?? 'system:machine-revoke', onBehalfOf: opts.by ?? null }), detail: { machineId: id }, redactedPaths: [], createdAt: now,
+        })
+      })
+      this.retireIncarnation(id)
+      if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId: id })
+      else this.deps.sessionsChangedForMachine?.(id)
+      await this.broadcastMachines()
+    })
   }
 
   /**

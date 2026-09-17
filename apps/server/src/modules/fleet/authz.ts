@@ -43,6 +43,7 @@
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import {
   isAdminGrade,
+  asMachineId,
   spawnedByParentSessionId,
   type MachineId,
   type UserRole,
@@ -210,6 +211,25 @@ export async function fleetAuthzFailure(
 ): Promise<TRPCError | undefined> {
   const contract = FLEET_CONTRACTS[name]
   const { policy } = contract
+
+  // New enrollment is admin-only. A retained identity's personal grantee may
+  // explicitly replace that identity; the handler also checks its revoked state.
+  if (name === 'machines.pairingCode' && deps.role !== 'admin') {
+    const target = (input as { replaceMachineId?: string } | undefined)?.replaceMachineId
+    if (!target || !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
+      return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode requires an admin account or the replacement machine grantee' })
+    }
+  }
+
+  if (name === 'machines.pairingCode' && deps.principal.kind === 'agent') {
+    const target = (input as { replaceMachineId?: string } | undefined)?.replaceMachineId
+    if (target) for (const link of [deps.principal.agentSessionId, ...deps.principal.chain]) {
+      const allowed = deps.ownership.delegatedMachines?.(link)
+      if (allowed !== undefined && !allowed.has(target)) {
+        return new TRPCError({ code: 'FORBIDDEN', message: 'replacement machine is outside the agent delegation' })
+      }
+    }
+  }
 
   // 1 — the floor. A system principal is in-process only and has no account.
   if (deps.principal.kind !== 'system' && !roleSatisfiesFloor(deps.role, policy.roleFloor)) {

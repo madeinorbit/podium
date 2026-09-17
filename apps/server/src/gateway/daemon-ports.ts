@@ -78,7 +78,7 @@ export interface MachinesDaemonPort {
     caps?: readonly string[],
   ): Promise<void>
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
-  flushQueued(machineId: MachineId): void
+  flushQueued(machineId: MachineId): void | Promise<void>
   broadcastMachines(): Promise<void>
   /** Live-only fan-out. A socket attach/detach cannot yield, so it schedules
    *  this and the service logs any rejection (rule 51b). */

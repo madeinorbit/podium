@@ -1,0 +1,1 @@
+ALTER TABLE `machines` ADD `revoked_at` text;

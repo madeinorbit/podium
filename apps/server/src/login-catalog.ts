@@ -38,6 +38,7 @@ function mergeIdentity(
 export function buildLoginCatalog(machines: readonly MachineRecord[]): LoginCatalog {
   const entries = new Map<string, LoginCatalogEntry>()
   for (const machine of machines) {
+    if (machine.revokedAt) continue
     for (const agent of machine.inventory?.agents ?? []) {
       const login = agent.login
       if (login.state !== 'in' || !login.identity?.fingerprint) continue

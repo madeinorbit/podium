@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import type { MachineId } from '@podium/model'
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no I/O/0/1
 function defaultCode(): string {
@@ -13,6 +14,7 @@ function defaultCode(): string {
 
 /** Short-lived, single-use pairing codes, held in memory. Lost on restart by design. */
 export interface PairingGrant {
+  replaceMachineId?: MachineId
   /** Copy allowlisted native agent logins from an already-owned online machine. */
   copyAgentCredentials?: boolean
   /** Whether this pairing creates a managed host; absent means managed. */ podiumManaged?: boolean
@@ -33,6 +35,10 @@ export class PairingManager {
     const code = this.randomCode()
     this.codes.set(code, { expiresAtMs: nowMs + this.ttlMs, grant: { ...grant } })
     return code
+  }
+  peek(code: string, nowMs = Date.now()): PairingGrant | undefined {
+    const entry = this.codes.get(code)
+    return entry && nowMs <= entry.expiresAtMs ? { ...entry.grant } : undefined
   }
   redeem(code: string, nowMs = Date.now()): PairingGrant | undefined {
     const entry = this.codes.get(code)

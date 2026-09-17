@@ -19,7 +19,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { PeerBuild } from '@podium/protocol'
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
@@ -104,6 +104,7 @@ function parsePresenceSource(raw: unknown): MachinePresenceSource | null {
 type MachineSelect = Pick<
   typeof machines.$inferSelect,
   | 'id'
+  | 'revokedAt'
   | 'name'
   | 'hostname'
   | 'createdAt'
@@ -128,6 +129,7 @@ type MachineSelect = Pick<
 
 /** The columns every machine read projects — the same list, spelled once. */
 const MACHINE_COLUMNS = {
+  revokedAt: machines.revokedAt,
   id: machines.id,
   name: machines.name,
   hostname: machines.hostname,
@@ -155,6 +157,7 @@ export function machineRecordFromRow(r: MachineSelect): MachineRecord {
   const inventory = parseInventory(r.inventoryJson)
   return {
     id: r.id,
+    revokedAt: r.revokedAt,
     harnessVersions: r.harnessVersionsJson
       ? Object.values(JSON.parse(r.harnessVersionsJson)).map((row) =>
           MachineHarnessVersion.parse(row),
@@ -339,6 +342,7 @@ export class MachinesRepository {
       }))
       .onConflictDoUpdate({
         target: machines.id,
+        setWhere: isNull(machines.revokedAt),
         set: {
           name: m.name,
           hostname: m.hostname,
@@ -376,7 +380,7 @@ export class MachinesRepository {
   /** Explicit assignment add/remove; attachment never calls this transition. */
   async addMachineComponent(id: string, component: MachineComponent): Promise<boolean> {
     const row = await this.getMachine(id)
-    if (!row || row.components?.includes(component)) return false
+    if (!row || row.revokedAt || row.components?.includes(component)) return false
     await this.setServiceAssignment(id, { ...row.serviceAssignment,
       ...(component === 'server' ? { server: true } : { agentExecution: true }),
     }, { version: 1, source: 'assignment-add', requestId: `${id}:${component}:add` })
@@ -387,7 +391,7 @@ export class MachinesRepository {
     const value = MachineAvailability.parse(availability)
     await this.committed.write(async () => this.db.update(machines)
       .set({ availabilityJson: JSON.stringify(value) })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /** One atomic replacement per harness; delayed reports cannot roll back the latest version. */
@@ -416,7 +420,7 @@ export class MachinesRepository {
         'lastSeen', max(coalesce(${previousLast}, ${report.probedAt}), ${report.probedAt})
       ))`,
           })
-          .where(eq(machines.id, id))
+          .where(and(eq(machines.id, id), isNull(machines.revokedAt)))
           .returning()
           .all(),
       'upsert',
@@ -428,7 +432,7 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ inventoryJson })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /** Persist a compatibility-path build report. */
@@ -451,7 +455,7 @@ export class MachinesRepository {
         presenceSource: sql`COALESCE(${source ?? null}, ${machines.presenceSource})`,
         buildReportedAt: at,
       })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /** One supervisor report atomically owns presence, build and service truth. */
@@ -474,7 +478,7 @@ export class MachinesRepository {
         buildReportedAt: at,
         lastSeenAt: at,
       })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   async setServiceAssignment(id: string, assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence> = { version: 1, source: 'assignment', requestId: id }): Promise<void> {
@@ -483,7 +487,7 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ serviceAssignmentJson: JSON.stringify(assignment), assignmentEvidenceJson: JSON.stringify(evidence) })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /** The server-bit guard and replacement share a transaction with transfer. */
@@ -491,7 +495,7 @@ export class MachinesRepository {
     evidence: z.infer<typeof AssignmentEvidence>): Promise<'updated' | 'missing' | 'server-transfer-required'> {
     return this.createOrJoinTransaction(async () => {
       const row = await this.getMachine(id)
-      if (!row) return 'missing'
+      if (!row || row.revokedAt) return 'missing'
       if (row.serviceAssignment.server !== assignment.server) return 'server-transfer-required'
       await this.setServiceAssignment(id, assignment, evidence)
       return 'updated'
@@ -503,7 +507,7 @@ export class MachinesRepository {
     await this.createOrJoinTransaction(async () => {
       const source = await this.getMachine(sourceId)
       const target = await this.getMachine(targetId)
-      if (!source || !target) throw new Error('server transfer requires both enrolled machines')
+      if (!source || source.revokedAt || !target || target.revokedAt) throw new Error('server transfer requires both enrolled machines')
       const evidence = { version: 1 as const, source: 'server-transfer', requestId }
       await this.setServiceAssignment(sourceId, { ...source.serviceAssignment, server: false }, evidence)
       await this.setServiceAssignment(targetId, { ...target.serviceAssignment, server: true }, evidence)
@@ -514,17 +518,17 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ presenceSource: source })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /** Constant-time token comparison using sha-256 hex. */
   async getMachineByToken(id: string, token: string): Promise<boolean> {
     const row = await this.db
-      .select({ tokenHash: machines.tokenHash })
+      .select({ tokenHash: machines.tokenHash, revokedAt: machines.revokedAt })
       .from(machines)
-      .where(eq(machines.id, id as MachineId))
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt)))
       .get()
-    if (!row) return false
+    if (!row || row.revokedAt !== null) return false
     const a = Buffer.from(createHash('sha256').update(token).digest('hex'))
     const b = Buffer.from(row.tokenHash)
     return a.length === b.length && timingSafeEqual(a, b)
@@ -536,14 +540,14 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ updateChannelOverride: channel })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   async renameMachine(id: string, name: string): Promise<void> {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ name })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 
   /**
@@ -556,7 +560,42 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ ownerUserId })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
+  }
+
+  /** Internal credential identity used to scope a replacement code; never projected. */
+  async credentialIncarnation(id: MachineId): Promise<string | undefined> {
+    return (await this.db.select({ tokenHash: machines.tokenHash }).from(machines)
+      .where(eq(machines.id, id)).get())?.tokenHash
+  }
+
+  /** One winner: ordinary enrollment cannot overwrite an existing identity. */
+  async enrollMachine(m: {
+    id: MachineId; name: string; hostname: string; tokenHash: string;
+    ownerUserId: UserId | null; podiumManaged: boolean;
+    assignment: MachineServiceAssignment; assignmentEvidence: z.infer<typeof AssignmentEvidence>;
+  }, replaceRevokedAt?: string, replaceIncarnation?: string): Promise<boolean> {
+    const now = new Date().toISOString()
+    const { assignment, assignmentEvidence, ...identity } = m
+    const enrollment = { ...identity, serviceAssignmentJson: JSON.stringify(MachineServiceAssignment.parse(assignment)), assignmentEvidenceJson: JSON.stringify(AssignmentEvidence.parse(assignmentEvidence)) }
+    const result = await this.committed.write(async () => replaceRevokedAt === undefined
+      ? this.db.insert(machines).values({ ...enrollment, createdAt: now, lastSeenAt: now })
+        .onConflictDoNothing().returning().all()
+      : this.db.update(machines).set({ ...enrollment, revokedAt: null, availabilityJson: null, lastSeenAt: now,
+          inventoryJson: null, harnessVersionsJson: null, serviceReportJson: null,
+          appVersion: null, wireSchemaDigest: null, deliveryCapsJson: null,
+          presenceSource: null, buildReportedAt: null })
+        .where(and(eq(machines.id, m.id), eq(machines.revokedAt, replaceRevokedAt), eq(machines.tokenHash, replaceIncarnation ?? '')))
+        .returning().all(), 'upsert')
+    return result.changes === 1
+  }
+
+  /** Retain identity and attribution while permanently refusing this credential. */
+  async revokeMachine(id: MachineId): Promise<void> {
+    await this.committed.write(async () => this.db
+      .update(machines)
+      .set({ revokedAt: sql`COALESCE(${machines.revokedAt}, ${new Date().toISOString()})`, availabilityJson: null })
+      .where(eq(machines.id, id)).returning().all(), 'upsert')
   }
 
   async deleteMachine(id: string): Promise<void> {
@@ -569,6 +608,6 @@ export class MachinesRepository {
     await this.committed.write(async () => this.db
       .update(machines)
       .set({ lastSeenAt: new Date().toISOString(), hostname })
-      .where(eq(machines.id, id as MachineId)).returning().all(), 'upsert')
+      .where(and(eq(machines.id, id as MachineId), isNull(machines.revokedAt))).returning().all(), 'upsert')
   }
 }

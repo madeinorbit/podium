@@ -986,12 +986,12 @@ export async function startServer(
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
       (await store.machines.listMachines()).some((machine) =>
-        isRemoteUpdateConsumer(machine, hostMachineId),
+        !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
       ),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
-    fleetPlatforms: async () => fleetHeadlessPlatforms(await store.machines.listMachines()),
+    fleetPlatforms: async () => fleetHeadlessPlatforms((await store.machines.listMachines()).filter((machine) => !machine.revokedAt)),
     // A proposal answers what THIS running server would change by building HEAD.
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
@@ -2297,13 +2297,15 @@ export async function startServer(
     const localDaemonLink: LocalDaemonLink = {
       attachPortableState: (control) => registry.attachLocalDaemonPortableState(control),
       attach: async ({ hello, deliver, deliverInput }) => {
+        const credentialCurrent = registry.modules.machines.credentialFence()
+        let credentialLive = true
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
           verifyOnly: registry.recoveryOnly,
         })
         const { outcome } = await prepareDaemonFrame(acceptor, JSON.stringify(hello))
-        if (outcome.kind !== 'established') {
+        if (outcome.kind !== 'established' || !credentialCurrent(outcome.principal.machine)) {
           const reply =
             outcome.kind === 'rejected'
               ? PeerHelloReply.parse(outcome.reply)
@@ -2311,6 +2313,7 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
+        const unregisterCredential = registry.modules.machines.registerCredentialConnection(principal.machine, () => { credentialLive = false })
         perf.record(
           'phase',
           outcome.acceptedCaps.includes(CAP_TERMINAL_OUTPUT_BINARY_V1)
@@ -2334,7 +2337,11 @@ export async function startServer(
             at: new Date().toISOString(),
           })
         }
-        const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
+        if (!credentialLive) {
+          unregisterCredential()
+          return { established: false as const, reply: { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const } }
+        }
+        const send = (msg: ControlMessage): void => queueMicrotask(() => { if (credentialLive) deliver(msg) })
         const transport = {
           send,
           sendInput: (input: DaemonPtyInputBatch): void => {
@@ -2346,7 +2353,7 @@ export async function startServer(
                 DEPLOYMENT,
                 input.bytes.byteLength,
               )
-              queueMicrotask(() => deliverInput(input))
+              queueMicrotask(() => { if (credentialLive) deliverInput(input) })
               return
             }
             perf.record(
@@ -2390,7 +2397,7 @@ export async function startServer(
               msg.type !== 'serverEndpointResult'
             )
               return
-            queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg))
+            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonFrame(principal, msg) })
           },
           deliverOutput: (batch) => {
             perf.record(
@@ -2400,9 +2407,11 @@ export async function startServer(
               DEPLOYMENT,
               batch.bytes.byteLength,
             )
-            queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch))
+            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonOutput(principal, batch) })
           },
           close: () => {
+            credentialLive = false
+            unregisterCredential()
             if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
             else registry.gateway.detachDaemon(principal, transport)
           },
