@@ -1,0 +1,8 @@
+{
+  "description": "RFC 8032 test key 1; Node crypto reference signature, test-only secret.",
+  "privateKeyPkcs8": "MC4CAQAwBQYDK2VwBCIEIJ1hsZ3v/VpguoRK9JLsLMREScVpezJpGXA7rAMcrn9g",
+  "publicKeyWire": "ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+  "prefix": "podium-machine-v1\n",
+  "message": "machine-signing-vector-v1",
+  "signature": "64h5qmEjPCwZC4pwADJfozTMb71cmyzkfttYdYspG4MYYxgc5f3uXmA5BOnZVLtqWVSf4ExWkRuGbZzooJh0Dw"
+}

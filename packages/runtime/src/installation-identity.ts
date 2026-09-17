@@ -21,18 +21,18 @@
  * file, 0600, and a corrupt file is an availability failure, never re-minted —
  * re-minting would silently make this a different installation.
  */
-import {
-  createPrivateKey,
-  createPublicKey,
-  generateKeyPairSync,
-  type KeyObject,
-  randomBytes,
-  sign,
-  verify,
-} from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { stateDir } from './config'
+
+import { isSigningKeyPair, mintSigningKeyPair } from './signing'
+export {
+  publicKeyWire as installationPublicKeyWire,
+  parseWirePublicKey,
+  signMessage as signWithInstallation,
+  verifyWithWireKey,
+} from './signing'
 
 export const INSTALLATION_FILE = 'installation.json'
 
@@ -42,7 +42,6 @@ export const CONNECT_REACHABILITY_PREFIX = 'podium-reachability-v1\n'
 export const CONNECT_PROBE_PREFIX = 'podium-connect-probe-v1\n'
 
 const INSTALLATION_ID_RE = /^pdm_[A-Za-z0-9_-]{43}$/
-const WIRE = 'ed25519:'
 
 export interface InstallationIdentity {
   version: 1
@@ -78,18 +77,7 @@ function parse(path: string, raw: string): InstallationIdentity {
   if (typeof c.privateKey !== 'string' || typeof c.publicKey !== 'string') throw invalid(path)
   if (!Number.isInteger(c.generation) || (c.generation as number) < 1) throw invalid(path)
   if (typeof c.createdAt !== 'string') throw invalid(path)
-  let derived: string
-  try {
-    derived = createPublicKey(
-      createPrivateKey({ key: Buffer.from(c.privateKey, 'base64'), format: 'der', type: 'pkcs8' }),
-    )
-      .export({ format: 'der', type: 'spki' })
-      .toString('base64')
-  } catch {
-    throw invalid(path)
-  }
-  // A file whose halves disagree is damage, not an identity.
-  if (derived !== c.publicKey) throw invalid(path)
+  if (!isSigningKeyPair({ privateKey: c.privateKey, publicKey: c.publicKey })) throw invalid(path)
   return {
     version: 1,
     installationId: c.installationId,
@@ -101,12 +89,10 @@ function parse(path: string, raw: string): InstallationIdentity {
 }
 
 function mint(now: Date): InstallationIdentity {
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   return {
     version: 1,
     installationId: `pdm_${randomBytes(32).toString('base64url')}`,
-    privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'),
-    publicKey: publicKey.export({ format: 'der', type: 'spki' }).toString('base64'),
+    ...mintSigningKeyPair(),
     generation: 1,
     createdAt: now.toISOString(),
   }
@@ -162,69 +148,6 @@ export function bumpInstallationGeneration(
   write(temp, next, 'w')
   renameSync(temp, path)
   return next
-}
-
-function rawPublicKey(publicKey: KeyObject): string {
-  return publicKey.export({ format: 'jwk' }).x as string
-}
-
-/** `ed25519:<base64url of the raw 32 bytes>`. */
-export function installationPublicKeyWire(
-  identity: Pick<InstallationIdentity, 'publicKey'>,
-): string {
-  const key = createPublicKey({
-    key: Buffer.from(identity.publicKey, 'base64'),
-    format: 'der',
-    type: 'spki',
-  })
-  return `${WIRE}${rawPublicKey(key)}`
-}
-
-export function parseWirePublicKey(wire: string): KeyObject | undefined {
-  if (typeof wire !== 'string' || !wire.startsWith(WIRE)) return undefined
-  const x = wire.slice(WIRE.length)
-  if (!/^[A-Za-z0-9_-]{43}$/.test(x)) return undefined
-  try {
-    return createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' })
-  } catch {
-    return undefined
-  }
-}
-
-/** base64url Ed25519 signature over `prefix || message`. */
-export function signWithInstallation(
-  identity: Pick<InstallationIdentity, 'privateKey'>,
-  prefix: string,
-  message: string,
-): string {
-  const key = createPrivateKey({
-    key: Buffer.from(identity.privateKey, 'base64'),
-    format: 'der',
-    type: 'pkcs8',
-  })
-  return sign(null, Buffer.from(prefix + message, 'utf8'), key).toString('base64url')
-}
-
-/** False on every failure, never thrown. */
-export function verifyWithWireKey(
-  publicKeyWire: string,
-  prefix: string,
-  message: string,
-  signature: string,
-): boolean {
-  const key = parseWirePublicKey(publicKeyWire)
-  if (!key) return false
-  if (typeof signature !== 'string' || !/^[A-Za-z0-9_-]+$/.test(signature)) return false
-  try {
-    return verify(
-      null,
-      Buffer.from(prefix + message, 'utf8'),
-      key,
-      Buffer.from(signature, 'base64url'),
-    )
-  } catch {
-    return false
-  }
 }
 
 export const connectRequestMessage = (

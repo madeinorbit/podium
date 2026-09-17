@@ -34,6 +34,8 @@
     "./query-attribution": "./src/query-attribution.ts",
     "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
+    "./signing": "./src/signing.ts",
+    "./machine-credential": "./src/machine-credential.ts",
     "./installation-identity": "./src/installation-identity.ts",
     "./connect-keys": "./src/connect-keys.ts",
     "./auth-store": "./src/auth-store.ts",
