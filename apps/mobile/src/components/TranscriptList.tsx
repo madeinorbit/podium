@@ -82,6 +82,7 @@ import { PressableScale } from './PressableScale'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
 import { WorkingMark } from './WorkingMark'
+import { ToolDescription } from './ToolDescription'
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
@@ -279,9 +280,7 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
                     {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
                   </Text>
                   <Text style={styles.toolName}>{item.toolName ?? 'result'}</Text>
-                  <Text style={styles.toolDesc} numberOfLines={1}>
-                    {desc}
-                  </Text>
+                  <ToolDescription toolName={item.toolName} command={desc} />
                   {files > 1 ? <Text style={styles.toolMag}>{files} files</Text> : null}
                 </View>
                 {verdict === 'err' ? (
@@ -1635,12 +1634,6 @@ const styles = StyleSheet.create({
   toolName: {
     ...mono(500),
     color: color.textDim,
-    fontSize: font.tiny,
-  },
-  toolDesc: {
-    ...mono(400),
-    flex: 1,
-    color: color.textFaint,
     fontSize: font.tiny,
   },
   toolMag: {
