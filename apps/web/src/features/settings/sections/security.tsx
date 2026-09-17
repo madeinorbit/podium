@@ -33,6 +33,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const httpOrigin = serverConfig(window.location).httpOrigin
   const [status, setStatus] = useState<{
     loginRequired: boolean
+    loginPolicySource?: string
     hasOwnCredential: boolean
     canManageInstance: boolean
   } | null>(null)
@@ -167,6 +168,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   }
 
   const { hasOwnCredential, loginRequired, canManageInstance } = status
+  const loginForced = status.loginPolicySource === 'file'
 
   return (
     <>
@@ -270,7 +272,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
               <Button
                 type="button"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || loginForced}
                 onClick={() => {
                   setError(null)
                   setDone(null)
@@ -281,6 +283,12 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
               </Button>
             )}
           </div>
+          {canManageInstance && loginForced && (
+            <p className="settings-prose">
+              config.json overrides the instance login policy. Remove the file override to change it
+              here.
+            </p>
+          )}
           {canManageInstance && loginRequired && disableOpen && (
             <div className="mt-1 flex flex-col gap-2 rounded-md border border-border bg-muted/25 p-3">
               <div>
@@ -311,7 +319,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
                 <Button
                   type="button"
                   variant="destructive"
-                  disabled={busy || !disableCurrent || !disableAck}
+                  disabled={busy || loginForced || !disableCurrent || !disableAck}
                   onClick={() => void disable()}
                 >
                   {busy ? 'Disabling...' : 'Disable login'}
@@ -335,7 +343,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
       {canManageInstance && !loginRequired && (
         <Section
           title="Instance login"
-          hint="Login is turned off for this instance — anyone who can reach this server can use it. Set your password above to require login again."
+          hint="Login is turned off for this instance — anyone who can reach this server can use it. Your personal password does not change this instance policy."
         >
           <p className="settings-prose">
             Existing passwords were kept, so turning login back on signs everyone in with the

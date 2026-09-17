@@ -388,6 +388,17 @@ export type TranscriptPolicy = z.infer<typeof TranscriptPolicy>
  * `isAdminGrade`); READING it is not, and the distinction is the row's, not this
  * shape's.
  */
+/** Instance choices; absence leaves the built-in default distinguishable. */
+export const DeploymentPreferences = z.object({
+  authOpenMode: z.boolean().optional(),
+  updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
+  connectEnabled: z.boolean().optional(),
+  telemetryUsage: z.enum(['on', 'off']).optional(),
+  telemetryCrash: z.enum(['on', 'off']).optional(),
+  telemetryInstallId: z.string().optional(),
+  telemetrySince: z.number().optional(),
+})
+
 export const InstancePreferences = z.object({
   hibernation: HibernationPolicy.default({}),
   gitWorkflow: GitWorkflowPolicy.default({}),
@@ -400,5 +411,6 @@ export const InstancePreferences = z.object({
   // one. Topic adjacency is what the doc comments are for.
   worktreeGc: WorktreeGcPolicy.default({}),
   transcripts: TranscriptPolicy.default({}),
+  deployment: DeploymentPreferences.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

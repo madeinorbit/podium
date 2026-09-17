@@ -41,7 +41,7 @@ export interface FleetPorts {
    * this instance has no public URL to join to. Built from `hub/machines-join`
    * at the composition root.
    */
-  joinCommand: (pairCode: string, podiumManaged?: boolean, workspaceId?: string) => string | null
+  joinCommand: (pairCode: string, podiumManaged?: boolean, workspaceId?: string, channel?: import('@podium/model').UpdateChannel) => string | null
 }
 
 /**
@@ -313,7 +313,7 @@ export const machinePairingCodeHandler = async ({
 
   return {
     code,
-    joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId),
+    joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId, mods(ctx).updates.fleetDefaultChannel()),
   }
 }
 

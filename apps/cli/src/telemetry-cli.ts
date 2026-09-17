@@ -15,8 +15,8 @@
  * prints the real queue file — never a re-derived example.
  *
  * Every path here is read/write against config.json only: `podium telemetry
- * off` must work whether or not the server is running (D8), which is precisely
- * why the state does not live in the settings blob.
+ * off` must work whether or not the server is running. These are operator
+ * overrides above server-held Settings choices, not a second copy of them.
  */
 import { loadConfig, stateDir } from '@podium/runtime/config'
 import {
@@ -35,7 +35,7 @@ export const TELEMETRY_USAGE = [
   'usage: podium telemetry [command]',
   '',
   'Commands:',
-  '  (none)                Show what is on, where it would go, and your install id',
+  '  (none)                Show local operator overrides; see Settings for effective choices',
   '  on  [--usage] [--crash]   Turn tiers on  (no flag = both)',
   '  off [--usage] [--crash]   Turn tiers off (no flag = both)',
   '  show                  Print the exact pending + last-sent payloads',
@@ -58,7 +58,7 @@ export function tiersFromFlags(args: string[]): TelemetryTier[] | { error: strin
 
 function tierLabel(state: TelemetryState, tier: TelemetryTier): string {
   const value = state[tier]
-  const shown = value === 'absent' ? 'off (never asked)' : value
+  const shown = value === 'absent' ? 'unset (server settings apply)' : value
   // A kill switch masks the stored value rather than erasing it — say so, so
   // "I set it to on and it says off" is never a mystery.
   return state.suppressedBy && value === 'on'
@@ -68,12 +68,13 @@ function tierLabel(state: TelemetryState, tier: TelemetryTier): string {
 
 export function statusText(state: TelemetryState): string {
   const lines = [
-    'Telemetry (opt-in, off unless you turned it on)',
+    'Telemetry operator overrides (environment and config.json)',
+    'Effective choices are shown in Settings → Privacy.',
     '',
     `  usage      ${tierLabel(state, 'usage')}`,
     `  crash      ${tierLabel(state, 'crash')}`,
     `  endpoint   ${state.endpoint}`,
-    `  installId  ${state.installId ?? '(none — minted only when you opt in)'}`,
+    `  installId  ${state.installId ?? '(unset — server settings may supply it)'}`,
   ]
   if (state.suppressedBy) {
     lines.push('', `  ${state.suppressedBy} is set — nothing is collected or sent.`)
@@ -172,7 +173,7 @@ export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): n
   if (command === 'reset-id') {
     const state = resetInstallId()
     io.print(`New install id: ${state.installId}`)
-    io.print('The previous id is gone; reports from before are not linkable to this one.')
+    io.print('This operator override supplies the identity for future reports.')
     return 0
   }
 

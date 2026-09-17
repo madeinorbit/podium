@@ -23,19 +23,14 @@ import { type InstanceAccountStore, InstanceService } from './service'
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
-  store?: {
-    settings: {
-      getSettings():
-        | { transcripts: { mirror?: boolean } }
-        | Promise<{ transcripts: { mirror?: boolean } }>
-    }
-  }
+  store?: { settings: import('../../store/settings').SettingsRepository }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
   modules?:
     | {
+        bus: import('../bus').EventBus
         machines: {
           refreshFleetChannel(): void | Promise<void>
           grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
@@ -47,6 +42,9 @@ const instanceService = (state: {
 }) =>
   new InstanceService({
     emitter: state.telemetry?.emitter as never,
+    settings: state.store?.settings,
+    onSettingsChanged: (previous, next) =>
+      state.modules?.bus.emit('settings.changed', { previous, next }),
     users: state.users,
     callerUserId: state.caller.userId,
     loginRequired: state.loginRequired,

@@ -16,6 +16,7 @@ import { TelemetryEmitter } from '@podium/telemetry'
 import type { EventBus } from './modules/bus'
 
 export interface TelemetryWiringDeps {
+  loadConfig?: (() => import('@podium/runtime/config').PodiumConfig) | undefined
   bus: EventBus
   /** Read at FLUSH time only — never retained between flushes. */
   machineCount: () => number
@@ -52,6 +53,7 @@ export interface TelemetryWiring {
  */
 export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
   const emitter = new TelemetryEmitter({
+    loadConfig: deps.loadConfig,
     stateDir: deps.stateDir ?? stateDir(),
     installRoot: deps.installRoot ?? resolveInstallDir(),
     // Must stay the literal `process.env.PODIUM_APP_VERSION`: build-bun's

@@ -23,6 +23,13 @@ export type ForcedSettingKey =
   | 'connectEnabled'
   | 'connectBaseUrl'
   | 'connectProbeKeys'
+  | 'authOpenMode'
+  | 'authMode'
+  | 'authSignInUrl'
+  | 'telemetryUsage'
+  | 'telemetryCrash'
+  | 'telemetryInstallId'
+  | 'telemetrySince'
 
 /**
  * A DISCRIMINATED UNION, so `env` is a string exactly where it is meaningful:
@@ -30,7 +37,10 @@ export type ForcedSettingKey =
  * spelling that in the type is what keeps the notice from needing an assertion
  * at every call site.
  */
-export type ForcedSetting = { forced: false; env?: undefined } | { forced: true; env: string }
+export type ForcedSetting =
+  | { forced: false; source?: undefined; env?: undefined }
+  | { forced: true; source: 'env'; env: string }
+  | { forced: true; source: 'file'; env?: undefined }
 
 type Provenance = Partial<Record<ForcedSettingKey, { source: string; env?: string }>>
 
@@ -102,7 +112,11 @@ export function useForcedSetting(key: ForcedSettingKey): ForcedSetting {
       if (!alive) return
       const entry = provenance[key]
       setForced(
-        entry?.source === 'env' && entry.env ? { forced: true, env: entry.env } : NOT_FORCED,
+        entry?.source === 'file'
+          ? { forced: true, source: 'file' }
+          : entry?.source === 'env' && entry.env
+            ? { forced: true, source: 'env', env: entry.env }
+            : NOT_FORCED,
       )
     })
     return () => {
@@ -114,6 +128,9 @@ export function useForcedSetting(key: ForcedSettingKey): ForcedSetting {
 
 /** The one sentence a forced control shows. It always names the variable to
  *  unset, because "something overrode you" is not actionable. */
-export function forcedNotice(env: string): string {
+export function forcedNotice(setting: ForcedSetting | string): string {
+  if (typeof setting !== 'string' && setting.source === 'file')
+    return 'config.json overrides this setting. Remove the file override to change it here.'
+  const env = typeof setting === 'string' ? setting : setting.env
   return `${env} is set in this deployment's environment and overrides this setting.`
 }

@@ -17,7 +17,7 @@ import {
   loadConfig,
   type PodiumConfig,
   resolveFeatureOverrides,
-  resolveUpdateChannel,
+  resolveSetting,
 } from '@podium/runtime/config'
 
 export interface FeatureStateWire extends FeatureState {
@@ -45,7 +45,7 @@ export function getFeatureStates(
   // Feature visibility has exactly two tiers, so the `dev` fleet channel (POD-1882)
   // folds into `edge`: it is strictly more permissive than edge, and a dev install
   // must see at least everything an edge install sees.
-  const fleetChannel = resolveUpdateChannel(config, env)
+  const fleetChannel = resolveSetting('updateChannel', config, env, settings.deployment).value
   const channel: 'stable' | 'edge' = fleetChannel === 'stable' ? 'stable' : 'edge'
   const overrides = resolveFeatureOverrides(config)
   const user = settings.experimental ?? {}

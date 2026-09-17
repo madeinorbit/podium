@@ -5,6 +5,7 @@ import {
   AutoContinuePreferences,
   asAccountId,
   CodingRole,
+  DeploymentPreferences,
   ExperimentalFlags,
   GitWorkflowPolicy,
   HarnessAgent,
@@ -90,6 +91,7 @@ export {
   ApiKeySecrets,
   AutoContinuePreferences,
   CodingRole,
+  DeploymentPreferences,
   ExperimentalFlags,
   GitWorkflowPolicy,
   HarnessAgent,
@@ -345,6 +347,7 @@ export const PodiumSettings = z.object({
   /** Whether this server mirrors daemon transcripts into its lake (PDM-26).
    *  `PODIUM_TRANSCRIPT_LAKE` and `config.transcriptLake` sit above this row. */
   transcripts: TranscriptPolicy.default({}),
+  deployment: DeploymentPreferences.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

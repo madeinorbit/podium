@@ -41,7 +41,6 @@ import {
   resolveAuthSignInUrl,
   resolveAppUrl,
   resolveConnectBaseUrl,
-  resolveConnectEnabled,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
   resolveInstanceId,
@@ -648,7 +647,7 @@ export async function startServer(
     identity: () => installation,
     publicUrl: () =>
       serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
-    enabled: () => resolveConnectEnabled(loadConfig(), process.env),
+    enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
   })
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
@@ -662,7 +661,7 @@ export async function startServer(
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = async (): Promise<boolean> =>
     resolveAuthMode() === 'cloud' ||
-    (!loadConfig().auth?.openMode && (await store.users.hasPerUserCredentials()))
+    (!store.settings.resolve('authOpenMode').value && (await store.users.hasPerUserCredentials()))
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
@@ -839,6 +838,7 @@ export async function startServer(
   const telemetry = wireTelemetry({
     bus: registry.modules.bus,
     machineCount: () => telemetryMachineCount,
+    loadConfig: () => store.settings.telemetryConfig(),
   })
   const repos = new RepoRegistry(registry, store)
   // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks

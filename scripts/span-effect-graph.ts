@@ -527,6 +527,10 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'packages/runtime/src/settings.ts#<module>.<anonymous>': {
+    kind: 'contained',
+    why: 'The legacy harness-backend migration callback only maps one settings value to another; it performs no I/O or publication, so rollback leaves nothing outside the process changed.',
+  },
   'packages/harness/src/manifest.ts#<module>.canonicalDriverId': {
     kind: 'contained',
     why: 'Pure string normalisation of a driver id (claude-pty -> generic-pty); no I/O, no state, nothing observable outside this process.',

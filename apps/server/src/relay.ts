@@ -46,7 +46,6 @@ import {
 } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
@@ -725,9 +724,9 @@ export class SessionRegistry {
         }
       },
       // POD-1882: read per call, not captured — Settings → Updates writes the fleet
-      // default into config.json, and an unpinned machine must follow the CURRENT
+      // default into the settings store, and an unpinned machine must follow the CURRENT
       // value rather than whatever it was when this server booted.
-      fleetUpdateChannel: () => resolveUpdateChannel(),
+      fleetUpdateChannel: () => this.store.settings.resolve('updateChannel').value,
       // ONE READER of `<stateDir>/machine.id`: the composition root passes the id to
       // the store, and every consumer takes the store's copy. A second `readOrCreate*`
       // call anywhere in the process would be a second opinion about who this host is.
@@ -838,9 +837,9 @@ export class SessionRegistry {
       locallyPublished: (channel) => channel === 'dev' && options.devChannelFeed?.() !== undefined,
       concurrency: 3,
       // Read per call for the same reason `MachinesService` reads it per call:
-      // Settings → Updates writes the fleet default into config.json, and an
+      // Settings → Updates writes the fleet default into the settings store, and an
       // unpinned machine must follow the CURRENT value (POD-1882).
-      fleetChannel: () => resolveUpdateChannel(),
+      fleetChannel: () => this.store.settings.resolve('updateChannel').value,
       // Read per call: a version published while an update is running is queued
       // as `nextTarget` instead of mutating the running wave (POD-2098, §3.2).
       exclusiveOperationActive: async () =>

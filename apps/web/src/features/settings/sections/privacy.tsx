@@ -2,7 +2,7 @@
  * Settings → Privacy [spec:SP-f933] — the web half of `podium telemetry`.
  *
  * SELF-PERSISTING (like Security/Updates/Network), not a blob-editing section:
- * telemetry consent lives in config.json (D8), not the settings blob, so each
+ * telemetry consent lives in the instance settings row, so each
  * toggle lands immediately through `telemetry.set`. "I turned telemetry off"
  * must never be lost to an unsaved page — the one setting where forgetting to
  * press Save would be a betrayal rather than an inconvenience.
@@ -24,6 +24,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { DiagnosticLoggingSubsection } from './diagnostic-logging'
+import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
 /** Inlined so the web bundle never imports @podium/telemetry (node:fs/crypto).
@@ -60,6 +61,11 @@ export function PrivacySection({
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
+  const forcedIdentity = useForcedSetting('telemetryInstallId')
+  const forcedSince = useForcedSetting('telemetrySince')
+  const forcedUsage = useForcedSetting('telemetryUsage')
+  const forcedCrash = useForcedSetting('telemetryCrash')
+  const forced = { usage: forcedUsage, crash: forcedCrash }
   const trpc = useStoreSelector((s) => s.trpc)
   const [state, setState] = useState<TelemetryStateWire | null>(null)
   const [preview, setPreview] = useState<unknown>(null)
@@ -139,6 +145,9 @@ export function PrivacySection({
             <div className="min-w-0">
               <span className="settings-label">{tier.name}</span>
               <p className="settings-prose mt-1">{tier.description}</p>
+              {forced[tier.key].forced && (
+                <p className="settings-micro mt-1">{forcedNotice(forced[tier.key])}</p>
+              )}
               {state[tier.key] === 'absent' && <p className="settings-micro mt-1">Never enabled</p>}
             </div>
             <div className="settings-control">
@@ -147,7 +156,7 @@ export function PrivacySection({
                 data-testid={`telemetry-${tier.key}`}
                 className="flex-none"
                 checked={state[tier.key] === 'on'}
-                disabled={busy || Boolean(suppressed)}
+                disabled={busy || Boolean(suppressed) || forced[tier.key].forced}
                 onCheckedChange={(next) => void setTier(tier.key, next === true)}
               />
             </div>
@@ -182,12 +191,17 @@ export function PrivacySection({
           <code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">
             {state.installId ?? '(none — created only when you opt in)'}
           </code>
+          {(forcedIdentity.forced || forcedSince.forced) && (
+            <p className="settings-micro">
+              {forcedNotice(forcedIdentity.forced ? forcedIdentity : forcedSince)}
+            </p>
+          )}
           {state.installId && (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={busy || forcedIdentity.forced || forcedSince.forced}
               onClick={() => void resetId()}
             >
               Reset
@@ -231,6 +245,11 @@ function TranscriptMirrorRow({
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
+  const forcedIdentity = useForcedSetting('telemetryInstallId')
+  const forcedSince = useForcedSetting('telemetrySince')
+  const forcedUsage = useForcedSetting('telemetryUsage')
+  const forcedCrash = useForcedSetting('telemetryCrash')
+  const forced = { usage: forcedUsage, crash: forcedCrash }
   const trpc = useStoreSelector((s) => s.trpc)
   // PRIMITIVES, not one object: this effect's dependency is the tRPC client, and
   // a client that is not referentially stable across renders would re-run it

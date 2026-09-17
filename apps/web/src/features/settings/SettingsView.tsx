@@ -10,7 +10,6 @@ import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
-import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
@@ -185,7 +184,6 @@ interface SectionContext {
   secretError: string | null
   setSecret: (key: ServerSecretKey, value: string) => void
   clearSecret: (key: ServerSecretKey) => void
-  setNetworkSaveState: (state: NetworkSaveController | null) => void
 }
 
 /** The tab -> section lookup (P5d, issue #264 — replaces the JSX ladder). Most
@@ -217,7 +215,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
     />
   ),
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
-  network: ({ setNetworkSaveState }) => <NetworkSection onSaveStateChange={setNetworkSaveState} />,
+  network: () => <NetworkSection />,
   devices: ({ trpc, openNetworkSettings }) => (
     <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
   ),
@@ -283,7 +281,6 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
    *  request that failed, and the two read differently to a user. */
   const [refusals, setRefusals] = useState<readonly SettingsWriteRefusal[]>([])
   const [savedAt, setSavedAt] = useState(0)
-  const [networkSave, setNetworkSave] = useState<NetworkSaveController | null>(null)
   const [filter, setFilter] = useState('')
   /**
    * THE SECRET SURFACE, AND WHY IT HAS ONLY THREE STATES (POD-421).
@@ -575,21 +572,13 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   }, [savedFlash])
   const refusalText = refusalMessage(refusals)
   const blobSaveActive = BLOB_TABS.has(tab)
-  const networkSaveActive = tab === 'network' ? networkSave : null
-  const activeDirty = blobSaveActive ? dirty : (networkSaveActive?.dirty ?? false)
-  const activeSaving = blobSaveActive ? saving : (networkSaveActive?.saving ?? false)
-  const activeError = blobSaveActive ? error : (networkSaveActive?.error ?? null)
-  const activeSavedFlash = blobSaveActive
-    ? savedFlash
-    : Boolean(networkSaveActive?.savedAt && Date.now() - networkSaveActive.savedAt < 1500)
-  useEffect(() => {
-    if (!networkSaveActive?.savedAt || !activeSavedFlash) return
-    const id = window.setTimeout(() => forceTick((n) => n + 1), 1600)
-    return () => window.clearTimeout(id)
-  }, [activeSavedFlash, networkSaveActive?.savedAt])
+  const activeDirty = blobSaveActive && dirty
+  const activeSaving = blobSaveActive && saving
+  const activeError = blobSaveActive ? error : null
+  const activeSavedFlash = blobSaveActive && savedFlash
   const activeRefusalText = blobSaveActive ? refusalText : null
   const showBar =
-    (blobSaveActive || Boolean(networkSaveActive)) &&
+    blobSaveActive &&
     (activeDirty ||
       activeSaving ||
       activeSavedFlash ||
@@ -613,12 +602,9 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   const [closeBlockedAt, setCloseBlockedAt] = useState(0)
   const closeBlocked = closeBlockedAt > 0 && Date.now() - closeBlockedAt < 2600
   const discard = () => {
-    if (networkSaveActive) networkSaveActive.discard()
-    else {
-      setSettings(lastSaved)
-      setError(null)
-      setRefusals([])
-    }
+    setSettings(lastSaved)
+    setError(null)
+    setRefusals([])
     setCloseBlockedAt(0)
   }
   useEffect(() => {
@@ -661,8 +647,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
       } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (activeDirty && !activeSaving) {
-          if (networkSaveActive) void networkSaveActive.save()
-          else if (blobSaveActive) void save()
+          if (blobSaveActive) void save()
         }
       }
       // Escape belongs to the sheet (AppSheet), which owns closing for every
@@ -801,7 +786,6 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     clearSecret: (key) => {
                       void writeSecret(() => trpc.settings.clearSecret.mutate({ key }))
                     },
-                    setNetworkSaveState: setNetworkSave,
                   })}
                 </Suspense>
               ) : (
@@ -880,8 +864,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                 pending={activeSaving}
                 pendingLabel="Saving…"
                 onClick={() => {
-                  if (networkSaveActive) void networkSaveActive.save()
-                  else void save()
+                  void save()
                 }}
               >
                 Save changes

@@ -115,6 +115,7 @@ export function UpdatesSection(): JSX.Element {
   // the server resolves machines against the env value. When it is set, the
   // selector must say so rather than offer a write that cannot take (POD-1882).
   const [envForced, setEnvForced] = useState(false)
+  const [channelSource, setChannelSource] = useState<string | undefined>()
   /**
    * WHO REPLACES THIS SERVER'S OWN BINARY (PDM-26). Under `fleet-only` the
    * deployment does — a container image, a CI deploy — and the updater only ever
@@ -148,6 +149,7 @@ export function UpdatesSection(): JSX.Element {
         if (cancelled) return
         setChannel(c.channel)
         setEnvForced(c.envForced)
+        setChannelSource(c.channelSource)
         setUpdateScope(c.updateScope ?? 'all')
       })
       .catch((e) => {
@@ -238,6 +240,7 @@ export function UpdatesSection(): JSX.Element {
       const result = await trpc.setup.setChannel.mutate({ channel: next })
       setChannel(result.channel)
       setEnvForced(result.envForced)
+      setChannelSource(result.channelSource)
       // Keep the shell's native fallback on this server's channel. Dev points at
       // this server's public shell manifest; the signed artifact itself remains on GitHub.
       try {
@@ -864,8 +867,8 @@ export function UpdatesSection(): JSX.Element {
       </Row>
       {envForced && (
         <p className="mt-2 settings-prose text-warning">
-          PODIUM_UPDATE_CHANNEL is set in this deployment&rsquo;s environment and overrides the
-          configured channel. Unset it to choose the fleet default here.
+          {channelSource === 'file' ? 'config.json' : 'PODIUM_UPDATE_CHANNEL'} overrides the
+          configured channel. Remove the override to choose the fleet default here.
         </p>
       )}
       {updateScope === 'fleet-only' && (

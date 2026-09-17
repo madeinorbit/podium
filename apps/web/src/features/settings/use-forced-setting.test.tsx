@@ -29,14 +29,23 @@ describe('useForcedSetting', () => {
       publicUrl: { source: 'env', env: 'PODIUM_PUBLIC_URL' },
     })
     const { result } = renderHook(() => useForcedSetting('publicUrl'))
-    await waitFor(() => expect(result.current).toEqual({ forced: true, env: 'PODIUM_PUBLIC_URL' }))
+    await waitFor(() =>
+      expect(result.current).toEqual({ forced: true, source: 'env', env: 'PODIUM_PUBLIC_URL' }),
+    )
   })
 
-  it('a file or default value is not forced', async () => {
+  it('a file override is forced and names config.json', async () => {
     trpc.setup.provenance.query.mockResolvedValue({ publicUrl: { source: 'file' } })
     const { result } = renderHook(() => useForcedSetting('publicUrl'))
-    await waitFor(() => expect(result.current).toEqual({ forced: false }))
-    expect(result.current.env).toBeUndefined()
+    await waitFor(() => expect(result.current).toEqual({ forced: true, source: 'file' }))
+    expect(forcedNotice(result.current)).toContain('Remove the file override')
+  })
+
+  it.each(['settings', 'default'])('%s is editable', async (source) => {
+    trpc.setup.provenance.query.mockResolvedValue({ updateChannel: { source } })
+    const { result } = renderHook(() => useForcedSetting('updateChannel'))
+    await waitFor(() => expect(trpc.setup.provenance.query).toHaveBeenCalled())
+    expect(result.current).toEqual({ forced: false })
   })
 
   it('reads provenance ONCE however many controls ask', async () => {

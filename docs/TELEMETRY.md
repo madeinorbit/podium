@@ -25,7 +25,7 @@ from what actually ships.
 ## Turning it off (and on)
 
 ```sh
-podium telemetry                 # what is on, where it goes, your install id
+podium telemetry                 # local operator overrides; Settings shows effective choices
 podium telemetry off             # both tiers off
 podium telemetry off --usage     # just one tier
 podium telemetry on --crash      # opt into one tier
@@ -33,9 +33,11 @@ podium telemetry show            # the exact pending + last-sent payloads
 podium telemetry reset-id        # new random install id
 ```
 
-`podium telemetry off` works whether or not the server is running: consent lives in
-`~/.podium/config.json` (not the database, not a settings blob), and the running server re-reads
-it before every send — so turning it off takes effect immediately, with no restart.
+Settings → Privacy stores consent in the existing database settings row. Environment and
+`config.json` overrides take precedence. `podium telemetry off` writes an operator override
+and works even when the server is stopped; the running server resolves that override before
+sending, without a restart. The standalone status command shows local operator overrides;
+an unset file value does not mean a server-held choice is off.
 
 You can also just edit the file:
 

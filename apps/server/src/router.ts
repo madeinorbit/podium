@@ -13,7 +13,7 @@ import {
   WorkState,
 } from '@podium/model'
 import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
-import { loadConfig, resolvePublicUrl, resolveUpdateChannel } from '@podium/runtime/config'
+import { loadConfig, resolvePublicUrl } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -251,7 +251,7 @@ import type { PinState, SnoozeMap } from './store/types'
  * importing it. This file is a composition root, so it supplies the port.
  */
 const fleet = fleetProcedures({
-  joinCommand: (pairCode, podiumManaged, workspaceId) => {
+  joinCommand: (pairCode, podiumManaged, workspaceId, channel) => {
     const config = loadConfig()
     const publicUrl = resolvePublicUrl(config, process.env)
     return publicUrl
@@ -260,7 +260,7 @@ const fleet = fleetProcedures({
           pairCode,
           podiumManaged,
           ...(workspaceId ? { workspaceId } : {}),
-          channel: resolveUpdateChannel(config) === 'stable' ? 'stable' : 'edge',
+          channel: channel === 'stable' ? 'stable' : 'edge',
         })
       : null
   },

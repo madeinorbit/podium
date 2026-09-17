@@ -95,12 +95,10 @@ describe('NetworkSection', () => {
 
     render(<NetworkSection />)
 
-    const selected = (await screen.findByRole('radio', {
-      name: /tailscale serve/i,
-    })) as HTMLInputElement
-    expect(selected.checked).toBe(true)
-    expect(screen.getByLabelText('Podium URL')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save network settings' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /change|set up/i })).toBeNull()
+    expect(await screen.findByText('https://box.tail.ts.net')).toBeTruthy()
+    expect(screen.queryByRole('radio')).toBeNull()
+    expect(screen.queryByLabelText('Podium URL')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+    expect(storeState.trpc.setup.complete.mutate).not.toHaveBeenCalled()
   })
 })

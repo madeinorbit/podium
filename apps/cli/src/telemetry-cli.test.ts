@@ -44,16 +44,16 @@ describe('tiersFromFlags', () => {
 })
 
 describe('podium telemetry (status)', () => {
-  it('reports off/never-asked on a fresh box, with no install id', () => {
+  it('reports unset local overrides without claiming server-held consent is off', () => {
     expect(telemetryCliMain([], io)).toBe(0)
-    expect(text()).toContain('usage      off (never asked)')
-    expect(text()).toContain('crash      off (never asked)')
-    expect(text()).toContain('(none — minted only when you opt in)')
+    expect(text()).toContain('usage      unset (server settings apply)')
+    expect(text()).toContain('crash      unset (server settings apply)')
+    expect(text()).toContain('(unset — server settings may supply it)')
   })
 
   it('shows the endpoint reports would go to', () => {
     telemetryCliMain([], io)
-    expect(text()).toContain('https://pulse.meetpodium.com/v1/u')
+    expect(text()).toContain('https://pulse.podium.do/v1/u')
   })
 })
 

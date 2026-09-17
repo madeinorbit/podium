@@ -6,7 +6,7 @@ place: `packages/runtime/src/config.ts`.
 
 ## The rule
 
-**env (`PODIUM_*`) → `config.json` → built-in default.**
+**env (`PODIUM_*`) → `config.json` → instance settings table → built-in default.**
 
 One typed accessor per key, and nothing outside that accessor reads
 `process.env.PODIUM_*` for a layered key. `resolveSetting(key)` is the single
@@ -20,11 +20,23 @@ is about:
    env-set value is never "stale" and never "activation pending".
 2. **A forced value locks its UI and refuses its mutation.** Not a silent no-op —
    a no-op reads as success and leaves the deployment somewhere else. The
-   refusal is `PRECONDITION_FAILED` and it always names the variable to unset.
-3. **Security switches stay file-only.** A stray variable must not widen trust.
+   refusal is `PRECONDITION_FAILED` and it names the variable or file override to remove.
+3. **Trust-widening security switches have no environment layer.** A stray variable must not widen trust.
 
-A server adds a fourth layer for a few keys: a settings ROW in `podium.db`,
-applied by `apps/server`. Today that is `transcriptLake` — see below.
+The server supplies the existing `meta['settings']` row for instance choices:
+`updateChannel`, `transcriptLake`, `connectEnabled`, `telemetryUsage`,
+`telemetryCrash`, and file-only `authOpenMode`, `telemetryInstallId`, and `telemetrySince`. Environment and file overrides
+both lock their Settings controls. Settings writes the database; operator and
+installer flows own the file. Settings → Network is read-only.
+
+`LAYERED_SCOPES` inventories every layered key. Ports, agent home, mode and server/app
+URLs are bootstrap. Feed, origin allowlists, auth mode/sign-in URL, update scope and
+connect endpoint/probe keys are operator configuration. They do not read the table.
+Member preferences continue to use the separate personal preferences store.
+
+A one-time migration imports legacy UI-written file values into the existing row,
+retaining table choices already present. A durable receipt governs removal of those
+file keys; later file values are operator overrides and are never re-imported.
 
 ## The layered keys
 
@@ -289,6 +301,6 @@ reports `needsSetup: false`, and no `config.json` is written.
 
 ### Cloud authentication
 
-`PODIUM_AUTH_MODE=cloud` overrides `auth.mode` in the file and requires authentication even when `auth.openMode` is true or no local credentials exist. The default is `local`. `auth.openMode` remains file-and-command only; there is no environment override for it.
+`PODIUM_AUTH_MODE=cloud` overrides `auth.mode` in the file and requires authentication even when `auth.openMode` is true or no local credentials exist. The default is `local`. `auth.openMode` resolves a file override above the instance settings choice; there is no environment override for it.
 
 `PODIUM_AUTH_SIGN_IN_URL` overrides `auth.signInUrl`. Both accept an absolute HTTPS URL, or HTTP on loopback for development, without embedded credentials. Invalid environment values fail server startup; invalid file values fail config-schema validation. `/auth/status` advertises the resolved destination to the cloud login gate; when unset the gate uses same-origin `/account/sign-in`. Existing destination query parameters and fragments are preserved, and `returnTo` is set to the current workspace path including query and fragment, matching the hosted account routes.

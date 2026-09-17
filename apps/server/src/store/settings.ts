@@ -33,6 +33,14 @@
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import { applyAfterCommit } from './executor'
+import {
+  resolveSetting,
+  loadConfig,
+  type LayeredKey,
+  type LayeredSettings,
+  type PodiumConfig,
+} from '@podium/runtime/config'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -40,6 +48,61 @@ import { currentTransaction } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
+  private committed = normalizeSettings(undefined)
+
+  async initializeSnapshot(): Promise<void> {
+    this.committed = await this.getSettings()
+  }
+
+  /** Read-only projection of the existing row for synchronous runtime consumers. */
+  layeredSettings(): LayeredSettings {
+    const { deployment, transcripts } = this.committed
+    return {
+      ...deployment,
+      transcriptLake:
+        transcripts.mirror === undefined ? undefined : transcripts.mirror ? 'on' : 'off',
+    }
+  }
+
+  resolve<K extends LayeredKey>(key: K, config: PodiumConfig = loadConfig()) {
+    return resolveSetting(key, config, process.env, this.layeredSettings())
+  }
+
+  telemetryConfig() {
+    const config = loadConfig()
+    const usage = this.resolve('telemetryUsage', config).value
+    const crash = this.resolve('telemetryCrash', config).value
+    return {
+      ...config,
+      telemetry: {
+        ...config.telemetry,
+        usage: usage === 'absent' ? undefined : usage,
+        crash: crash === 'absent' ? undefined : crash,
+        installId: this.resolve('telemetryInstallId', config).value,
+        since: this.resolve('telemetrySince', config).value,
+      },
+    }
+  }
+
+  async updateDeployment(
+    values: Partial<PodiumSettings['deployment']>,
+    firstConsentIdentity?: { installId: string; since: number },
+  ): Promise<void> {
+    await this.createOrJoinTransaction(async () => {
+      const current = await this.getSettings()
+      const deployment = { ...current.deployment, ...values }
+      if (
+        firstConsentIdentity &&
+        !deployment.telemetryInstallId &&
+        (deployment.telemetryUsage === 'on' || deployment.telemetryCrash === 'on')
+      ) {
+        deployment.telemetryInstallId = firstConsentIdentity.installId
+        deployment.telemetrySince = firstConsentIdentity.since
+      }
+      await this.setSettings({ ...current, deployment })
+    })
+  }
+
   /** The per-user half of the same aggregate. Composed rather than injected: the
    *  two tables answer ONE question ("what are this person's settings"), and a
    *  resolver that lived above them both would be a third place that knows which
@@ -115,7 +178,13 @@ export class SettingsRepository {
   }
 
   async setSettings(settings: PodiumSettings): Promise<void> {
-    await this.writeMeta('settings', JSON.stringify(settings))
+    const next = normalizeSettings(settings)
+    await this.createOrJoinTransaction(async () => {
+      await this.writeMeta('settings', JSON.stringify(next))
+      applyAfterCommit(() => {
+        this.committed = next
+      }, 'settings-snapshot')
+    })
   }
 
   /**
@@ -127,9 +196,9 @@ export class SettingsRepository {
    * as amended: every column is named).
    */
   private async writeMeta(key: string, value: string): Promise<void> {
-    ;await (this.db
+    await this.db
       .insert(meta)
-      .values({ key, value }))
+      .values({ key, value })
       .onConflictDoUpdate({ target: meta.key, set: { value } })
       .run()
   }
@@ -177,7 +246,11 @@ export class SettingsRepository {
    * Returns the blob as it now stands (instance tier), for the caller's
    * `settings.changed` event pair.
    */
-  async setSettingsFor(userId: UserId, next: PodiumSettings, updatedAt: string): Promise<PodiumSettings> {
+  async setSettingsFor(
+    userId: UserId,
+    next: PodiumSettings,
+    updatedAt: string,
+  ): Promise<PodiumSettings> {
     const resolved = await this.getSettingsFor(userId)
     const instancePatch: Record<string, unknown> = {}
     for (const leaf of changedSettingsLeaves(resolved, next)) {
@@ -222,7 +295,9 @@ export class SettingsRepository {
       instancePatch[path] = value
     }
     if (Object.keys(instancePatch).length > 0) {
-      await this.setSettings(normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)))
+      await this.setSettings(
+        normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)),
+      )
     }
     return await this.getSettingsFor(userId)
   }

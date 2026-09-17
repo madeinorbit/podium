@@ -57,6 +57,7 @@ async function makeHarness() {
   return {
     registry,
     users,
+    settings: registry.sessionStore.settings,
     caller: appRouter.createCaller({
       registry,
       repos,
@@ -383,7 +384,8 @@ describe('setup tRPC', () => {
       channel: 'edge',
       envForced: false,
     })
-    expect(loadConfig().updateChannel).toBe('edge')
+    expect(loadConfig().updateChannel).toBeUndefined()
+    expect((await harness!.settings.getSettings()).deployment.updateChannel).toBe('edge')
   })
 })
 
@@ -588,7 +590,9 @@ describe('fleet default channel refresh ordering', () => {
       order.push('broadcast')
     })
 
+    await caller()
     const service = new InstanceService({
+      settings: harness!.settings,
       callerUserId: firstAdminMemberId(),
       onFleetChannelChanged: async (channel) => {
         await refreshTarget(channel)
@@ -597,7 +601,7 @@ describe('fleet default channel refresh ordering', () => {
     })
 
     const mutation = service.setChannel('edge')
-    await Promise.resolve()
+    await vi.waitFor(() => expect(refreshTarget).toHaveBeenCalledWith('edge'))
 
     // The target is still loading, so nothing has been projected yet.
     expect(refreshTarget).toHaveBeenCalledWith('edge')

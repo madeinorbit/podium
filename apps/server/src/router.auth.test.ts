@@ -26,7 +26,7 @@ async function harness(member = false) {
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
   const loginRequired = async (): Promise<boolean> =>
-    !loadConfig().auth?.openMode && (await users.hasPerUserCredentials())
+    !registry.sessionStore.settings.resolve('authOpenMode').value && (await users.hasPerUserCredentials())
   const memberId = asUserId('user:profile-member')
   if (member)
     await users.create(
@@ -87,6 +87,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       loginRequired: false,
       hasOwnCredential: false,
       canManageInstance: true,
+      loginPolicySource: 'default',
     })
     await users.setPasswordHash(
       firstAdminMemberId(),
@@ -97,6 +98,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       loginRequired: true,
       hasOwnCredential: true,
       canManageInstance: true,
+      loginPolicySource: 'default',
     })
   })
 
@@ -199,6 +201,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       acknowledgeNoPassword: true,
     })
     expect(await loginRequired()).toBe(false)
+    expect(loadConfig().auth?.openMode).toBeUndefined()
     // THE PROPERTY THE CONFIG FLAG BUYS: nobody's password was deleted, so turning login
     // back on does not make everyone re-enrol.
     expect(await hashOf(users)).toBe(hashBefore)

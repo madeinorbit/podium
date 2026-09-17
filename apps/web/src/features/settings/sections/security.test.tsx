@@ -109,6 +109,24 @@ describe('LoginPasswordSection', () => {
       }),
     )
   })
+  it('disables instance policy changes when config.json overrides the settings row', async () => {
+    const trpc = fakeTrpc(true)
+    vi.mocked(trpc.auth.status.query).mockResolvedValue({
+      hasOwnCredential: true,
+      loginRequired: true,
+      canManageInstance: true,
+      loginPolicySource: 'file',
+    })
+    render(<LoginPasswordSection trpc={trpc} />)
+    const button = (await screen.findByRole('button', {
+      name: /disable login/i,
+    })) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByText(/config.json overrides/)).toBeTruthy()
+    fireEvent.click(button)
+    expect(trpc.auth.setLoginRequired.mutate).not.toHaveBeenCalled()
+  })
+
   it('a non-admin can change their own password but cannot disable login', async () => {
     // The split POD-1554 exists for: one user must not be able to turn login off for
     // everybody. The server refuses it too (roleFloor: admin) — this asserts the UI does

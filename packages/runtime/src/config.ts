@@ -1323,10 +1323,8 @@ export type TranscriptLakeMode = 'on' | 'off'
  * Which layer answered.
  *
  * `settings` is the persisted instance-tier settings row, and it exists for the
- * one key that is a USER-FACING CHOICE first and a deployment override second:
- * transcript mirroring is a toggle in Settings, and env / config.json sit above
- * it so a deployment can take the choice away. It never appears for a key with
- * no settings row.
+ * instance-scoped keys. Environment and config.json overrides sit above these
+ * choices. Bootstrap and operator-only keys never read the settings row.
  */
 export type SettingSource = 'env' | 'file' | 'settings' | 'default'
 
@@ -1343,13 +1341,11 @@ export interface Resolved<T> {
 }
 
 /**
- * The keys that HAVE an env layer.
+ * Every key with layered provenance, including file-only authOpenMode.
  *
- * A key missing from this list is missing deliberately: `features` and
- * `auth.openMode` are file-only because one enables hidden code paths and the
- * other turns off authentication, and neither should be reachable from a
- * process environment that a supervisor, a container platform or a stray `.env`
- * can populate by accident. See docs/configuration.md.
+ * Security-sensitive authOpenMode has no environment reader: a stray variable
+ * must not turn off authentication. Feature overrides use their own registry.
+ * See docs/configuration.md.
  */
 export const LAYERED_KEYS = [
   'port',
@@ -1369,11 +1365,16 @@ export const LAYERED_KEYS = [
   'connectEnabled',
   'connectBaseUrl',
   'connectProbeKeys',
+  'telemetryUsage',
+  'telemetryCrash',
+  'authOpenMode',
+  'telemetryInstallId',
+  'telemetrySince',
 ] as const
 export type LayeredKey = (typeof LAYERED_KEYS)[number]
 
 /** The variable each layered key reads. */
-export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
+export const LAYERED_ENV: Readonly<Record<LayeredKey, string | undefined>> = {
   port: 'PODIUM_PORT',
   hookPort: 'PODIUM_HOOK_PORT',
   agentRelayPort: 'PODIUM_AGENT_RELAY_PORT',
@@ -1391,10 +1392,18 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
   connectEnabled: 'PODIUM_CONNECT',
   connectBaseUrl: 'PODIUM_CONNECT_URL',
   connectProbeKeys: 'PODIUM_CONNECT_PROBE_KEYS',
+  telemetryUsage: 'PODIUM_TELEMETRY',
+  telemetryCrash: 'PODIUM_TELEMETRY',
+  authOpenMode: undefined,
+  telemetryInstallId: undefined,
+  telemetrySince: undefined,
 }
 
 /** What each layered key resolves TO. */
 export interface LayeredValues {
+  authOpenMode: boolean
+  telemetryInstallId: string | undefined
+  telemetrySince: number | undefined
   port: number
   hookPort: number
   agentRelayPort: number
@@ -1411,6 +1420,8 @@ export interface LayeredValues {
   transcriptLake: TranscriptLakeMode
   connectEnabled: boolean
   connectBaseUrl: string
+  telemetryUsage: 'on' | 'off' | 'absent'
+  telemetryCrash: 'on' | 'off' | 'absent'
   connectProbeKeys: string[]
 }
 export type LayeredValue<K extends LayeredKey> = LayeredValues[K]
@@ -1614,6 +1625,13 @@ function defaultAgentHome(env: EnvSource, home: string): string {
  * `PODIUM_INSTANCE`. That is precedence WITHIN the default layer, not a second
  * env layer, and `resolveSetting` reports those as `default` accordingly.
  */
+function telemetryOverride(env: EnvSource): 'off' | undefined {
+  const dnt = env.DO_NOT_TRACK?.trim().toLowerCase()
+  return dnt === '1' || dnt === 'true' || env.PODIUM_TELEMETRY?.trim().toLowerCase() === 'off'
+    ? 'off'
+    : undefined
+}
+
 const LAYERED_READERS: {
   [K in LayeredKey]: {
     env(env: EnvSource): LayeredValues[K] | undefined
@@ -1715,6 +1733,31 @@ const LAYERED_READERS: {
     file: (config) => config.updateScope,
     default: () => 'all',
   },
+  telemetryInstallId: {
+    env: () => undefined,
+    file: (config) => config.telemetry?.installId,
+    default: () => undefined,
+  },
+  telemetrySince: {
+    env: () => undefined,
+    file: (config) => config.telemetry?.since,
+    default: () => undefined,
+  },
+  authOpenMode: {
+    env: () => undefined,
+    file: (config) => config.auth?.openMode,
+    default: () => false,
+  },
+  telemetryUsage: {
+    env: (env) => telemetryOverride(env),
+    file: (config) => config.telemetry?.usage,
+    default: () => 'absent',
+  },
+  telemetryCrash: {
+    env: (env) => telemetryOverride(env),
+    file: (config) => config.telemetry?.crash,
+    default: () => 'absent',
+  },
   transcriptLake: {
     env: (env) =>
       env.PODIUM_TRANSCRIPT_LAKE === undefined
@@ -1794,25 +1837,66 @@ function parseProbeKeys(raw: readonly string[], name: string): string[] {
 }
 
 /**
- * THE PRECEDENCE RULE, ONCE: env (PODIUM_*) → config.json → built-in default,
- * plus which of the three answered.
+ * THE PRECEDENCE RULE: env → config.json → instance settings → built-in default,
+ * with provenance from the layer that answered.
  *
  * Every layered accessor in this file is `resolveSetting(key, …).value`, and the
  * server's `instance.provenance` is this function over `LAYERED_KEYS`. There is
  * no second place that decides what wins.
  */
+/** Storage scope for every layered key. Bootstrap and operator values have no UI writer. */
+export const LAYERED_SCOPES = {
+  port: 'bootstrap',
+  hookPort: 'bootstrap',
+  agentRelayPort: 'bootstrap',
+  agentHome: 'bootstrap',
+  mode: 'bootstrap',
+  publicUrl: 'bootstrap',
+  appUrl: 'bootstrap',
+  updateFeed: 'operator',
+  allowedOrigins: 'operator',
+  authMode: 'operator',
+  authSignInUrl: 'operator',
+  updateScope: 'operator',
+  connectBaseUrl: 'operator',
+  connectProbeKeys: 'operator',
+  updateChannel: 'instance',
+  transcriptLake: 'instance',
+  connectEnabled: 'instance',
+  telemetryUsage: 'instance',
+  telemetryCrash: 'instance',
+  authOpenMode: 'instance',
+  telemetryInstallId: 'instance',
+  telemetrySince: 'instance',
+} as const satisfies Record<LayeredKey, 'bootstrap' | 'operator' | 'instance' | 'member'>
+
+export type LayeredSettings = Partial<LayeredValues>
+
 export function resolveSetting<K extends LayeredKey>(
   key: K,
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
+  settings: LayeredSettings = {},
 ): Resolved<LayeredValue<K>> {
   const reader = LAYERED_READERS[key]
   const fromEnv = reader.env(env)
   if (fromEnv !== undefined) {
-    return { value: fromEnv as LayeredValue<K>, source: 'env', env: LAYERED_ENV[key] }
+    const variable = LAYERED_ENV[key]
+    if (variable === undefined) throw new Error(`No environment variable is declared for ${key}`)
+    return {
+      value: fromEnv as LayeredValue<K>,
+      source: 'env',
+      env:
+        (key === 'telemetryUsage' || key === 'telemetryCrash') &&
+        ['1', 'true'].includes(env.DO_NOT_TRACK?.trim().toLowerCase() ?? '')
+          ? 'DO_NOT_TRACK'
+          : variable,
+    }
   }
   const fromFile = reader.file(config)
   if (fromFile !== undefined) return { value: fromFile as LayeredValue<K>, source: 'file' }
+  const stored = LAYERED_SCOPES[key] === 'instance' ? settings[key] : undefined
+  if (stored !== undefined) return { value: stored, source: 'settings' }
   return { value: reader.default(env) as LayeredValue<K>, source: 'default' }
 }
 
@@ -1968,10 +2052,9 @@ export function resolveTranscriptLakeSetting(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): Resolved<TranscriptLakeMode> {
-  const layered = resolveSetting('transcriptLake', config, env)
-  if (layered.source !== 'default') return layered
-  if (settings === undefined) return layered
-  return { value: settings ? 'on' : 'off', source: 'settings' }
+  return resolveSetting('transcriptLake', config, env, {
+    transcriptLake: settings === undefined ? undefined : settings ? 'on' : 'off',
+  })
 }
 
 /**

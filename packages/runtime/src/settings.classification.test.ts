@@ -41,7 +41,7 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
     // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror.
-    expect(blobLeaves().length).toBe(49)
+    expect(blobLeaves().length).toBe(56)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -99,6 +99,7 @@ describe('the blob COMPOSES the model schemas — no restatement', () => {
     ['experimental', model.ExperimentalFlags],
     ['worktreeGc', model.WorktreeGcPolicy],
     ['transcripts', model.TranscriptPolicy],
+    ['deployment', model.DeploymentPreferences],
   ]
 
   it('pins EVERY composable member, not a sample', () => {
@@ -190,6 +191,7 @@ describe('the composed blob still parses exactly as before', () => {
       worktreeGc: { mode: 'propose', afterDays: 14 },
       // Absent, not `false`: nobody has chosen, and the built-in answer is on.
       transcripts: {},
+      deployment: {},
     })
   })
 
@@ -211,6 +213,7 @@ describe('the composed blob still parses exactly as before', () => {
       // a persisted blob (POD-564).
       'worktreeGc',
       'transcripts',
+      'deployment',
     ])
     expect(Object.keys(parsed.notifications)).toEqual([
       'web',

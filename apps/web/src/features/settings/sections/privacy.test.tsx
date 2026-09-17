@@ -15,25 +15,27 @@ const trpcMock = vi.hoisted(() => ({
   resetId: vi.fn(),
   preview: vi.fn(),
   setupInfo: vi.fn(),
+  provenance: vi.fn(),
 }))
 
-vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => [],
-  useStoreSelector: (fn: (s: unknown) => unknown) =>
-    fn({
-      trpc: {
-        telemetry: {
-          state: { query: trpcMock.state },
-          set: { mutate: trpcMock.set },
-          resetId: { mutate: trpcMock.resetId },
-          preview: { query: trpcMock.preview },
-        },
-        setup: { info: { query: trpcMock.setupInfo } },
-      },
-    }),
-}))
+vi.mock('@/app/store', () => {
+  const trpc = {
+    telemetry: {
+      state: { query: trpcMock.state },
+      set: { mutate: trpcMock.set },
+      resetId: { mutate: trpcMock.resetId },
+      preview: { query: trpcMock.preview },
+    },
+    setup: { info: { query: trpcMock.setupInfo }, provenance: { query: trpcMock.provenance } },
+  }
+  return {
+    useReplicaIssues: () => [],
+    useStoreSelector: (fn: (s: unknown) => unknown) => fn({ trpc }),
+  }
+})
 
 import { PrivacySection } from './privacy'
+import { resetForcedSettingCache } from '../use-forced-setting'
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
@@ -42,6 +44,8 @@ const flush = async (): Promise<void> => {
 const OFF = { usage: 'absent', crash: 'absent', endpoint: 'https://pulse.meetpodium.com/v1/u' }
 
 beforeEach(() => {
+  resetForcedSettingCache()
+  trpcMock.provenance.mockResolvedValue({})
   trpcMock.state.mockResolvedValue(OFF)
   trpcMock.preview.mockResolvedValue(null)
   trpcMock.set.mockImplementation(async (input: Record<string, string>) => ({
@@ -189,4 +193,15 @@ describe('mirror transcripts to this server', () => {
     expect(toggle.hasAttribute('data-disabled')).toBe(false)
     expect(toggle.getAttribute('aria-checked')).toBe('true')
   })
+})
+
+it('refuses the reset affordance when a file overrides the telemetry identity', async () => {
+  trpcMock.state.mockResolvedValue({ ...OFF, installId: 'operator-id' })
+  trpcMock.provenance.mockResolvedValue({ telemetryInstallId: { source: 'file' } })
+  const section = await renderSection()
+  const reset = section.getByRole('button', { name: 'Reset' }) as HTMLButtonElement
+  expect(reset.disabled).toBe(true)
+  expect(section.getByText(/config.json overrides/)).toBeTruthy()
+  fireEvent.click(reset)
+  expect(trpcMock.resetId).not.toHaveBeenCalled()
 })

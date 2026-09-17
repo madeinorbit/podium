@@ -48,6 +48,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { importFingerprintKey } from './fingerprint-key-import'
+import { importConfigSettings } from './settings-config-import'
 import { importInstallationIdentity } from './installation-identity-import'
 import { backupDatabase } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
@@ -300,6 +301,7 @@ export class SessionStore {
     try {
       const applied = await executor.exclusive(async () => {
         const result = migrateStoreConnection(database, path)
+        importConfigSettings(database, path === ':memory:' ? undefined : dirname(path))
         importFingerprintKey(database, path === ':memory:' ? undefined : dirname(path))
         importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
         if (path !== ':memory:') {
@@ -423,6 +425,7 @@ export class SessionStore {
   }
 
   private async initialize(): Promise<void> {
+    await this.settings.initializeSnapshot()
     // Per-boot runtime steps (environment-conditional FTS objects, the identity
     // refusals and the remaining data heals) — never schema DDL.
     //

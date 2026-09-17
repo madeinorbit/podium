@@ -866,7 +866,9 @@ describe('resolveSetting provenance', () => {
 
   it('every layered key resolves and names a PODIUM_ variable', () => {
     for (const key of LAYERED_KEYS) {
-      expect(LAYERED_ENV[key]).toMatch(/^PODIUM_/)
+      if (['authOpenMode', 'telemetryInstallId', 'telemetrySince'].includes(key))
+        expect(LAYERED_ENV[key]).toBeUndefined()
+      else expect(LAYERED_ENV[key]).toMatch(/^PODIUM_/)
       expect(resolveSetting(key, {}, {}).source).toBe('default')
     }
   })

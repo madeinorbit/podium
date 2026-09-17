@@ -2,8 +2,8 @@
  * `telemetry.*` tRPC tests [spec:SP-f933].
  *
  * The property worth pinning: this router is the SAME switch as `podium
- * telemetry` — it reads and writes config.json (D8), not the settings blob, so
- * the web toggle works with the CLI and survives with no server running.
+ * telemetry` operator overrides remain above the database settings row. UI
+ * choices write the row without changing config.json and survives with no server running.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -18,7 +18,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
-async function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
+async function makeCaller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -32,8 +32,15 @@ async function caller(telemetry?: { emitter: { buildUsageReport: () => unknown }
   })
 }
 
+// Commands and reads in one test address one instance, not independent in-memory stores.
+let harness: ReturnType<typeof makeCaller> | undefined
+function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
+  return harness ??= makeCaller(telemetry)
+}
+
 let dir: string
 beforeEach(() => {
+  harness = undefined
   dir = mkdtempSync(join(tmpdir(), 'podium-telemetry-rtr-'))
   process.env.PODIUM_STATE_DIR = dir
   saveConfig({ mode: 'all-in-one' })
@@ -62,18 +69,19 @@ describe('telemetry.state', () => {
 })
 
 describe('telemetry.set', () => {
-  it('writes config.json — the same switch as `podium telemetry`, not the settings blob', async () => {
+  it('writes the database and leaves config.json unchanged', async () => {
     await (await caller()).telemetry.set({ usage: 'on' })
-    expect(loadConfig().telemetry?.usage).toBe('on')
-    expect(loadConfig().telemetry?.installId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(loadConfig().telemetry?.usage).toBeUndefined()
+    expect((await (await caller()).telemetry.state()).usage).toBe('on')
+    expect((await (await caller()).telemetry.state()).installId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('persists immediately — one tier at a time, no Save button to lose', async () => {
     await (await caller()).telemetry.set({ usage: 'on' })
     await (await caller()).telemetry.set({ crash: 'on' })
-    expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'on' })
+    expect(await (await caller()).telemetry.state()).toMatchObject({ usage: 'on', crash: 'on' })
     await (await caller()).telemetry.set({ usage: 'off' })
-    expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'on' })
+    expect(await (await caller()).telemetry.state()).toMatchObject({ usage: 'off', crash: 'on' })
   })
 
   it('rejects an empty call rather than silently doing nothing', async () => {
@@ -82,17 +90,17 @@ describe('telemetry.set', () => {
 
   it('opting out never mints an id', async () => {
     await (await caller()).telemetry.set({ usage: 'off', crash: 'off' })
-    expect(loadConfig().telemetry?.installId).toBeUndefined()
+    expect((await (await caller()).telemetry.state()).installId).toBeUndefined()
   })
 })
 
 describe('telemetry.resetId', () => {
   it('mints a new id', async () => {
     await (await caller()).telemetry.set({ usage: 'on' })
-    const before = loadConfig().telemetry?.installId
+    const before = (await (await caller()).telemetry.state()).installId
     const state = await (await caller()).telemetry.resetId()
     expect(state.installId).not.toBe(before)
-    expect(loadConfig().telemetry?.installId).toBe(state.installId)
+    expect((await (await caller()).telemetry.state()).installId).toBe(state.installId)
   })
 })
 

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import type { SettingsRepository } from '../../store/settings'
 /**
  * THE INSTANCE SERVICE — one L3 seam over the deployment's own configuration.
  *
@@ -24,16 +26,14 @@ import { LoginEmail } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
-  LAYERED_ENV,
   LAYERED_KEYS,
+  LAYERED_SCOPES,
   type LayeredKey,
   loadConfig,
   resolvePublicUrl,
   resolveSetting,
   resolveTranscriptLakeSetting,
-  resolveUpdateChannel,
   type SettingSource,
-  saveConfig,
 } from '@podium/runtime/config'
 import {
   applyJoin,
@@ -41,19 +41,12 @@ import {
   applySetup,
   fetchRemoteAppUrl,
   fetchTargetAppUrl,
-  getUpdateChannel,
   NETWORK_OPTIONS,
   networkOptionCommand,
-  setUpdateChannel,
   validatePublicUrl,
 } from '@podium/runtime/setup'
 import type { TelemetryEmitter } from '@podium/telemetry'
-import {
-  readTelemetryState,
-  resetInstallId,
-  setConsent,
-  shouldAskForConsent,
-} from '@podium/telemetry'
+import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
 
@@ -62,6 +55,13 @@ import { serverBuildVersion } from '../../build-version'
  *  assembled with one. `telemetry.preview` renders the REAL pending report from
  *  it so what the user is shown cannot drift from what is sent. */
 export interface InstanceDeps {
+  readonly onSettingsChanged?:
+    | ((
+        previous: import('@podium/runtime').PodiumSettings,
+        next: import('@podium/runtime').PodiumSettings,
+      ) => void)
+    | undefined
+  readonly settings?: SettingsRepository | undefined
   readonly emitter?: Pick<TelemetryEmitter, 'buildUsageReport'> | undefined
   /**
    * THE ACCOUNT SEAM (POD-1554). `auth.*` stopped being process-wide the moment a
@@ -229,15 +229,19 @@ export class InstanceService {
    */
   channel() {
     const config = loadConfig()
-    const channel = resolveUpdateChannel()
+    const resolved =
+      this.deps.settings?.resolve('updateChannel') ?? resolveSetting('updateChannel', config)
+    const channel = resolved.value
     const scope = resolveSetting('updateScope', config)
     return {
       channel,
       // DERIVED from provenance rather than a second `process.env` read, so the
       // rule that decides the channel and the flag that describes it cannot
       // drift apart. The field, its name and the UI it drives are unchanged.
-      envForced: resolveSetting('updateChannel', config).source === 'env',
-      configured: getUpdateChannel(),
+      envForced: resolved.source === 'env' || resolved.source === 'file',
+      channelSource: resolved.source,
+      configured:
+        this.deps.settings?.layeredSettings().updateChannel ?? config.updateChannel ?? 'stable',
       /**
        * WHO REPLACES THIS SERVER'S BINARY (PDM-26). Under `fleet-only` the
        * Updates section hides the server-update affordance instead of offering
@@ -265,7 +269,7 @@ export class InstanceService {
     const config = loadConfig()
     const out = {} as Record<LayeredKey, { source: SettingSource; env?: string }>
     for (const key of LAYERED_KEYS) {
-      const resolved = resolveSetting(key, config)
+      const resolved = this.deps.settings?.resolve(key) ?? resolveSetting(key, config)
       out[key] = resolved.env
         ? { source: resolved.source, env: resolved.env }
         : { source: resolved.source }
@@ -281,11 +285,16 @@ export class InstanceService {
    * shape, one sentence, and it always names the variable to unset.
    */
   private assertNotForced(key: LayeredKey, thing: string, remedy = `the ${thing}`): void {
-    if (resolveSetting(key).source !== 'env') return
+    const resolved = this.deps.settings?.resolve(key) ?? resolveSetting(key)
+    if (
+      resolved.source !== 'env' &&
+      !(resolved.source === 'file' && LAYERED_SCOPES[key] === 'instance')
+    )
+      return
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message:
-        `${LAYERED_ENV[key]} is set in this deployment's environment and overrides the ` +
+        `${resolved.source === 'file' ? 'config.json' : resolved.env} overrides the ` +
         `configured ${thing}. Unset it to choose ${remedy} from Settings.`,
     })
   }
@@ -354,7 +363,7 @@ export class InstanceService {
     })
     // Honours the kill switches: an env that says "do not track" wins over an
     // answer the UI should not have collected.
-    if (input.telemetry && shouldAskForConsent()) setConsent(input.telemetry)
+    if (input.telemetry && shouldAskForConsent()) await this.setConsent(input.telemetry)
     const passwordHash = password ? await hashPassword(password) : undefined
     if (this.deps.completeHostSetup && this.deps.callerUserId) {
       await this.deps.completeHostSetup(this.deps.callerUserId, cfg.mode !== 'server', passwordHash)
@@ -416,7 +425,7 @@ export class InstanceService {
     // would read as success in the UI and leave the fleet elsewhere. The
     // sentence is unchanged; only the rule behind it moved (PDM-26).
     this.assertNotForced('updateChannel', 'channel', 'the fleet default')
-    setUpdateChannel(channel)
+    await this.updateDeployment({ updateChannel: channel })
     // A machine with no pin of its own resolves against this value, so its
     // projected channel and target are stale the moment it changes. AWAIT the
     // re-resolve so the mutation only answers once the fleet's new target is
@@ -508,6 +517,9 @@ export class InstanceService {
   async status() {
     return {
       loginRequired: (await this.deps.loginRequired?.()) ?? false,
+      loginPolicySource: (
+        this.deps.settings?.resolve('authOpenMode') ?? resolveSetting('authOpenMode')
+      ).source,
       hasOwnCredential: Boolean((await this.callerCredential())?.passwordHash),
       canManageInstance:
         this.deps.callerUserId !== undefined &&
@@ -567,7 +579,7 @@ export class InstanceService {
 
   /**
    * INSTANCE POLICY (POD-1554). Turning login off does NOT delete anyone's
-   * credential — it writes `auth.openMode` in config.json — so turning it back on
+   * credential — it writes the instance settings row — so turning it back on
    * restores every account's existing password rather than making everyone
    * re-enrol. `current` is the CALLER's own password, verified for the same
    * hijacked-session reason as `setPassword`.
@@ -588,8 +600,8 @@ export class InstanceService {
     if (existing && !(await verifyPasswordHash(input.current, existing))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
     }
-    const config = loadConfig()
-    saveConfig({ ...config, auth: { ...config.auth, openMode: !input.required } })
+    this.assertNotForced('authOpenMode', 'login policy')
+    await this.updateDeployment({ authOpenMode: !input.required })
     return { loginRequired: (await this.deps.loginRequired?.()) ?? input.required }
   }
 
@@ -619,18 +631,48 @@ export class InstanceService {
 
   // ---- telemetry ----
 
-  /** Consent state is read from config.json, never from the request context — it
-   *  must work with no server. */
+  private requireSettings(): SettingsRepository {
+    if (!this.deps.settings)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Instance settings store is unavailable.',
+      })
+    return this.deps.settings
+  }
+
+  private async updateDeployment(
+    values: Parameters<SettingsRepository['updateDeployment']>[0],
+    firstConsentIdentity?: { installId: string; since: number },
+  ): Promise<void> {
+    const store = this.requireSettings()
+    const previous = await store.getSettings()
+    await store.updateDeployment(values, firstConsentIdentity)
+    this.deps.onSettingsChanged?.(previous, await store.getSettings())
+  }
+
   telemetryState() {
-    return readTelemetryState(loadConfig())
+    return readTelemetryState(this.deps.settings?.telemetryConfig() ?? loadConfig())
   }
 
-  setConsent(input: { usage?: 'on' | 'off' | undefined; crash?: 'on' | 'off' | undefined }) {
-    return setConsent(input)
+  async setConsent(input: { usage?: 'on' | 'off' | undefined; crash?: 'on' | 'off' | undefined }) {
+    this.requireSettings()
+    if (input.usage !== undefined) this.assertNotForced('telemetryUsage', 'usage consent')
+    if (input.crash !== undefined) this.assertNotForced('telemetryCrash', 'crash consent')
+    await this.updateDeployment(
+      {
+        ...(input.usage === undefined ? {} : { telemetryUsage: input.usage }),
+        ...(input.crash === undefined ? {} : { telemetryCrash: input.crash }),
+      },
+      { installId: randomUUID(), since: Date.now() },
+    )
+    return this.telemetryState()
   }
 
-  resetInstallId() {
-    return resetInstallId()
+  async resetInstallId() {
+    this.assertNotForced('telemetryInstallId', 'telemetry identity')
+    this.assertNotForced('telemetrySince', 'telemetry identity clock')
+    await this.updateDeployment({ telemetryInstallId: randomUUID(), telemetrySince: Date.now() })
+    return this.telemetryState()
   }
 
   /** The example report the Privacy page shows — rendered from the REAL emitter
