@@ -497,6 +497,7 @@ describe('resolvePlan — utility subcommands', () => {
     // launch path must not pre-judge flags it has no table for.
     expect(plan({}, ['issue', 'list', '--stage', 'in_progress']).kind).toBe('issue')
     expect(plan({}, ['machine', 'show', 'box', '--json']).kind).toBe('machine')
+    expect(plan({}, ['machines', 'adopt', 'box', '--for', 'member'])).toMatchObject({ kind: 'machine', args: ['adopt', 'box', '--for', 'member'] })
     expect(plan({}, ['logs', 'server', '-f']).kind).toBe('logs')
   })
 

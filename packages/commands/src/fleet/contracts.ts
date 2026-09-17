@@ -202,7 +202,7 @@ export const machineTransferOwnershipInput = z.object({
  *  second answer to that question and is deliberately absent. */
 export const machineAdoptInput = z.object({
   id: z.string(),
-  newOwnerUserId: UserIdField,
+  newOwnerUserId: UserIdField.optional(),
 })
 
 export const machinePairingCodeInput = z
@@ -720,38 +720,8 @@ export const machineTransferOwnershipContract = {
  * let the admin floor below become a way around owner-only consent.
  *
  * ---------------------------------------------------------------------------
- * WHO — `admin`, AND THE FLOOR IS THE REAL GATE HERE
- * ---------------------------------------------------------------------------
- *
- * Every other machine command in this family is `member`, for the reason stated
- * at the top of this file: a floor of `admin` would make D6 M1's OWNER column
- * unreachable. Adoption is the one machine command where that argument does not
- * apply, because there IS no owner column to reach — the same asymmetry that
- * makes `machines.pairingCode` an admin, and for the same underlying rule.
- * Readiness M3 makes the PAIRING act what establishes a machine's owner, and
- * pairing is admin-gated (ADR 9 D3 rule 5); adoption re-asserts that act for a
- * machine that can no longer be re-paired, so it inherits pairing's authority
- * rather than inventing a new one.
- *
- * The alternative — any member may claim an unowned machine — is the attacker's
- * product. `use` on a machine is a code-execution boundary (D6 M2, readiness
- * M2), so a self-serve claim on abandoned hardware is arbitrary code execution
- * for anybody with an account.
- *
- * `machineVerb: 'see'` is NOT a weaker verb chosen for convenience; on this
- * command it is a second, independent statement of the same rule.
- * `machineVerbsFor` grants an admin `see` if and ONLY if the owner is null — on a
- * machine owned by another live human an admin holds NOTHING — so `admin` + `see`
- * already resolves to "an admin, and only on an unowned machine", and an admin
- * pointed at somebody else's Mac gets D20's absent-shaped refusal rather than a
- * FORBIDDEN that would confirm the machine exists. `manage` would have been
- * wrong for a mechanical reason as well as a modelling one: nobody holds
- * `manage` on an unowned machine, so the command would refuse every caller.
- *
- * `machineOwnerPrecondition: 'unowned'` then states the row condition as a
- * DECLARATION rather than leaving it an emergent property of two other tables.
- * Without it, adoption would still be correct today and would silently become
- * wrong the day `machineVerbsFor`'s quarantine arm changes.
+ * Admins manage every machine by role. Adoption additionally requires an
+ * unowned machine; management never grants execution consent.
  *
  * ---------------------------------------------------------------------------
  * COMMIT POINT — UNCHANGED
@@ -772,11 +742,11 @@ export const machineAdoptContract = {
     action: 'manage',
     roleFloor: 'admin',
     resource: 'machine',
-    machineVerb: 'see',
+    machineVerb: 'manage',
     machineOwnerPrecondition: 'unowned',
     confirmation: 'none',
     rationale:
-      'Adoption gives an owner to a machine that has none — never recorded, recorded as unowned, or quarantined because the recorded account no longer resolves. There is no incumbent owner whose consent could be the authority, so the authority is the instance admin floor that already gates pairing, the act readiness M3 makes responsible for establishing a machine’s owner. The see verb is the second half of the same rule rather than a weaker check: an admin holds see on a machine only while its owner is null, so an admin aimed at an owned machine is refused as if it did not exist. The unowned precondition is declared so a machine with a live owner stays reachable only through owner-only transfer.',
+      'An admin may explicitly adopt an unowned machine. Role grants manage and see, never use; the unowned precondition prevents adoption from taking an existing personal grant.',
   },
   exposure: SERVED_ON,
   delivery: FLEET_DELIVERY,
@@ -793,7 +763,7 @@ export const machineAdoptContract = {
     callerSuppliedTargetId: true,
     invisibleFailsAs: 'nonexistent',
     distinguishesUnauthorizedFromUnreachable: false,
-    note: 'A non-admin is refused at the floor before the machine id is read, so it learns nothing. An admin naming a machine owned by someone else cannot see it and gets the never-paired refusal verbatim. Only an admin already looking at an unowned machine reaches a refusal that names the reason, and the recipient id is caller-supplied: an unresolvable recipient is refused rather than written, which would re-quarantine the machine it was adopting.',
+    note: 'Non-admins are refused before the machine is read. Admins see every existing machine, but adoption refuses an existing personal grantee. Unknown machine ids remain nonexistent; unknown recipients are refused.',
   },
   serverRole: 'hub',
   cli: { summary: 'Give an owner to an unowned machine' },

@@ -175,27 +175,17 @@ export const machineTransferOwnershipHandler = async ({
   return await mods(ctx).machines.listMachines()
 }
 
-/**
- * Give an owner to an unowned machine (POD-1494).
- *
- * NOTHING IS READ OFF THE PRINCIPAL HERE, and the contrast with
- * {@link machineTransferOwnershipHandler} directly above is the security shape.
- * Transfer must ask who is calling, because the caller must BE the outgoing
- * owner. Adoption must not, because the caller is not becoming the owner — the
- * admin floor has already decided they may act at all, and the recipient is a
- * named payload field. A handler that quietly adopted "to the caller" would turn
- * an authority into a self-grant, which is the shape D19.4b refused when it
- * declined to auto-assign a quarantined machine to the first admin.
- *
- * The admin may of course name themselves. That is a choice they make in the
- * open and it lands in the ledger with their id on it.
- */
+/** Explicit adoption defaults to the authenticated human, never an inferred owner. */
 export const machineAdoptHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
+}: FleetArgs<{ id: string; newOwnerUserId?: UserId }>) => {
+  const recipient = input.newOwnerUserId ?? onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
+  if (recipient === null) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'adoption requires a human recipient' })
+  }
   try {
-    await mods(ctx).machines.adoptMachine(asMachineId(input.id), input.newOwnerUserId)
+    await mods(ctx).machines.adoptMachine(asMachineId(input.id), recipient)
   } catch (e) {
     return badRequest(e)
   }

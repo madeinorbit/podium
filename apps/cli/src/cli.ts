@@ -730,7 +730,7 @@ export function resolvePlan(
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
-  if (argv[0] === 'machine') return { kind: 'machine', args: argv.slice(1) }
+  if (argv[0] === 'machine' || argv[0] === 'machines') return { kind: 'machine', args: argv.slice(1) }
   if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.

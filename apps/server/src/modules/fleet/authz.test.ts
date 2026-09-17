@@ -48,7 +48,7 @@ const COLLEAGUE: UserId = asUserId('colleague')
 const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   user: id,
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  capability: { role: 'worker', scope: { kind: 'all' } },
 })
 
 /** One machine, `laptop`, owned by OWNER — plus whatever grants a test sets. */
@@ -82,7 +82,8 @@ function deps(
         : undefined,
   }
   return {
-    principal,
+    principal: opts.role === 'admin' && principal.kind !== 'system'
+      ? { ...principal, capability: { ...principal.capability, role: 'admin' } } : principal,
     ownership,
     role: opts.role ?? 'admin',
     defaultMachine: async () => ids[0] ?? asMachineId('laptop'),
@@ -257,7 +258,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // the floor, so this refusal is the owner rule and not the floor.
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
 
-    expect((await fleetAuthzFailure('machines.transferOwnership', input, admin))?.code).toBe('NOT_FOUND')
+    expect((await fleetAuthzFailure('machines.transferOwnership', input, admin))?.code).toBe('FORBIDDEN')
   })
 
   it('requires an admin-grade caller with manage authority on the named target', async () => {
@@ -282,7 +283,7 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(await fleetAuthzFailure('machines.moveServer', input, adminManage)).toBeUndefined()
 
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
-    expect((await fleetAuthzFailure('machines.moveServer', input, admin))?.code).toBe('NOT_FOUND')
+    expect(await fleetAuthzFailure('machines.moveServer', input, admin)).toBeUndefined()
   })
 
   it('naming yourself as the recipient does not make you the owner', async () => {
@@ -319,7 +320,7 @@ describe('the machine verb is read from the contract, per command', () => {
     const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
     const unownedAdmin = deps(user(OWNER), { owner: null, role: 'admin' })
     expect((await fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin))?.code).toBe(
-      'FORBIDDEN',
+      'NOT_FOUND',
     )
     // A genuine non-admin. Two different roles are in play and only one decides
     // this: `machineVerbsFor`'s quarantine arm reads the CAPABILITY role (an
@@ -386,21 +387,14 @@ describe('the machine verb is read from the contract, per command', () => {
     ).toBeUndefined()
   })
 
-  it('an admin may not adopt a machine that HAS an owner — it is invisible, not forbidden', async () => {
+  it('an admin sees an owned machine but cannot adopt it', async () => {
     const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
 
-    // An instance admin who is not the owner. `machineVerbsFor` layers admin
-    // `see` ONLY on the owner-null arm, so on someone else's machine this admin
-    // holds nothing at all and the refusal is absent-shaped (D20): the same code
-    // and the same string a never-paired id produces. Adoption must not become
-    // an existence oracle over other people's hardware.
+    // Role admits management; the unowned precondition still refuses adoption.
     const otherPersonsMachine = deps(user(COLLEAGUE), { role: 'admin', owner: OWNER })
     const refusal = await fleetAuthzFailure('machines.adopt', input, otherPersonsMachine)
-    expect(refusal?.code).toBe('NOT_FOUND')
-    // Byte-identical to the never-paired refusal except for the id the caller
-    // themselves supplied — so the answer carries no information the caller did
-    // not already have.
-    expect(refusal?.message).toBe("unknown machine 'laptop'")
+    expect(refusal?.code).toBe('FORBIDDEN')
+    expect(refusal?.message).toBe("machine already has an owner — only its owner may transfer it")
     const neverPaired = await fleetAuthzFailure(
       'machines.adopt',
       { ...input, id: 'never-paired' },
@@ -615,14 +609,12 @@ describe('the derived fleet router actually calls the gate', () => {
       // The row moved — the projection half of D19.4d, which no caller had ever
       // reached before this command existed.
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
-      // And the caller, who was the owner a moment ago, can no longer manage it.
-      // Read through the SAME listing the procedure returned, so a stale record
-      // cache would show up as the machine still being there to rename.
+      // Role preserves manage after transfer; execution still needs consent.
       expect(after.map((m) => m.id)).toContain('m1')
-      await expect(call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })).rejects.toThrow(
-        /do not have access|unknown machine/,
-      )
-      expect((await store.machines.getMachine('m1'))?.name).toBe('machine-one')
+      await call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })
+      expect((await store.machines.getMachine('m1'))?.name).toBe('not-mine-anymore')
+      await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(/do not have access/)
+
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -637,7 +629,7 @@ describe('the derived fleet router actually calls the gate', () => {
       const { call, store } = await caller(null, { stateDir: dir })
       await expect(
         call.machines.transferOwnership({ id: 'm1', newOwnerUserId: COLLEAGUE }),
-      ).rejects.toThrow(/do not have access/)
+      ).rejects.toThrow(/unknown machine/)
       // Refused BEFORE the handler: no row write, so nothing to unwind.
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
     } finally {
@@ -677,19 +669,9 @@ describe('the derived fleet router actually calls the gate', () => {
       expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
       expect(after.map((m) => m.id)).toContain('m1')
 
-      // ADOPTION IS NOT REPEATABLE, and the shape of the second refusal is the
-      // interesting part. The caller is an instance admin, and a moment ago
-      // could see this machine — because `machineVerbsFor` layers admin `see`
-      // ONLY on the owner-null arm. Now that it is the colleague's, the same
-      // admin holds nothing on it and gets the absent-shaped answer, verbatim
-      // what a never-paired id gets (D20).
-      //
-      // So adoption closes its own door: the act of giving the machine an owner
-      // is the act that makes it invisible to the admin who gave it away. That
-      // is stronger than the "already has an owner" precondition, which is the
-      // refusal only an admin who still owns the row would reach.
+      // Adoption ends the unowned state, so a repeat is refused by its precondition.
       await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })).rejects.toThrow(
-        /unknown machine/,
+        /already has an owner/,
       )
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
     } finally {
@@ -742,15 +724,9 @@ describe('the derived fleet router actually calls the gate', () => {
       expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
       expect(await registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
 
-      // REFUSED, and the shape says which layer refused. Because ownership is
-      // ledger-derived all the way up, the admin does not hold `see` on a
-      // machine the ledger already gave away — so the refusal is the
-      // absent-shaped one from the VERB check, before the unowned precondition
-      // is ever consulted. A gate that had read the raw row would have seen null,
-      // granted an admin `see` on the quarantine arm, and handed the colleague's
-      // machine away.
+      // Effective ownership, not the stale raw row, refuses adoption.
       await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: OWNER })).rejects.toThrow(
-        /unknown machine/,
+        /already has an owner/,
       )
       // Nothing was written: not the row, and — the one that counts — not the
       // ledger, which still records the colleague and only the colleague.
@@ -761,62 +737,56 @@ describe('the derived fleet router actually calls the gate', () => {
     }
   })
 
-  it('refuses to rename an UNOWNED machine (admin may see it, nobody may manage it)', async () => {
-    // D19.4b quarantine: the caller is admin-grade so the machine is visible
-    // (admins hold `see` on unowned rows) but manage is still refused — not with
-    // the "unknown machine" wording (that would hide the row from the people who
-    // must assign an owner), but as unauthorized.
+  it('an admin manages an unowned row without use', async () => {
     const { call, store } = await caller(null)
-
-    await expect(call.machines.rename({ id: 'm1', name: 'renamed' })).rejects.toThrow(
-      /do not have access/,
-    )
-    // And the write did not happen — the refusal is before the handler, not a
-    // message alongside a completed rename.
-    expect((await store.machines.getMachine('m1'))?.name).toBe('machine-one')
+    await call.machines.rename({ id: 'm1', name: 'renamed' })
+    expect((await store.machines.getMachine('m1'))?.name).toBe('renamed')
+    const rows = await call.machines.list()
+    expect(rows.find((m) => m.id === 'm1')).toMatchObject({ unowned: true, adoptable: true, use: 'denied' })
   })
 
-  it('refuses a repo write against an unowned machine', async () => {
+  it('explicit adoption defaults to the authenticated human', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-self-adopt-'))
+    try {
+      const { call, store } = await caller(null, { stateDir: dir })
+      await call.machines.adopt({ id: 'm1' })
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
+      expect((await call.machines.list()).find((m) => m.id === 'm1')).toMatchObject({ unowned: false, adoptable: false, owned: true, use: 'granted' })
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('admin manage permits repository registration but not execution on an unowned machine', async () => {
     const { call } = await caller(null)
-    await expect(call.repos.add({ path: '/tmp/x', machineId: 'm1' })).rejects.toThrow(
-      /do not have access/,
-    )
+    await call.repos.add({ path: '/tmp/x', machineId: 'm1' })
+    await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(/do not have access/)
   })
 
-  it('an unowned machine refuses manage/use to EVERYONE, grant or no grant', async () => {
-    const { call, store } = await caller(null)
-    await store.grants.upsert(edge('manage'))
-
-    // `machineUseAllowed`'s rule, reaching the router: an owner-less machine is
-    // not team compute with an empty ACL, it is a machine nobody may execute on.
-    // A grant issued against it confers nothing, because there was no owner whose
-    // rights the grant could have been within (ADR 9 D2 rule 4). Admin-grade
-    // callers may still see it (D19.4b quarantine), so the refusal is unauthorized.
-    await expect(call.machines.rename({ id: 'm1', name: 'granted' })).rejects.toThrow(
-      /do not have access/,
-    )
+  it('an authoritative null grantee overrides a stale owned row in the client projection', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-quarantined-'))
+    try {
+      const { call, store, registry } = await caller(OWNER, { stateDir: dir })
+      const ledger = registry.modules.machines
+      // A recorded grantee that does not resolve quarantines the machine while
+      // the raw stored row still names its former owner.
+      await ledger.transferOwnership(asMachineId('m1'), asUserId('missing-member'), { skipRowUpdate: true })
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(OWNER)
+      expect(await ledger.effectiveOwner(asMachineId('m1'))).toBeNull()
+      expect((await call.machines.list()).find((m) => m.id === 'm1')).toMatchObject({
+        unowned: true, adoptable: true, owned: false, use: 'denied',
+      })
+      await call.machines.adopt({ id: 'm1' })
+      expect(await ledger.effectiveOwner(asMachineId('m1'))).toBe(OWNER)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
-  it("a grant on SOMEBODY ELSE'S machine is what admits the caller — and its absence refuses", async () => {
-    // The only shape in which this build can express a second person: the ROW
-    // names an owner the transport cannot authenticate as. The caller is the sole
-    // account, and the machine is not theirs.
+  it('admin manage survives removal of a share without granting use', async () => {
     const { call, store } = await caller('someone-else')
-
-    await expect(call.machines.rename({ id: 'm1', name: 'nope' })).rejects.toThrow(
-      /unknown machine/,
-    )
-
+    await call.machines.rename({ id: 'm1', name: 'before' })
     await store.grants.upsert(edge('manage'))
-
-    const after = await call.machines.rename({ id: 'm1', name: 'granted' })
-    expect(after.find((m) => m.id === 'm1')?.name).toBe('granted')
-
-    // …and revoking it takes effect at the NEXT call, with nothing to invalidate.
     await store.grants.remove('machine', 'm1', firstAdminMemberId(), 'manage')
-    await expect(call.machines.rename({ id: 'm1', name: 'again' })).rejects.toThrow(
-      /unknown machine/,
-    )
+    await call.machines.rename({ id: 'm1', name: 'after' })
+    expect((await store.machines.getMachine('m1'))?.name).toBe('after')
+    await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(/do not have access/)
   })
 
   it('a `manage` grant does not carry `use`: discovery on the same machine is still refused', async () => {
@@ -882,6 +852,6 @@ describe('a paired machine belongs to whoever minted its code', () => {
         { id: 'joiner' },
         deps(user(OWNER), { owner: null, machines: ['joiner'] }),
       ))?.code,
-    ).toBe('FORBIDDEN')
+    ).toBe('NOT_FOUND')
   })
 })

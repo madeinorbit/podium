@@ -16,6 +16,7 @@ import {
   isMachineOwner,
   type MachineOwnershipIndex,
   machineUseDecision,
+  machineVerbsFor,
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
@@ -183,6 +184,16 @@ export async function machinesForPrincipal(
       (machineId) => isMachineOwner(principal, machineId, resolvedOwnership),
     ))
     .filter((machine) => canSeeMachine(principal, machine.id, resolvedOwnership))
+    .map((machine) => {
+      const unowned = resolvedOwnership.rowFor(machine.id)?.owner === null
+      return {
+        ...machine,
+        unowned,
+        adoptable: unowned && principal.kind !== 'system' &&
+          principal.capability.role === 'admin' &&
+          machineVerbsFor(principal, machine.id, resolvedOwnership).has('manage'),
+      }
+    })
 }
 
 /** One registered checkout, as the fleet view reports it. */

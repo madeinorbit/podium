@@ -122,6 +122,9 @@ export async function authenticateDaemon(
     // Force the owner projection: upsert COALESCE would keep a stale owner after
     // a deliberate re-pair with a new pairer. The ledger enroll is the commit.
     await deps.store.machines.setMachineOwner(frame.machineId, ownerUserId)
+    if (ownerUserId === null) log.warn('machine unowned', {
+      machineId: frame.machineId, reason: 'pairing code has no personal grantee',
+    })
 
     return {
       ok: true,
@@ -328,6 +331,10 @@ async function reEnrolMachine(
   })
   // upsert COALESCE keeps a prior owner; recovery must apply the ledger owner.
   await host.deps.store.machines.setMachineOwner(input.claims.machineId, resolvedOwner)
+  if (resolvedOwner === null) log.warn('machine unowned', {
+    machineId: input.claims.machineId,
+    reason: input.ownerUserId === null ? 'no recorded personal grantee' : 'recorded personal grantee no longer exists',
+  })
   // Grants are always dropped on recovery — the row was gone, so edge rows
   // referencing it should already be gone; belt-and-braces clear.
   await host.deps.store.grants.removeAllForResource('machine', input.claims.machineId)
@@ -392,6 +399,10 @@ export async function reconcileOwnersFromLedger(host: EnrollmentHost): Promise<v
     const resolved = await resolveOwnerForRecovery(host, recorded)
     if (row.ownerUserId !== resolved) {
       await host.deps.store.machines.setMachineOwner(machineId, resolved)
+      if (resolved === null) log.warn('machine unowned', {
+        machineId,
+        reason: recorded === null ? 'no recorded personal grantee' : 'recorded personal grantee no longer exists',
+      })
     }
   }
 }
@@ -498,7 +509,7 @@ export async function transferMachineOwnership(
  * no way for this function to be talked into believing who is asking.
  *
  * As with transfer these checks are DEFENCE IN DEPTH and not the gate: the gate
- * is `roleFloor: 'admin'` + `machineVerb: 'see'` + `machineOwnerPrecondition:
+ * is `roleFloor: 'admin'` + `machineVerb: 'manage'` + `machineOwnerPrecondition:
  * 'unowned'` in `fleetAuthzFailure`. They are repeated because a service
  * reachable from more than one transport must not depend on every one of them
  * remembering.

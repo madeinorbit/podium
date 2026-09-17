@@ -131,12 +131,8 @@ export interface MachineGrantSource {
  * see the machine, which is a disclosure decision nobody made. This reads the
  * stored rows instead.
  *
- * STILL TRUE AFTER POD-1495, and worth saying because that issue added an
- * ownership-shaped field to `MachineWire`. What it added is `owned`, the
- * VIEWER's own answer — computed here by {@link isMachineOwner} and projected as
- * a boolean. No owner id crosses the wire, and "someone else's" is
- * indistinguishable from "nobody's" on the client, so the disclosure this
- * comment refuses is still not made.
+ * The wire carries viewer-relative ownership and an explicit unowned state,
+ * never the personal grantee's identity.
  *
  * `ownerUserId` is REQUIRED and nullable rather than optional: a source that
  * cannot say who owns a machine must say `null` — "nobody, so `use` is refused
@@ -251,7 +247,7 @@ export function ownershipFromMachinesPerPass(machines: MachineRowSource): Machin
 
 const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<MachineVerb> => {
   const verbs = new Set<MachineVerb>()
-  // Owner-null is quarantine / unowned (D19.4b): usable by nobody. Admin `see`
+  // Owner-null is quarantine / unowned (D19.4b): usable by nobody. Admin manage
   // is layered in {@link machineVerbsFor}, not here — this helper is ownership
   // and grant edges only.
   if (subject === null || row.owner === null) return verbs
@@ -276,7 +272,7 @@ const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<Mac
  * The verbs a principal currently holds on one machine — resolved live over the
  * delegation chain (D16.2).
  *
- * A system principal holds `see` and `use`. It is constructed in-process only
+ * A system principal holds `see` and, on owned machines, `use`. It is constructed in-process only
  * and is unreachable from every transport (D21.2), so it is not an escalation
  * surface; denying it would break boot reconcile and the expiry sweeps, which
  * park and resurrect sessions with no human behind the call. Its writes are
@@ -298,19 +294,15 @@ export function machineVerbsFor(
   // now exactly what it says it is, and the default-closed reading is the only one.
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()
-  if (principal.kind === 'system') return new Set<MachineVerb>(['see', 'use'])
-  // QUARANTINE / UNOWNED (D19.4b): owner no longer resolves, or never was recorded.
-  // Admins hold `see` so they can assign an owner; nobody holds `use`. Not
-  // auto-assigned to the first admin — that would hand somebody's personal Mac to
-  // whoever is admin on a database restore.
-  if (row.owner === null) {
-    // system returned above; remaining arms are user | agent.
-    if (principal.capability.role === 'admin') {
-      return new Set<MachineVerb>(['see'])
-    }
-    return new Set()
+  if (principal.kind === 'system') {
+    return new Set<MachineVerb>(row.owner === null ? ['see'] : ['see', 'use'])
   }
   const held = verbsFromRow(row, onBehalfOfUser(principal))
+  // Administration grants custody, never execution consent (D19.4b).
+  if (principal.capability.role === 'admin') {
+    held.add('manage')
+    held.add('see')
+  }
   if (principal.kind !== 'agent') return held
   // The human's CURRENT rights are the ceiling; the agent's own delegation may
   // only narrow, never widen. Every link from the leaf to the root is applied,

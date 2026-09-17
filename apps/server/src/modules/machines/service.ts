@@ -1459,13 +1459,15 @@ export class MachinesService {
   async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
-    return await Promise.all((await this.machineRecords()).map(async (m) => ({
-      id: m.id,
-      name: m.name,
-      ownerUserId:
-        (await this.effectiveOwner(m.id)) ??
-        (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
-    })))
+    return await Promise.all((await this.machineRecords()).map(async (m) => {
+      const effective = await this.effectiveOwner(m.id)
+      return {
+        id: m.id,
+        name: m.name,
+        // Null is an authoritative unowned answer, not a missing lookup.
+        ownerUserId: effective === undefined ? m.ownerUserId : effective,
+      }
+    }))
   }
 
   /**
@@ -1732,7 +1734,12 @@ export class MachinesService {
     }
     // The ledger owner wins over a stale or restored row. `upsertMachine`
     // deliberately preserves an existing owner, so project explicitly here.
-    if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)
+    if (this.deps.enrollment) {
+      await this.deps.store.machines.setMachineOwner(id, ownerUserId)
+      if (ownerUserId === null && existing?.ownerUserId !== null) {
+        log.warn('machine unowned', { machineId: id, reason: 'host enrollment has no resolvable personal grantee' })
+      }
+    }
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at
     // boot is what finally makes a server-only host legible as such: a row with

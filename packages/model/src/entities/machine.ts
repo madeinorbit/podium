@@ -498,18 +498,17 @@ export const MachineWire = z.object({
    * may perform — `machines.transferOwnership` is owner-only (POD-1480), and a
    * control that renders for a manage grantee is a control that fails.
    *
-   * The file header's "no owner field" still holds in the sense that matters:
-   * this carries no owner IDENTITY. `false` collapses "someone else owns it"
-   * and "nobody owns it" into one answer, because both refuse the same act and
-   * splitting them would tell a see-only principal who the owner is —
-   * `ownershipRows`' own comment: a client "does not need to be told who owns
-   * it in order to be refused". Adoption of an unowned machine is a different
-   * act with different authority (POD-1494) and is not derivable from here.
+   * No owner identity crosses the wire. `unowned` distinguishes absence of a
+   * personal grantee, and `adoptable` carries the viewer's adoption permission.
    *
    * OMITTING IT MEANS NOT EVALUATED, the same closed reading as `use` — never
    * "yes".
    */
   owned: z.boolean().optional(),
+  /** Explicit absence of a personal grantee; nobody may use this machine. */
+  unowned: z.boolean().optional(),
+  /** Viewer may adopt this unowned machine. Absent means not evaluated. */
+  adoptable: z.boolean().optional(),
   /** Whether this machine was paired as a Podium-managed host. */ podiumManaged: z
     .boolean()
     .optional(),

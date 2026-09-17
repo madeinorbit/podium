@@ -35,11 +35,11 @@ import {
 const OWNER = firstAdminMemberId()
 const COLLEAGUE: UserId = asUserId('colleague')
 
-const user = (id: UserId): CommandPrincipal => ({
+const user = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipal => ({
   kind: 'user',
   user: id,
   capability: {
-    role: 'admin',
+    role,
     scope: { kind: 'all' },
     actorUser: firstAdminMemberId(),
     onBehalfOf: firstAdminMemberId(),
@@ -145,9 +145,9 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
     // can assign an owner; that is not ambient execute. Members still cannot see.
     const ownership = ownershipTable(new Map([['legacy', { owner: null, grants: [] }]]))
 
-    expect(checkMachineUse(user(OWNER), asMachineId('legacy'), ownership)).toBe('unauthorized')
-    expect(canSeeMachine(user(OWNER), asMachineId('legacy'), ownership)).toBe(true)
-    expect(machineVerbsFor(user(OWNER), asMachineId('legacy'), ownership)).toEqual(new Set(['see']))
+    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toBe('unauthorized')
+    expect(canSeeMachine(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toBe(true)
+    expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toEqual(new Set(['see', 'manage']))
     const member: CommandPrincipal = {
       kind: 'user',
       user: COLLEAGUE,
@@ -454,8 +454,8 @@ describe('ownership and grants come from the source, live', () => {
     rows.set(asMachineId('orphan'), null)
     const ownership = ownershipFromMachines(source)
 
-    expect(checkMachineUse(user(OWNER), asMachineId('orphan'), ownership)).toBe('unauthorized')
-    expect(canSeeMachine(user(OWNER), asMachineId('orphan'), ownership)).toBe(true)
+    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe('unauthorized')
+    expect(canSeeMachine(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe(true)
     expect(checkMachineUse(user(OWNER), asMachineId('laptop'), ownership)).toBeUndefined()
   })
 
@@ -533,8 +533,8 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
       ],
     })
 
-    expect(canSeeMachine(user(OWNER), asMachineId('orphan'), ownership)).toBe(true)
-    expect(isMachineOwner(user(OWNER), asMachineId('orphan'), ownership)).toBe(false)
+    expect(canSeeMachine(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe(true)
+    expect(isMachineOwner(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe(false)
     // Same principal, same call, a machine it DOES own: the false above is about
     // the empty owner column, not about the principal.
     expect(isMachineOwner(user(OWNER), asMachineId('laptop'), ownership)).toBe(true)
@@ -565,3 +565,17 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
     expect(isMachineOwner(agent(session, COLLEAGUE), asMachineId('laptop'), ownership)).toBe(false)
   })
 })
+
+ it('admins manage every machine by role, without use on an unowned or other-owned row', () => {
+   const ownership = ownershipTable(new Map([
+     ['orphan', { owner: null, grants: [grant(OWNER, 'use')] }],
+     ['theirs', { owner: COLLEAGUE, grants: [] }],
+   ]))
+   for (const id of ['orphan', 'theirs']) {
+     expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId(id), ownership)).toEqual(new Set(['manage', 'see']))
+   }
+   expect(machineUseDecision(systemPrincipal('steward'), asMachineId('orphan'), ownership)).toBe('denied')
+   const delegated = { ...agent(asSessionId('limited'), OWNER), capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
+   const limited = { ...ownership, delegatedMachines: () => new Set<string>() }
+   expect(machineVerbsFor(delegated, asMachineId('orphan'), limited)).toEqual(new Set(['see']))
+ })

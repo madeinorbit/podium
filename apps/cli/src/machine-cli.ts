@@ -5,8 +5,8 @@
  * settings panel has listed them for as long, but a coordinating agent had no
  * way to ask: it fell back to reading the sqlite `machines` table or to
  * `tailscale status`, which knows the network and nothing about Podium
- * (POD-1386). This is the read that was missing, and it is deliberately ONLY a
- * read — placement, pinning and handoff are separate commands.
+ * (POD-1386). Listing reads that projection; explicit adoption uses the existing
+ * authenticated machine adoption command.
  *
  * NO NEW AUTHORIZATION SURFACE. `machines.list` is the server's one hand-written
  * read precisely because it carries an authorization projection: it scopes the
@@ -40,7 +40,7 @@ type Mutation = { mutate(input?: unknown): Promise<unknown> }
  * `repos.listDetailed` would disclose paths on machines the caller cannot see.
  */
 export interface MachineClient {
-  machines: { listWithRepos: Proc; reprobe: Mutation }
+  machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation }
 }
 
 interface FleetView {
@@ -63,6 +63,7 @@ export function machineHelpText(): string {
     'Show the machines this session may see, so you can decide where to run work.',
     '',
     'Commands:',
+    '  adopt <name|id> [--for <member>] Adopt an unowned machine (default: yourself).',
     '  harnesses [--json]     Recorded harness versions, first and last seen.',
     '  list [--json]           Every visible machine, one block each (default).',
     '  show <name|id> [--json]    One machine in full, including its harness inventory.',
@@ -86,6 +87,14 @@ export function machineHelpText(): string {
 
 function argumentError(argv: string[]): string | undefined {
   const [command, ...rest] = argv
+  if (command === 'adopt') {
+    const args = rest.filter((arg) => arg !== '--json')
+    if (!args[0] || args[0].startsWith('-') ||
+      !(args.length === 1 || (args.length === 3 && args[1] === '--for' && args[2] && !args[2].startsWith('-')))) {
+      return 'usage: podium machines adopt <machine> [--for <member>] [--json]'
+    }
+    return undefined
+  }
   if (
     command !== undefined &&
     command !== 'list' &&
@@ -154,6 +163,7 @@ function machineBlock(machine: MachineWire, repos: RepoRow[], nowMs: number): st
   const liveness = machine.online ? 'online' : 'offline'
   const use = machine.use ? `use ${machine.use}` : 'use not evaluated'
   const lines = [`${identity} — ${liveness} · ${use}`]
+  if (machine.unowned) lines.push('  Unowned — an admin can adopt this machine.')
   if (!machine.online) lines.push(`  ${lastSeenDescription(machine.lastSeenAt, nowMs)}`)
   lines.push(`  id ${machine.id}`)
   // WHAT RUNS HERE (POD-2700 §4.1). `machine list` is an ADMIN surface: it shows
@@ -242,6 +252,15 @@ export async function runMachineCli(
 
   const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
   const json = argv.includes('--json')
+
+  if (argv[0] === 'adopt') {
+    const args = argv.slice(1).filter((arg) => arg !== '--json')
+    const machine = selectMachine(machines, args[0]!)
+    if (!client.machines.adopt) throw new MachineCliError('machine adoption is unavailable')
+    await client.machines.adopt.mutate({ id: machine.id, ...(args[2] ? { newOwnerUserId: args[2] } : {}) })
+    return json ? JSON.stringify({ command: 'machines adopt', ok: true, data: { machineId: machine.id } })
+      : `Adopted ${machine.name} (${machine.id})${args[2] ? ` for ${args[2]}` : ''}.`
+  }
 
   if (argv[0] === 'harnesses') {
     const data = machines.map((machine) => ({

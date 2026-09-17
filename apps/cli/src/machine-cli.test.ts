@@ -260,3 +260,15 @@ it('reads harness versions and their first/last observations without treating un
     data: [{ machineId: ludovico.id, harnesses }],
   })
 })
+
+ describe('machine adoption', () => {
+   it('resolves the machine and leaves the default recipient to the authenticated server', async () => {
+     const calls: unknown[] = []
+     const client = fakeClient([{ id: 'stranded', name: 'stranded', unowned: true } as MachineWire])
+     client.machines.adopt = { mutate: async (input) => { calls.push(input) } }
+     await runMachineCli(['adopt', 'stranded'], client)
+     await runMachineCli(['adopt', 'stranded', '--for', 'member'], client)
+     expect(calls).toEqual([{ id: 'stranded' }, { id: 'stranded', newOwnerUserId: 'member' }])
+     await expect(runMachineCli(['adopt', 'stranded', '--for'], client)).rejects.toThrow(/usage/)
+   })
+ })

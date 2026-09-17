@@ -197,7 +197,7 @@ describe('the fleet contracts', () => {
       // `see` here resolves to "an admin, on an unowned machine" and nothing
       // else. `manage` would refuse every caller — nobody holds it on an
       // unowned machine.
-      'machines.adopt': 'see',
+      'machines.adopt': 'manage',
       'machines.unshare': 'manage',
       'machines.revoke': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.

@@ -999,6 +999,19 @@ function MachineRow({
   const [revoking, setRevoking] = useState(false)
   // POD-1495 transfer dialog: the recipient's account name, the typed-name
   // confirmation, and the server's refusal when there is one.
+  const [adopting, setAdopting] = useState(false)
+  const [adoptError, setAdoptError] = useState<string | null>(null)
+  const adopt = async () => {
+    setAdopting(true)
+    setAdoptError(null)
+    try {
+      await trpc.machines.adopt.mutate({ id: machine.id })
+    } catch (error) {
+      setAdoptError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAdopting(false)
+    }
+  }
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferring, setTransferring] = useState(false)
   const [recipientId, setRecipientId] = useState('')
@@ -1427,6 +1440,13 @@ function MachineRow({
               Make server
             </Button>
           )}
+
+          {machine.unowned === true && <span className="settings-prose">Unowned</span>}
+          {machine.unowned === true && machine.adoptable === true && (
+            <Button type="button" variant="outline" size="sm" disabled={adopting}
+              onClick={() => void adopt()}>{adopting ? 'Adopting…' : 'Adopt'}</Button>
+          )}
+          {adoptError && <p className="settings-prose text-destructive!" role="alert">{adoptError}</p>}
 
           {/* Transfer ownership — OWNER ONLY (POD-1495); see `mayTransfer` above. */}
           {mayTransfer && (

@@ -784,3 +784,33 @@ it('shows recorded harness versions and a quiet unverified marker', () => {
   expect(screen.getByText('unverified').getAttribute('title')).toBe('Verified through 0.151.0')
   expect(screen.queryByRole('alert')).toBeNull()
 })
+
+ describe('MachinesPanel adoption', () => {
+   it('shows unowned explicitly and adopts through the server', async () => {
+     const mutate = vi.fn().mockResolvedValue([])
+     storeState.machines = [machine({ unowned: true, adoptable: true, use: 'denied' })]
+     setTrpc(vi.fn())
+     storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+     render(<MachinesPanel />)
+     expect(screen.getByText('Unowned')).toBeTruthy()
+     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
+     await waitFor(() => expect(mutate).toHaveBeenCalledWith({ id: 'm-1' }))
+   })
+   it('withholds Adopt without affirmative authorization', () => {
+     storeState.machines = [machine({ unowned: true })]
+     setTrpc(vi.fn())
+     render(<MachinesPanel />)
+     expect(screen.getByText('Unowned')).toBeTruthy()
+     expect(screen.queryByRole('button', { name: 'Adopt' })).toBeNull()
+   })
+   it('shows adoption errors and permits retry', async () => {
+     const mutate = vi.fn().mockRejectedValue(new Error('machine already has an owner'))
+     storeState.machines = [machine({ unowned: true, adoptable: true })]
+     setTrpc(vi.fn())
+     storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+     render(<MachinesPanel />)
+     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
+     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'machine already has an owner')
+     expect(screen.getByRole('button', { name: 'Adopt' })).toHaveProperty('disabled', false)
+   })
+ })
