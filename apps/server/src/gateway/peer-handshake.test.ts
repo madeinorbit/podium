@@ -136,7 +136,9 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       at: '2026-08-18T00:01:00.000Z',
     })
   }
-  if (options.row !== false) {
+  // DATABASE AUTHORITY (POD-3958): a revoked machine has NO row — revoke deletes it,
+  // and the ledger revoke above is history the runtime no longer reads.
+  if (options.row !== false && !options.revoked) {
     await seeded.machines.upsertMachine({
       id: machineId,
       name: 'Durable machine',
@@ -664,7 +666,10 @@ describe('recovery-only daemon handshake verification', () => {
         'established',
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
-      expect(invalidate).toHaveBeenCalledOnce()
+      // The service cache is maintained by committed machine writes; the one
+      // invalidation this used to count came from the ledger projection path,
+      // which POD-3958 removed. An ordinary handshake invalidates nothing.
+      expect(invalidate).not.toHaveBeenCalled()
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe('observed.local')
     } finally {
       await world.store.close()

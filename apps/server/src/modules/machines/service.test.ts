@@ -1113,36 +1113,12 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 
-  test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', async () => {
-    const { svc, store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
-    try {
-      await svc.transferOwnership(MACHINE, asUserId(ALICE))
-      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-
-      // Alice's account goes away. This is POD-1114's quarantine, reached
-      // exactly as production reaches it: `userExists` stops resolving a name
-      // the ledger still records, and boot reconcile projects null.
-      known.delete(ALICE)
-      const rebooted = await reboot()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
-      // The LEDGER still says Alice — it is append-only and never rewritten.
-      // What changed is that Alice no longer resolves, which is why this reads
-      // null while the ledger entry survives.
-      expect(await rebooted.effectiveOwner(MACHINE)).toBeNull()
-
-      // ADOPTION IS ALLOWED HERE, and this is the deliberate part. POD-1114
-      // refused AUTOMATIC assignment to the first admin on a restore; it did not
-      // refuse assignment. Without this the machine is usable by nobody forever,
-      // because its only other remedy is revoke plus a physical re-pair.
-      await rebooted.adoptMachine(MACHINE, asUserId(BOB))
-
-      expect(await rebooted.effectiveOwner(MACHINE)).toBe(BOB)
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
+  // FOUR TESTS REMOVED (POD-4178, design rule 2): 'state 3 — QUARANTINE',
+  // 'the refusal reads the LEDGER', 'THE LEDGER APPEND IS THE COMMIT POINT' and
+  // 'adoption APPENDS' asserted that the enrollment ledger decides ownership and
+  // that boot reconcile nulls an owner who no longer resolves. POD-3958 made the
+  // database the only authority and removed reconcile; those behaviours are
+  // gone on purpose, not regressed. Member removal writing custody is Track B S6.
   // -------------------------------------------------------------------------
   // THE STATE IT REFUSES
   // -------------------------------------------------------------------------
@@ -1163,25 +1139,6 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // Refused means SILENT: the ledger was not appended and the row is intact.
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('the refusal reads the LEDGER, not the row it is a projection of', async () => {
-    const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
-    try {
-      await svc.transferOwnership(MACHINE, asUserId(ALICE))
-      // Force the row to disagree with the ledger — the state D19.4d says can
-      // exist between an append and its projection, and which boot repair
-      // exists to fix. A service that asked the ROW would now happily adopt a
-      // machine the ledger says is Alice's.
-      await store.machines.setMachineOwner(MACHINE, null)
-      svc.invalidateMachineCache()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
-      expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
-
-      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -1217,49 +1174,6 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // -------------------------------------------------------------------------
   // THE COMMIT POINT
   // -------------------------------------------------------------------------
-
-  test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', async () => {
-    const { svc, store, dir, reboot } = await adoptWorld()
-    try {
-      await svc.adoptMachine(MACHINE, asUserId(ALICE))
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
-
-      // DESTROY THE PROJECTION and nothing else. If the row were the source of
-      // truth this machine is now unowned again and the adoption is lost.
-      await store.machines.setMachineOwner(MACHINE, null)
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
-
-      // Boot repair, from the ledger alone: the adoption comes back. This is
-      // the same `reconcileOwnersFromLedger` sequence that recovers a crash
-      // between the append and the row write, and it is what makes the append —
-      // not the row — the moment the adoption became real.
-      const rebooted = await reboot()
-      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
-      expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('adoption APPENDS — it never rewrites the ledger entry that was there', async () => {
-    const { svc, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
-    try {
-      await svc.transferOwnership(MACHINE, asUserId(ALICE))
-      known.delete(ALICE)
-      const quarantined = await reboot()
-      await quarantined.adoptMachine(MACHINE, asUserId(BOB))
-
-      // Alice's account comes back — a half-restored directory finishing its
-      // import. The ledger is append-only and never-delete, so her original
-      // entry is still on disk; adoption must have SUPERSEDED it with a later
-      // append rather than overwritten it, or Bob's ownership would evaporate
-      // the moment Alice resolves again.
-      known.add(ALICE)
-      expect(await (await reboot()).effectiveOwner(MACHINE)).toBe(BOB)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
 
   test('grant edges surviving on the unowned row do not reach the adopter', async () => {
     const { svc, store, dir } = await adoptWorld()
