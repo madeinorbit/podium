@@ -1199,6 +1199,27 @@ describe('the echo baseline', () => {
     expect((await receipt).outcome).toBe('unverified')
   })
 
+  it('does not credit a send with a CLEAN prefix of its text', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'preserve these words and their order' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // SEPARATE FROM THE CASE ABOVE ON PURPOSE. That one carries an ellipsis, so
+    // it is refused by a character the sent text never had — which a rule that
+    // accepted any prefix would ALSO refuse, leaving the truncation itself
+    // unguarded. This one is a clean prefix with nothing to give it away, so it
+    // fails against a prefix-tolerant rule and the ellipsis case does not.
+    world.echo(sessionId, 'preserve these words')
+
+    expect((await receipt).outcome).toBe('unverified')
+  })
+
   it('does not credit a send with an echo that DECORATES its text', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
