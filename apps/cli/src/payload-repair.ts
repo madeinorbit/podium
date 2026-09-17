@@ -1,8 +1,7 @@
 /** Explicit payload repair through the coordinator's ordinary update-grant path. */
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readMachineState } from '@podium/runtime/local-machine'
 import { makeOperatorIssueClient } from './operator-client'
 
 interface RepairClient {
@@ -20,20 +19,19 @@ export function coordinatorHttpUrl(serverUrl: string): string {
 }
 
 /**
- * A paired daemon's identity is coordinator-owned and already durable in daemon.json.
- * Repair must name that identity; minting the host-local machine.id here would target a
- * different row on daemon-only Macs.
+ * A paired daemon's identity is coordinator-owned and already durable in machine.json.
+ * Repair must name that identity; reading must not mint a new identity.
  */
 export function readPairedMachineId(at: string = stateDir()): MachineId {
   let value: unknown
   try {
-    value = JSON.parse(readFileSync(join(at, 'daemon.json'), 'utf8'))
+    value = readMachineState(at)
   } catch (error) {
     throw new Error(`cannot read paired machine identity: ${(error as Error).message}`)
   }
-  const id = (value as { machineId?: unknown }).machineId
+  const id = (value as { machineId?: unknown } | undefined)?.machineId
   if (typeof id !== 'string' || id.trim() === '') {
-    throw new Error('paired machine identity is missing from daemon.json')
+    throw new Error('paired machine identity is missing from machine.json')
   }
   return asMachineId(id)
 }

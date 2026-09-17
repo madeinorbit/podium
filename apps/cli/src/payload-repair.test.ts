@@ -20,14 +20,14 @@ describe('payload repair CLI', () => {
   it('reads the durable paired machine identity', () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-payload-repair-'))
     roots.push(root)
-    writeFileSync(join(root, 'daemon.json'), JSON.stringify({ machineId: 'machine-macbook' }))
+    writeFileSync(join(root, 'machine.json'), JSON.stringify({ version: 1, machineId: 'machine-macbook', importedFiles: {} }))
     expect(readPairedMachineId(root)).toBe('machine-macbook')
   })
 
   it('asks the coordinator to re-grant equal-version bytes to a paired daemon', async () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-payload-repair-'))
     roots.push(root)
-    writeFileSync(join(root, 'daemon.json'), JSON.stringify({ machineId: 'machine-macbook' }))
+    writeFileSync(join(root, 'machine.json'), JSON.stringify({ version: 1, machineId: 'machine-macbook', importedFiles: {} }))
     const mutate = vi.fn(async () => ({
       outcome: { result: 'granted', version: '0.4.2' },
     }))

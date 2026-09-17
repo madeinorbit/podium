@@ -75,7 +75,7 @@ describe('BindingStore schema lifecycle', () => {
     const dir = join(root, 'runtime', 'session-bindings')
     const stateDir = join(root, 'state')
     await mkdir(stateDir, { recursive: true })
-    await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: 'machine-real' }))
+    await writeFile(join(stateDir, 'machine.json'), JSON.stringify({ version: 1, importedFiles: {}, machineId: 'machine-real' }))
 
     const first = await BindingStore.open({ dir, legacyStateDir: stateDir })
     expect(first.legacyMigration).toBeNull()
@@ -497,8 +497,8 @@ describe('legacy daemon-state migration', () => {
     const storeDir = join(stateDir, 'runtime', 'session-bindings')
     await mkdir(receiptDir, { recursive: true })
     await writeFile(
-      join(stateDir, 'daemon.json'),
-      JSON.stringify({ machineId: 'machine-real', token: 'not-a-binding-fact' }),
+      join(stateDir, 'machine.json'),
+      JSON.stringify({ version: 1, importedFiles: {}, machineId: 'machine-real', token: 'not-a-binding-fact' }),
     )
     const receipt = join(receiptDir, 'codex-pane.json')
     const claim = join(receiptDir, 'claimed-pane.json.123.11111111-1111-4111-8111-111111111111.ack')
@@ -622,7 +622,7 @@ describe('legacy daemon-state migration', () => {
     const receiptDir = join(stateDir, 'runtime', 'codex-identity-receipts')
     const storeDir = join(stateDir, 'runtime', 'session-bindings')
     await mkdir(receiptDir, { recursive: true })
-    await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: 'machine-real' }))
+    await writeFile(join(stateDir, 'machine.json'), JSON.stringify({ version: 1, importedFiles: {}, machineId: 'machine-real' }))
     await writeFile(
       join(receiptDir, 'same-pane.json.123.11111111-1111-4111-8111-111111111111.ack'),
       JSON.stringify({ session_id: 'thread-old', hook_event_name: 'SessionStart' }),
@@ -661,7 +661,7 @@ describe('legacy daemon-state migration', () => {
     const receiptDir = join(stateDir, 'runtime', 'codex-identity-receipts')
     const storeDir = join(stateDir, 'runtime', 'session-bindings')
     await mkdir(receiptDir, { recursive: true })
-    await writeFile(join(stateDir, 'daemon.json'), JSON.stringify({ machineId: 'machine-real' }))
+    await writeFile(join(stateDir, 'machine.json'), JSON.stringify({ version: 1, importedFiles: {}, machineId: 'machine-real' }))
     await writeFile(
       join(receiptDir, 'pane.json'),
       JSON.stringify({ session_id: 'native', hook_event_name: 'SessionStart' }),
@@ -718,7 +718,7 @@ describe('server-resolved legacy owners', () => {
     const root = await tempRoot()
     const receipts = join(root, 'receipts')
     await mkdir(receipts)
-    await writeFile(join(root, 'daemon.json'), JSON.stringify({ machineId: 'machine' }))
+    await writeFile(join(root, 'machine.json'), JSON.stringify({ version: 1, importedFiles: {}, machineId: 'machine' }))
     const receipt = join(receipts, 'orphan.json')
     await writeFile(
       receipt,

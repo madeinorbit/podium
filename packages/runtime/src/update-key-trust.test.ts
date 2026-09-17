@@ -78,7 +78,7 @@ describe('update signing trust', () => {
       .toString('base64')
 
     expect(trustDaemonUpdateKey(replacement, dir)).toMatch(/^SHA256:/)
-    expect(JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).daemon).toEqual({
       machineId: 'machine-1',
       token: 'secret',
       updatePubkey: replacement,

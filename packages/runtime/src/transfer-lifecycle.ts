@@ -20,7 +20,7 @@
  * its control layer resolves.
  */
 import { randomUUID } from 'node:crypto'
-import { asMachineId, type MachineId } from '@podium/model'
+import { type MachineId } from '@podium/model'
 import {
   closeSync,
   copyFileSync,
@@ -44,7 +44,7 @@ import {
   saveConfig,
   stateDir,
 } from './config'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
+import { LocalMachineIdentityConflictError, loadMachineState, readMachineState, updateMachineState, readOrCreateDaemonSecret } from './local-machine'
 import type { RunRole } from './run-registry'
 import {
   loadSupervisorState,
@@ -128,7 +128,7 @@ export class MachineIdentityConflictError extends Error {
     readonly observed: string,
   ) {
     super(
-      `machine.id contains ${observed || 'an empty identity'}; refusing to replace it with transfer target ${expected}`,
+      `machine.json contains ${observed || 'an empty identity'}; refusing to replace it with transfer target ${expected}`,
     )
     this.name = 'MachineIdentityConflictError'
   }
@@ -140,29 +140,11 @@ export class MachineIdentityConflictError extends Error {
  * is preserved and refused so promotion can never silently make the target wear a new ID.
  */
 export function establishTargetMachineId(expected: MachineId, dir: string = stateDir()): MachineId {
-  const path = join(dir, 'machine.id')
-  const verifyExisting = (): MachineId => {
-    const observed = readFileSync(path, 'utf8').trim()
-    if (observed !== expected) throw new MachineIdentityConflictError(expected, observed)
-    return asMachineId(observed)
-  }
-
-  mkdirSync(dir, { recursive: true })
-  const tempPath = join(dir, `.machine-id-transfer-${process.pid}-${randomUUID()}.tmp`)
-  try {
-    writeFileSync(tempPath, expected, { mode: 0o600, flag: 'wx' })
-    syncPath(tempPath)
-    try {
-      // A hard link publishes the already-fsynced bytes atomically without replacing a winner.
-      linkSync(tempPath, path)
-      syncParent(path)
-      return expected
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      return verifyExisting()
-    }
-  } finally {
-    removeTemp(tempPath)
+  const observed = readMachineState(dir)?.machineId
+  if (observed && observed !== expected) throw new MachineIdentityConflictError(expected, observed)
+  try { return loadMachineState(dir, expected).machineId } catch (error) {
+    if (error instanceof LocalMachineIdentityConflictError) throw new MachineIdentityConflictError(expected, error.observed)
+    throw error
   }
 }
 
@@ -203,32 +185,17 @@ function saveTransferSupervisorAssignment(config: PodiumConfig): void {
   // Consume only an unfinished exact-config transaction. Idempotent transfer
   // retries must preserve a later intentional service assignment.
   const dir = stateDir()
-  if (!existsSync(join(dir, 'supervisor.json'))) return
+  if (!readMachineState(dir)) return
   const state = loadSupervisorState(dir)
   reconcileSupervisorAssignment(state, config, dir)
 }
 
 function saveSourceDaemonIdentity(): void {
-  const path = join(stateDir(), 'daemon.json')
-  const tempPath = join(
-    dirname(path),
-    '.daemon-transfer-' + process.pid + '-' + randomUUID() + '.tmp',
-  )
-  const identity = {
-    machineId: readOrCreateLocalMachineId(),
-    token: readOrCreateDaemonSecret(),
-  }
-  try {
-    writeFileSync(tempPath, JSON.stringify(identity, null, 2) + '\n', {
-      mode: 0o600,
-      flag: 'wx',
-    })
-    syncPath(tempPath)
-    renameSync(tempPath, path)
-    syncParent(path)
-  } finally {
-    removeTemp(tempPath)
-  }
+  const dir = stateDir()
+  const token = readOrCreateDaemonSecret(dir)
+  updateMachineState(dir, (machine) => {
+    machine.daemon = { ...machine.daemon, machineId: machine.machineId, token }
+  })
 }
 
 /** Create the rollback copy once, without a crash-visible partial backup. */

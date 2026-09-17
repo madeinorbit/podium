@@ -1,3 +1,4 @@
+import { readMachineState } from '@podium/runtime/local-machine'
 import { SessionDelegation } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
@@ -248,7 +249,7 @@ interface StoreManifestV3 {
 export interface OpenBindingStoreOptions {
   /** The store itself, normally `<instance-state>/runtime/session-bindings`. */
   dir: string
-  /** Real daemon state root containing daemon.json and runtime receipt spools. */
+  /** Real daemon state root containing machine.json and runtime receipt spools. */
   legacyStateDir?: string
   /** Live in-memory facts harvested at cutover; absent on later boots. */
   legacyBindings?: readonly LegacyBindingSnapshot[]
@@ -1001,7 +1002,7 @@ async function legacyReceipts(dir: string): Promise<LegacyReceipt[]> {
 
 async function daemonMachineId(stateDir: string): Promise<MachineId | null> {
   try {
-    const payload = await readJson(join(stateDir, 'daemon.json'))
+    const payload = readMachineState(stateDir)
     return isRecord(payload) && typeof payload.machineId === 'string' && payload.machineId
       ? asMachineId(payload.machineId)
       : null

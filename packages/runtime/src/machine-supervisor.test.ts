@@ -44,7 +44,7 @@ afterEach(() => {
 })
 
 describe('supervisor credential ownership', () => {
-  it('imports the exact enrolled daemon identity once without changing the legacy copy', () => {
+  it('imports the exact enrolled daemon identity once before removing the legacy copy', () => {
     const dir = stateDir()
     const legacy = {
       machineId: 'm_legacy',
@@ -54,12 +54,12 @@ describe('supervisor credential ownership', () => {
     writeFileSync(join(dir, 'daemon.json'), JSON.stringify(legacy))
 
     expect(loadSupervisorState(dir)).toEqual(legacy)
-    expect(JSON.parse(readFileSync(join(dir, 'supervisor.json'), 'utf8'))).toEqual(legacy)
-    expect(JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'))).toEqual(legacy)
-    expect(statSync(join(dir, 'supervisor.json')).mode & 0o777).toBe(0o600)
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).daemon).toEqual(legacy)
+    expect(() => readFileSync(join(dir, 'daemon.json'))).toThrow()
+    expect(statSync(join(dir, 'machine.json')).mode & 0o777).toBe(0o600)
   })
 
-  it('never re-imports a legacy credential after supervisor state exists', () => {
+  it('refuses conflicting legacy identities without choosing an owner', () => {
     const dir = stateDir()
     writeFileSync(
       join(dir, 'supervisor.json'),
@@ -70,10 +70,7 @@ describe('supervisor credential ownership', () => {
       JSON.stringify({ machineId: 'm_legacy', token: 'legacy-token' }),
     )
 
-    expect(loadSupervisorState(dir)).toMatchObject({
-      machineId: 'm_current',
-      token: 'current-token',
-    })
+    expect(() => loadSupervisorState(dir)).toThrow('conflicting legacy machine identities')
   })
 })
 
@@ -178,7 +175,7 @@ describe('supervisor incarnation number', () => {
     const state = loadSupervisorState(dir)
 
     expect(claimSupervisorGeneration(state, dir, {})).toBe(1)
-    expect(JSON.parse(readFileSync(join(dir, 'supervisor.json'), 'utf8')).generation).toBe(1)
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).supervisor.generation).toBe(1)
     // A second boot reads what the first one left behind.
     expect(claimSupervisorGeneration(loadSupervisorState(dir), dir, {})).toBe(2)
     expect(claimSupervisorGeneration(loadSupervisorState(dir), dir, {})).toBe(3)
@@ -285,7 +282,7 @@ describe('supervisor refused as superseded', () => {
       second.refuse()
       vi.advanceTimersByTime(10_000)
       expect(Socket.all.length).toBeGreaterThan(2)
-      const connectivity = JSON.parse(readFileSync(join(dir, 'connectivity.json'), 'utf8'))
+      const connectivity = JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).connectivity
       expect(connectivity).toMatchObject({ state: 'disconnected' })
     } finally {
       connection.close()
@@ -527,7 +524,7 @@ describe('supervisor endpoint reconfiguration', () => {
       vi.advanceTimersByTime(10_000)
       expect(Socket.all).toHaveLength(3)
       expect(loadSupervisorState(dir).assignment).toEqual(assignment)
-      const connectivity = JSON.parse(readFileSync(join(dir, 'connectivity.json'), 'utf8'))
+      const connectivity = JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).connectivity
       expect(connectivity).toMatchObject({ serverUrl: endpoint, state: 'connected' })
       acceptAssignment = false
       fresh.message({

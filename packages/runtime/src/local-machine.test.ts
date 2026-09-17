@@ -27,7 +27,7 @@ describe('readOrCreateLocalMachineId', () => {
 
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     expect(readOrCreateLocalMachineId(dir)).toBe(first)
-    expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe(first)
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).machineId).toBe(first)
   })
 
   it('is never one of the retired sentinels', () => {
@@ -55,15 +55,15 @@ describe('readOrCreateLocalMachineId', () => {
 
     expect(readOrCreateLocalMachineId(dir)).toBe(winner)
     // …and the loser did not clobber it on the way past.
-    expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe(winner)
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).machineId).toBe(winner)
   })
 
   it('creates the state dir and writes owner-only', () => {
     const dir = join(stateDir(), 'not-yet-there')
     const id = readOrCreateLocalMachineId(dir)
 
-    expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe(id)
-    expect(statSync(join(dir, 'machine.id')).mode & 0o777).toBe(0o600)
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).machineId).toBe(id)
+    expect(statSync(join(dir, 'machine.json')).mode & 0o777).toBe(0o600)
   })
 
   it('lives beside the bootstrap secret without either standing in for the other', () => {

@@ -388,8 +388,7 @@ async function runPackagedCli(
 function packagedDiagnostics(spec: InstanceSpec): string {
   const files = [
     'config.json',
-    'connectivity.json',
-    'supervisor.json',
+    'machine.json',
     'logs/parent.log',
     'logs/daemon.log',
     'logs/parent.ndjson',
@@ -419,9 +418,8 @@ async function transferDiagnostics(specs: InstanceSpec[], marker: string): Promi
     sections.push(`TRANSFER INSTANCE ${spec.stateDir} port=${spec.port}`)
     const files = [
       'config.json',
-      'supervisor.json',
-      'connectivity.json',
-      'supervisor-transfer-pending.json',
+      'machine.json',
+        'supervisor-transfer-pending.json',
       '.server-transfer/journal.json',
       'run/parent.pid',
       'run/server.pid',
@@ -957,7 +955,7 @@ exec "$CANARY_REAL_CLI" "$@"
 
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
     expect(joined.stdout).toContain('podium joined as')
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor as {
       machineId: string
       enrolledPublicKey?: string
       updatePubkey?: string
@@ -988,7 +986,7 @@ exec "$CANARY_REAL_CLI" "$@"
       },
     })
     expect(
-      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+      JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).connectivity,
     ).toMatchObject({
       state: 'connected',
     })
@@ -1009,7 +1007,7 @@ exec "$CANARY_REAL_CLI" "$@"
       appVersion: '9.9.9',
     })
     expect(
-      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')).processId,
+      JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).connectivity.processId,
     ).toBe(record('parent.pid').pid)
 
     const daemonRecord = record('daemon.pid')
@@ -1133,10 +1131,10 @@ exec "$CANARY_REAL_CLI" "$@"
       return ready.pid !== previousParentPid && ready.pid === record('parent.pid').pid
     }, 'restarted keypair parent production health gate')
     await waitUntil(
-      () => existsSync(join(fleet.stateDir, 'supervisor.json')),
+      () => existsSync(join(fleet.stateDir, 'machine.json')),
       'persisted machine credential',
     )
-    expect(JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8'))).toMatchObject(
+    expect(JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor).toMatchObject(
       persistedIdentity,
     )
     await waitUntil(
@@ -1245,7 +1243,7 @@ exec "$CANARY_REAL_CLI" "$@"
       'detached',
     ])
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor as {
       machineId: string
     }
     await waitUntil(
@@ -1339,7 +1337,7 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(rejected.stderr).toContain('daemon was rejected by the server')
     expect(rejected.stdout).not.toContain('podium joined as')
     expect(
-      JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
+      JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).connectivity,
     ).toMatchObject({
       state: 'unauthorized',
     })
@@ -1463,7 +1461,7 @@ exec "$CANARY_REAL_CLI" "$@"
           async () => (await version(source))?.instanceId === 'blue',
           `${label} source`,
         )
-        const sourceId = readFileSync(join(source.stateDir, 'machine.id'), 'utf8').trim()
+        const sourceId = JSON.parse(readFileSync(join(source.stateDir, 'machine.json'), 'utf8')).machineId
         for (const spec of [target, observer]) {
           const pairing = await sourceApi.machines.pairingCode.mutate()
           await run(spec, [
@@ -1474,8 +1472,8 @@ exec "$CANARY_REAL_CLI" "$@"
             'detached',
           ])
         }
-        const targetId = read(target, 'supervisor.json').machineId
-        const observerId = read(observer, 'supervisor.json').machineId
+        const targetId = read(target, 'machine.json').supervisor.machineId
+        const observerId = read(observer, 'machine.json').supervisor.machineId
         await waitForTransfer(async () => {
           const rows = await sourceApi.machines.list.query()
           return (
@@ -1592,17 +1590,17 @@ exec "$CANARY_REAL_CLI" "$@"
             `${label} rebound supervisor planes`,
             120_000,
           )
-          expect(read(source, 'supervisor.json').assignment).toEqual({
+          expect(read(source, 'machine.json').supervisor.assignment).toEqual({
             server: false,
             agentExecution: true,
           })
           // Moving the server preserves the target's existing agent assignment.
-          expect(read(target, 'supervisor.json').assignment).toEqual({
+          expect(read(target, 'machine.json').supervisor.assignment).toEqual({
             server: true,
             agentExecution: true,
           })
           for (const spec of specs) {
-            expect(read(spec, 'connectivity.json')).toMatchObject({
+            expect(read(spec, 'machine.json').connectivity).toMatchObject({
               state: 'connected',
               serverUrl: `ws://127.0.0.1:${target.port}`,
             })
@@ -1796,8 +1794,8 @@ exec "$CANARY_REAL_CLI" "$@"
     const compatMachineId = inspectBoot(compat)
     const namedMachineId = inspectBoot(named)
     expect(instanceOwners.size).toBe(2)
-    expect(readFileSync(join(compat.stateDir, 'machine.id'), 'utf8').trim()).toBe(compatMachineId)
-    expect(readFileSync(join(named.stateDir, 'machine.id'), 'utf8').trim()).toBe(namedMachineId)
+    expect(JSON.parse(readFileSync(join(compat.stateDir, 'machine.json'), 'utf8')).machineId).toBe(compatMachineId)
+    expect(JSON.parse(readFileSync(join(named.stateDir, 'machine.json'), 'utf8')).machineId).toBe(namedMachineId)
 
     // A second authenticated member is still inside the SAME named deployment,
     // but the instance label grants no execute authority over its host machine.

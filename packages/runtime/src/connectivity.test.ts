@@ -148,7 +148,7 @@ describe('a record left by a previous boot is not current (POD-3837)', () => {
   const record = (over: Record<string, unknown>): void => {
     writeFileSync(
       connectivityPath(dir),
-      JSON.stringify({ state: 'connected', updatedAt: '2026-09-10T08:50:57.458Z', ...over }),
+      JSON.stringify({ version: 1, machineId: 'test-machine', importedFiles: {}, connectivity: { state: 'connected', updatedAt: '2026-09-10T08:50:57.458Z', ...over } }),
     )
   }
 

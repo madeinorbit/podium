@@ -1,0 +1,140 @@
+import { spawn } from 'node:child_process'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, expect, it, vi } from 'vitest'
+import { saveConfig } from './config'
+import { writeConnectivity } from './connectivity'
+import { readMachineState, readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
+import { createMachineCredential } from './machine-credential'
+import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
+import { saveCachedSessionToken } from './session-mint'
+
+const failures = vi.hoisted(() => ({ unlink: undefined as string | undefined }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, unlinkSync: (path: import('node:fs').PathLike) => {
+    if (path === failures.unlink) throw new Error('simulated cleanup crash')
+    return actual.unlinkSync(path)
+  } }
+})
+
+// POD-3957 ruling: daemon.secret remains the box-bound maintenance credential
+// until POD-4197 replaces its consumers. It must never overwrite the S7 keypair.
+const ALLOWED_PERSISTENT_FILES = [
+  'cli-session.json',
+  'config.json',
+  'daemon.secret',
+  'instance.json',
+  'machine.json',
+  'machine.key',
+]
+const roots: string[] = []
+afterEach(() => {
+  failures.unlink = undefined
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+it('fresh machine writers create only the approved transitional state-root files', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-layout-'))
+  roots.push(dir)
+  saveConfig({ mode: 'all-in-one' }, join(dir, 'config.json'))
+  const machineId = readOrCreateLocalMachineId(dir)
+  const maintenanceToken = readOrCreateDaemonSecret(dir)
+  createMachineCredential(dir)
+  const originalKey = readFileSync(join(dir, 'machine.key'), 'utf8')
+  const supervisor = loadSupervisorState(dir)
+  expect(supervisor.machineId).toBe(machineId)
+  saveSupervisorState(dir, { ...supervisor, generation: 1 })
+  writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+  writeConnectivity({ state: 'disconnected', processId: process.pid }, dir)
+  saveCachedSessionToken({ token: 'test-session', expiresAt: '2099-01-01T00:00:00Z' }, dir)
+
+  expect(readdirSync(dir).sort()).toEqual(ALLOWED_PERSISTENT_FILES)
+  expect(readOrCreateLocalMachineId(dir)).toBe(machineId)
+  expect(readOrCreateDaemonSecret(dir)).toBe(maintenanceToken)
+  expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
+})
+
+it('imports all four legacy files without changing credentials and removes them only after publication', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-upgrade-'))
+  roots.push(dir)
+  const daemon = { machineId: 'machine-upgrade', token: 'original-token', updatePubkey: 'original-pin' }
+  const supervisor = { ...daemon, generation: 7, assignment: { server: true, agentExecution: true } }
+  const connectivity = { state: 'disconnected', updatedAt: '2026-09-01T00:00:00Z', lastHelloOkAt: '2026-08-31T00:00:00Z' }
+  writeFileSync(join(dir, 'machine.id'), daemon.machineId)
+  writeFileSync(join(dir, 'daemon.json'), JSON.stringify(daemon))
+  writeFileSync(join(dir, 'supervisor.json'), JSON.stringify(supervisor))
+  writeFileSync(join(dir, 'connectivity.json'), JSON.stringify(connectivity))
+  const token = readOrCreateDaemonSecret(dir)
+  createMachineCredential(dir)
+  const key = readFileSync(join(dir, 'machine.key'), 'utf8')
+
+  expect(readOrCreateLocalMachineId(dir)).toBe(daemon.machineId)
+  expect(loadSupervisorState(dir)).toEqual(supervisor)
+  expect(readMachineState(dir)).toMatchObject({ daemon, supervisor, connectivity })
+  expect(readdirSync(dir).sort()).toEqual(['daemon.secret', 'machine.json', 'machine.key'])
+  expect(readOrCreateDaemonSecret(dir)).toBe(token)
+  expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(key)
+  const persisted = readFileSync(join(dir, 'machine.json'), 'utf8')
+  loadSupervisorState(dir)
+  expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(persisted)
+})
+
+it('resumes a crash after durable publication and before legacy removal', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-crash-'))
+  roots.push(dir)
+  writeFileSync(join(dir, 'machine.id'), 'machine-crash')
+  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'machine-crash', token: 'keep-me' }))
+  failures.unlink = join(dir, 'machine.id')
+  expect(() => readOrCreateLocalMachineId(dir)).toThrow('simulated cleanup crash')
+  expect(readMachineState(dir)?.machineId).toBe('machine-crash')
+  expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe('machine-crash')
+  failures.unlink = undefined
+  expect(readOrCreateLocalMachineId(dir)).toBe('machine-crash')
+  expect(readMachineState(dir)?.daemon?.token).toBe('keep-me')
+  expect(readdirSync(dir)).toEqual(['machine.json'])
+})
+
+it('refuses changed cleanup inputs instead of deleting data written after publication', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-changed-'))
+  roots.push(dir)
+  writeFileSync(join(dir, 'machine.id'), 'machine-original')
+  failures.unlink = join(dir, 'machine.id')
+  expect(() => readOrCreateLocalMachineId(dir)).toThrow('simulated cleanup crash')
+  failures.unlink = undefined
+  writeFileSync(join(dir, 'machine.id'), 'machine-replaced')
+  expect(() => readOrCreateLocalMachineId(dir)).toThrow('legacy machine state changed')
+  expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe('machine-replaced')
+  expect(readMachineState(dir)?.machineId).toBe('machine-original')
+})
+
+it('preserves conflicting and malformed legacy inputs without publishing a replacement', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-refusal-'))
+  roots.push(dir)
+  writeFileSync(join(dir, 'machine.id'), 'host-id')
+  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'different-id' }))
+  expect(() => readOrCreateLocalMachineId(dir)).toThrow('conflicting legacy machine identities')
+  expect(readMachineState(dir)).toBeUndefined()
+  writeFileSync(join(dir, 'daemon.json'), '{broken')
+  expect(() => readOrCreateLocalMachineId(dir)).toThrow()
+  expect(readdirSync(dir).sort()).toEqual(['daemon.json', 'machine.id'])
+})
+
+it('a simultaneous cold start publishes one complete identity with no staging files left', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-race-'))
+  roots.push(dir)
+  const modulePath = new URL('./local-machine.ts', import.meta.url).pathname
+  const source = `import { readOrCreateLocalMachineId } from ${JSON.stringify(modulePath)}; console.log(readOrCreateLocalMachineId(${JSON.stringify(dir)}))`
+  const ids = await Promise.all(Array.from({ length: 4 }, () => new Promise<string>((resolve, reject) => {
+    const child = spawn('bun', ['--conditions=@podium/source', '-e', source], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = '', errors = ''
+    child.stdout.on('data', (data) => { output += data })
+    child.stderr.on('data', (data) => { errors += data })
+    child.on('error', reject)
+    child.on('exit', (code) => code === 0 ? resolve(output.trim()) : reject(new Error(errors)))
+  })))
+  expect(new Set(ids).size).toBe(1)
+  expect(readMachineState(dir)?.machineId).toBe(ids[0])
+  expect(readdirSync(dir)).toEqual(['machine.json'])
+}, 15_000)

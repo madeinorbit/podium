@@ -1,81 +1,159 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { asMachineId, type MachineId } from '@podium/model'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { stateDir } from './config'
 
 export { stateDir }
+export const MACHINE_STATE_FILE = 'machine.json'
+const LEGACY_FILES = ['machine.id', 'daemon.json', 'supervisor.json', 'connectivity.json'] as const
 
-/**
- * THE HOST MACHINE'S OWN IDENTITY — read once, or minted once, from the state dir.
- *
- * ONE SCHEME FOR EVERY MACHINE (POD-318). A remote daemon already mints a UUID into
- * `~/.podium/daemon.json` (`apps/daemon/src/identity.ts`); the host the server runs on
- * now does exactly the same thing, into `<stateDir>/machine.id`. The `'local'` constant
- * and the `'__local__'` placeholder that used to stand in for this file are gone: a
- * machine id is minted material or it is nothing.
- *
- * WHY A FILE AND NOT A ROW. The server must know its own machine id BEFORE it writes the
- * first row — otherwise rows are created machine-less and something has to adopt them
- * afterwards, which is the entire class of bug this replaces. The state dir is the one
- * thing that exists before the database does.
- *
- * WHY THE SAME FILE SERVES THE SPLIT-MODE DAEMON. `podium-server` and `podium-daemon` are
- * two processes on ONE host sharing ONE state dir, so the local daemon reads this same
- * file and presents this same id in its ordinary `hello`, credentialed by the loopback
- * bootstrap secret ({@link readOrCreateDaemonSecret}) — the same handshake a remote uses,
- * with no bootstrap special case. All-in-one passes the value in-memory instead, but it
- * is the same value, read from the same file by the same process.
- *
- * Race-safe by the same `wx` trick as the secret: whichever process creates it wins and
- * the loser re-reads the winner's id, so a simultaneous server+daemon cold start cannot
- * leave one host wearing two identities. Owner-only (0600) to match its neighbour; the id
- * is durable identity, not a secret, and nothing is authorized by holding it.
- */
-export function readOrCreateLocalMachineId(dir: string = stateDir()): MachineId {
-  const path = join(dir, 'machine.id')
-  try {
-    const existing = readFileSync(path, 'utf8').trim()
-    if (existing) return asMachineId(existing)
-  } catch {
-    // not minted yet — fall through and mint it
-  }
-  const id = randomUUID()
-  mkdirSync(dir, { recursive: true })
-  try {
-    // `wx`: fail if the file already exists, so a server/daemon startup race can't have
-    // one clobber the other's identity — the loser re-reads the winner's value.
-    writeFileSync(path, id, { mode: 0o600, flag: 'wx' })
-    return asMachineId(id)
-  } catch {
-    return asMachineId(readFileSync(path, 'utf8').trim())
+export class LocalMachineIdentityConflictError extends Error {
+  constructor(readonly expected: MachineId, readonly observed: MachineId) {
+    super(`machine identity ${observed} conflicts with ${expected}`)
+    this.name = 'LocalMachineIdentityConflictError'
   }
 }
 
-/**
- * Read (or create-once) the persistent shared secret that the **local, same-host
- * daemon** presents to authenticate without pairing.
- *
- * The original bootstrap token lived only in the server process and was handed to the
- * in-process daemon via the ServerHandle. When the backend is split into separate
- * `podium-server` and `podium-daemon` services, the daemon is a different process and
- * can't see that token — so it could never authenticate, no machine ever registered,
- * and every existing session/repo row on this host was stranded and invisible.
- *
- * Both processes share one host and one state dir, so a secret file there is the seam:
- * the server reads it to trust the local daemon, the daemon reads it to present. It is
- * persistent (not per-boot) so there's no startup-ordering race — whichever process
- * starts first creates it, the other reads the same value. Owner-only (0600).
- *
- * Operational note: don't delete this file out from under a running split daemon. The
- * secret is captured once at daemon start; if the file is deleted and the server then
- * restarts, the server regenerates a new secret while the daemon still presents the old
- * one, so the local daemon's `hello` is rejected on every reconnect until it's restarted.
- * This is a recoverable availability blip, NOT data-loss — the host machine's row and
- * every row attributed to it are written under the id in `machine.id`, which this file
- * has no say over (see {@link readOrCreateLocalMachineId}), and the durable abduco
- * masters survive, so sessions/repos stay attributed and the PTYs reattach once the
- * daemon is restarted with the current secret.
+/** One persistence owner for box-bound machine state. Role adapters own only their section. */
+export interface MachineState {
+  version: 1
+  machineId: MachineId
+  daemon?: Record<string, unknown>
+  supervisor?: Record<string, unknown>
+  connectivity?: Record<string, unknown>
+  /** Exact legacy inputs committed with the replacement; cleanup can resume after a crash. */
+  importedFiles: Partial<Record<(typeof LEGACY_FILES)[number], string>>
+}
+function readOptional(path: string): string | undefined {
+  try { return readFileSync(path, 'utf8') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+function object(raw: string, path: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(raw)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`invalid machine state at ${path}`)
+  return value as Record<string, unknown>
+}
+function digest(raw: string): string { return createHash('sha256').update(raw).digest('hex') }
+function sync(path: string): void {
+  const fd = openSync(path, 'r')
+  try { fsyncSync(fd) } finally { closeSync(fd) }
+}
+function parseMachine(raw: string, path: string): MachineState {
+  const value = object(raw, path)
+  if (value.version !== 1 || typeof value.machineId !== 'string' || !value.machineId.trim()
+    || !value.importedFiles || typeof value.importedFiles !== 'object') throw new Error(`invalid machine state at ${path}`)
+  return value as unknown as MachineState
+}
+
+/** Read-only: never mints identity or imports legacy state. */
+export function readMachineState(dir = stateDir()): MachineState | undefined {
+  const path = join(dir, MACHINE_STATE_FILE)
+  const raw = readOptional(path)
+  return raw === undefined ? undefined : parseMachine(raw, path)
+}
+
+/** Verify replacement bytes before any legacy input is removed. */
+function finishImport(dir: string, state: MachineState): void {
+  let removed = false
+  for (const name of LEGACY_FILES) {
+    const expected = state.importedFiles[name]
+    if (expected === undefined) continue
+    const path = join(dir, name)
+    const raw = readOptional(path)
+    if (raw === undefined) continue
+    if (digest(raw) !== expected) throw new Error(`legacy machine state changed during migration: ${path}`)
+    try { unlinkSync(path); removed = true } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  if (removed) sync(dir)
+}
+
+/** Atomic publish: wx staging + hard-link prevents a cold-start loser overwriting the winner. */
+function persist(dir: string, state: MachineState, exclusive: boolean): void {
+  const path = join(dir, MACHINE_STATE_FILE)
+  const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`
+  try {
+    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    sync(temporary)
+    if (exclusive) linkSync(temporary, path)
+    else renameSync(temporary, path)
+    sync(dir)
+  } finally {
+    try { unlinkSync(temporary) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+}
+
+/** One-time file import, not database reconciliation or owner inference. */
+export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allowCreate = true): MachineState {
+  mkdirSync(dir, { recursive: true })
+  let current = readMachineState(dir)
+  if (!current) {
+    const importedFiles: MachineState['importedFiles'] = {}
+    const sections: Partial<Pick<MachineState, 'daemon' | 'supervisor' | 'connectivity'>> = {}
+    const ids = new Set<string>()
+    for (const name of LEGACY_FILES) {
+      const raw = readOptional(join(dir, name))
+      if (raw === undefined) continue
+      importedFiles[name] = digest(raw)
+      if (name === 'machine.id') {
+        if (!raw.trim()) throw new Error('empty legacy machine identity')
+        ids.add(raw.trim())
+      } else {
+        const data = object(raw, join(dir, name))
+        const section = name.slice(0, -5) as 'daemon' | 'supervisor' | 'connectivity'
+        sections[section] = data
+        if (section !== 'connectivity') {
+          if (typeof data.machineId !== 'string' || !data.machineId.trim()) throw new Error(`invalid legacy identity in ${name}`)
+          ids.add(data.machineId)
+        }
+      }
+    }
+    if (ids.size > 1) throw new Error('conflicting legacy machine identities; refusing to choose an owner')
+    if (!ids.size && !expectedId && !allowCreate) throw new Error('machine identity is missing')
+    const machineId = asMachineId(ids.values().next().value ?? expectedId ?? randomUUID())
+    if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)
+    const candidate: MachineState = { version: 1, machineId, ...sections, importedFiles }
+    let published = false
+    try { persist(dir, candidate, true); published = true } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    current = readMachineState(dir)
+    if (!current) throw new Error('machine state publication failed')
+    if (published && !isDeepStrictEqual(current, candidate)) throw new Error('machine state verification failed')
+    // A winner may have imported a different snapshot. Never delete inputs on that basis.
+    for (const [name, hash] of Object.entries(importedFiles)) {
+      if (current.importedFiles[name as keyof typeof importedFiles] !== hash) throw new Error('concurrent machine migration input changed')
+    }
+  }
+  if (expectedId !== undefined && current.machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, current.machineId)
+  finishImport(dir, current)
+  return current
+}
+
+/** All role writers merge through this owner, preserving unrelated sections and import receipts. */
+export function updateMachineState(dir: string, change: (state: MachineState) => void, expectedId?: MachineId): MachineState {
+  const state = loadMachineState(dir, expectedId)
+  const id = state.machineId
+  change(state)
+  if (state.machineId !== id) throw new Error('machine identity is immutable')
+  persist(dir, state, false)
+  return state
+}
+
+export function readOrCreateLocalMachineId(dir: string = stateDir()): MachineId {
+  return loadMachineState(dir).machineId
+}
+
+/** Transitional box-bound maintenance token. S7 machine.key remains a separate keypair.
+ * POD-4197 owns replacement of the remaining maintenance consumers; never migrate this
+ * bearer onto machine.key or regenerate it as part of the state-file consolidation.
  */
 export function readOrCreateDaemonSecret(dir: string = stateDir()): string {
   const path = join(dir, 'daemon.secret')

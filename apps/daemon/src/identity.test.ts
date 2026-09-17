@@ -24,7 +24,7 @@ describe('daemon identity', () => {
     expect(first.machineId).toMatch(/^[0-9a-f-]{36}$/)
     expect(first.token).toBeUndefined()
     // The file now exists with that id.
-    const onDisk = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8')) as {
+    const onDisk = JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')) as {
       machineId: string
     }
     expect(onDisk.machineId).toBe(first.machineId)

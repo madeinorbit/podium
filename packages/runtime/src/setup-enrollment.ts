@@ -22,7 +22,7 @@ function syncPath(path: string): void {
 }
 function persist(dir: string, state: ReturnType<typeof loadSupervisorState>): void {
   saveSupervisorState(dir, state)
-  syncPath(join(dir, 'supervisor.json'))
+  syncPath(join(dir, 'machine.json'))
   syncPath(dir)
 }
 

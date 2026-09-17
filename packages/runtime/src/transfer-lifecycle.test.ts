@@ -137,8 +137,8 @@ describe('server transfer lifecycle', () => {
     const machineId = asMachineId('target-machine')
 
     expect(establishTargetMachineId(machineId)).toBe(machineId)
-    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
-    expect(statSync(join(root, 'machine.id')).mode & 0o777).toBe(0o600)
+    expect(JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).machineId).toBe(machineId)
+    expect(statSync(join(root, 'machine.json')).mode & 0o777).toBe(0o600)
     expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
   })
 
@@ -147,7 +147,7 @@ describe('server transfer lifecycle', () => {
     writeFileSync(join(root, 'machine.id'), machineId, { mode: 0o600 })
 
     expect(establishTargetMachineId(machineId)).toBe(machineId)
-    expect(readFileSync(join(root, 'machine.id'), 'utf8')).toBe(machineId)
+    expect(JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).machineId).toBe(machineId)
     expect(readdirSync(root).some((name) => name.startsWith('.machine-id-transfer-'))).toBe(false)
   })
 
@@ -189,8 +189,8 @@ describe('server transfer lifecycle', () => {
       persistence: 'systemd',
       updateChannel: 'edge',
     })
-    expect(JSON.parse(readFileSync(join(root, 'daemon.json'), 'utf8'))).toEqual({
-      machineId: readFileSync(join(root, 'machine.id'), 'utf8').trim(),
+    expect(JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).daemon).toEqual({
+      machineId: JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).machineId,
       token: readFileSync(join(root, 'daemon.secret'), 'utf8').trim(),
     })
     expect(JSON.parse(readFileSync(hostConfigBackupPath(TRANSFER_ONE), 'utf8'))).toEqual(before)

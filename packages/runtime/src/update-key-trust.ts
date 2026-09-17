@@ -1,6 +1,5 @@
 import { createHash, createPublicKey, verify } from 'node:crypto'
-import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { loadMachineState, updateMachineState } from './local-machine'
 
 /** A new update key authorized by the private half of the previous key. */
 export interface UpdateKeyRotation {
@@ -69,29 +68,11 @@ export function trustDaemonUpdateKey(publicKey: string, dir: string): string {
     type: 'spki',
   })
   if (key.asymmetricKeyType !== 'ed25519') throw new Error('update key must be an Ed25519 SPKI key')
-  const path = join(dir, 'daemon.json')
-  let identity: Record<string, unknown>
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      typeof (parsed as { machineId?: unknown }).machineId !== 'string'
-    ) {
-      throw new Error('daemon identity has no machine id')
-    }
-    identity = parsed as Record<string, unknown>
-  } catch (error) {
-    throw new Error(
-      'cannot replace the update key in ' +
-        path +
-        ': ' +
-        (error instanceof Error ? error.message : String(error)),
-    )
-  }
-  identity.updatePubkey = publicKey
-  const temporary = path + '.update-key'
-  writeFileSync(temporary, JSON.stringify(identity, null, 2) + '\n', { mode: 0o600 })
-  renameSync(temporary, path)
+  const state = loadMachineState(dir, undefined, false)
+  if (!state.daemon && !state.supervisor) throw new Error('machine identity has no enrolled role')
+  updateMachineState(dir, (machine) => {
+    if (machine.daemon) machine.daemon = { ...machine.daemon, updatePubkey: publicKey }
+    if (machine.supervisor) machine.supervisor = { ...machine.supervisor, updatePubkey: publicKey }
+  })
   return updateKeyFingerprint(publicKey)
 }

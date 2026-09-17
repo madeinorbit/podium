@@ -2,7 +2,7 @@
 // this from its machine plane; a legacy standalone daemon remains the compatibility writer.
 // The CLI (`podium status`) is the reader, so "up" reflects an authenticated machine path,
 // not merely a PID. It lives in the selected state root beside the machine identity.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { loadMachineState, readMachineState, updateMachineState } from './local-machine'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
@@ -74,9 +74,9 @@ export const ConnectivityStatus = z.object({
 })
 export type ConnectivityStatus = z.infer<typeof ConnectivityStatus>
 
-/** <dir>/connectivity.json (defaults to the state dir). */
+/** <dir>/machine.json connectivity section (defaults to the state dir). */
 export function connectivityPath(dir = stateDir()): string {
-  return join(dir, 'connectivity.json')
+  return join(dir, 'machine.json')
 }
 
 /**
@@ -92,10 +92,8 @@ export function connectivityPath(dir = stateDir()): string {
  * asserting what was WRITTEN reach it through {@link readConnectivityForTest}.
  */
 function readConnectivity(dir = stateDir()): ConnectivityStatus | undefined {
-  const path = connectivityPath(dir)
-  if (!existsSync(path)) return undefined
   try {
-    return ConnectivityStatus.parse(JSON.parse(readFileSync(path, 'utf8')))
+    return ConnectivityStatus.parse(readMachineState(dir)?.connectivity)
   } catch {
     return undefined
   }
@@ -183,6 +181,7 @@ export function writeConnectivity(
   patch: Omit<ConnectivityStatus, 'updatedAt'> & { updatedAt?: string },
   dir = stateDir(),
 ): ConnectivityStatus {
+  loadMachineState(dir)
   const prev = readConnectivity(dir)
   // WRITER-SCOPED, like the transition-scoped error fields below: the triple
   // describes whoever is writing NOW, so it is stamped here rather than left to
@@ -199,7 +198,6 @@ export function writeConnectivity(
     ...(identity?.startTime ? { procStartTime: identity.startTime } : {}),
     updatedAt: patch.updatedAt ?? new Date().toISOString(),
   })
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(connectivityPath(dir), `${JSON.stringify(next, null, 2)}\n`)
+  updateMachineState(dir, (machine) => { machine.connectivity = next })
   return next
 }

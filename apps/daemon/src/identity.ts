@@ -1,13 +1,6 @@
-import { asMachineId, type MachineId } from '@podium/model'
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import type { MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
-
-/** Where the daemon's identity file lives. Overridable for tests/isolated state. */
-function dirFor(dir?: string): string {
-  return dir ?? stateDir()
-}
+import { loadMachineState, updateMachineState } from '@podium/runtime/local-machine'
 
 export interface DaemonIdentity {
   /** Stable UUID join key — the cross-restart machine identity. */
@@ -18,94 +11,26 @@ export interface DaemonIdentity {
   updatePubkey?: string
 }
 
-/**
- * Read (or, on first run, create) `~/.podium/daemon.json`. The `machineId` is a
- * stable UUID minted once and reused forever — it is the join key a server uses to
- * recognize a returning daemon, so it must outlive both token rotations and the
- * server's own database. Generating it persists the file immediately so a crash
- * between mint and use can't hand out two ids for one machine.
- */
+/** Role adapters never write machine.json themselves. */
 export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
-  const base = dirFor(opts.dir)
-  const path = join(base, 'daemon.json')
-  let data: { machineId?: MachineId; token?: string; updatePubkey?: string } = {}
-  try {
-    data = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // First run (or unreadable/corrupt) — start fresh and rewrite below.
-  }
-  if (!data.machineId) {
-    data.machineId = asMachineId(randomUUID())
-    mkdirSync(base, { recursive: true })
-    writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
-  }
-  const machineId = data.machineId
-  return {
-    machineId,
-    ...(data.token ? { token: data.token } : {}),
-    ...(data.updatePubkey ? { updatePubkey: data.updatePubkey } : {}),
-  }
+  const machine = loadMachineState(opts.dir ?? stateDir())
+  const data = machine.daemon ?? {}
+  return { machineId: machine.machineId,
+    ...(typeof data.token === 'string' ? { token: data.token } : {}),
+    ...(typeof data.updatePubkey === 'string' ? { updatePubkey: data.updatePubkey } : {}) }
 }
-
-/**
- * Persist the auth token the server minted at pairing. Merges into the existing
- * file (preserving the machineId) rather than overwriting, so a token write never
- * costs the machine its stable identity.
- */
 export function saveToken(token: string, opts: { dir?: string } = {}): void {
-  const base = dirFor(opts.dir)
-  const path = join(base, 'daemon.json')
-  let data: Record<string, unknown> = {}
-  try {
-    data = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // No file yet — saveToken can land before the first loadIdentity.
-  }
-  data.token = token
-  mkdirSync(base, { recursive: true })
-  writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
+  updateMachineState(opts.dir ?? stateDir(), (machine) => {
+    machine.daemon = { ...machine.daemon, machineId: machine.machineId, token }
+  })
 }
-
-/**
- * Persist a token and replace the server update-key pin at the pairing boundary.
- * An absent key deliberately clears any previous pin: pairing to another server
- * must not inherit the old server's trust root.
- */
-export function savePairingToken(
-  token: string,
-  updatePubkey: string | undefined,
-  opts: { dir?: string } = {},
-): void {
-  const base = dirFor(opts.dir)
-  const path = join(base, 'daemon.json')
-  let data: Record<string, unknown> = {}
-  try {
-    data = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // No file yet — savePairingToken can land before the first loadIdentity.
-  }
-  data.token = token
-  if (updatePubkey === undefined) delete data.updatePubkey
-  else data.updatePubkey = updatePubkey
-  mkdirSync(base, { recursive: true })
-  writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
+export function savePairingToken(token: string, updatePubkey: string | undefined, opts: { dir?: string } = {}): void {
+  updateMachineState(opts.dir ?? stateDir(), (machine) => {
+    machine.daemon = { ...machine.daemon, machineId: machine.machineId, token, updatePubkey }
+  })
 }
-
-/**
- * Persist the server key learned on the first local bootstrap handshake without
- * manufacturing a pairing token. Later bootstrap reconnects compare this pin
- * rather than replacing it.
- */
 export function savePinnedUpdatePubkey(updatePubkey: string, opts: { dir?: string } = {}): void {
-  const base = dirFor(opts.dir)
-  const path = join(base, 'daemon.json')
-  let data: Record<string, unknown> = {}
-  try {
-    data = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // No file yet — the pin can land before the first loadIdentity.
-  }
-  data.updatePubkey = updatePubkey
-  mkdirSync(base, { recursive: true })
-  writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 })
+  updateMachineState(opts.dir ?? stateDir(), (machine) => {
+    machine.daemon = { ...machine.daemon, machineId: machine.machineId, updatePubkey }
+  })
 }

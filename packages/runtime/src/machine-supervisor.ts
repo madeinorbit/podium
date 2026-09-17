@@ -32,7 +32,7 @@ import {
   type PeerCredential,
 } from '@podium/protocol'
 import { createLogger } from '@podium/logger'
-import { readOrCreateLocalMachineId } from './local-machine'
+import { loadMachineState, updateMachineState } from './local-machine'
 import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
 import { writeConnectivity } from './connectivity'
 import { stateDir, type PodiumConfig } from './config'
@@ -41,8 +41,7 @@ import { prepareMachineCredentialRotation, acknowledgeMachineCredentialRotation,
 import { workspaceEndpoint } from './workspace-target'
 
 const log = createLogger('runtime:machine-supervisor')
-const STATE_FILE = 'supervisor.json'
-const LEGACY_FILE = 'daemon.json'
+const STATE_FILE = 'machine.json'
 export const SUPERVISOR_MACHINE_ID_ENV = 'PODIUM_SUPERVISOR_MACHINE_ID'
 export const SUPERVISOR_MACHINE_TOKEN_ENV = 'PODIUM_SUPERVISOR_MACHINE_TOKEN'
 export const SUPERVISOR_UPDATE_PUBKEY_ENV = 'PODIUM_SUPERVISOR_UPDATE_PUBKEY'
@@ -109,21 +108,15 @@ function readJson(path: string): unknown {
 }
 
 export function saveSupervisorState(dir: string, state: SupervisorState): void {
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, STATE_FILE)
-  const temporary = path + '.tmp-' + process.pid
-  writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
-  renameSync(temporary, path)
+  updateMachineState(dir, (machine) => {
+    if (machine.machineId !== state.machineId) throw new Error('supervisor machine identity conflict')
+    machine.supervisor = { ...state }
+  }, state.machineId)
 }
 
-/** Import the legacy daemon credential once; daemon.json remains for old builds. */
 export function loadSupervisorState(dir: string): SupervisorState {
-  const current = parseState(readJson(join(dir, STATE_FILE)))
-  if (current) return current
-  const legacy = parseState(readJson(join(dir, LEGACY_FILE)))
-  const imported = legacy ?? { machineId: readOrCreateLocalMachineId(dir) }
-  saveSupervisorState(dir, imported)
-  return imported
+  const machine = loadMachineState(dir)
+  return parseState(machine.supervisor ?? machine.daemon) ?? { machineId: machine.machineId }
 }
 
 /**

@@ -233,6 +233,7 @@ describe('server transfer target daemon', () => {
     await rm(join(stateRoot, 'podium.db'), { force: true })
     await rm(join(stateRoot, 'enrollment.ledger'), { force: true })
     await rm(join(stateRoot, 'machine.id'), { force: true })
+    await rm(join(stateRoot, 'machine.json'), { force: true })
     await rm(join(stateRoot, 'daemon.secret'), { force: true })
     await rm(join(stateRoot, 'installation.json'), { force: true })
     await rm(join(stateRoot, 'transcripts'), { recursive: true, force: true })
@@ -448,7 +449,7 @@ describe('server transfer target daemon', () => {
     expect(await readFile(join(stateRoot, 'transcripts', 'session.txt.part'), 'utf8')).toBe(
       'legitimate-part-file',
     )
-    expect(await readFile(join(stateRoot, 'machine.id'), 'utf8')).toBe(targetMachineId)
+    expect(JSON.parse(await readFile(join(stateRoot, 'machine.json'), 'utf8')).machineId).toBe(targetMachineId)
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
     expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
       mode: 'server',
