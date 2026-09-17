@@ -2,7 +2,7 @@ import { ISSUE_COLOR_HEX } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({
-  Platform: { OS: 'ios' },
+  Platform: { OS: 'ios', select: (values: Record<string, unknown>) => values.ios },
   DynamicColorIOS: vi.fn((dynamic) => ({ dynamic })),
   PlatformColor: vi.fn((name) => name),
 }))
@@ -22,11 +22,11 @@ function luminance(hex: string) {
     const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
   })
-  return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  return (channels[0] ?? 0) * 0.2126 + (channels[1] ?? 0) * 0.7152 + (channels[2] ?? 0) * 0.0722
 }
 function contrast(a: string, b: string) {
   const [lo, hi] = [luminance(a), luminance(b)].sort((x, y) => x - y)
-  return (hi! + 0.05) / (lo! + 0.05)
+  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05)
 }
 const inks = {
   ...Object.fromEntries(
@@ -71,8 +71,8 @@ describe('native Increase Contrast values (no device verification)', () => {
     for (const [ink, ground] of [
       [syntaxPalette.highContrastLight.ink, '#e5e5ea'],
       [syntaxPalette.highContrastDark.ink, '#2c2c2e'],
-    ])
-      expect(contrast(ink!, ground!)).toBeGreaterThanOrEqual(7)
+    ] as const)
+      expect(contrast(ink, ground)).toBeGreaterThanOrEqual(7)
   })
   it.each([
     FLOW_HEX,
@@ -99,7 +99,7 @@ describe('native Increase Contrast values (no device verification)', () => {
   it('preserves accessibility slots through fading', () => {
     const value = adaptiveColor('#123456', '#abcdef', '#012345', '#fedcba')
     const fade = (c: string) => `${c}80`
-    expect(slots(fadeDynamicColor(value, 0.5, fade)!)).toEqual(
+    expect(slots(fadeDynamicColor(value, 0.5, fade) ?? '')).toEqual(
       Object.fromEntries(Object.entries(slots(value)).map(([k, v]) => [k, fade(v)])),
     )
   })
