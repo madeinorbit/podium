@@ -667,10 +667,12 @@ describe('instance provenance', () => {
     expect(provenance.updateChannel).toEqual({ source: 'file' })
   })
 
-  it('channel() derives envForced from provenance and reports the update scope', () => {
+  it('channel() derives envForced from file provenance and reports the update scope', () => {
+    saveConfig({ ...loadConfig(), updateChannel: 'edge' })
     vi.stubEnv('PODIUM_UPDATE_SCOPE', 'fleet-only')
     expect(new InstanceService({}).channel()).toMatchObject({
-      envForced: false,
+      envForced: true,
+      channelSource: 'file',
       updateScope: 'fleet-only',
       updateScopeSource: 'env',
     })
