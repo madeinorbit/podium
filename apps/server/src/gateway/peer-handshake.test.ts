@@ -145,6 +145,8 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
       ownerUserId: firstAdminMemberId(),
     })
   }
+  // Track A revocation removes the authoritative database row.
+  if (options.revoked) await seeded.machines.deleteMachine(machineId)
   await seeded.close()
 
   const store = await SessionStore.open(dbPath, hostMachineId, {
@@ -664,16 +666,16 @@ describe('recovery-only daemon handshake verification', () => {
     }
   })
 
-  it('keeps ordinary handshake touch and cache invalidation', async () => {
+  it('keeps ordinary handshake touch and committed cache updates', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
     const touch = vi.spyOn(world.store.machines, 'touchMachine')
-    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
+    await world.machines.listMachines()
     try {
       expect((await receiveHello(world.machines, world.machineId, world.token, false)).kind).toBe(
         'established',
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
-      expect(invalidate).toHaveBeenCalledOnce()
+      expect((await world.machines.listMachines()).find((row) => row.id === world.machineId)?.hostname).toBe('observed.local')
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe(
         'observed.local',
       )

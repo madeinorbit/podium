@@ -1039,9 +1039,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
  *
  * The suite above proves transfer moves ownership BETWEEN two people. This one
  * covers the case transfer refuses by construction, and its whole subject is
- * WHICH machines qualify: "unowned" is three distinguishable states, and the
- * thing that distinguishes them is the ENROLLMENT LEDGER, never the
- * `machines.owner_user_id` projection (D19.4d).
+ * WHICH machines qualify: the database owner is authoritative. A legacy ledger
+ * or a changed member directory must not silently rewrite that ownership.
  */
 describe('adoption of an unowned machine (POD-1494)', () => {
   const ALICE = asUserId('user:alice')
@@ -1054,9 +1053,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     /** Mutable, so a test can make a recorded owner STOP resolving — which is
      *  the only way to produce the quarantine state (D19.4b) honestly. */
     known: Set<string>
-    /** Rebuild the service over the SAME ledger directory and the same store.
-     *  Boot explicitly awaits `reconcileOwnersFromLedger`, so this is the boot
-     *  repair path, and it is how a test can ask what the LEDGER alone says. */
+    /** Rebuild over the same database without boot-time reconciliation. */
     reboot: () => Promise<MachinesService>
   }> {
     const dir = mkdtempSync(join(tmpdir(), 'podium-adopt-'))
@@ -1085,9 +1082,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     return {
       svc, store, dir, known,
       reboot: async () => {
-        const rebooted = build()
-        await rebooted.reconcileOwnersFromLedger()
-        return rebooted
+        return build()
       },
     }
   }
@@ -1128,15 +1123,17 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 
-  // FOUR TESTS REMOVED (POD-4178, design rule 2): 'state 3 — QUARANTINE',
-  // 'the refusal reads the LEDGER', 'THE LEDGER APPEND IS THE COMMIT POINT' and
-  // 'adoption APPENDS' asserted that the enrollment ledger decides ownership and
-  // that boot reconcile nulls an owner who no longer resolves. POD-3958 made the
-  // database the only authority and removed reconcile; those behaviours are
-  // gone on purpose, not regressed. Member removal writing custody is Track B S6.
-  // -------------------------------------------------------------------------
-  // THE STATE IT REFUSES
-  // -------------------------------------------------------------------------
+  test('a missing member does not make boot rewrite database ownership', async () => {
+    const { store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
+    try {
+      known.delete(ALICE)
+      const rebooted = await reboot()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
+      expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
+      await expect(rebooted.adoptMachine(MACHINE, BOB)).rejects.toThrow('machine already has an owner')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
 
   test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', async () => {
     const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
@@ -1158,6 +1155,18 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('adoption reads database ownership even when legacy enrollment disagrees', async () => {
+    const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
+    try {
+      openEnrollmentLedger(dir).appendEnroll({ id: 'legacy-alice', machineId: MACHINE, serial: 1, ownerUserId: ALICE, at: '2026-09-01T00:00:00Z' })
+      await store.machines.setMachineOwner(MACHINE, null)
+      expect(await svc.effectiveOwner(MACHINE)).toBeNull()
+      await svc.adoptMachine(MACHINE, BOB)
+      expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
 
   test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
     const { svc, store, dir } = await adoptWorld()
@@ -1189,6 +1198,31 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // -------------------------------------------------------------------------
   // THE COMMIT POINT
   // -------------------------------------------------------------------------
+
+  test('boot preserves a committed database ownership change', async () => {
+    const { svc, store, dir, reboot } = await adoptWorld()
+    try {
+      await svc.adoptMachine(MACHINE, ALICE)
+      await store.machines.setMachineOwner(MACHINE, null)
+      const rebooted = await reboot()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
+      expect(await rebooted.effectiveOwner(MACHINE)).toBeNull()
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+
+  test('a restored member cannot displace the database adopter', async () => {
+    const { svc, store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
+    try {
+      known.delete(ALICE)
+      // Ownership is explicitly released in the database; boot never invents it.
+      await store.machines.setMachineOwner(MACHINE, null)
+      await svc.adoptMachine(MACHINE, BOB)
+      known.add(ALICE)
+      expect(await (await reboot()).effectiveOwner(MACHINE)).toBe(BOB)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
 
   test('grant edges surviving on the unowned row do not reach the adopter', async () => {
     const { svc, store, dir } = await adoptWorld()

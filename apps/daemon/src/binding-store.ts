@@ -1042,6 +1042,7 @@ function migrationObservationId(parts: readonly string[]): string {
 }
 
 export class BindingStore {
+  private confirmedMachineId: MachineId | undefined
   private recoveryGeneration = 0
   private recovery = new Map<SessionId, 'confirmed' | 'quarantined'>()
   private closedBindings = new Set<SessionId>()
@@ -1057,6 +1058,7 @@ export class BindingStore {
 
   async inventory(codexReceiptDir: string): Promise<SessionId[]> {
     const ids = new Set<SessionId>()
+    this.confirmedMachineId = undefined
     this.recoveryGeneration += 1
     this.inventoryOwners.clear()
     for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
@@ -1079,6 +1081,7 @@ export class BindingStore {
   }
 
   confirmInventory(machineId: MachineId, facts?: BindingConfirmations): void {
+    this.confirmedMachineId = facts === undefined ? undefined : machineId
     // A missing field means an old server: skip recovery, preserving its behavior.
     if (facts === undefined) {
       this.recovery.clear()
@@ -2126,7 +2129,7 @@ export class BindingStore {
     const receipts = await legacyReceipts(input.codexReceiptDir)
     let unresolved = false
     if (receipts.length > 0) {
-      const machineId = await daemonMachineId(input.stateDir)
+      const machineId = this.confirmedMachineId ?? await daemonMachineId(input.stateDir)
       for (const receipt of receipts) {
         if (this.isQuarantined(receipt.sessionId)) {
           unresolved = true
@@ -2246,7 +2249,7 @@ export class BindingStore {
     if (this.manifest.legacyMigration) return this.manifest.legacyMigration
     const receipts = await legacyReceipts(input.codexReceiptDir)
     const hasBindingFacts = input.bindings.length > 0 || receipts.length > 0
-    const machineId = await daemonMachineId(input.stateDir)
+    const machineId = this.confirmedMachineId ?? await daemonMachineId(input.stateDir)
     let unresolved = false
     const migratedAt = this.now()
     const snapshots = new Map(input.bindings.map((binding) => [binding.sessionId, binding]))

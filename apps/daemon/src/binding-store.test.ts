@@ -776,3 +776,33 @@ describe('connect inventory isolation', () => {
     expect(store.isQuarantined(asSessionId('unknown'))).toBe(false)
   })
 })
+
+
+it('folds a confirmed receipt using handshake placement without a legacy identity file', async () => {
+  const root = await tempRoot()
+  const receipts = join(root, 'receipts')
+  await mkdir(receipts)
+  for (const id of ['healthy', 'orphan']) {
+    await writeFile(join(receipts, `${id}.json`), JSON.stringify({
+      session_id: `native-${id}`, hook_event_name: 'PodiumProcessBinding',
+    }))
+  }
+  const store = await BindingStore.open({ dir: join(root, 'bindings') })
+  expect(await store.inventory(receipts)).toEqual(['healthy', 'orphan'])
+  store.confirmInventory(machine, {
+    healthy: { owner: alice, machineId: machine, closed: false },
+    orphan: { owner: null, machineId: null, closed: false },
+  })
+  await store.recoverLegacyState({
+    dir: store.dir, legacyStateDir: root, codexReceiptDir: receipts,
+    legacyOwnerForSession: (id) => id === 'healthy' ? alice : undefined,
+  })
+  expect((await store.read(asSessionId('healthy')))?.claimantMachineId).toBe(machine)
+  expect(store.isQuarantined(asSessionId('healthy'))).toBe(false)
+  expect(store.quarantinedCount).toBe(1)
+  expect(await store.read(asSessionId('orphan'))).toBeNull()
+  expect(await readFile(join(receipts, 'orphan.json'), 'utf8')).toContain('native-orphan')
+  expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+    { sessionId: 'healthy', nativeKind: 'codex-thread', value: 'native-healthy' },
+  ])
+})

@@ -1,4 +1,4 @@
-import { mapLegacyBindingAttribution } from './legacy-binding-attribution'
+import { mapLegacyBindingAttribution, needsLegacyBindingAttribution } from './legacy-binding-attribution'
 /**
  * THE DAEMON SOCKET MUX (POD-389, under POD-317's gateway).
  *
@@ -368,7 +368,7 @@ export class DaemonMux {
     // Production ingress deliberately does not wait. Return the catch-handled
     // completion so tests can observe handler effects without timers or polling.
     const routed =
-      msg.type === 'handoffExportResult'
+      needsLegacyBindingAttribution(msg)
         ? mapLegacyBindingAttribution(
             msg,
             this.deps.retiredSoloMemberId ?? (async () => null),

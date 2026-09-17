@@ -8,6 +8,16 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
  * supersedes this equivalence before multi-member operation.
  * Build metadata is irrelevant: only typed retired identity fields are mapped.
  */
+export function needsLegacyBindingAttribution(msg: DaemonMessage): boolean {
+  if (msg.type !== 'handoffExportResult') return false
+  const manifest = msg.manifest?.format === 2 ? msg.manifest : undefined
+  const delegation = msg.binding?.delegation
+  const by = manifest?.exported.by
+  return manifest?.owner === 'user:sole' || by?.onBehalfOf === 'user:sole' ||
+    (by?.actor.kind === 'user' && by.actor.id === 'user:sole') ||
+    delegation?.onBehalfOf === 'user:sole' || delegation?.actor === 'user:sole'
+}
+
 export async function mapLegacyBindingAttribution(
   msg: DaemonMessage,
   readMapping: () => Promise<UserId | null>,
@@ -16,14 +26,7 @@ export async function mapLegacyBindingAttribution(
   const manifest = msg.manifest?.format === 2 ? msg.manifest : undefined
   const delegation = msg.binding?.delegation
   const by = manifest?.exported.by
-  if (
-    manifest?.owner !== 'user:sole' &&
-    by?.onBehalfOf !== 'user:sole' &&
-    !(by?.actor.kind === 'user' && by.actor.id === 'user:sole') &&
-    delegation?.onBehalfOf !== 'user:sole' &&
-    delegation?.actor !== 'user:sole'
-  )
-    return msg
+  if (!needsLegacyBindingAttribution(msg)) return msg
   const member = await readMapping()
   if (!member || member === 'user:sole') throw new Error('retired member mapping unavailable')
   return {
