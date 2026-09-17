@@ -1,3 +1,4 @@
+import { createServer } from 'node:http'
 import { asMachineId, type MachineWire, machineByRef } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -5,6 +6,7 @@ import {
   MachineCliError,
   type MachineClient,
   machineHelpText,
+  machineCliMain,
   renderMachines,
   runMachineCli,
   selectMachine,
@@ -272,3 +274,40 @@ it('reads harness versions and their first/last observations without treating un
      await expect(runMachineCli(['adopt', 'stranded', '--for'], client)).rejects.toThrow(/usage/)
    })
  })
+
+it('an operator adopts over authenticated HTTP without an agent relay', async () => {
+  const requests: { url: string; cookie: string | undefined; body: string }[] = []
+  const server = createServer(async (req, res) => {
+    let body = ''
+    for await (const chunk of req) body += chunk
+    requests.push({ url: req.url ?? '', cookie: req.headers.cookie, body })
+    const data = req.url?.includes('listWithRepos')
+      ? { machines: [{ ...quiet, unowned: true }], repos: [] } : []
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify([{ result: { data } }]))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const exitCode = process.exitCode
+  vi.stubEnv('PODIUM_AGENT_RELAY', undefined)
+  vi.stubEnv('PODIUM_NO_RELAY', '1')
+  vi.stubEnv('PODIUM_HOST', '127.0.0.1')
+  vi.stubEnv('PODIUM_PORT', String((server.address() as { port: number }).port))
+  vi.stubEnv('PODIUM_SESSION_TOKEN', 'operator-token')
+  try {
+    await machineCliMain(['adopt', quiet.name, '--for', 'member'])
+    expect(errors).not.toHaveBeenCalled()
+    expect(requests).toHaveLength(2)
+    expect(requests.every((request) => request.cookie?.includes('podium_session=operator-token'))).toBe(true)
+    expect(requests[1]?.url).toContain('/trpc/machines.adopt')
+    expect(JSON.parse(requests[1]!.body)).toEqual({ '0': { id: quiet.id, newOwnerUserId: 'member' } })
+    expect(output).toHaveBeenCalledWith(expect.stringContaining('Adopted'))
+  } finally {
+    vi.unstubAllEnvs()
+    output.mockRestore()
+    errors.mockRestore()
+    process.exitCode = exitCode
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  }
+})

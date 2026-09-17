@@ -27,7 +27,8 @@ import {
   machineByRef,
   probeTimeoutDescription,
 } from '@podium/model'
-import { resolveAgentRelay } from '@podium/runtime/config'
+import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { makeOperatorIssueClient } from './operator-client'
 
 type Proc = { query(input?: unknown): Promise<unknown> }
 type Mutation = { mutate(input?: unknown): Promise<unknown> }
@@ -332,14 +333,11 @@ export async function machineCliMain(argv: string[]): Promise<void> {
     return
   }
   const relay = resolveAgentRelay()
-  if (!relay) {
-    fail(
-      'this command is available inside a Podium-managed agent session ' +
-        '(PODIUM_AGENT_RELAY is unset); use the machines panel outside a session',
-    )
-    return
-  }
-  const client = makeRelayIssueClient(relay) as unknown as MachineClient
+  // Keep constrained agents on their relay; operators use the same authenticated
+  // instance-local transport as the other administration commands.
+  const client = (relay
+    ? makeRelayIssueClient(relay)
+    : makeOperatorIssueClient(localServerUrl(resolvePort()))) as unknown as MachineClient
   try {
     console.log(await runMachineCli(argv, client))
   } catch (error) {
