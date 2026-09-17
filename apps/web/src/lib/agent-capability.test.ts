@@ -31,6 +31,8 @@ const host = (name: string, agents: ReturnType<typeof harness>[] | undefined, on
   id: name,
   name,
   online,
+  serviceAssignment: { server: false, agentExecution: true },
+  availability: { daemon: online },
   ...(agents ? { inventory: { agents } } : {}),
 })
 

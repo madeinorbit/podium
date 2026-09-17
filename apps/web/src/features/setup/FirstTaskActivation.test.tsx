@@ -28,6 +28,8 @@ function store() {
         name: 'Studio Mac',
         hostname: 'studio',
         online: true,
+        serviceAssignment: { server: false, agentExecution: true },
+        availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
         lastSeenAt: new Date(0).toISOString(),
         inventory: {
           os: 'darwin' as const,

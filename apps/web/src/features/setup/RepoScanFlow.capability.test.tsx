@@ -32,6 +32,8 @@ const COORDINATOR = {
   online: true,
   lastSeenAt: '2026-08-24T08:00:00.000Z',
   components: ['server'],
+  serviceAssignment: { server: true, agentExecution: false },
+  availability: { epoch: 'boot-1', server: true, daemon: false, supervisor: true },
 }
 const LAPTOP = {
   id: 'mango',
@@ -40,8 +42,16 @@ const LAPTOP = {
   online: true,
   lastSeenAt: '2026-08-24T08:00:00.000Z',
   components: ['daemon'],
+  serviceAssignment: { server: false, agentExecution: true },
+  availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
 }
-const SLEEPING = { ...LAPTOP, id: 'kiwi', name: 'kiwi', online: false }
+const SLEEPING = {
+  ...LAPTOP,
+  id: 'kiwi',
+  name: 'kiwi',
+  online: false,
+  availability: { ...LAPTOP.availability, daemon: false, supervisor: false },
+}
 
 const store: { machines: unknown[]; trpc: unknown; refreshRepos: unknown; uiState: unknown } = {
   machines: [],

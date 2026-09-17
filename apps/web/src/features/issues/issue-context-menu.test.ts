@@ -40,8 +40,20 @@ const handoffAgent = (state: 'in' | 'out' | 'unknown' = 'in', installed = true) 
   login: { state },
 })
 const handoffMachines = [
-  { id: asMachineId('source'), online: true, inventory: { agents: [handoffAgent()] } },
-  { id: asMachineId('target'), online: true, inventory: { agents: [handoffAgent('unknown')] } },
+  {
+    id: asMachineId('source'),
+    online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { daemon: true },
+    inventory: { agents: [handoffAgent()] },
+  },
+  {
+    id: asMachineId('target'),
+    online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { daemon: true },
+    inventory: { agents: [handoffAgent('unknown')] },
+  },
 ]
 const makeSession = (
   over: Partial<SessionMetaInput> & Pick<SessionMetaInput, 'sessionId'>,

@@ -43,6 +43,8 @@ const store = {
       name: 'podium-host',
       hostname: 'podium-host',
       online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
       lastSeenAt: '2026-07-07T08:00:00.000Z',
     },
     {
@@ -50,6 +52,8 @@ const store = {
       name: 'vmi34',
       hostname: 'vmi34',
       online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
       lastSeenAt: '2026-07-07T08:00:00.000Z',
     },
   ],

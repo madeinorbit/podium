@@ -57,6 +57,8 @@ const machine = (id: MachineId) => ({
   name: id,
   hostname: id,
   online: true,
+  serviceAssignment: { server: false, agentExecution: true },
+  availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
   inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
 })
 const session = (over: Partial<SessionMetaInput> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>

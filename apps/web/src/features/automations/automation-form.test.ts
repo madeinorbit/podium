@@ -49,6 +49,8 @@ const machine = (id: string, patch: Partial<MachineWire> = {}): MachineWire =>
     name: id,
     hostname: id,
     online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
     lastSeenAt: '2026-08-03T11:00:00.000Z',
     ...patch,
   }) as MachineWire
@@ -146,7 +148,8 @@ describe('targets are bounded by machine USE', () => {
     machine('m-disabled', {
       use: 'granted',
       components: ['daemon'],
-      serviceAssignment: { server: false, agentExecution: false },
+      // Assigned daemon, with execution disabled by the supervisor policy.
+      serviceAssignment: { server: false, agentExecution: true },
       services: {
         server: {
           policy: 'disabled',
