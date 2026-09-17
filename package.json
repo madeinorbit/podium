@@ -162,7 +162,7 @@
     "drizzle-kit": "1.0.0-rc.4",
     "drizzle-orm": "1.0.0-rc.4",
     "happy-dom": "^20.10.2",
-    "jsdom": "^30.1.0",
+    "jsdom": "28.1.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "tsup": "^8.5.1",
