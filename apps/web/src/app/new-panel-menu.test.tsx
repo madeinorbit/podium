@@ -29,6 +29,8 @@ const { conversationSearch, createSession, feature, machine, opened, setPanelMod
     name: 'mine',
     hostname: 'mine',
     online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
     inventory: {
       agents: [
         { kind: 'claude-code', installed: true, login: { state: 'in' } },
