@@ -1101,6 +1101,48 @@ describe('the echo baseline', () => {
     expect((await receipt).outcome).toBe('unverified')
   })
 
+  /**
+   * THE FALSIFYING TEST (POD-4055 1a).
+   *
+   * The hook proof matches CONTENT: the watch is armed with `payload.body` and
+   * the matcher refuses every waiter whose fingerprint differs, because "two
+   * sends can be in flight and crediting the wrong one would report an accept
+   * for a turn that never landed". The transcript-echo proof matches NOTHING —
+   * the whole test is `userTurnCount() > baseline` against a bare running total.
+   *
+   * So: does a user turn this send did not cause credit this send? That is the
+   * question the rate cannot be measured without, because a rate for a proof
+   * satisfiable by the wrong turn is not a measure of delivery reliability.
+   *
+   * THE FOREIGN TURN HERE IS THE REAL ONE: a person typing at the attached
+   * terminal while a send is in flight. Nothing about it is exotic — the grok,
+   * codex and opencode sessions carrying this profile are all attachable — and
+   * it is the exact scenario the hook path names as its reason for refusing to
+   * credit by count.
+   */
+  it('does not credit a send with a user turn the send did not cause', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('grok', GROK)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+
+    const receipt = session.send(
+      { text: 'did this land?' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    await Promise.resolve()
+    // NOT the text that was sent, and not caused by it. The harness never took
+    // 'did this land?' at all; somebody at the terminal typed something else and
+    // the harness recorded THAT as a user turn.
+    world.echo(sessionId, 'a person typed this at the terminal')
+
+    // A FALSE ACCEPT IS STRICTLY WORSE THAN THE `unverified` IT DISPLACES: the
+    // caller believes it was delivered and stops, and after POD-3744 removes the
+    // server-side retry there is nothing underneath to catch it.
+    const resolved = await receipt
+    expect(resolved.outcome).toBe('unverified')
+  })
+
   it('still credits a genuine new user turn after a reset', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
