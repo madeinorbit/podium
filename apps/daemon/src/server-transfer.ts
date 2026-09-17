@@ -46,7 +46,12 @@ import type { ControlHandlers, DaemonContext } from './control/context'
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
-const PORTABLE_ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json', 'installation.json'] as const
+const PORTABLE_ROOT_FILES = [
+  'podium.db',
+  'enrollment.ledger',
+  'update-signing-key.json',
+  'installation.json',
+] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
 interface PromotionInventoryEntry {

@@ -20,7 +20,10 @@ import type {
 import { canonicalServerTransferManifest } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
-import { readInstallationIdentity, readOrCreateInstallationIdentity } from '@podium/runtime/installation-identity'
+import {
+  readInstallationIdentity,
+  readOrCreateInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
@@ -773,7 +776,9 @@ describe('server transfer target daemon', () => {
         },
       )
       const crashAfterMutation =
-        point === 'after-install-before-config' || point === 'after-config-before-health' || point === 'after-health-before-proof'
+        point === 'after-install-before-config' ||
+        point === 'after-config-before-health' ||
+        point === 'after-health-before-proof'
       expect(first).toMatchObject({
         ok: false,
         state: crashAfterMutation ? 'promoting' : 'validated',
@@ -862,8 +867,14 @@ describe('server transfer target daemon', () => {
       })
       expect(await readFile(join(stateRoot, 'podium.db'))).toEqual(files['podium.db'])
       const incoming = JSON.parse(files['installation.json']!.toString())
-      expect(readInstallationIdentity(stateRoot)).toEqual({ ...incoming, generation: incoming.generation + 1 })
-      expect(await invoke('serverTransferPromoteRequest', promoteInput)).toMatchObject({ ok: true, idempotent: true })
+      expect(readInstallationIdentity(stateRoot)).toEqual({
+        ...incoming,
+        generation: incoming.generation + 1,
+      })
+      expect(await invoke('serverTransferPromoteRequest', promoteInput)).toMatchObject({
+        ok: true,
+        idempotent: true,
+      })
       expect(readInstallationIdentity(stateRoot)?.generation).toBe(incoming.generation + 1)
       expect(await readFile(backupDb, 'utf8')).toBe('original-target-db')
       expect(JSON.parse(await readFile(backupConfig, 'utf8'))).toMatchObject({
