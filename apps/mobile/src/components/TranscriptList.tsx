@@ -264,7 +264,10 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
             const { item } = b
             const result = b.result ?? item.toolResult
             const verdict = toolVerdict(result)
-            const desc = item.toolTitle ?? item.toolInput ?? ''
+            const desc =
+              item.toolName === 'Bash'
+                ? (item.toolInput ?? item.toolTitle ?? '')
+                : (item.toolTitle ?? item.toolInput ?? '')
             const files = item.toolPaths?.length ?? 0
             const preview = resultPreview(result)
             return (
