@@ -246,11 +246,15 @@ describe('codexRecordToItems', () => {
         type: 'custom_tool_call',
         name: 'exec',
         input:
-          'const r = await tools.exec_command({workdir:"/repo",cmd:"printf \'{cmd:\\\"fake\\\"}\'"}); text(r.output);',
+          'const r = await tools.exec_command({workdir:"/repo",cmd:"printf \'{cmd:\\"fake\\"}\'"}); text(r.output);',
       }),
     )
 
     expect(items[0]).toMatchObject({ toolName: 'Bash', toolInput: 'printf \'{cmd:"fake"}\'' })
+    expect(JSON.parse(items[0]?.toolInputJson ?? 'null')).toEqual({
+      kind: 'shell-command',
+      command: 'printf \'{cmd:"fake"}\'',
+    })
   })
 
   it('does not mistake tool names inside a command string for nested calls', () => {

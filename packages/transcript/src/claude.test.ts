@@ -718,7 +718,7 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
     })
   })
 
-  it('leaves ordinary tools without toolInputJson', () => {
+  it('keeps shell command payloads distinct from question inputs', () => {
     const rec = {
       type: 'assistant',
       uuid: 'a-bash',
@@ -729,7 +729,10 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
       },
     }
     const [item] = claudeRecordToItems(rec)
-    expect(item?.toolInputJson).toBeUndefined()
+    expect(JSON.parse(item?.toolInputJson ?? 'null')).toEqual({
+      kind: 'shell-command',
+      command: 'ls',
+    })
     expect(item).toMatchObject({ toolName: 'Bash', toolInput: 'ls' })
   })
 })

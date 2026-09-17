@@ -191,10 +191,12 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     }
   }
   if (wireName === 'exec_command') {
-    const toolInputJson = safeToolCommandJson(wireName, input)
+    const command = recordString(input, 'cmd')
+    const commandInput = command === undefined ? input : { command }
+    const toolInputJson = safeToolCommandJson(wireName, commandInput)
     return {
       toolName: 'Bash',
-      toolInput: toolInputPreview(input) || undefined,
+      toolInput: toolInputPreview(commandInput) || undefined,
       ...(toolInputJson ? { toolInputJson } : {}),
     }
   }
