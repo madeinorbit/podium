@@ -2,6 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
 import { contentToText, isRecord, stringField } from './json-util'
+import { safeToolCommandJson } from './tool-command'
 import { safeToolEditJsonFromInput } from './tool-edit'
 
 /**
@@ -190,9 +191,11 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
     }
   }
   if (wireName === 'exec_command') {
+    const toolInputJson = safeToolCommandJson(wireName, input)
     return {
       toolName: 'Bash',
-      toolInput: (recordString(input, 'cmd') ?? toolInputPreview(input)) || undefined,
+      toolInput: toolInputPreview(input) || undefined,
+      ...(toolInputJson ? { toolInputJson } : {}),
     }
   }
   if (wireName === 'apply_patch') {

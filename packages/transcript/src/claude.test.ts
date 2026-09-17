@@ -7,7 +7,9 @@ import {
   claudeToolResultItem,
   toolInputPreview,
 } from './claude'
+import { codexRecordToItems } from './codex'
 import { recordUuid, stampCursors } from './cursor-codec'
+import { TOOL_INPUT_MAX } from './tool-input-budget'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {
@@ -1027,5 +1029,71 @@ describe('one shape for a tool item, live and on reload (POD-3050)', () => {
     expect(claudeToolResultItem({ id: 'r', output: '', toolUseId: 't' })).toHaveProperty(
       'toolResult',
     )
+  })
+})
+
+describe('retained shell commands', () => {
+  function commands(command: string) {
+    const input = { command }
+    const claude = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'command-record',
+      message: { content: [{ type: 'tool_use', id: 'call', name: 'Bash', input }] },
+    })[0]!
+    const codex = codexRecordToItems({
+      type: 'response_item',
+      payload: {
+        type: 'function_call',
+        name: 'exec_command',
+        call_id: 'call',
+        arguments: JSON.stringify({ cmd: command }),
+      },
+    })[0]!
+    const live = claudeToolCallItem({ id: 'call', toolName: 'Bash', input })
+    expect(live.toolInputJson).toBe(claude.toolInputJson)
+    expect(codex.toolInputJson).toBe(claude.toolInputJson)
+    expect(codex.toolInput).toBe(claude.toolInput)
+    return claude
+  }
+
+  it.each([
+    'echo short',
+    `printf '%s\n' "${'a'.repeat(400)}"\necho tail`,
+    '',
+  ])('retains command text independently of the bounded preview: %s', (command) => {
+    const item = commands(command)
+    expect(item.toolInput!.length).toBeLessThanOrEqual(161)
+    if (command.length > 160) expect(item.toolInput).toBe(`${command.slice(0, 160)}…`)
+    expect(JSON.parse(item.toolInputJson!)).toEqual({ kind: 'shell-command', command })
+    expect(JSON.parse(JSON.stringify(item)).toolInputJson).toBe(item.toolInputJson)
+  })
+
+  it.each(['x', '\u0000', '雪', '😀'])('bounds oversized serialized commands: %s', (unit) => {
+    const command = unit.repeat(100_000)
+    const item = commands(command)
+    expect(item.toolInput!.length).toBeLessThanOrEqual(161)
+    expect(item.toolInputJson!.length).toBeLessThanOrEqual(TOOL_INPUT_MAX)
+    const payload = JSON.parse(item.toolInputJson!)
+    expect(payload.kind).toBe('shell-command')
+    expect(payload.truncated).toBe(true)
+    expect(payload.command.length).toBeGreaterThan(160)
+    expect(command.startsWith(payload.command)).toBe(true)
+    expect(payload.command.length).toBeLessThan(command.length)
+  })
+
+  it('does not retain unrelated tool arguments or invent missing commands', () => {
+    for (const [toolName, input] of [
+      ['Read', { command: 'not a shell call' }],
+      ['Bash', { description: 'no command', env: 'private' }],
+      ['Bash', { command: 123 }],
+    ] as const) {
+      expect(claudeToolCallItem({ id: 'call', toolName, input }).toolInputJson).toBeUndefined()
+    }
+    const item = claudeToolCallItem({
+      id: 'call',
+      toolName: 'Bash',
+      input: { command: 'ls', env: 'private' },
+    })
+    expect(JSON.parse(item.toolInputJson!)).toEqual({ kind: 'shell-command', command: 'ls' })
   })
 })

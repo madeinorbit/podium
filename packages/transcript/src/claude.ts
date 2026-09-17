@@ -1,5 +1,6 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
+import { safeToolCommandJson } from './tool-command'
 import { safeToolEditJsonFromInput } from './tool-edit'
 import { claudeToolEffects } from './tool-effects'
 
@@ -510,7 +511,8 @@ export function claudeToolCallItem(input: {
   const title = isAsk ? undefined : toolTitleFromInput(input.input)
   const toolInputJson = isAsk
     ? safeAskQuestionInputJson(input.input)
-    : safeToolEditJsonFromInput(input.toolName, input.input)
+    : (safeToolCommandJson(input.toolName, input.input) ??
+      safeToolEditJsonFromInput(input.toolName, input.input))
   return {
     id: input.id,
     role: 'tool',

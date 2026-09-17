@@ -1,3 +1,5 @@
+import { TOOL_INPUT_MAX, TOOL_INPUT_TEXT_BUDGETS } from './tool-input-budget'
+
 /**
  * Normalize a file-editing tool call into a capped JSON payload the chat can
  * unfold as a diff. Each harness writes a different wire shape (Claude's
@@ -34,11 +36,6 @@ export type ToolEditPayload = {
   unavailable?: boolean
   truncated?: boolean
 }
-
-/** How much JSON one file-edit may spend on the item. Same order of magnitude
- *  as AskUserQuestion — enough for a real hunk, not a whole generated file. */
-const EDIT_INPUT_MAX = 24_000
-const HUNK_TEXT_BUDGETS = [8_000, 2_400, 800, 240, 0] as const
 
 const FILE_PATH_KEYS = [
   'file_path',
@@ -202,15 +199,15 @@ export function safeToolEditJson(edit: ToolEditPayload): string | undefined {
   try {
     const raw = JSON.stringify(edit)
     if (raw === undefined) return undefined
-    if (raw.length <= EDIT_INPUT_MAX) return raw
+    if (raw.length <= TOOL_INPUT_MAX) return raw
   } catch {
     return undefined
   }
-  for (const budget of HUNK_TEXT_BUDGETS) {
+  for (const budget of TOOL_INPUT_TEXT_BUDGETS) {
     try {
       const next = shrinkEdit(edit, budget)
       const raw = JSON.stringify(next)
-      if (raw !== undefined && raw.length <= EDIT_INPUT_MAX) return raw
+      if (raw !== undefined && raw.length <= TOOL_INPUT_MAX) return raw
     } catch {
       return undefined
     }
@@ -228,7 +225,7 @@ export function safeToolEditJson(edit: ToolEditPayload): string | undefined {
       moreFiles: edit.moreFiles,
       truncated: true,
     } satisfies ToolEditPayload)
-    return fallback !== undefined && fallback.length <= EDIT_INPUT_MAX ? fallback : undefined
+    return fallback !== undefined && fallback.length <= TOOL_INPUT_MAX ? fallback : undefined
   } catch {
     return undefined
   }
