@@ -1,3 +1,4 @@
+import type { MachineCredentialRotation } from '@podium/protocol'
 import { z } from 'zod'
 import { CommittedRows } from './committed-rows'
 /**
@@ -544,6 +545,34 @@ export class MachinesRepository {
     return !!row && row.revokedAt === null && row.credentialKind === 'ed25519'
       && row.tokenHash === '' && row.publicKey !== null
       && verifyWithMachineKey(row.publicKey, transcript, signature)
+  }
+
+  /** New-key possession permits a lost-ack retry; replacement itself is a CAS.
+   * The wire public key is the key id, so an id cannot be rebound to other bytes. */
+  async rotateCredential(id: MachineId, rotation: MachineCredentialRotation, transcript: string): Promise<boolean> {
+    if (rotation.newKeyId !== rotation.newPublicKey
+      || !verifyWithMachineKey(rotation.newPublicKey, transcript, rotation.newSignature)) return false
+    const row = await this.db.select().from(machines).where(eq(machines.id, id)).get()
+    if (!row || row.revokedAt !== null || row.supersededBy !== null) return false
+    if (row.credentialKind === 'ed25519' && row.tokenHash === '' && row.publicKey === rotation.newPublicKey) return true
+    const previous = rotation.previous
+    if (previous.kind === 'ed25519') {
+      if (row.credentialKind !== 'ed25519' || row.tokenHash !== '' || row.publicKey !== previous.publicKey
+        || !verifyWithMachineKey(previous.publicKey, transcript, previous.signature)) return false
+    } else {
+      if (row.credentialKind !== 'bearer-hash' || row.publicKey !== null || !row.tokenHash) return false
+      const hash = Buffer.from(createHash('sha256').update(previous.token).digest('hex'))
+      const expected = Buffer.from(row.tokenHash)
+      if (hash.length !== expected.length || !timingSafeEqual(hash, expected)) return false
+    }
+    const result = await this.committed.write(async () => this.db.update(machines)
+      .set({ credentialKind: 'ed25519', tokenHash: '', publicKey: rotation.newPublicKey })
+      .where(and(eq(machines.id, id), isNull(machines.revokedAt), isNull(machines.supersededBy),
+        eq(machines.credentialKind, row.credentialKind), eq(machines.tokenHash, row.tokenHash),
+        row.publicKey === null ? isNull(machines.publicKey) : eq(machines.publicKey, row.publicKey)))
+      .returning().all(), 'upsert')
+    // A simultaneous retry of the same intent may have won the CAS.
+    return result.changes === 1 || await this.verifyMachineSignature(id, transcript, rotation.newSignature)
   }
 
   /** Persist the operator-selected update authority for one managed machine.

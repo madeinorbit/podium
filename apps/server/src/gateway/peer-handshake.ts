@@ -1,3 +1,5 @@
+import { asMachineId } from '@podium/model'
+import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
 import { randomBytes } from 'node:crypto'
 /**
  * THE GATEWAY'S HANDSHAKE COMPOSITION ROOT — where `wsServer` meets the shared
@@ -29,6 +31,8 @@ import {
   legacyReplyFor,
   type MachinePrincipal,
   type MachineChallenge,
+  machineRotationTranscript,
+  machineHelloTranscript,
   localVersionSupport,
   type PeerBuild,
   PeerHello,
@@ -243,6 +247,7 @@ export async function prepareDaemonFrame(
   prepared: PreparedDaemonAcceptor,
   raw: string,
 ): Promise<PreparedDaemonFrame> {
+  let rotatedPublicKey: string | undefined
   let request: MachineAuthenticationInput | undefined
   // verifyOnly and source travel WITH the deps. They are what makes a
   // recovery-only handshake read-only and what tells the directory which plane
@@ -285,6 +290,13 @@ export async function prepareDaemonFrame(
       || challenge.connectionId !== prepared.deps.connectionId
       || challenge.connectionId !== credential.proof.connectionId
       || challenge.nonce !== credential.proof.nonce) return refuse()
+    if (credential.rotation) {
+      if (prepared.deps.verifyOnly || !prepared.deps.machines.rotateCredential
+        || !verifyWithMachineKey(credential.rotation.newPublicKey, machineHelloTranscript(challenge), credential.proof.signature)
+        || !await prepared.deps.machines.rotateCredential(asMachineId(credential.machineHint), credential.rotation,
+          machineRotationTranscript(challenge, credential.rotation.newKeyId, credential.rotation.newPublicKey))) return refuse()
+      rotatedPublicKey = credential.rotation.newPublicKey
+    }
   }
   const carried = {
     ...(inventoryHello.success && inventoryHello.data.bindingSessionIds !== undefined
@@ -320,10 +332,11 @@ export async function prepareDaemonFrame(
     ...carried,
     machines: resolvedMachineAuthenticator(prepared.deps.machines, requested, result),
   })
-  return {
-    acceptor,
-    outcome: receiveResolvedDaemonFrame(acceptor, raw),
+  const outcome = receiveResolvedDaemonFrame(acceptor, raw)
+  if (rotatedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {
+    return { acceptor, outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } } }
   }
+  return { acceptor, outcome }
 }
 
 export function receiveDaemonFrame(acceptor: HandshakeAcceptor, raw: string): DaemonFrameOutcome

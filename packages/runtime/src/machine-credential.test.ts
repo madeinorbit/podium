@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
   createMachineCredential,
+  prepareMachineCredentialRotation,
+  acknowledgeMachineCredentialRotation,
   readMachineCredential,
   MACHINE_KEY_FILE,
   MACHINE_SIGNATURE_PREFIX,
@@ -161,4 +163,22 @@ it('matches the machine vector, independently verifies with Web Crypto, and sepa
       Buffer.from(vectors.prefix + vectors.message),
     ),
   ).toBe(true)
+})
+
+
+it('persists both keys across retries and retires the old key only for the matching ack', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'rotation-')); dirs.push(dir)
+  const old = createMachineCredential(dir)
+  const proposed = prepareMachineCredentialRotation(dir)
+  expect(proposed.privateKey).toBe(old.privateKey)
+  expect(prepareMachineCredentialRotation(dir)).toEqual(proposed)
+  expect(readMachineCredential(dir)).toEqual(proposed)
+  expect(acknowledgeMachineCredentialRotation(dir, machinePublicKeyWire(old))).toBe(false)
+  expect(readMachineCredential(dir)).toEqual(proposed)
+  const next = machinePublicKeyWire(proposed.pendingRotation!)
+  expect(acknowledgeMachineCredentialRotation(dir, next)).toBe(true)
+  expect(machinePublicKeyWire(readMachineCredential(dir)!)).toBe(next)
+  expect(readMachineCredential(dir)!.pendingRotation).toBeUndefined()
+  expect(fs.readFileSync(join(dir, MACHINE_KEY_FILE), 'utf8')).not.toContain(old.privateKey)
+  expect(fs.readdirSync(dir)).toEqual([MACHINE_KEY_FILE])
 })

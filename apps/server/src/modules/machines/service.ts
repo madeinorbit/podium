@@ -496,6 +496,12 @@ export class MachinesService {
    *  secret belongs to, and taking it from here keeps ONE answer in the process. */
   get installationId(): string | undefined { return this.deps.installationId }
 
+  async rotateCredential(machineId: MachineId, rotation: import('@podium/protocol').MachineCredentialRotation, transcript: string): Promise<boolean> {
+    if (this.presenceReadOnly) return false
+    return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
+  }
+
+
   get hostMachineId(): MachineId {
     return this.deps.hostMachineId
   }

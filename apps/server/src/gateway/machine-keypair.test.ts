@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { asMachineId, asUserId } from '@podium/model'
-import { machineHelloTranscript, type MachineChallenge, WIRE_VERSION } from '@podium/protocol'
+import { machineHelloTranscript, machineRotationTranscript, type MachineChallenge, WIRE_VERSION } from '@podium/protocol'
 import { machinePublicKeyWire, signWithMachine } from '@podium/runtime/machine-credential'
 import { mintSigningKeyPair, signMessage } from '@podium/runtime/signing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -132,4 +132,103 @@ describe('keypair enrollment', () => {
     expect((await prepareDaemonFrame(createMachineSupervisorAcceptor({ machines, connectionId: 'foreign' }),
       hello({ kind: 'pairCode', code: foreignCode, publicKey }))).outcome.kind).toBe('rejected')
   })
+})
+
+
+describe('machine credential rotation', () => {
+  const rotateHello = (challenge: MachineChallenge, next: ReturnType<typeof mintSigningKeyPair>, token?: string) => {
+    const newPublicKey = machinePublicKeyWire(next)
+    const transcript = machineRotationTranscript(challenge, newPublicKey, newPublicKey)
+    return hello({ kind: 'machineKey', machineHint: machineId,
+      proof: { nonce: challenge.nonce, connectionId: challenge.connectionId, installationId: challenge.installationId,
+        signature: signWithMachine(next, machineHelloTranscript(challenge)) },
+      rotation: { newKeyId: newPublicKey, newPublicKey, newSignature: signWithMachine(next, transcript),
+        previous: token ? { kind: 'bearer-hash', token }
+          : { kind: 'ed25519', publicKey, signature: signWithMachine(key, transcript) } },
+    })
+  }
+  it('acknowledges the replacement and immediately refuses the old key', async () => {
+    const { acceptor, store } = await world()
+    const next = mintSigningKeyPair(); const connection = acceptor()
+    const challenge = await challengeFor(connection)
+    expect(await store.machines.verifyMachineSignature(machineId, 'before', signWithMachine(key, 'before'))).toBe(true)
+    const { outcome } = await prepareDaemonFrame(connection, rotateHello(challenge, next))
+    expect(outcome).toMatchObject({ kind: 'established', reply: { enrolledPublicKey: machinePublicKeyWire(next) } })
+    const old = acceptor('old'); const oldChallenge = await challengeFor(old)
+    expect((await prepareDaemonFrame(old, proofHello(oldChallenge))).outcome.kind).toBe('rejected')
+    const fresh = acceptor('new'); const freshChallenge = await challengeFor(fresh)
+    expect((await prepareDaemonFrame(fresh, proofHello(freshChallenge, signWithMachine(next, machineHelloTranscript(freshChallenge))))).outcome.kind).toBe('established')
+  })
+  it('returns the same key id when an acknowledgement is lost and both keys are re-presented', async () => {
+    const { acceptor, store } = await world(); const next = mintSigningKeyPair()
+    const first = acceptor(); const challenge = await challengeFor(first)
+    await prepareDaemonFrame(first, rotateHello(challenge, next)) // reply lost in transit
+    const retry = acceptor('retry'); const retryChallenge = await challengeFor(retry)
+    expect((await prepareDaemonFrame(retry, rotateHello(retryChallenge, next))).outcome)
+      .toMatchObject({ kind: 'established', reply: { enrolledPublicKey: machinePublicKeyWire(next) } })
+    expect(await store.machines.credentialIncarnation(machineId)).toBe(machinePublicKeyWire(next))
+    // A spent nonce cannot be replayed to mutate the row.
+    expect((await prepareDaemonFrame(retry, rotateHello(retryChallenge, next))).outcome.kind).toBe('rejected')
+  })
+  it('allows exactly one of two concurrent replacements to win', async () => {
+    const { acceptor, store } = await world()
+    const first = acceptor('first'); const second = acceptor('second')
+    const firstChallenge = await challengeFor(first); const secondChallenge = await challengeFor(second)
+    const a = mintSigningKeyPair(); const b = mintSigningKeyPair()
+    const outcomes = await Promise.all([
+      prepareDaemonFrame(first, rotateHello(firstChallenge, a)),
+      prepareDaemonFrame(second, rotateHello(secondChallenge, b)),
+    ])
+    expect(outcomes.filter(({ outcome }) => outcome.kind === 'established')).toHaveLength(1)
+    expect(outcomes.filter(({ outcome }) => outcome.kind === 'rejected')).toHaveLength(1)
+    const winner = outcomes[0]!.outcome.kind === 'established' ? a : b
+    expect(await store.machines.credentialIncarnation(machineId)).toBe(machinePublicKeyWire(winner))
+  })
+  it('acknowledges concurrent retries of the same key id without replacing it twice', async () => {
+    const { acceptor, store } = await world(); const next = mintSigningKeyPair()
+    const a = acceptor('a'); const b = acceptor('b')
+    const ca = await challengeFor(a); const cb = await challengeFor(b)
+    const replies = await Promise.all([
+      prepareDaemonFrame(a, rotateHello(ca, next)), prepareDaemonFrame(b, rotateHello(cb, next)),
+    ])
+    for (const reply of replies) expect(reply.outcome)
+      .toMatchObject({ kind: 'established', reply: { enrolledPublicKey: machinePublicKeyWire(next) } })
+    expect(await store.machines.credentialIncarnation(machineId)).toBe(machinePublicKeyWire(next))
+  })
+  it('does not resurrect a rotated credential after revocation when its ack was lost', async () => {
+    const { acceptor, store } = await world(); const next = mintSigningKeyPair()
+    const first = acceptor(); const challenge = await challengeFor(first)
+    await prepareDaemonFrame(first, rotateHello(challenge, next))
+    await store.machines.revokeMachine(machineId)
+    const retry = acceptor('retry'); const retryChallenge = await challengeFor(retry)
+    expect((await prepareDaemonFrame(retry, rotateHello(retryChallenge, next))).outcome.kind).toBe('rejected')
+  })
+  it('migrates a bearer row through the same path and retries after losing the ack', async () => {
+    const { acceptor, store, enrollment } = await world(false)
+    const token = 'old-stage-1-token'
+    await store.machines.enrollMachine({ ...enrollment, credentialKind: 'bearer-hash', publicKey: null,
+      tokenHash: createHash('sha256').update(token).digest('hex') })
+    const next = mintSigningKeyPair()
+    expect(await store.machines.getMachineByToken(machineId, token)).toBe(true)
+    for (const id of ['first', 'retry']) {
+      const connection = acceptor(id); const challenge = await challengeFor(connection)
+      expect((await prepareDaemonFrame(connection, rotateHello(challenge, next, token))).outcome)
+        .toMatchObject({ kind: 'established', reply: { enrolledPublicKey: machinePublicKeyWire(next) } })
+      expect(await store.machines.getMachineByToken(machineId, token)).toBe(false)
+    }
+  })
+  it.each(['old-proof', 'new-proof', 'hello-proof', 'key-id', 'revoked', 'read-only'] as const)(
+    'refuses %s without replacing the credential', async (failure) => {
+      const { acceptor, store } = await world(); const connection = acceptor()
+      const challenge = await challengeFor(connection)
+      const frame = JSON.parse(rotateHello(challenge, mintSigningKeyPair()))
+      if (failure === 'old-proof') frame.credential.rotation.previous.signature = 'bad'
+      if (failure === 'new-proof') frame.credential.rotation.newSignature = 'bad'
+      if (failure === 'hello-proof') frame.credential.proof.signature = 'bad'
+      if (failure === 'key-id') frame.credential.rotation.newKeyId = 'another-key-id'
+      if (failure === 'revoked') await store.machines.revokeMachine(machineId)
+      const target = failure === 'read-only' ? { ...connection, deps: { ...connection.deps, verifyOnly: true } } : connection
+      expect((await prepareDaemonFrame(target, JSON.stringify(frame))).outcome.kind).toBe('rejected')
+      expect(await store.machines.credentialIncarnation(machineId)).toBe(publicKey)
+    })
 })

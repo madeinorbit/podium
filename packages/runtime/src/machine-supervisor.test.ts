@@ -26,8 +26,8 @@ import {
 } from './machine-supervisor'
 import { loadConfig, saveConfig } from './config'
 import { readConnectivityForTest } from './connectivity'
-import { readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
-import { SERVER_MOVE_CAPABILITY, wireSchemaDigest, machineHelloTranscript } from '@podium/protocol'
+import { createMachineCredential, readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
+import { SERVER_MOVE_CAPABILITY, wireSchemaDigest, machineHelloTranscript, machineRotationTranscript } from '@podium/protocol'
 
 const dirs: string[] = []
 
@@ -594,6 +594,71 @@ describe('supervisor keypair enrollment and hello', () => {
       expect(verifyWithMachineKey(publicKey, machineHelloTranscript({ ...challenge, connectionId: 'other' }), credential.proof.signature)).toBe(false)
       second.message(challenge)
       expect(second.sent).toHaveLength(2)
+    } finally { connection.close() }
+  })
+})
+
+
+describe('supervisor credential rotation', () => {
+  it.each(['keypair', 'bearer', 'ack-crash'] as const)('retries the same pending key across %s interruption, then retires the old credential', (kind) => {
+    vi.useFakeTimers()
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static all: Socket[] = []
+      readyState = 1
+      sent: Array<Record<string, any>> = []
+      constructor(readonly url: string) { super(); Socket.all.push(this) }
+      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      close() {}
+      open() { this.dispatchEvent(new Event('open')) }
+      message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir(); const state = loadSupervisorState(dir)
+    const old = kind !== 'bearer' ? createMachineCredential(dir) : undefined
+    if (old) state.enrolledPublicKey = machinePublicKeyWire(old)
+    else state.token = 'stage-1-bearer'
+    saveSupervisorState(dir, state)
+    const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
+    const makeConnection = () => createMachineSupervisorConnection({
+      serverUrl: 'ws://coordinator.example', stateDir: dir, state: loadSupervisorState(dir),
+      build: { appVersion: 'test' }, deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
+    })
+    let connection = makeConnection()
+    try {
+      connection.rotateCredential()
+      const first = Socket.all[0]!; first.open()
+      const pending = readMachineCredential(dir)!
+      const next = machinePublicKeyWire(pending.pendingRotation!)
+      const challenge = { type: 'machineChallenge', machineId: state.machineId,
+        installationId: 'installation', connectionId: 'first', nonce: 'nonce-first', expiresAtMs: Date.now() + 30_000 }
+      first.message(challenge)
+      const rotation = first.sent[1]!.credential.rotation
+      const transcript = machineRotationTranscript(challenge, next, next)
+      expect(rotation.newKeyId).toBe(next)
+      expect(verifyWithMachineKey(next, transcript, rotation.newSignature)).toBe(true)
+      if (old) expect(verifyWithMachineKey(machinePublicKeyWire(old), transcript, rotation.previous.signature)).toBe(true)
+      else expect(rotation.previous).toEqual({ kind: 'bearer-hash', token: 'stage-1-bearer' })
+      expect(readMachineCredential(dir)).toEqual(pending)
+      // Also exercise the crash window after the ack reference was saved but before key retirement.
+      if (kind === 'ack-crash') saveSupervisorState(dir, { ...loadSupervisorState(dir), enrolledPublicKey: next })
+      // Server committed, but the machine has not completed acknowledgement processing.
+      connection.close(); connection = makeConnection(); connection.start()
+      const retry = Socket.all[1]!; retry.open()
+      retry.message({ ...challenge, connectionId: 'retry', nonce: 'nonce-retry' })
+      expect(retry.sent[1]!.credential.rotation.newKeyId).toBe(next)
+      expect(readMachineCredential(dir)).toEqual(pending)
+      retry.message({ type: 'peerHelloOk', v: retry.sent[0]!.v, caps: [], enrolledPublicKey: next })
+      expect(readMachineCredential(dir)!.pendingRotation).toBeUndefined()
+      expect(machinePublicKeyWire(readMachineCredential(dir)!)).toBe(next)
+      expect(loadSupervisorState(dir).enrolledPublicKey).toBe(next)
+      expect(loadSupervisorState(dir).token).toBeUndefined()
+      connection.reconfigure()
+      const fresh = Socket.all[2]!; fresh.open()
+      fresh.message({ ...challenge, connectionId: 'fresh', nonce: 'nonce-fresh' })
+      expect(fresh.sent[1]!.credential.rotation).toBeUndefined()
+      expect(verifyWithMachineKey(next, machineHelloTranscript({ ...challenge, connectionId: 'fresh', nonce: 'nonce-fresh' }), fresh.sent[1]!.credential.proof.signature)).toBe(true)
     } finally { connection.close() }
   })
 })

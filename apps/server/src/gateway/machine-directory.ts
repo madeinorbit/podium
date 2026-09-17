@@ -70,6 +70,7 @@ export interface MachineAuthenticator {
    *  the host is, and there is no id in this process that is not minted material. */
   readonly hostMachineId: MachineId
   readonly installationId?: string
+  rotateCredential?(machineId: MachineId, rotation: import('@podium/protocol').MachineCredentialRotation, transcript: string): Promise<boolean>
   authenticateDaemon(
     frame: MachineAuthenticationInput,
     options?: MachineDirectoryOptions,

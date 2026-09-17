@@ -104,9 +104,22 @@ export const MachineTokenCredential = z.object({
   machineHint: z.string().min(1).optional(),
 })
 
+/** The canonical wire public key is also its stable key id. */
+export const MachineCredentialRotation = z.object({
+  newKeyId: z.string().min(1).max(256),
+  newPublicKey: z.string().min(1).max(256),
+  newSignature: z.string().min(1).max(256),
+  previous: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ed25519'), publicKey: z.string().max(256), signature: z.string().max(256) }),
+    z.object({ kind: z.literal('bearer-hash'), token: z.string().min(1).max(4096) }),
+  ]),
+})
+export type MachineCredentialRotation = z.infer<typeof MachineCredentialRotation>
+
 /** Challenge request omits proof; a response carries both nonce and signature. */
 export const MachineKeyCredential = z.object({
   kind: z.literal('machineKey'),
+  rotation: MachineCredentialRotation.optional(),
   machineHint: z.string().min(1),
   proof: z.object({
     nonce: z.string().min(1).max(128),
@@ -131,6 +144,11 @@ export const machineHelloTranscript = (challenge: Pick<MachineChallenge,
   'machineId' | 'installationId' | 'connectionId' | 'nonce'>): string =>
   JSON.stringify(['hello-v1', challenge.machineId, challenge.installationId,
     challenge.connectionId, challenge.nonce])
+
+/** Both keys sign the nonce-bound rotation intent, separately from hello. */
+export const machineRotationTranscript = (challenge: Pick<MachineChallenge,
+  'machineId' | 'installationId' | 'connectionId' | 'nonce'>, newKeyId: string, newPublicKey: string): string =>
+  JSON.stringify(['rotate-v1', machineHelloTranscript(challenge), newKeyId, newPublicKey])
 
 export const DelegationRefCredential = z.object({
   /**

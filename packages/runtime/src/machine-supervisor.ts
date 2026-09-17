@@ -23,6 +23,7 @@ import {
   createHandshakeDialer,
   MachineChallenge,
   machineHelloTranscript,
+  machineRotationTranscript,
   type PeerHello,
   MachineSupervisorControlMessage,
   type MachineSupervisorMessage,
@@ -35,7 +36,7 @@ import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-t
 import { writeConnectivity } from './connectivity'
 import { stateDir, type PodiumConfig } from './config'
 import type { MachineUpdateAuthority } from './machine-update'
-import { createMachineCredential, readMachineCredential, machinePublicKeyWire, signWithMachine } from './machine-credential'
+import { prepareMachineCredentialRotation, acknowledgeMachineCredentialRotation, createMachineCredential, readMachineCredential, machinePublicKeyWire, signWithMachine } from './machine-credential'
 import { workspaceEndpoint } from './workspace-target'
 
 const log = createLogger('runtime:machine-supervisor')
@@ -292,6 +293,8 @@ export interface MachineSupervisorConnection {
   report(): void
   /** Re-resolve topology now; stale socket callbacks cannot mutate the new connection. */
   reconfigure(): void
+  /** Explicit rotation; reconnect retries the persisted proposal until acknowledgement. */
+  rotateCredential(): void
   send(message: MachineSupervisorMessage): void
   close(): void
 }
@@ -342,6 +345,9 @@ export function createMachineSupervisorConnection(
   const credential = (): PeerCredential => {
     const bootstrapToken =
       typeof deps.bootstrapToken === 'function' ? deps.bootstrapToken() : deps.bootstrapToken
+    if (readMachineCredential(deps.stateDir)?.pendingRotation) {
+      return { kind: 'machineKey', machineHint: deps.state.machineId }
+    }
     if (deps.state.enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
       if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey) throw new Error('enrolled machine key unavailable')
@@ -364,7 +370,7 @@ export function createMachineSupervisorConnection(
   ): boolean => {
     if (enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
-      if (!key || machinePublicKeyWire(key) !== enrolledPublicKey) return false
+      if (!key || machinePublicKeyWire(key.pendingRotation ?? key) !== enrolledPublicKey) return false
       deps.state.enrolledPublicKey = enrolledPublicKey
       delete deps.state.token
     } else if (issuedToken) deps.state.token = issuedToken
@@ -380,6 +386,13 @@ export function createMachineSupervisorConnection(
     }
     deps.state.assignment = loadSupervisorState(deps.stateDir).assignment
     saveSupervisorState(deps.stateDir, deps.state)
+    if (enrolledPublicKey && readMachineCredential(deps.stateDir)?.pendingRotation) {
+      // Make the new-key reference durable before dropping the only old private key.
+      // A crash before promotion leaves a pending proposal that the next hello retries.
+      syncFile(join(deps.stateDir, STATE_FILE))
+      syncFile(deps.stateDir)
+      acknowledgeMachineCredentialRotation(deps.stateDir, enrolledPublicKey)
+    }
     if (issuedToken || enrolledPublicKey) deps.onPaired?.()
     return true
   }
@@ -448,13 +461,25 @@ export function createMachineSupervisorConnection(
         if (!key) { active.close(); return }
         challengeAnswered = true
         const { nonce, installationId, connectionId } = challenge.data
+        const signingKey = key.pendingRotation ?? key
+        const newPublicKey = machinePublicKeyWire(signingKey)
+        const transcript = machineRotationTranscript(challenge.data, newPublicKey, newPublicKey)
+        const rotation = key.pendingRotation ? {
+          newKeyId: newPublicKey, newPublicKey, newSignature: signWithMachine(signingKey, transcript),
+          previous: deps.state.token
+            ? { kind: 'bearer-hash' as const, token: deps.state.token }
+            : { kind: 'ed25519' as const, publicKey: machinePublicKeyWire(key), signature: signWithMachine(key, transcript) },
+        } : undefined
         active.send(JSON.stringify({ ...hello, credential: { ...hello.credential,
+          ...(rotation ? { rotation } : {}),
           proof: { nonce, installationId, connectionId,
-            signature: signWithMachine(key, machineHelloTranscript(challenge.data)) } } }))
+            signature: signWithMachine(signingKey, machineHelloTranscript(challenge.data)) } } }))
         return
       }
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
+        const pending = readMachineCredential(deps.stateDir)?.pendingRotation
+        if (pending && step.enrolledPublicKey !== machinePublicKeyWire(pending)) { active.close(); return }
         if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations, step.enrolledPublicKey)) {
           active.close()
           return
@@ -533,6 +558,17 @@ export function createMachineSupervisorConnection(
       return result
     },
     report: sendReport,
+    rotateCredential() {
+      if (!deps.state.enrolledPublicKey && !deps.state.token) throw new Error('machine must be enrolled before rotation')
+      const current = readMachineCredential(deps.stateDir)
+      if (deps.state.enrolledPublicKey && (!current
+        || (machinePublicKeyWire(current) !== deps.state.enrolledPublicKey
+          && (!current.pendingRotation || machinePublicKeyWire(current.pendingRotation) !== deps.state.enrolledPublicKey)))) {
+        throw new Error('enrolled machine key unavailable')
+      }
+      prepareMachineCredentialRotation(deps.stateDir)
+      this.reconfigure()
+    },
     reconfigure() {
       // An unchanged URL can carry a new credential or role assignment.
       // Always renew the handshake and invalidate every old socket callback.
