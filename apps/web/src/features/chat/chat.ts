@@ -1,4 +1,3 @@
-import type { ChatRow } from '@podium/client-core/viewmodels'
 import {
   type ConversationPendingTurn,
   pairPendingWithConversationQueue,
@@ -7,6 +6,7 @@ import {
   reconcileConversationPending,
   reconcileConversationQueue,
 } from '@podium/client-core/conversation'
+import type { ChatRow } from '@podium/client-core/viewmodels'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
 import { deadLetterDeliveryLine } from '../messages/message-ledger'
 

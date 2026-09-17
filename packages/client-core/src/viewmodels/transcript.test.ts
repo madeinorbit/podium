@@ -1,6 +1,14 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { dedupeTranscriptItems, freshOlderTranscriptPage, reconcileTranscriptSnapshot, sameTranscriptItems, mergeTranscriptItems, prependTranscriptItems, transcriptDisplayText } from './transcript'
+import {
+  dedupeTranscriptItems,
+  freshOlderTranscriptPage,
+  mergeTranscriptItems,
+  prependTranscriptItems,
+  reconcileTranscriptSnapshot,
+  sameTranscriptItems,
+  transcriptDisplayText,
+} from './transcript'
 
 function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptItem {
   return {
@@ -242,7 +250,11 @@ describe('reconcileTranscriptSnapshot', () => {
     // so the snapshot tail is the last COMPLETE record (B). C must survive.
     const prev = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
     const snapshot = [it_('a', 'c1'), it_('b', 'c2')]
-    expect(reconcileTranscriptSnapshot(prev, snapshot, 'c2').map((i) => i.id)).toEqual(['a', 'b', 'c'])
+    expect(reconcileTranscriptSnapshot(prev, snapshot, 'c2').map((i) => i.id)).toEqual([
+      'a',
+      'b',
+      'c',
+    ])
   })
 
   it('does NOT wipe the view when the re-read returns empty (no-resume / failed read)', () => {
@@ -255,13 +267,20 @@ describe('reconcileTranscriptSnapshot', () => {
     // is a brand-new cursor not in `prev`, so the held items are dropped wholesale.
     const prev = [it_('old1', 'o1'), it_('old2', 'o2')]
     const snapshot = [it_('new1', 'n1'), it_('new2', 'n2')]
-    expect(reconcileTranscriptSnapshot(prev, snapshot, 'n2').map((i) => i.id)).toEqual(['new1', 'new2'])
+    expect(reconcileTranscriptSnapshot(prev, snapshot, 'n2').map((i) => i.id)).toEqual([
+      'new1',
+      'new2',
+    ])
   })
 
   it('adopts the snapshot when it is a superset of the held window', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
     const snapshot = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
-    expect(reconcileTranscriptSnapshot(prev, snapshot, 'c3').map((i) => i.id)).toEqual(['a', 'b', 'c'])
+    expect(reconcileTranscriptSnapshot(prev, snapshot, 'c3').map((i) => i.id)).toEqual([
+      'a',
+      'b',
+      'c',
+    ])
   })
 })
 
@@ -270,7 +289,9 @@ describe('sameTranscriptItems', () => {
     // The guard that makes the liveness reconcile free: reconcileTranscriptSnapshot hands back
     // a NEW array for an unchanged transcript, and without this every heartbeat
     // would re-derive rows and re-render the feed.
-    expect(sameTranscriptItems([it_('a', 'c1'), it_('b', 'c2')], [it_('a', 'c1'), it_('b', 'c2')])).toBe(true)
+    expect(
+      sameTranscriptItems([it_('a', 'c1'), it_('b', 'c2')], [it_('a', 'c1'), it_('b', 'c2')]),
+    ).toBe(true)
   })
 
   it('fails on a grown window, so a genuinely new item still lands', () => {
@@ -288,3 +309,79 @@ describe('sameTranscriptItems', () => {
   })
 })
 
+describe('item identity is independent of its position anchor', () => {
+  it('keeps a growing streamed message in place when its cursor changes', () => {
+    const partial = item({ id: 'message', cursor: cursor('f', 10), text: 'Hel' })
+    const complete = { ...partial, cursor: cursor('f', 30), text: 'Hello' }
+    const held = [partial, item({ id: 'next', cursor: cursor('f', 20) })]
+    expect(mergeTranscriptItems(held, [complete])).toEqual([complete, held[1]])
+    expect(held[0]).toBe(partial)
+  })
+
+  it('keeps distinct ids even when cursors are equal', () => {
+    const first = it_('first', 'shared-position')
+    const second = it_('second', 'shared-position')
+    expect(mergeTranscriptItems([first], [second])).toEqual([first, second])
+    expect(dedupeTranscriptItems([first, second])).toEqual([first, second])
+    expect(freshOlderTranscriptPage([first], [second])).toEqual([first])
+  })
+
+  it('uses the latest value of a repeated new id within one frame', () => {
+    const partial = it_('new', 'c1')
+    const complete = { ...partial, text: 'complete', cursor: 'c2' }
+    expect(mergeTranscriptItems([], [partial, complete])).toEqual([complete])
+  })
+
+  it('dedupes ids with different or absent cursors, preserving the first value', () => {
+    const first = it_('a', 'c1')
+    expect(dedupeTranscriptItems([first, it_('a', 'c2'), it_('a')])).toEqual([first])
+  })
+
+  it('prepends an overlapping page only once and retains the held live content', () => {
+    const held = [item({ id: 'b', cursor: 'live', text: 'complete' })]
+    const older = it_('a', 'older')
+    const page = [older, it_('a', 'replay'), it_('b', 'history')]
+    expect(prependTranscriptItems(held, page)).toEqual([older, ...held])
+    expect(prependTranscriptItems(held, [it_('b', 'history')])).toBe(held)
+  })
+
+  it('keeps one OpenCode part seen as delta then history across repeated wire parses', () => {
+    // IDs arrive from the provider contract. This client neither mints them nor
+    // decodes them; two parses of the same wire bytes must merge identically.
+    const bytes = JSON.stringify({
+      id: 'opencode:session:part',
+      role: 'assistant',
+      text: 'complete',
+      cursor: cursor('opencode-session', 100),
+    })
+    const first: TranscriptItem = JSON.parse(bytes)
+    const second: TranscriptItem = JSON.parse(bytes)
+    expect(first.id).toBe(second.id)
+    const live = { ...first, text: 'partial', cursor: cursor('opencode-session', 90) }
+    const merged = mergeTranscriptItems([live], [first])
+    expect(merged).toEqual([first])
+    expect(mergeTranscriptItems(merged, [second])).toBe(merged)
+    expect(prependTranscriptItems(merged, [second])).toBe(merged)
+  })
+
+  it('resolves the snapshot tail anchor to an id before retaining newer held rows', () => {
+    const held = [it_('a', 'old-a'), it_('b', 'old-b'), it_('live', 'live-c')]
+    const snapshot = [it_('a', 'new-a'), it_('b', 'new-b')]
+    expect(reconcileTranscriptSnapshot(held, snapshot, 'new-b')).toEqual([...snapshot, held[2]])
+  })
+
+  it('does not treat a reused position as the same conversation', () => {
+    const held = [it_('old', 'same-position'), it_('old-tail', 'tail')]
+    const snapshot = [it_('new', 'same-position')]
+    expect(reconcileTranscriptSnapshot(held, snapshot, 'same-position')).toBe(snapshot)
+  })
+
+  it('handles cursorless snapshot tails by id and dedupes snapshot repeats', () => {
+    const held = [it_('a'), it_('live')]
+    expect(reconcileTranscriptSnapshot(held, [it_('a'), it_('a')], undefined)).toEqual(held)
+  })
+
+  it('treats a changed cursor as changed content while keeping row identity', () => {
+    expect(sameTranscriptItems([it_('a', 'before')], [it_('a', 'after')])).toBe(false)
+  })
+})

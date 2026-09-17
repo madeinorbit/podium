@@ -93,19 +93,23 @@ describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }
     expect(controller.getSnapshot().subscriptionHealthy).toBe(true)
     expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'c2', expect.any(Function))
 
-    io.emit([item('tail', 'c2', 'complete')])
+    io.emit([item('tail', 'c2-updated', 'complete')])
     expect(controller.getSnapshot().items.map((entry) => entry.text)).toEqual(['a', 'complete'])
 
     const paging = controller.loadOlder()
     expect(io.reads[1]).toMatchObject({ anchor: 'c1', limit: pageLimit })
     io.pending[1]?.resolve({
-      items: [item('older', 'c0'), item('a', 'c1')],
+      items: [item('older', 'c0'), item('a', 'c1-history')],
       head: 'c0',
       tail: 'c1',
       hasMore: false,
     })
     await paging
-    expect(controller.getSnapshot().items.map((entry) => entry.cursor)).toEqual(['c0', 'c1', 'c2'])
+    expect(controller.getSnapshot().items.map((entry) => entry.cursor)).toEqual([
+      'c0',
+      'c1',
+      'c2-updated',
+    ])
     expect(write).toHaveBeenCalled()
     controller.dispose()
   })

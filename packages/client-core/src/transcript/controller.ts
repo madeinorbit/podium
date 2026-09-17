@@ -1,6 +1,19 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { freshOlderTranscriptPage, mergeTranscriptFrame, reconcileTranscriptSnapshot, sameTranscriptItem, sameTranscriptItems } from '../viewmodels/transcript'
-export { freshOlderTranscriptPage, mergeTranscriptFrame, reconcileTranscriptSnapshot, sameTranscriptItem, sameTranscriptItems } from '../viewmodels/transcript'
+import {
+  freshOlderTranscriptPage,
+  mergeTranscriptFrame,
+  reconcileTranscriptSnapshot,
+  sameTranscriptItem,
+  sameTranscriptItems,
+} from '../viewmodels/transcript'
+
+export {
+  freshOlderTranscriptPage,
+  mergeTranscriptFrame,
+  reconcileTranscriptSnapshot,
+  sameTranscriptItem,
+  sameTranscriptItems,
+} from '../viewmodels/transcript'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
@@ -209,9 +222,7 @@ export class TranscriptController {
       if (this.state.items.length > 0) this.patch({ freshness: 'saved' })
       return true
     }
-    const held = this.state.items.find(
-      (item) => item.id === remote.id,
-    )
+    const held = this.state.items.find((item) => item.id === remote.id)
     if (held && sameTranscriptItem(held, remote)) {
       if (this.state.freshness !== null) this.patch({ freshness: null })
       return true

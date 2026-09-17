@@ -31,8 +31,7 @@ export function sameTranscriptItems(
     (left.length === right.length &&
       left.every(
         (item, index) =>
-          item.id === right[index]?.id &&
-          sameTranscriptItem(item, right[index] as TranscriptItem),
+          item.id === right[index]?.id && sameTranscriptItem(item, right[index] as TranscriptItem),
       ))
   )
 }
@@ -48,7 +47,9 @@ export function mergeTranscriptFrame(
 ): TranscriptItem[] {
   if (frame.length === 0) return held as TranscriptItem[]
   const positions = new Map<string, number>()
-  held.forEach((item, index) => positions.set(item.id, index))
+  held.forEach((item, index) => {
+    positions.set(item.id, index)
+  })
   let next: TranscriptItem[] | null = null
   const additions = new Map<string, TranscriptItem>()
 
@@ -84,9 +85,10 @@ export function reconcileTranscriptSnapshot(
   snapshotTail: string | undefined,
 ): TranscriptItem[] {
   if (snapshot.length === 0) return held as TranscriptItem[]
-  const tail = snapshotTail === undefined
-    ? snapshot.at(-1)
-    : snapshot.find((item) => item.cursor === snapshotTail)
+  const tail =
+    snapshotTail === undefined
+      ? snapshot.at(-1)
+      : snapshot.find((item) => item.cursor === snapshotTail)
   const tailIndex = tail === undefined ? -1 : held.findIndex((item) => item.id === tail.id)
   const unique = dedupeTranscriptItems(snapshot)
   if (tailIndex < 0) return unique
@@ -102,7 +104,7 @@ export function dedupeTranscriptItems(items: readonly TranscriptItem[]): Transcr
     seen.add(item.id)
     return true
   })
-  return unique.length === items.length ? items as TranscriptItem[] : unique
+  return unique.length === items.length ? (items as TranscriptItem[]) : unique
 }
 
 /** Exclude held ids and repeats within the older page; held live content wins. */

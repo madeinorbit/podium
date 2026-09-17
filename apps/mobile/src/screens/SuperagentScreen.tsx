@@ -2,13 +2,12 @@ import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
   buildImagePrompt,
   mergeTranscriptItems,
-  reconcileTranscriptSnapshot,
   prependTranscriptItems,
+  reconcileTranscriptSnapshot,
   superagentSlice,
 } from '@podium/client-core/viewmodels'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { Eraser } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import {
@@ -24,6 +23,7 @@ import {
 import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { Eraser } from '../components/icons'
 import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
@@ -31,11 +31,8 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import { type SentAttachment, useComposerAttachments } from '../components/useComposerAttachments'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
-import {
-  type SentAttachment,
-  useComposerAttachments,
-} from '../components/useComposerAttachments'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
@@ -250,9 +247,11 @@ export function SuperagentScreen() {
     const attach = (since: string | undefined) => {
       if (!alive) return
       unsubscribe = hub.subscribeTranscript(podiumSid, since, (delta, meta) => {
-        setItems((prev) => (meta.reset
-          ? reconcileTranscriptSnapshot(prev, delta, delta.at(-1)?.cursor)
-          : mergeTranscriptItems(prev, delta)))
+        setItems((prev) =>
+          meta.reset
+            ? reconcileTranscriptSnapshot(prev, delta, delta.at(-1)?.cursor)
+            : mergeTranscriptItems(prev, delta),
+        )
       })
     }
     readTranscriptPage(trpc, podiumSid)
