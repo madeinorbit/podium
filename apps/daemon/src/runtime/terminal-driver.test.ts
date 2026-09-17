@@ -1626,6 +1626,36 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
+  it('emits duplicate starts when observation and poll report the same turn', async () => {
+    const world = makeWorld()
+    const profile: TerminalHarnessProfile = { ...GROK, lifecycleFromState: true }
+    const driver = world.runtime.driverFor('opencode', profile)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+
+    world.observe(sessionId, {
+      transitionKind: 'turn_opened',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      turnEpoch: 1,
+    })
+    world.runtime.observe({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: '2026-08-14T00:00:00.000Z',
+        nativeSubagentCount: 0,
+        stateSource: 'poll',
+      },
+    })
+
+    const turns = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event] : [],
+    )
+    expect(turns.map((event) => event.ev.ev)).toEqual(['started', 'started'])
+  })
+
   it('closes a manifest-authorized provider-state turn without screen heuristics', async () => {
     const world = makeWorld()
     const profile: TerminalHarnessProfile = { ...GROK, lifecycleFromState: true }
