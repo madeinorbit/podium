@@ -383,7 +383,7 @@ export interface TerminalHarnessProfile {
   sendProof: DriverCapabilities['send']['proof']
   /** Claude's `UserPromptSubmit` is the only causal accept in the fleet today. */
   hookAnchoredAccept: boolean
-  /** The manifest declares provider-poll agentState as the terminal lifecycle source. */
+  /** Provider-poll agentState owns lifecycle and epochs; causal observations are ignored. */
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
   needsSubmitVerification: boolean
@@ -1073,23 +1073,30 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     session.observerGeneration = observation.observerGeneration
     session.bindingVersion = Math.max(session.bindingVersion, observation.bindingVersion)
     session.providerCursor = observation.providerCursor
-    const alreadyFenced =
-      observation.transitionKind === 'turn_terminal' &&
-      observation.turnEpoch <= session.fencedTurnEpoch
-    // MONOTONIC. Fences are absorbing: an epoch that closed does not reopen, and
-    // an epoch that went backwards would make a replayed stream read as new work.
-    session.turnEpoch = Math.max(session.turnEpoch, observation.turnEpoch)
-    if (alreadyFenced) return
-    if (observation.transitionKind === 'turn_terminal') {
-      session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, observation.turnEpoch)
+    const lifecycleFromState = profiles.get(session.sessionId)?.lifecycleFromState === true
+    let alreadyFenced = false
+    if (!lifecycleFromState) {
+      alreadyFenced =
+        observation.transitionKind === 'turn_terminal' &&
+        observation.turnEpoch <= session.fencedTurnEpoch
+      // MONOTONIC. Fences are absorbing: an epoch that closed does not reopen, and
+      // an epoch that went backwards would make a replayed stream read as new work.
+      session.turnEpoch = Math.max(session.turnEpoch, observation.turnEpoch)
+      if (observation.transitionKind === 'turn_terminal') {
+        session.fencedTurnEpoch = Math.max(session.fencedTurnEpoch, observation.turnEpoch)
+      }
     }
+    if (alreadyFenced) return
     const transcriptFence = {
       observerGeneration: session.observerGeneration,
       bindingVersion: session.bindingVersion,
     }
 
     const at = observation.providerAt ?? observation.receivedAt
-    const turn = turnEventForObservation(observation)
+    // Poll state owns lifecycle and epochs for this harness. The observation
+    // envelope still carries cursor, generation, asks, transcript items and
+    // state events, so only its lifecycle mutation and turn event are skipped.
+    const turn = lifecycleFromState ? null : turnEventForObservation(observation)
     if (turn) emit(session, turn, at, observation.provenance, observation.providerCursor)
 
     const change = stateEventForObservation(observation)

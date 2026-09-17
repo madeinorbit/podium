@@ -324,6 +324,9 @@ export const opencodeManifest: AgentManifest = {
     terminal: {
       driverId: 'generic-pty',
       sendProof: ['transcript-echo'],
+      // SQLite polling calls onStateEvents, never onObservation; opencode is
+      // not a causal ObservationProvider. Keep poll state as the sole lifecycle
+      // and epoch authority until a causal observer replaces that producer.
       lifecycleFromState: true,
     },
     // The server is the default whenever its version probe admits this machine

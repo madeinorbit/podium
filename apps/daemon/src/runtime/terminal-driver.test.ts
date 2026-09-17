@@ -1812,9 +1812,9 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
-  // PINS A KNOWN BUG: invert this assertion when POD-4139 lands; do not delete it.
+  // Regression from POD-4056: the selected poll source owns this boundary once.
 
-  it('emits duplicate starts when observation and poll report the same turn', async () => {
+  it('emits one start when observation and poll report the same turn', async () => {
     const world = makeWorld()
     const profile: TerminalHarnessProfile = { ...GROK, lifecycleFromState: true }
     const driver = world.runtime.driverFor('opencode', profile)
@@ -1841,7 +1841,101 @@ describe('observation translation', () => {
     const turns = world.frames.flatMap((frame) =>
       frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event] : [],
     )
-    expect(turns.map((event) => event.ev.ev)).toEqual(['started', 'started'])
+    expect(turns.map((event) => event.ev.ev)).toEqual(['started'])
+  })
+
+  it.each(['state-first', 'observation-first'] as const)(
+    'keeps OpenCode poll epochs authoritative across turns (%s)',
+    async (order) => {
+      const world = makeWorld()
+      const profile = terminalProfileFor('opencode')
+      if (!profile) throw new Error('OpenCode terminal profile missing')
+      expect(profile.lifecycleFromState).toBe(true)
+      const session = await world.runtime.driverFor('opencode', profile).create({
+        ...SPEC,
+        harness: 'opencode',
+      })
+      const sessionId = session.binding.sessionId
+
+      for (let epoch = 1; epoch <= 3; epoch++) {
+        for (const phase of ['working', 'idle'] as const) {
+          const state: AgentRuntimeState = {
+            phase,
+            since: `2026-08-14T00:00:0${epoch}.000Z`,
+            nativeSubagentCount: 0,
+            stateSource: 'poll',
+            ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+          }
+          const poll = () => world.runtime.observe({ type: 'agentState', sessionId, state })
+          const observe = () => world.observe(sessionId, {
+            transitionKind: phase === 'working' ? 'turn_opened' : 'turn_terminal',
+            priorPhase: phase === 'working' ? 'idle' : 'working',
+            nextPhase: phase,
+            turnEpoch: epoch,
+            state,
+          })
+          if (order === 'state-first') {
+            poll()
+            observe()
+          } else {
+            observe()
+            poll()
+          }
+          expect((await session.snapshot()).turnEpoch).toBe(epoch)
+        }
+      }
+
+      const turns = world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
+      )
+      expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
+        ['started', 1], ['completed', 1],
+        ['started', 2], ['completed', 2],
+        ['started', 3], ['completed', 3],
+      ])
+    },
+  )
+
+  it('does not let an observation epoch or fence poison the OpenCode poll counter', async () => {
+    const world = makeWorld()
+    const profile = terminalProfileFor('opencode')
+    if (!profile) throw new Error('OpenCode terminal profile missing')
+    const session = await world.runtime.driverFor('opencode', profile).create({
+      ...SPEC,
+      harness: 'opencode',
+    })
+    const sessionId = session.binding.sessionId
+    const before = await session.snapshot()
+    for (const transitionKind of ['snapshot', 'turn_opened', 'turn_terminal'] as const) {
+      world.observe(sessionId, { transitionKind, turnEpoch: 100, observerGeneration: 9 })
+    }
+    const observed = await session.snapshot()
+    expect(observed.turnEpoch).toBe(before.turnEpoch)
+    expect(observed.fencedTurnEpoch).toBe(before.fencedTurnEpoch)
+    expect(observed.observerGeneration).toBe(9)
+    expect(observed.cursor.segmentId).toBe('seg')
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(2)
+
+    for (const phase of ['working', 'idle', 'working', 'idle'] as const) {
+      world.runtime.observe({
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase,
+          since: '2026-08-14T00:00:01.000Z',
+          nativeSubagentCount: 0,
+          stateSource: 'poll',
+        },
+      })
+    }
+    expect((await session.snapshot()).turnEpoch).toBe(2)
+    const turns = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
+    )
+    expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
+      ['started', 1], ['completed', 1],
+      ['started', 2], ['completed', 2],
+    ])
   })
 
   it('closes a manifest-authorized provider-state turn without screen heuristics', async () => {
