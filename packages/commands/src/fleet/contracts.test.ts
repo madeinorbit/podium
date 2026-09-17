@@ -322,6 +322,15 @@ describe('the fleet contracts', () => {
     }
   })
 
+  it('declares owner-or-admin custody without widening use', () => {
+    for (const name of ['machines.share', 'machines.unshare', 'machines.transferOwnership'] as const) {
+      expect(FLEET_CONTRACTS[name].policy).toMatchObject({ roleFloor: 'member', machineVerb: 'manage', machineSharingAuthority: 'owner-or-admin' })
+    }
+    expect(FLEET_CONTRACTS['machines.adopt'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage', machineOwnerPrecondition: 'unowned' })
+    expect(FLEET_CONTRACTS['machines.moveServer'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage' })
+    expect(FLEET_CONTRACTS['discovery.scanMachine'].policy.machineVerb).toBe('use')
+  })
+
   it('reserves enrollment, adoption, assignment and server transfer for admins', () => {
     const byFloor = Object.fromEntries(
       Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.policy.roleFloor]),

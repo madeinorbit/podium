@@ -48,7 +48,7 @@
  *
  * | Slice | Marker | Schemas |
  * |---|---|---|
- * | existence / health / attribution | `SEE` | {@link MachineWire} minus `inventory`, {@link HostMetricsWire}, {@link HostMemoryWire}, {@link HostLoadWire} |
+ * | existence / health / attribution | `SEE` | {@link MachineWire} minus `inventory` and `harnessVersions`, {@link HostMetricsWire}, {@link HostMemoryWire}, {@link HostLoadWire} |
  * | use-gated detail | `USE` | {@link Inventory} (+ {@link AgentInventory}, {@link ToolInventory}), {@link AgentMemoryWire}, {@link ProjectMemoryWire}, {@link UsageBucketWire}, {@link QuotaWindowWire}, {@link AgentQuotaWire}, {@link MachineQuotaWire}, {@link GitRepositoryWire}, {@link GitWorktreeWire}, {@link GitDiscoveryDiagnosticWire}, {@link DirectoryEntryWire}, {@link DirectoryListingWire} |
  *
  * **This is a partition, NOT a policy.** §3.1.2 deliberately leaves open which
@@ -350,7 +350,7 @@ export const HostMetricsWire = z.object({
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 
-/** `SEE` for everything except `inventory`, which is `USE`. The machine's
+/** `SEE` for everything except `inventory` and `harnessVersions`, which are `USE`. The machine's
  *  existence, name and liveness are the whole content of §3.1.4 M1's `see`
  *  verb; `inventory` is what a principal with `see` but not `use` must not
  *  learn, and it is a single field so the projection split is a field drop. */
@@ -457,6 +457,7 @@ export const MachineWire = z.object({
   /** Retained audit identity; revoked machines cannot execute or receive control. */
   revokedAt: z.string().nullable().optional(),
   daemonReadiness: DaemonReadiness.optional(),
+  /** USE: harness installation history is hidden without execution consent. */
   harnessVersions: z.array(MachineHarnessVersion).optional(),
   /** THE machine id itself — and the site that made ADR 1 Amendment 2 D16.2 an
    *  ORDERING constraint rather than a preference: while the server upserted this
@@ -478,21 +479,10 @@ export const MachineWire = z.object({
   availability: z.object({ epoch: z.string(), server: z.boolean(), daemon: z.boolean(), supervisor: z.boolean() }).optional(),
   /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
   use: MachineUseDecision.optional(),
-  /**
-   * `SEE` — VIEWER-RELATIVE, and deliberately not an owner id (POD-1495).
-   *
-   * `true` means *you* are this machine's current owner. It is the one
-   * ownership fact a client needs in order not to OFFER an act only the owner
-   * may perform — `machines.transferOwnership` is owner-only (POD-1480), and a
-   * control that renders for a manage grantee is a control that fails.
-   *
-   * No owner identity crosses the wire. `unowned` distinguishes absence of a
-   * personal grantee, and `adoptable` carries the viewer's adoption permission.
-   *
-   * OMITTING IT MEANS NOT EVALUATED, the same closed reading as `use` — never
-   * "yes".
-   */
+  /** SEE: whether the authenticated viewer is the personal grantee; never an owner id. */
   owned: z.boolean().optional(),
+  /** SEE: owner or admin custody authority after agent narrowing. Absent means not evaluated. */
+  transferable: z.boolean().optional(),
   /** Explicit absence of a personal grantee; nobody may use this machine. */
   unowned: z.boolean().optional(),
   /** Viewer may adopt this unowned machine. Absent means not evaluated. */

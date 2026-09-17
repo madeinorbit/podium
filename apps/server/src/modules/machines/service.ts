@@ -53,7 +53,7 @@ import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
 import type { WorldIndexReader } from '../world-index'
 import { readResourceGrants } from '../world-index/grant-reader'
-import type { EnrollmentHost } from './enrollment'
+import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
 
@@ -981,16 +981,16 @@ export class MachinesService {
     await credentials.transferOwnership(this.enrollmentHost, machineId, newOwnerUserId, opts)
   }
 
-  /** Owner-only ownership transfer (POD-1480) — the product surface behind
+  /** Owner-or-admin ownership transfer (POD-1480) — the product surface behind
    *  `machines.transferOwnership`. See {@link credentials.transferMachineOwnership}. */
-  async transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, currentOwner: UserId): Promise<void> {
-    await credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, currentOwner)
+  async transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
+    await credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, actor, context)
   }
 
   /** Give an owner to a machine that has none (POD-1494) — the product surface
    *  behind `machines.adopt`. See {@link credentials.adoptMachine}. */
-  async adoptMachine(id: MachineId, newOwnerUserId: UserId): Promise<void> {
-    await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId)
+  async adoptMachine(id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
+    await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId, actor, context)
   }
 
   /** Effective owner for authorization from the database row. */
@@ -1713,11 +1713,12 @@ export class MachinesService {
     id: MachineId,
     grantee: string,
     verb: MachineVerb,
-    attribution: { actor: string; onBehalfOf: string },
+    attribution: { actor: string; onBehalfOf: string; manage?: (machineId: MachineId) => boolean },
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine?.ownerUserId || machine.revokedAt || machine.ownerUserId !== attribution.onBehalfOf) {
-      throw new Error('only the machine owner may change sharing')
+    if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    if (attribution.manage?.(id) === false || (machine.ownerUserId !== attribution.onBehalfOf && await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf)) !== 'admin')) {
+      throw new Error('only the machine owner or an admin may change sharing')
     }
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'
@@ -1732,7 +1733,7 @@ export class MachinesService {
       resourceId: id,
       grantee,
       verb,
-      owner: machine.ownerUserId,
+      owner: attribution.onBehalfOf,
       visibility: 'owned-compute',
       createdAt: new Date().toISOString(),
       actorKind,
@@ -1742,10 +1743,11 @@ export class MachinesService {
     await this.broadcastMachines()
   }
 
-  async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string): Promise<void> {
+  async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string, context: MachineManagementContext = {}): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine?.ownerUserId || machine.revokedAt || machine.ownerUserId !== owner) {
-      throw new Error('only the machine owner may change sharing')
+    if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    if (context.manage?.(id) === false || (machine.ownerUserId !== owner && await this.deps.store.users.roleOf(asUserId(owner)) !== 'admin')) {
+      throw new Error('only the machine owner or an admin may change sharing')
     }
     await this.deps.store.grants.remove('machine', id, grantee, verb)
     await this.broadcastMachines()

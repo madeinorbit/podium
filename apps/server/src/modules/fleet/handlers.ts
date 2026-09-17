@@ -31,7 +31,7 @@ import { SERVER_MOVE_OPERATION_KIND, serverMoveFaultHook } from '../server-trans
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { visibleMachinesFor } from '../sessions/command-ctx'
+import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
@@ -83,12 +83,12 @@ export const machineSetAssignmentHandler = async ({ ctx, input }: FleetArgs<{
   id: string; assignment: import('@podium/model').MachineServiceAssignment; requestId: string
 }>) => {
   await mods(ctx).machines.changeAssignment(asMachineId(input.id), input.assignment, input.requestId)
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 export const machineRenameHandler = async ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
   await mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 export const machineSetUpdateChannelHandler = async ({
@@ -107,7 +107,7 @@ export const machineSetUpdateChannelHandler = async ({
       modules.updates.fleetDefaultChannel(),
     ),
   )
-  return await modules.machines.listMachines()
+  return await machinesForPrincipal(modules, (await fleetAuthzDeps(ctx)).principal)
 }
 
 export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
@@ -123,14 +123,15 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
     initiator: { kind: 'operator-apply' },
     eligibility: 'a person pressed Apply on this fleet row',
   })
-  return { machines: await modules.machines.listMachines(), outcome }
+  return { machines: await machinesForPrincipal(modules, (await fleetAuthzDeps(ctx)).principal), outcome }
 }
 
 export const machineShareHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
-  const principal = (await fleetAuthzDeps(ctx)).principal
+  const authz = await fleetAuthzDeps(ctx)
+  const principal = authz.principal
   const attribution = attributionOf(principal)
   if (attribution.onBehalfOf === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
@@ -138,20 +139,22 @@ export const machineShareHandler = async ({
   await mods(ctx).machines.shareMachine(asMachineId(input.id), input.grantee, input.verb, {
     actor: attribution.actor,
     onBehalfOf: attribution.onBehalfOf,
+    manage: fleetUsePredicate(authz, 'manage'),
   })
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 export const machineUnshareHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
-  const owner = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
+  const authz = await fleetAuthzDeps(ctx)
+  const owner = onBehalfOfUser(authz.principal)
   if (owner === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  await mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner)
-  return await mods(ctx).machines.listMachines()
+  await mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner, { manage: fleetUsePredicate(authz, 'manage') })
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 /**
@@ -168,7 +171,8 @@ export const machineTransferOwnershipHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; newOwnerUserId: UserId }>) => {
-  const owner = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
+  const authz = await fleetAuthzDeps(ctx)
+  const owner = onBehalfOfUser(authz.principal)
   if (owner === null) {
     throw new TRPCError({
       code: 'FORBIDDEN',
@@ -176,11 +180,11 @@ export const machineTransferOwnershipHandler = async ({
     })
   }
   try {
-    await mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner)
+    await mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
   } catch (e) {
     return badRequest(e)
   }
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 /** Explicit adoption defaults to the authenticated human, never an inferred owner. */
@@ -188,21 +192,23 @@ export const machineAdoptHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ id: string; newOwnerUserId?: UserId }>) => {
-  const recipient = input.newOwnerUserId ?? onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
-  if (recipient === null) {
+  const authz = await fleetAuthzDeps(ctx)
+  const actor = onBehalfOfUser(authz.principal)
+  const recipient = input.newOwnerUserId ?? actor
+  if (recipient === null || actor === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'adoption requires a human recipient' })
   }
   try {
-    await mods(ctx).machines.adoptMachine(asMachineId(input.id), recipient)
+    await mods(ctx).machines.adoptMachine(asMachineId(input.id), recipient, actor, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
   } catch (e) {
     return badRequest(e)
   }
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
   await mods(ctx).machines.revokeMachine(asMachineId(input.id), { attribution: settingsAuditAttribution((await fleetAuthzDeps(ctx)).principal) })
-  return await mods(ctx).machines.listMachines()
+  return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
 /** Move authority only after the target reports a durable promotion. */

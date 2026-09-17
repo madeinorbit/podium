@@ -1159,25 +1159,8 @@ function MachineRow({
     }
   }
 
-  /**
-   * POD-1495 — TRANSFER IS OFFERED ONLY TO THE CURRENT OWNER, and the panel
-   * learns that from the server rather than guessing.
-   *
-   * `machine.owned` is the viewer-relative answer the projection attaches
-   * (`MachineWire.owned`), computed by the SAME predicate the transfer gate
-   * refuses with. So the three refusals POD-1480 proves are all unreachable
-   * from here rather than re-implemented: a manage grantee sees no control
-   * (owned=false → FORBIDDEN never happens), an unowned machine offers none
-   * (owned=false; adopting one is POD-1494's different act), and a machine the
-   * caller cannot see is not in this list at all — which is why the row says
-   * NOTHING about transfer when `owned` is false. Rendering a disabled "you
-   * cannot transfer this" would leak, in the one case where the server answers
-   * absent-shaped, exactly the existence it refuses to confirm.
-   *
-   * `=== true` and not truthiness: absent means NOT EVALUATED, and the closed
-   * reading of "not evaluated" is no.
-   */
-  const mayTransfer = showOwnershipTransfer && machine.owned === true
+  // The server evaluates owner/admin custody authority and agent narrowing.
+  const mayTransfer = showOwnershipTransfer && machine.transferable === true
 
   const transfer = async () => {
     const recipient = recipientId.trim()

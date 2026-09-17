@@ -26,7 +26,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import { asMachineId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -227,6 +227,24 @@ describe('the machine verb is read from the contract, per command', () => {
     expect(await fleetAuthzFailure('machines.share', input, deps(user(OWNER)))).toBeUndefined()
   })
 
+  it('admin custody obeys agent scope without conferring use, and preserves absent/forbidden', async () => {
+    const admin = deps(user(COLLEAGUE), { role: 'admin' })
+    const commands = ['machines.share', 'machines.unshare', 'machines.transferOwnership'] as const
+    for (const name of commands) {
+      expect(await fleetAuthzFailure(name, { id: 'laptop' }, admin)).toBeUndefined()
+      expect((await fleetAuthzFailure(name, { id: 'missing' }, admin))?.code).toBe('NOT_FOUND')
+    }
+    expect((await fleetAuthzFailure('discovery.scanMachine', { machineId: 'laptop' }, admin))?.code).toBe('FORBIDDEN')
+    const agent: CommandPrincipal = { kind: 'agent', agentSessionId: asSessionId('leaf'), chain: [asSessionId('parent')], onBehalfOf: COLLEAGUE, capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') } }
+    const narrowed = { ...admin, principal: agent, ownership: { ...admin.ownership, delegatedMachines: () => new Set<string>() } }
+    for (const name of commands) {
+      expect((await fleetAuthzFailure(name, { id: 'laptop' }, narrowed))?.code).toBe('FORBIDDEN')
+    }
+    const unowned = deps(user(COLLEAGUE), { role: 'admin', owner: null })
+    expect(await fleetAuthzFailure('machines.adopt', { id: 'laptop' }, unowned)).toBeUndefined()
+    expect((await fleetAuthzFailure('machines.adopt', { id: 'missing' }, unowned))?.code).toBe('NOT_FOUND')
+  })
+
   // -------------------------------------------------------------------------
   // TRANSFER OF OWNERSHIP (POD-1480)
   // -------------------------------------------------------------------------
@@ -236,7 +254,7 @@ describe('the machine verb is read from the contract, per command', () => {
   // arm is asserted alongside each refusal so none of these can pass against a
   // gate that refuses everybody.
 
-  it('only the machine OWNER may transfer ownership — not a manage grantee, not an admin', async () => {
+  it('owners and admins may transfer ownership, but delegated manage cannot', async () => {
     const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
 
     // The owner: admitted. Assert this FIRST — without it the three refusals
@@ -252,7 +270,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // authority over the root of the delegation.
     expect((await fleetAuthzFailure('machines.transferOwnership', input, manage))?.code).toBe('FORBIDDEN')
     expect((await fleetAuthzFailure('machines.transferOwnership', input, manage))?.message).toBe(
-      'only the machine owner may change sharing',
+      'only the machine owner or an admin may change sharing',
     )
 
     // An INSTANCE ADMIN who does not own the machine cannot take it either
@@ -260,7 +278,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // the floor, so this refusal is the owner rule and not the floor.
     const admin = deps(user(COLLEAGUE), { role: 'admin' })
 
-    expect((await fleetAuthzFailure('machines.transferOwnership', input, admin))?.code).toBe('FORBIDDEN')
+    expect(await fleetAuthzFailure('machines.transferOwnership', input, admin)).toBeUndefined()
   })
 
   it('requires an admin-grade caller with manage authority on the named target', async () => {
@@ -313,7 +331,7 @@ describe('the machine verb is read from the contract, per command', () => {
     ).toBeUndefined()
   })
 
-  it('an UNOWNED machine is transferable by nobody, including an admin', async () => {
+  it('an admin may transfer an unowned machine, while a member cannot see it', async () => {
     // A quarantined machine (D19.4b) has no owner to derive authority from, and
     // it is refused BEFORE the owner rule is reached: `machineVerbsFor` gives a
     // quarantine admin `see` and nothing else, so the `manage` check answers
@@ -321,9 +339,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // Both arms refuse; adoption is a separate act with separate authority.
     const input = { id: 'laptop', newOwnerUserId: COLLEAGUE }
     const unownedAdmin = deps(user(OWNER), { owner: null, role: 'admin' })
-    expect((await fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin))?.code).toBe(
-      'NOT_FOUND',
-    )
+    expect(await fleetAuthzFailure('machines.transferOwnership', input, unownedAdmin)).toBeUndefined()
     // A genuine non-admin. Two different roles are in play and only one decides
     // this: `machineVerbsFor`'s quarantine arm reads the CAPABILITY role (an
     // `IssueRole`), while `deps.role` is the ACCOUNT role the floor consults.
@@ -624,21 +640,12 @@ describe('the derived fleet router actually calls the gate', () => {
     }
   })
 
-  it('refuses to transfer a machine the caller does not own', async () => {
-    // SECOND PRINCIPAL, produced the only way this environment can: an unowned
-    // row, which belongs to nobody and therefore not to the caller either. The
-    // positive arm above is what stops this passing against a dead procedure.
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
-    try {
-      const { call, store } = await caller(null, { stateDir: dir })
-      await expect(
-        call.machines.transferOwnership({ id: 'm1', newOwnerUserId: COLLEAGUE }),
-      ).rejects.toThrow(/unknown machine/)
-      // Refused BEFORE the handler: no row write, so nothing to unwind.
-      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
+  it('an admin takes over another member machine through the served procedure', async () => {
+    const { call, store } = await caller(COLLEAGUE)
+    const after = await call.machines.transferOwnership({ id: 'm1', newOwnerUserId: firstAdminMemberId() })
+    expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(firstAdminMemberId())
+    expect((await store.settingsAudit.list()).at(-1)).toMatchObject({ command: 'takeover', onBehalfOf: firstAdminMemberId() })
+    expect(after.find((machine) => machine.id === 'm1')?.owned).toBe(true)
   })
 
   it('ADOPTS an unowned machine through the SERVED procedure, and the ledger holds it', async () => {

@@ -53,6 +53,7 @@ import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import {
   checkMachineVerb,
+  canManageMachineCustody,
   isMachineOwner,
   type MachineOwnershipIndex,
   machineAccessMessage,
@@ -248,7 +249,7 @@ export async function fleetAuthzFailure(
   // — it is not a cast around a missing declaration.
   const fleetPolicy = policy as {
     machineVerb?: MachineVerb
-    machineSharingAuthority?: 'owner-only'
+    machineSharingAuthority?: 'owner-or-admin'
     machineOwnerPrecondition?: 'unowned'
   }
   const verb = fleetPolicy.machineVerb
@@ -261,15 +262,9 @@ export async function fleetAuthzFailure(
     case 'machine': {
       const refusal = await machineRefusal(target.machineId, verb, deps)
       if (refusal) return refusal
-      if (fleetPolicy.machineSharingAuthority === 'owner-only') {
+      if (fleetPolicy.machineSharingAuthority === 'owner-or-admin') {
         return machineOwnerRefusal(target.machineId, deps)
       }
-      // The two owner rules are MUTUALLY EXCLUSIVE by construction and the
-      // `else if` says so: `owner-only` requires an incumbent owner and
-      // `unowned` requires the absence of one, so a contract declaring both
-      // would be unsatisfiable. Chained rather than two independent `if`s so
-      // that reads as a single decision instead of two filters that happen
-      // never to overlap.
       if (fleetPolicy.machineOwnerPrecondition === 'unowned') {
         return await machineUnownedRefusal(target.machineId, deps)
       }
@@ -299,20 +294,20 @@ const mayUse = (machineId: MachineId, verb: MachineVerb, deps: FleetAuthzDeps): 
 function machineOwnerRefusal(machineId: MachineId, deps: FleetAuthzDeps): TRPCError | undefined {
   const row = deps.ownership.rowFor(machineId)
   const human = onBehalfOfUser(deps.principal)
-  if (!row || row.owner === null || human === null) {
+  if (!row || human === null) {
     return new TRPCError({
       code: 'NOT_FOUND',
       message: machineAccessMessage('absent', machineId, undefined),
     })
   }
-  // The affirmative arm is `isMachineOwner`'s, not a second spelling of it: the
+  // The affirmative arm is the custody predicate, shared with the
   // projection that decides whether the panel OFFERS transfer reads the same
   // predicate, so a control can never render where this would refuse (POD-1495).
-  return isMachineOwner(deps.principal, machineId, deps.ownership)
+  return canManageMachineCustody(deps.principal, machineId, deps.ownership)
     ? undefined
     : new TRPCError({
         code: 'FORBIDDEN',
-        message: 'only the machine owner may change sharing',
+        message: 'only the machine owner or an admin may change sharing',
       })
 }
 
@@ -341,7 +336,7 @@ async function machineUnownedRefusal(
   if (owner === null || owner === undefined) return undefined
   return new TRPCError({
     code: 'FORBIDDEN',
-    message: 'machine already has an owner — only its owner may transfer it',
+    message: 'machine already has an owner — use transfer ownership',
   })
 }
 

@@ -13,6 +13,7 @@ import type { Capability, MachineId, MachineUseDecision, SessionId } from '@podi
 import { type CommandPrincipal, resolvePrincipal, resolvePrincipalAsync } from '../../command-principal'
 import {
   canSeeMachine,
+  canManageMachineCustody,
   isMachineOwner,
   type MachineOwnershipIndex,
   machineUseDecision,
@@ -177,17 +178,20 @@ export async function machinesForPrincipal(
   return (await modules.machines
     .listMachines(
       (machineId) => machineUseDecision(principal, machineId, resolvedOwnership),
-      // POD-1495: the third viewer-relative answer this projection carries, next
-      // to `use` and the `see` filter below — "may you give this machine away".
-      // It is the SAME predicate the transfer gate refuses with, so the settings
-      // panel cannot offer a transfer the server would reject.
+      // Ownership stays a fact; custody permission is projected separately below.
       (machineId) => isMachineOwner(principal, machineId, resolvedOwnership),
     ))
     .filter((machine) => canSeeMachine(principal, machine.id, resolvedOwnership))
     .map((machine) => {
       const unowned = resolvedOwnership.rowFor(machine.id)?.owner === null
+      // SEE includes identity, liveness, assignment and update/transport health.
+      // Inventory (paths/provider identities) and harness installation history
+      // require USE even when the viewer is an admin with MANAGE.
+      const { inventory, harnessVersions, ...visible } = machine
       return {
-        ...machine,
+        ...visible,
+        ...(machine.use === 'granted' ? { inventory, harnessVersions } : {}),
+        transferable: !machine.revokedAt && canManageMachineCustody(principal, machine.id, resolvedOwnership),
         unowned,
         adoptable: unowned && principal.kind !== 'system' &&
           principal.capability.role === 'admin' &&

@@ -12,6 +12,9 @@ import { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { Send } from '../sessions/session'
+import { machinesForPrincipal } from '../sessions/command-ctx'
+import type { CommandPrincipal } from '../../command-principal'
+import type { MachineOwnershipIndex } from '../../machine-access'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
 
@@ -905,7 +908,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-transfer-'))
     const store = await openTestStore(':memory:')
     const broadcasts: (string | null | undefined)[] = []
-    const known = new Set([OWNER_A, OWNER_B])
+    const known = new Set([OWNER_A, OWNER_B, firstAdminMemberId()])
     let svc!: MachinesService
     svc = new MachinesService({
       instanceId: 'default',
@@ -974,6 +977,72 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 
+  test('admin sharing and takeover use live role, keep attribution, and honor narrowing', async () => {
+    const { svc, store, dir } = await transferWorld()
+    const admin = firstAdminMemberId()
+    try {
+      await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: admin, onBehalfOf: admin })
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      await expect(svc.shareMachine(MACHINE, OWNER_B, 'manage', { actor: OWNER_B, onBehalfOf: OWNER_B })).rejects.toThrow('only the machine owner or an admin')
+      await expect(svc.transferMachineOwnership(MACHINE, admin, admin, { manage: () => false })).rejects.toThrow('only the machine owner or an admin')
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
+      await svc.transferMachineOwnership(MACHINE, admin, admin, {
+        manage: () => true,
+        attribution: { actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin },
+      })
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(admin)
+      expect(await svc.grantsForMachine(MACHINE)).toEqual([])
+      expect(await store.settingsAudit.list()).toEqual([expect.objectContaining({
+        command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
+        detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
+      })])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('admin SEE discloses management and health but no USE detail; agent scope only narrows', async () => {
+    const { svc, dir } = await transferWorld()
+    try {
+      const inventory: Inventory = { os: 'linux', arch: 'x64', agents: [{ kind: 'claude', installed: true, path: '/private/bin/claude', login: { state: 'in', account: 'private@example.com' } }], tools: [] }
+      await svc.recordInventory(MACHINE, inventory)
+      const principal: CommandPrincipal = { kind: 'user', user: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' } } }
+      const ownership: MachineOwnershipIndex = { rowFor: (id) => id === MACHINE ? { machine: id, owner: asUserId(OWNER_A), grants: [], daemonAssigned: true, daemonAvailable: true } : undefined }
+      const raw = (await svc.listMachines()).find((m) => m.id === MACHINE)!
+      const projected = (await machinesForPrincipal({ machines: svc }, principal, ownership))[0]!
+      expect(projected).toMatchObject({ id: MACHINE, hostname: 'vmi.local', owned: false, transferable: true, adoptable: false, use: 'denied' })
+      expect(projected).not.toHaveProperty('inventory')
+      expect(projected).not.toHaveProperty('harnessVersions')
+      expect(Object.keys(projected).sort()).toEqual([...Object.keys(raw).filter((key) => !['inventory', 'harnessVersions'].includes(key)), 'use', 'owned', 'transferable', 'unowned', 'adoptable'].sort())
+      const granted: MachineOwnershipIndex = { rowFor: (id) => { const row = ownership.rowFor(id); return row && { ...row, grants: [{ subject: firstAdminMemberId(), verb: 'use' }] } } }
+      expect((await machinesForPrincipal({ machines: svc }, principal, granted))[0]?.inventory).toEqual(inventory)
+      const agent: CommandPrincipal = { kind: 'agent', agentSessionId: asSessionId('leaf'), chain: [asSessionId('parent')], onBehalfOf: firstAdminMemberId(), capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') } }
+      const narrowed = { ...granted, delegatedMachines: (id: string) => new Set(id === 'parent' ? [] : [MACHINE]) }
+      const limited = (await machinesForPrincipal({ machines: svc }, agent, narrowed))[0]!
+      expect(limited).toMatchObject({ use: 'denied', transferable: false })
+      expect(limited).not.toHaveProperty('inventory')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('an audit failure rolls back takeover and its grant removal', async () => {
+    const { svc, store, dir } = await transferWorld()
+    try {
+      await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: OWNER_A, onBehalfOf: OWNER_A })
+      const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
+      await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
+      append.mockRestore()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
+      expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
+      expect(await store.settingsAudit.list()).toEqual([])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('admin transfer to another member is not a takeover', async () => {
+    const { svc, store, dir } = await transferWorld()
+    try {
+      await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), firstAdminMemberId())
+      expect((await store.settingsAudit.list()).at(-1)?.command).toBe('machines.transferOwnership')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
   test('the outgoing owner’s audience does not travel with the machine', async () => {
     const { svc, store, dir } = await transferWorld()
     try {
@@ -1009,7 +1078,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // transport must not depend on every one of them remembering.
       await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
-      ).rejects.toThrow('only the machine owner may transfer ownership')
+      ).rejects.toThrow('only the machine owner or an admin may transfer ownership')
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
@@ -1107,13 +1176,22 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // THE THREE UNOWNED STATES, each produced the way production produces it
   // -------------------------------------------------------------------------
 
+  test('adoption requires a live admin and respects narrowed agent scope', async () => {
+    const { svc, store, dir } = await adoptWorld()
+    try {
+      await expect(svc.adoptMachine(MACHINE, ALICE, BOB)).rejects.toThrow('only an admin')
+      await expect(svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId(), { manage: () => false })).rejects.toThrow('only an admin')
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
   test('state 1 — NEVER RECORDED: no owner event was ever appended', async () => {
     const { svc, store, dir } = await adoptWorld()
     try {
       // The ledger holds nothing about this machine's ownership at all.
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
 
-      await svc.adoptMachine(MACHINE, asUserId(ALICE))
+      await svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
@@ -1130,7 +1208,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       await svc.transferOwnership(MACHINE, asUserId(null as unknown as string))
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
 
-      await svc.adoptMachine(MACHINE, asUserId(BOB))
+      await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
 
       expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
@@ -1146,7 +1224,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       const rebooted = await reboot()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
       expect(await rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
-      await expect(rebooted.adoptMachine(MACHINE, BOB)).rejects.toThrow('machine already has an owner')
+      await expect(rebooted.adoptMachine(MACHINE, BOB, firstAdminMemberId())).rejects.toThrow('machine already has an owner')
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1159,8 +1237,8 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
-      await expect(svc.adoptMachine(MACHINE, asUserId(ALICE))).rejects.toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())).rejects.toThrow('machine already has an owner')
+      await expect(svc.adoptMachine(MACHINE, asUserId(ALICE), firstAdminMemberId())).rejects.toThrow(
         'machine already has an owner',
       )
 
@@ -1178,7 +1256,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       openEnrollmentLedger(dir).appendEnroll({ id: 'legacy-alice', machineId: MACHINE, serial: 1, ownerUserId: ALICE, at: '2026-09-01T00:00:00Z' })
       await store.machines.setMachineOwner(MACHINE, null)
       expect(await svc.effectiveOwner(MACHINE)).toBeNull()
-      await svc.adoptMachine(MACHINE, BOB)
+      await svc.adoptMachine(MACHINE, BOB, firstAdminMemberId())
       expect(await svc.effectiveOwner(MACHINE)).toBe(BOB)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
@@ -1187,7 +1265,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
     const { svc, store, dir } = await adoptWorld()
     try {
-      await expect(svc.adoptMachine(MACHINE, asUserId('user:typo'))).rejects.toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId('user:typo'), firstAdminMemberId())).rejects.toThrow(
         'unknown user: user:typo',
       )
       // The hazard: adopting to an unresolvable id appends an owner the next
@@ -1224,7 +1302,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', async () => {
     const { svc, dir } = await adoptWorld()
     try {
-      await expect(svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).rejects.toThrow(
+      await expect(svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE), firstAdminMemberId())).rejects.toThrow(
         "unknown machine 'ghost'",
       )
     } finally {
@@ -1239,7 +1317,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('boot preserves a committed database ownership change', async () => {
     const { svc, store, dir, reboot } = await adoptWorld()
     try {
-      await svc.adoptMachine(MACHINE, ALICE)
+      await svc.adoptMachine(MACHINE, ALICE, firstAdminMemberId())
       await store.machines.setMachineOwner(MACHINE, null)
       const rebooted = await reboot()
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
@@ -1254,7 +1332,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       known.delete(ALICE)
       // Ownership is explicitly released in the database; boot never invents it.
       await store.machines.setMachineOwner(MACHINE, null)
-      await svc.adoptMachine(MACHINE, BOB)
+      await svc.adoptMachine(MACHINE, BOB, firstAdminMemberId())
       known.add(ALICE)
       expect(await (await reboot()).effectiveOwner(MACHINE)).toBe(BOB)
     } finally { rmSync(dir, { recursive: true, force: true }) }
@@ -1281,7 +1359,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       })
       expect(await svc.grantsForMachine(MACHINE)).toHaveLength(1)
 
-      await svc.adoptMachine(MACHINE, asUserId(BOB))
+      await svc.adoptMachine(MACHINE, asUserId(BOB), firstAdminMemberId())
 
       // Carol's `use` was approved under a regime that is gone, on hardware that
       // is now Bob's. `use` is a code-execution boundary (readiness M2).
