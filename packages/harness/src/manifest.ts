@@ -629,6 +629,13 @@ export const DRIVER_IDS = [
   'fake',
 ] as const
 
+/** Driver ids accepted from older daemons and user preferences during rollout. */
+export const RETIRED_DRIVER_IDS = ['claude-pty'] as const
+export type RetiredDriverId = (typeof RETIRED_DRIVER_IDS)[number]
+export function canonicalDriverId(driverId: string): string {
+  return driverId === 'claude-pty' ? 'generic-pty' : driverId
+}
+
 /** A CONST ARRAY rather than a bare union, so the set exists at RUN time too:
  *  the conformance corpus checks that every manifest names a driver this build
  *  knows, and a type-only union cannot be iterated to do that. */
@@ -644,10 +651,10 @@ export interface SelectionContext {
    *  version in the pinned range. May be EMPTY on a machine that has not been
    *  probed or cannot run this harness at all — see `select()` for what that
    *  answers. */
-  available: readonly string[]
+  available: readonly (DriverId | RetiredDriverId)[]
   /** The operator's explicit choice, honoured over the policy's own preference —
    *  but still only if it is available. */
-  preference?: string
+  preference?: DriverId | RetiredDriverId
   role?: 'interactive' | 'executor'
 }
 
@@ -882,7 +889,7 @@ export function selectRuntimeDriver(
       ctx.preference === 'claude-pty' ||
       ctx.preference === 'generic-pty')
   ) {
-    return ctx.preference === 'claude-pty' ? 'generic-pty' : ctx.preference
+    return canonicalDriverId(ctx.preference) as DriverId
   }
   for (const id of ranked) if (available.has(id)) return id
   return ranked[ranked.length - 1] as DriverId

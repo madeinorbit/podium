@@ -2,7 +2,7 @@
 // the surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared } from '@podium/harness'
-import { supported, unsupported } from '@podium/harness'
+import { canonicalDriverId, supported, unsupported } from '@podium/harness'
 import type { AttachCapability, ConfigureCapability, ConfigureRequest } from './capabilities.js'
 import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
 import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'
@@ -109,12 +109,12 @@ const ATTACH_BY_DRIVER = {
 
 export function attachKindsForDriver(driverId: string): readonly ('engine' | 'client')[] {
   const lookup: Partial<Record<string, () => Declared<AttachCapability>>> = ATTACH_BY_DRIVER
-  const declared = lookup[driverId]?.()
+  const declared = lookup[canonicalDriverId(driverId)]?.()
   return declared?.supported ? declared.value.kinds : []
 }
 
 export function configureFieldsForDriver(driverId: string): readonly (keyof ConfigureRequest)[] {
   const lookup: Partial<Record<string, () => Declared<ConfigureCapability>>> = CONFIGURE_BY_DRIVER
-  const declared = lookup[driverId]?.()
+  const declared = lookup[canonicalDriverId(driverId)]?.()
   return declared?.supported ? declared.value.fields : []
 }
