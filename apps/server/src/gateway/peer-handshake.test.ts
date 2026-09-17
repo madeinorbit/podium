@@ -810,12 +810,12 @@ describe('payload identity is inert at the real MachinesService', () => {
     // Rows not renamed and ownership not transferred (null stays null).
     expect(await store.machines.getMachine('admin-laptop')).toMatchObject({
       name: 'Admin Laptop',
-      ownerUserId: 'user:admin',
     })
+    expect(await store.machines.custodian('admin-laptop')).toBe('user:admin')
     expect(await store.machines.getMachine('unowned-box')).toMatchObject({
       name: 'Unowned Box',
-      ownerUserId: null,
     })
+    expect(await store.machines.custodian('unowned-box')).toBeNull()
 
     // Collision refused BEFORE redeem, so the same code still admits a NEW id
     // (the allowance branch — without it the guard could be "refuse all pairs").

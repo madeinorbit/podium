@@ -615,9 +615,9 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
       name: 'Builder',
     })
     expect(result.ok).toBe(true)
-    expect((await svc.grantsForMachine(MACHINE)).map(({ grantee, verb, custody }) => ({ grantee, verb, custody: custody === true }))).toEqual([
-      { grantee: firstAdminMemberId(), verb: 'use', custody: false },
+    expect((await svc.grantsForMachine(MACHINE)).map(({ grantee, verb, custody }) => ({ grantee, verb, custody: custody === true })).sort((a, b) => a.verb.localeCompare(b.verb))).toEqual([
       { grantee: firstAdminMemberId(), verb: 'manage', custody: true },
+      { grantee: firstAdminMemberId(), verb: 'use', custody: false },
     ])
 
     expect(await svc.machineName(MACHINE)).toBe('Builder')

@@ -54,8 +54,10 @@ async function seedLegacyDb(path: string): Promise<void> {
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
-    INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
-      VALUES ('local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't', '${firstAdminMemberId()}');
+    INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
+      VALUES ('local', 'old-host', 'old-host', '${sha256('legacy-secret')}', 't', 't');
+    INSERT INTO grants (resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, custody)
+      VALUES ('machine', 'local', '${firstAdminMemberId()}', 'manage', '${firstAdminMemberId()}', 'owned-compute', 't', 'user', 1);
     INSERT INTO sessions
       (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
        created_at, last_active_at, machine_id)
@@ -141,6 +143,7 @@ describe('a database that already ran the retired upgrades', () => {
     const repoId = deriveRepoId({ machineId: HOST, path: '/legacy/repo' })
     db.exec(`
       UPDATE OR REPLACE machines SET id = '${HOST}' WHERE id IN ('local', '__local__');
+      UPDATE grants SET resource_id = '${HOST}' WHERE resource_kind = 'machine' AND resource_id = 'local';
       UPDATE OR REPLACE sessions SET machine_id = '${HOST}'
         WHERE machine_id IN ('local', '__local__');
       UPDATE OR REPLACE repos SET machine_id = '${HOST}'
@@ -220,6 +223,7 @@ describe('composition threads deployment identity explicitly', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'blue' })
     await store.machines.upsertMachine({ id: HOST, name: 'host', hostname: 'host', tokenHash: 'test',
       ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
+    await store.machines.setServiceAssignment(HOST, { server: true, agentExecution: true })
     await registry.modules.machines.attach(HOST, () => {})
 
     expect(registry.modules.machines.instanceId).toBe('blue')
