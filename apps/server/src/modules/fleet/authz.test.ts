@@ -412,7 +412,7 @@ describe('the machine verb is read from the contract, per command', () => {
     const otherPersonsMachine = deps(user(COLLEAGUE), { role: 'admin', owner: OWNER })
     const refusal = await fleetAuthzFailure('machines.adopt', input, otherPersonsMachine)
     expect(refusal?.code).toBe('FORBIDDEN')
-    expect(refusal?.message).toBe("machine already has an owner — only its owner may transfer it")
+    expect(refusal?.message).toBe("machine already has an owner — use transfer ownership")
     const neverPaired = await fleetAuthzFailure(
       'machines.adopt',
       { ...input, id: 'never-paired' },
@@ -427,7 +427,7 @@ describe('the machine verb is read from the contract, per command', () => {
     const ownerAdmin = deps(user(OWNER), { role: 'admin', owner: OWNER })
     const owned = await fleetAuthzFailure('machines.adopt', input, ownerAdmin)
     expect(owned?.code).toBe('FORBIDDEN')
-    expect(owned?.message).toBe('machine already has an owner — only its owner may transfer it')
+    expect(owned?.message).toBe('machine already has an owner — use transfer ownership')
 
     // Non-vacuity: drop the owner and the SAME principal is admitted.
     expect(
