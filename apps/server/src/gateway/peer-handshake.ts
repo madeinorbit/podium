@@ -321,6 +321,19 @@ export async function prepareDaemonFrame(
     return probed.kind === 'rejected' ? { acceptor: probe, outcome: probed } : { outcome: probed }
   }
 
+  // S7 enrolls new identities with keypairs only. A shipped token-only daemon
+  // cannot supply that key: say so without redeeming its code or inspecting a
+  // machine row. Keep all credential/identity failures behind the generic denial.
+  if (requested.type === 'pair' && requested.publicKey === undefined) {
+    const version = inventoryHello.success ? inventoryHello.data.build?.appVersion : undefined
+    const reply: PeerHelloReply = {
+      type: 'peerHelloRejected', reason: 'auth-failed',
+      message: `Daemon ${version ?? 'unknown version'} cannot pair with this server: keypair enrollment is required; install the current daemon and pair again.`,
+    }
+    const legacy = asLegacyFrame(raw)
+    return { outcome: { kind: 'rejected', reply: legacy ? legacyReplyFor(legacy, reply) : reply } }
+  }
+
   // PASS THE OPTIONS. verifyOnly is enforced INSIDE the service's
   // authenticateDaemon, not by the directory that wraps it, so calling the
   // authenticator bare performs the row touch this flag exists to prevent -- and
