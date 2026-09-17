@@ -664,6 +664,7 @@ describe('send receipts', () => {
       { text: 'ship it' },
       { origin: 'human', delivery: 'when-ready' },
     )
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}"`)
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome !== 'accepted') return
     // THE MECHANISM IS DECLARED, and this is the one that makes a terminal
@@ -686,6 +687,7 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
     expect(resolved.outcome).toBe('unverified')
   })
 
@@ -714,6 +716,7 @@ describe('send receipts', () => {
     const named = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     const [otherReceipt, namedReceipt] = await Promise.all([other, named])
 
+    expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(`"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`)
     expect(namedReceipt.outcome).toBe('accepted')
     if (namedReceipt.outcome !== 'accepted') return
     expect(namedReceipt.provenBy).toBe('hook')
@@ -738,6 +741,7 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
     expect(resolved.outcome).toBe('unverified')
   })
 
@@ -763,6 +767,7 @@ describe('send receipts', () => {
     )
     // `unverified` IS THE TRUE ANSWER, and it is not the same as "not sent": the
     // keystrokes went out and the caller is told exactly that much.
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
     expect(resolved.outcome).toBe('unverified')
     expect(world.written[0]).toBe(`${PASTE_START}did this land?${PASTE_END}`)
   })
