@@ -1,0 +1,2572 @@
+{
+  "runtimeSha": "c728e9c252c43110944934b8aedb63603695852d",
+  "browser": "148.0.7778.96",
+  "coldScale": {
+    "issues": 4884,
+    "sessions": 4321,
+    "repos": 501,
+    "machines": 6,
+    "rows": 211
+  },
+  "warmScale": {
+    "issues": 4885,
+    "sessions": 4321,
+    "repos": 501,
+    "worktrees": 469,
+    "openIssues": 2229,
+    "elements": 7678,
+    "buttons": 426,
+    "machines": 6,
+    "rows": 211
+  },
+  "coldHeap": {
+    "before": {
+      "usedSize": 126293808,
+      "totalSize": 131837952,
+      "embedderHeapUsedSize": 19776288,
+      "backingStorageSize": 2721749
+    },
+    "after": {
+      "usedSize": 321576172,
+      "totalSize": 334700544,
+      "embedderHeapUsedSize": 27690400,
+      "backingStorageSize": 3074669
+    }
+  },
+  "warmHeap": {
+    "before": {
+      "usedSize": 119480368,
+      "totalSize": 122535936,
+      "embedderHeapUsedSize": 19643880,
+      "backingStorageSize": 2720383
+    },
+    "after": {
+      "usedSize": 227583168,
+      "totalSize": 235995136,
+      "embedderHeapUsedSize": 28149912,
+      "backingStorageSize": 2974868
+    }
+  },
+  "windows": [
+    {
+      "name": "warm-rotation",
+      "incidence": {
+        "selectedIssueId": 14,
+        "selectedWorktree": 14,
+        "workspaces": 2,
+        "paneA": 14,
+        "issueVisitBaseline": 14,
+        "issues": 15,
+        "conversations": 10,
+        "sessions": 4,
+        "panelMode": 2,
+        "machines": 9,
+        "outboxSize": 8,
+        "outboxDeadLetters": 17,
+        "issueProjections": 3,
+        "coarseNow": 1
+      },
+      "seconds": 52.28960000002384,
+      "publishes": 66,
+      "wakes": 19828,
+      "fanoutMs": 5755.200000882149,
+      "derives": 30,
+      "deriveMs": 4041.299999833107,
+      "sessionPublishes": 4,
+      "sessionDerives": 1,
+      "sessionDeriveMs": 144.89999997615814,
+      "longTasks": 88,
+      "longTaskMs": 32366,
+      "commits": 234,
+      "nativeMetrics": {
+        "Timestamp": 52.426160000031814,
+        "AudioHandlers": 1,
+        "AudioWorkletProcessors": 0,
+        "Documents": 15,
+        "Frames": 10,
+        "JSEventListeners": 9702,
+        "LayoutObjects": 20013,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 27299,
+        "Resources": 20,
+        "ContextLifecycleStateObservers": 23,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 1,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 15,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 0,
+        "LayoutCount": 241,
+        "RecalcStyleCount": 2045,
+        "LayoutDuration": 0.8624829999999999,
+        "RecalcStyleDuration": 2.150115,
+        "DevToolsCommandDuration": 1.0849440000000001,
+        "ScriptDuration": 28.519043,
+        "V8CompileDuration": 0,
+        "TaskDuration": 46.635446,
+        "TaskOtherDuration": 14.018861000000001,
+        "ThreadTime": 39.709174999999995,
+        "ProcessTime": 72.55,
+        "JSHeapUsedSize": 607660372,
+        "JSHeapTotalSize": 674770944,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 12398.949000000002,
+        "reactInclusive": 24436.665999999983,
+        "gc": 4872.692999999998,
+        "reactCommit": 4163.706000000002,
+        "idle": 5846.393999999993,
+        "worklist": 8122.719000000027,
+        "lookup": 13.418000000000001,
+        "issueDerivation": 2699.5550000000017,
+        "machineFacts": 849.563,
+        "transcript": 2006.0990000000027
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 12398.949000000002
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 5846.393999999993
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 4872.692999999998
+        },
+        {
+          "source": "sync/src/adapters/indexeddb/idb.ts",
+          "function": "requestAsPromise",
+          "ms": 2239.6889999999994
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "missionRootFor",
+          "ms": 1616.3020000000015
+        },
+        {
+          "source": "",
+          "function": "getBoundingClientRect",
+          "ms": 1538.012000000001
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "byId",
+          "ms": 818.7539999999997
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "computeMissionIssueIds",
+          "ms": 818.441
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts",
+          "function": "issueReferenceSignature",
+          "ms": 642.3729999999996
+        },
+        {
+          "source": "client-core/src/replica/issue-views.ts",
+          "function": "deriveIssueViews",
+          "ms": 542.266
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentSessionsOnMachine",
+          "ms": 525.1070000000002
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "UnifiedIssueRow",
+          "ms": 514.4050000000004
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "missionIssueIds",
+          "ms": 472.5560000000002
+        },
+        {
+          "source": "model/src/predicates/machine-selection.ts",
+          "function": "lastUsedMachine",
+          "ms": 442.33100000000013
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "origin",
+          "ms": 423.6640000000002
+        },
+        {
+          "source": "client-core/src/engine/state.ts",
+          "function": "selected",
+          "ms": 406.53100000000006
+        },
+        {
+          "source": "sync/src/adapters/indexeddb/store.ts",
+          "function": "IndexedDbSyncStore",
+          "ms": 374.7779999999999
+        },
+        {
+          "source": "client-core/src/viewmodels/session-ownership.ts",
+          "function": "archivedSessionsForIssue",
+          "ms": 328.932
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "indexMissionSessions",
+          "ms": 326.96599999999995
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts",
+          "function": "issueKey",
+          "ms": 299.584
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "setValueForStyles",
+          "ms": 280.51899999999995
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/worklist/rows.ts",
+          "function": "buildUnifiedRows",
+          "ms": 275.378
+        },
+        {
+          "source": "",
+          "function": "setAttribute",
+          "ms": 272.45399999999995
+        },
+        {
+          "source": "client-core/src/engine/state.ts",
+          "function": "issueActivityAt",
+          "ms": 252.93799999999996
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "spinOffChildren",
+          "ms": 246.136
+        }
+      ],
+      "extra": {
+        "clickMs": [
+          2010.5370509999993,
+          1356.3841089999987,
+          1990.3256470000051,
+          1545.149716,
+          1869.6114459999953,
+          1174.0834170000016,
+          1883.676827999996,
+          1351.1619110000029,
+          1286.2144749999934,
+          1422.6964000000007,
+          1742.6904009999998,
+          1471.6512490000023,
+          1110.7973259999999,
+          1496.3316239999986
+        ],
+        "traces": [
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 3027.399999976158,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 62.89999997615814
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1577.1999999284744
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1707
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2311
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2311.0999999046326
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 2533.2999999523163
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 2534.899999976158
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 2549.0999999046326
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 2574.7999999523163
+              },
+              {
+                "name": "panel:active",
+                "atMs": 2574.899999976158
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2613.7999999523163
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 3027.399999976158
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1118,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 33.39999997615814
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 721.1999999284744
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 721.3999999761581
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 727.7999999523163
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 734.7999999523163
+              },
+              {
+                "name": "panel:active",
+                "atMs": 734.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1109.8999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1118
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1594.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 24.600000023841858
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 1307.6000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1308
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1581.3999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1581.3999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1593.6999999284744
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1594.5
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1140.3999999761581,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 37.300000071525574
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 680.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 680.8999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1105.8999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1105.8999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1140.3000000715256
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1140.3999999761581
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1445.8999999761581,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 17.799999952316284
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 1126
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1126.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1338.8999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1445.6999999284744
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1445.8999999761581
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1003,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 26.799999952316284
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 598.3999999761581
+              },
+              {
+                "name": "panel:active",
+                "atMs": 599.0999999046326
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 971.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 971.3999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1002.6999999284744
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1003
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1147.6000000238419,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 18.40000009536743
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 763.2000000476837
+              },
+              {
+                "name": "panel:active",
+                "atMs": 763.6000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1041.9000000953674
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1147.6000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1147.6000000238419
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1042.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 15
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 732.1000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 732.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 972.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 972.2999999523163
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1042.3999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1042.5
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 956,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 22.199999928474426
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 555.6999999284744
+              },
+              {
+                "name": "panel:active",
+                "atMs": 556.1000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 933.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 933.8999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 955.8999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 956
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1197.2999999523163,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 18.799999952316284
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 835.1000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 835.7000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1171.8999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1171.8999999761581
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1197.2000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1197.2999999523163
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1229.6000000238419,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 14.700000047683716
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 892.6000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 898.2000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1169.8000000715256
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1229.3999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1229.6000000238419
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1186.1999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 30.699999928474426
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 834.3999999761581
+              },
+              {
+                "name": "panel:active",
+                "atMs": 834.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1103.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1103.7999999523163
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1186.0999999046326
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1186.1999999284744
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 868.9000000953674,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 26.300000071525574
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 558.8000000715256
+              },
+              {
+                "name": "panel:active",
+                "atMs": 559.1000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 823.2000000476837
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 868.8000000715256
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 868.9000000953674
+              }
+            ]
+          },
+          {
+            "cold": false,
+            "timedOut": false,
+            "totalMs": 1149.3999999761581,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 26.299999952316284
+              },
+              {
+                "name": "chat:cache-hit",
+                "atMs": 721.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 722.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1118.2999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1118.2999999523163
+              },
+              {
+                "name": "chat:first-paint",
+                "atMs": 1149.2999999523163
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1149.3999999761581
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "disconnected-idle",
+      "incidence": {
+        "coarseNow": 1
+      },
+      "seconds": 66.07989999997616,
+      "publishes": 1,
+      "wakes": 280,
+      "fanoutMs": 180.10000002384186,
+      "derives": 1,
+      "deriveMs": 179.39999997615814,
+      "sessionPublishes": 0,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 10,
+      "longTaskMs": 1734,
+      "commits": 131,
+      "nativeMetrics": null,
+      "buckets": {
+        "program": 3380.891999999996,
+        "idle": 59962.85299999955,
+        "reactInclusive": 1844.083,
+        "machineFacts": 715.4100000000003,
+        "reactCommit": 201.087,
+        "worklist": 213.407,
+        "gc": 657.7939999999999
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 59962.85299999955
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 3380.891999999996
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 657.7939999999999
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentSessionsOnMachine",
+          "ms": 519.9199999999998
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "idleSessionSplit",
+          "ms": 143.26300000000003
+        },
+        {
+          "source": "motion-dom/dist/es/render/VisualElement.mjs",
+          "function": "VisualElement",
+          "ms": 103.666
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "origin",
+          "ms": 78.93299999999999
+        },
+        {
+          "source": "",
+          "function": "fetch",
+          "ms": 66.902
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "createWorkInProgress",
+          "ms": 50.790000000000006
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/worklist/row-order.ts",
+          "function": "unifiedRowBand",
+          "ms": 41.419000000000004
+        },
+        {
+          "source": "@base-ui/react/esm/merge-props/mergeProps.js",
+          "function": "isEventHandler",
+          "ms": 37.262
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "updateProperties",
+          "ms": 34.673
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/worklist/rows.ts",
+          "function": "buildUnifiedRows",
+          "ms": 31.771
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "setValueForStyles",
+          "ms": 28.584
+        },
+        {
+          "source": "lucide-react/dist/esm/Icon.mjs",
+          "function": "",
+          "ms": 26.895
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/worklist/row-attention.ts",
+          "function": "rowStatusLine",
+          "ms": 25.753
+        },
+        {
+          "source": "@base-ui/react/esm/internals/useTransitionStatus.js",
+          "function": "useTransitionStatus",
+          "ms": 24.195
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentWorktreeKey",
+          "ms": 23.43
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "completeWork",
+          "ms": 23.193
+        },
+        {
+          "source": "model/src/predicates/agent-computing.ts",
+          "function": "isAgentConfirmedComputing",
+          "ms": 22.922
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "propagateParentContextChanges",
+          "ms": 21.229
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "popSuspenseHandler",
+          "ms": 20.643
+        },
+        {
+          "source": "",
+          "function": "WebSocket",
+          "ms": 20.618
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "checkIfContextChanged",
+          "ms": 18.584
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "renderWithHooks",
+          "ms": 18.464999999999996
+        }
+      ]
+    },
+    {
+      "name": "activity",
+      "incidence": {
+        "conversations": 16,
+        "machines": 14,
+        "coarseNow": 1
+      },
+      "seconds": 66.16510000002384,
+      "publishes": 31,
+      "wakes": 8680,
+      "fanoutMs": 124.49999976158142,
+      "derives": 1,
+      "deriveMs": 94.39999997615814,
+      "sessionPublishes": 0,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 16,
+      "longTaskMs": 1369,
+      "commits": 147,
+      "nativeMetrics": null,
+      "buckets": {
+        "program": 3744.5319999999983,
+        "idle": 58947.28700000015,
+        "reactInclusive": 2524.2340000000013,
+        "machineFacts": 1626.5419999999976,
+        "reactCommit": 133.114,
+        "gc": 373.28600000000006,
+        "issueDerivation": 2.97,
+        "transcript": 2.198,
+        "worklist": 106.101
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 58947.28700000015
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 3744.5319999999983
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentSessionsOnMachine",
+          "ms": 1158.7689999999993
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 373.28600000000006
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "idleSessionSplit",
+          "ms": 295.76499999999993
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentWorktreeKey",
+          "ms": 117.04699999999997
+        },
+        {
+          "source": "../../src/features/machines/HostIndicators.tsx",
+          "function": "HeaderHostIndicators",
+          "ms": 83.87299999999999
+        },
+        {
+          "source": "client-core/src/engine/machines-material.ts",
+          "function": "machinesMaterialSignature",
+          "ms": 80.64099999999998
+        },
+        {
+          "source": "sync/src/adapters/indexeddb/store.ts",
+          "function": "IndexedDbCacheStore",
+          "ms": 77.821
+        },
+        {
+          "source": "zod/v3/types.js",
+          "function": "ZodObject",
+          "ms": 76.57100000000001
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "hostAgentsView",
+          "ms": 52.447
+        },
+        {
+          "source": "client-core/src/engine/machines-material.ts",
+          "function": "canonical",
+          "ms": 50.92100000000001
+        },
+        {
+          "source": "protocol/src/messages/codec.ts",
+          "function": "parseServerMessageLenient",
+          "ms": 48.68
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "origin",
+          "ms": 35.886
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "dispatchEventForPluginEventSystem",
+          "ms": 32.387
+        },
+        {
+          "source": "",
+          "function": "send",
+          "ms": 32.134
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "commitMutationEffectsOnFiber",
+          "ms": 29.845
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "commitHookEffectListUnmount",
+          "ms": 24.439
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "updateWorkInProgressHook",
+          "ms": 23.742
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "UnifiedIssueRow",
+          "ms": 22.774
+        },
+        {
+          "source": "model/src/predicates/agent-computing.ts",
+          "function": "isAgentConfirmedComputing",
+          "ms": 22.134
+        },
+        {
+          "source": "client-core/src/socket-transport/socket-hub.ts",
+          "function": "SocketHub",
+          "ms": 21.618999999999996
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/worklist/rows.ts",
+          "function": "buildUnifiedRows",
+          "ms": 20.549999999999997
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "createWorkInProgress",
+          "ms": 18.281
+        },
+        {
+          "source": "@base-ui/utils/esm/useStableCallback.js",
+          "function": "useStableCallback",
+          "ms": 16.345
+        }
+      ]
+    },
+    {
+      "name": "connected-idle",
+      "incidence": {
+        "conversations": 17,
+        "machines": 14,
+        "coarseNow": 1,
+        "sessions": 1
+      },
+      "seconds": 66.20970000004769,
+      "publishes": 33,
+      "wakes": 9240,
+      "fanoutMs": 371.80000030994415,
+      "derives": 2,
+      "deriveMs": 334.2000000476837,
+      "sessionPublishes": 1,
+      "sessionDerives": 1,
+      "sessionDeriveMs": 182.60000002384186,
+      "longTasks": 12,
+      "longTaskMs": 2489,
+      "commits": 132,
+      "nativeMetrics": null,
+      "buckets": {
+        "program": 4627.9039999999995,
+        "idle": 56869.82500000001,
+        "reactInclusive": 2863.4319999999957,
+        "machineFacts": 1283.950000000001,
+        "gc": 1185.7780000000002,
+        "reactCommit": 207.935,
+        "worklist": 405.64400000000006,
+        "issueDerivation": 98.64099999999999
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 56869.82500000001
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 4627.9039999999995
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 1185.7780000000002
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentSessionsOnMachine",
+          "ms": 881.8979999999999
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "idleSessionSplit",
+          "ms": 233.609
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentWorktreeKey",
+          "ms": 135.026
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "origin",
+          "ms": 90.81000000000002
+        },
+        {
+          "source": "sync/src/adapters/indexeddb/store.ts",
+          "function": "IndexedDbCacheStore",
+          "ms": 75.09899999999999
+        },
+        {
+          "source": "client-core/src/engine/machines-material.ts",
+          "function": "machinesMaterialSignature",
+          "ms": 63.741000000000014
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "propagateParentContextChanges",
+          "ms": 53.778999999999996
+        },
+        {
+          "source": "../../src/features/machines/HostIndicators.tsx",
+          "function": "HeaderHostIndicators",
+          "ms": 52.193000000000005
+        },
+        {
+          "source": "zod/v3/types.js",
+          "function": "ZodObject",
+          "ms": 50.98500000000001
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "UnifiedIssueRow",
+          "ms": 50.127999999999986
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "computeMissionIssueIds",
+          "ms": 49.60000000000001
+        },
+        {
+          "source": "client-core/src/socket-transport/socket-hub.ts",
+          "function": "SocketHub",
+          "ms": 46.177
+        },
+        {
+          "source": "react/cjs/react.production.js",
+          "function": "e.createElement",
+          "ms": 41.028000000000006
+        },
+        {
+          "source": "",
+          "function": "send",
+          "ms": 36.909
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "updateProperties",
+          "ms": 34.800999999999995
+        },
+        {
+          "source": "client-core/src/viewmodels/session-ownership.ts",
+          "function": "sessionsForIssueNav",
+          "ms": 34.079
+        },
+        {
+          "source": "client-core/src/replica/kernel/facade.ts",
+          "function": "reconcile",
+          "ms": 29.324999999999996
+        },
+        {
+          "source": "../../src/lib/motion/PhaseTimer.tsx",
+          "function": "PhaseTimer",
+          "ms": 28.849
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "renderWithHooks",
+          "ms": 27.828
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "hostAgentsView",
+          "ms": 27.689999999999998
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "createWorkInProgress",
+          "ms": 27.045
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "updateSlot",
+          "ms": 25.347
+        }
+      ]
+    },
+    {
+      "name": "cold-rotation",
+      "incidence": {
+        "selectedIssueId": 30,
+        "selectedWorktree": 30,
+        "workspaces": 6,
+        "paneA": 30,
+        "issueVisitBaseline": 30,
+        "issues": 33,
+        "panelMode": 6,
+        "sessions": 38,
+        "conversations": 26,
+        "outboxSize": 15,
+        "outboxDeadLetters": 35,
+        "issueProjections": 2,
+        "machines": 27,
+        "coarseNow": 2
+      },
+      "seconds": 145.12289999997617,
+      "publishes": 181,
+      "wakes": 73947,
+      "fanoutMs": 15752.999998927116,
+      "derives": 66,
+      "deriveMs": 10118.400000333786,
+      "sessionPublishes": 38,
+      "sessionDerives": 3,
+      "sessionDeriveMs": 692,
+      "longTasks": 262,
+      "longTaskMs": 105953,
+      "commits": 830,
+      "nativeMetrics": null,
+      "buckets": {
+        "program": 28564.755999999932,
+        "idle": 5090.074000000003,
+        "gc": 14492.432999999966,
+        "reactInclusive": 80501.04300000053,
+        "worklist": 24821.339,
+        "lookup": 133.88499999999996,
+        "issueDerivation": 7856.423000000001,
+        "machineFacts": 3029.3050000000053,
+        "reactCommit": 12993.638999999992,
+        "transcript": 12098.261999999984
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 28564.755999999932
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 14492.432999999966
+        },
+        {
+          "source": "sync/src/adapters/indexeddb/idb.ts",
+          "function": "requestAsPromise",
+          "ms": 5649.575000000008
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "missionRootFor",
+          "ms": 5168.856000000008
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 5090.074000000003
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts",
+          "function": "issueReferenceSignature",
+          "ms": 3891.8099999999945
+        },
+        {
+          "source": "",
+          "function": "getBoundingClientRect",
+          "ms": 3718.2580000000016
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "computeMissionIssueIds",
+          "ms": 2460.759
+        },
+        {
+          "source": "client-core/src/engine/state.ts",
+          "function": "selected",
+          "ms": 2311.669000000002
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts",
+          "function": "issueKey",
+          "ms": 2202.096999999998
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "byId",
+          "ms": 2193.120000000002
+        },
+        {
+          "source": "client-core/src/viewmodels/session-ownership.ts",
+          "function": "archivedSessionsForIssue",
+          "ms": 2183.2230000000045
+        },
+        {
+          "source": "client-core/src/viewmodels/slices/machines/facts.ts",
+          "function": "residentSessionsOnMachine",
+          "ms": 1915.7889999999995
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "missionIssueIds",
+          "ms": 1574.1000000000013
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "setValueForStyles",
+          "ms": 1270.2440000000017
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "indexMissionSessions",
+          "ms": 1145.6280000000004
+        },
+        {
+          "source": "client-core/src/engine/reactions.ts",
+          "function": "Reactions",
+          "ms": 1109.7820000000002
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx",
+          "function": "origin",
+          "ms": 1014.2149999999991
+        },
+        {
+          "source": "model/src/predicates/machine-selection.ts",
+          "function": "lastUsedMachine",
+          "ms": 1007.1470000000005
+        },
+        {
+          "source": "client-core/src/engine/state.ts",
+          "function": "issueActivityAt",
+          "ms": 918.5200000000003
+        },
+        {
+          "source": "../../src/features/chat/IssueChipLiveness.tsx",
+          "function": "IssueChipLiveness",
+          "ms": 895.797
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "renderWithHooks",
+          "ms": 869.2260000000008
+        },
+        {
+          "source": "client-core/src/viewmodels/mission.ts",
+          "function": "buildFlightDeckRows",
+          "ms": 849.3980000000008
+        },
+        {
+          "source": "../../src/lib/hooks/use-session-guard.ts",
+          "function": "session",
+          "ms": 837.2019999999999
+        },
+        {
+          "source": "react-dom/cjs/react-dom-client.production.js",
+          "function": "commitHostUpdate",
+          "ms": 809.8329999999997
+        }
+      ],
+      "extra": {
+        "clickMs": [
+          1954.3288649999886,
+          2104.4767550000106,
+          3231.2097930000164,
+          2955.8840659999987,
+          3096.076208000013,
+          4001.777890999976,
+          3454.2522309999913,
+          3272.314858000027,
+          3495.937346999999,
+          1968.3981239999994,
+          2555.0682929999894,
+          2353.4834750000155,
+          1394.4510759999976,
+          2164.659387999971,
+          1997.4403889999958,
+          1254.1074509999598,
+          2111.3769469999825,
+          2124.383341000008,
+          2013.8588849999942,
+          2495.310055000009,
+          2269.9467750000185,
+          1617.9634780000197,
+          4096.458815999969,
+          3761.4440220000106,
+          2612.1907189999474,
+          3257.3837419999763,
+          1735.5618690000265,
+          1584.3538970000227,
+          2375.2339559999527,
+          2842.3014050000347
+        ],
+        "traces": [
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 3114.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 93.10000002384186
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1406.2000000476837
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1976.3999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1978.2000000476837
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 1986.8999999761581
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1992.2000000476837
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1992.2000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2276.600000023842
+              },
+              {
+                "name": "transcript:read-end",
+                "atMs": 2726.399999976158
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2783.600000023842
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 3114.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1441.6999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 66.09999990463257
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1087.7999999523163
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1087.8999999761581
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 1096
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1105.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1105.5
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1435.5999999046326
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1441.6999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1814,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 130.70000004768372
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1285.6000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1285.8000000715256
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 1307.7000000476837
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1317
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1317
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1796.5
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1814
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1467.6999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 38.89999997615814
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1124.5999999046326
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1124.7999999523163
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 1139.5
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1153.1999999284744
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1153.1999999284744
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1459.5
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1467.6999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 2810.3000000715256,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 66.10000002384186
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 2011.3999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 2011.6000000238419
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 2031.7000000476837
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 2045.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 2045.6000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2785.600000023842
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2785.600000023842
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 2810.3000000715256
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 2472.100000023842,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 58
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1799.3000000715256
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1801.2000000476837
+              },
+              {
+                "name": "viewstate:sent",
+                "atMs": 1823
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1834.9000000953674
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1834.9000000953674
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2429.600000023842
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 2429.600000023842
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 2472.100000023842
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1935.2000000476837,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 16.800000071525574
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1525.9000000953674
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1526.1000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1526.4000000953674
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1526.5
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1924.7000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1935.2000000476837
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1960.3000000715256,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 29.700000047683716
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1368.1000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1368.3000000715256
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1368.7000000476837
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1368.7000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1877.8999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1877.8999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1960.3000000715256
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1656.1000000238419,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 26.600000023841858
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1192
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1192.2000000476837
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1193
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1193
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1645.7000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1656.1000000238419
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1554.6999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 18.299999952316284
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 984.1999999284744
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 984.3999999761581
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 984.7999999523163
+              },
+              {
+                "name": "panel:active",
+                "atMs": 984.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1527.8999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1554.6999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1705.1999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 23.59999990463257
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1197.5999999046326
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1198
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1198.3999999761581
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1198.3999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1692.1999999284744
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1705.1999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1320,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 44.800000071525574
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 982.5
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 982.8000000715256
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 983.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 983.5
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1290.6000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1320
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 937.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 20.799999952316284
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 635.6999999284744
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 636
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 636.5999999046326
+              },
+              {
+                "name": "panel:active",
+                "atMs": 636.5999999046326
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 916.2999999523163
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 937.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1050.8999999761581,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 21.700000047683716
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 789.6000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 789.7000000476837
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 790.1000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 790.1000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1039.3999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1050.8999999761581
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 899.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 25.40000009536743
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 595.8000000715256
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 596.1000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 596.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 596.5
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 891.6000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 899.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1006.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 30.5
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 566
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 566.1000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 566.4000000953674
+              },
+              {
+                "name": "panel:active",
+                "atMs": 566.4000000953674
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 996.2000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1006.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1742.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 26.799999952316284
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1282.6000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1282.7999999523163
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1283.1000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1283.1000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1727.7000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1742.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1232.7999999523163,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 18.799999952316284
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 846.8999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 847.2999999523163
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 847.6000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 847.6000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1225.1000000238419
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1225.1000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1232.7999999523163
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 976.1999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 20.899999976158142
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 708.5
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 708.6999999284744
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 709
+              },
+              {
+                "name": "panel:active",
+                "atMs": 709.0999999046326
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 960.6999999284744
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 976.1999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1339.8000000715256,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 39
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 990.8999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1011.8999999761581
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1012.8000000715256
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1012.8000000715256
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1332.8999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1339.8000000715256
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1149.7999999523163,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 46.60000002384186
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 785.6000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 785.8999999761581
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 786.2000000476837
+              },
+              {
+                "name": "panel:active",
+                "atMs": 786.2000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1134.6000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1149.7999999523163
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 997.1000000238419,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 15
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 733.6999999284744
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 733.8999999761581
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 734.1999999284744
+              },
+              {
+                "name": "panel:active",
+                "atMs": 734.1999999284744
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 990.8999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 991
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 997.1000000238419
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1540.2999999523163,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 14.899999976158142
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1088.0999999046326
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1088.2999999523163
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1088.5999999046326
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1088.5999999046326
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1438.5999999046326
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1540.2999999523163
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1624.7000000476837,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 28.700000047683716
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1055.4000000953674
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1055.6000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1055.9000000953674
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1055.9000000953674
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1583.2000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1585.7000000476837
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1585.7000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1624.7000000476837
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1315.1000000238419,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 20.5
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 749.7999999523163
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 760
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 760.6999999284744
+              },
+              {
+                "name": "panel:active",
+                "atMs": 760.6999999284744
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1300.3999999761581
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1300.3999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1315.1000000238419
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1100.5,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 21.299999952316284
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 690.8999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 691.6000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 692.7999999523163
+              },
+              {
+                "name": "panel:active",
+                "atMs": 692.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1011.3999999761581
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1100.5
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1135.7000000476837,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 36
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 805.3000000715256
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 805.5
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 805.8000000715256
+              },
+              {
+                "name": "panel:active",
+                "atMs": 805.8000000715256
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1115
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1135.7000000476837
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 687.6999999284744,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 17.5
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 405.09999990463257
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 406
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 407.7999999523163
+              },
+              {
+                "name": "panel:active",
+                "atMs": 407.7999999523163
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 669
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 687.6999999284744
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 1856.7000000476837,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 81.39999997615814
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1393.8999999761581
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1394.1000000238419
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1394.5
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1394.5
+              },
+              {
+                "name": "main:longtask",
+                "atMs": 1842.2000000476837
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 1856.7000000476837
+              }
+            ]
+          },
+          {
+            "cold": true,
+            "timedOut": false,
+            "totalMs": 2085.100000023842,
+            "marks": [
+              {
+                "name": "viewstate:sent",
+                "atMs": 34.60000002384186
+              },
+              {
+                "name": "transcript:read-start",
+                "atMs": 1125.6000000238419
+              },
+              {
+                "name": "chat:rows-built",
+                "atMs": 1125.8000000715256
+              },
+              {
+                "name": "panel:mount",
+                "atMs": 1126.1000000238419
+              },
+              {
+                "name": "panel:active",
+                "atMs": 1126.1000000238419
+              },
+              {
+                "name": "chat:interactable",
+                "atMs": 2085.100000023842
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
