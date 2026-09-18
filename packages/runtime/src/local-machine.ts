@@ -23,6 +23,8 @@ export interface MachineState {
   daemon?: Record<string, unknown>
   supervisor?: Record<string, unknown>
   connectivity?: Record<string, unknown>
+  /** The bare pre-consolidation `machine.id` literal, kept verbatim like every section. */
+  legacy?: { machineId: string }
   /** Exact legacy inputs committed with the replacement; cleanup can resume after a crash. */
   importedFiles: Partial<Record<(typeof LEGACY_FILES)[number], string>>
 }
@@ -103,6 +105,7 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
     // keeps a stale one (flatblock: machine.id from an earlier pairing, daemon.json the
     // live row), and a supervised box keeps a dead daemon.json (ludovico). Disagreement
     // is ordinary, never a refusal; every section is kept verbatim.
+    let legacy: MachineState['legacy']
     const legacyIds: Partial<Record<'supervisor.json' | 'machine.id' | 'daemon.json', string>> = {}
     for (const name of LEGACY_FILES) {
       const raw = readOptional(join(dir, name))
@@ -111,6 +114,7 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
       if (name === 'machine.id') {
         if (!raw.trim()) throw new Error('empty legacy machine identity')
         legacyIds['machine.id'] = raw.trim()
+        legacy = { machineId: raw.trim() }
       } else {
         const data = object(raw, join(dir, name))
         const section = name.slice(0, -5) as 'daemon' | 'supervisor' | 'connectivity'
@@ -125,7 +129,7 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
     if (legacyId === undefined && !expectedId && !allowCreate) throw new Error('machine identity is missing')
     const machineId = (legacyId ?? expectedId ?? randomUUID()) as MachineId
     if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)
-    const candidate: MachineState = { version: 1, machineId, ...sections, importedFiles }
+    const candidate: MachineState = { version: 1, machineId, ...sections, ...(legacy ? { legacy } : {}), importedFiles }
     let published = false
     try { persist(dir, candidate, true); published = true } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error

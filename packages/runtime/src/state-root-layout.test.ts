@@ -132,6 +132,7 @@ it('resolves disagreeing legacy identities by credential: supervisor, then daemo
   writeFileSync(join(dir2, 'daemon.json'), JSON.stringify({ machineId: 'live-row', token: 't' }))
   expect(readOrCreateLocalMachineId(dir2)).toBe('live-row')
   expect(readMachineState(dir2)?.daemon).toEqual({ machineId: 'live-row', token: 't' })
+  expect(readMachineState(dir2)?.legacy).toEqual({ machineId: 'stale-machine-id' })
 
   // Supervisor alone disagreeing with machine.id: the supervisor's credential identity wins.
   const dir3 = mkdtempSync(join(tmpdir(), 'podium-state-disagree3-'))
