@@ -1,4 +1,4 @@
-import { createCollection, createLiveQueryCollection, BasicIndex, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig } from '@tanstack/db'
+import { createCollection, createLiveQueryCollection, BasicIndex, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig, type Collection, type SingleResult } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useEffect, useMemo } from 'react'
 import { GROUP, NOW, counters, band, worklistJS, type Fixture, type Issue, type Session } from './model'
@@ -20,35 +20,35 @@ export function createTanstackProof(data: Fixture) {
   sessions.collection.createIndex(s => s.issueId)
   issues.collection.createIndex(i => i.parentId)
   const clock = source([{ id: 'clock', now: NOW }], c => c.id)
-  const phases = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
+  const phases: Collection<{ issueId: Session['issueId']; phase: string; count: number }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .groupBy(({ s }) => [s.issueId, coalesce(s.agentState?.phase, 'unknown')])
     .select(({ s }) => ({ issueId: s.issueId, phase: coalesce(s.agentState?.phase, 'unknown'), count: count(s.sessionId) })) })
-  const latest = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
+  const latest: Collection<{ issueId: Session['issueId']; latest: string }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .groupBy(({ s }) => s.issueId).select(({ s }) => ({ issueId: s.issueId, latest: max(s.lastActiveAt) })) })
-  const children = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
+  const children: Collection<{ parentId: Issue['parentId']; childDone: number }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
     .groupBy(({ i }) => i.parentId).select(({ i }) => ({ parentId: i.parentId,
       childDone: sum(caseWhen(eq(i.stage, 'done'), 1, 0)) })) })
-  const summary = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
+  const summary: Collection<{ id: Issue['id']; latest: string | undefined; unread: boolean; childDone: number }> & SingleResult = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
     .where(({ i }) => eq(i.id, 'i0'))
     .leftJoin({ latest }, ({ i, latest: l }) => eq(i.id, l.issueId))
     .leftJoin({ children }, ({ i, children: c }) => eq(i.id, c.parentId))
     .select(({ i, latest: l, children: c }) => ({ id: i.id, latest: l.latest,
       unread: gt(coalesce(l.latest, ''), coalesce(i.readAt, '')), childDone: coalesce(c.childDone, 0) })).findOne() })
-  const summaryPhases = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ phases })
+  const summaryPhases: Collection<{ issueId: Session['issueId']; phase: string; count: number }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ phases })
     .where(({ phases: p }) => eq(p.issueId, 'i0')).select(({ phases: p }) => p) })
-  const groupIssues = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
+  const groupIssues: Collection<Issue> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
     .fn.where(({ i }) => i.seq <= GROUP).select(({ i }) => i) })
-  const groupSessions = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
+  const groupSessions: Collection<Session> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .innerJoin({ i: groupIssues }, ({ s, i }) => eq(s.issueId, i.id)).select(({ s }) => s) })
-  const ranked = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
+  const ranked: Collection<{ id: Issue['id']; band: number; seq: number; key: string; created: number }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
     .innerJoin({ clock: clock.collection }, ({ clock: c }) => eq(c.id, 'clock'))
     .fn.select(({ i, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq, key: i.sortKey || '\uffff', created: Date.parse(i.createdAt) || 0 }))
     .orderBy(({ $selected }) => $selected.band, 'asc').orderBy(({ $selected }) => $selected.key, 'asc')
     .orderBy(({ $selected }) => $selected.created, 'desc').orderBy(({ $selected }) => $selected.seq, 'desc')
     .orderBy(({ $selected }) => $selected.id, 'asc') })
-  const group = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ clock: clock.collection })
+  const group: Collection<{ id: string; now: number }> = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ clock: clock.collection })
     .select(({ clock: c }) => ({ id: c.id, now: c.now })) })
-  function rowQuery(id: string) { return createLiveQueryCollection({ gcTime: 1,
+  function rowQuery(id: string): Collection<Session> & SingleResult { return createLiveQueryCollection({ gcTime: 1,
     query: q => q.from({ s: sessions.collection }).where(({ s }) => eq(s.sessionId, id)).select(({ s }) => s).findOne() }) }
   const rowQueries = new Map<number, ReturnType<typeof rowQuery>>()
   const queries = [phases, latest, children, summary, summaryPhases, groupIssues, groupSessions, ranked, group]
