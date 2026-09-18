@@ -40,9 +40,14 @@ instead require the measured host-facts follow-up and another gate capture first
   Installed builds and the live server were not replaced.
 - C1 cold/idle corpus: **4,884 issues / 4,321 sessions / 501 repos / 6 machines**,
   211 visible issue rows; A1: 4,867 / 4,304 / 500 / 6. The live corpus and event
-  feed are not identical. A1's archive was not found in retained worktrees or
-  /tmp, and its report explicitly excludes full state snapshots. Historical
-  target IDs and a frozen event replay are unavailable. **An identical-data
+  feed are not identical. A1's archive WAS retained and is
+  available at `/home/mgw/pod4286-evidence/raw-evidence.tar.gz` on ludovico
+  (sha256 `62d6671c…`, 216 entries: the three collectors, the analysis scripts,
+  the never-shipped instrumentation patch, raw JSON and nine CPU profiles). The
+  coordinator copied it out and verified it by checksum before retiring A1's
+  session, so it is outside the worktrees and /tmp that were searched. It does
+  NOT contain a full state snapshot — A1's report excludes those deliberately —
+  so historical target IDs and a frozen event replay remain unavailable. **An identical-data
   before/after live comparison and independent milliseconds saved by each
   commit are unavailable.** A3 supplies controlled event-count evidence instead.
 
