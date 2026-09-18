@@ -53,3 +53,25 @@ than with any commit here.
 **Method note.** "Pre-existing" was established by running the base in a SEPARATE clean
 worktree, not by checking base files into the working tree. An environment failure is
 invariant under the thing an A/B varies, so an in-tree comparison cannot see it.
+
+## Branch verification summary
+
+What has been checked on `integrate/4286-frontend-perf`, as of the Phase C gate:
+
+| Check | Result |
+|---|---|
+| Web lane against a clean checkout of the base | Identical failures, 19 files / 35 tests both sides; the diff is empty in both directions |
+| Scoped typecheck, `@podium/client-core` + `@podium/web` + `@podium/mobile` | 18 successful of 18 total; 4 executed rather than replayed from cache |
+| Per-fix focused tests | Every landed fix re-run by the coordinator, not accepted on its author's report |
+| Frontend perf lane | 28 tests across 5 files |
+| Mobile lane | Both pre-existing failures repaired; the lane's two known reds are closed |
+| History | Linear, no merge commits |
+
+Three defects were caught by that re-verification that the authoring workers' own reports
+had missed: a `TS2322` that shipped because a worker never claimed a typecheck, a test
+asserting a mount flag the product had deliberately removed, and a render probe that one of
+this epic's own fixes had silently turned into a no-op while still reporting green.
+
+**Not claimed:** that the client is fast. The Phase C gate records a warm-switch p95 of
+1,593.7 ms against a 100 ms target and an unrelated session event still costing one worklist
+derivation. See `POD-4286-gate-a.md`.
