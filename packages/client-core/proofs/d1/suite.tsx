@@ -2,7 +2,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import type * as TestingLibrary from '@testing-library/react'
 import { useEffect, useSyncExternalStore } from 'react'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, onBecomeUnobserved } from 'mobx'
 import { createMobxProof, MobxRow, MobxSummary, MobxGroup } from './mobx'
 import { createTanstackProof, TanstackRow, TanstackSummary, TanstackGroup } from './tanstack'
@@ -25,7 +25,7 @@ const distribution = (xs: number[]) => ({ n: xs.length, p50: [...xs].sort((a,b) 
 /** Test harness only: deliberately no production adapter or multi-library API. */
 export function registerProofSuite(platform: string, { act, cleanup, render }: Pick<typeof TestingLibrary, 'act' | 'cleanup' | 'render'>) {
   const results: unknown[] = []
-  afterEach(cleanup)
+  afterEach(() => { cleanup(); vi.restoreAllMocks() })
   afterAll(() => {
     let root = process.cwd()
     while (!existsSync(join(root, 'packages/client-core/package.json')) && dirname(root) !== root) root = dirname(root)
@@ -35,7 +35,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
     writeFileSync(join(directory, `${platform}.json`), JSON.stringify({ platform, node: process.version,
       baseline: 'POD-4358-post-b-baseline.md', measurements: results }, null, 2) + '\n')
   })
-  describe(`D1 ${platform}: identical real-shape proof`, () => {
+  describe.skipIf(process.env.PODIUM_D1_PROOF !== '1')(`D1 ${platform}: identical real-shape proof`, () => {
     for (const candidate of ['mobx', 'tanstack'] as const)
       for (const readers of [200, 1000])
         for (const addressing of ['same', 'distinct'] as const)
@@ -136,6 +136,23 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
         results.push({ candidate: 'armed-coarse-control', readers, reads, commits })
         view.unmount()
       }
+    })
+
+    it('dependency-ordered teardown is quiet; the source-first control is armed', async () => {
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const proof = createTanstackProof(fixture())
+      const subscriptions = [proof.summary, proof.summaryPhases, proof.ranked, proof.groupSessions].map(q => q.subscribeChanges(() => {}))
+      await settle()
+      for (const subscription of subscriptions) subscription.unsubscribe()
+      await proof.dispose()
+      expect(errors).not.toHaveBeenCalled()
+      const control = createTanstackProof(fixture())
+      const subscription = control.summaryPhases.subscribeChanges(() => {})
+      await settle()
+      await control.phases.cleanup()
+      expect(errors).toHaveBeenCalled()
+      subscription.unsubscribe(); await control.dispose()
+      results.push({ teardown: 'reverse dependency order passes; source-first control emits error' })
     })
 
     it('computed suspension and query GC release their subscriptions', async () => {

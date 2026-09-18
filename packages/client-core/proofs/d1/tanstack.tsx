@@ -1,4 +1,4 @@
-import { createCollection, createLiveQueryCollection, BasicIndex, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig, type Collection, type SingleResult, type NonSingleResult } from '@tanstack/db'
+import { createCollection, createLiveQueryCollection, BasicIndex, eq, lte, count, max, sum, caseWhen, coalesce, gt, type SyncConfig, type Collection, type SingleResult, type NonSingleResult } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useEffect, useMemo } from 'react'
 import { GROUP, NOW, counters, band, worklistJS, type Fixture, type Issue, type Session } from './model'
@@ -22,17 +22,24 @@ export function createTanstackProof(data: Fixture) {
   const counts = counters()
   const sessions = source(data.sessions, s => s.sessionId)
   const issues = source(data.issues, i => i.id)
+  sessions.collection.createIndex(s => s.sessionId)
   sessions.collection.createIndex(s => s.issueId)
+  issues.collection.createIndex(i => i.id)
+  issues.collection.createIndex(i => i.seq)
   issues.collection.createIndex(i => i.parentId)
   const clock = source([{ id: 'clock', now: NOW }], c => c.id)
+  clock.collection.createIndex(c => c.id)
   const phases = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .groupBy(({ s }) => [s.issueId, coalesce(s.agentState?.phase, 'unknown')])
     .select(({ s }) => ({ issueId: s.issueId, phase: coalesce(s.agentState?.phase, 'unknown'), count: count(s.sessionId) })) }))
+  phases.createIndex(p => p.issueId, { indexType: BasicIndex })
   const latest = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .groupBy(({ s }) => s.issueId).select(({ s }) => ({ issueId: s.issueId, latest: max(s.lastActiveAt) })) }))
+  latest.createIndex(l => l.issueId, { indexType: BasicIndex })
   const children = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
     .groupBy(({ i }) => i.parentId).select(({ i }) => ({ parentId: i.parentId,
       childDone: sum(caseWhen(eq(i.stage, 'done'), 1, 0)) })) }))
+  children.createIndex(c => c.parentId, { indexType: BasicIndex })
   const summary = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
     .where(({ i }) => eq(i.id, 'i0'))
     .leftJoin({ latest }, ({ i, latest: l }) => eq(i.id, l.issueId))
@@ -42,11 +49,13 @@ export function createTanstackProof(data: Fixture) {
   const summaryPhases = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ phases })
     .where(({ phases: p }) => eq(p.issueId, 'i0')).select(({ phases: p }) => p) }))
   const groupIssues = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
-    .fn.where(({ i }) => i.seq <= GROUP).select(({ i }) => i) }))
+    .where(({ i }) => lte(i.seq, GROUP)).select(({ i }) => i) }))
+  groupIssues.createIndex(i => i.id, { indexType: BasicIndex })
   const groupSessions = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .innerJoin({ i: groupIssues }, ({ s, i }) => eq(s.issueId, i.id)).select(({ s }) => s) }))
   const rankedInputs = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
     .select(({ i }) => ({ issue: i, clockKey: 'clock' })) }))
+  rankedInputs.createIndex(i => i.clockKey, { indexType: BasicIndex })
   const ranked = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ input: rankedInputs })
     .innerJoin({ clock: clock.collection }, ({ input, clock: c }) => eq(input.clockKey, c.id))
     .fn.select(({ input: { issue: i }, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq, key: i.sortKey || '\uffff', created: Date.parse(i.createdAt) || 0 }))
@@ -69,7 +78,7 @@ export function createTanstackProof(data: Fixture) {
     updateIssue: (i: Issue) => issues.update(i),
     update: (s: Session) => sessions.update(s), tick: (now: number) => clock.update({ id: 'clock', now }),
     replace(next: Fixture) { issues.replace(next.issues); sessions.replace(next.sessions) },
-    async dispose() { await Promise.all([...rowQueries.values(), ...queries].map(q => q.cleanup())); rowQueries.clear(); await Promise.all([sessions.collection.cleanup(), issues.collection.cleanup(), clock.collection.cleanup()]) } }
+    async dispose() { await Promise.all([...rowQueries.values()].map(q => q.cleanup())); for (const q of [...queries].reverse()) await q.cleanup(); rowQueries.clear(); await Promise.all([sessions.collection.cleanup(), issues.collection.cleanup(), clock.collection.cleanup()]) } }
 }
 export type TanstackProof = ReturnType<typeof createTanstackProof>
 export function TanstackRow({ proof, id, reader, read, commit }: { proof: TanstackProof; id: string; reader: number; read: () => void; commit: () => void }) {

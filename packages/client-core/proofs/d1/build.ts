@@ -26,7 +26,7 @@ for (const candidate of ['mobx', 'tanstack']) {
   const libraryEntry = join(output, `${candidate}-library.ts`)
   writeFileSync(libraryEntry, candidate === 'mobx'
     ? "export { observable, computed, runInAction } from 'mobx'; export { observer } from 'mobx-react-lite';\n"
-    : "export { createCollection, createLiveQueryCollection, eq, count, max, sum, caseWhen, coalesce, gt } from '@tanstack/db'; export { useLiveQuery } from '@tanstack/react-db';\n")
+    : "export { createCollection, createLiveQueryCollection, BasicIndex, eq, lte, count, max, sum, caseWhen, coalesce, gt } from '@tanstack/db'; export { useLiveQuery } from '@tanstack/react-db';\n")
   const libraryDist = join(output, `${candidate}-library`)
   await build({ configFile: false, root: join(root, 'apps/web'),
     build: { outDir: libraryDist, emptyOutDir: true, minify: true,

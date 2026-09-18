@@ -163,6 +163,7 @@
     },
     "@podium/web#test": {
       "dependsOn": [],
+      "env": ["PODIUM_D1_PROOF"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
@@ -519,6 +520,7 @@
     },
     "@podium/mobile#test": {
       "dependsOn": [],
+      "env": ["PODIUM_D1_PROOF"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
