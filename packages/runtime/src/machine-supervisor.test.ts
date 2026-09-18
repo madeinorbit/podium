@@ -59,7 +59,7 @@ describe('supervisor credential ownership', () => {
     expect(statSync(join(dir, 'machine.json')).mode & 0o777).toBe(0o600)
   })
 
-  it('refuses conflicting legacy identities without choosing an owner', () => {
+  it('keeps the supervisor identity when a stale daemon.json disagrees', () => {
     const dir = stateDir()
     writeFileSync(
       join(dir, 'supervisor.json'),
@@ -70,7 +70,10 @@ describe('supervisor credential ownership', () => {
       JSON.stringify({ machineId: 'm_legacy', token: 'legacy-token' }),
     )
 
-    expect(() => loadSupervisorState(dir)).toThrow('conflicting legacy machine identities')
+    expect(loadSupervisorState(dir)).toEqual({ machineId: 'm_current', token: 'current-token' })
+    const machine = JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8'))
+    expect(machine.machineId).toBe('m_current')
+    expect(machine.daemon).toEqual({ machineId: 'm_legacy', token: 'legacy-token' })
   })
 })
 

@@ -97,27 +97,33 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
   if (!current) {
     const importedFiles: MachineState['importedFiles'] = {}
     const sections: Partial<Pick<MachineState, 'daemon' | 'supervisor' | 'connectivity'>> = {}
-    const ids = new Set<string>()
+    // The root identity is the one the supervisor authenticates with; `machine.id` is
+    // the pre-consolidation local id file and `daemon.json` the daemon's own credential
+    // row. Real installs carry a stale id in one of them (a box re-paired under a new
+    // row keeps the old `daemon.json`), so disagreement is ordinary, not a refusal: the
+    // precedence below is exactly what each reader saw before consolidation, and every
+    // section is kept verbatim so the daemon still presents its own credential.
+    const legacyIds: Partial<Record<'supervisor.json' | 'machine.id' | 'daemon.json', string>> = {}
     for (const name of LEGACY_FILES) {
       const raw = readOptional(join(dir, name))
       if (raw === undefined) continue
       importedFiles[name] = digest(raw)
       if (name === 'machine.id') {
         if (!raw.trim()) throw new Error('empty legacy machine identity')
-        ids.add(raw.trim())
+        legacyIds['machine.id'] = raw.trim()
       } else {
         const data = object(raw, join(dir, name))
         const section = name.slice(0, -5) as 'daemon' | 'supervisor' | 'connectivity'
         sections[section] = data
         if (section !== 'connectivity') {
           if (typeof data.machineId !== 'string' || !data.machineId.trim()) throw new Error(`invalid legacy identity in ${name}`)
-          ids.add(data.machineId)
+          legacyIds[section === 'daemon' ? 'daemon.json' : 'supervisor.json'] = data.machineId
         }
       }
     }
-    if (ids.size > 1) throw new Error('conflicting legacy machine identities; refusing to choose an owner')
-    if (!ids.size && !expectedId && !allowCreate) throw new Error('machine identity is missing')
-    const machineId = (ids.values().next().value ?? expectedId ?? randomUUID()) as MachineId
+    const legacyId = legacyIds['supervisor.json'] ?? legacyIds['machine.id'] ?? legacyIds['daemon.json']
+    if (legacyId === undefined && !expectedId && !allowCreate) throw new Error('machine identity is missing')
+    const machineId = (legacyId ?? expectedId ?? randomUUID()) as MachineId
     if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)
     const candidate: MachineState = { version: 1, machineId, ...sections, importedFiles }
     let published = false
