@@ -97,12 +97,12 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
   if (!current) {
     const importedFiles: MachineState['importedFiles'] = {}
     const sections: Partial<Pick<MachineState, 'daemon' | 'supervisor' | 'connectivity'>> = {}
-    // The root identity is the one the supervisor authenticates with; `machine.id` is
-    // the pre-consolidation local id file and `daemon.json` the daemon's own credential
-    // row. Real installs carry a stale id in one of them (a box re-paired under a new
-    // row keeps the old `daemon.json`), so disagreement is ordinary, not a refusal: the
-    // precedence below is exactly what each reader saw before consolidation, and every
-    // section is kept verbatim so the daemon still presents its own credential.
+    // The root identity is the one a credential authenticates: the supervisor's row
+    // when the box is supervised, else the daemon's own credential row. `machine.id`
+    // is the bare pre-consolidation id file and the weakest witness: a re-paired box
+    // keeps a stale one (flatblock: machine.id from an earlier pairing, daemon.json the
+    // live row), and a supervised box keeps a dead daemon.json (ludovico). Disagreement
+    // is ordinary, never a refusal; every section is kept verbatim.
     const legacyIds: Partial<Record<'supervisor.json' | 'machine.id' | 'daemon.json', string>> = {}
     for (const name of LEGACY_FILES) {
       const raw = readOptional(join(dir, name))
@@ -121,7 +121,7 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
         }
       }
     }
-    const legacyId = legacyIds['supervisor.json'] ?? legacyIds['machine.id'] ?? legacyIds['daemon.json']
+    const legacyId = legacyIds['supervisor.json'] ?? legacyIds['daemon.json'] ?? legacyIds['machine.id']
     if (legacyId === undefined && !expectedId && !allowCreate) throw new Error('machine identity is missing')
     const machineId = (legacyId ?? expectedId ?? randomUUID()) as MachineId
     if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)

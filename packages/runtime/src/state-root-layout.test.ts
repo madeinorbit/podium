@@ -109,7 +109,7 @@ it('refuses changed cleanup inputs instead of deleting data written after public
   expect(readMachineState(dir)?.machineId).toBe('machine-original')
 })
 
-it('resolves disagreeing legacy identities the way their readers did: supervisor, then machine.id, then daemon', () => {
+it('resolves disagreeing legacy identities by credential: supervisor, then daemon, then machine.id', () => {
   // ludovico's real state root on 2026-09-18: machine.id and supervisor.json name the
   // server's row, daemon.json a stale row from an earlier pairing. The dev.166 daemon
   // refused this shape at first boot and every updated machine went dark.
@@ -124,13 +124,14 @@ it('resolves disagreeing legacy identities the way their readers did: supervisor
   expect(state?.daemon).toEqual({ machineId: 'stale-daemon-id', token: 'd' })
   expect(state?.supervisor).toEqual({ machineId: 'host-id', token: 's' })
 
-  // A re-paired daemon without a supervisor: machine.id wins over daemon.json, as before.
+  // flatblock's real state root: a re-paired legacy daemon with no supervisor keeps a
+  // stale machine.id while daemon.json names the live row. The credential wins.
   const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-disagree2-'))
   roots.push(dir2)
-  writeFileSync(join(dir2, 'machine.id'), 'host-id')
-  writeFileSync(join(dir2, 'daemon.json'), JSON.stringify({ machineId: 'different-id' }))
-  expect(readOrCreateLocalMachineId(dir2)).toBe('host-id')
-  expect(readMachineState(dir2)?.daemon).toEqual({ machineId: 'different-id' })
+  writeFileSync(join(dir2, 'machine.id'), 'stale-machine-id')
+  writeFileSync(join(dir2, 'daemon.json'), JSON.stringify({ machineId: 'live-row', token: 't' }))
+  expect(readOrCreateLocalMachineId(dir2)).toBe('live-row')
+  expect(readMachineState(dir2)?.daemon).toEqual({ machineId: 'live-row', token: 't' })
 
   // Supervisor alone disagreeing with machine.id: the supervisor's credential identity wins.
   const dir3 = mkdtempSync(join(tmpdir(), 'podium-state-disagree3-'))

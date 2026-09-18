@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -18,6 +18,19 @@ afterAll(() => {
 
 
 describe('daemon identity', () => {
+  it('presents the daemon credential row, never the root id with the daemon token (flatblock shape)', () => {
+    // flatblock 2026-09-18: machine.id = 74812716… from an earlier pairing, daemon.json =
+    // the live row c2ba4db0… with its token, no supervisor.json. dev.166/167 sent the stale
+    // id with the live token and the server refused it.
+    const dir = trackTmp('podium-id-flatblock-')
+    writeFileSync(join(dir, 'machine.id'), 'stale-machine-id')
+    writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'live-row', token: 'live-token', updatePubkey: 'k' }))
+    const identity = loadIdentity({ dir })
+    expect(identity).toEqual({ machineId: 'live-row', token: 'live-token', updatePubkey: 'k' })
+    saveToken('rotated', { dir })
+    expect(loadIdentity({ dir })).toEqual({ machineId: 'live-row', token: 'rotated', updatePubkey: 'k' })
+  })
+
   it('creates a stable uuid machineId on first load and reuses it', () => {
     const dir = trackTmp('podium-id-')
     const first = loadIdentity({ dir })
