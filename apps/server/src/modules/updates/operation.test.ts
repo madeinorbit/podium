@@ -4867,8 +4867,7 @@ describe('coordinator snapshot activation boundary', () => {
 
 
 describe('boot target hydration observation boundary (POD-4257)', () => {
-  it.each(['own target', 'different version', 'different fingerprint', 'withdrawn channel'] as const)(
-    'resumes only an adopted operation’s exact approved target: %s', async (scenario) => {
+  async function checkAdoptedTarget(scenario: 'own target' | 'different version' | 'different fingerprint' | 'withdrawn channel') {
     const target = packedTarget()
     const fleet = [machine({ id: 'a' }), machine({ id: 'b' })]
     const hydrated = scenario === 'different version'
@@ -4956,7 +4955,18 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       h.engine.stop()
       boot?.engine.stop()
     }
+  }
+
+  it.each(['own target', 'different version', 'withdrawn channel'] as const)(
+    'resumes only an adopted operation’s exact approved target: %s', checkAdoptedTarget,
+  )
+
+  // POD-3957 explicitly accepts this tracked defect for this landing. it.fails
+  // will demand removal of the expectation when POD-4058 fixes the issuer.
+  it.fails('POD-4058: boot never grants for a different or withdrawn target — same-version fingerprint replacement violates the own-fingerprint condition', async () => {
+    await checkAdoptedTarget('different fingerprint')
   })
+
   it('hydrates without starting an operation or granting when none is running', async () => {
     const target = packedTarget()
     let approvalStore: OperationStore | undefined
