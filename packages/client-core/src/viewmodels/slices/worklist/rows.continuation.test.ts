@@ -112,3 +112,38 @@ describe('a vacated origin is a signpost, not an ask', () => {
     expect(row?.continuation).toBeUndefined()
   })
 })
+
+describe('derivation-local session membership', () => {
+  it('does not scan unrelated sessions once per issue row', () => {
+    let reads = 0
+    const issues = Array.from({ length: 1600 }, (_, i) => issue({ id: `issue-${i}` }))
+    const sessions = Array.from({ length: 1300 }, (_, i) => {
+      const member = session({ sessionId: `session-${i}`, archived: i % 3 === 0 })
+      Object.defineProperty(member, 'issueId', {
+        get: () => {
+          reads += 1
+          return `issue-${i % issues.length}`
+        },
+      })
+      return member
+    })
+    const rows = issueRows(issues, sessions)
+    expect(rows).toHaveLength(1600)
+    // Includes the rollup's existing staffing index. The old per-row scan
+    // performs over a million reads; all derivation-wide passes are linear.
+    expect(reads).toBeLessThan(sessions.length * 15)
+  })
+
+  it('rebuilds continuation membership after eviction and reattachment', () => {
+    const origin = issue({ id: 'origin' })
+    const tip = issue({ id: 'tip', deps: [{ id: 'origin', type: 'discovered-from' }] })
+    const onOrigin = session({ issueId: 'origin' })
+    const onTip = session({ sessionId: 'tip-agent', issueId: 'tip' })
+    const continuation = (sessions: SessionMeta[]) =>
+      issueRows([origin, tip], sessions).find((row) => row.issue.id === origin.id)?.continuation
+    expect(continuation([onOrigin, onTip])).toBeUndefined()
+    expect(continuation([onTip])).toBe('continued · POD-1158')
+    expect(continuation([onOrigin, onTip])).toBeUndefined()
+    expect(continuation([{ ...onOrigin, archived: true }, onTip])).toBe('continued · POD-1158')
+  })
+})

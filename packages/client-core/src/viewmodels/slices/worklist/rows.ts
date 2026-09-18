@@ -12,7 +12,7 @@ import {
   isSystemOwnedIssueStage,
   type SessionMeta,
 } from '@podium/model'
-import { issueContinuation, missionRollup } from '../../mission'
+import { indexMissionSessions, issueContinuation, missionRollup } from '../../mission'
 import {
   issueIdOwningSession,
   type SessionOwnershipIndex,
@@ -56,6 +56,7 @@ function buildUnifiedRows(
   now: number,
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
+  const sessionIndex = indexMissionSessions(sessions)
   const rows: UnifiedWorkRow[] = []
   const retainedSessionsByIssue = new Map<string, SessionMeta[]>()
   for (const issue of issues) {
@@ -164,7 +165,7 @@ function buildUnifiedRows(
   // ask to that sum.
   const continued = rows.map((row) => {
     if (row.kind !== 'issue') return row
-    const went = issueContinuation(row.issue, issueById, sessions)
+    const went = issueContinuation(row.issue, issueById, sessions, sessionIndex)
     return went ? { ...row, continuation: went.line } : row
   })
   // Stamp the same child-task rollup the Flight Deck meter uses onto each
@@ -174,7 +175,7 @@ function buildUnifiedRows(
   const nested = nestStartedByIssues(continued, sessions, allWorktreePaths, issues, ownership).map(
     (row) =>
       row.kind === 'issue'
-        ? { ...row, missionRollup: missionRollup(issues, sessions, row.issue.id) }
+        ? { ...row, missionRollup: missionRollup(issues, sessions, row.issue.id, sessionIndex) }
         : row,
   )
   const issueSessionIds = new Set<string>()

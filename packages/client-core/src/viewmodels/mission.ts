@@ -540,7 +540,7 @@ export function hasLeftMission(issue: IssueNavigationModel): boolean {
  *
  * A `WeakMap`, so a superseded slice's index dies with the array that named it.
  */
-interface MissionSessionIndex {
+export interface MissionSessionIndex {
   /**
    * Every session carrying this `issueId`, in SLICE ORDER, archived included —
    * exactly what `sessions.filter((s) => s.issueId === id)` returned, because
@@ -566,6 +566,13 @@ let sessionIndexBuilds = 0
 function missionSessionIndex(sessions: readonly SessionMeta[]): MissionSessionIndex {
   const cached = sessionIndexes.get(sessions)
   if (cached) return cached
+  const index = indexMissionSessions(sessions)
+  sessionIndexes.set(sessions, index)
+  return index
+}
+
+/** Fresh, derivation-local membership; never retained across snapshots. */
+export function indexMissionSessions(sessions: readonly SessionMeta[]): MissionSessionIndex {
   sessionIndexBuilds += 1
   const byIssue = new Map<string, SessionMeta[]>()
   const openIssues = new Set<string>()
@@ -584,7 +591,6 @@ function missionSessionIndex(sessions: readonly SessionMeta[]): MissionSessionIn
     }
   }
   const index: MissionSessionIndex = { byIssue, openIssues, lastActive }
-  sessionIndexes.set(sessions, index)
   return index
 }
 
@@ -600,8 +606,12 @@ function sessionsOnIssue(
 }
 
 /** Is anybody {@link openSession} on this issue? */
-function issueStaffed(sessions: readonly SessionMeta[], issueId: string): boolean {
-  return missionSessionIndex(sessions).openIssues.has(issueId)
+function issueStaffed(
+  sessions: readonly SessionMeta[],
+  issueId: string,
+  sessionIndex?: MissionSessionIndex,
+): boolean {
+  return (sessionIndex ?? missionSessionIndex(sessions)).openIssues.has(issueId)
 }
 
 /**
@@ -622,8 +632,12 @@ function issueStaffed(sessions: readonly SessionMeta[], issueId: string): boolea
  * alone. An unstarted spin-off nobody is on still belongs on the origin's spine
  * for triage — that half of the rule is untouched.
  */
-function staffedSpinOff(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): boolean {
-  return spinOffOriginId(issue) !== null && issueStaffed(sessions, issue.id)
+function staffedSpinOff(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  sessionIndex?: MissionSessionIndex,
+): boolean {
+  return spinOffOriginId(issue) !== null && issueStaffed(sessions, issue.id, sessionIndex)
 }
 
 /**
@@ -681,26 +695,33 @@ function spinOffDescendants(
   return out
 }
 
-function lastActiveAt(issue: IssueNavigationModel, sessions: readonly SessionMeta[]): string {
+function lastActiveAt(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  sessionIndex?: MissionSessionIndex,
+): string {
   const latest = issue.updatedAt ?? ''
   // The same max over the same sessions, folded once per slice instead of once
   // per comparison: `preferredSpinOffTip` sorts with this as its key.
-  const seen = missionSessionIndex(sessions).lastActive.get(issue.id)
+  const seen = (sessionIndex ?? missionSessionIndex(sessions)).lastActive.get(issue.id)
   return seen !== undefined && seen > latest ? seen : latest
 }
 
 function preferredSpinOffTip(
   candidates: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
+  sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel | null {
   if (candidates.length === 0) return null
-  const staffed = candidates.filter((issue) => issueStaffed(sessions, issue.id))
+  const staffed = candidates.filter((issue) => issueStaffed(sessions, issue.id, sessionIndex))
   const pool =
     staffed.length > 0
       ? staffed
       : candidates.filter((issue) => !issue.closedReason && issue.stage !== 'done')
   const pick = (pool.length > 0 ? pool : candidates).slice()
-  pick.sort((a, b) => lastActiveAt(b, sessions).localeCompare(lastActiveAt(a, sessions)))
+  pick.sort((a, b) =>
+    lastActiveAt(b, sessions, sessionIndex).localeCompare(lastActiveAt(a, sessions, sessionIndex)),
+  )
   return pick[0] ?? null
 }
 
@@ -716,12 +737,13 @@ function liveSpinOffTips(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
   sessions: readonly SessionMeta[] = NO_SESSIONS,
+  sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel[] {
   if (!byId) return []
   const descendants = spinOffDescendants(origin.id, byId)
   const branches = new Map<string, IssueNavigationModel[]>()
   for (const issue of descendants) {
-    if (!hasLeftMission(issue) && !staffedSpinOff(issue, sessions)) continue
+    if (!hasLeftMission(issue) && !staffedSpinOff(issue, sessions, sessionIndex)) continue
     let branchRoot = issue
     let parentId = spinOffOriginId(branchRoot)
     while (parentId && parentId !== origin.id) {
@@ -737,7 +759,7 @@ function liveSpinOffTips(
   }
   const tips: IssueNavigationModel[] = []
   for (const branch of branches.values()) {
-    const tip = preferredSpinOffTip(branch, sessions)
+    const tip = preferredSpinOffTip(branch, sessions, sessionIndex)
     if (tip) tips.push(tip)
   }
   return tips
@@ -755,8 +777,13 @@ export function liveSpinOffTip(
   origin: Pick<IssueNavigationModel, 'id'>,
   byId: ReadonlyMap<string, IssueNavigationModel> | undefined,
   sessions: readonly SessionMeta[] = NO_SESSIONS,
+  sessionIndex?: MissionSessionIndex,
 ): IssueNavigationModel | null {
-  return preferredSpinOffTip(liveSpinOffTips(origin, byId, sessions), sessions)
+  return preferredSpinOffTip(
+    liveSpinOffTips(origin, byId, sessions, sessionIndex),
+    sessions,
+    sessionIndex,
+  )
 }
 
 /** Sessionless, and the work continued on a started spin-off. A signpost, not a task. */
@@ -1241,6 +1268,7 @@ export function missionRollup(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
   rootId: string | null | undefined,
+  sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   if (!rootId) return EMPTY_ROLLUP
   // FROZEN, AND SHARED. Four surfaces ask this about the same root inside one
@@ -1248,7 +1276,7 @@ export function missionRollup(
   // folded bar); they all read the six counts and none writes, and the freeze is
   // what keeps it that way now that they read the same object.
   return memoBySlices(missionProgressCache, issues, sessions, rootId, () =>
-    Object.freeze(computeMissionRollup(issues, sessions, rootId)),
+    Object.freeze(computeMissionRollup(issues, sessions, rootId, sessionIndex)),
   )
 }
 
@@ -1256,6 +1284,7 @@ function computeMissionRollup(
   issues: readonly IssueNavigationModel[],
   sessions: readonly SessionMeta[],
   rootId: string,
+  sessionIndex?: MissionSessionIndex,
 ): MissionRollup {
   missionProgressComputes += 1
   const ids = missionIssueIds(issues, rootId, sessions)
@@ -1289,7 +1318,9 @@ function computeMissionRollup(
       // can see, and widening it here would change the answer. The subset is now
       // a lookup rather than a scan of the whole slice per unit, which is the line
       // the profile named.
-      const own = sessionsOnIssue(sessions, issue.id)
+      const own = sessionIndex
+        ? (sessionIndex.byIssue.get(issue.id) ?? NO_SESSIONS)
+        : sessionsOnIssue(sessions, issue.id)
       return !isVacatedOrigin(issue, own, byId)
     },
   )
@@ -2115,6 +2146,7 @@ export function issueContinuation(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
   sessions: readonly SessionMeta[] = [],
+  sessionIndex?: MissionSessionIndex,
 ): IssueContinuation | null {
   const targetId = issue.supersededBy ?? issue.duplicateOf
   if (targetId) {
@@ -2141,8 +2173,9 @@ export function issueContinuation(
   // that also discovered something, not a signpost. `sessions` may be the
   // replica-wide slice (the flight deck passes that), so membership is
   // issueId, not "any live session in the list".
-  if (sessions.some((session) => session.issueId === issue.id && openSession(session))) return null
-  const tip = liveSpinOffTip(issue, byId, sessions)
+  sessionIndex ??= indexMissionSessions(sessions)
+  if (sessionIndex.openIssues.has(issue.id)) return null
+  const tip = liveSpinOffTip(issue, byId, sessions, sessionIndex)
   if (!tip) return null
   const ref = issueDisplayRef(tip)
   return {
@@ -2201,13 +2234,14 @@ export function presenceNote(
    * agent on it but no stage yet ({@link staffedSpinOff}).
    */
   allSessions: readonly SessionMeta[] = sessions,
+  sessionIndex?: MissionSessionIndex,
 ): PresenceNote | null {
   if (sessions.some(openSession)) return null
   const moved = sessions.find((session) => session.handoffTarget)
   if (moved) {
     return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
   }
-  const continuation = issueContinuation(issue, byId, allSessions)
+  const continuation = issueContinuation(issue, byId, allSessions, sessionIndex)
   if (continuation) {
     return { kind: 'moved', text: continuation.full, attention: false }
   }
@@ -2378,8 +2412,9 @@ export function issueNote(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
   sessions: readonly SessionMeta[] = [],
+  sessionIndex?: MissionSessionIndex,
 ): IssueNote | null {
-  const continuation = issueContinuation(issue, byId, sessions)
+  const continuation = issueContinuation(issue, byId, sessions, sessionIndex)
   if (continuation) {
     return {
       kind: 'continued',
