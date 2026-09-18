@@ -1,9 +1,8 @@
 import { updateFingerprint } from '@podium/runtime/machine-update'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type UpdateChannel } from '@podium/model'
+import { type UpdateChannel } from '@podium/model'
 import { targetPlatforms, type UpdateTarget } from '@podium/protocol'
-import { UPDATE_BUDGETS } from './operation'
-import { GRANT_TIMED_OUT_DETAIL, type MachineApplyOutcome, type UpdatesService } from './service'
+import { type UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
@@ -15,94 +14,11 @@ import {
   type WaveMachine,
 } from './wave'
 
-/**
- * THE STANDING RECONCILIATION (POD-2105, spec §3.6, decision §9.1).
- *
- * The one sentence: an update finishes even when part of the fleet is asleep,
- * and the sleepers converge on their own when they wake — no operation, no
- * second click.
- *
- * The plan already does half of it. `planUpdateOperation` partitions the
- * behind-target machines into CORE (connected, deliverable — they gate the
- * outcome) and EVENTUAL (`deferred`, with an honest note), so the operation can
- * reach `done` while a laptop is shut. This file is the other half: the small,
- * always-on thing that notices the laptop reconnecting and converges it.
- *
- * WHY THIS IS NOT A WAVE, AND MUST NOT BECOME ONE
- * -----------------------------------------------
- * A wave is a decision a human made about a fleet at a moment: it has a canary,
- * a widening rule, concurrency, and an operation counting it. This is background
- * convergence — one machine at a time, spaced, with nobody watching. It reuses
- * the wave's MUSCLE (`authorizeMachine` → `planWave` → the grant protocol) and
- * none of its choreography, which is why it can run with no operation at all.
- *
- * FOUR PROPERTIES THIS FILE EXISTS TO GUARANTEE
- * ---------------------------------------------
- *  1. **It never races an operation.** While an exclusive `lifecycle` operation
- *     is active the operation owns granting, and this is paused ({@link decideReconciliation}
- *     refuses with `operation-active`). It resumes on the operation's TERMINAL
- *     transition and sweeps anyone still behind — which is also how a `failed`
- *     operation gets cleaned up without a human pressing Try again.
- *  2. **It never hot-loops.** A machine that answered `rejected` or `stuck` is
- *     left alone until the target changes or a human applies it by hand. That is
- *     not a nicety: `authorizeMachine` deliberately CLEARS a terminal state
- *     before planning (it is the human retry path), so a reconciler that called
- *     it unconditionally would erase the refusal it should have obeyed and
- *     re-grant on every reconnect, forever.
- *  3. **It says who moved a machine.** {@link UpdateReconciler.convergedBy}
- *     marks the machines this converged, so the fleet payload can label a row
- *     that moved with nobody looking (additive; see the `convergedBy` field).
- *  4. **It never converges the coordinator** (POD-2907). Everything above is
- *     about machines this server TALKS TO. Its own row is not one of those: a
- *     grant to it lands in-process and ends this server, so "with nobody
- *     looking" stops being a property and becomes the defect. See the
- *     `coordinator` refusal.
- *
- * WHAT IT IS DELIBERATELY NOT WIRED TO: publishing a target.
- * -----------------------------------------------------------
- * A new version arriving is an OFFER (§3.2, §6.1) — the thing a human decides
- * about. If this listened for it, every publication would install itself on the
- * whole connected fleet, which is not convergence but auto-update, and nobody
- * asked for it. Reconnect, settlement, and boot recovery all require the same
- * durable approval for the exact published version. A newer offer never
- * inherits approval from an older operation.
- *
- * …AND THE INHERITANCE HAS A BOUNDARY (POD-2907). Both of those decisions were
- * made about the FLEET this coordinator serves. Neither of them is a decision to
- * replace this coordinator, which is why the machine that IS this coordinator is
- * refused by name below however eligible it looks.
- */
-
 const log = createLogger('server:updates')
 
-/** Why a machine was NOT converged. Every refusal is named, because a background
- *  process that silently does nothing is indistinguishable from a broken one. */
 export type ReconcileRefusal =
   | 'operation-active'
   | 'unknown-machine'
-  /**
-   * THE COORDINATOR IS NOT A STRAGGLER (POD-2907).
-   *
-   * This host's own machine row looks like any other packaged rollout target:
-   * `installed`, feed-capable, online, and behind the moment anything newer is
-   * published. It is not any other machine. A grant to it does not travel over
-   * a socket to a daemon that can swap in the background — it lands on the
-   * in-process local update participant, which asks the supervising parent to
-   * swap the bundle and hand this process over to a successor. Every session,
-   * every socket and every operation this server is holding ends with it.
-   *
-   * That is an act with a UI: the update operation's plan puts the host in the
-   * wave (`hostUpdatesThroughFleet`) or gives it a `server` step, and either way
-   * a person saw it and pressed something. Background convergence has no such
-   * moment, and §3.6's licence — "stragglers converge to the current target
-   * without a new human decision" — is a statement about the FLEET the
-   * coordinator serves, not about the coordinator.
-   *
-   * On 2026-08-31 the difference cost a live server: a publication finished at
-   * 06:14:56Z, the local daemon's next reconnect enqueued this host, the table
-   * below found it merely "behind", and the parent launched a successor at
-   * 06:14:58Z with no operation and nobody clicking anything.
-   */
   | 'coordinator'
   | 'no-target'
   | 'not-approved'
@@ -111,98 +27,27 @@ export type ReconcileRefusal =
   | 'offline'
   | 'cannot-take-delivery'
   | 'legacy-instance-trust'
-  /**
-   * The release carries no bytes for this machine's platform, because it was
-   * minted before the machine joined the fleet (POD-2783). Named apart from
-   * `cannot-take-delivery` because it never clears: no reconnect and no retry
-   * changes an immutable release, and a background process poking a permanent
-   * fact is how this one got granted twice on every wake.
-   */
   | 'platform-not-in-release'
   | 'in-flight'
   | 'terminal'
   | 'attempts-exhausted'
+  | 'human-operation-required'
 
-export type ReconcileDecision = { converge: true } | { converge: false; because: ReconcileRefusal }
+export type ReconcileDecision = { converge: false; because: ReconcileRefusal }
 
 export interface ReconcileFacts {
-  /** The live row from the fleet projection, or absent if the machine is gone. */
   machine: WaveMachine | undefined
-  /**
-   * Is this row the coordinator's own machine?
-   *
-   * DERIVED FROM THE ROW, not stated separately: POD-3170 put `coordinator` on
-   * the fleet projection so `decideWave` could hold this host until last, and a
-   * second identity kept here could only ever drift from the one the planner
-   * reads. Left overridable so the decision table can be exercised directly.
-   */
   isCoordinator?: boolean
-  /** The target published for THIS machine's channel — never a global default. */
   target: UpdateTarget | undefined
-  /** Is an exclusive lifecycle operation running right now? Read per call. */
   approvedTargetVersion?: string
-  /** Frozen descriptor from durable consent; production always supplies it. */
   approvedTarget?: UpdateTarget
   operationActive: boolean
-  /** How many grants this reconciler has already issued for this exact target. */
   attempts: number
   maxAttempts?: number
 }
 
-/**
- * How many times this may grant one machine one target before giving up.
- *
- * Two, not one, because the honest failure this bounds is not a refusal — a
- * refusal lands as `rejected`/`stuck` and is caught by the terminal check above
- * it. This bounds the machine that reconnects still behind having said nothing:
- * a daemon that swapped, crashed and rolled back looks exactly like a daemon
- * that never got the grant, and the difference is only visible in whether a
- * second attempt changes anything. After the second it is a standing fault, and
- * a background process must not keep poking a standing fault.
- */
 export const MAX_RECONCILE_ATTEMPTS = 2
 
-/** How long between two grants. Background convergence, not a wave (§3.6). */
-const DEFAULT_GRANT_SPACING_MS = 5_000
-
-/**
- * HOW LONG THIS WAITS FOR A GRANT IT ISSUED, AND WHY IT HAS TO (POD-2185).
- *
- * Every other granter in this system is timed by the operation's `machines`
- * step, whose budget the engine arms a real timer for. This one runs when no
- * operation is active, which is exactly the case that step cannot cover — and
- * until POD-2185 nothing covered it either. {@link UpdateReconciler.pump} used
- * to say its outstanding grant was "bounded by construction: the service ages a
- * grant into `stuck` after its own deadline", and POD-2101 deleted that
- * deadline (see `WHERE THE GRANT DEADLINE WENT` in `service.ts`). The
- * replacement it named — {@link UpdatesService.releaseInFlightGrants} — is
- * reached from one place, the engine's terminal transition, and a reconciler
- * grant is by construction outside it. So a laptop that opened its lid, took a
- * grant, and shut it again mid-download held the queue for the life of the
- * process, kept {@link UpdatesService.operationActive} true, and with it
- * suppressed its channel's scheduled target refresh — on precisely the machines
- * §3.6 exists to serve.
- *
- * DERIVED, not chosen, and from the same table the operation's step uses: this
- * bounds the identical act — one daemon taking one grant — and differs only in
- * who is watching, so two numbers here could only ever drift apart.
- */
-export const RECONCILE_GRANT_DEADLINE_MS =
-  UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs
-
-/**
- * THE DECISION, as a pure function (the whole point of the split).
- *
- * "Should this machine be converged right now?" is a question with nine wrong
- * answers and one right one, and every one of them is a table row rather than a
- * scenario someone has to build a fleet to reproduce.
- *
- * ORDER IS THE SPECIFICATION. `operation-active` is first because it is about
- * the SERVER, not the machine — while an operation holds the group nothing here
- * may act, whatever the machine looks like. `terminal` precedes
- * `attempts-exhausted` because a machine that said no has said something, and
- * the log should quote it rather than a counter.
- */
 export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (facts.operationActive) return { converge: false, because: 'operation-active' }
   const machine = facts.machine
@@ -245,378 +90,55 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (facts.attempts >= (facts.maxAttempts ?? MAX_RECONCILE_ATTEMPTS)) {
     return { converge: false, because: 'attempts-exhausted' }
   }
-  return { converge: true }
+  return { converge: false, because: 'human-operation-required' }
 }
 
+/** Background observation has no grant authority. Only an operation may converge drift. */
 export interface UpdateReconcilerDeps {
   updates: UpdatesService
-  /**
-   * Is an exclusive lifecycle operation active? A THUNK, read per decision:
-   * the answer changes on every operation transition, and a captured one would
-   * make the pause outlive the operation that justified it.
-   */
   operationActive: () => boolean | Promise<boolean>
-  /** Deferred wake-up. Injected so no test ever sleeps. */
+  /** Compatibility for callers supplying a scheduler; observation needs no timers. */
   schedule?: (fn: () => void, ms: number) => void
-  /** How long between two grants; also how often an outstanding one is re-read. */
-  spacingMs?: number
-  /** How long an outstanding grant may stay silent before this gives up on it.
-   *  Defaults to {@link RECONCILE_GRANT_DEADLINE_MS}. */
-  grantDeadlineMs?: number
-  maxAttempts?: number
 }
-
-function defaultSchedule(fn: () => void, ms: number): void {
-  const timer = setTimeout(fn, ms)
-  timer.unref?.()
-}
-
-/** Ledger key: a machine's attempts are counted PER TARGET, so a new version is
- *  a fresh start and no bookkeeping has to be swept when one is published.
- *  `@` separates because a machine id never contains one and a version may
- *  contain everything else a version label is allowed to contain. */
-const attemptKey = (machineId: string, targetVersion: string): string =>
-  `${machineId}@${targetVersion}`
 
 export class UpdateReconciler {
-  /** Waiting to be considered. Deduped: a flapping daemon must not queue twice. */
-  private readonly queue: string[] = []
-  private readonly queued = new Set<string>()
-  /** The grant THIS issued that has not yet reached an outcome (concurrency 1). */
-  private outstanding: string | undefined
-  /**
-   * Bumped on every grant, so a deadline timer can tell ITS grant from a later
-   * one to the same machine. Without it, a machine that converged and then came
-   * back for a second target would have the first grant's expired timer abandon
-   * the second one — the classic stale-timer bug, and the reason this is a
-   * token rather than an id comparison.
-   */
-  private grants = 0
-  /**
-   * WHICH EDGE WOKE THIS, carried into the grant's causal record so a row in the
-   * event log says "a reconnect did this" or "an operation ending did this"
-   * rather than merely "the reconciler did this" (POD-2907).
-   */
-  private wokenBy: 'machine-connected' | 'operation-settled' = 'machine-connected'
-  private pumping = false
-  /** A spacing timer is already armed; see {@link UpdateReconciler.later}. */
-  private waiting = false
-  private readonly attempts = new Map<string, number>()
-  /** machineId → the target version this reconciler drove it to. */
-  private readonly converged = new Map<string, string>()
-
   constructor(private readonly deps: UpdateReconcilerDeps) {}
 
-  /**
-   * A daemon reconnected (`machine.connected`). By the time this runs its hello
-   * has already been recorded — `recordHelloBuild` precedes `attachDaemon` in
-   * the handshake — so the version compared below is the version it just booted
-   * with, not the one it had when it went away.
-   */
-  onMachineConnected(machineId: string): Promise<void> {
-    this.wokenBy = 'machine-connected'
-    this.enqueue(machineId)
-    return this.pump()
+  async onMachineConnected(machineId: string): Promise<void> {
+    await this.reportDrift(machineId)
   }
 
-  /** Settlement may converge only the channel and exact target the user approved. */
-  async onOperationSettled(channel: UpdateChannel, target: UpdateTarget, outcome?: string): Promise<void> {
-    if (outcome === 'canceled') return
-    if (this.deps.updates.target(channel)?.version !== target.version) return
-    this.wokenBy = 'operation-settled'
-    for (const machine of await this.deps.updates.fleet()) {
-      if (this.deps.updates.channelOf(machine) === channel) this.enqueue(machine.id)
-    }
-    await this.pump()
+  async onOperationSettled(channel: UpdateChannel, _target: UpdateTarget, _outcome?: string): Promise<void> {
+    await this.reportDrift(undefined, channel)
   }
 
-  /** Recover a sweep lost across coordinator handover; the ordinary guard applies. */
   async onBoot(): Promise<void> {
-    for (const machine of await this.deps.updates.fleet()) {
-      if (machine.online) this.enqueue(machine.id)
-    }
-    // AND PUMP, which is the whole point of a boot sweep. dev/mw wrote this
-    // method against an `enqueue` that pumped for you; this epic deliberately
-    // separated the two so a fleet-wide sweep is ONE pump rather than one per
-    // machine. The merge kept our enqueue and their onBoot, so after boot the
-    // queue was populated and nothing ever drained it -- an approved straggler
-    // sat there forever. One pump here, after the whole fleet is queued, is
-    // exactly the shape the separation was made for.
-    await this.pump()
+    await this.reportDrift()
   }
 
-  /**
-   * An operation is live. Whatever this converged before it started is now that
-   * operation's story to tell, so the marks are dropped: `convergedBy` must
-   * never label a row the operation is currently driving.
-   */
-  onOperationStarted(): void {
-    this.converged.clear()
+  onOperationStarted(): void {}
+
+  convergedBy(_machine: WaveMachine): 'reconciler' | undefined {
+    return undefined
   }
 
-  /**
-   * Did this reconciler drive this machine to where it is (§3.6 visibility)?
-   *
-   * Version-checked, not just remembered: a mark for a version that is no longer
-   * this machine's target describes a past convergence and must not be shown
-   * against the present one.
-   *
-   * TAKES THE ROW, NOT AN ID, and that is not a convenience. The caller is the
-   * fleet read model, which is iterating a projection it has already built; an
-   * id would make this look up the fleet AGAIN, once per machine — and
-   * `UpdatesService.fleet()` is not a pure read (it continues an authorized wave
-   * once a reconnect proves the canary), so a payload of N machines would run
-   * that projection N+1 times and drive convergence from a GET.
-   */
-  convergedBy(machine: WaveMachine): 'reconciler' | undefined {
-    const version = this.converged.get(machine.id)
-    if (version === undefined) return undefined
-    return this.targetFor(machine)?.version === version ? 'reconciler' : undefined
-  }
-
-  /** What is waiting to be considered. Tests only — the queue is otherwise private. */
-  pending(): string[] {
-    return [...this.queue]
-  }
-
-  private targetFor(machine: WaveMachine): UpdateTarget | undefined {
-    const channel: UpdateChannel = this.deps.updates.channelOf(machine)
-    return this.deps.updates.target(channel)
-  }
-
-  private enqueue(machineId: string): void {
-    if (!this.queued.has(machineId)) {
-      this.queued.add(machineId)
-      this.queue.push(machineId)
-    }
-    // The caller pumps. Queuing and pumping are separated so a fleet-wide
-    // sweep is ONE pump rather than one per machine — and so the wake-up can
-    // hand its caller a promise. Pumping still happens even when the queue was
-    // already waiting: the reason it is still waiting may be exactly the thing
-    // that just changed, and a queue that only moved on NEW arrivals would
-    // strand whoever was already in it.
-  }
-
-  /**
-   * ONE MACHINE AT A TIME, GLOBALLY.
-   *
-   * The loop drains refusals synchronously — a refusal costs nothing and is not
-   * worth a timer — and stops the moment it issues a grant. The next
-   * consideration is scheduled `spacingMs` later, and if that grant is still in
-   * flight then, it waits again.
-   *
-   * WHAT BOUNDS THE WAIT is {@link UpdateReconciler.expireGrant}, armed by this
-   * reconciler for {@link RECONCILE_GRANT_DEADLINE_MS} at the moment the grant
-   * is issued. It used to be the service's own ten-minute ageing, which POD-2101
-   * deleted; this comment asserted that mechanism for one epic after it was
-   * gone, which is how POD-2185 was written down as a guarantee while being a
-   * permanent wedge. The deadline is a TIMER and not a check inside this loop,
-   * because a grant to the last machine in the queue leaves nothing to pump and
-   * a poll that only runs while somebody is waiting would never reach it.
-   */
-  /**
-   * THE CONVERGENCE PUMP. Async since `consider` asks whether an exclusive
-   * operation holds the group, which is a durable read now. The re-entrancy
-   * guard spans the awaits, which is what it always meant: one pump at a time.
-   */
-  private async pump(): Promise<void> {
-    if (this.pumping) return
-    this.pumping = true
-    let wait = false
-    try {
-      while (this.queue.length > 0) {
-        if (await this.outstandingStillRunning()) {
-          wait = true
-          break
-        }
-        const machineId = this.queue[0]
-        if (machineId === undefined) break
-        const disposition = await this.consider(machineId)
-        // PAUSED LEAVES THE QUEUE STANDING. An operation owns granting while it
-        // runs, and everyone waiting is still waiting — draining them here would
-        // answer "should this machine converge?" with a fact about the SERVER
-        // and then forget the machine ever asked. `onOperationSettled` resumes.
-        if (disposition === 'paused') break
-        this.queue.shift()
-        this.queued.delete(machineId)
-        if (disposition === 'granted') {
-          wait = true
-          break
-        }
-      }
-    } finally {
-      // Cleared BEFORE the timer is armed: a caller that injects a synchronous
-      // scheduler (a fake clock draining immediately) would otherwise re-enter
-      // into its own guard and the queue would stop for good.
-      this.pumping = false
-    }
-    if (wait) this.later()
-  }
-
-  /** Is the grant this issued still in flight? Re-read live, never remembered. */
-  private async outstandingStillRunning(): Promise<boolean> {
-    if (this.outstanding === undefined) return false
-    const outstanding = this.outstanding
-    const machine = (await this.deps.updates.fleet()).find(
-      (candidate) => candidate.id === outstanding,
-    )
-    if (machine && IN_FLIGHT_STATES.has(machine.state)) return true
-    this.outstanding = undefined
-    return false
-  }
-
-  /**
-   * GIVE UP ON THE GRANT THIS ISSUED (POD-2185).
-   *
-   * Called by a timer armed when the grant went out, so it fires whether or not
-   * anyone is reading the fleet, anyone is queued behind it, or this process is
-   * doing anything else at all — which is the whole point, since the machine
-   * this bounds is one that has stopped talking.
-   *
-   * {@link UpdatesService.abandonWait} is the same verb the operation's step
-   * deadline uses, and it does the two things that matter: the machine's row
-   * becomes `stuck` with a sentence naming what happened, and it stops being
-   * IN_FLIGHT — which is what un-suppresses {@link UpdatesService.operationActive}
-   * and with it the channel's scheduled target refresh. `stuck` is terminal, so
-   * the decision table then leaves the machine alone (`because: 'terminal'`)
-   * until a human applies it or a new target is published: a background process
-   * must not keep poking a standing fault.
-   *
-   * It does NOT read `fleet()`. `abandonWait` projects for itself and ignores a
-   * machine that is no longer in flight, so the ordinary case — the grant
-   * finished while this timer was pending — costs nothing and changes nothing,
-   * and this path never continues a wave from inside its own lookup (POD-2180).
-   */
-  private async expireGrant(machineId: string, token: number): Promise<void> {
-    if (this.outstanding !== machineId || this.grants !== token) return
-    this.outstanding = undefined
-    const abandoned = await this.deps.updates.abandonWait([machineId], GRANT_TIMED_OUT_DETAIL)
-    if (abandoned.length > 0) {
-      log.info('reconciler gave up on a machine that took a grant and went silent', {
-        machineId,
-        afterMs: this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
+  private async reportDrift(machineId?: string, channel?: UpdateChannel): Promise<void> {
+    if (await this.deps.operationActive()) return
+    for (const machine of await this.deps.updates.observedFleet()) {
+      if (machineId !== undefined && machine.id !== machineId) continue
+      const selectedChannel = this.deps.updates.channelOf(machine)
+      if (channel !== undefined && selectedChannel !== channel) continue
+      const withdrawn = this.deps.updates.withdrawnTarget(selectedChannel)
+      const target = this.deps.updates.target(selectedChannel) ?? withdrawn
+      if (!target || machine.version === target.version) continue
+      log.info('machine is behind update target; a human must start an operation', {
+        machineId: machine.id,
+        channel: selectedChannel,
+        version: machine.version,
+        targetVersion: target.version,
+        withdrawn: withdrawn !== undefined,
+        reason: withdrawn ? this.deps.updates.targetUnavailableReasonForChannel(selectedChannel) : undefined,
       })
     }
-    // Whoever was queued behind it has been waiting since the grant went out.
-    this.schedulePump()
-  }
-
-  /**
-   * ONE TIMER, NOT ONE PER CALLER. Every reconnect pumps, and a pump that has
-   * to wait would otherwise arm its own timer — so a fleet coming back after a
-   * power cut would arm one per machine and they would all fire together, which
-   * is the burst the spacing exists to prevent.
-   */
-  private later(): void {
-    if (this.waiting) return
-    this.waiting = true
-    const schedule = this.deps.schedule ?? defaultSchedule
-    schedule(() => {
-      this.waiting = false
-      this.schedulePump()
-    }, this.deps.spacingMs ?? DEFAULT_GRANT_SPACING_MS)
-  }
-
-  /**
-   * Every wake-up into this reconciler is a NOTIFICATION, not a request: a
-   * reconnect, a settled operation, an expired grant, a spacing timer. None of
-   * them reads a result, and two of them are timer callbacks with nobody to
-   * return a promise to. So the pump is scheduled and its rejection is logged
-   * rather than becoming an unhandled one with no machine on it.
-   */
-  private schedulePump(): void {
-    void this.pump().catch((err: unknown) => {
-      log.warn('update reconciler pump failed', { err })
-    })
-  }
-
-  /** Consider one machine. Deliberately does NOT touch the queue — the caller
-   *  decides what a disposition means for the machine's place in it. */
-  private async consider(machineId: string): Promise<'granted' | 'refused' | 'paused'> {
-    const machine = (await this.deps.updates.fleet()).find(
-      (candidate) => candidate.id === machineId,
-    )
-    const target = machine ? this.targetFor(machine) : undefined
-    const key = target ? attemptKey(machineId, target.version) : undefined
-    const attempts = key === undefined ? 0 : (this.attempts.get(key) ?? 0)
-    const decision = decideReconciliation({
-      machine,
-      target,
-      approvedTargetVersion: machine
-        ? (await this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine)))?.version
-        : undefined,
-      approvedTarget: machine
-        ? await this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))
-        : undefined,
-      operationActive: await this.deps.operationActive(),
-      attempts,
-      ...(this.deps.maxAttempts === undefined ? {} : { maxAttempts: this.deps.maxAttempts }),
-    })
-
-    if (!decision.converge) {
-      if (decision.because === 'operation-active') return 'paused'
-      // A machine that arrived where it was going is bookkeeping this no longer
-      // owes anything: dropping its counter is what lets a LATER target start
-      // from zero even if the version label is one this fleet has seen before.
-      if (decision.because === 'at-target' && key !== undefined) this.attempts.delete(key)
-      // ONE REFUSAL IS WORTH SAYING OUT LOUD (POD-2907). Everything else here
-      // is ordinary background bookkeeping and belongs at debug; `coordinator`
-      // is this server declining to replace itself, on a path that once did,
-      // and the incident it comes from was investigable only because somebody
-      // still had the journal. It fires once per reconnect while this host is
-      // behind, which is rare and is exactly when a reader wants to see it.
-      if (decision.because === 'coordinator') {
-        log.info('reconciler left this coordinator alone — a handover needs an update operation', {
-          machineId,
-          targetVersion: target?.version,
-        })
-        return 'refused'
-      }
-      log.debug('reconciler left a machine alone', {
-        machineId,
-        because: decision.because,
-      })
-      return 'refused'
-    }
-
-    const outcome: MachineApplyOutcome = await this.deps.updates.authorizeMachine(
-      asMachineId(machineId),
-      {
-        initiator: { kind: 'reconciliation', event: this.wokenBy },
-        eligibility: `behind ${target?.version ?? 'the published target'} after reconnecting`,
-      },
-    )
-    if (key !== undefined) this.attempts.set(key, attempts + 1)
-    if (outcome.result !== 'granted') {
-      // `authorizeMachine` re-asks the same questions against the same fleet, so
-      // a refusal here is a RACE (the machine dropped between the decision and
-      // the grant) rather than a disagreement. Logged, not retried: the next
-      // reconnect enqueues it again.
-      log.info('reconciler could not grant a reconnected machine', {
-        machineId,
-        result: outcome.result,
-      })
-      return 'refused'
-    }
-    this.outstanding = machineId
-    this.grants += 1
-    const token = this.grants
-    const schedule = this.deps.schedule ?? defaultSchedule
-    schedule(
-      // A timer slot takes no promise, so the rejection is handled here rather
-      // than escaping as an unhandled one with no machine on it.
-      () => {
-        void this.expireGrant(machineId, token).catch((err: unknown) => {
-          log.warn('reconciler failed to expire a grant', { err, machineId })
-        })
-      },
-      this.deps.grantDeadlineMs ?? RECONCILE_GRANT_DEADLINE_MS,
-    )
-    this.converged.set(machineId, outcome.version)
-    log.info('reconciler converged a reconnected machine', {
-      machineId,
-      version: outcome.version,
-    })
-    return 'granted'
   }
 }

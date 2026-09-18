@@ -520,6 +520,7 @@ export async function startUpdateOperation(
   const state = familyState(ctx)
   const context = await contextFor(ctx, extra, { includeDatabaseSnapshot: true })
   const updates = state.modules.updates
+  await updates.reapproveTarget(context.channel)
   if (!updates.target(context.channel)) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
@@ -644,7 +645,7 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
     ? updateStartability(await planInputFrom(await contextFor(ctx)))
     : {
         startable: false as const,
-        reason: missingTargetReason(hostChannel, preparation?.failureDetail),
+        reason: updates.targetUnavailableReasonForChannel(hostChannel) ?? missingTargetReason(hostChannel, preparation?.failureDetail),
       }
   let servedWebDigest: string | undefined
   let servedMobileWeb: MobileWebIdentity | undefined

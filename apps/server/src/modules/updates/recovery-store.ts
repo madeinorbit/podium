@@ -25,6 +25,11 @@ const RecoverySnapshot = z.object({
   format: z.literal(1),
   lastGrantAuthority: z.number(),
   targets: z.array(z.tuple([UpdateChannel, UpdateTarget])),
+  withdrawnTargets: z.array(z.tuple([UpdateChannel, z.object({
+    target: UpdateTarget,
+    reason: z.string(),
+    withdrawnAt: z.number(),
+  })])).optional(),
   machines: z.array(z.tuple([z.string(), RecoveryState])),
   grants: z.array(z.tuple([z.string(), RecoveryGrant])),
   // Optional for checkpoints written before retired execution proof was retained.

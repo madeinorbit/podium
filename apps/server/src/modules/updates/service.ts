@@ -337,6 +337,7 @@ function withoutArtifactCredentials(target: UpdateTarget): UpdateTarget {
  */
 export class UpdatesService {
   private readonly targets = new Map<UpdateChannel, UpdateTarget>()
+  private readonly withdrawnTargets = new Map<UpdateChannel, { target: UpdateTarget; reason: string; withdrawnAt: number }>()
   private readonly unavailableReasons = new Map<UpdateChannel, string>()
   private readonly rollouts = new Map<UpdateChannel, ChannelRolloutState>()
   private readonly machineStates = new Map<string, MachineConvergenceState>()
@@ -435,6 +436,10 @@ export class UpdatesService {
     if (!saved) return
     this.savedRecovery = JSON.stringify(saved)
     this.lastGrantAuthority = saved.lastGrantAuthority
+    for (const [channel, withdrawal] of saved.withdrawnTargets ?? []) {
+      this.withdrawnTargets.set(channel, withdrawal)
+      this.unavailableReasons.set(channel, withdrawal.reason)
+    }
     for (const [channel, target] of saved.targets) this.targets.set(channel, target)
     for (const [id, state] of saved.machines) this.machineStates.set(id, state)
     for (const [id, grant] of saved.grants) this.pendingGrants.set(id, grant)
@@ -457,6 +462,7 @@ export class UpdatesService {
       format: 1,
       lastGrantAuthority: this.lastGrantAuthority,
       targets: [...this.targets.entries()],
+      withdrawnTargets: [...this.withdrawnTargets.entries()],
       machines: [...this.machineStates.entries()],
       grants: [...this.pendingGrants.entries()],
       retiredGrants: [...this.retiredGrants.entries()],
@@ -530,6 +536,7 @@ export class UpdatesService {
   targetUnavailableReasonForChannel(channel: UpdateChannel): string | undefined {
     if (this.target(channel)) return undefined
     return (
+      this.withdrawnTargets.get(channel)?.reason ??
       this.unavailableReasons.get(channel) ??
       `${channel} target has not been resolved by this coordinator.`
     )
@@ -581,6 +588,36 @@ export class UpdatesService {
     }
     this.persistRecovery()
     await this.deps.onTargetChanged?.(channel)
+  }
+
+  /** Failed operations revoke publication until a person starts another operation. */
+  async withdrawFailedTarget(channel: UpdateChannel, target: UpdateTarget, reason: string): Promise<void> {
+    const detail = `${TARGET_WITHDRAWN_TOKEN}: Target ${target.version} withdrawn. ${reason}`
+    this.withdrawnTargets.set(channel, { target, reason: detail, withdrawnAt: this.deps.now() })
+    await this.setTargetUnavailable(channel, detail)
+  }
+
+  /** Retained for drift reporting only; this descriptor is not an offer or grant. */
+  withdrawnTarget(channel: UpdateChannel): UpdateTarget | undefined {
+    return this.withdrawnTargets.get(channel)?.target
+  }
+
+  /** Called only by the human operation-start mutation, never by feed refresh. */
+  async reapproveTarget(channel: UpdateChannel): Promise<void> {
+    const withdrawal = this.withdrawnTargets.get(channel)
+    if (!withdrawal) return
+    this.withdrawnTargets.delete(channel)
+    // Preserve terminal rows for this exact target. A new target clears them.
+    this.targets.set(channel, withdrawal.target)
+    this.unavailableReasons.delete(channel)
+    this.rollouts.set(channel, freshRollout())
+    this.persistRecovery()
+    await this.deps.onTargetChanged?.(channel)
+  }
+
+  /** Observation must never continue an authorized wave through fleet(). */
+  async observedFleet(): Promise<WaveMachine[]> {
+    return (await this.project()).machines
   }
 
   setTarget(channel: UpdateChannel, target: UpdateTarget): void
@@ -652,6 +689,7 @@ export class UpdatesService {
     target: UpdateTarget,
     operation: { active: boolean; version?: string },
   ): boolean {
+    if (this.withdrawnTargets.has(channel)) return false
     // Re-publishing the same label replaces its artifact descriptor without
     // invalidating the proof already made for that target: a dev+ identity
     // gaining its packed tarball is the SAME update acquiring its bytes it is
@@ -942,7 +980,12 @@ export class UpdatesService {
 
   /** Per-channel refresh bookkeeping, for the fleet read model. */
   channelChecks(): ChannelCheckRecord[] {
-    return CHANNEL_ORDER.map((channel) => this.checks.get(channel)).filter(
+    return CHANNEL_ORDER.map((channel): ChannelCheckRecord | undefined => {
+      const withdrawal = this.withdrawnTargets.get(channel)
+      return withdrawal
+        ? { channel, checkedAt: withdrawal.withdrawnAt, outcome: { status: 'unavailable', reason: withdrawal.reason } }
+        : this.checks.get(channel)
+    }).filter(
       (record): record is ChannelCheckRecord => record !== undefined,
     )
   }
@@ -1292,9 +1335,8 @@ export class UpdatesService {
    * operation, no deadline and no panel watching it.
    *
    * Withdrawn on every terminal outcome, `done` included. After a finished
-   * operation the machines still behind belong to the standing reconciliation
-   * (§3.6), which converges them one at a time and refuses anyone who said no —
-   * a wave continued from a stale flag can do neither.
+   * operation, machines still behind require another human-started operation.
+   * The reconciler only reports drift.
    *
    * With no channel, every channel: the caller is the operation ending, and an
    * operation is not the reason any channel's consent should outlive it.
@@ -1684,7 +1726,8 @@ export class UpdatesService {
       if (
         targetVersion !== undefined &&
         machine.version === targetVersion &&
-        !awaitingSupervisorExecution
+        !awaitingSupervisorExecution &&
+        currentState?.state !== 'stuck' && currentState?.state !== 'rejected'
       ) {
         if (currentState) {
           const rollout = this.rollout(channel)

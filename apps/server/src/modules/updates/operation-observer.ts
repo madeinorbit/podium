@@ -34,6 +34,7 @@ export function updateOperationObserver(
     const details = row.operation?.details
     const channel = details?.channel as UpdateChannel | undefined
     const target = details?.target as UpdateTarget | undefined
+    updatesService.withdrawAuthorization()
     log.info('update operation settled', {
       operationId: row.id,
       channel,
@@ -41,10 +42,16 @@ export function updateOperationObserver(
       previousState,
       state: row.state,
     })
-    updatesService.withdrawAuthorization()
     // A version that arrived mid-update waits for the group to be free, and
     // this is the moment it becomes free — whatever the outcome was. It
     // re-creates the OFFER, never an operation (§3.2).
+    if (row.state === 'failed' && channel && target) {
+      const error = row.operation?.error ?? row.operation?.steps?.find((step) => step.state === 'failed')?.error
+      const reason = error?.message ?? error?.detail ?? error?.code ?? 'The update failed.'
+      await updatesService.withdrawFailedTarget(
+        channel, target, `Update ${row.id} failed: ${reason} Human re-approval is required.`,
+      )
+    }
     updatesService.publishNextTargets()
     // POD-2101: the deadline that used to end a silent grant aged inside a
     // `fleet()` read. The operation owns that authority now, so the moment
@@ -58,11 +65,7 @@ export function updateOperationObserver(
           : undefined,
       )
     }
-    // …and the same moment is when background convergence may resume. It
-    // sweeps whoever is still behind, which is also how a FAILED operation
-    // cleans up after itself without a human pressing Try again (§3.6).
-    // AFTER the release above, so the sweep sees machines whose grants have
-    // just stopped being believed rather than refusing them as in-flight.
+    // Settlement reports remaining drift; it never grants another machine.
     if (channel && target) await reconciler()?.onOperationSettled(channel, target, row.state)
   }
 }

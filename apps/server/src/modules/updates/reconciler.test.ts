@@ -1,745 +1,138 @@
+import { addSink, resetLogging, setLogLevel } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
-import { describe, expect, it, vi } from 'vitest'
-import { UPDATE_STEP_DEADLINES, UPDATE_STEP_MACHINES } from './operation'
-import {
-  decideReconciliation,
-  MAX_RECONCILE_ATTEMPTS,
-  RECONCILE_GRANT_DEADLINE_MS,
-  type ReconcileFacts,
-  type ReconcileRefusal,
-  UpdateReconciler,
-} from './reconciler'
-import { GRANT_TIMED_OUT_DETAIL, UpdatesService } from './service'
-import type { WaveMachine } from './wave'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { OperationRow } from '../operations/store'
+import { updateOperationObserver } from './operation-observer'
+import { UpdateReconciler } from './reconciler'
+import type { UpdateRecoverySnapshot } from './recovery-store'
+import { UpdatesService } from './service'
+import { fleetSnapshot } from './trpc'
 
-/**
- * THE STANDING RECONCILIATION (POD-2105, spec §3.6).
- *
- * Two halves, tested as two: a PURE decision table — nine ways to say no and one
- * to say yes, none of which needs a fleet to reproduce — and the queue, driven
- * by a FAKE CLOCK. Nothing here sleeps; a `setTimeout` before an assertion is a
- * bug in this repo's unit lane and would also be the very defect this epic
- * removes from the product.
- */
+const target = { version: '0.4.2', critical: false, artifacts: {} } as UpdateTarget
 
-// ───────────────────────────── fixtures ──────────────────────────────
-
-const TARGET_VERSION = '0.4.3'
-
-function target(over: Partial<UpdateTarget> = {}): UpdateTarget {
-  return { version: TARGET_VERSION, critical: false, artifacts: {}, ...over } as UpdateTarget
-}
-
-/** The same target once it carries a packed tarball, which is what makes the
- *  delivery question answerable at all (an empty artifact set offers nothing). */
-function packedTarget(): UpdateTarget {
-  return target({ artifacts: { headless: { delivery: 'feed', platforms: {} } } } as never)
-}
-
-function machine(over: Partial<WaveMachine> & { id: string }): WaveMachine {
-  return { name: over.id, version: '0.4.1', state: 'current', online: true, busy: false, ...over }
-}
-
-const facts = (over: Partial<ReconcileFacts> = {}): ReconcileFacts => ({
-  machine: machine({ id: 'laptop' }),
-  target: target(),
-  operationActive: false,
-  attempts: 0,
-  approvedTargetVersion: TARGET_VERSION,
-  ...over,
-})
-
-const SPACING_MS = 5_000
-/** Short enough to keep the arithmetic in these tests obvious, and only ever
- *  compared against {@link SPACING_MS} — the production number is derived and
- *  asserted separately, below. */
-const GRANT_DEADLINE_MS = 60_000
-
-/**
- * A fake clock that RUNS NOTHING until time is moved. "What happens next" is
- * always an explicit `advance()` in the test rather than a race with the event
- * loop.
- *
- * IT IS A CLOCK, not a queue of callbacks, which it did not have to be before
- * POD-2185 gave the reconciler a second timer. Spacing (seconds) and the grant
- * deadline (minutes) answer different questions — "consider the next machine"
- * and "give up on this one" — and draining both together would make every
- * existing spacing test also expire the grant it was about to check on. Holding
- * a real `now` is also the only way to state the case a stale timer breaks: two
- * grants to one machine, armed at different moments, where the FIRST deadline
- * falls due while the second grant is healthy.
- */
-function fakeClock() {
-  let now = 0
-  let seq = 0
-  const pending: Array<{ fn: () => void; dueAt: number; seq: number }> = []
-  return {
-    schedule: (fn: () => void, ms: number) => {
-      seq += 1
-      pending.push({ fn, dueAt: now + ms, seq })
-    },
-    /**
-     * Move time forward by `ms`, running everything that falls due on the way in
-     * due order — including timers armed by the callbacks themselves, which is
-     * how the reconciler's re-arming spacing loop behaves in production.
-     *
-     * ASYNC BECAUSE THE PUMP IS. A spacing timer no longer converges a machine
-     * and arms the next timer within its own synchronous call — it schedules a
-     * pump that awaits a durable read first. Without draining microtasks after
-     * each callback this loop would see no newly-armed timer and stop one
-     * machine early, which is exactly how it failed while I was converting it.
-     */
-    async advance(ms: number = SPACING_MS): Promise<number> {
-      const until = now + ms
-      let ran = 0
-      for (;;) {
-        let next = -1
-        for (let index = 0; index < pending.length; index += 1) {
-          const timer = pending[index]
-          const best = next === -1 ? undefined : pending[next]
-          if (!timer || timer.dueAt > until) continue
-          if (
-            !best ||
-            timer.dueAt < best.dueAt ||
-            (timer.dueAt === best.dueAt && timer.seq < best.seq)
-          )
-            next = index
-        }
-        if (next === -1) break
-        const timer = pending.splice(next, 1)[0]
-        if (!timer) break
-        now = timer.dueAt
-        timer.fn()
-        // Let the pump that callback scheduled run to completion, so anything it
-        // arms is visible to the next iteration.
-        //
-        // A MACROTASK YIELD, not a fixed count of microtask turns. Each
-        // `await Promise.resolve()` advances the chain by exactly ONE link, so
-        // twenty of them is really an assertion that the pump contains fewer than
-        // twenty awaits -- and the pump now performs a durable read, which is
-        // several more than it used to. Draining the whole microtask queue each
-        // round makes the number of links irrelevant, which is what this loop
-        // always meant.
-        await new Promise((resolve) => setImmediate(resolve))
-        ran += 1
-        // A runaway re-arm is a bug in the code under test, not a reason to hang
-        // the lane; fail loudly instead.
-        if (ran > 1_000) throw new Error('fake clock ran away: a timer keeps re-arming at zero')
-      }
-      now = until
-      return ran
-    },
-    /** Timers due within the next spacing window, unless asked for a wider one. */
-    armed: (withinMs: number = SPACING_MS): number =>
-      pending.filter((timer) => timer.dueAt <= now + withinMs).length,
-  }
-}
-
-function harness(machines: WaveMachine[], over: { operationActive?: boolean } = {}) {
+function harness() {
+  const machines = ['canary', 'flatblock', 'laptop'].map((id) => ({
+    id, version: '0.4.1', state: 'current' as const, online: true, busy: false,
+  }))
   const send = vi.fn()
-  let approved: UpdateTarget | undefined = target()
-  let grants = 0
-  const live = machines
-  const updates = new UpdatesService({
-    approvedTarget: async () => approved,
-    machines: async () => live,
-    send,
-    now: () => 1_000,
-    nextGrantId: () => `g${++grants}`,
-    concurrency: 3,
-    fleetChannel: () => 'dev',
-  })
-  const clock = fakeClock()
-  let operationActive = over.operationActive ?? false
-  const reconciler = new UpdateReconciler({
-    updates,
-    // RESOLVES, like the real port. A synchronous fake here satisfies the
-    // un-awaited spelling too, so it cannot fail on a dropped await — and a
-    // dropped await on THIS port is a promise, which is truthy, which reads as
-    // "an operation is running" and silently stops the reconciler converging
-    // anything at all.
-    operationActive: async () => operationActive,
-    schedule: clock.schedule,
-    spacingMs: SPACING_MS,
-    grantDeadlineMs: GRANT_DEADLINE_MS,
-  })
-  return {
-    updates,
-    reconciler,
-    clock,
-    send,
-    live,
-    setApproved: (value: UpdateTarget | undefined) => {
-      approved = value
-    },
-    setOperationActive: (value: boolean) => {
-      operationActive = value
-    },
-    /** Which machine ids have been handed a grant so far. */
-    granted: (): string[] => send.mock.calls.map((call) => String(call[0])),
-    /** The live projection row for one machine — what the fleet payload holds. */
-    row: async (id: string): Promise<WaveMachine> => {
-      const found = (await updates.fleet()).find((candidate) => candidate.id === id)
-      if (!found) throw new Error(`no machine ${id} in the fleet`)
-      return found
-    },
+  let saved: UpdateRecoverySnapshot | undefined
+  const deps = {
+    machines: async () => machines,
+    send, now: () => 1000, nextGrantId: () => 'grant', concurrency: 3,
+    fleetChannel: () => 'dev' as const,
+    approvedTarget: async () => target,
+    recovery: { read: () => saved, write: (value: UpdateRecoverySnapshot) => { saved = structuredClone(value) } },
   }
+  const updates = new UpdatesService(deps)
+  updates.setTarget('dev', target)
+  const authorize = vi.spyOn(updates, 'authorizeMachine')
+  const reconciler = new UpdateReconciler({ updates, operationActive: async () => false })
+  const observe = updateOperationObserver(updates, () => reconciler)
+  const row = (state: string) => ({
+    id: 'op_failed_canary', kind: 'update', state,
+    operation: { details: { channel: 'dev', target }, error: { code: 'canary-failed', message: 'Mac canary rejected the update.' } },
+  }) as unknown as OperationRow
+  return { machines, send, updates, authorize, reconciler, observe, row, restart: () => new UpdatesService(deps) }
 }
 
-// ───────────────────────── the decision table ─────────────────────────
+afterEach(() => resetLogging())
 
-describe('decideReconciliation', () => {
-  const rows: Array<{ name: string; over: Partial<ReconcileFacts>; because?: ReconcileRefusal }> = [
-    {
-      name: 'a reconnected machine behind the current target converges',
-      over: {},
-    },
-    {
-      /** The operation owns granting while it runs (§3.6, plan task 4). This is
-       *  first in the function for a reason: it is a fact about the SERVER, and
-       *  it holds whatever the machine looks like. */
-      name: 'nothing is converged while an exclusive operation is active',
-      over: { operationActive: true },
-      because: 'operation-active',
-    },
-    {
-      name: 'a machine that is gone from the fleet is nobody to converge',
-      over: { machine: undefined },
-      because: 'unknown-machine',
-    },
-    {
-      /** POD-2907: a handover is not background work. Above every question
-       *  about the target, because it is a fact about WHICH machine this is. */
-      name: 'the coordinator itself is never converged in the background',
-      over: { machine: machine({ id: 'ludovico', coordinator: true }) },
-      because: 'coordinator',
-    },
-    {
-      name: 'no published target means nothing to converge to',
-      over: { target: undefined },
-      because: 'no-target',
-    },
-    {
-      name: 'a source checkout is not standing convergence work',
-      over: { machine: machine({ id: 'source', installKind: 'source' }) },
-      because: 'not-packaged-rollout-target',
-    },
-    {
-      name: 'a machine already on the target is left alone',
-      over: { machine: machine({ id: 'laptop', version: TARGET_VERSION }) },
-      because: 'at-target',
-    },
-    {
-      name: 'an offline machine is not granted anything',
-      over: { machine: machine({ id: 'laptop', online: false }) },
-      because: 'offline',
-    },
-    {
-      name: 'a machine that cannot take this delivery is not handed it anyway',
-      over: {
-        target: packedTarget(),
-        machine: machine({ id: 'src', deliveryCaps: ['podium.shipping-train'] }),
-      },
-      because: 'cannot-take-delivery',
-    },
-    {
-      name: 'a pre-channel-trust machine is not handed an instance-trusted feed',
-      over: {
-        target: { ...packedTarget(), trust: 'instance' },
-        machine: machine({
-          id: 'flatblock',
-          deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'],
-        }),
-      },
-      because: 'legacy-instance-trust',
-    },
-    {
-      name: 'a machine already converging is not granted a second time',
-      over: { machine: machine({ id: 'laptop', state: 'downloading' }) },
-      because: 'in-flight',
-    },
-    {
-      /** THE LOOP GUARD, as a decision rather than as a hope. */
-      name: 'a machine that refused this update is left alone',
-      over: { machine: machine({ id: 'laptop', state: 'rejected' }) },
-      because: 'terminal',
-    },
-    {
-      name: 'a machine that has taken its attempts is left alone',
-      over: { attempts: MAX_RECONCILE_ATTEMPTS },
-      because: 'attempts-exhausted',
-    },
-  ]
-
-  for (const row of rows) {
-    it(row.name, () => {
-      const decision = decideReconciliation(facts(row.over))
-      expect(decision).toEqual(
-        row.because === undefined ? { converge: true } : { converge: false, because: row.because },
-      )
+describe('observation-only update reconciliation', () => {
+  it('a failed canary withdraws the channel before settlement can grant any other machine', async () => {
+    const h = harness()
+    h.updates.setTarget('stable', { ...target, version: '1.0.0' })
+    await h.updates.authorize('dev')
+    expect(h.send).toHaveBeenCalledTimes(1)
+    expect(h.send.mock.calls[0]?.[0]).toBe('canary')
+    await h.updates.onStatus(asMachineId('canary'), {
+      type: 'updateStatus', state: 'rejected', version: '0.4.1', targetVersion: target.version,
+      detail: 'Mac canary rejected the update.',
     })
-  }
-
-  it('counts attempts against the target, so a new version starts fresh', async () => {
-    expect(decideReconciliation(facts({ attempts: MAX_RECONCILE_ATTEMPTS - 1 }))).toEqual({
-      converge: true,
-    })
+    h.send.mockClear()
+    await h.observe(h.row('failed'), 'running')
+    await h.reconciler.onMachineConnected('flatblock')
+    await h.updates.fleet()
+    await h.updates.tick('dev')
+    expect(h.authorize).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
+    expect(h.updates.target('dev')).toBeUndefined()
+    expect(h.updates.target('stable')?.version).toBe('1.0.0')
+    expect(h.updates.targetUnavailableReasonForChannel('dev')).toContain('update-withdrawn')
+    expect(h.updates.targetUnavailableReasonForChannel('dev')).toContain('Mac canary rejected')
+    const fleet = await fleetSnapshot(h.updates, { kind: 'external' })
+    expect(fleet.targetVersion).toBeNull()
+    expect(fleet.channelChecks).toContainEqual(expect.objectContaining({
+      channel: 'dev', outcome: { status: 'unavailable', reason: expect.stringContaining('Mac canary rejected') },
+    }))
   })
-})
 
-// ──────────────────────────── the queue ─────────────────────────────
-
-describe('UpdateReconciler', () => {
-  it('grants exactly one machine when it reconnects behind the target', async () => {
-    const h = harness([machine({ id: 'laptop' })])
-    await h.updates.setTarget('dev', target())
-
+  it('reports reconnect drift behind a withdrawn target without calling a grant path', async () => {
+    const h = harness()
+    await h.observe(h.row('failed'), 'running')
+    const records: unknown[] = []
+    resetLogging()
+    setLogLevel('info')
+    addSink({ name: 'drift-test', write: (record) => records.push(record) })
     await h.reconciler.onMachineConnected('laptop')
-
-    expect(h.granted()).toEqual(['laptop'])
+    expect(records).toContainEqual(expect.objectContaining({
+      machineId: 'laptop', targetVersion: target.version, withdrawn: true,
+      reason: expect.stringContaining('Mac canary rejected'),
+    }))
+    expect(h.authorize).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
   })
 
-  it('grants nothing when the machine reconnects already at the target', async () => {
-    const h = harness([machine({ id: 'laptop', version: TARGET_VERSION })])
-    await h.updates.setTarget('dev', target())
-
-    await h.reconciler.onMachineConnected('laptop')
-
-    expect(h.granted()).toEqual([])
-  })
-
-  /**
-   * ONE AT A TIME, GLOBALLY (§3.6). Two daemons waking together is the ordinary
-   * case after a power cut, and it must not become a wave nobody authorized.
-   */
-  it('converges reconnecting machines one at a time, spaced', async () => {
-    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })])
-    await h.updates.setTarget('dev', target())
-
-    await h.reconciler.onMachineConnected('a')
-    await h.reconciler.onMachineConnected('b')
-    expect(h.granted()).toEqual(['a'])
-    expect(h.clock.armed()).toBe(1)
-
-    // `a` is still downloading, so the second grant waits — and says so by
-    // arming another timer rather than by silently dropping `b`.
-    await h.updates.onStatus(asMachineId('a'), {
-      type: 'updateStatus',
-      state: 'downloading',
-      version: '0.4.1',
-      grantId: 'g1',
-    })
-    await h.clock.advance()
-    expect(h.granted()).toEqual(['a'])
-    expect(h.reconciler.pending()).toEqual(['b'])
-
-    // …and once `a` is home, `b` gets its turn.
-    await h.updates.onStatus(asMachineId('a'), {
-      type: 'updateStatus',
-      state: 'current',
-      version: TARGET_VERSION,
-      grantId: 'g1',
-    })
-    h.live[0] = machine({ id: 'a', version: TARGET_VERSION })
-    await h.clock.advance()
-    expect(h.granted()).toEqual(['a', 'b'])
-  })
-
-  /**
-   * THE ACCEPTANCE CASE THE PLAN NAMES: a rejected machine is never re-granted
-   * the same target by the reconciler. `authorizeMachine` CLEARS a terminal
-   * state before planning — it is the human retry path — so a reconciler that
-   * called it unconditionally would erase the refusal and hot-loop on every
-   * reconnect.
-   */
-  it('never re-grants a machine that rejected this target', async () => {
-    const h = harness([machine({ id: 'laptop' })])
-    await h.updates.setTarget('dev', target())
-    await h.reconciler.onMachineConnected('laptop')
-    expect(h.granted()).toEqual(['laptop'])
-
-    await h.updates.onStatus(asMachineId('laptop'), {
-      type: 'updateStatus',
-      state: 'rejected',
-      version: '0.4.1',
-      grantId: 'g1',
-      detail: 'dirty working tree',
-    })
-    await h.clock.advance()
-
-    await h.reconciler.onMachineConnected('laptop')
-    await h.reconciler.onMachineConnected('laptop')
-    await h.clock.advance()
-
-    expect(h.granted()).toEqual(['laptop'])
-  })
-
-  /**
-   * The other half of loop safety: a machine that neither converges nor refuses
-   * — it reconnects still behind, having said nothing about why — is bounded by
-   * ATTEMPTS rather than by hope.
-   *
-   * Driven against a stub fleet on purpose. The real service would age the
-   * grant into `stuck` and the terminal check above would catch it long before
-   * this counter did; a stub that reports the machine perpetually idle and
-   * perpetually behind is the only way to put the counter itself under test —
-   * which is exactly the case the counter exists for.
-   */
-  it('gives up on a machine that keeps reconnecting still behind', async () => {
-    const granted: string[] = []
-    const behind = machine({ id: 'flapper' })
-    const updates = {
-      fleet: () => [behind],
-      channelOf: () => 'dev' as const,
-      target: () => target(),
-      approvedTarget: () => target(),
-      authorizeMachine: (id: string) => {
-        granted.push(String(id))
-        return { result: 'granted' as const, version: TARGET_VERSION }
-      },
-    } as unknown as UpdatesService
-    const clock = fakeClock()
-    const reconciler = new UpdateReconciler({
-      updates,
-      operationActive: async () => false,
-      schedule: clock.schedule,
-      spacingMs: 5_000,
-    })
-
-    for (let i = 0; i < MAX_RECONCILE_ATTEMPTS + 3; i += 1) {
-      await reconciler.onMachineConnected('flapper')
-      await clock.advance()
-    }
-
-    expect(granted).toEqual(Array<string>(MAX_RECONCILE_ATTEMPTS).fill('flapper'))
-  })
-
-  it('pauses while an operation is active and sweeps everyone still behind when it ends', async () => {
-    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    await h.updates.setTarget('dev', target())
-
-    await h.reconciler.onMachineConnected('a')
-    expect(h.granted()).toEqual([])
-    // The machine is not FORGOTTEN, it is waiting — which is what makes the
-    // sweep below a resumption rather than a lucky second reconnect.
-    expect(h.reconciler.pending()).toEqual(['a'])
-
-    h.setOperationActive(false)
-    await h.reconciler.onOperationSettled('dev', target())
-
-    expect(h.granted()).toEqual(['a'])
-    expect(h.reconciler.pending()).toEqual(['b'])
-  })
-
-  /**
-   * A CANCEL IS CONSENT BEING WITHDRAWN. The sweep's whole licence is that the
-   * human decided when the operation started (§9.1); after a cancel there is no
-   * such decision, and handing out the update seconds after someone stopped it
-   * is the worst possible moment to be helpful.
-   */
-  it('does not sweep after a canceled operation', async () => {
-    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    await h.updates.setTarget('dev', target())
-
-    h.setOperationActive(false)
-    await h.reconciler.onOperationSettled('dev', target(), 'canceled')
-
-    expect(h.granted()).toEqual([])
-  })
-
-  it('does sweep after a failed one, so nobody waits for a human to retry', async () => {
-    const h = harness([machine({ id: 'a' }), machine({ id: 'b' })], { operationActive: true })
-    await h.updates.setTarget('dev', target())
-
-    h.setOperationActive(false)
-    await h.reconciler.onOperationSettled('dev', target(), 'failed')
-
-    expect(h.granted()).toEqual(['a'])
-  })
-
-  /** §3.6 visibility: the fleet payload can say who moved a row that moved with
-   *  nobody looking, and stops saying it once an operation takes over. */
-  it('marks the machines it converged, and yields the label to an operation', async () => {
-    const h = harness([machine({ id: 'laptop' })])
-    await h.updates.setTarget('dev', target())
-
-    await h.reconciler.onMachineConnected('laptop')
-    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBe('reconciler')
-
-    h.reconciler.onOperationStarted()
-    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBeUndefined()
-  })
-
-  it('does not label a machine whose target has since moved on', async () => {
-    const h = harness([machine({ id: 'laptop' })])
-    await h.updates.setTarget('dev', target())
-    await h.reconciler.onMachineConnected('laptop')
-
-    await h.updates.setTarget('dev', target({ version: '0.4.4' }))
-
-    expect(h.reconciler.convergedBy(await h.row('laptop'))).toBeUndefined()
-  })
-})
-
-/**
- * THE LID THAT CLOSED AGAIN (POD-2185).
- *
- * The suite this joins had twelve cases and none of them left a grant
- * outstanding — every one drives its machine to the target between grants, so
- * the state the reconciler spends its whole life in when a laptop sleeps was
- * unreachable from the tests that own this file. These four reach it.
- *
- * The scenario is one machine, once: it wakes at 09:02, takes a grant, and says
- * nothing ever again. No `updateStatus` arrives, so the service keeps its row
- * `downloading` (there is no ageing inside `fleet()` any more — POD-2101), and
- * before this fix the only thing that could have ended it was an operation
- * terminating, which is a thing that by definition was not happening.
- */
-describe('UpdateReconciler: a grant that goes silent', () => {
-  /** Wake `id`, take the grant, and stop talking — the shared preamble. */
-  async function granted(ids: string[] = ['laptop']) {
-    const h = harness(ids.map((id) => machine({ id })))
-    await h.updates.setTarget('dev', target())
-    for (const id of ids) await h.reconciler.onMachineConnected(id)
-    const first = ids[0] ?? ''
-    await h.updates.onStatus(asMachineId(first), {
-      type: 'updateStatus',
-      state: 'downloading',
-      version: '0.4.1',
-      grantId: 'g1',
-    })
-    return h
-  }
-
-  /**
-   * The wedge itself, stated as the two things it costs: the queue behind the
-   * sleeper, and the channel's target refresh.
-   *
-   * `operationActive` is the second one's mechanism — the scheduled refresh
-   * asks it before re-resolving, so a machine stuck IN_FLIGHT forever is a
-   * channel that never checks for a new version again (§9.2's cadence). It is
-   * asserted here rather than in `service.test.ts` because the only thing that
-   * can leave a machine in that state indefinitely is this file.
-   */
-  it('gives up on it, so the queue behind it moves and the channel can refresh again', async () => {
-    const h = await granted(['laptop', 'vps'])
-
-    // BEFORE the deadline: this is the correct behaviour, not the bug. One at a
-    // time is the whole design, and `vps` waiting is `vps` being spaced.
-    expect(h.granted()).toEqual(['laptop'])
-    await h.clock.advance()
-    expect(h.granted()).toEqual(['laptop'])
-    expect(h.reconciler.pending()).toEqual(['vps'])
-    expect(await h.updates.operationActive('dev')).toBe(true)
-
-    await h.clock.advance(GRANT_DEADLINE_MS)
-
-    expect(h.granted()).toEqual(['laptop', 'vps'])
-    expect((await h.row('laptop')).state).toBe('stuck')
-    expect((await h.row('laptop')).detail).toBe(GRANT_TIMED_OUT_DETAIL)
-    // `vps` is now the outstanding one, so the channel is legitimately busy;
-    // what matters is that `laptop` alone no longer makes it so, forever.
-    await h.updates.onStatus(asMachineId('vps'), {
-      type: 'updateStatus',
-      state: 'current',
-      version: TARGET_VERSION,
-      grantId: 'g2',
-    })
-    h.live[1] = machine({ id: 'vps', version: TARGET_VERSION })
-    // The directory changes when the daemon handshake lands; the reconnect is
-    // the event that makes the service project that raw proof and retire the
-    // pending grant. A current status alone is deliberately insufficient.
-    await h.reconciler.onMachineConnected('vps')
-    expect(await h.updates.operationActive('dev')).toBe(false)
-  })
-
-  /**
-   * Expiry writes a TERMINAL state, and the decision table already knows what to
-   * do with one. Without this the fix would trade a wedge for a hot loop: the
-   * same laptop reconnecting every thirty seconds would be granted every time,
-   * because `authorizeMachine` clears a terminal state as the human retry path.
-   */
-  it('leaves the machine alone afterwards, rather than re-granting on every reconnect', async () => {
-    const h = await granted()
-    await h.clock.advance(GRANT_DEADLINE_MS)
-    expect((await h.row('laptop')).state).toBe('stuck')
-
-    await h.reconciler.onMachineConnected('laptop')
-    await h.reconciler.onMachineConnected('laptop')
-    await h.clock.advance(GRANT_DEADLINE_MS)
-
-    expect(h.granted()).toEqual(['laptop'])
-  })
-
-  /**
-   * A MACHINE THAT ANSWERED KEEPS ITS OWN ANSWER.
-   *
-   * The timer is armed when the grant goes out and is never disarmed, so it
-   * arrives after every outcome, not just after silence — and a machine that
-   * said `rejected: dirty working tree` an hour ago is still `rejected` when it
-   * lands. Overwriting that with a generic timeout would replace the sentence
-   * the operator needs with one that is not even true. This is why expiry goes
-   * through `abandonWait`, which acts only on a machine still IN FLIGHT, rather
-   * than writing `stuck` on its own authority.
-   */
-  it('does not overwrite the verdict of a machine that already answered', async () => {
-    const h = await granted()
-    await h.updates.onStatus(asMachineId('laptop'), {
-      type: 'updateStatus',
-      state: 'rejected',
-      version: '0.4.1',
-      grantId: 'g1',
-      detail: 'dirty working tree',
-    })
-
-    await h.clock.advance(GRANT_DEADLINE_MS)
-
-    expect((await h.row('laptop')).state).toBe('rejected')
-    expect((await h.row('laptop')).detail).toBe('dirty working tree')
-    expect(h.granted()).toEqual(['laptop'])
-  })
-
-  /**
-   * THE STALE TIMER. A machine that converges and then falls behind a NEW target
-   * gets a second grant, and the first grant's deadline is still pending. It
-   * must not abandon the second one — which is what an id comparison alone
-   * would do, and why the reconciler counts grants.
-   */
-  it('does not let an old grant deadline abandon the next grant to the same machine', async () => {
-    const h = await granted()
-    await h.updates.onStatus(asMachineId('laptop'), {
-      type: 'updateStatus',
-      state: 'current',
-      version: TARGET_VERSION,
-      grantId: 'g1',
-    })
-    h.live[0] = machine({ id: 'laptop', version: TARGET_VERSION })
-    // Time passes between the two grants — which is what makes their deadlines
-    // distinguishable, and what makes this the case a bare id check gets wrong.
-    await h.clock.advance()
-
-    await h.updates.setTarget('dev', target({ version: '0.4.4' }))
-    h.setApproved(target({ version: '0.4.4' }))
-    await h.reconciler.onMachineConnected('laptop')
-    expect(h.granted()).toEqual(['laptop', 'laptop'])
-    await h.updates.onStatus(asMachineId('laptop'), {
-      type: 'updateStatus',
-      state: 'downloading',
-      version: TARGET_VERSION,
-      grantId: 'g2',
-    })
-
-    // Past the FIRST grant's deadline, short of the second's.
-    await h.clock.advance(GRANT_DEADLINE_MS - SPACING_MS + 1_000)
-
-    expect((await h.row('laptop')).state).toBe('downloading')
-  })
-
-  /**
-   * The number, not the mechanism: this is the same quantity the operation's
-   * `machines` step is judged on, because it bounds the same act. Asserted so
-   * that moving one of them has to move the other deliberately.
-   */
-  it('waits exactly as long as the operation would for the same machine', async () => {
-    expect(RECONCILE_GRANT_DEADLINE_MS).toBe(UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs)
-  })
-})
-
-/**
- * THE PATH WITH NOBODY WATCHING (POD-2783).
- *
- * The standing reconciliation converges a machine on RECONNECT, with no
- * operation and no human. A Mac that joined after the release was minted
- * reconnects like any other machine, so without this it would be granted a
- * package for another architecture every time it woke — twice per target,
- * silently, forever.
- */
-describe('decideReconciliation and a release that predates the machine', () => {
-  const linuxOnly = target({
-    artifacts: {
-      headless: {
-        delivery: 'feed',
-        platforms: {
-          'linux-x86_64': { url: 'https://x.test/a.tgz', digest: 'd', signature: 's' },
-        },
-      },
-    },
-  } as never)
-
-  it('refuses the machine the release carries nothing for', async () => {
-    expect(
-      decideReconciliation(
-        facts({
-          machine: machine({
-            id: 'mac',
-            platform: 'darwin-aarch64',
-            deliveryCaps: ['update.delivery.feed'],
-          }),
-          target: linuxOnly,
-        }),
-      ),
-    ).toEqual({ converge: false, because: 'platform-not-in-release' })
-  })
-
-  it('converges the machine the release was built for', async () => {
-    expect(
-      decideReconciliation(
-        facts({
-          machine: machine({
-            id: 'vps',
-            platform: 'linux-x86_64',
-            deliveryCaps: ['update.delivery.feed'],
-          }),
-          target: linuxOnly,
-        }),
-      ),
-    ).toEqual({ converge: true })
-  })
-})
-
-describe('specific update approval', () => {
-  it('refuses an idle publish followed by reconnect or boot', async () => {
-    const h = harness([machine({ id: 'a' })])
-    h.setApproved(undefined)
-    h.updates.setTarget('dev', target())
-    await h.reconciler.onMachineConnected('a')
+  it.each(['done', 'failed', 'canceled'])('never grants after %s, reconnect, or boot', async (outcome) => {
+    const h = harness()
+    await h.reconciler.onOperationSettled('dev', target, outcome)
+    await h.reconciler.onMachineConnected('flatblock')
     await h.reconciler.onBoot()
-    expect(h.granted()).toEqual([])
-    expect(decideReconciliation(facts({ approvedTargetVersion: undefined }))).toEqual({
-      converge: false,
-      because: 'not-approved',
-    })
+    expect(h.authorize).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
   })
 
-  it('never grants B when approved A settles after B was published', async () => {
-    const h = harness([machine({ id: 'a' })])
-    h.updates.setTarget('dev', target({ version: '0.4.4' }))
-    await h.reconciler.onOperationSettled('dev', target(), 'done')
-    await h.reconciler.onMachineConnected('a')
-    await h.clock.advance()
-    expect(h.send.mock.calls.map((call) => call[1].target.version)).toEqual([])
-    expect(decideReconciliation(facts({ target: target({ version: '0.4.4' }) }))).toEqual({
-      converge: false,
-      because: 'not-approved',
-    })
-  })
-
-  it('cancel removes approval for subsequent reconnects', async () => {
-    const h = harness([machine({ id: 'a' })])
-    h.updates.setTarget('dev', target())
-    h.setApproved(undefined)
-    await h.reconciler.onOperationSettled('dev', target(), 'canceled')
-    await h.reconciler.onMachineConnected('a')
-    expect(h.granted()).toEqual([])
-  })
-
-  it('boot converges an approved straggler once to the approved version', async () => {
-    const h = harness([machine({ id: 'a' })])
-    h.updates.setTarget('dev', target())
+  it('does not continue an authorized wave while observing a healthy canary reconnect', async () => {
+    const h = harness()
+    await h.updates.authorize('dev')
+    h.machines[0]!.version = target.version
+    h.send.mockClear()
+    await h.reconciler.onMachineConnected('canary')
     await h.reconciler.onBoot()
-    await h.reconciler.onBoot()
-    expect(h.granted()).toEqual(['a'])
-    expect(h.send.mock.calls[0]?.[1]).toMatchObject({ target: { version: TARGET_VERSION } })
+    expect(h.authorize).not.toHaveBeenCalled()
+    expect(h.send).not.toHaveBeenCalled()
+  })
+
+  it('keeps withdrawal across restart and automatic publication until human reapproval', async () => {
+    const h = harness()
+    await h.observe(h.row('failed'), 'running')
+    const restored = h.restart()
+    restored.setTarget('dev', target)
+    restored.setTarget('dev', { ...target, version: '0.4.3' })
+    restored.publishNextTargets()
+    expect(restored.target('dev')).toBeUndefined()
+    expect(restored.targetUnavailableReasonForChannel('dev')).toContain('Mac canary rejected')
+    await restored.reapproveTarget('dev')
+    expect(restored.target('dev')).toEqual(target)
+    expect(restored.targetUnavailableReasonForChannel('dev')).toBeUndefined()
+    expect(h.send).not.toHaveBeenCalled()
+    expect(h.restart().target('dev')).toEqual(target)
+  })
+
+  it.each(['stuck', 'rejected'] as const)('preserves %s until a different target is published', async (state) => {
+    const h = harness()
+    await h.updates.authorize('dev')
+    await h.updates.onStatus(asMachineId('canary'), {
+      type: 'updateStatus', state, version: '0.4.1', targetVersion: target.version, detail: 'failed canary',
+    })
+    await h.observe(h.row('failed'), 'running')
+    h.send.mockClear()
+    await h.updates.reapproveTarget('dev')
+    h.machines[0]!.version = target.version
+    await h.reconciler.onMachineConnected('canary')
+    expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe(state)
+    expect(h.send).not.toHaveBeenCalled()
+    h.updates.setTarget('dev', { ...target, version: '0.4.3' })
+    expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe('current')
   })
 })

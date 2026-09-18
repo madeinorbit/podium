@@ -14,12 +14,8 @@
  * point is that one publication and one `machine.connected` for THIS host were
  * enough, with nobody clicking anything.
  *
- * THE ARMED NEGATIVE CONTROL IS THE FIRST CASE. A guard test that has never been
- * shown to fire is a test that proves nothing about the guard, so the fleet row
- * that does NOT say which machine is the coordinator — the projection as it
- * stood on 2026-08-31, before POD-3170 put `coordinator` on it — is constructed
- * here and shown to restart the server. The production wiring is the case
- * beneath it.
+ * Reconciliation must never dispatch, even if coordinator identity is missing.
+ * Explicit operation and operator paths still exercise the local participant.
  */
 import { asMachineId, type MachineId } from '@podium/model'
 import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
@@ -150,7 +146,7 @@ function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] 
 }
 
 describe('the coordinator and the standing reconciliation (POD-2907)', () => {
-  it('ARMED CONTROL: a reconciler blind to its own identity restarts this server', async () => {
+  it('never grants even when the coordinator identity is unknown', async () => {
     const h = harness({ knowsItsOwnIdentity: false })
 
     // A previously approved fleet target is still never approval to restart the coordinator.
@@ -159,8 +155,9 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     await h.reconciler.onMachineConnected(HOST)
     await h.settle()
 
-    expect(h.restarts).toEqual([PUBLISHED_VERSION])
-    expect(h.installed).toHaveLength(1)
+    expect(h.restarts).toEqual([])
+    expect(h.sentTo).toEqual([])
+    expect(h.installed).toHaveLength(0)
   })
 
   it('does not restart the coordinator when a publication alone lands', async () => {
@@ -175,7 +172,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     expect(h.sentTo, 'a grant left the server at all').toEqual([])
   })
 
-  it('still converges an ORDINARY machine that reconnects behind the target', async () => {
+  it('does not grant an ordinary machine that reconnects behind the target', async () => {
     const h = harness({
       knowsItsOwnIdentity: true,
       fleet: [row(HOST, 'ludovico', true), row(LAPTOP, 'laptop')],
@@ -185,7 +182,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
     await h.reconciler.onMachineConnected(LAPTOP)
     await h.settle()
 
-    expect(h.sentTo).toEqual([LAPTOP])
+    expect(h.sentTo).toEqual([])
     expect(h.restarts, 'somebody else’s update restarted this server').toEqual([])
   })
 
