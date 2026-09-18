@@ -27,6 +27,9 @@ export function reconcileSentences(result: ReconcileResult): string[] {
     if (result.problem.reason) sentences.push(`Problem: ${result.problem.reason}`)
     if (result.problem.remedy) sentences.push(`Remedy: ${result.problem.remedy}`)
   }
+  // A converged host did nothing and waits for nothing: the status block alone is
+  // the honest report, and a standing "armed" line on every managed start is noise.
+  if (sentences.length === 0) return []
   sentences.push(`Armed if killed: ${result.armed}.`)
   return sentences
 }

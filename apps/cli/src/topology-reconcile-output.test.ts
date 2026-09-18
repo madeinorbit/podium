@@ -40,8 +40,8 @@ describe('reconcileSentences', () => {
     ])
   })
 
-  it('does not claim changes or a health wait for a no-op', () => {
-    expect(reconcileSentences(result())).toEqual(['Armed if killed: new.'])
+  it('says nothing at all for a no-op, leaving the status block to speak', () => {
+    expect(reconcileSentences(result())).toEqual([])
   })
 
   it('explains an aborted handover without suggesting another start', () => {
@@ -62,7 +62,13 @@ describe('reconcileSentences', () => {
     ])
   })
 
-  it('omits absent optional problem text', () => {
-    expect(reconcileSentences(result({ problem: { ok: false } }))).toEqual(['Armed if killed: new.'])
+  it('omits absent optional problem text, and then has nothing to report', () => {
+    expect(reconcileSentences(result({ problem: { ok: false } }))).toEqual([])
+  })
+
+  it('still reports the kill classification whenever it changed anything', () => {
+    expect(reconcileSentences(result({ actions: ['start-parent'], armed: 'both' })).at(-1)).toBe(
+      'Armed if killed: both.',
+    )
   })
 })
