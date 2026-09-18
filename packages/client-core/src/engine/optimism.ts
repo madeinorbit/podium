@@ -1,3 +1,4 @@
+import { sessionById } from '../session-index'
 /**
  * THE OPTIMISTIC LEDGER (POD-404, split out of the old `engine.ts`).
  *
@@ -432,7 +433,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const { sessions, issues, issueProjections } = this.ports.base()
     const row =
       overlay.entity === 'sessions'
-        ? sessions.find((s) => s.sessionId === overlay.id)
+        ? sessionById(sessions).get(overlay.id)
         : overlay.entity === 'issues'
           ? issues.find((i) => i.id === overlay.id)
           : issueProjections.find((i) => i.id === overlay.id)
@@ -532,7 +533,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       const { sessions, issues, issueProjections } = this.ports.base()
       const row =
         probe.entity === 'sessions'
-          ? sessions.find((s) => s.sessionId === probe.id)
+          ? sessionById(sessions).get(probe.id)
           : probe.entity === 'issues'
             ? issues.find((i) => i.id === probe.id)
             : issueProjections.find((i) => i.id === probe.id)

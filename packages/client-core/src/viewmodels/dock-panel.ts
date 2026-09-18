@@ -1,3 +1,4 @@
+import { sessionById } from '../session-index'
 import type {
   ArtifactId,
   IssueId,
@@ -71,7 +72,7 @@ export function resolveActiveWorktree(args: {
 }): ActiveWorktree | null {
   const { paneA, fileTabs, sessions } = args
   if (paneA != null) {
-    const session = sessions.find((s) => s.sessionId === paneA)
+    const session = sessionById(sessions).get(paneA)
     if (session)
       return { cwd: session.cwd, machineId: session.machineId, sessionId: session.sessionId }
     const tab = fileTabs.find((t) => t.id === paneA)
@@ -142,7 +143,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
     if (explicit) return explicit
   }
   const session = args.sessionId
-    ? args.sessions.find((s) => s.sessionId === args.sessionId)
+    ? sessionById(args.sessions).get(args.sessionId)
     : undefined
   if (session) {
     const id = session.issueId

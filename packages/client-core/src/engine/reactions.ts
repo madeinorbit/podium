@@ -1,3 +1,4 @@
+import { sessionById } from '../session-index'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -228,7 +229,7 @@ export class Reactions {
     if (Object.keys(prev).length === 0) return
     const focused = focusedPaneSession(st)
     if (!focused) return
-    const session = st.sessions.find((candidate) => candidate.sessionId === focused)
+    const session = sessionById(st.sessions).get(focused)
     const after = session?.issueId
     const before = prev[focused]
     if (!after || before === undefined || before === after || before === '') return
@@ -268,7 +269,7 @@ export class Reactions {
     })
     if (plan.follow) this.ports.publish({ selectedWorktree: plan.follow })
     for (const move of plan.moved) {
-      const s = st.sessions.find((x) => x.sessionId === move.sessionId)
+      const s = sessionById(st.sessions).get(move.sessionId)
       const dest = move.to ?? s?.cwd
       // The title said the destination's last segment and the description then
       // said the whole path, so the branch name was read twice in one notice —
@@ -388,7 +389,7 @@ export class Reactions {
   updateMarkReadTimer(): void {
     const st = this.ports.state()
     const focusedId = focusedPaneSession(st)
-    const session = focusedId ? st.sessions.find((s) => s.sessionId === focusedId) : undefined
+    const session = focusedId ? sessionById(st.sessions).get(focusedId) : undefined
     const key = session ? `${session.sessionId}\n${session.lastActiveAt}` : null
     if (key === this.markReadKey) return
     this.markReadKey = key
@@ -413,7 +414,7 @@ export class Reactions {
    *  pane, still unread, and the tab is visible. */
   private fireMarkSessionRead(sessionId: SessionId): void {
     const cur = this.ports.state()
-    const s = cur.sessions.find((x) => x.sessionId === sessionId)
+    const s = sessionById(cur.sessions).get(sessionId)
     if (focusedPaneSession(cur) !== sessionId || s?.unread !== true || !this.isVisible()) return
     this.markReadFiredAt = Date.now()
     this.ports.markSessionRead(sessionId)

@@ -1,3 +1,4 @@
+export { sessionById } from './session-index'
 import { recordStorePublish, recordStoreSubscriber } from './perf/store-stats'
 
 /**

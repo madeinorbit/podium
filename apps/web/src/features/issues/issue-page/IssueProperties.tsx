@@ -1,3 +1,4 @@
+import { sessionById } from '@podium/client-core/store'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -114,7 +115,7 @@ export function IssueProperties({
   const issues = useReplicaIssues()
   const resolve = useIssueEdgeResolver()
   const memberSessions = (issue.memberSessionIds ?? [])
-    .map((id) => sessions.find((session) => session.sessionId === id))
+    .map((id) => sessionById(sessions).get(id))
     .filter((session) => session !== undefined)
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.

@@ -37,6 +37,11 @@ import { createReplica, memoryStorage, type StorageApi } from '../replica/replic
 import type { SocketHub } from '../socket-transport'
 import { type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
 import { allTabIds } from '../viewmodels'
+import { sessionById } from '../session-index'
+import { readStoreStats, storeStats } from '../perf/store-stats'
+import { Reactions } from './reactions'
+import type { EngineState } from './state'
+import { foldOverlays, insertOverlay } from './overlay'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -3060,5 +3065,60 @@ describe('opt-in runtime publication diagnostics', () => {
       storeStats.enable(false)
       storeStats.reset()
     }
+  })
+})
+
+
+describe('shared session index', () => {
+  it('the reaction table shares a build without ID scans and still follows and marks read', () => {
+    const { engine } = makeEngine()
+    const original = { ...session('s1', '/before'), issueId: asIssueId('old') }
+    const moved = { ...original, cwd: '/after', issueId: asIssueId('new'), unread: true }
+    const sessions = [moved]
+    const find = vi.spyOn(sessions, 'find')
+    const state = {
+      ...engine.getSnapshot(), sessions, paneA: moved.sessionId, focusedPane: 'A',
+      selectedWorktree: '/before', selectedIssueId: original.issueId, workspaces: {},
+      repos: [{ ...KNOWN_REPO, path: '/after', worktrees: [] }],
+    } as EngineState
+    const publish = vi.fn()
+    const info = vi.fn()
+    const markSessionRead = vi.fn()
+    const reactions = new Reactions({
+      state: () => state, publish, notices: { info, error: vi.fn() },
+      hub: {} as SocketHub, markSessionRead, markIssueRead: vi.fn(), isVisible: () => true,
+    })
+    reactions.seedCwds([original])
+    reactions.seedIssueIds([original])
+    storeStats.reset()
+    storeStats.enable()
+    try {
+      reactions.worktreeFollow()
+      reactions.sessionIssueFollow()
+      reactions.updateMarkReadTimer() // also exercises fireMarkSessionRead
+      expect(find).not.toHaveBeenCalled()
+      expect(readStoreStats().runtimes.reduce((n, c) => n + (c.slices.sessionById ?? 0), 0)).toBe(1)
+      expect(info).toHaveBeenCalledWith('s1 moved worktree', '/after')
+      expect(publish).toHaveBeenCalledWith(expect.objectContaining({ selectedIssueId: moved.issueId }))
+      expect(markSessionRead).toHaveBeenCalledWith(moved.sessionId)
+    } finally {
+      reactions.dispose()
+      engine.destroy()
+      storeStats.enable(false)
+      storeStats.reset()
+      find.mockRestore()
+    }
+  })
+
+  it('indexes effective optimistic inserts and their removal without retaining absent rows', () => {
+    const base = [session('base', '/w')]
+    const pending = session('pending', '/w')
+    const effective = foldOverlays(base, [insertOverlay('sessions', pending.sessionId, pending)], (s) => s.sessionId).rows
+    expect(sessionById(base).get(pending.sessionId)).toBeUndefined()
+    expect(sessionById(effective).get(pending.sessionId)).toBe(pending)
+    expect(sessionById(effective).get(base[0]!.sessionId)).toBe(base[0])
+    const retired = foldOverlays(base, [], (s) => s.sessionId).rows
+    expect(sessionById(retired).get(pending.sessionId)).toBeUndefined()
+    expect(sessionById([pending]).get(pending.sessionId)).toBe(pending)
   })
 })

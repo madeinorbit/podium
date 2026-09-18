@@ -153,3 +153,20 @@ suppressed by interception in that run; the single overhead case was rerun throu
 `test:file` with `-t 'measures disabled' --disableConsoleIntercept`, executing one
 case (four skipped) to obtain the table above. No browser or production runtime was
 driven: this task changes instrumentation, not an external interaction boundary.
+
+## Shared session lookup builds
+
+`sessionById(sessions)` records `slices.sessionById` once on a cache miss.
+The owner of this counter is the collection array, not a runtime: a collection can
+be read from the runtime, optimism ledger, and many selectors. Sum this named
+counter across the capture window's aggregates. Owners are weak and anonymous;
+no row or session ID enters the report. A warm collection produces zero builds,
+even after resetting diagnostics; a new array produces one build shared by all
+readers. The usual 32-owner bound applies (check `dropped` for a long capture).
+
+The index preserves the exact row objects and first-match ID semantics. It relies
+on immutable collection membership/IDs, just like snapshot selectors. Effective
+post-optimism arrays and base arrays are indexed separately when their identities
+differ. Predicate searches (first errored session, handoff target) are not ID lookups
+and remain unchanged. Reverting the shared-index change restores the old scans;
+`storeStats.enable(false)` independently disables measurement.

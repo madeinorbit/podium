@@ -1,3 +1,4 @@
+import { sessionById } from '../../session-index'
 /**
  * THE CHAT SLICE (POD-405, completing POD-330's per-feature split).
  *
@@ -234,7 +235,7 @@ export function chatSessionReference(
 ): ChatSessionReference {
   const resolved = resolveReferent(
     sessionId,
-    (id) => sessions.find((s) => s.sessionId === id),
+    (id) => sessionById(sessions).get(id),
     exitOf,
   )
   return {

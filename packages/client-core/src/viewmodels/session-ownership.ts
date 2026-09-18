@@ -1,3 +1,4 @@
+import { sessionById } from '../session-index'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
  * you can only partially see (POD-330).
@@ -385,7 +386,7 @@ export function issueIdOwningSession(
     }
     return null
   }
-  const session = sessions.find((s) => s.sessionId === sessionId)
+  const session = sessionById(sessions).get(sessionId)
   if (!session || session.archived || isHeadlessSession(session)) return null
   if (session.issueId !== undefined) {
     return issues.some((i) => i.id === session.issueId && !i.archived && !i.deletedAt)

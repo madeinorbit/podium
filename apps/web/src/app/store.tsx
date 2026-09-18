@@ -1,3 +1,4 @@
+import { sessionById } from '@podium/client-core/store'
 /**
  * Web binding for the shared client store (arch-v2 P3, issue #192): the
  * provider + optimistic actions moved to @podium/client-core/react, generic
@@ -137,7 +138,7 @@ export function useSession(sessionId: SessionId | undefined): SessionMeta | unde
   return useStoreSelector((s) =>
     sessionId === undefined
       ? undefined
-      : s.sessions.find((session) => session.sessionId === sessionId),
+      : sessionById(s.sessions).get(sessionId),
   )
 }
 
