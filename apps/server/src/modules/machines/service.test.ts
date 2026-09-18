@@ -726,6 +726,47 @@ describe('MachinesService inventory persistence (#222)', () => {
     )
   })
 
+  test('recordInventory fans out to sessions only when the report changed (POD-4259)', async () => {
+    const store = await openTestStore(':memory:')
+    const fanout: string[] = []
+    const svc = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: store.hostMachineId,
+      sessionsChangedForMachine: (machineId) => {
+        fanout.push(machineId)
+      },
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    } satisfies MachinesDeps)
+    await store.machines.upsertMachine({
+      assignment: { server: false, agentExecution: true },
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: firstAdminMemberId(),
+    })
+    const latest: Inventory = { ...INV, podiumVersion: '10.0.1' }
+
+    await svc.recordInventory(MACHINE, INV)
+    expect(fanout).toEqual([MACHINE])
+    // The settle poll re-reports the same inventory every 10 s after an attach.
+    await svc.recordInventory(MACHINE, INV)
+    await svc.recordInventory(MACHINE, INV)
+    expect(fanout).toEqual([MACHINE])
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
+
+    await svc.recordInventory(MACHINE, latest)
+    expect(fanout).toEqual([MACHINE, MACHINE])
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
+
+    // A new daemon incarnation publishes its first report even when identical.
+    svc.retireIncarnation(MACHINE)
+    await svc.recordInventory(MACHINE, latest)
+    expect(fanout).toEqual([MACHINE, MACHINE, MACHINE])
+  })
+
   test('recordInventory persists the report and it survives a hello reconnect', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({

@@ -370,6 +370,8 @@ export class MachinesService {
    * again when it reconnects to the promoted target.
    */
   private readonly deferredInventoryByMachine = new Map<MachineId, string>()
+  /** The last inventory JSON persisted per machine; cleared with the incarnation. */
+  private readonly lastInventoryJsonByMachine = new Map<MachineId, string>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -418,6 +420,7 @@ export class MachinesService {
     this.updateParticipants.delete(id)
     this.legacyBuilds.delete(id)
     this.inventoryPending.delete(id)
+    this.lastInventoryJsonByMachine.delete(id)
     this.settleInventoryWaiters(id)
     this.clearPresenceGrace(id)
     const connections = this.credentialConnections.get(id)
@@ -1619,10 +1622,25 @@ export class MachinesService {
   }
 
   private async persistInventory(machineId: MachineId, inventoryJson: string): Promise<void> {
+    // A REPEATED, IDENTICAL REPORT MUST NOT RE-PROJECT EVERY SESSION ON THE MACHINE.
+    // The daemon re-reports on a timer and the gateway polls it every 10 s for
+    // three minutes after each attach (POD-4259). `machine.metadataChanged` makes
+    // the sessions module re-wire every session it holds for this machine —
+    // thousands on a long-lived instance, hibernated and exited rows included —
+    // and almost all of those captures dedup to nothing. On ludovico that cost
+    // ~3 s of the server's main thread per report; overlapping settle windows
+    // starved the daemon's hello acknowledgement, the link flapped, each attach
+    // opened another window, and the machine read as "(no access)" for as long as
+    // the loop ran. The row write and the waiters still happen — the memo only
+    // gates the fan-out, and it is dropped with the incarnation so the first
+    // report of a new daemon always publishes.
+    const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
+    this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
     await this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
     await this.deps.onInventoryRecorded?.()
+    if (unchanged) return
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
     await this.broadcastMachines()
