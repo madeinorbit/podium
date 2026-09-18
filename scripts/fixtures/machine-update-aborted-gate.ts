@@ -1,3 +1,5 @@
+import { writeDaemonHealth } from '../../packages/runtime/src/daemon-health'
+import { decodeParentMessage, encodeLifecycle } from '../../packages/runtime/src/lifecycle-channel'
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { startParentWithUpdateConfirmation } from '../../apps/cli/src/parent-boot-confirmation'
@@ -10,7 +12,14 @@ class UnreadyChild extends EventEmitter {
   pid = process.pid
   exitCode: number | null = null
   connected = true
-  send() { return true }
+  send(frame: object) {
+    if (process.argv[3] === 'blocked' && decodeParentMessage(frame)?.type === 'identity') {
+      writeDaemonHealth({ state: 'blocked', processId: this.pid, appVersion: '2.0.0',
+        blockedReason: 'protocol-mismatch: peer wire version too new' }, runtimeDir)
+      this.emit('message', encodeLifecycle({ type: 'ready', role: 'daemon', pid: this.pid, version: '2.0.0' }))
+    }
+    return true
+  }
   kill() {
     this.exitCode = 0
     this.emit('exit', 0, null)
@@ -39,7 +48,7 @@ const parent = new ParentProcess({
   env: {
     PODIUM_APP_VERSION: '2.0.0',
     [PARENT_SUCCESSOR_ENV]: '1',
-    [PARENT_HANDOVER_DEADLINE_ENV]: '120000',
+    [PARENT_HANDOVER_DEADLINE_ENV]: process.env[PARENT_HANDOVER_DEADLINE_ENV] ?? '120000',
   },
   spawn: (() => new UnreadyChild()) as unknown as SpawnChildFn,
   now: () => now,

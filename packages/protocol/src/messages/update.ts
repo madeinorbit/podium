@@ -96,6 +96,8 @@ export const UpdateStatusMessage = z.object({
   version: z.string().min(1),
   /** Human-readable detail for rejected/stuck reports. */
   detail: z.string().optional(),
+  reasonCode: z.string().min(1).optional(),
+  reportedAt: z.number().int().optional(),
   /**
    * How far the current phase has got, when the delivery can measure it at all.
    * Integer percent: a download of unknown length reports its phase without one

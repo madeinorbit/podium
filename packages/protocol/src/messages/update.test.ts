@@ -209,3 +209,19 @@ describe('machine supervisor frames', () => {
     expect(status).not.toHaveProperty('machineId')
   })
 })
+
+describe('additive machine failure causes', () => {
+  const frame = { type: 'updateStatus', state: 'stuck', version: '1', targetVersion: '2', detail: 'Daemon refused.' }
+  it('keeps older status frames and the existing convergence enum valid', () => {
+    expect(UpdateStatusMessage.parse(frame)).toEqual(frame)
+    expect(CONVERGENCE_STATES).toEqual(['current', 'granted', 'downloading', 'restarting', 'rejected', 'stuck'])
+  })
+  it('routes optional causes over the supervisor channel', () => {
+    const report = { ...frame, reasonCode: 'daemon-refused-wire', reportedAt: 123 }
+    expect(MachineSupervisorMessage.parse(report)).toEqual(report)
+  })
+  it('rejects empty codes and fractional timestamps', () => {
+    expect(UpdateStatusMessage.safeParse({ ...frame, reasonCode: '' }).success).toBe(false)
+    expect(UpdateStatusMessage.safeParse({ ...frame, reportedAt: 1.5 }).success).toBe(false)
+  })
+})

@@ -421,6 +421,7 @@ export function proveOwnStack(input: {
  */
 export interface DaemonHandoverHealthProbe {
   connected: boolean
+  blockedReason?: string
   appVersion: string | null
   convergedVersion: string | null
 }

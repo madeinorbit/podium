@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { readAppliedMigrations } from './migration-ledger'
 import { UpdateGrantMessage, type UpdateStatusMessage, type UpdateTarget } from '@podium/protocol'
 import { z } from 'zod'
+import { UpdateGateError, type UpdateFailure } from './update-failure'
 
 /** Pins the installed update across parent/server process boundaries. */
 export const MACHINE_UPDATE_GRANT_ENV = 'PODIUM_MACHINE_UPDATE_GRANT'
@@ -86,10 +87,12 @@ const Journal = z.object({
   prepared: PreparedUpdate.optional(),
   appliedMigrations: z.array(AppliedUpdateMigration).default([]),
   detail: z.string().optional(),
+  reasonCode: z.string().optional(),
+  reportedVersion: z.string().optional(),
   percent: z.number().optional(),
   updatedAt: z.number(),
   completed: z.record(
-    z.object({ fingerprint: z.string(), phase: MachineUpdatePhase, detail: z.string().optional() }),
+    z.object({ fingerprint: z.string(), phase: MachineUpdatePhase, detail: z.string().optional(), reasonCode: z.string().optional(), reportedAt: z.number().optional(), version: z.string().optional() }),
   ),
   activationHeld: z.boolean().default(false),
   authority: z.number(),
@@ -275,6 +278,8 @@ export interface MachineUpdateAdapter {
 /** Sole machine-local state machine. Connections and roles only forward commands/status. */
 export class MachineUpdateExecutor {
   private journal: MachineUpdateJournal | undefined
+  private unsolicited: UpdateStatusMessage | undefined
+  private refusedGrants = new Map<string, UpdateStatusMessage>()
   private active: Promise<void> | undefined
   private abort: AbortController | undefined
   private admission: Promise<void> = Promise.resolve()
@@ -303,7 +308,9 @@ export class MachineUpdateExecutor {
       type: 'updateStatus',
       grantId: journal.grant.grantId,
       targetVersion: journal.grant.target.version,
-      version: this.deps.adapter.runningVersion(),
+      version: journal.reportedVersion ?? this.deps.adapter.runningVersion(),
+      reasonCode: journal.reasonCode,
+      reportedAt: journal.updatedAt,
       state:
         phase === 'current'
           ? 'current'
@@ -321,6 +328,46 @@ export class MachineUpdateExecutor {
   }
   replay(): void {
     if (this.journal) this.deps.report(this.status(this.journal))
+    for (const status of this.refusedGrants.values()) this.deps.report(status)
+    if (this.unsolicited) this.deps.report(this.unsolicited)
+  }
+  /** Parent outcomes share the durable journal and reconnect replay with grants. */
+  reportFailure(failure: UpdateFailure, version?: string): void {
+    this.unsolicited = undefined
+    if (this.journal) {
+      if (this.journal.phase === 'stuck' && this.journal.reasonCode === failure.reasonCode && this.journal.detail === failure.detail) return
+      this.transition('stuck', { ...failure, reportedVersion: version ?? this.deps.adapter.runningVersion() })
+    }
+    else {
+      this.unsolicited = {
+        type: 'updateStatus', state: 'stuck',
+        version: version ?? this.deps.adapter.runningVersion(),
+        ...failure, reportedAt: this.deps.now?.() ?? Date.now(),
+      }
+      this.replay()
+    }
+  }
+  reportDaemonRefusal(reason?: string): void {
+    if (this.journal && !terminal(this.journal.phase)) return
+    if (!reason) {
+      if (this.unsolicited?.reasonCode === 'daemon-refused') this.unsolicited = undefined
+      return
+    }
+    const detail = `Daemon refused: ${reason}.`
+    if (this.unsolicited?.detail === detail) return
+    this.unsolicited = {
+      type: 'updateStatus', state: 'current', version: this.deps.adapter.runningVersion(),
+      reasonCode: 'daemon-refused', detail, reportedAt: this.deps.now?.() ?? Date.now(),
+    }
+    this.replay()
+  }
+  reportGrantRefusal(grant: UpdateGrantMessage, error: unknown): void {
+    this.refusedGrants.set(grant.grantId, {
+      type: 'updateStatus', grantId: grant.grantId, targetVersion: grant.target.version,
+      version: this.deps.adapter.runningVersion(), state: 'rejected',
+      reasonCode: 'grant-refused', detail: String(error), reportedAt: this.deps.now?.() ?? Date.now(),
+    })
+    this.replay()
   }
   private transition(phase: MachineUpdatePhase, patch: Partial<MachineUpdateJournal> = {}): void {
     if (!this.journal) throw new Error('no accepted update')
@@ -335,6 +382,9 @@ export class MachineUpdateExecutor {
       this.journal.completed[this.journal.grant.grantId] = {
         fingerprint: this.journal.fingerprint,
         phase,
+        reasonCode: this.journal.reasonCode,
+        reportedAt: this.journal.updatedAt,
+        version: this.journal.reportedVersion ?? this.deps.adapter.runningVersion(),
         ...(this.journal.detail ? { detail: this.journal.detail } : {}),
       }
     this.journal.appliedMigrations = appliedMigrationsForJournal(this.deps.runtimeDir, this.journal)
@@ -381,7 +431,7 @@ export class MachineUpdateExecutor {
           type: 'updateStatus',
           grantId: grant.grantId,
           targetVersion: grant.target.version,
-          version: this.deps.adapter.runningVersion(),
+          version: completed.version ?? this.deps.adapter.runningVersion(),
           state:
             completed.phase === 'current'
               ? 'current'
@@ -390,6 +440,8 @@ export class MachineUpdateExecutor {
                 : 'rejected',
           phaseDetail: completed.phase,
           detail: completed.detail,
+          reasonCode: completed.reasonCode,
+          reportedAt: completed.reportedAt,
         })
         return
       }
@@ -404,7 +456,7 @@ export class MachineUpdateExecutor {
         : Math.max(history.watermarks[domain] ?? -1, history.legacyFloor ?? -1)
       if (floor !== undefined && grant.issuedAt <= floor)
         throw new Error('stale-authorization: target predates accepted source authority')
-      if (prior && committed(prior.phase))
+      if (prior && (committed(prior.phase) || (this.active && terminal(prior.phase))))
         throw new Error('update-committed: activation must settle before another grant')
       if (prior && !terminal(prior.phase)) {
         await this.cancelAccepted(prior.grant.grantId)
@@ -416,6 +468,8 @@ export class MachineUpdateExecutor {
       history.watermarks[domain] = grant.issuedAt
       if (domain === 'legacy') history.legacyFloor = grant.issuedAt
       this.deps.adapter.select?.(grant)
+      this.unsolicited = undefined
+      this.refusedGrants.clear()
       this.journal = {
         format: 1,
         grant,
@@ -470,7 +524,7 @@ export class MachineUpdateExecutor {
     this.abort?.abort()
     await this.active
     await this.deps.adapter.discard()
-    this.transition('canceled', { detail: 'Update canceled before activation.' })
+    this.transition('canceled', { detail: 'Update canceled before activation.', reasonCode: 'update-canceled' })
     return true
   }
   private run(): Promise<void> {
@@ -516,7 +570,12 @@ export class MachineUpdateExecutor {
       } catch (error) {
         if (abort.signal.aborted) return
         const detail = error instanceof Error ? error.message : String(error)
-        this.transition(committed(this.journal!.phase) ? 'stuck' : 'rejected', { detail })
+        // A rollback hook may already have recorded the more specific terminal cause.
+        if (terminal(this.journal!.phase)) return
+        this.transition(committed(this.journal!.phase) ? 'stuck' : 'rejected', {
+          detail,
+          reasonCode: error instanceof UpdateGateError ? error.reasonCode : 'update-failed',
+        })
       }
     }
     const done = execute().finally(() => {
@@ -537,7 +596,7 @@ export class MachineUpdateExecutor {
         try {
           await this.deps.adapter.recoverActivation?.(journal.grant, journal.prepared)
         } catch (error) {
-          this.transition('stuck', { detail: String(error) })
+          this.transition('stuck', { detail: String(error), reasonCode: 'activation-recovery-failed' })
         }
       }
     } finally {
@@ -571,10 +630,11 @@ export class MachineUpdateExecutor {
       const identityMatches =
         this.deps.adapter.runningVersion() === journal.grant.target.version &&
         this.deps.adapter.runningDigest?.() === journal.prepared?.digest
-      if (identityMatches) this.transition('current')
+      if (identityMatches) this.transition('current', { reasonCode: 'update-current', detail: `Update confirmed on version ${journal.grant.target.version}.` })
       else if (this.active)
         this.transition('stuck', {
           detail: 'Successor running artifact identity does not match the authorized target.',
+          reasonCode: 'successor-wrong-artifact',
         })
       else return this.run()
       return

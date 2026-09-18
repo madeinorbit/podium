@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveLoggingMode } from './config'
+import { writeDaemonHealth } from './daemon-health'
 import {
   decodeParentMessage,
   encodeLifecycle,
@@ -31,6 +32,7 @@ import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
   detachSupervisedChild,
+  defaultProbeDaemonHealth,
   PARENT_HANDOVER_DEADLINE_ENV,
   PARENT_HANDOVER_EXPECTED_VERSION_ENV,
   PARENT_HAS_SERVER_ENV,
@@ -887,7 +889,7 @@ describe('ParentProcess', () => {
     await parent.start()
     for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
 
-    await expect(parent.handover('2.0.0')).rejects.toThrow(/handover timed out/)
+    await expect(parent.handover('2.0.0')).rejects.toThrow(/Successor failed its health gate/)
     expect(successor?.signalsReceived).toContain('SIGTERM')
     expect(exits, 'the old parent must stay when the daemon never connects').toEqual([])
   })
@@ -925,7 +927,7 @@ describe('ParentProcess', () => {
     // The successor's --takeover reclaimed the old children on its way through.
     for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
 
-    await expect(parent.handover('2.0.0')).rejects.toThrow(/handover timed out/)
+    await expect(parent.handover('2.0.0')).rejects.toThrow(/Successor failed its health gate/)
 
     expect(successor?.signalsReceived, 'the failed successor must be terminated').toContain(
       'SIGTERM',
@@ -1052,6 +1054,7 @@ describe('ParentProcess', () => {
       env: NodeJS.ProcessEnv,
       ids: string[] = [],
       acceptLater = false,
+      report = vi.fn(),
     ): Promise<{
       install: string
       state: string
@@ -1092,6 +1095,7 @@ describe('ParentProcess', () => {
           exit: () => {},
         }),
       )
+      parent.setUpdateReporter(report, () => {})
       await parent.start()
       expect(parent.snapshot().postUpdateSinceMs, 'the successor must boot ARMED').toBeDefined()
       if (acceptLater) {
@@ -1124,6 +1128,10 @@ describe('ParentProcess', () => {
         },
         ['20260916065900_new_schema'],
       )
+      expect(report).toHaveBeenCalledWith(expect.objectContaining({
+        reasonCode: 'rollback-refused-migrations',
+        detail: expect.stringContaining('20260916065900_new_schema'),
+      }))
       expect(versionAt(install), 'rolled back across a MIGRATING release').toBe('2.0.0')
       expect(existsSync(`${install}.old`), 'the backup must be left alone').toBe(true)
       const outcome = outcomeIn(state)
@@ -1293,7 +1301,7 @@ describe('ParentProcess', () => {
       retainBackup(install, '1.0.0')
       // The successor's --takeover took the old children on its way through.
       for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
-      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/Successor failed its health gate/)
       return { install, state, kids, parent }
     }
 
@@ -1403,7 +1411,7 @@ describe('ParentProcess', () => {
       for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
       expect(claims, 'the boot gate claims the role once').toEqual(['boot'])
 
-      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/Successor failed its health gate/)
 
       expect(claims, 'the abort must take the role back').toEqual(['boot', 'abort', 'control'])
       // And it is genuinely supervising again, which is what the record claims.
@@ -1447,7 +1455,7 @@ describe('ParentProcess', () => {
       retainBackup(install, '1.0.0')
       for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
 
-      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/Successor failed its health gate/)
 
       // A parent that cannot roll back is still the supervisor, and still the
       // only process that can be asked to restart this machine.
@@ -1521,7 +1529,7 @@ describe('ParentProcess', () => {
       retainBackup(install, '1.0.0')
       for (const kid of kids.splice(0)) kid.die(0, 'SIGTERM')
 
-      await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+      await expect(parent.handover('9.9.9')).rejects.toThrow(/Successor failed its health gate/)
 
       expect(kids.length, 'the children must come back regardless').toBeGreaterThan(0)
       expect(parent.snapshot().phase).toBe('running')
@@ -1767,7 +1775,7 @@ describe('delayed successor boot ownership', () => {
     )
     await parent.start()
     writeFileSync(join(install, 'ARTIFACT.sha256'), 'new')
-    await expect(parent.handover('2.0.0')).rejects.toThrow('timed out')
+    await expect(parent.handover('2.0.0')).rejects.toThrow('Successor failed its health gate')
     expect(spawned?.signalsReceived).toContain('SIGTERM')
     expect(exit).not.toHaveBeenCalled()
   })
@@ -1877,7 +1885,7 @@ describe('ceding the fleet socket across a handover', () => {
     await parent.start()
     fleet.frames.length = 0
 
-    await expect(parent.handover('9.9.9')).rejects.toThrow(/handover timed out/)
+    await expect(parent.handover('9.9.9')).rejects.toThrow(/Successor failed its health gate/)
 
     expect(fleet.open, 'the predecessor is the supervisor again and must say so').toBe(true)
     expect(fleet.frames).toContain('running')
@@ -2343,4 +2351,39 @@ describe('control requests on a child line', () => {
     expect(swapped).toEqual([])
     expect(answers(server)).toEqual([])
   })
+})
+
+
+it('daemon health only includes a blocked reason for the expected process', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'daemon-refusal-'))
+  const prior = process.env.PODIUM_STATE_DIR
+  process.env.PODIUM_STATE_DIR = dir
+  try {
+    writeDaemonHealth({ state: 'blocked', processId: 12345, blockedReason: 'protocol-mismatch: too new' }, dir)
+    expect(await defaultProbeDaemonHealth({ pid: 12345 })).toMatchObject({ connected: false, blockedReason: 'protocol-mismatch: too new' })
+    expect((await defaultProbeDaemonHealth({ pid: 54321 })).blockedReason).toBeUndefined()
+  } finally {
+    if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = prior
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+it('observes idle daemon refusal even before the child reports ready', async () => {
+  const clock = fakeClock()
+  const refusal = vi.fn()
+  const probe = vi.fn(async () => ({ connected: false, appVersion: '1.0.0', convergedVersion: null, blockedReason: 'protocol-mismatch: too new' }))
+  const parent = track(new ParentProcess({
+    port: 19099, installDir: '/unused/podium', installBinary: '/unused/podium/podium',
+    children: ['daemon'], env: { PODIUM_APP_VERSION: '1.0.0' },
+    spawn: (() => new FakeChild(12345)) as unknown as SpawnChildFn,
+    probeDaemonHealth: probe,
+    probeHealth: async () => ({ serverRunning: false, serverVersion: null, daemonConnected: false }),
+    now: clock.now, sleep: async (ms) => { clock.advance(ms) }, notify: () => {}, exit: () => {},
+  }))
+  parent.setUpdateReporter(() => {}, refusal)
+  await parent.start()
+  expect(parent.isBootHealthy()).toBe(false)
+  await vi.waitFor(() => expect(refusal).toHaveBeenCalledWith('protocol-mismatch: too new'))
+  expect(probe).toHaveBeenCalledWith({ pid: 12345 })
 })

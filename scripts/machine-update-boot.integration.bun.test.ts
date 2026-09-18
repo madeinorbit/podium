@@ -488,3 +488,93 @@ it('an aborted successor health gate leaves the predecessor endpoint intact and 
     await control.close()
   }
 })
+
+it('an aborted successor gate reports the daemon blocked reason over the supervisor channel', async () => {
+  const { ParentProcess } = await import('../packages/runtime/src/parent-process')
+  const { createMachineSupervisorConnection, loadSupervisorState } = await import('../packages/runtime/src/machine-supervisor')
+  const frames: UpdateStatusMessage[] = []
+  let hellos = 0
+  const coordinator = Bun.serve({
+    hostname: '127.0.0.1', port: 0,
+    fetch(request, server) {
+      if (new URL(request.url).pathname === '/machine' && server.upgrade(request)) return
+      return new Response('not found', { status: 404 })
+    },
+    websocket: {
+      message(socket, raw) {
+        const frame = JSON.parse(String(raw))
+        if (frame.type === 'peerHello') {
+          hellos++
+          socket.send(JSON.stringify({ type: 'peerHelloOk', v: frame.v, caps: [] }))
+        } else if (frame.type === 'updateStatus') frames.push(frame)
+      },
+    },
+  })
+  const runtimeDir = root()
+  let successor: ChildProcess | undefined
+  let connection: ReturnType<typeof createMachineSupervisorConnection> | undefined
+  let resume!: () => void
+  const parent = new ParentProcess({
+    stateDir: runtimeDir, installDir: join(runtimeDir, 'install'), installBinary: '/unused/podium',
+    port: 19099, children: [], env: { PODIUM_APP_VERSION: '1.0.0' },
+    handoverTimeoutMs: 15_000, notify: () => {}, exit: () => {},
+    probeHealth: async () => ({ serverRunning: false, serverVersion: null, daemonConnected: false }),
+    cedeFleetSocket: () => connection?.close(),
+    // Keep transport down through the terminal transition to prove replay, not just send.
+    resumeFleetSocket: () => { resume = () => connection?.reconfigure() },
+    spawn: ((_command, _args, options) => {
+      const env = { ...process.env }
+      for (const name of Object.keys(env)) {
+        if (name.startsWith('PODIUM_') || ['NOTIFY_SOCKET', 'WATCHDOG_USEC', 'INVOCATION_ID'].includes(name)) delete env[name]
+      }
+      successor = spawn(process.execPath, ['--conditions=@podium/source',
+        new URL('./fixtures/machine-update-aborted-gate.ts', import.meta.url).pathname,
+        runtimeDir, 'blocked'], {
+        env: { ...env, PODIUM_STATE_DIR: runtimeDir, PODIUM_LOGGING_MODE: 'foreground',
+          PODIUM_HANDOVER_DEADLINE: options.env?.PODIUM_HANDOVER_DEADLINE },
+        stdio: 'ignore',
+      })
+      return successor
+    }),
+  })
+  // This is the same composition as the CLI: parent -> runner -> supervisor socket.
+  const reports = new MachineUpdateExecutor({
+    runtimeDir,
+    adapter: {
+      runningVersion: () => '1.0.0', prepare: async () => ({ digest: 'new' }),
+      activate: async () => {}, discard: async () => {}, restart: async () => parent.handover('2.0.0'),
+    },
+    report: (status) => connection?.send(status),
+  })
+  parent.setUpdateReporter((failure, version) => reports.reportFailure(failure, version), (reason) => reports.reportDaemonRefusal(reason))
+  const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
+  connection = createMachineSupervisorConnection({
+    serverUrl: `ws://127.0.0.1:${coordinator.port}`, stateDir: runtimeDir,
+    state: { ...loadSupervisorState(runtimeDir), token: 'fixture-token' },
+    build: { appVersion: '1.0.0', supervisorGeneration: 1 }, deliveryCaps: [],
+    report: () => ({ server: service, agentExecution: service }), onGrant: () => {},
+    onConnected: () => reports.replay(),
+  })
+  try {
+    connection.start()
+    await connection.waitUntilConnected()
+    await reports.accept(grant)
+    expect(frames.some((frame) => frame.state === 'stuck')).toBe(false)
+    resume()
+    const deadline = Date.now() + 5_000
+    while (!frames.some((frame) => frame.state === 'stuck') && Date.now() < deadline) await Bun.sleep(10)
+    expect(hellos).toBe(2)
+    expect(frames.find((frame) => frame.state === 'stuck')).toMatchObject({
+      type: 'updateStatus', grantId: grant.grantId, state: 'stuck', version: '1.0.0', targetVersion: '2.0.0',
+      reasonCode: 'daemon-refused-wire',
+      detail: 'Successor failed its health gate: daemon refused by the server (protocol-mismatch: peer wire version too new).',
+      reportedAt: expect.any(Number),
+    })
+  } finally {
+    connection.close()
+    await parent.stop()
+    parent.removeSignalHandlers()
+    successor?.kill()
+    await coordinator.stop(true)
+  }
+}, 30_000)

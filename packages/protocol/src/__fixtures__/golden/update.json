@@ -249,13 +249,15 @@
         "state": "granted",
         "version": "version",
         "detail": "detail",
+        "reasonCode": "reasonCode",
+        "reportedAt": 2,
         "percent": 2,
         "phaseDetail": "phaseDetail"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"granted\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":2,\"phaseDetail\":\"phaseDetail\"}"
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"granted\",\"version\":\"version\",\"detail\":\"detail\",\"reasonCode\":\"reasonCode\",\"reportedAt\":2,\"percent\":2,\"phaseDetail\":\"phaseDetail\"}"
     },
     {
       "schema": "MachineSupervisorReportMessage",
@@ -421,13 +423,15 @@
         "state": "current",
         "version": "version",
         "detail": "detail",
+        "reasonCode": "reasonCode",
+        "reportedAt": 1,
         "percent": 1,
         "phaseDetail": "phaseDetail"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"current\",\"version\":\"version\",\"detail\":\"detail\",\"reasonCode\":\"reasonCode\",\"reportedAt\":1,\"percent\":1,\"phaseDetail\":\"phaseDetail\"}"
     }
   ]
 }

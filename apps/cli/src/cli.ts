@@ -1944,6 +1944,10 @@ export async function main(
         report: (status) => supervisorConnection?.send(status),
         log: (phase, fields) => console.error('[machine update]', phase, JSON.stringify(fields)),
       })
+      parent.setUpdateReporter(
+        (failure, version) => updateRunner.reportFailure(failure, version),
+        (reason) => updateRunner.reportDaemonRefusal(reason),
+      )
       await updateRunner.recoverBeforeBoot()
       supervisorConnection = createMachineSupervisorConnection({
         serverUrl: machineServerUrl,
@@ -1984,14 +1988,7 @@ export async function main(
         },
         onGrant: (grant, authority) => {
           void updateRunner.accept(grant, true, false, authority).catch((error) =>
-            supervisorConnection?.send({
-              type: 'updateStatus',
-              grantId: grant.grantId,
-              targetVersion: grant.target.version,
-              version: appVersion,
-              state: 'rejected',
-              detail: String(error),
-            }),
+            updateRunner.reportGrantRefusal(grant, error),
           )
         },
         onConnected: () => updateRunner.replay(),

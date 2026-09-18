@@ -24,8 +24,9 @@
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { describeGateFailure, rollbackRefusalCode, UpdateGateError, type GateRefusal, type UpdateFailure } from './update-failure'
 import { createLogger } from '@podium/logger'
 import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
 import { readDaemonHealth } from './daemon-health'
@@ -441,7 +442,7 @@ async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
   }
 }
 
-async function defaultProbeDaemonHealth(own?: { pid: number }): Promise<DaemonHandoverHealthProbe> {
+export async function defaultProbeDaemonHealth(own?: { pid: number }): Promise<DaemonHandoverHealthProbe> {
   const connectivity = readDaemonHealth()
   // Our own child when we have one, else whichever daemon holds the role — the
   // run registry is a name two incarnations share, which is exactly why the
@@ -450,6 +451,7 @@ async function defaultProbeDaemonHealth(own?: { pid: number }): Promise<DaemonHa
   const isCurrentProcess =
     connectivity?.processId !== undefined && connectivity.processId === expectedPid
   return {
+    blockedReason: isCurrentProcess && connectivity?.state === 'blocked' ? connectivity.blockedReason : undefined,
     connected: isCurrentProcess && connectivity?.state === 'connected',
     appVersion: isCurrentProcess ? (connectivity?.appVersion ?? null) : null,
     convergedVersion: isCurrentProcess ? (connectivity?.convergedVersion ?? null) : null,
@@ -568,6 +570,43 @@ export class ParentProcess {
     if (this.env[PARENT_POST_UPDATE_ENV] === '1') {
       this.snap = markPostUpdate(this.snap, this.deps.now())
     }
+  }
+
+  private updateReporter: ((failure: UpdateFailure, version?: string) => void) | undefined
+  private daemonRefusalReporter: ((reason?: string) => void) | undefined
+
+  setUpdateReporter(report: (failure: UpdateFailure, version?: string) => void, daemon: (reason?: string) => void): void {
+    this.updateReporter = report
+    this.daemonRefusalReporter = daemon
+  }
+
+  private outgoingDeadline: number | undefined
+
+  private gateVerdictPath(pid: number): string {
+    return join(this.deps.stateDir ?? stateDir(), 'run', `supervisor-gate-${pid}.json`)
+  }
+  private recordGateDetail(detail: { refusedBy?: GateRefusal }): void {
+    if (!this.isSuccessor()) return
+    const path = this.gateVerdictPath(process.pid)
+    try {
+      mkdirSync(join(this.deps.stateDir ?? stateDir(), 'run'), { recursive: true })
+      const temporary = `${path}.tmp`
+      writeFileSync(temporary, JSON.stringify({ deadline: this.incomingDeadline, detail }), { mode: 0o600 })
+      renameSync(temporary, path)
+    } catch (error) {
+      log.warn('could not retain successor gate verdict', { err: error })
+    }
+  }
+  private successorFailure(pid: number | undefined, because?: string): UpdateFailure {
+    try {
+      const verdict = JSON.parse(readFileSync(this.gateVerdictPath(pid!), 'utf8'))
+      // A stale file from a recycled PID cannot speak for this handover attempt.
+      if (verdict.deadline === this.outgoingDeadline) return describeGateFailure(verdict.detail)
+    } catch { /* Older successors have no verdict file. */ }
+    return because
+      ? { reasonCode: because.includes('exited') ? 'successor-exited' : 'successor-unhealthy',
+          detail: `Successor failed its health gate: ${because}.` }
+      : describeGateFailure({})
   }
 
   setUpdateMigrationKnowledge(value: boolean | undefined, grantId?: string): void {
@@ -1223,6 +1262,7 @@ export class ParentProcess {
       if (!this.canCompleteBoot()) return settle(false, 'terminating')
       const result = await this.probeBootHealth(expectedVersion)
       last = result.detail
+      this.recordGateDetail(result.detail)
       if (!this.canCompleteBoot()) return settle(false, 'terminating')
       if (result.healthy) return settle(true, 'healthy')
       // The gate SUPERVISES while it waits (POD-3796). Nothing else can: the
@@ -1274,7 +1314,7 @@ export class ParentProcess {
   /** Both initial and later checks use the same role-specific health proof. */
   private async probeBootHealth(expectedVersion: string): Promise<{
     healthy: boolean
-    detail: Record<string, unknown>
+    detail: Record<string, unknown> & { refusedBy?: GateRefusal }
   }> {
     const wantsDaemon = this.requiresDaemon()
     const own = this.proveOwnChildren(expectedVersion)
@@ -1306,6 +1346,9 @@ export class ParentProcess {
           ? isDaemonHandoverHealthy(probe, expectedVersion)
           : probe.connected && versionOk,
         detail: {
+          refusedBy: probe.blockedReason
+            ? { child: 'daemon', because: 'refused', reason: probe.blockedReason }
+            : { child: 'daemon', because: 'silent' },
           proved: own.stack,
           connected: probe.connected,
           appVersion: probe.appVersion,
@@ -1324,9 +1367,14 @@ export class ParentProcess {
       return { healthy: false, detail: { refusedBy: { child: 'server', because: 'no-port' } } }
     }
     const probe = await this.deps.probeHealth(server.port)
+    const daemon = await this.deps.probeDaemonHealth(own.stack.daemon)
     return {
       healthy: isHandoverHealthy(own, probe, { requiresDaemon: true }),
-      detail: { proved: own.stack, port: server.port, daemonConnected: probe.daemonConnected },
+      detail: { proved: own.stack, port: server.port, daemonConnected: probe.daemonConnected,
+        refusedBy: daemon.blockedReason
+          ? { child: 'daemon', because: 'refused', reason: daemon.blockedReason }
+          : { child: 'daemon', because: 'silent' },
+      },
     }
   }
 
@@ -1455,6 +1503,13 @@ export class ParentProcess {
     await this.pollComponents()
     if (this.stopping || this.terminating) return
     await this.observeBootHealth()
+    if (!this.childOrder.includes('server') && this.requiresDaemon() && this.snap.phase !== 'handover_outgoing') {
+      const pid = this.childProcs.get('daemon')?.pid
+      if (pid !== undefined) {
+        const probe = await this.deps.probeDaemonHealth({ pid })
+        this.daemonRefusalReporter?.(probe.blockedReason)
+      }
+    }
     if (this.stopping || this.terminating) return
     // A failed boot stays supervised for topology rollback, but it never pets a
     // watchdog it did not arm with READY. Otherwise the first timer tick would
@@ -1584,6 +1639,7 @@ export class ParentProcess {
       because,
       releaseHadMigrations: this.deps.releaseHadMigrations,
     })
+    this.updateReporter?.({ detail: why, reasonCode: rollbackRefusalCode(why) })
     this.snap = markRollbackUnavailable(this.snap, why)
     this.publish()
     try {
@@ -1634,6 +1690,7 @@ export class ParentProcess {
       because,
       version: restored,
     })
+    this.updateReporter?.({ reasonCode: 'rolled-back', detail: `Update rolled back to ${restored} because ${because}.` }, restored)
     this.snap = clearPostUpdate(emptyParentSnapshot('booting'))
     this.publish()
     try {
@@ -1678,6 +1735,7 @@ export class ParentProcess {
     if (this.stopping || this.terminating) return
     this.bootAbort.abort()
     const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? HANDOVER_HEALTH_TIMEOUT_MS)
+    this.outgoingDeadline = deadline
     const priorPhase = this.snap.phase
     // BEFORE the phase change, so `handover_outgoing` is never announced, and
     // before the spawn below, so there is no instant at which both incarnations
@@ -1738,7 +1796,7 @@ export class ParentProcess {
     const abortAfterSuccessorExit = async (): Promise<never> => {
       const because = `the successor exited before becoming healthy on ${expectedVersion}`
       await this.abortHandover(successor, expectedVersion, priorPhase, because)
-      throw new Error(`handover failed: ${because}`)
+      throw new UpdateGateError(this.successorFailure(successor.pid, because))
     }
 
     try {
@@ -1791,11 +1849,10 @@ export class ParentProcess {
       }
       if (this.stopping || this.terminating) return
       await this.abortHandover(successor, expectedVersion, priorPhase)
-      throw new Error(
-        `handover timed out waiting for healthy successor (expected version ${expectedVersion})`,
-      )
+      throw new UpdateGateError(this.successorFailure(successor.pid))
     } finally {
       successor.removeListener('exit', onSuccessorExit)
+      try { unlinkSync(this.gateVerdictPath(successorPid)) } catch {}
     }
   }
 
@@ -1836,6 +1893,8 @@ export class ParentProcess {
     priorPhase: ParentSnapshot['phase'],
     because = `the successor parent never became healthy on ${expectedVersion}`,
   ): Promise<void> {
+    const failure = this.successorFailure(successor.pid, because)
+    this.updateReporter?.(failure)
     log.error('handover failed — reclaiming supervision on the previous version', {
       successorPid: successor.pid,
       expectedVersion,
