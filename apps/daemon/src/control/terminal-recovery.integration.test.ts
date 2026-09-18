@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
-import { createDurableProcess, killHostSession, spawnHostAgent } from '@podium/process/durable'
+import { createDurableProcess, killHostSession, resolveHostBin, spawnHostAgent } from '@podium/process/durable'
 import type { AgentSession } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { expect, it } from 'vitest'
@@ -21,6 +21,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
   process.env.PODIUM_NO_SCOPE = '1'
   const sessionId = asSessionId(`recovery-${process.pid}`)
   const label = `podium-${sessionId}`
+  const painted = `RECOVERY SCREEN ${'x'.repeat(80)}`
   let born: AgentSession | undefined
   let ctx: DaemonContext | undefined
   try {
@@ -28,18 +29,19 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
     writeFileSync(
       fixture,
       `
-      const draw = () => process.stdout.write('\\x1b[2J\\x1b[HRECOVERY SCREEN');
+      const draw = () => process.stdout.write('\\x1b[2J\\x1b[H${painted}');
       process.on('SIGWINCH', draw);
       draw();
       setInterval(() => {}, 1000);
     `,
     )
+    resolveHostBin({ fresh: true })
     born = await spawnHostAgent({
       label,
       cmd: process.execPath,
       args: [fixture],
-      cols: 80,
-      rows: 24,
+      cols: 101,
+      rows: 31,
     })
     let output = ''
     born.onFrame((frame) => {
@@ -101,8 +103,8 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
     const recovered = await runtime.recoverWithId(msg, terminalProfileFor('claude-code')!)
     expect(recovered.binding.process.key).toBe(label)
     await expect
-      .poll(() => snapshotLines(ctx!, sessionId)?.lines.join('\n'))
-      .toContain('RECOVERY SCREEN')
+      .poll(() => snapshotLines(ctx!, sessionId)?.lines.join('\n') ?? '', { timeout: 5000 })
+      .toContain(painted)
     const bridge = ctx.bridges.get(sessionId)
     const before = redrawFrames
     await runtime.recoverWithId(
@@ -110,7 +112,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       terminalProfileFor('claude-code')!,
     )
     expect(ctx.bridges.get(sessionId)).toBe(bridge)
-    await expect.poll(() => redrawFrames).toBeGreaterThan(before)
+    await expect.poll(() => redrawFrames, { timeout: 5000 }).toBeGreaterThan(before)
     expect(sent.filter((frame) => frame.type === 'bind')).toHaveLength(2)
     expect((await recovered.snapshot()).observerGeneration).toBe(3)
     runtime.dispose()
@@ -123,6 +125,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       if (saved[index] === undefined) delete process.env[key]
       else process.env[key] = saved[index]
     })
+    resolveHostBin({ fresh: true })
     rmSync(root, { recursive: true, force: true })
   }
 }, 20_000)

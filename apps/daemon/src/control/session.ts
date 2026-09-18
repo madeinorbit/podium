@@ -2295,7 +2295,12 @@ export async function recoverTerminalHost(
     const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
     // No dispatch: the attach itself announced and applied the size, so the
     // session is already at it and this call only records and reports it.
-    if (downgraded) appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+    if (downgraded) {
+      appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+      // The host's kernel report also sizes the model before ring replay.
+      // This records the observed grid; it sends no resize to the process.
+      if (ready) trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
+    }
     const applied = held ?? downgraded
     rememberDurableSeq(ctx, msg.sessionId, found.session)
     // The settings file from the original spawn still points at our fixed port,
@@ -2326,6 +2331,12 @@ export async function recoverTerminalHost(
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
+    // A fresh host attachment starts at the output tail. Reconstruct the
+    // agent's missing screen through the existing bounded replay port after
+    // wiring all consumers; waiting for a viewer resize leaves idle survivors
+    // blank. Plain terminals retain their viewer-driven replay path.
+    const replay = (found.session as AgentSession & { replay?: (bytes: number) => Promise<void> }).replay
+    if (ready && replay) await replay.call(found.session, HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
