@@ -1278,6 +1278,8 @@ function MachineRow({
                 </button>
               )}
 
+              {machine.services?.topology?.legacyUnits.some((unit) => unit.endsWith('-daemon.service')) && <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">legacy daemon unit</Badge>}
+
               {isThisMachine && (
                 <Badge variant="outline" className="h-4 flex-none px-1.5 text-[11px]">
                   this machine

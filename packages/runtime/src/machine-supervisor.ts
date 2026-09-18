@@ -408,7 +408,10 @@ export function createMachineSupervisorConnection(
     socket.send(JSON.stringify(message))
   }
 
-  const sendReport = (): void => send({ type: 'machineReport', services: deps.report() })
+  const sendReport = (): void => {
+    const { topology, ...services } = deps.report()
+    send({ type: 'machineReport', services, ...(topology ? { topology } : {}) })
+  }
 
   const scheduleReconnect = (): void => {
     if (closed || reconnectTimer) return

@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { MachineServiceReport } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
@@ -163,6 +165,30 @@ describe('update frames', () => {
 })
 
 describe('machine supervisor frames', () => {
+  it('carries topology additively while the older server schema ignores it', () => {
+    const services = {
+      server: { policy: 'enabled', state: 'available', observedAt: '2026-09-18T00:00:00Z' },
+      agentExecution: { policy: 'disabled', state: 'stopped', observedAt: '2026-09-18T00:00:00Z' },
+    }
+    const topology = {
+      persistence: 'systemd',
+      legacyUnits: ['podium-daemon.service'],
+      parentUnit: 'inactive',
+    }
+    const frame = { type: 'machineReport', services, topology }
+    expect(MachineSupervisorMessage.parse(frame)).toMatchObject({ topology })
+    // The pre-topology server declared only type + services (ordinary stripping z.object).
+    const olderServer = z.object({
+      type: z.literal('machineReport'),
+      services: MachineServiceReport.omit({ topology: true }),
+    })
+    expect(olderServer.parse(frame)).toEqual({ type: 'machineReport', services })
+    expect(MachineSupervisorMessage.parse({ type: 'machineReport', services })).toEqual({
+      type: 'machineReport',
+      services,
+    })
+  })
+
   it('carries structured service policy separately from observed state', () => {
     const observedAt = '2026-08-26T12:00:00.000Z'
     const report = MachineSupervisorMessage.parse({
@@ -211,10 +237,23 @@ describe('machine supervisor frames', () => {
 })
 
 describe('additive machine failure causes', () => {
-  const frame = { type: 'updateStatus', state: 'stuck', version: '1', targetVersion: '2', detail: 'Daemon refused.' }
+  const frame = {
+    type: 'updateStatus',
+    state: 'stuck',
+    version: '1',
+    targetVersion: '2',
+    detail: 'Daemon refused.',
+  }
   it('keeps older status frames and the existing convergence enum valid', () => {
     expect(UpdateStatusMessage.parse(frame)).toEqual(frame)
-    expect(CONVERGENCE_STATES).toEqual(['current', 'granted', 'downloading', 'restarting', 'rejected', 'stuck'])
+    expect(CONVERGENCE_STATES).toEqual([
+      'current',
+      'granted',
+      'downloading',
+      'restarting',
+      'rejected',
+      'stuck',
+    ])
   })
   it('routes optional causes over the supervisor channel', () => {
     const report = { ...frame, reasonCode: 'daemon-refused-wire', reportedAt: 123 }

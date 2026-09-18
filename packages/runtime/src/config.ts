@@ -150,11 +150,21 @@
  * NO WATCHER AND NO TIMER back any of this. A live field is fresh because the
  * reader asked, and the loader's stat saw a different file.
  */
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  constants,
+  readdirSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
+import { liveRecord } from './run-registry'
+import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
 import {
   assertInstanceStateIdentity,
   defaultInstancePorts,
@@ -182,16 +192,17 @@ export type PodiumMode = z.infer<typeof PodiumMode>
  * `incomplete-headless-config` reason — so every reader of the launch matrix had
  * to know the history of the config format to know which branches were real.
  *
- * With a version, absence is an answer: a v2 config that names no `persistence`
+ * With a version, absence is an answer: a v3 config that names no `persistence`
  * is a box that is not headless-managed (the desktop sidecar), full stop. A
- * pre-v2 file that names none is migrated ONCE, at load, and then it is a v2
+ * pre-v3 file that names none is migrated ONCE, at load, and then it is a v3
  * config like any other. A config is either current or migrated; it is never
  * special-cased downstream.
  *
  * v1 = the unversioned original (no `configVersion` key).
  * v2 = `pendingPersistence` folded into `persistence` — see CONFIG_MIGRATIONS.
+ * v3 = infer missing persistence from legacy host evidence before reconciliation.
  */
-export const CURRENT_CONFIG_VERSION = 2
+export const CURRENT_CONFIG_VERSION = 3
 
 /** Persisted install config — the single source of truth shared by the CLI and the
  *  (later) Tauri shell. `serverUrl` is a ws://|wss:// relay URL for daemon/client modes. */
@@ -489,7 +500,38 @@ export interface ConfigMigration {
    * itself.
    */
   describe: string
-  apply(raw: Record<string, unknown>): Record<string, unknown>
+  apply(raw: Record<string, unknown>, evidence?: PersistenceEvidence): Record<string, unknown>
+}
+
+export interface PersistenceEvidence {
+  env?: NodeJS.ProcessEnv
+  unitDir?: string
+  instanceId?: string
+  detachedParentLive?: () => boolean
+}
+
+/** Host evidence is consulted only while upgrading an absent desired state. */
+export function inferLegacyPersistence(
+  evidence: PersistenceEvidence = {},
+): PodiumConfig['persistence'] {
+  const env = evidence.env ?? process.env
+  // A desktop may inherit the login session's systemd environment.
+  if (env.PODIUM_DESKTOP_SUPERVISED === '1') return undefined
+  if (env.INVOCATION_ID || env.JOURNAL_STREAM) return 'systemd'
+  const id = evidence.instanceId ?? resolveInstanceId()
+  const names = new Set([
+    desiredParentUnit(id),
+    ...legacyUnitNames(id).filter((name) => name.endsWith('.service')),
+  ])
+  try {
+    if (readdirSync(evidence.unitDir ?? userUnitDir(env)).some((name) => names.has(name)))
+      return 'systemd'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if ((evidence.detachedParentLive ?? (() => liveRecord('parent')?.mode === 'detached'))())
+    return 'detached'
+  return undefined
 }
 
 export const CONFIG_MIGRATIONS: readonly ConfigMigration[] = [
@@ -521,12 +563,21 @@ export const CONFIG_MIGRATIONS: readonly ConfigMigration[] = [
       return rest
     },
   },
+  {
+    to: 3,
+    describe: 'v3: legacy managed installs declare their persistence desired state',
+    apply(raw, evidence) {
+      if (raw.persistence !== undefined) return raw
+      const persistence = inferLegacyPersistence(evidence)
+      return persistence ? { ...raw, persistence } : raw
+    },
+  },
 ]
 
 /**
  * Bring a raw config object up to {@link CURRENT_CONFIG_VERSION}, in order.
  *
- * PURE, and it does not write. The write is the caller's, and deliberately: this
+ * Reads host evidence for v3, but does not write. The write is the caller's, and deliberately: this
  * runs on every `loadConfig` in every process — server, daemon, janitor, each
  * CLI invocation — and a loader that rewrites the file would have N processes
  * racing to save the same result on every boot. The CLI entry point persists it
@@ -538,7 +589,10 @@ export const CONFIG_MIGRATIONS: readonly ConfigMigration[] = [
  * config.test.ts, because "the migration ran twice" is the normal outcome of the
  * in-memory design above).
  */
-export function migrateConfig(raw: unknown): {
+export function migrateConfig(
+  raw: unknown,
+  evidence?: PersistenceEvidence,
+): {
   config: Record<string, unknown>
   applied: string[]
 } {
@@ -553,7 +607,7 @@ export function migrateConfig(raw: unknown): {
   const applied: string[] = []
   for (const migration of CONFIG_MIGRATIONS) {
     if (migration.to <= from) continue
-    config = migration.apply(config)
+    config = migration.apply(config, evidence)
     applied.push(migration.describe)
   }
   // A file from a NEWER Podium keeps its own version rather than being stamped
@@ -966,6 +1020,12 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
 export function migrateConfigFile(path = configPath()): string[] {
   const res = inspectConfig(path)
   if (res.state !== 'ok' || res.migrated.length === 0) return []
+  // Keep the pre-upgrade bytes beside the config, without replacing an earlier backup.
+  try {
+    copyFileSync(path, `${path}.v${CURRENT_CONFIG_VERSION}-backup`, constants.COPYFILE_EXCL)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
   saveConfig(res.config, path)
   return res.migrated
 }

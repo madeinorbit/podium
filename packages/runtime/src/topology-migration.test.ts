@@ -396,3 +396,16 @@ describe('POD-2505 leftover parent unit is retired', () => {
     expect(obs.installedUnits).not.toContain('podium-parent.service')
   })
 })
+
+
+describe('canonical service must be armed before legacy retirement', () => {
+  it('enables a healthy but disabled parent before removing the legacy reboot path', () => {
+    const obs = {
+      ...convergedObservation(),
+      parentUnitEnabled: false,
+      installedUnits: ['podium.service', 'podium-daemon.service'],
+      enabledUnits: ['podium-daemon.service'],
+    }
+    expect(planMigration(obs)).toEqual({ type: 'enable-parent' })
+  })
+})

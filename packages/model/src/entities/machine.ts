@@ -384,6 +384,13 @@ export const MachineServiceStatus = z.object({
 })
 export type MachineServiceStatus = z.infer<typeof MachineServiceStatus>
 
+export const MachineTopology = z.object({
+  persistence: z.enum(['systemd', 'detached', 'unmanaged']),
+  legacyUnits: z.array(z.string()),
+  parentUnit: z.enum(['active', 'inactive', 'absent']),
+})
+export type MachineTopology = z.infer<typeof MachineTopology>
+
 export const MachineServiceReport = z.object({
   server: MachineServiceStatus,
   agentExecution: MachineServiceStatus,
@@ -391,6 +398,7 @@ export const MachineServiceReport = z.object({
   agentExecutionLockout: z.boolean().optional(),
   /** Display-only local crash-owner fact; no server policy may depend on it. */
   crashOwner: z.string().optional(),
+  topology: MachineTopology.optional(),
 })
 export type MachineServiceReport = z.infer<typeof MachineServiceReport>
 

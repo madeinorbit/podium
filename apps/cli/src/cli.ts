@@ -67,6 +67,7 @@ import {
   NativeMachineUpdateAdapter,
   withNativeMachineUpdates,
 } from '@podium/runtime/machine-update-native'
+import { machineTopologyReport } from './topology-reconcile'
 import { machineServiceReport } from '@podium/runtime/parent-supervisor'
 import { consumePairCode } from '@podium/runtime/setup'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
@@ -1965,6 +1966,7 @@ export async function main(
         report: () =>
           machineServiceReport({
             snap: parent.snapshot(),
+            topology: machineTopologyReport(),
             assignment: configuredAssignment,
             running: runningAssignment,
             agentExecutionLockout: config.agentExecutionLockout,
@@ -2025,13 +2027,18 @@ export async function main(
       if (config.persistence === 'systemd' || config.persistence === 'detached') {
         try {
           const { reconcileSupervision } = await import('./topology-reconcile')
-          const { hasUserSystemd } = await import('./cli-systemd')
-          if (config.persistence !== 'systemd' || hasUserSystemd()) {
-            await reconcileSupervision({
-              parentHealthy: () => parent.isBootHealthy(),
-              ...(parent.isBootHealthy() ? {} : { healthTimeoutMs: 0 }),
-            })
-          }
+          // A daemon command may have promoted itself to a parent while still
+          // running inside a legacy unit. Its health cannot authorize retirement
+          // of that unit: the canonical service must start and prove its own health.
+          const canonicalParent = machineTopologyReport().parentUnit === 'active'
+          await reconcileSupervision({
+            ...(config.persistence !== 'systemd' || canonicalParent
+              ? {
+                  parentHealthy: () => parent.isBootHealthy(),
+                  ...(parent.isBootHealthy() ? {} : { healthTimeoutMs: 0 }),
+                }
+              : {}),
+          })
         } catch (error) {
           console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
         }
@@ -2240,12 +2247,8 @@ export async function main(
       try {
         await reconcileSupervision()
       } catch (error) {
-        const { installSystemd } = await import('./cli-systemd')
-        const res = installSystemd(plan.mode, plan.port, resolveInstanceId())
-        if (!res.ok) {
-          console.error(`podium: could not start or install the systemd units — ${res.reason}`)
-          if (res.remedy) console.error(res.remedy)
-        }
+        // The installer would overwrite a custom unit that reconciliation preserves.
+        console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
       }
       const { statusCommand } = await import('./cli-lifecycle')
       statusCommand()

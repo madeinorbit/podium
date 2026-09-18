@@ -7,7 +7,9 @@
  * once THAT parent reports healthy, retires leftover units. Signal handlers
  * stay the parent's job, installed before it spawns anything (POD-2505).
  */
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { MachineServiceReport } from '@podium/model'
 import { loadConfig, type PodiumConfig, resolvePort } from '@podium/runtime/config'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import { liveRecord, listLive, reclaim } from '@podium/runtime/run-registry'
@@ -24,6 +26,11 @@ import {
 } from '@podium/runtime/topology-migration'
 import { spawnDetached } from './cli-spawn'
 import {
+  GENERATED_UNIT_NOTICE,
+  hasUserSystemd,
+  userSystemdUnavailable,
+  reloadUserSystemd,
+  type InstallResult,
   disarmSystemdUnits,
   enableSystemdUnits,
   maskSystemdUnitsRuntime,
@@ -38,6 +45,9 @@ import {
 } from './cli-systemd'
 
 export interface TopologyReconcileDeps {
+  hasUserSystemd?: () => boolean
+  readUnit?: (path: string) => string
+  reloadUnits?: () => void
   config?: PodiumConfig
   instanceId?: string
   env?: NodeJS.ProcessEnv
@@ -137,7 +147,7 @@ export function observeTopology(deps: TopologyReconcileDeps = {}): TopologyObser
     instanceId,
     parentUnitPresent: installed.includes(desired),
     parentUnitEnabled: enabled.includes(desired),
-    parentUnitActive: active.includes(desired) || parentLive,
+    parentUnitActive: active.includes(desired),
     parentProcessLive: parentLive,
     parentHealthy: false,
     cannotRestart: !parentIsRegistered(env),
@@ -153,6 +163,7 @@ export interface ReconcileResult {
   actions: string[]
   armed: ReturnType<typeof armedIfKilled>
   observation: TopologyObservation
+  problem?: InstallResult
 }
 
 /**
@@ -161,7 +172,9 @@ export interface ReconcileResult {
  * gate; callers that are the legacy server start the parent and return so they
  * can keep serving until takeover.
  */
-export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Promise<ReconcileResult> {
+export async function reconcileSupervision(
+  deps: TopologyReconcileDeps = {},
+): Promise<ReconcileResult> {
   const env = deps.env ?? process.env
   const config = deps.config ?? loadConfig()
   const instanceId = deps.instanceId ?? resolveInstanceId()
@@ -169,6 +182,21 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
   const maxSteps = deps.maxSteps ?? 12
   const actions: string[] = []
   let obs = observeTopology(deps)
+  if (obs.persistence === 'systemd' && !(deps.hasUserSystemd ?? hasUserSystemd)()) {
+    const problem = userSystemdUnavailable()
+    console.error(`podium: ${problem.reason}. ${problem.remedy}`)
+    return { actions, armed: armedIfKilled(obs), observation: obs, problem }
+  }
+  if (obs.persistence === 'systemd' && obs.parentUnitPresent) {
+    const path = join((deps.unitDir ?? userUnitDir)(), desiredParentUnit(instanceId))
+    const current = (deps.readUnit ?? ((path) => readFileSync(path, 'utf8')))(path)
+    const desired = renderParentUnit({ instanceId, port })
+    if (current.startsWith(GENERATED_UNIT_NOTICE) && current !== desired) {
+      ;(deps.writeUnit ?? writeUserUnit)(desiredParentUnit(instanceId), desired)
+      ;(deps.reloadUnits ?? reloadUserSystemd)()
+      actions.push('refresh-parent')
+    }
+  }
   const startedAt = (deps.now ?? Date.now)()
   const healthTimeoutMs = deps.healthTimeoutMs ?? 90_000
   let healthyCheckpointPassed = false
@@ -176,7 +204,7 @@ export async function reconcileSupervision(deps: TopologyReconcileDeps = {}): Pr
   for (let i = 0; i < maxSteps; i++) {
     if (
       obs.persistence === 'systemd' &&
-      (obs.parentProcessLive || obs.parentUnitActive) &&
+      obs.parentUnitActive &&
       !obs.parentHealthy &&
       deps.parentHealthy
     ) {
@@ -328,3 +356,22 @@ export function shouldKickoffMigration(
 }
 
 export { desiredParentUnit, leftoverParentUnit, legacyUnitNames }
+
+/** Fresh host facts, independent of the desired persistence policy. */
+export function machineTopologyReport(
+  deps: TopologyReconcileDeps = {},
+): NonNullable<MachineServiceReport['topology']> {
+  const config = deps.config ?? loadConfig()
+  const instanceId = deps.instanceId ?? resolveInstanceId()
+  const installed = (deps.listUnitFiles ?? defaultListUnitFiles)((deps.unitDir ?? userUnitDir)())
+  const parent = desiredParentUnit(instanceId)
+  return {
+    persistence: config.persistence ?? 'unmanaged',
+    legacyUnits: presentLegacyUnits(installed, instanceId),
+    parentUnit: !installed.includes(parent)
+      ? 'absent'
+      : (deps.unitActive ?? systemdUnitActive)(parent)
+        ? 'active'
+        : 'inactive',
+  }
+}

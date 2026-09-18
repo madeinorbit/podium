@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { addSink, type LogRecord } from '@podium/logger'
@@ -69,12 +69,16 @@ describe('podium config', () => {
   beforeEach(() => {
     priorStateDir = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-cfg-'))
+    vi.stubEnv('INVOCATION_ID', '')
+    vi.stubEnv('JOURNAL_STREAM', '')
+    vi.stubEnv('XDG_CONFIG_HOME', dir)
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(dir, { recursive: true, force: true })
+    vi.unstubAllEnvs()
   })
 
   it('configPath honors PODIUM_STATE_DIR', () => {
@@ -505,6 +509,9 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
   beforeEach(() => {
     prior = process.env.PODIUM_STATE_DIR
     dir = mkdtempSync(join(tmpdir(), 'podium-cfg-migrate-'))
+    vi.stubEnv('INVOCATION_ID', '')
+    vi.stubEnv('JOURNAL_STREAM', '')
+    vi.stubEnv('XDG_CONFIG_HOME', dir)
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
@@ -513,10 +520,98 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
+  afterEach(() => vi.unstubAllEnvs())
+
   /** Write a raw file exactly as some past writer would have. */
   function writeRaw(raw: Record<string, unknown>): void {
     writeFileSync(configPath(), JSON.stringify(raw, null, 2))
   }
+
+  it('v3 infers systemd from a legacy daemon unit and preserves the original backup', () => {
+    const units = join(dir, 'systemd', 'user')
+    mkdirSync(units, { recursive: true })
+    writeFileSync(join(units, 'podium-daemon.service'), '[Service]')
+    writeRaw({ configVersion: 2, mode: 'daemon', serverUrl: 'wss://coordinator.example' })
+    const original = readFileSync(configPath(), 'utf8')
+    migrateConfigFile()
+    expect(loadConfig().persistence).toBe('systemd')
+    expect(readFileSync(`${configPath()}.v3-backup`, 'utf8')).toBe(original)
+    expect(migrateConfigFile()).toEqual([])
+    expect(readFileSync(`${configPath()}.v3-backup`, 'utf8')).toBe(original)
+  })
+
+  it('v3 leaves a foreground install unmanaged without host evidence', () => {
+    expect(
+      migrateConfig(
+        { configVersion: 2, mode: 'daemon' },
+        {
+          env: {},
+          unitDir: dir,
+          detachedParentLive: () => false,
+        },
+      ).config.persistence,
+    ).toBeUndefined()
+  })
+
+  it('v3 preserves explicit persistence even when the host disagrees', () => {
+    expect(
+      migrateConfig(
+        { configVersion: 2, persistence: 'detached' },
+        {
+          env: { INVOCATION_ID: 'unit' },
+        },
+      ).config.persistence,
+    ).toBe('detached')
+  })
+
+  it.each(['INVOCATION_ID', 'JOURNAL_STREAM'])('v3 recognizes systemd environment %s', (key) => {
+    expect(
+      migrateConfig(
+        { configVersion: 2 },
+        {
+          env: { [key]: 'unit' },
+          unitDir: dir,
+          detachedParentLive: () => true,
+        },
+      ).config.persistence,
+    ).toBe('systemd')
+  })
+
+  it('v3 recognizes a live detached parent', () => {
+    expect(
+      migrateConfig(
+        { configVersion: 2 },
+        {
+          env: {},
+          unitDir: dir,
+          detachedParentLive: () => true,
+        },
+      ).config.persistence,
+    ).toBe('detached')
+  })
+
+  it('v3 does not adopt another instance or an inherited desktop systemd environment', () => {
+    writeFileSync(join(dir, 'podium-other.service'), '')
+    expect(
+      migrateConfig(
+        { configVersion: 2 },
+        {
+          env: {},
+          unitDir: dir,
+          instanceId: 'default',
+          detachedParentLive: () => false,
+        },
+      ).config.persistence,
+    ).toBeUndefined()
+    expect(
+      migrateConfig(
+        { configVersion: 2 },
+        {
+          env: { INVOCATION_ID: 'login', PODIUM_DESKTOP_SUPERVISED: '1' },
+        },
+      ).config.persistence,
+    ).toBeUndefined()
+  })
 
   it('treats a file with no configVersion as v1 and stamps it', () => {
     // The population every migration targets: everything written before POD-333.
@@ -618,6 +713,7 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
     writeRaw({ mode: 'server', pendingPersistence: 'systemd' })
     expect(inspectConfig().migrated).toEqual([
       'v2: persistence is one field, and absent means not headless-managed',
+      'v3: legacy managed installs declare their persistence desired state',
     ])
     saveConfig({ mode: 'server', persistence: 'systemd' })
     expect(inspectConfig().migrated).toEqual([])
@@ -627,6 +723,7 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
     writeRaw({ mode: 'server', pendingPersistence: 'systemd' })
     expect(migrateConfigFile()).toEqual([
       'v2: persistence is one field, and absent means not headless-managed',
+      'v3: legacy managed installs declare their persistence desired state',
     ])
     const onDisk = JSON.parse(readFileSync(configPath(), 'utf8')) as Record<string, unknown>
     expect(onDisk.persistence).toBe('systemd')

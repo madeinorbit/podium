@@ -4,8 +4,9 @@
 // Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, userInfo } from 'node:os'
+import { userInfo } from 'node:os'
 import { join } from 'node:path'
+import { userUnitDir } from '@podium/runtime/topology-migration'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
 import {
@@ -40,7 +41,7 @@ export interface RenderedSystemdFiles {
   readonly healthProbe?: string
 }
 
-const GENERATED_UNIT_NOTICE =
+export const GENERATED_UNIT_NOTICE =
   '# GENERATED from apps/cli/src/cli-systemd.ts by scripts/render-systemd.ts.\n' +
   '# Do not hand-edit; rerun the renderer after changing the source.\n'
 
@@ -53,11 +54,7 @@ const USER_RUNTIME_PATH =
 const DEV_HOME = '/home/user'
 const DEV_REPO = '/home/user/src/other/podium'
 
-/** `~/.config/systemd/user` (respects XDG_CONFIG_HOME). */
-export function userUnitDir(): string {
-  const base = process.env.XDG_CONFIG_HOME ?? join(process.env.HOME || homedir(), '.config')
-  return join(base, 'systemd', 'user')
-}
+export { userUnitDir } from '@podium/runtime/topology-migration'
 
 interface RenderContext {
   profile: SystemdProfile
@@ -430,6 +427,20 @@ export function hasUserSystemd(): boolean {
   }
 }
 
+export function userSystemdUnavailable(): InstallResult {
+  return {
+    ok: false,
+    reason: 'this host has no systemd user session (nothing is listening on the user D-Bus)',
+    remedy:
+      `If the host does run systemd, \`sudo loginctl enable-linger ${userInfo().username}\`, ` +
+      'reconnect over SSH, then re-run `podium setup` to convert this into a service.',
+  }
+}
+
+export function reloadUserSystemd(): void {
+  run('systemctl', ['--user', 'daemon-reload'])
+}
+
 export interface InstallResult {
   ok: boolean
   reason?: string
@@ -481,14 +492,7 @@ export function installSystemd(
       reason: 'systemd is not installed on this host',
       remedy: 'To start it at boot, add an "@reboot" entry with `crontab -e`.',
     }
-  if (!(deps.hasUserSystemd ?? hasUserSystemd)())
-    return {
-      ok: false,
-      reason: 'this host has no systemd user session (nothing is listening on the user D-Bus)',
-      remedy:
-        `If the host does run systemd, \`sudo loginctl enable-linger ${userInfo().username}\`, ` +
-        'reconnect over SSH, then re-run `podium setup` to convert this into a service.',
-    }
+  if (!(deps.hasUserSystemd ?? hasUserSystemd)()) return userSystemdUnavailable()
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
   const parentUnit = instanceServiceName('parent', instanceId)

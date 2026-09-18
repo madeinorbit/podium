@@ -122,6 +122,11 @@ describe('machineServiceReport', () => {
       assignment: { server: true, agentExecution: true },
       running: { server: false, agentExecution: false },
       agentExecutionLockout: true,
+      topology: {
+        persistence: 'systemd',
+        legacyUnits: ['podium-daemon.service'],
+        parentUnit: 'inactive',
+      },
       observedAt: OBSERVED_AT,
     })
 
@@ -136,6 +141,11 @@ describe('machineServiceReport', () => {
       reason: 'refused by local policy',
     })
     expect(report.agentExecutionLockout).toBe(true)
+    expect(report.topology).toEqual({
+      persistence: 'systemd',
+      legacyUnits: ['podium-daemon.service'],
+      parentUnit: 'inactive',
+    })
   })
 })
 

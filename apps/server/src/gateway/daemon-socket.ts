@@ -609,7 +609,7 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
       if (message.type === 'machineReport') {
         await registry.modules.machines.recordSupervisorReport(
           principal.machine,
-          message.services,
+          { ...message.services, ...(message.topology ? { topology: message.topology } : {}) },
           new Date().toISOString(),
         )
       } else {

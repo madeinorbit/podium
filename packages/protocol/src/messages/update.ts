@@ -117,6 +117,7 @@ export type UpdateStatusMessage = z.infer<typeof UpdateStatusMessage>
 export const MachineSupervisorReportMessage = z.object({
   type: z.literal('machineReport'),
   services: MachineServiceReport,
+  topology: MachineServiceReport.shape.topology,
 })
 export type MachineSupervisorReportMessage = z.infer<typeof MachineSupervisorReportMessage>
 

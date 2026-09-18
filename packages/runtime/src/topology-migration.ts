@@ -16,9 +16,16 @@
  * Pure decision helpers live here so the choreography is testable without
  * systemd. The CLI binds them in `apps/cli/src/topology-reconcile.ts`.
  */
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { DEFAULT_INSTANCE_ID, instanceServiceName, instanceTimerName } from './instance'
 import type { RunRole } from './run-registry'
 import type { SupervisedChild } from './parent-supervisor'
+
+/** Shared by migration evidence and the CLI's unit writer. */
+export function userUnitDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(env.XDG_CONFIG_HOME ?? join(env.HOME || homedir(), '.config'), 'systemd', 'user')
+}
 
 /** How this box is (or is not) supervised. Unmanaged = foreground in-process. */
 export type PersistenceShape = 'systemd' | 'detached' | 'unmanaged'
@@ -232,18 +239,18 @@ function planSystemd(obs: TopologyObservation): MigrationAction {
     }
   }
 
+  if (!obs.parentUnitPresent) return { type: 'write-parent' }
+  if (!obs.parentUnitEnabled) return { type: 'enable-parent' }
+
   if (obs.parentHealthy && (legacyInstalled.length > 0 || legacyEnabled.length > 0)) {
     return { type: 'retire-legacy' }
   }
-
-  if (!obs.parentUnitPresent) return { type: 'write-parent' }
-  if (!obs.parentUnitEnabled) return { type: 'enable-parent' }
 
   // Mask enabled legacy units before the parent takeovers, so systemd does not
   // resurrect the process the parent just reclaimed. Skip units already masked.
   if (unmaskedEnabled.length > 0 && !obs.parentHealthy) return { type: 'mask-legacy' }
 
-  if (!obs.parentUnitActive && !obs.parentProcessLive) return { type: 'start-parent' }
+  if (!obs.parentUnitActive) return { type: 'start-parent' }
 
   if (!obs.parentHealthy) return { type: 'await-healthy' }
 

@@ -574,6 +574,7 @@ export function machineServiceReport(input: {
   running: MachineServiceAssignment
   agentExecutionLockout?: boolean
   crashOwner?: string
+  topology?: MachineServiceReport['topology']
   observedAt?: string
 }): MachineServiceReport {
   const observedAt = input.observedAt ?? new Date().toISOString()
@@ -615,6 +616,7 @@ export function machineServiceReport(input: {
     server: status('server', input.assignment.server, input.running.server),
     agentExecution: status('daemon', input.assignment.agentExecution, input.running.agentExecution),
     ...(input.agentExecutionLockout ? { agentExecutionLockout: true } : {}),
+    ...(input.topology ? { topology: input.topology } : {}),
     ...(input.crashOwner ? { crashOwner: input.crashOwner } : {}),
   }
 }

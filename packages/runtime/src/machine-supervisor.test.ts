@@ -347,7 +347,7 @@ describe('supervisor socket ceded and taken back', () => {
       state: { ...loadSupervisorState(dir), token: 'secret' },
       build: { appVersion: 'test', wireSchemaDigest: wireSchemaDigest(), supervisorGeneration: 7 },
       deliveryCaps: ['update.delivery.feed'],
-      report: () => ({ server: service, agentExecution: service }),
+      report: () => ({ server: service, agentExecution: service, topology: { persistence: 'systemd', legacyUnits: ['podium-daemon.service'], parentUnit: 'inactive' } }),
       onGrant: vi.fn(),
     })
   }
@@ -361,6 +361,7 @@ describe('supervisor socket ceded and taken back', () => {
       live.accept()
       const spokenWhileAttached = live.sent.length
       expect(spokenWhileAttached, 'hello and the first report').toBe(2)
+      expect(live.sent[1]).toMatchObject({ type: 'machineReport', topology: { persistence: 'systemd', legacyUnits: ['podium-daemon.service'], parentUnit: 'inactive' } })
 
       connection.close()
       connection.report()
