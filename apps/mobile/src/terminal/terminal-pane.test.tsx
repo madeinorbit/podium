@@ -41,6 +41,7 @@ import {
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
+import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
 import { cleanup } from '@testing-library/react'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -66,7 +67,7 @@ type MountCallbacks = {
     requestedGeometry: { cols: number; rows: number } | null
   }) => void
   onMounted?: (mounted: unknown) => void
-  gridMode?: string
+  crop?: MountSessionOptions['crop']
 }
 let lastMountOpts: MountCallbacks | null = null
 
@@ -235,7 +236,8 @@ describe('TerminalPane on the create path (POD-1613)', () => {
       sessions: [confirmedRow(sessionId)],
     })
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
-    expect(lastMountOpts?.gridMode).toBe('server-grid')
+    // A scrolling crop selects the phone's spectator policy in mountSession.
+    expect(lastMountOpts?.crop).toBe('scroll')
   })
 })
 
@@ -312,7 +314,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 /**
  * READING A DESK-SIZED TUI ON A PHONE WITHOUT TYPING INTO IT (POD-724).
  *
- * The pane attaches in `server-grid`, so it is a spectator on the desk's grid
+ * The pane attaches with `crop: scroll`, so it is a spectator on the desk's grid
  * and pans the rest. Until now the ONLY way to be sized for this screen was the
  * implicit takeover inside `sendInput` — you had to send a keystroke into a
  * running agent's session in order to READ it. The screen header now offers the
