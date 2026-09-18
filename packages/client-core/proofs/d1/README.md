@@ -12,7 +12,8 @@ bun scripts/test-heavy.ts -- bun packages/client-core/proofs/d1/validate.ts
 
 This sequential lane runs scoped client typechecks, the exact web/mobile proof
 files, isolated Vite/Expo web/iOS/Android bundles and the ordinary client builds.
-Raw aggregate results are in `results/`; generated bundles are ignored. The
+Generated results and bundles are ignored under `results/`; the reviewed snapshot
+is retained in `docs/measurements/POD-4321-reactive-proof.json`. The
 mobile unit renderer uses react-native-web, so it does not establish device
 latency. Expo native bundling checks the RN module graph, not an installed app.
 
