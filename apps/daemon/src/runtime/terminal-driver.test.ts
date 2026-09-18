@@ -2146,6 +2146,69 @@ describe('observation translation', () => {
     expect(world.written).toEqual([])
   })
 
+  it.each(['generation', 'binding', 'provider'] as const)(
+    'rejects an observation with stale or foreign %s independently', async (guard) => {
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).resume(
+        { kind: 'claude-session', value: 'native-owned' }, SPEC,
+      )
+      const sessionId = session.binding.sessionId
+      const initial = await session.snapshot()
+      const observerGeneration = initial.observerGeneration
+      const bindingVersion = session.binding.bindingVersion
+      world.observe(sessionId, { providerSessionId: 'native-owned', observerGeneration, bindingVersion })
+      expect((await session.state()).phase).toBe('working')
+      const before = await session.snapshot()
+      const frameCount = world.frames.length
+      world.observe(sessionId, {
+        providerSessionId: guard === 'provider' ? 'native-foreign' : 'native-owned',
+        observerGeneration: guard === 'generation' ? observerGeneration - 1 : observerGeneration,
+        bindingVersion: guard === 'binding' ? bindingVersion - 1 : bindingVersion,
+        state: { phase: 'idle', since: '2026-01-02T00:00:00.000Z', nativeSubagentCount: 7 },
+      })
+      expect(world.frames).toHaveLength(frameCount)
+      expect(await session.snapshot()).toEqual(before)
+      world.runtime.dispose()
+    },
+  )
+
+  it.each(['working', 'compacting', 'needs_user'] as const)(
+    'bootstraps the first %s poll after rebind without inventing a turn', async (phase) => {
+      const world = makeWorld()
+      const profile = shippedProfile('opencode')
+      const session = await world.runtime.driverFor('opencode', profile).create({ ...SPEC, harness: 'opencode' })
+      const sessionId = session.binding.sessionId
+      const initial = await session.snapshot()
+      world.runtime.observeState({
+        sessionId, observerGeneration: initial.observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
+        state: { phase: 'idle', since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, stateSource: 'poll' },
+      })
+      world.runtime.register({ sessionId, agentKind: 'opencode', cwd: SPEC.workdir, resume: null }, profile)
+      const rebound = await session.snapshot()
+      expect(rebound.observerGeneration).toBeGreaterThan(initial.observerGeneration)
+      const start = world.frames.length
+      const state: AgentRuntimeState = {
+        phase, since: '2026-01-01T00:00:01.000Z', nativeSubagentCount: 0, stateSource: 'poll',
+      }
+      const poll = (state: AgentRuntimeState) => world.runtime.observeState({
+        sessionId, state, observerGeneration: rebound.observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
+      })
+      poll(state)
+      expect(world.frames.slice(start)).toEqual([
+        expect.objectContaining({ type: 'runtimeEvent', event: expect.objectContaining({
+          t: 'state', provenance: 'bootstrap', change: { kind: 'state_snapshot', state, at: state.since },
+        }) }),
+      ])
+      expect((await session.snapshot()).turnEpoch).toBe(initial.turnEpoch)
+      poll({ ...state, since: '2026-01-01T00:00:02.000Z' })
+      expect(world.frames.slice(start)).toHaveLength(2)
+      expect(world.frames.at(-1)).toMatchObject({ type: 'runtimeEvent', event: { t: 'state', provenance: 'live' } })
+      world.runtime.dispose()
+    },
+  )
+
   // Regression from POD-4056: the selected poll source owns this boundary once.
 
   it('emits one start when observation and poll report the same turn', async () => {
