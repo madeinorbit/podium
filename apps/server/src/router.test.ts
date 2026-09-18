@@ -11,11 +11,20 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
+import { seedReportingMachine } from './test-support/seed-reporting-machine'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
+async function routerRegistry(options: Parameters<typeof SessionRegistry.create>[2] = { instanceId: 'default' }) {
+  const store = await openTestStore(':memory:')
+  await seedReportingMachine(store)
+  return SessionRegistry.create(store, undefined, options)
+}
+
 async function caller() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await routerRegistry({ instanceId: 'default' })
+  await registry.sessionStore.repos.addRepo('/p', registry.sessionStore.hostMachineId)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -33,7 +42,7 @@ async function caller() {
 
 describe('appRouter', () => {
   it('models.refresh + models.catalog return the injected live catalog', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, {
+    const registry = await routerRegistry({
       instanceId: 'default',
       modelProbe: async (_machineId) => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
@@ -63,7 +72,7 @@ describe('appRouter', () => {
   })
 
   it('sessions.create passes initialPrompt to the daemon spawn for argv agents (POD-549)', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await routerRegistry({ instanceId: 'default' })
     const daemon: unknown[] = []
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
@@ -202,7 +211,7 @@ describe('appRouter', () => {
 
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await routerRegistry({ instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
@@ -235,7 +244,7 @@ describe('appRouter', () => {
   })
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await routerRegistry({ instanceId: 'default' })
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
@@ -293,8 +302,9 @@ describe('appRouter', () => {
   })
 })
 
-async function repoCaller() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function repoCaller(repoPaths: string[] = []) {
+  const registry = await routerRegistry({ instanceId: 'default' })
+  for (const path of repoPaths) await registry.sessionStore.repos.addRepo(path, registry.sessionStore.hostMachineId)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -314,7 +324,7 @@ async function repoCaller() {
 
 describe('markRead mutations (#124)', () => {
   it('issues.markRead stamps durable readAt; unread is replica-derived', async () => {
-    const { call } = await repoCaller()
+    const { call } = await repoCaller(['/r'])
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const read = await call.issues.markRead({ id: iss.id })
     expect(read.readAt).not.toBeNull()
@@ -323,6 +333,7 @@ describe('markRead mutations (#124)', () => {
   it('sessions.markRead flips a session to read', async () => {
     const { call, registry } = await repoCaller()
     const { sessionId } = await registry.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'claude-code',
       cwd: '/p',
     })
@@ -336,7 +347,7 @@ describe('markRead mutations (#124)', () => {
   })
 
   it('issues.markUnread clears durable readAt (#138)', async () => {
-    const { call } = await repoCaller()
+    const { call } = await repoCaller(['/r'])
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     await call.issues.markRead({ id: iss.id })
     const un = await call.issues.markUnread({ id: iss.id })
@@ -346,6 +357,7 @@ describe('markRead mutations (#124)', () => {
   it('sessions.markUnread flips a read session back to unread (#138)', async () => {
     const { call, registry } = await repoCaller()
     const { sessionId } = await registry.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'claude-code',
       cwd: '/p',
     })

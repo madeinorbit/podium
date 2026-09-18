@@ -6,6 +6,7 @@ import { describe, expect, it, onTestFinished } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { seedReportingMachine } from './test-support/seed-reporting-machine'
 
 // Draft cleanup is tied to an explicit rehome, never inferred from process or
 // session liveness. Exited drafts remain the route to resume/remove in sidebar.
@@ -22,6 +23,8 @@ const bind = (sessionId: SessionId) =>
   }) as const
 
 async function regWithDaemon(store?: SessionStore) {
+  store ??= await openTestStore(':memory:')
+  await seedReportingMachine(store, ['/repo'])
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
   return reg
@@ -64,8 +67,10 @@ function draftFixture() {
 }
 
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
+  await seedReportingMachine(reg.sessionStore, [repo])
   const draft = await reg.issues.createDraftFor(repo, 'codex')
   const { sessionId } = await reg.modules.sessions.createSession({
+    use: () => 'granted',
     agentKind: 'codex',
     cwd: repo,
     issueId: draft.id,
@@ -147,6 +152,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
     const second = (await reg.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: draft.id,
@@ -161,6 +167,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const issue = await reg.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     const { sessionId } = await reg.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: issue.id,
@@ -172,7 +179,10 @@ describe('draft retention on session death', () => {
   it('draft with a worktree is kept', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.issues.update(draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
+    await reg.issues.update(draft.id, {
+      worktreePath: '/repo/.claude/worktrees/wt',
+      machineId: reg.sessionStore.hostMachineId,
+    })
     expect((await reg.issues.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
     await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.get(draft.id)).not.toBeNull()
@@ -201,6 +211,7 @@ describe('explicit rehome draft cleanup', () => {
       code: 0,
     })
     const liveSessionId = (await reg.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'codex',
       cwd: '/repo',
       issueId: exited.draft.id,
@@ -303,6 +314,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
     const activeSessionId = (await reg1.modules.sessions.createSession({
+      use: () => 'granted',
       agentKind: 'codex',
       cwd: '/repo',
       issueId: draft.id,
