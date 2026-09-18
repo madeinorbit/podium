@@ -124,7 +124,7 @@ export function createDaemonMachineRuntime(input: {
     return found
   }
 
-  const terminalAdoptions = new Map<
+  const terminalCreations = new Map<
     SessionId,
     { registration: TerminalSessionRegistration; profile: TerminalHarnessProfile }
   >()
@@ -138,7 +138,7 @@ export function createDaemonMachineRuntime(input: {
     handleFor: (sessionId) => input.terminal.handleFor(sessionId),
     bindings: () => input.terminal.bindings(),
     createWithId(sessionId) {
-      const pending = terminalAdoptions.get(sessionId)
+      const pending = terminalCreations.get(sessionId)
       if (!pending) {
         throw new Error(`terminal session '${sessionId}' has no pending creation`)
       }
@@ -290,7 +290,7 @@ export function createDaemonMachineRuntime(input: {
       input.terminal.onHookPayload(sessionId, payload)
     },
     async bindTerminal(registration, profile) {
-      terminalAdoptions.set(registration.sessionId, { registration, profile })
+      terminalCreations.set(registration.sessionId, { registration, profile })
       try {
         if (!registration.rebind) {
           const spec: SessionSpec = {
@@ -312,7 +312,7 @@ export function createDaemonMachineRuntime(input: {
 
         throw new Error('terminal rebind requires recoverTerminal host composition')
       } finally {
-        terminalAdoptions.delete(registration.sessionId)
+        terminalCreations.delete(registration.sessionId)
       }
     },
     clearTerminal(sessionId) {

@@ -105,6 +105,7 @@ import {
   terminalCapabilities,
 } from '@podium/agent-runtime'
 
+import { canonicalDriverId } from '@podium/harness'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
@@ -2065,10 +2066,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const previous = recoveries.get(msg.sessionId)
     const recovery = (async () => {
       await previous?.catch(() => undefined)
+      if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
+        throw new Error(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
+      }
       const current = sessions.get(msg.sessionId)
       if (
         current &&
         (current.label !== msg.durableLabel ||
+          current.agentKind !== msg.agentKind || current.driverId !== profile.driverId ||
           (msg.observationGeneration !== undefined &&
             msg.observationGeneration < current.observerGeneration) ||
           (msg.observationBindingVersion !== undefined &&
