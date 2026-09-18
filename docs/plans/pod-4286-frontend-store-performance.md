@@ -45,6 +45,44 @@ replica's publish cadence. The July remediation (POD-981/991/999/701) measured w
 switches at p50 158 ms; the current "molasses" is unmeasured. Phase A exists to settle that
 before the fixes are credited to anything.
 
+## 1a. First live measurements (A1, 2026-09-18) — these correct section 1
+
+Measured on the Ludovico production build, client runtime identical to the installed
+`692d8c8`. These supersede the planning assumptions above wherever they disagree.
+
+**The live corpus is five times the planned fixture.** 4867 issues, 4304 sessions, 500 repos,
+468 worktrees. The CI benchmark fixture is 674/530 and the issue count I quoted in section 1
+(965) counted only this repo's tracker. A3 must carry a profile at live cardinality; a fix
+validated only at 674/530 has not been validated.
+
+| Window (about 65 s) | Publishes | Worklist derives | Notes |
+|---|---|---|---|
+| Connected idle | 111 (101/min) | 39, costing 5.69 s | 58 long tasks totalling 27.5 s |
+| Ordinary activity | 127 | 58, costing 8.08 s | all 34 session-carrying publishes rebuilt the worklist |
+
+**Confirmed:** every publish that carries `sessions` rebuilds the whole worklist, 34 out of 34.
+That is exactly the premise of B5, now measured rather than inferred.
+
+**Corrected:** publish COUNT is not publish COST. Host metrics produced 40 of the idle window's
+publishes but zero worklist derives and only 34.6 ms of synchronous fan-out. B3 was still worth
+landing, because it removes a whole class of wakeups and the snapshot churn behind them, but it
+buys milliseconds, not seconds. Do not credit it with more.
+
+**New dominant cost, and it is not the store.** `repoUsageAt`
+(`viewmodels/slices/machines/facts.ts:174`) costs 5.49 s self in the idle window and 11.26 s
+sampled across windows, which is more than the worklist derivation. It is reached from
+`ColdStartComposer.tsx`'s `repoChoices` memo, keyed on the full sessions identity, and it runs
+inside React render. React commit stacks are a further 2.08 s. This is B8 (POD-4340).
+
+**Not inferable:** whether the 2026-09-15..18 incremental-sync rewrite changed publish cadence.
+July's evidence (POD-991, POD-701) recorded switch timings, not cadence, so there is no honest
+comparison to draw. Treat the cadence above as the first baseline, not as a regression.
+
+**Consequence for the gate.** Section 5's budgets were written against an assumed workload and
+must be re-frozen in A3 against these numbers. An idle client performing 101 publishes and 27.5 s
+of long tasks per minute is the headline defect; the C1 gate is judged against that, not against
+publish counts alone.
+
 ## 2. Verdict on the existing plan
 
 Agree with the structure: measure, ship the store fixes that are independently releasable, stop
