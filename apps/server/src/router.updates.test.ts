@@ -944,6 +944,51 @@ describe('updates tRPC', () => {
     await registry.dispose()
   })
 
+  it('grants a prepared same-version package without replacing its approval or reporting a blocker', async () => {
+    process.env.PODIUM_APP_VERSION = 'dev+aaaaaaa'
+    const grants: unknown[] = []
+    let finish: (() => void) | undefined
+    const requestDestBundle = vi.fn(
+      () => new Promise<void>((resolve) => { finish = resolve }),
+    )
+    const { registry, caller } = await harness({
+      hostUpdateReceiver: (message) => grants.push(message),
+      servedWebDigest: '47a01e3',
+      requestDestBundle,
+    })
+    const approved: UpdateTarget = {
+      version: 'dev+47a01e3',
+      critical: false,
+      artifacts: { web: { digest: '47a01e3' } },
+    }
+    const published: UpdateTarget = {
+      ...approved,
+      artifacts: { ...approved.artifacts, headless: target(approved.version).artifacts.headless },
+    }
+    try {
+      await registry.modules.updates.setTarget(approved)
+      await caller.updates.converge()
+      await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
+      expect(await registry.sessionStore.operations.approvedTarget('dev')).toEqual(approved)
+      expect(grants).toEqual([])
+
+      // Real publisher order: approve the bare identity, publish its bytes,
+      // then finish preparation. No fixture write changes durable approval.
+      await registry.modules.updates.setTargetFromProducer(published)
+      finish?.()
+      await vi.waitFor(() =>
+        expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
+      )
+      expect(await registry.sessionStore.operations.approvedTarget('dev')).toEqual(approved)
+      const operation = await registry.modules.operations.engine.active('lifecycle')
+      const machines = operation?.operation?.steps?.find((step) => step.id === 'machines')
+      expect(machines).toBeDefined()
+      expect(machines?.error).toBeUndefined()
+    } finally {
+      await registry.dispose()
+    }
+  })
+
   it('grants remotes once the dest package appears after Update', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const grants: unknown[] = []
