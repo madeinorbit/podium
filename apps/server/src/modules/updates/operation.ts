@@ -1812,11 +1812,25 @@ async function changedTargetBlocker(
 ): Promise<StepProgressPatch | undefined> {
   const published = updates.target(details.channel)
   const approved = await updates.approvedTarget(details.channel)
-  // The durable approval is the authority, including a descriptor completed by
-  // preparation. Never borrow a different operation's version as this one's consent.
+  // The durable approval is the authority. Never borrow a different operation's
+  // version as this one's consent.
   if (!published || !approved || approved.version !== details.target.version ||
     published.version !== approved.version ||
     updateFingerprint(published) === updateFingerprint(approved)) return undefined
+  // ONE FINGERPRINT CHANGE IS NOT A DIFFERENT BUILD: a source-built target
+  // acquiring its packed bytes during this operation's own preparation is the
+  // SAME update, and `setTargetResolved` accepts it for that reason. Consent was
+  // given before the bytes existed, so requiring them in the approval would
+  // refuse every dev publish. Only the artifacts may differ, and only by gaining
+  // headless bytes — anything else (a `critical` flip, a new digest for bytes
+  // that were already there) is a republished descriptor nobody approved.
+  if (
+    approved.artifacts.headless === undefined &&
+    published.artifacts.headless !== undefined &&
+    updateFingerprint({ ...published, artifacts: approved.artifacts }) ===
+      updateFingerprint(approved)
+  )
+    return undefined
   const detail = 'published target changed under the running operation; approve again to continue'
   log.warn(detail, { operationId: operation.id, version: approved.version })
   return { state: 'running', detail, error: { code: 'published-target-changed', detail } }
