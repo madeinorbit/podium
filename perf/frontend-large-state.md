@@ -1,106 +1,168 @@
 # Large-state frontend benchmark
 
-POD-999 added a reproducible frontend scale lane after POD-991 removed Home and
-made issue selection the primary startup/navigation path [spec:SP-0b2e].
-POD-1004 aligns that lane with POD-1000's progressive Tasks renderer
-[spec:SP-d562]. The fixture is generated and anonymous, with the Ludovico
-cardinalities measured in POD-981/POD-991: 674 issues and 530 sessions, spread
-deterministically over 12 repositories and 96 worktrees.
-
-## Hermetic CI lane
-
-Run from the repository root:
+## Reproduce the CI baseline
 
 ```sh
 bun run test:perf:frontend
 ```
 
-The lane runs under Bun/Vitest and happy-dom in one worker with no retries. It
-gates deterministic signals rather than runner-dependent wall-clock values:
+CI's unit job invokes this lane explicitly. It runs five files under Bun/Vitest
+and happy-dom, one worker, no retries. The new harness uses the shipped
+`createKernelReplica` facade, `ClientRuntime`, kernel outbox state machine,
+selectors, worklist slice, `UnifiedIssueRow`, and A2 `StoreStatsProfiler`.
+The in-memory cache implements the opened IndexedDB read contract, preserving
+untouched row identities. Transport and durable I/O are replaced; worklist and
+store code are not mocked. These measurements do not cover IndexedDB latency,
+Workspace panel residency, terminal rendering, or browser paint.
 
-- Tasks keeps its initial board render to the 40-card-per-stage progressive
-  boundary from POD-1000: exactly 200 of 674 cards, at or below 4,000 DOM
-  elements and 225 buttons. The calibrated happy-dom signal is 3,700 elements
-  and 214 buttons, so the lane fails closed if the pre-POD-1000 full render
-  returns.
-- Tasks initial property reads stay at or below 55,000; the calibrated signal is
-  53,212. The lane reveals exactly one 40-card chunk, then proves full-order
-  keyboard navigation can mount one initially hidden card in the next stage and
-  open it with Enter (200 initial, 240 after reveal, 241 after navigation).
-- Sidebar ownership resolves each session cwd once per derivation. The test
-  deliberately runs both the direct ownership index and the complete sidebar,
-  so the ceiling is two cwd reads per session; an issue × session regression is
-  orders of magnitude over budget.
-- The kernel facade reads exactly one durable record for a changed issue and
-  performs no full durable scan. Untouched row identities remain stable.
-- Real runtime scenarios emit A2 counts and timing distributions at three scales;
-  the removed synthetic 81 ms trace is no longer presented as latency evidence.
+| Profile | Issues | Sessions | Repositories | Child worktrees |
+| --- | ---: | ---: | ---: | ---: |
+| CI (historical fast tier) | 674 | 530 | 12 | 96 |
+| Live (A1 cardinalities) | 4867 | 4304 | 500 | 468 |
+| Growth | 9734 | 8608 | 1000 | 936 |
 
-Each case prints a `[large-state]` or `[large-state-kernel]` JSON record. Timing
-is diagnostic; deterministic count ceilings decide pass/fail.
+All profiles run in the CI lane. Only i0/i1 worklist rows and composer s0 are
+mounted. The changed session s2 belongs to i2. Those three issues, sessions and
+repositories retain the same neighbourhood as the remaining corpus grows;
+additional entities are assigned only to repositories 3 and above. Repository
+roots are not included in the child-worktree count.
 
-When intentionally changing the Tasks representation or a derivation contract,
-compare the emitted signals before adjusting a budget. Do not raise a ceiling
-just to absorb unexplained drift.
+Fixture values, event order and Date are deterministic. Timer progression is
+explicit; performance.now remains real. Each profile records five fresh runtime
+mounts and twenty samples per hot scenario. A sample ends after the real kernel
+outbox drain, microtasks and React act have settled. Rejections are discarded
+between samples, outside their measurement windows, so a parked write cannot
+block the next sample. Every scenario asserts its visible/state outcome, not
+just an upper-bound count. Publication records retain changed keys and nesting,
+separately from subscriber wakes, selector runs, row builds and React commits.
 
-## Measure live Ludovico data
+## Frozen deterministic ceilings
 
-The read-only Playwright driver collects real-browser Tasks DOM/buttons,
-input-filtered CLS, Long Tasks, sidebar issue-click durations,
-`__podiumSwitchTraces`, and the server `perf.snapshot`. Its CLS total excludes
-every layout-shift entry whose `hadRecentInput` flag is true, so shifts caused
-by recent user input are not interpreted as page-instability CLS. The driver
-does not create or mutate issues or sessions.
+These are current-build regression ceilings, independent of profile size. The
+zero-work idle and unrelated-delta goals below remain explicit acceptance targets;
+a baseline ceiling of one derivation does not mean the zero target passes.
 
-Run it against the live Ludovico instance from a checkout with Playwright's
-Chromium installed:
+| Scenario | Publishes | Worklist derives | Issue row builds |
+| --- | ---: | ---: | ---: |
+| Cold mount | 10 | 2 | Exactly profile issue count |
+| Unrelated session activity (s2) | 1 | 1 | 1 |
+| Draft typing A | 1 | 0 | 0 |
+| Host metrics frame | 0 | 0 | 0 |
+| coarseNow / otherwise idle minute | 1 | 1 | 0 |
+| Worklist row press (two mounted rows) | 1 | 1 | 0 |
+| Optimistic rename + echo | 7 | 2 | 1 |
+| Optimistic rename + rejection | 7 | 2 | 0 |
+| Mixed host/session/draft events | 2 | 1 | 1 |
+
+Every hot sample also forbids full durable-cache scans and dropped A2 records.
+The separate kernel probe requires exactly one durable lookup and one
+notification for a changed issue, retains untouched identities, and verifies
+that the retired wire-v1 applySnapshot entry point throws.
+
+The negative control removes `sourceEqual` from the real worklist definition
+and subscribes that publisher to the same runtime. Draft A then produces **one
+worklist derivation and the exact zero-derivation gate throws**. Unsubscribing the
+control restores **zero derivations and the same gate passes**, at all three
+scales. Publications stay at one in both cases: fewer publishes are not used as
+a substitute for measuring the work. The existing scoped-session render file
+also compares coarse subscriptions with addressed readers.
+
+The Tasks board probe now supplies the sessions array required by the shipped
+kanban. On the measured tree it mounts 96 cards (97 after keyboard navigation),
+1,902 elements and 218 buttons. The ceilings remain 36 cards per stage, 216
+aggregate, 4,000 elements and 225 buttons. Property reads are 79,194, frozen at
+80,000. The old 55,000/53,212 figures and 200-card progressive-render description
+were stale: the former fixture failed before measurement because sessions was
+missing. This is an explicit current-tree recalibration, not a claimed speedup.
+Sidebar ownership remains bounded to two cwd reads per session.
+
+## Recorded baseline
+
+Measured 2026-09-18 on **ludovico**, AMD EPYC Processor (with IBPB), Bun 1.4.2,
+happy-dom / development React, on a shared host. These distributions are
+informational, not controlled-runner timing acceptance. Base:
+`0569c7545` (`integrate/4286-frontend-perf`) plus this A3 harness.
+Included changes: `5c7ab6545` superagent guard, `1487cf68b` host-metrics isolation,
+`03960c5e4` A2 counters, `07d2f50fb` repository usage index, `4a1fbef92` navigation
+batching, `82a1d1964` material worklist inputs, and `0569c7545` outbox/reaction
+batching. Thus these are not the pre-Phase-B baseline.
+
+Timing endpoint: render entry → settled commit for cold mount; action entry →
+settled commit for hot events. This includes harness assertions and outbox work.
+The printed syncP50/syncP95 measure only the synchronous action call, excluding
+awaited effects; they are **not** the entire CPU cost of async echo/rejection or
+a timer tick. Never compare them directly with a browser paint budget. Percentiles
+use nearest rank; cold n=5, hot n=20. Cold p95 is therefore the largest of five.
+
+| Scenario | CI p50 / p95 ms | Live p50 / p95 ms | Growth p50 / p95 ms |
+| --- | ---: | ---: | ---: |
+| cold-start | 40.73 / 194.78 | 294.61 / 344.72 | 441.82 / 596.98 |
+| unrelated-session | 16.84 / 68.65 | 103.71 / 138.21 | 193.03 / 254.48 |
+| draft-A | 0.39 / 2.37 | 0.37 / 3.80 | 0.18 / 0.42 |
+| hostMetrics | 0.04 / 0.10 | 0.03 / 0.05 | 0.04 / 0.08 |
+| coarseNow | 7.38 / 12.27 | 70.50 / 122.29 | 81.85 / 114.37 |
+| issue-click | 7.51 / 12.80 | 70.28 / 142.49 | 85.65 / 107.59 |
+| optimistic-echo | 24.10 / 41.99 | 148.11 / 195.52 | 304.09 / 477.64 |
+| optimistic-rejection | 24.77 / 45.12 | 165.35 / 214.91 | 334.43 / 397.53 |
+| mixed-feed | 9.39 / 16.80 | 103.59 / 138.55 | 213.85 / 328.88 |
+
+A2 observed ranges below are the same across all three profiles (first echo
+and already-covered subsequent echoes can differ). Cold row builds equal the
+profile issue count. Wakes and selector runs cover the mounted probe, not every
+subscriber in the full app.
+
+| Scenario | Publishes | Subscriber wakes | Selector runs | Worklist derives | Row builds | React commits |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| cold-start | 10 | 50 | 50 | 2 | N | 3 |
+| unrelated-session | 1 | 5 | 7 | 1 | 1 | 1 |
+| draft-A | 1 | 5 | 5 | 0 | 0 | 1 |
+| hostMetrics | 0 | 0 | 0 | 0 | 0 | 0 |
+| coarseNow | 1 | 5 | 7 | 1 | 0 | 1 |
+| issue-click | 1 | 5 | 7 | 1 | 0 | 1 |
+| optimistic-echo | 7 | 35 | 40 | 1–2 | 1 | 4 |
+| optimistic-rejection | 7 | 35 | 43 | 2 | 0 | 5 |
+| mixed-feed | 2 | 10 | 12 | 1 | 1 | 1 |
+
+Navigation publishes `selectedIssueId` and `issueVisitBaseline` together, with
+zero nested publications. Optimistic rows and queue bookkeeping remain separately
+visible in the raw publication records; seven publications do not imply seven
+full worklist derivations. The live→growth timing increase despite constant
+row-build counts exposes remaining whole-corpus work.
+
+
+## Browser measurements and warm classification
+
+A1's measured live idle baseline was **111 snapshot publishes, 39 worklist
+rebuilds, and 58 long tasks totalling 27.5 s over 65.8 s**. Host metrics accounted
+for 40 publications but zero worklist derives and 34.6 ms fan-out. Those live
+figures and this hermetic fixture have different endpoints; no improvement ratio
+between them is claimed. The headline target remains no worklist derivations or
+long tasks when nothing visible changed.
+
+The removed synthetic 81 ms trace was authored timestamps, not a latency
+measurement. The live driver now selects stable `[data-issue-row]` IDs, clicks
+their actual pressable button, and rotates two rows. The heavy-panel residency
+budget is **3 desktop / 2 mobile**, not eight. The driver classifies each new
+trace as **cold**, **warm**, or **timedOut** (timeout takes precedence). Missing
+warm samples are null, never an assumed warm result. Total-to-interactable and
+start-to-chat:first-paint distributions are separate. A repeated worklist-row
+press in happy-dom is not evidence of a warm Workspace panel.
 
 ```sh
 BENCH_URL=https://podium-host.example.com:55555 \
-BENCH_SWITCHES=12 BENCH_ROWS=2 BENCH_DWELL=1500 \
+BENCH_RUNNER=ludovico-production-chromium-1600x1000 \
+BENCH_SWITCHES=12 BENCH_ROWS=2 BENCH_DWELL=1500 BENCH_IDLE_MS=65800 \
 BENCH_STORAGE_STATE=/path/to/playwright-storage-state.json \
 BENCH_OUT=/tmp/ludovico-large-state.json \
 bun tests/e2e/large-state-bench.ts
 ```
 
-Keep `BENCH_ROWS` at or below the desktop warm-panel cap (3; mobile 2) to measure warm
-issue navigation. Raise it deliberately for cold-churn measurements. The page
-can reuse an authenticated Playwright context through the optional
-`BENCH_STORAGE_STATE`; the in-page snapshot fetch reuses the browser session.
-
-For comparable runs, use a production web build, the same 1600×1000 viewport,
-the same row/switch/dwell values, and three fresh browser runs. Report the
-median/range for Tasks elements/buttons, input-filtered CLS, maximum Long Task,
-click p50/p90, and completed switch-trace totals. Inspect `snapshot.result.data.phases` for
-replica/broadcast work and retain the raw JSON beside the report.
-
-The live measurements are signals, not CI gates: browser scheduling, terminal
-mount state, host load, and the live dataset all move wall-clock values. CI
-protects algorithmic and DOM-scale regressions; this driver explains their
-real-user cost on Ludovico.
-
-## A3 kernel acceptance contract (2026-09-18)
-
-The authoritative fixture is now `kernel-scenarios.frontend-perf.tsx`, using the
-shipped `createKernelReplica` facade, runtime, published worklist, selectors,
-`UnifiedIssueRow`, and `StoreStatsProfiler`. Its durable cache is an in-memory
-`KernelCacheRead` with stable row identities, as in scoped-session-render. Disk,
-HTTP, terminal painting and socket latency are excluded. The legacy wire-v1
-snapshot method must throw; the lane must never construct the retired replica.
-
-Profiles (issues / sessions / repositories / child worktrees): CI
-674 / 530 / 12 / 96; live 4867 / 4304 / 500 / 468; growth
-9734 / 8608 / 1000 / 936. Growth changes the unrelated corpus, keeping the two
-visible issue rows i0/i1, composer s0 and changed background session s2 fixed.
-All rows, event order and wall-clock dates are generated deterministically.
-Performance.now remains real for timing; timer advancement is explicit.
-
-Each profile records five independent cold mounts and twenty samples per hot
-scenario. Endpoints are render → settled React commit for cold start, and event
-entry → settled React commit for hot interactions. These include instrumentation
-and happy-dom overhead; they are not browser input-to-paint measurements.
-The output identifies hostname, CPU and Bun for hot distributions. Nearest-rank
-p50/p95 are diagnostics, never single-sample timing gates.
+The driver captures A2 counts and long tasks during a separate post-startup idle
+window, then resets counters for navigation. It records runner and browser
+version, row IDs, missing trace count, raw classified traces and the server perf
+snapshot. CLS excludes hadRecentInput entries. Use three fresh production-browser
+runs with the same viewport, dataset, dwell and row identities. No browser run or
+retained-memory measurement was performed for this hermetic baseline.
 
 ### Frozen endpoints and acceptance targets
 
@@ -127,9 +189,13 @@ runs on that controlled target. Warm rotations use two stable issue IDs, within
 the actual heavy residency budget (3 desktop / 2 mobile). Every browser trace is
 classified cold, warm or timedOut; missing warm samples are missing evidence.
 
-Disable/revert: revert the A3 commit to restore the previous lane. To diagnose a
-new count failure, preserve its emitted report and compare the changed-key list
-and named slice counts; do not widen a ceiling merely to restore green. The
-kernel read guard fails on a full durable scan, the host/draft zero-work guards
-fail if their snapshot/worklist fan-out is restored, and the existing scoped
-render probe carries coarse-subscription controls alongside addressed readers.
+## Revert and failure diagnosis
+
+Revert this issue's commits to disable the new harness and restore the prior
+lane. No production store behaviour changes here; the Workspace edit corrects
+a comment. Preserve a failing report and compare its changed-key sequences and
+named slice counts before changing any ceiling. The negative control is retained
+in CI so instrumentation that ceases to observe real work cannot silently pass.
+
+Validation evidence is limited to `bun run test:perf:frontend`: five files,
+28 executed tests. It is not a full-suite or real-browser result.

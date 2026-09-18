@@ -18,7 +18,13 @@ import {
 } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { createSlicePublisher, worklistSlice } from '@podium/client-core/viewmodels'
-import { asIssueId, asSessionId, asUserId, type SessionMeta } from '@podium/model/browser'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type SessionMeta,
+  type HostMetricsWire,
+} from '@podium/model/browser'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -75,6 +81,19 @@ const session = (index: number, repositories = 12): SessionMeta =>
     unread: false,
     agentState: { phase: 'working', since: '2026-09-18T10:00:00Z' },
   }) as unknown as SessionMeta
+
+const hostFrame = (iteration: number): HostMetricsWire[] => [
+  {
+    hostname: 'benchmark-host',
+    sampledAt: new Date(FIXED_NOW + iteration * 1000).toISOString(),
+    memory: {
+      totalBytes: 16_000_000_000,
+      availableBytes: 8_000_000_000,
+      swapTotalBytes: 0,
+      swapFreeBytes: 0,
+    },
+  },
+]
 
 let runtime: ClientRuntime<PodiumClientApi>
 function Capture() {
@@ -289,7 +308,7 @@ describe('kernel-backed interaction counts', () => {
         const coldCounts = readRuntimeStoreStats(runtime)!
         assertBudget(
           coldCounts,
-          { publishes: 11, worklist: 5, rowBuilds: profile.issues },
+          { publishes: 10, worklist: 2, rowBuilds: profile.issues },
           'cold-start',
         )
         expect(coldCounts.rowBuilds).toBe(profile.issues)
@@ -389,7 +408,7 @@ describe('kernel-backed interaction counts', () => {
         await measure(
           'hostMetrics',
           (i) => {
-            const frame = [{ machineId: 'host-0', sampledAt: FIXED_NOW + i }]
+            const frame = hostFrame(i)
             hub.emit('hostMetrics', frame)
             expect(runtime.hostMetrics.getSnapshot()).toBe(frame)
           },
@@ -412,7 +431,7 @@ describe('kernel-backed interaction counts', () => {
             fireEvent.click(row!.querySelector('button[data-pressable]')!)
             expect(runtime.getSnapshot().selectedIssueId).toBe(id)
           },
-          { publishes: 2, worklist: 1, rowBuilds: 0 },
+          { publishes: 1, worklist: 1, rowBuilds: 0 },
         )
         await measure(
           'optimistic-echo',
@@ -428,7 +447,7 @@ describe('kernel-backed interaction counts', () => {
               `Echo ${i}`,
             )
           },
-          { publishes: 8, worklist: 4, rowBuilds: 1 },
+          { publishes: 7, worklist: 2, rowBuilds: 1 },
         )
         rejectRename = true
         await measure(
@@ -445,7 +464,7 @@ describe('kernel-backed interaction counts', () => {
             )
             expect(runtime.outbox.deadLetters()).toHaveLength(1)
           },
-          { publishes: 10, worklist: 5, rowBuilds: 0 },
+          { publishes: 7, worklist: 2, rowBuilds: 0 },
           async () => {
             // A definitive rejection blocks this partition until the user resolves it.
             // Discard BETWEEN samples, outside the measurement window.
@@ -456,7 +475,7 @@ describe('kernel-backed interaction counts', () => {
         await measure(
           'mixed-feed',
           (i) => {
-            hub.emit('hostMetrics', [{ machineId: 'host-0', sampledAt: FIXED_NOW + i }])
+            hub.emit('hostMetrics', hostFrame(i))
             upsert('session', 's2', { ...session(2), title: `Mixed ${i}` })
             runtime.getSnapshot().setSessionDraft(asSessionId('s0'), `Mixed draft ${i}`)
           },

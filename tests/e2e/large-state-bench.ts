@@ -155,12 +155,21 @@ const traceDistributions = Object.fromEntries(
       .filter((trace) => trace.classification === classification)
       .map((trace) => trace.totalMs)
       .sort((a, b) => a - b)
+    const paints = classified
+      .filter((trace) => trace.classification === classification)
+      .flatMap((trace) =>
+        trace.marks.filter((mark) => mark.name === 'chat:first-paint').map((mark) => mark.atMs),
+      )
+      .sort((a, b) => a - b)
     return [
       classification,
       {
         n: values.length,
         p50: values[Math.ceil(values.length * 0.5) - 1] ?? null,
         p95: values[Math.ceil(values.length * 0.95) - 1] ?? null,
+        firstPaintN: paints.length,
+        firstPaintP50: paints[Math.ceil(paints.length * 0.5) - 1] ?? null,
+        firstPaintP95: paints[Math.ceil(paints.length * 0.95) - 1] ?? null,
       },
     ]
   }),
