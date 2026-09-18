@@ -1,3 +1,4 @@
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import type { ServerPlacement } from './service'
 import type { PrepareCoordinatorUpdate, PreparedCoordinatorUpdate } from './installed-restart'
 import { createLogger, describeError } from '@podium/logger'
@@ -1803,6 +1804,24 @@ async function writeWaveRounds(
   if (rounds) await context.recordOperationDetails?.(operation.id, { waveRounds: rounds })
 }
 
+/** Refuse a republished descriptor before any fleet read can continue the wave. */
+async function changedTargetBlocker(
+  operation: Operation,
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): Promise<StepProgressPatch | undefined> {
+  const published = updates.target(details.channel)
+  const approved = await updates.approvedTarget(details.channel)
+  // The durable approval is the authority, including a descriptor completed by
+  // preparation. Never borrow a different operation's version as this one's consent.
+  if (!published || !approved || approved.version !== details.target.version ||
+    published.version !== approved.version ||
+    updateFingerprint(published) === updateFingerprint(approved)) return undefined
+  const detail = 'published target changed under the running operation; approve again to continue'
+  log.warn(detail, { operationId: operation.id, version: approved.version })
+  return { state: 'running', detail, error: { code: 'published-target-changed', detail } }
+}
+
 const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
   operation,
   step,
@@ -1810,6 +1829,8 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
 }) => {
   const details = updateOperationDetails(operation)
   if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
+  const blocker = await changedTargetBlocker(operation, details, context.updates)
+  if (blocker) return { ...blocker, state: 'running' }
   if (context.legacyTransferActive?.()) {
     return { state: 'failed', error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }) }
   }
@@ -2691,6 +2712,11 @@ export function createUpdateFleetBridge(deps: {
       if (!step || isFinishedStep(step) || step.state === 'pending') return
       const details = updateOperationDetails(row.operation)
       if (!details) return
+      const blocker = await changedTargetBlocker(row.operation, details, deps.updates)
+      if (blocker) {
+        await deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, blocker)
+        return
+      }
       const context: MachineProgressContext = {
         updates: deps.updates,
         ...(deps.now ? { now: deps.now } : {}),
