@@ -154,3 +154,12 @@ now executable assertions for batching, optimism, visibility and replacement.
 Focused tests include an armed raw-base counterexample: the same assertion rejects
 the server row and accepts the overlay-folded row. Revert this additive change to
 remove the seam; until D3–D5 wiring, disabling requires no flag or migration.
+
+Validation on the completed additive contract: `bun run test:file --
+packages/client-core/src/engine/effective-changes.test.ts` executed **13 tests,
+13 passed**, in one file. `bun run typecheck -- --filter @podium/client-core`
+finished with **7 successful tasks, 6 cached**, after correcting fixture-only
+branded identifiers (no emitted behavior change). This is focused contract and
+type evidence, not a full suite or production performance result. The plain
+membership consumer tests old/new buckets, loss/readmission and atomic rescope;
+seed tests cover deferred nested writes and failed-registration cleanup.
